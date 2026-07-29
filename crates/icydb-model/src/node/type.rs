@@ -76,7 +76,7 @@ impl VisitableNode for Type {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceRule {
-    source_key: &'static str,
+    name: &'static str,
     kind: SourceRuleKind,
     args: Args,
 }
@@ -84,18 +84,14 @@ pub struct SourceRule {
 impl SourceRule {
     /// Construct one explicit reusable rule template.
     #[must_use]
-    pub const fn new(source_key: &'static str, kind: SourceRuleKind, args: Args) -> Self {
-        Self {
-            source_key,
-            kind,
-            args,
-        }
+    pub const fn new(name: &'static str, kind: SourceRuleKind, args: Args) -> Self {
+        Self { name, kind, args }
     }
 
-    /// Return the immutable base-rule identity.
+    /// Return the current declared rule name.
     #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
+    pub const fn name(&self) -> &'static str {
+        self.name
     }
 
     /// Return the frozen rule operation.
@@ -114,10 +110,10 @@ impl SourceRule {
 impl ValidateNode for SourceRule {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "rule",
-            self.source_key(),
+            self.name(),
             icydb_schema::RuleSourceKey::try_new,
         );
         let expected_args = match self.kind() {
@@ -134,7 +130,7 @@ impl ValidateNode for SourceRule {
             err!(
                 errs,
                 "rule '{}' requires {expected_args} numeric argument(s)",
-                self.source_key(),
+                self.name(),
             );
         }
         errs.result()

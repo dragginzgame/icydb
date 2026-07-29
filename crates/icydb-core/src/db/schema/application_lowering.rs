@@ -3223,10 +3223,6 @@ mod tests {
         store: TargetStoreIdentity,
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the fixture keeps one complete source graph and its immutable identities together"
-    )]
     fn targeted_rule_proposal_fixture(
         expected_head: ExpectedAcceptedHead,
         submission_key: &str,
@@ -3236,44 +3232,33 @@ mod tests {
         removals: Vec<SchemaRemoval>,
     ) -> TargetedRuleProposalFixture {
         let entity_source =
-            EntitySourceKey::try_new("test:entity:targeted").expect("entity source should admit");
-        let id_source =
-            FieldSourceKey::try_new("test:field:id").expect("field source should admit");
-        let value_source =
-            FieldSourceKey::try_new("test:field:value").expect("field source should admit");
-        let other_source =
-            FieldSourceKey::try_new("test:field:other").expect("field source should admit");
-        let value_type =
-            TypeSourceKey::try_new("test:type:value").expect("type source should admit");
-        let other_type =
-            TypeSourceKey::try_new("test:type:z-other").expect("type source should admit");
-        let rule_source = icydb_schema::RuleSourceKey::try_new("test:rule:range")
-            .expect("rule source should admit");
+            EntitySourceKey::try_new("Targeted").expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("field source should admit");
+        let value_source = FieldSourceKey::try_new("value").expect("field source should admit");
+        let value_type = TypeSourceKey::try_new(value_type_name).expect("type source should admit");
+        let other_type = TypeSourceKey::try_new(other_type_name).expect("type source should admit");
+        let rule_source =
+            icydb_schema::RuleSourceKey::try_new("range").expect("rule source should admit");
         let constraint_source =
             ConstraintSourceKey::for_targeted_field_rule(&value_source, &value_type, &rule_source);
         let constraints = include_rule
             .then(|| {
-                ConstraintFragment::targeted_rule(
-                    constraint_source.clone(),
-                    name("value_range"),
-                    TargetedRuleFragment::new(
-                        value_source.clone(),
-                        value_type.clone(),
-                        SourceRuleOperation::NumericRangeInclusive {
-                            min: ScalarLiteral::Nat(0),
-                            max: ScalarLiteral::Nat(10),
-                        },
-                    ),
-                )
+                ConstraintFragment::targeted_rule(TargetedRuleFragment::new(
+                    value_source.clone(),
+                    value_type.clone(),
+                    name("range"),
+                    SourceRuleOperation::NumericRangeInclusive {
+                        min: ScalarLiteral::Nat(0),
+                        max: ScalarLiteral::Nat(10),
+                    },
+                ))
             })
             .into_iter()
             .collect();
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name("Targeted"),
             vec![
                 FieldFragment::new(
-                    id_source.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -3281,7 +3266,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    value_source.clone(),
                     name("value"),
                     FieldType::Named(value_type.clone()),
                     false,
@@ -3289,7 +3273,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    other_source,
                     name("other"),
                     FieldType::Named(other_type.clone()),
                     false,
@@ -3306,16 +3289,14 @@ mod tests {
         let fragment = SchemaFragment::try_new(
             vec![entity],
             vec![
-                NamedTypeFragment::Newtype {
-                    source_key: value_type.clone(),
-                    name: name(value_type_name),
-                    inner: FieldType::Scalar(ScalarType::Nat8),
-                },
-                NamedTypeFragment::Newtype {
-                    source_key: other_type.clone(),
-                    name: name(other_type_name),
-                    inner: FieldType::Scalar(ScalarType::Nat16),
-                },
+                NamedTypeFragment::newtype(
+                    name(value_type_name),
+                    FieldType::Scalar(ScalarType::Nat8),
+                ),
+                NamedTypeFragment::newtype(
+                    name(other_type_name),
+                    FieldType::Scalar(ScalarType::Nat16),
+                ),
             ],
         )
         .expect("targeted fragment should admit");
@@ -3367,11 +3348,10 @@ mod tests {
         removals: Vec<SchemaRemoval>,
     ) -> (SchemaProposal, EntitySourceKey, TargetStoreIdentity) {
         let entity_source =
-            EntitySourceKey::try_new("test:entity:item").expect("test entity source should admit");
-        let id_source =
-            FieldSourceKey::try_new("test:field:id").expect("test field source should admit");
+            EntitySourceKey::try_new(entity_name).expect("test entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("test field source should admit");
         let score_source =
-            FieldSourceKey::try_new("test:field:score").expect("test field source should admit");
+            FieldSourceKey::try_new(score_name).expect("test field source should admit");
         let check = SourceCheckExpr::try_new(vec![
             SourceCheckInstruction::Field(score_source.clone()),
             SourceCheckInstruction::Literal(ScalarLiteral::Int(0)),
@@ -3379,11 +3359,9 @@ mod tests {
         ])
         .expect("test check should admit");
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name(entity_name),
             vec![
                 FieldFragment::new(
-                    id_source.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -3391,7 +3369,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    score_source.clone(),
                     name(score_name),
                     FieldType::Scalar(ScalarType::Int64),
                     false,
@@ -3402,8 +3379,6 @@ mod tests {
             vec![id_source],
             vec![
                 IndexFragment::try_new(
-                    IndexSourceKey::try_new("test:index:score")
-                        .expect("test index source should admit"),
                     name("score_idx"),
                     vec![IndexKeyFragment::Field(score_source)],
                     false,
@@ -3413,14 +3388,7 @@ mod tests {
             ],
             Vec::new(),
             include_check
-                .then(|| {
-                    ConstraintFragment::check(
-                        ConstraintSourceKey::try_new("test:check:score")
-                            .expect("test check source should admit"),
-                        name("score_non_negative"),
-                        check,
-                    )
-                })
+                .then(|| ConstraintFragment::check(name("score_non_negative"), check))
                 .into_iter()
                 .collect(),
         )
@@ -3511,19 +3479,14 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the source-rule seam proof keeps proposal, accepted catalog, and field identity in one fixture"
-    )]
     fn initial_newtype_rules_bind_through_the_accepted_composite_catalog() {
-        let entity_source = EntitySourceKey::try_new("test:entity:compass")
-            .expect("test entity source should admit");
-        let id_source =
-            FieldSourceKey::try_new("test:field:id").expect("test id source should admit");
-        let degrees_source = FieldSourceKey::try_new("test:field:degrees")
-            .expect("test degrees source should admit");
+        let entity_source =
+            EntitySourceKey::try_new("Compass").expect("test entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("test id source should admit");
+        let degrees_source =
+            FieldSourceKey::try_new("degrees").expect("test degrees source should admit");
         let degrees_type =
-            TypeSourceKey::try_new("test:type:degrees").expect("test type source should admit");
+            TypeSourceKey::try_new("Degrees").expect("test type source should admit");
         let expression = SourceCheckExpr::try_new(vec![
             SourceCheckInstruction::Field(degrees_source.clone()),
             SourceCheckInstruction::Literal(ScalarLiteral::Nat(360)),
@@ -3531,11 +3494,9 @@ mod tests {
         ])
         .expect("test newtype rule should admit");
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name("Compass"),
             vec![
                 FieldFragment::new(
-                    id_source.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -3543,9 +3504,8 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    degrees_source.clone(),
                     name("degrees"),
-                    FieldType::Named(degrees_type.clone()),
+                    FieldType::Named(degrees_type),
                     false,
                     FieldInsertPolicy::Required,
                     None,
@@ -3554,21 +3514,15 @@ mod tests {
             vec![id_source],
             Vec::new(),
             Vec::new(),
-            vec![ConstraintFragment::check(
-                ConstraintSourceKey::try_new("test:constraint:degrees")
-                    .expect("test constraint source should admit"),
-                name("degrees_range"),
-                expression,
-            )],
+            vec![ConstraintFragment::check(name("degrees_range"), expression)],
         )
         .expect("test entity should admit");
         let fragment = SchemaFragment::try_new(
             vec![entity],
-            vec![NamedTypeFragment::Newtype {
-                source_key: degrees_type,
-                name: name("Degrees"),
-                inner: FieldType::Scalar(ScalarType::Nat16),
-            }],
+            vec![NamedTypeFragment::newtype(
+                name("Degrees"),
+                FieldType::Scalar(ScalarType::Nat16),
+            )],
         )
         .expect("test newtype fragment should admit");
         let store = TargetStoreIdentity::from_bytes([0x24; 32]);
@@ -3861,135 +3815,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the identity regression keeps rename, old-name reuse, and exact removal in one accepted-history proof"
-    )]
-    fn targeted_rule_reconciliation_retains_source_identity_and_removes_exactly() {
-        let initial = targeted_rule_proposal_fixture(
-            ExpectedAcceptedHead::Empty,
-            "targeted-reconcile-initial",
-            "Value",
-            "Other",
-            true,
-            Vec::new(),
-        );
-        let initial_candidates = lower_initial_schema_proposal(
-            &initial.proposal,
-            &[ProposalStoreTarget {
-                path: "test::Store",
-                identity: initial.store,
-            }],
-        )
-        .expect("initial targeted proposal should lower");
-        let initial_bundle = initial_candidates[0].bundle();
-        let entity_tag = initial_bundle
-            .source_bindings_for_tests()
-            .entity(&initial.entity_source)
-            .expect("entity source should bind");
-        let initial_target_type = initial_bundle
-            .source_bindings_for_tests()
-            .named_type(&initial.value_type)
-            .expect("target type source should bind");
-        let initial_other_type = initial_bundle
-            .source_bindings_for_tests()
-            .named_type(&initial.other_type)
-            .expect("other type source should bind");
-        let constraint_id = initial_bundle
-            .source_bindings_for_tests()
-            .constraint(entity_tag, &initial.constraint_source)
-            .expect("constraint source should bind");
-
-        let renamed = targeted_rule_proposal_fixture(
-            ExpectedAcceptedHead::Exact {
-                revision: 1,
-                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x31; 32]),
-            },
-            "targeted-reconcile-rename",
-            "RenamedValue",
-            "Value",
-            true,
-            Vec::new(),
-        );
-        let renamed_candidates = lower_existing_schema_proposal(
-            &renamed.proposal,
-            &[ExistingProposalStore {
-                path: "test::Store",
-                identity: initial.store,
-                bundle: initial_bundle,
-            }],
-        )
-        .expect("source-bound target should survive editable type renames");
-        let renamed_bundle = renamed_candidates[0].bundle();
-        assert_eq!(
-            renamed_bundle
-                .source_bindings_for_tests()
-                .named_type(&renamed.value_type),
-            Some(initial_target_type),
-        );
-        assert_eq!(
-            renamed_bundle
-                .source_bindings_for_tests()
-                .named_type(&renamed.other_type),
-            Some(initial_other_type),
-        );
-        assert_ne!(initial_target_type, initial_other_type);
-        let accepted = renamed_bundle.entity_snapshots()[&entity_tag]
-            .constraints()
-            .iter()
-            .find(|constraint| constraint.id() == constraint_id)
-            .expect("targeted constraint identity should remain accepted");
-        assert!(matches!(
-            accepted.kind(),
-            AcceptedConstraintKind::TargetedRule { target, .. }
-                if target.target_type() == initial_target_type
-        ));
-
-        let removal = targeted_rule_proposal_fixture(
-            ExpectedAcceptedHead::Exact {
-                revision: 2,
-                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x32; 32]),
-            },
-            "targeted-reconcile-removal",
-            "RenamedValue",
-            "Value",
-            false,
-            vec![SchemaRemoval::Constraint {
-                entity: renamed.entity_source.clone(),
-                constraint: renamed.constraint_source,
-            }],
-        );
-        let removal_candidates = lower_existing_schema_proposal(
-            &removal.proposal,
-            &[ExistingProposalStore {
-                path: "test::Store",
-                identity: removal.store,
-                bundle: renamed_bundle,
-            }],
-        )
-        .expect("exact generated targeted-rule removal should lower");
-        let removed_bundle = removal_candidates[0].bundle();
-        assert_eq!(
-            removed_bundle
-                .source_bindings_for_tests()
-                .constraint(entity_tag, &removal.constraint_source),
-            None,
-        );
-        assert!(
-            removed_bundle.entity_snapshots()[&entity_tag]
-                .constraints()
-                .iter()
-                .all(|constraint| constraint.id() != constraint_id),
-        );
-        assert_eq!(
-            removed_bundle
-                .source_bindings_for_tests()
-                .named_type(&removal.value_type),
-            Some(initial_target_type),
-        );
-    }
-
-    #[test]
     fn existing_scalar_default_change_preserves_structural_owner_identity() {
         let (initial, entity_source, store) =
             scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "existing-initial", 5);
@@ -4097,7 +3922,7 @@ mod tests {
             .entity_snapshots()
             .get(&entity_tag)
             .expect("entity should survive check addition");
-        let source = ConstraintSourceKey::try_new("test:check:score")
+        let source = ConstraintSourceKey::try_new("score_non_negative")
             .expect("test constraint source should admit");
         let added_id = added_bundle
             .source_bindings_for_tests()
@@ -4146,7 +3971,7 @@ mod tests {
             Vec::new(),
             vec![SchemaRemoval::Constraint {
                 entity: entity_source.clone(),
-                constraint: ConstraintSourceKey::try_new("test:check:score")
+                constraint: ConstraintSourceKey::try_new("score_non_negative")
                     .expect("test constraint source should admit"),
             }],
         )
@@ -4181,7 +4006,7 @@ mod tests {
             .source_bindings_for_tests()
             .constraint(
                 entity_tag,
-                &ConstraintSourceKey::try_new("test:check:score")
+                &ConstraintSourceKey::try_new("score_non_negative")
                     .expect("test constraint source should admit"),
             )
             .expect("initial check source should bind");
@@ -4246,8 +4071,7 @@ mod tests {
             Vec::new(),
             vec![SchemaRemoval::Field {
                 entity: entity_source,
-                field: FieldSourceKey::try_new("test:field:score")
-                    .expect("test field source should admit"),
+                field: FieldSourceKey::try_new("score").expect("test field source should admit"),
             }],
         )
         .expect("exact physical removal proposal should compose");
@@ -4287,8 +4111,7 @@ mod tests {
             .source_bindings_for_tests()
             .index(
                 entity_tag,
-                &IndexSourceKey::try_new("test:index:score")
-                    .expect("test index source should admit"),
+                &IndexSourceKey::try_new("score_idx").expect("test index source should admit"),
             )
             .expect("index source should bind");
         let removal = SchemaProposal::try_compose(
@@ -4304,7 +4127,7 @@ mod tests {
             Vec::new(),
             vec![SchemaRemoval::Index {
                 entity: entity_source,
-                index: IndexSourceKey::try_new("test:index:score")
+                index: IndexSourceKey::try_new("score_idx")
                     .expect("test index source should admit"),
             }],
         )
@@ -4363,9 +4186,8 @@ mod tests {
             "score",
             false,
             vec![SchemaRemoval::Constraint {
-                entity: EntitySourceKey::try_new("test:entity:item")
-                    .expect("test entity source should admit"),
-                constraint: ConstraintSourceKey::try_new("test:check:score")
+                entity: EntitySourceKey::try_new("Item").expect("test entity source should admit"),
+                constraint: ConstraintSourceKey::try_new("score_non_negative")
                     .expect("test constraint source should admit"),
             }],
         );
@@ -4413,78 +4235,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn existing_entity_and_indexed_field_rename_relabels_generated_metadata_only() {
-        let (initial, entity_source, store) =
-            scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "rename-initial", 5);
-        let initial_candidates = lower_initial_schema_proposal(
-            &initial,
-            &[ProposalStoreTarget {
-                path: "test::Store",
-                identity: store,
-            }],
-        )
-        .expect("initial scalar proposal should lower");
-        let initial_bundle = initial_candidates[0].bundle();
-        let (renamed, _, _) = scalar_proposal_fixture_with_names(
-            ExpectedAcceptedHead::Exact {
-                revision: 1,
-                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
-            },
-            "rename-existing",
-            5,
-            "RenamedItem",
-            "points",
-            true,
-            Vec::new(),
-        );
-
-        let renamed_candidates = lower_existing_schema_proposal(
-            &renamed,
-            &[ExistingProposalStore {
-                path: "test::Store",
-                identity: store,
-                bundle: initial_bundle,
-            }],
-        )
-        .expect("source-keyed entity and field renames should lower");
-        let renamed_bundle = renamed_candidates[0].bundle();
-        assert_eq!(
-            renamed_bundle.source_bindings_for_tests(),
-            initial_bundle.source_bindings_for_tests(),
-        );
-        let entity_tag = renamed_bundle
-            .source_bindings_for_tests()
-            .entity(&entity_source)
-            .expect("entity source should remain bound");
-        let before = initial_bundle
-            .entity_snapshots()
-            .get(&entity_tag)
-            .expect("initial entity should exist");
-        let after = renamed_bundle
-            .entity_snapshots()
-            .get(&entity_tag)
-            .expect("renamed entity should exist");
-
-        assert_eq!(after.entity_name(), "RenamedItem");
-        assert_eq!(after.row_layout(), before.row_layout());
-        assert_eq!(
-            after.primary_key_field_ids(),
-            before.primary_key_field_ids()
-        );
-        assert_eq!(
-            after.indexes()[0].schema_id(),
-            before.indexes()[0].schema_id()
-        );
-        assert_eq!(after.indexes()[0].ordinal(), before.indexes()[0].ordinal());
-        assert_eq!(
-            after.indexes()[0].physical_generation(),
-            before.indexes()[0].physical_generation(),
-        );
-        assert_eq!(after.indexes()[0].key().field_paths()[0].path(), ["points"],);
-        assert_eq!(after.constraint_catalog(), before.constraint_catalog());
-    }
-
     struct NamedTypeKeys {
         status: TypeSourceKey,
         profile: TypeSourceKey,
@@ -4496,93 +4246,63 @@ mod tests {
     }
 
     fn named_type_fragments() -> (NamedTypeKeys, TypeSourceKey, Vec<NamedTypeFragment>) {
-        named_type_fragments_with_names("Status", "Active", "Profile", "label")
-    }
-
-    fn named_type_fragments_with_names(
-        status_name: &str,
-        active_name: &str,
-        profile_name: &str,
-        label_name: &str,
-    ) -> (NamedTypeKeys, TypeSourceKey, Vec<NamedTypeFragment>) {
         let keys = NamedTypeKeys {
-            status: TypeSourceKey::try_new("test:type:status").expect("type key should admit"),
-            profile: TypeSourceKey::try_new("test:type:profile").expect("type key should admit"),
-            score: TypeSourceKey::try_new("test:type:score").expect("type key should admit"),
-            tags: TypeSourceKey::try_new("test:type:tags").expect("type key should admit"),
-            roles: TypeSourceKey::try_new("test:type:roles").expect("type key should admit"),
-            counters: TypeSourceKey::try_new("test:type:counters").expect("type key should admit"),
-            pair: TypeSourceKey::try_new("test:type:pair").expect("type key should admit"),
+            status: TypeSourceKey::try_new("Status").expect("type key should admit"),
+            profile: TypeSourceKey::try_new("Profile").expect("type key should admit"),
+            score: TypeSourceKey::try_new("Score").expect("type key should admit"),
+            tags: TypeSourceKey::try_new("Tags").expect("type key should admit"),
+            roles: TypeSourceKey::try_new("Roles").expect("type key should admit"),
+            counters: TypeSourceKey::try_new("Counters").expect("type key should admit"),
+            pair: TypeSourceKey::try_new("Pair").expect("type key should admit"),
         };
-        let active =
-            TypeSourceKey::try_new("test:variant:active").expect("variant key should admit");
+        let active = TypeSourceKey::try_new("Active").expect("variant key should admit");
         let variants = vec![
-            EnumVariantFragment::new(active.clone(), name(active_name)),
+            EnumVariantFragment::new(name("Active")),
             EnumVariantFragment::with_payload(
-                TypeSourceKey::try_new("test:variant:disabled").expect("variant key should admit"),
                 name("Disabled"),
                 FieldType::List(Box::new(FieldType::Scalar(ScalarType::Nat16))),
             ),
         ];
         let record_fields = vec![
             RecordFieldFragment::new(
-                FieldSourceKey::try_new("test:record:label").expect("field key should admit"),
-                name(label_name),
+                name("label"),
                 FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
                 false,
             ),
-            RecordFieldFragment::new(
-                FieldSourceKey::try_new("test:record:status").expect("field key should admit"),
-                name("status"),
-                FieldType::Named(keys.status.clone()),
-                false,
-            ),
+            RecordFieldFragment::new(name("status"), FieldType::Named(keys.status.clone()), false),
         ];
         let types = vec![
             NamedTypeFragment::Enum(
-                EnumTypeFragment::try_new(keys.status.clone(), name(status_name), variants)
-                    .expect("enum should admit"),
+                EnumTypeFragment::try_new(name("Status"), variants).expect("enum should admit"),
             ),
             NamedTypeFragment::Record(
-                RecordTypeFragment::try_new(
-                    keys.profile.clone(),
-                    name(profile_name),
-                    record_fields,
-                )
-                .expect("record should admit"),
+                RecordTypeFragment::try_new(name("Profile"), record_fields)
+                    .expect("record should admit"),
             ),
-            NamedTypeFragment::Newtype {
-                source_key: keys.score.clone(),
-                name: name("Score"),
-                inner: FieldType::Scalar(ScalarType::Int64),
-            },
-            NamedTypeFragment::List {
-                source_key: keys.tags.clone(),
-                name: name("Tags"),
-                item: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
-            },
-            NamedTypeFragment::Set {
-                source_key: keys.roles.clone(),
-                name: name("Roles"),
-                item: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
-            },
-            NamedTypeFragment::Map {
-                source_key: keys.counters.clone(),
-                name: name("Counters"),
-                key: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
-                value: FieldType::Scalar(ScalarType::Nat64),
-            },
-            NamedTypeFragment::Tuple {
-                source_key: keys.pair.clone(),
-                name: name("Pair"),
-                members: vec![
+            NamedTypeFragment::newtype(name("Score"), FieldType::Scalar(ScalarType::Int64)),
+            NamedTypeFragment::list(
+                name("Tags"),
+                FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+            ),
+            NamedTypeFragment::set(
+                name("Roles"),
+                FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+            ),
+            NamedTypeFragment::map(
+                name("Counters"),
+                FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+                FieldType::Scalar(ScalarType::Nat64),
+            ),
+            NamedTypeFragment::tuple(
+                name("Pair"),
+                vec![
                     TupleElementFragment::new(
                         FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
                         false,
                     ),
                     TupleElementFragment::new(FieldType::Scalar(ScalarType::Nat64), true),
                 ],
-            },
+            ),
         ];
         (keys, active, types)
     }
@@ -4591,11 +4311,9 @@ mod tests {
         keys: &NamedTypeKeys,
         active: TypeSourceKey,
     ) -> (EntitySourceKey, EntityFragment) {
-        let entity_source =
-            EntitySourceKey::try_new("test:entity:holder").expect("entity key should admit");
-        let id_source = FieldSourceKey::try_new("test:field:id").expect("field key should admit");
+        let entity_source = EntitySourceKey::try_new("Holder").expect("entity key should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("field key should admit");
         let mut fields = vec![FieldFragment::new(
-            id_source.clone(),
             name("id"),
             FieldType::Scalar(ScalarType::Nat64),
             false,
@@ -4611,8 +4329,6 @@ mod tests {
             ("pair", keys.pair.clone()),
         ] {
             fields.push(FieldFragment::new(
-                FieldSourceKey::try_new(format!("test:field:{suffix}"))
-                    .expect("field key should admit"),
                 name(suffix),
                 FieldType::Named(field_type),
                 false,
@@ -4621,7 +4337,6 @@ mod tests {
             ));
         }
         fields.push(FieldFragment::new(
-            FieldSourceKey::try_new("test:field:status").expect("field key should admit"),
             name("status"),
             FieldType::Named(keys.status.clone()),
             false,
@@ -4632,7 +4347,6 @@ mod tests {
             None,
         ));
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name("Holder"),
             fields,
             vec![id_source],
@@ -4645,15 +4359,12 @@ mod tests {
     }
 
     fn named_other_entity(status: &TypeSourceKey) -> (EntitySourceKey, EntityFragment) {
-        let source =
-            EntitySourceKey::try_new("test:entity:other").expect("entity key should admit");
-        let id = FieldSourceKey::try_new("test:field:other-id").expect("field key should admit");
+        let source = EntitySourceKey::try_new("Other").expect("entity key should admit");
+        let id = FieldSourceKey::try_new("id").expect("field key should admit");
         let entity = EntityFragment::try_new(
-            source.clone(),
             name("Other"),
             vec![
                 FieldFragment::new(
-                    id.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -4661,8 +4372,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    FieldSourceKey::try_new("test:field:other-status")
-                        .expect("field key should admit"),
                     name("status"),
                     FieldType::Named(status.clone()),
                     false,
@@ -4717,10 +4426,8 @@ mod tests {
         else {
             panic!("profile should remain a record")
         };
-        let label_source =
-            FieldSourceKey::try_new("test:record:label").expect("field source should admit");
-        let status_source =
-            FieldSourceKey::try_new("test:record:status").expect("field source should admit");
+        let label_source = FieldSourceKey::try_new("label").expect("field source should admit");
+        let status_source = FieldSourceKey::try_new("status").expect("field source should admit");
         let label_id = bindings
             .composite_field(profile_id, &label_source)
             .expect("label source should bind");
@@ -4785,7 +4492,7 @@ mod tests {
         status_id: super::EnumTypeId,
     ) {
         let disabled_source =
-            TypeSourceKey::try_new("test:variant:disabled").expect("variant source should admit");
+            TypeSourceKey::try_new("Disabled").expect("variant source should admit");
         let disabled_id = bundle
             .source_bindings_for_tests()
             .enum_variant(status_id, &disabled_source)
@@ -4826,48 +4533,36 @@ mod tests {
     // Keep the complete downstream schema shape visible in one regression.
     #[allow(clippy::too_many_lines)]
     fn initial_lowering_publishes_and_round_trips_toko_shaped_named_type_cycles() {
-        let field_key =
-            TypeSourceKey::try_new("toko:type:field-key").expect("type source should admit");
-        let values = TypeSourceKey::try_new("toko:type:values").expect("type source should admit");
-        let field_value =
-            TypeSourceKey::try_new("toko:type:field-value").expect("type source should admit");
-        let value = TypeSourceKey::try_new("toko:type:value").expect("type source should admit");
-        let tokens = TypeSourceKey::try_new("toko:type:tokens").expect("type source should admit");
-        let token_amount =
-            TypeSourceKey::try_new("toko:type:token-amount").expect("type source should admit");
-        let tier = TypeSourceKey::try_new("toko:type:tier").expect("type source should admit");
-        let claim_cost =
-            TypeSourceKey::try_new("toko:type:claim-cost").expect("type source should admit");
+        let field_key = TypeSourceKey::try_new("FieldKey").expect("type source should admit");
+        let values = TypeSourceKey::try_new("Values").expect("type source should admit");
+        let field_value = TypeSourceKey::try_new("FieldValue").expect("type source should admit");
+        let value = TypeSourceKey::try_new("Value").expect("type source should admit");
+        let tokens = TypeSourceKey::try_new("Tokens").expect("type source should admit");
+        let token_amount = TypeSourceKey::try_new("TokenAmount").expect("type source should admit");
+        let tier = TypeSourceKey::try_new("Tier").expect("type source should admit");
+        let claim_cost = TypeSourceKey::try_new("ClaimCost").expect("type source should admit");
         let claim_cost_tiers =
-            TypeSourceKey::try_new("toko:type:claim-cost-tiers").expect("type source should admit");
-        let policy = TypeSourceKey::try_new("toko:type:collection-policy")
-            .expect("type source should admit");
+            TypeSourceKey::try_new("ClaimCostTiers").expect("type source should admit");
+        let policy = TypeSourceKey::try_new("CollectionPolicy").expect("type source should admit");
         let named_types = vec![
-            NamedTypeFragment::Newtype {
-                source_key: field_key.clone(),
-                name: name("FieldKey"),
-                inner: FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
-            },
-            NamedTypeFragment::Map {
-                source_key: values.clone(),
-                name: name("Values"),
-                key: FieldType::Named(field_key.clone()),
-                value: FieldType::Named(field_value.clone()),
-            },
+            NamedTypeFragment::newtype(
+                name("FieldKey"),
+                FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
+            ),
+            NamedTypeFragment::map(
+                name("Values"),
+                FieldType::Named(field_key.clone()),
+                FieldType::Named(field_value.clone()),
+            ),
             NamedTypeFragment::Enum(
                 EnumTypeFragment::try_new(
-                    field_value.clone(),
                     name("FieldValue"),
                     vec![
                         EnumVariantFragment::with_payload(
-                            TypeSourceKey::try_new("toko:variant:field-value:one")
-                                .expect("variant source should admit"),
                             name("One"),
                             FieldType::Named(value.clone()),
                         ),
                         EnumVariantFragment::with_payload(
-                            TypeSourceKey::try_new("toko:variant:field-value:many")
-                                .expect("variant source should admit"),
                             name("Many"),
                             FieldType::List(Box::new(FieldType::Named(value.clone()))),
                         ),
@@ -4877,18 +4572,13 @@ mod tests {
             ),
             NamedTypeFragment::Enum(
                 EnumTypeFragment::try_new(
-                    value.clone(),
                     name("Value"),
                     vec![
                         EnumVariantFragment::with_payload(
-                            TypeSourceKey::try_new("toko:variant:value:text")
-                                .expect("variant source should admit"),
                             name("Text"),
                             FieldType::Scalar(ScalarType::Text { max_len: Some(128) }),
                         ),
                         EnumVariantFragment::with_payload(
-                            TypeSourceKey::try_new("toko:variant:value:record")
-                                .expect("variant source should admit"),
                             name("Record"),
                             FieldType::Named(values.clone()),
                         ),
@@ -4896,40 +4586,19 @@ mod tests {
                 )
                 .expect("value enum should admit"),
             ),
-            NamedTypeFragment::Newtype {
-                source_key: tokens.clone(),
-                name: name("Tokens"),
-                inner: FieldType::Scalar(ScalarType::Nat64),
-            },
-            NamedTypeFragment::Newtype {
-                source_key: token_amount.clone(),
-                name: name("TokenAmount"),
-                inner: FieldType::Scalar(ScalarType::Nat64),
-            },
-            NamedTypeFragment::Newtype {
-                source_key: tier.clone(),
-                name: name("Tier"),
-                inner: FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
-            },
+            NamedTypeFragment::newtype(name("Tokens"), FieldType::Scalar(ScalarType::Nat64)),
+            NamedTypeFragment::newtype(name("TokenAmount"), FieldType::Scalar(ScalarType::Nat64)),
+            NamedTypeFragment::newtype(
+                name("Tier"),
+                FieldType::Scalar(ScalarType::Text { max_len: Some(32) }),
+            ),
             NamedTypeFragment::Enum(
                 EnumTypeFragment::try_new(
-                    claim_cost.clone(),
                     name("ClaimCost"),
                     vec![
-                        EnumVariantFragment::new(
-                            TypeSourceKey::try_new("toko:variant:claim-cost:free")
-                                .expect("variant source should admit"),
-                            name("Free"),
-                        ),
+                        EnumVariantFragment::new(name("Free")),
+                        EnumVariantFragment::with_payload(name("Icp"), FieldType::Named(tokens)),
                         EnumVariantFragment::with_payload(
-                            TypeSourceKey::try_new("toko:variant:claim-cost:icp")
-                                .expect("variant source should admit"),
-                            name("Icp"),
-                            FieldType::Named(tokens),
-                        ),
-                        EnumVariantFragment::with_payload(
-                            TypeSourceKey::try_new("toko:variant:claim-cost:icrc1")
-                                .expect("variant source should admit"),
                             name("Icrc1"),
                             FieldType::Named(token_amount),
                         ),
@@ -4937,34 +4606,26 @@ mod tests {
                 )
                 .expect("claim-cost enum should admit"),
             ),
-            NamedTypeFragment::Map {
-                source_key: claim_cost_tiers.clone(),
-                name: name("ClaimCostTiers"),
-                key: FieldType::Named(tier),
-                value: FieldType::Named(claim_cost.clone()),
-            },
+            NamedTypeFragment::map(
+                name("ClaimCostTiers"),
+                FieldType::Named(tier),
+                FieldType::Named(claim_cost.clone()),
+            ),
             NamedTypeFragment::Record(
                 RecordTypeFragment::try_new(
-                    policy.clone(),
                     name("CollectionPolicy"),
                     vec![
                         RecordFieldFragment::new(
-                            FieldSourceKey::try_new("toko:field:policy:claim-cost-tiers")
-                                .expect("field source should admit"),
                             name("claim_cost_tiers"),
                             FieldType::Named(claim_cost_tiers),
                             false,
                         ),
                         RecordFieldFragment::new(
-                            FieldSourceKey::try_new("toko:field:policy:fallback")
-                                .expect("field source should admit"),
                             name("fallback"),
                             FieldType::Named(value.clone()),
                             true,
                         ),
                         RecordFieldFragment::new(
-                            FieldSourceKey::try_new("toko:field:policy:values")
-                                .expect("field source should admit"),
                             name("values"),
                             FieldType::Named(values.clone()),
                             false,
@@ -4975,21 +4636,17 @@ mod tests {
             ),
         ];
         let entity_source =
-            EntitySourceKey::try_new("toko:entity:collection").expect("entity source should admit");
-        let id_source =
-            FieldSourceKey::try_new("toko:field:collection:id").expect("field source should admit");
-        let policy_source = FieldSourceKey::try_new("toko:field:collection:policy")
-            .expect("field source should admit");
-        let rule_source = icydb_schema::RuleSourceKey::try_new("toko:rule:field-key-length")
+            EntitySourceKey::try_new("Collection").expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("field source should admit");
+        let policy_source = FieldSourceKey::try_new("policy").expect("field source should admit");
+        let rule_source = icydb_schema::RuleSourceKey::try_new("field_key_length")
             .expect("rule source should admit");
         let constraint_source =
             ConstraintSourceKey::for_targeted_field_rule(&policy_source, &field_key, &rule_source);
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name("Collection"),
             vec![
                 FieldFragment::new(
-                    id_source.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -4997,7 +4654,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    policy_source.clone(),
                     name("policy"),
                     FieldType::Named(policy),
                     false,
@@ -5009,11 +4665,10 @@ mod tests {
             Vec::new(),
             Vec::new(),
             vec![ConstraintFragment::targeted_rule(
-                constraint_source.clone(),
-                name("field_key_length"),
                 TargetedRuleFragment::new(
                     policy_source,
                     field_key.clone(),
+                    name("field_key_length"),
                     SourceRuleOperation::LengthRangeInclusive { min: 1, max: 64 },
                 ),
             )],
@@ -5313,18 +4968,15 @@ mod tests {
     // Keep both named definitions and the resulting leaf projection together.
     #[allow(clippy::too_many_lines)]
     fn initial_lowering_cuts_mutual_record_leaf_expansion_at_the_resolved_back_edge() {
-        let left = TypeSourceKey::try_new("cycle:type:left").expect("type source should admit");
-        let right = TypeSourceKey::try_new("cycle:type:right").expect("type source should admit");
+        let left = TypeSourceKey::try_new("Left").expect("type source should admit");
+        let right = TypeSourceKey::try_new("Right").expect("type source should admit");
         let named_types = vec![
             NamedTypeFragment::Record(
                 RecordTypeFragment::try_new(
-                    left.clone(),
                     name("Left"),
                     vec![RecordFieldFragment::new(
-                        FieldSourceKey::try_new("cycle:field:left:right")
-                            .expect("field source should admit"),
                         name("right"),
-                        FieldType::Named(right.clone()),
+                        FieldType::Named(right),
                         false,
                     )],
                 )
@@ -5332,11 +4984,8 @@ mod tests {
             ),
             NamedTypeFragment::Record(
                 RecordTypeFragment::try_new(
-                    right,
                     name("Right"),
                     vec![RecordFieldFragment::new(
-                        FieldSourceKey::try_new("cycle:field:right:left")
-                            .expect("field source should admit"),
                         name("left"),
                         FieldType::Named(left.clone()),
                         false,
@@ -5346,15 +4995,12 @@ mod tests {
             ),
         ];
         let entity_source =
-            EntitySourceKey::try_new("cycle:entity:holder").expect("entity source should admit");
-        let id_source =
-            FieldSourceKey::try_new("cycle:field:holder:id").expect("field source should admit");
+            EntitySourceKey::try_new("CycleHolder").expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("field source should admit");
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name("CycleHolder"),
             vec![
                 FieldFragment::new(
-                    id_source.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -5362,8 +5008,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    FieldSourceKey::try_new("cycle:field:holder:left")
-                        .expect("field source should admit"),
                     name("left"),
                     FieldType::Named(left),
                     false,
@@ -5500,277 +5144,6 @@ mod tests {
         );
     }
 
-    fn named_metadata_proposal(
-        expected_head: ExpectedAcceptedHead,
-        submission_key: &str,
-        status_name: &str,
-        active_name: &str,
-        profile_name: &str,
-        label_name: &str,
-    ) -> (
-        SchemaProposal,
-        NamedTypeKeys,
-        EntitySourceKey,
-        TargetStoreIdentity,
-    ) {
-        let (keys, active, types) =
-            named_type_fragments_with_names(status_name, active_name, profile_name, label_name);
-        let (entity_source, entity) = named_holder_entity(&keys, active);
-        let store = TargetStoreIdentity::from_bytes([0x22; 32]);
-        let fragment =
-            SchemaFragment::try_new(vec![entity], types).expect("named fragment should admit");
-        let proposal = SchemaProposal::try_compose(
-            vec![
-                SchemaCapability::EXACT_COMPOSITE_TYPES,
-                SchemaCapability::INSERT_DEFAULTS,
-            ],
-            TargetDatabaseIdentity::from_bytes([0x11; 32]),
-            SchemaSubmissionKey::try_new(submission_key).expect("test key should admit"),
-            expected_head,
-            vec![fragment],
-            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
-            Vec::new(),
-        )
-        .expect("named proposal should compose");
-        (proposal, keys, entity_source, store)
-    }
-
-    fn initial_named_metadata_candidate() -> (
-        super::CandidateSchemaRevision,
-        NamedTypeKeys,
-        EntitySourceKey,
-        TargetStoreIdentity,
-    ) {
-        let (initial, keys, entity_source, store) = named_metadata_proposal(
-            ExpectedAcceptedHead::Empty,
-            "initial-named-metadata",
-            "Status",
-            "Active",
-            "Profile",
-            "label",
-        );
-        let initial_candidates = lower_initial_schema_proposal(
-            &initial,
-            &[ProposalStoreTarget {
-                path: "test::Store",
-                identity: store,
-            }],
-        )
-        .expect("initial proposal should lower");
-        (
-            initial_candidates
-                .into_iter()
-                .next()
-                .expect("initial candidate should exist"),
-            keys,
-            entity_source,
-            store,
-        )
-    }
-
-    fn assert_renamed_named_metadata(
-        initial_bundle: &super::AcceptedSchemaRevisionBundle,
-        renamed_bundle: &super::AcceptedSchemaRevisionBundle,
-        initial_keys: &NamedTypeKeys,
-        entity_source: &EntitySourceKey,
-    ) {
-        assert_eq!(
-            renamed_bundle.source_bindings_for_tests(),
-            initial_bundle.source_bindings_for_tests(),
-        );
-        let bindings = renamed_bundle.source_bindings_for_tests();
-        let AcceptedNamedTypeIdentity::Enum(status_id) = bindings
-            .named_type(&initial_keys.status)
-            .expect("status source should remain bound")
-        else {
-            panic!("status source should remain enum-owned")
-        };
-        assert_eq!(
-            renamed_bundle.enum_catalog().type_id("LifecycleStatus"),
-            Some(status_id),
-        );
-        assert!(
-            renamed_bundle
-                .enum_catalog()
-                .enum_type(status_id)
-                .expect("status enum should exist")
-                .variant_id("Enabled")
-                .is_some(),
-        );
-        let AcceptedNamedTypeIdentity::Composite(profile_id) = bindings
-            .named_type(&initial_keys.profile)
-            .expect("profile source should remain bound")
-        else {
-            panic!("profile source should remain composite-owned")
-        };
-        assert_eq!(
-            renamed_bundle.composite_catalog().type_id("UserProfile"),
-            Some(profile_id),
-        );
-        let label_source =
-            FieldSourceKey::try_new("test:record:label").expect("label source should admit");
-        let label_id = bindings
-            .composite_field(profile_id, &label_source)
-            .expect("label source should remain bound");
-        let AcceptedCompositeShape::Record(profile_fields) = renamed_bundle
-            .composite_catalog()
-            .composite_type(profile_id)
-            .expect("profile type should exist")
-            .shape()
-        else {
-            panic!("profile should remain record-shaped")
-        };
-        assert!(
-            profile_fields
-                .iter()
-                .any(|field| field.id() == label_id && field.name() == "label"),
-        );
-
-        let entity_tag = bindings
-            .entity(entity_source)
-            .expect("entity source should remain bound");
-        let before = initial_bundle
-            .entity_snapshots()
-            .get(&entity_tag)
-            .expect("initial entity should exist");
-        let after = renamed_bundle
-            .entity_snapshots()
-            .get(&entity_tag)
-            .expect("renamed entity should exist");
-        assert_eq!(after.row_layout(), before.row_layout());
-        assert_eq!(
-            after
-                .fields()
-                .iter()
-                .map(PersistedFieldSnapshot::id)
-                .collect::<Vec<_>>(),
-            before
-                .fields()
-                .iter()
-                .map(PersistedFieldSnapshot::id)
-                .collect::<Vec<_>>(),
-        );
-        let profile = after
-            .fields()
-            .iter()
-            .find(|field| field.name() == "profile")
-            .expect("profile field should exist");
-        assert!(
-            profile
-                .nested_leaves()
-                .iter()
-                .any(|leaf| leaf.path() == ["label"]),
-        );
-    }
-
-    #[test]
-    fn existing_named_metadata_reconciliation_preserves_type_shape_and_layout_identity() {
-        let (initial_candidate, initial_keys, entity_source, store) =
-            initial_named_metadata_candidate();
-        let initial_bundle = initial_candidate.bundle();
-        let (renamed, _, _, _) = named_metadata_proposal(
-            ExpectedAcceptedHead::Exact {
-                revision: 1,
-                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
-            },
-            "renamed-named-metadata",
-            "LifecycleStatus",
-            "Enabled",
-            "UserProfile",
-            "label",
-        );
-        let renamed_candidates = lower_existing_schema_proposal(
-            &renamed,
-            &[ExistingProposalStore {
-                path: "test::Store",
-                identity: store,
-                bundle: initial_bundle,
-            }],
-        )
-        .expect("renamed named metadata should lower");
-        assert_renamed_named_metadata(
-            initial_bundle,
-            renamed_candidates[0].bundle(),
-            &initial_keys,
-            &entity_source,
-        );
-    }
-
-    #[test]
-    fn existing_record_member_rename_preserves_member_identity_and_row_layout() {
-        let (initial_candidate, initial_keys, _, store) = initial_named_metadata_candidate();
-        let initial_bundle = initial_candidate.bundle();
-        let (renamed, _, _, _) = named_metadata_proposal(
-            ExpectedAcceptedHead::Exact {
-                revision: 1,
-                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x44; 32]),
-            },
-            "record-member-rename",
-            "Status",
-            "Active",
-            "Profile",
-            "display_label",
-        );
-        let candidates = lower_existing_schema_proposal(
-            &renamed,
-            &[ExistingProposalStore {
-                path: "test::Store",
-                identity: store,
-                bundle: initial_bundle,
-            }],
-        )
-        .expect("record member metadata should lower before physical preflight");
-        let [candidate] = candidates.as_slice() else {
-            panic!("record member rename should produce one candidate");
-        };
-        let bindings = candidate.bundle().source_bindings_for_tests();
-        let profile_id = match bindings
-            .named_type(&initial_keys.profile)
-            .expect("profile source binding should survive")
-        {
-            AcceptedNamedTypeIdentity::Composite(type_id) => type_id,
-            AcceptedNamedTypeIdentity::Enum(_) => panic!("profile should remain a record"),
-        };
-        let profile = candidate
-            .bundle()
-            .composite_catalog()
-            .composite_type(profile_id)
-            .expect("profile record should survive");
-        let AcceptedCompositeShape::Record(fields) = profile.shape() else {
-            panic!("profile should remain a record");
-        };
-        let renamed_member = fields
-            .iter()
-            .find(|field| field.name() == "display_label")
-            .expect("renamed member should become accepted metadata");
-        assert_eq!(
-            bindings.composite_field(
-                profile_id,
-                &FieldSourceKey::try_new("test:record:label")
-                    .expect("record member source should admit"),
-            ),
-            Some(renamed_member.id()),
-        );
-        let before = initial_bundle
-            .entity_snapshots()
-            .values()
-            .find(|snapshot| snapshot.entity_path() == "test:entity:holder")
-            .expect("holder should exist");
-        let after = candidate
-            .bundle()
-            .entity_snapshots()
-            .values()
-            .find(|snapshot| snapshot.entity_path() == "test:entity:holder")
-            .expect("holder should survive");
-        assert_eq!(after.row_layout(), before.row_layout());
-        assert!(after.fields().iter().any(|field| {
-            field
-                .nested_leaves()
-                .iter()
-                .any(|leaf| leaf.path() == ["display_label"])
-        }));
-    }
-
     fn recursive_type_removal_proposal(
         submission_key: &str,
         removals: Vec<SchemaRemoval>,
@@ -5792,20 +5165,16 @@ mod tests {
     }
 
     fn recursive_holder_entity(
-        source: &str,
         name_value: &str,
-        field_prefix: &str,
         root_type: &TypeSourceKey,
     ) -> (EntitySourceKey, EntityFragment) {
-        let entity_source = EntitySourceKey::try_new(source).expect("entity source should admit");
-        let id_source = FieldSourceKey::try_new(format!("{field_prefix}:id"))
-            .expect("id field source should admit");
+        let entity_source =
+            EntitySourceKey::try_new(name_value).expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("id field source should admit");
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name(name_value),
             vec![
                 FieldFragment::new(
-                    id_source.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -5813,8 +5182,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    FieldSourceKey::try_new(format!("{field_prefix}:root"))
-                        .expect("root field source should admit"),
                     name("root"),
                     FieldType::Named(root_type.clone()),
                     false,
@@ -5837,24 +5204,16 @@ mod tests {
         reason = "the regression proves external-reference rejection, partial-cycle rejection, and multi-store component removal together"
     )]
     fn existing_recursive_named_type_removal_is_closed_and_store_local() {
-        let node_type =
-            TypeSourceKey::try_new("cycle:type:node").expect("node type source should admit");
+        let node_type = TypeSourceKey::try_new("Node").expect("node type source should admit");
         let record_type =
-            TypeSourceKey::try_new("cycle:type:record").expect("record type source should admit");
+            TypeSourceKey::try_new("Record").expect("record type source should admit");
         let named_types = vec![
             NamedTypeFragment::Enum(
                 EnumTypeFragment::try_new(
-                    node_type.clone(),
                     name("Node"),
                     vec![
-                        EnumVariantFragment::new(
-                            TypeSourceKey::try_new("cycle:variant:end")
-                                .expect("unit variant source should admit"),
-                            name("End"),
-                        ),
+                        EnumVariantFragment::new(name("End")),
                         EnumVariantFragment::with_payload(
-                            TypeSourceKey::try_new("cycle:variant:record")
-                                .expect("payload variant source should admit"),
                             name("Record"),
                             FieldType::Named(record_type.clone()),
                         ),
@@ -5864,11 +5223,8 @@ mod tests {
             ),
             NamedTypeFragment::Record(
                 RecordTypeFragment::try_new(
-                    record_type.clone(),
                     name("Record"),
                     vec![RecordFieldFragment::new(
-                        FieldSourceKey::try_new("cycle:record:next")
-                            .expect("record member source should admit"),
                         name("next"),
                         FieldType::Named(node_type.clone()),
                         false,
@@ -5877,18 +5233,8 @@ mod tests {
                 .expect("recursive record should admit"),
             ),
         ];
-        let (left_source, left) = recursive_holder_entity(
-            "cycle:entity:left",
-            "LeftHolder",
-            "cycle:field:left",
-            &record_type,
-        );
-        let (right_source, right) = recursive_holder_entity(
-            "cycle:entity:right",
-            "RightHolder",
-            "cycle:field:right",
-            &record_type,
-        );
+        let (left_source, left) = recursive_holder_entity("LeftHolder", &record_type);
+        let (right_source, right) = recursive_holder_entity("RightHolder", &record_type);
         let left_store = TargetStoreIdentity::from_bytes([0x93; 32]);
         let right_store = TargetStoreIdentity::from_bytes([0x94; 32]);
         let initial = SchemaProposal::try_compose(

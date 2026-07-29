@@ -7,29 +7,12 @@ use crate::prelude::*;
 
 /// Generic ICRC-3 value.
 #[enum_(
-    source_key = "crates/icydb/src/base/types/ic/icrc3.rs::enum_::nested::1",
-    variant(
-        source_key = "Array",
-        ident = "Array",
-        value(many, item(is = "Value", indirect))
-    ),
-    variant(
-        source_key = "Blob",
-        ident = "Blob",
-        value(item(prim = "Blob", unbounded))
-    ),
-    variant(source_key = "Int", ident = "Int", value(item(prim = "Int64"))),
-    variant(
-        source_key = "Map",
-        ident = "Map",
-        value(item(is = "value::Map", indirect))
-    ),
-    variant(source_key = "Nat", ident = "Nat", value(item(prim = "Nat64"))),
-    variant(
-        source_key = "Text",
-        ident = "Text",
-        value(item(prim = "Text", unbounded))
-    )
+    variant(name = "Array", value(many, item(is = "Value", indirect))),
+    variant(name = "Blob", value(item(prim = "Blob", unbounded))),
+    variant(name = "Int", value(item(prim = "Int64"))),
+    variant(name = "Map", value(item(is = "value::Map", indirect))),
+    variant(name = "Nat", value(item(prim = "Nat64"))),
+    variant(name = "Text", value(item(prim = "Text", unbounded)))
 )]
 pub struct Value {}
 
@@ -46,11 +29,7 @@ pub mod value {
     use super::*;
 
     /// Map from text keys to ICRC-3 values.
-    #[map(
-        source_key = "crates/icydb/src/base/types/ic/icrc3.rs::map::nested::1",
-        key(prim = "Text", unbounded),
-        value(item(is = "Value"))
-    )]
+    #[map(key(prim = "Text", unbounded), value(item(is = "Value")))]
     pub struct Map {}
 }
 

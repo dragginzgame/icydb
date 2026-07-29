@@ -14,12 +14,10 @@ use std::collections::HashSet;
 //
 
 #[derive(Debug, FromMeta)]
-#[darling(and_then = "Entity::lower_audit_timestamps")]
+#[darling(and_then = "Entity::lower_timestamps")]
 pub struct Entity {
     #[darling(default, skip)]
     pub(crate) def: Def,
-
-    pub(crate) source_key: LitStr,
 
     pub(crate) store: Path,
 
@@ -28,9 +26,6 @@ pub struct Entity {
 
     #[darling(rename = "pk")]
     pub(crate) primary_key: PrimaryKey,
-
-    #[darling(default)]
-    pub(crate) name: Option<LitStr>,
 
     #[darling(default)]
     pub(crate) typed_adapters: bool,
@@ -47,7 +42,7 @@ pub struct Entity {
     /// Parser-only shorthand consumed into ordinary managed fields before the
     /// entity can be validated or emitted.
     #[darling(default)]
-    pub(crate) audit_timestamps: Option<AuditTimestamps>,
+    pub(crate) timestamps: bool,
 
     #[darling(default)]
     pub(crate) fields: FieldList,
@@ -59,92 +54,43 @@ pub struct Entity {
     pub(crate) traits: TraitBuilder,
 }
 
-/// One explicitly authored managed timestamp field.
-
-#[derive(Clone, Debug, FromMeta)]
-pub(crate) struct AuditTimestampField {
-    source_key: LitStr,
-    ident: Ident,
-}
-
-/// Paired authoring shorthand for the two accepted audit policies.
-
-#[derive(Clone, Debug, FromMeta)]
-pub(crate) struct AuditTimestamps {
-    created_at: AuditTimestampField,
-    updated_at: AuditTimestampField,
-}
-
 impl Entity {
-    fn lower_audit_timestamps(mut self) -> Result<Self, DarlingError> {
-        let Some(audit) = self.audit_timestamps.take() else {
+    fn lower_timestamps(mut self) -> Result<Self, DarlingError> {
+        if !self.timestamps {
             return Ok(self);
-        };
-        Self::reject_audit_field_collision(&self.fields, &audit.created_at)?;
-        Self::reject_audit_field_collision(&self.fields, &audit.updated_at)?;
-        if audit.created_at.ident == audit.updated_at.ident {
-            return Err(DarlingError::custom(
-                "audit timestamp fields must use distinct identifiers",
-            )
-            .with_span(&audit.updated_at.ident));
         }
-        if audit.created_at.source_key.value() == audit.updated_at.source_key.value() {
-            return Err(DarlingError::custom(
-                "audit timestamp fields must use distinct source keys",
-            )
-            .with_span(&audit.updated_at.source_key));
-        }
+        self.timestamps = false;
+        let created_at_name = format_ident!("created_at");
+        let updated_at_name = format_ident!("updated_at");
+        Self::reject_timestamp_field_collision(&self.fields, &created_at_name)?;
+        Self::reject_timestamp_field_collision(&self.fields, &updated_at_name)?;
 
         self.fields.push(Field::managed_timestamp(
-            audit.created_at.source_key,
-            audit.created_at.ident,
+            created_at_name,
             FieldWriteManagement::CreatedAt,
         ));
         self.fields.push(Field::managed_timestamp(
-            audit.updated_at.source_key,
-            audit.updated_at.ident,
+            updated_at_name,
             FieldWriteManagement::UpdatedAt,
         ));
         Ok(self)
     }
 
-    fn reject_audit_field_collision(
+    fn reject_timestamp_field_collision(
         fields: &FieldList,
-        audit_field: &AuditTimestampField,
+        name: &Ident,
     ) -> Result<(), DarlingError> {
-        if fields.get(&audit_field.ident).is_some() {
+        if fields.get(name).is_some() {
             return Err(DarlingError::custom(format!(
-                "audit timestamp field '{}' conflicts with an explicitly declared field",
-                audit_field.ident
+                "managed timestamp field '{name}' conflicts with an explicitly declared field"
             ))
-            .with_span(&audit_field.ident));
-        }
-        if fields
-            .iter()
-            .any(|field| field.source_key.value() == audit_field.source_key.value())
-        {
-            return Err(DarlingError::custom(format!(
-                "audit timestamp source key '{}' conflicts with an explicitly declared field",
-                audit_field.source_key.value()
-            ))
-            .with_span(&audit_field.source_key));
+            .with_span(name));
         }
         Ok(())
     }
 
-    /// Validate and resolve the effective entity name used in index naming.
-    fn validate_entity_name(&self, def_ident: &Ident) -> Result<String, DarlingError> {
-        // Prefer explicit user-provided names.
-        if let Some(name) = self.name.as_ref() {
-            let value = name.value();
-            validate_entity_name_text(value.as_str()).map_err(|err| err.with_span(name))?;
-            Self::validate_entity_name_namespace(value.as_str())
-                .map_err(|err| err.with_span(name))?;
-
-            return Ok(value);
-        }
-
-        // Fall back to the Rust struct identifier.
+    /// Validate the Rust entity name used by the schema and generated indexes.
+    fn validate_entity_name(def_ident: &Ident) -> Result<String, DarlingError> {
         let value = def_ident.to_string();
         validate_entity_name_text(value.as_str()).map_err(|err| err.with_span(def_ident))?;
         Self::validate_entity_name_namespace(value.as_str())
@@ -418,7 +364,7 @@ impl ValidateNode for Entity {
         }
         // Phase 2: validate entity name and index definitions.
         let def_ident = self.def.ident();
-        let entity_name = self.validate_entity_name(&def_ident)?;
+        let entity_name = Self::validate_entity_name(&def_ident)?;
         self.validate_indexes(&entity_name, &def_ident)?;
         self.validate_constraints()?;
 
@@ -443,11 +389,11 @@ impl Entity {
     fn collect_primary_key_field_errors(&self, pk_ident: &Ident, errors: &mut Vec<syn::Error>) {
         let mut pk_count = 0;
         for field in &self.fields {
-            if field.ident == *pk_ident {
+            if field.name == *pk_ident {
                 pk_count += 1;
                 if pk_count > 1 {
                     errors.push(syn::Error::new_spanned(
-                        &field.ident,
+                        &field.name,
                         format!(
                             "primary key field '{pk_ident}' must appear exactly once in entity fields"
                         ),
@@ -543,15 +489,10 @@ impl HasSchema for Entity {
 impl HasSchemaPart for Entity {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
-        let source_key = &self.source_key;
         let store = quote_one(&self.store, to_path);
         let schema_version = syn::LitInt::new(&self.schema_version.to_string(), Span::call_site());
         let primary_key = self.primary_key.schema_part();
-        let name = quote_option(self.name.as_ref(), to_str_lit);
-        let entity_name = self
-            .name
-            .as_ref()
-            .map_or_else(|| self.def.ident().to_string(), LitStr::value);
+        let entity_name = self.def.ident().to_string();
         let indexes = self
             .indexes
             .iter()
@@ -579,11 +520,9 @@ impl HasSchemaPart for Entity {
 
                 ::icydb_model::node::Entity::new(
                     #def,
-                    #source_key,
                     #store,
                     #schema_version,
                     #primary_key,
-                    #name,
                     __INDEXES,
                     __RELATIONS,
                     __CONSTRAINTS,
@@ -967,7 +906,7 @@ fn typed_field_type_tokens(value: &Value) -> TokenStream {
 }
 
 fn field_is_primary_key(entity: &Entity, field: &Field) -> bool {
-    entity.primary_key.fields().contains(&field.ident)
+    entity.primary_key.fields().contains(&field.name)
 }
 
 fn typed_write_cell_type(field: &Field) -> TokenStream {
@@ -1006,7 +945,7 @@ fn typed_operation_struct_tokens(
         if !include_primary_key || !field_is_primary_key(entity, field) {
             return None;
         }
-        let ident = &field.ident;
+        let ident = &field.name;
         let ty = field.value.type_expr();
 
         Some(quote!(pub #ident: #ty))
@@ -1017,7 +956,7 @@ fn typed_operation_struct_tokens(
         {
             return None;
         }
-        let ident = &field.ident;
+        let ident = &field.name;
         let ty = typed_write_cell_type(field);
 
         Some(quote!(pub #ident: ::icydb::db::WriteCell<#ty>))
@@ -1053,7 +992,7 @@ fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
         let field = entity
             .fields
             .iter()
-            .find(|field| field.ident == *primary_key_field)
+            .find(|field| field.name == *primary_key_field)
             .expect("validated scalar primary-key field must exist");
         let ty = field.value.type_expr();
         return quote!(
@@ -1068,7 +1007,7 @@ fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
         let field = entity
             .fields
             .iter()
-            .find(|field| field.ident == *field_ident)
+            .find(|field| field.name == *field_ident)
             .expect("validated composite primary-key field must exist");
         let ty = field.value.type_expr();
         quote!(
@@ -1093,12 +1032,12 @@ fn typed_write_fields_tokens(entity: &Entity, include_primary_key: bool) -> Vec<
             {
                 return None;
             }
-            let source_key = &field.source_key;
-            let ident = &field.ident;
+            let name = quote_one(&field.name, to_str_lit);
+            let ident = &field.name;
             let input = typed_write_cell_input_expr(field, quote!(self.#ident));
 
             Some(quote! {
-                fields.push((#source_key, #input));
+                fields.push((#name, #input));
             })
         })
         .collect()
@@ -1149,28 +1088,28 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
     let insert_ident = typed_adapter_input_ident(&ident, "Insert");
     let patch_ident = typed_adapter_input_ident(&ident, "Patch");
     let replace_ident = typed_adapter_input_ident(&ident, "Replace");
-    let entity_source_key = &entity.source_key;
+    let entity_name = quote_one(&ident, to_str_lit);
     let field_requests = entity.fields.iter().map(|field| {
-        let source_key = &field.source_key;
+        let name = quote_one(&field.name, to_str_lit);
         let field_type = typed_field_type_tokens(&field.value);
         let nullable = field.value.cardinality() == Cardinality::Opt;
         quote! {
             ::icydb::__macro::TypedFieldBindingRequest::new(
-                #source_key,
+                #name,
                 #field_type,
                 #nullable,
             )
         }
     });
     let decoded_fields = entity.fields.iter().map(|field| {
-        let source_key = &field.source_key;
-        let ident = &field.ident;
+        let name = quote_one(&field.name, to_str_lit);
+        let ident = &field.name;
         let ty = field.value.type_expr();
 
         quote! {
             #ident: <#ty as ::icydb::__macro::TypedOutputValue>::decode_typed_output(
                 binding,
-                binding.row_value(#source_key, &row)?
+                binding.row_value(#name, &row)?
             )?
         }
     });
@@ -1194,7 +1133,7 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
                 C: ::icydb::traits::CanisterKind,
             {
                 session.bind_typed_entity(
-                    #entity_source_key,
+                    #entity_name,
                     [#(#field_requests),*],
                 )
             }

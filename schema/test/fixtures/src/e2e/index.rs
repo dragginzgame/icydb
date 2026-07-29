@@ -5,24 +5,20 @@ use icydb_model::prelude::*;
 /// Indexable
 ///
 
-#[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::1",
-    audit_timestamps(
-        created_at(source_key = "created_at", ident = "created_at"),
-        updated_at(source_key = "updated_at", ident = "updated_at")
-    ),
-    store = "TestStore",
+#[entity(store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
-    index(source_key = "index.1", fields = ["pid", "ulid", "score"]),
+    index(fields = ["pid", "ulid", "score"]),
     fields(
-        field(source_key = "id", ident = "id",
+        field(name = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(source_key = "pid", ident = "pid", value(item(prim = "Principal"))),
-        field(source_key = "ulid", ident = "ulid", value(item(prim = "Ulid"))),
-        field(source_key = "score", ident = "score", value(item(prim = "Nat32"))),
-    )
+        field(name = "pid", value(item(prim = "Principal"))),
+        field(name = "ulid", value(item(prim = "Ulid"))),
+        field(name = "score", value(item(prim = "Nat32"))),
+    ),
+    timestamps
 )]
 pub struct Indexable {}
 
@@ -30,23 +26,20 @@ pub struct Indexable {}
 /// NotIndexable
 ///
 
-#[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::2",
-    audit_timestamps(
-        created_at(source_key = "created_at", ident = "created_at"),
-        updated_at(source_key = "updated_at", ident = "updated_at")
-    ),
+#[entity(
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(source_key = "id", ident = "id",
+        field(name = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(source_key = "pid", ident = "pid", value(item(prim = "Principal"))),
-        field(source_key = "ulid", ident = "ulid", value(item(prim = "Ulid"))),
-        field(source_key = "score", ident = "score", value(item(prim = "Nat32"))),
-    )
+        field(name = "pid", value(item(prim = "Principal"))),
+        field(name = "ulid", value(item(prim = "Ulid"))),
+        field(name = "score", value(item(prim = "Nat32"))),
+    ),
+    timestamps
 )]
 pub struct NotIndexable {}
 
@@ -54,21 +47,18 @@ pub struct NotIndexable {}
 /// IndexableOptText
 ///
 
-#[entity(source_key = "schema/test/fixtures/src/e2e/index.rs::entity::3",
-    audit_timestamps(
-        created_at(source_key = "created_at", ident = "created_at"),
-        updated_at(source_key = "updated_at", ident = "updated_at")
-    ),
+#[entity(
     store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
-    index(source_key = "index.2", fields = ["username"], unique),
+    index(fields = ["username"], unique),
     fields(
-        field(source_key = "id", ident = "id",
+        field(name = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(source_key = "username", ident = "username", value(opt, item(prim = "Text", unbounded))),
-    )
+        field(name = "username", value(opt, item(prim = "Text", unbounded))),
+    ),
+    timestamps
 )]
 pub struct IndexableOptText {}

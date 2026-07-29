@@ -41,9 +41,9 @@ pub enum SchemaContractError {
     #[error("schema contract defines and removes the same source key")]
     DefinitionRemovalConflict,
 
-    /// Two definitions in one namespace use the same editable name.
-    #[error("schema contract contains an editable-name collision")]
-    DuplicateEditableName,
+    /// Two definitions in one namespace use the same current name.
+    #[error("schema contract contains a duplicate current name")]
+    DuplicateName,
 
     /// A definition refers to an absent key in its local closure.
     #[error("schema contract contains an unresolved local reference")]

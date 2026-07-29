@@ -18,8 +18,6 @@ pub mod relation {
     /// RelationStore
     ///
     #[store(
-        ident = "RELATION_DATA_STORE",
-        store_name = "main",
         canister = "RelationCanister",
         storage(journaled(
             data_memory_id = 100,
@@ -50,8 +48,6 @@ pub mod test {
     /// TestStore
     ///
     #[store(
-        ident = "TEST_STORE",
-        store_name = "main",
         canister = "TestCanister",
         storage(journaled(
             data_memory_id = 130,

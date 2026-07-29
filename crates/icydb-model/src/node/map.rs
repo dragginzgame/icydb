@@ -15,7 +15,7 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct Map {
     def: Def,
-    source_key: &'static str,
+    name: &'static str,
     key: Item,
     value: Value,
     ty: Type,
@@ -24,16 +24,10 @@ pub struct Map {
 impl Map {
     /// Creates a map node from its canonical schema parts.
     #[must_use]
-    pub const fn new(
-        def: Def,
-        source_key: &'static str,
-        key: Item,
-        value: Value,
-        ty: Type,
-    ) -> Self {
+    pub const fn new(def: Def, name: &'static str, key: Item, value: Value, ty: Type) -> Self {
         Self {
             def,
-            source_key,
+            name,
             key,
             value,
             ty,
@@ -46,10 +40,10 @@ impl Map {
         &self.def
     }
 
-    /// Returns the immutable type source key.
+    /// Returns the current declared type name.
     #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
+    pub const fn name(&self) -> &'static str {
+        self.name
     }
 
     /// Returns the key descriptor.
@@ -80,10 +74,10 @@ impl MacroNode for Map {
 impl ValidateNode for Map {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "map type",
-            self.source_key(),
+            self.name(),
             icydb_schema::TypeSourceKey::try_new,
         );
         errs.result()

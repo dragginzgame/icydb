@@ -267,7 +267,7 @@ impl SchemaProposal {
                     return Err(SchemaContractError::DuplicateSourceKey);
                 }
                 if !entity_names.insert(entity.name()) {
-                    return Err(SchemaContractError::DuplicateEditableName);
+                    return Err(SchemaContractError::DuplicateName);
                 }
                 for field in entity.fields() {
                     field_definitions
@@ -294,7 +294,7 @@ impl SchemaProposal {
                     return Err(SchemaContractError::DuplicateSourceKey);
                 }
                 if !type_names.insert(r#type.name()) {
-                    return Err(SchemaContractError::DuplicateEditableName);
+                    return Err(SchemaContractError::DuplicateName);
                 }
             }
         }

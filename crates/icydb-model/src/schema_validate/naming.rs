@@ -17,7 +17,7 @@ pub fn validate_entity_naming(schema: &Schema, errs: &mut ErrorTree) {
         };
 
         let canister = store.canister().to_string();
-        let name = entity.resolved_name().to_string();
+        let name = entity.name().to_string();
         let canonical_name = name.to_ascii_lowercase();
         let entity_path = entity_path.to_string();
 
@@ -69,8 +69,6 @@ mod tests {
         )));
         schema.insert_node(SchemaNode::Store(Store::new_journaled(
             Def::new(module_path, store_ident),
-            store_ident,
-            "test_store",
             canister_path,
             StoreJournaledMemoryConfig::new(
                 data_memory_id,
@@ -92,15 +90,12 @@ mod tests {
         module_path: &'static str,
         entity_ident: &'static str,
         store_path: &'static str,
-        entity_name: &'static str,
     ) {
         schema.insert_node(SchemaNode::Entity(Entity::new(
             Def::new(module_path, entity_ident),
-            entity_ident,
             store_path,
             1,
             PrimaryKey::new(&["id"], PrimaryKeySource::Internal),
-            Some(entity_name),
             &[],
             &[],
             &[],
@@ -127,16 +122,14 @@ mod tests {
         insert_entity(
             &mut schema,
             "schema_case_conflict",
-            "EntityUpper",
-            "schema_case_conflict::Store",
             "Struct",
+            "schema_case_conflict::Store",
         );
         insert_entity(
             &mut schema,
             "schema_case_conflict",
-            "EntityLower",
-            "schema_case_conflict::Store",
             "struct",
+            "schema_case_conflict::Store",
         );
 
         let mut errs = ErrorTree::new();
@@ -155,8 +148,8 @@ mod tests {
             "expected case-insensitive conflict detail, got: {rendered}",
         );
         assert!(
-            rendered.contains("schema_case_conflict::EntityUpper")
-                && rendered.contains("schema_case_conflict::EntityLower"),
+            rendered.contains("schema_case_conflict::Struct")
+                && rendered.contains("schema_case_conflict::struct"),
             "expected both conflicting entity paths in error detail, got: {rendered}",
         );
     }
@@ -190,16 +183,14 @@ mod tests {
         insert_entity(
             &mut schema,
             "schema_case_allowed_a",
-            "EntityA",
-            "schema_case_allowed_a::StoreA",
             "Struct",
+            "schema_case_allowed_a::StoreA",
         );
         insert_entity(
             &mut schema,
             "schema_case_allowed_b",
-            "EntityB",
-            "schema_case_allowed_b::StoreB",
             "struct",
+            "schema_case_allowed_b::StoreB",
         );
 
         let mut errs = ErrorTree::new();

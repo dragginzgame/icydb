@@ -15,16 +15,11 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/finance.rs::newtype::1",
     primitive = "Decimal",
     item(prim = "Decimal", scale = 2),
     ty(
         normalizer(path = "base::normalizer::num::RoundDecimalPlaces", args(2)),
-        rule(
-            source_key = "icydb.base.rule.finance.usd.nonnegative.v1",
-            kind = "numeric_minimum_inclusive",
-            args(0)
-        )
+        rule(name = "nonnegative", kind = "numeric_minimum_inclusive", args(0))
     )
 )]
 pub struct Usd {}
@@ -36,14 +31,9 @@ pub struct Usd {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/finance.rs::newtype::2",
     primitive = "Decimal",
     item(prim = "Decimal", scale = 8),
-    ty(rule(
-        source_key = "icydb.base.rule.finance.e8s.nonnegative.v1",
-        kind = "numeric_minimum_inclusive",
-        args(0)
-    ))
+    ty(rule(name = "nonnegative", kind = "numeric_minimum_inclusive", args(0)))
 )]
 pub struct E8s {}
 
@@ -54,13 +44,8 @@ pub struct E8s {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/finance.rs::newtype::3",
     primitive = "Decimal",
     item(prim = "Decimal", scale = 18),
-    ty(rule(
-        source_key = "icydb.base.rule.finance.e18s.nonnegative.v1",
-        kind = "numeric_minimum_inclusive",
-        args(0)
-    ))
+    ty(rule(name = "nonnegative", kind = "numeric_minimum_inclusive", args(0)))
 )]
 pub struct E18s {}

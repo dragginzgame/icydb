@@ -10,7 +10,7 @@ define_fixture_canister!(
 );
 
 define_fixture_store!(
-    DefaultEmptyStore = "DEFAULT_EMPTY_STORE",
+    DefaultEmptyStore,
     canister = "DefaultEmptyCanister",
     storage(journaled(
         data_memory_id = 100,

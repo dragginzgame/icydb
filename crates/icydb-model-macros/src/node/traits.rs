@@ -12,6 +12,13 @@ use crate::prelude::*;
 
 pub trait HasDef {
     fn def(&self) -> &Def;
+
+    fn current_name_literal(&self, name: Option<&LitStr>) -> LitStr {
+        name.cloned().unwrap_or_else(|| {
+            let ident = self.def().ident();
+            LitStr::new(&ident.to_string(), ident.span())
+        })
+    }
 }
 
 ///

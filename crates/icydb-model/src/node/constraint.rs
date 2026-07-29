@@ -11,13 +11,12 @@ pub type SourceExpressionResolver = fn(&Schema) -> Result<SourceCheckExpr, Schem
 ///
 /// CheckConstraint
 ///
-/// Source-keyed accepted-check declaration. The SQL spelling remains authored
-/// input until the compiler projection lowers it into the public source AST.
+/// Named accepted-check declaration. The SQL spelling remains authored input
+/// until the compiler projection lowers it into the public source AST.
 ///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CheckConstraint {
-    source_key: &'static str,
     name: &'static str,
     check: &'static str,
     #[serde(skip)]
@@ -25,29 +24,21 @@ pub struct CheckConstraint {
 }
 
 impl CheckConstraint {
-    /// Construct one source-keyed accepted-check declaration.
+    /// Construct one named accepted-check declaration.
     #[must_use]
     pub const fn new(
-        source_key: &'static str,
         name: &'static str,
         check: &'static str,
         expression: SourceExpressionResolver,
     ) -> Self {
         Self {
-            source_key,
             name,
             check,
             expression,
         }
     }
 
-    /// Borrow the immutable constraint source key.
-    #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
-    }
-
-    /// Borrow the editable accepted-check name.
+    /// Borrow the current accepted-check name.
     #[must_use]
     pub const fn name(&self) -> &'static str {
         self.name
@@ -76,10 +67,10 @@ impl CheckConstraint {
 impl ValidateNode for CheckConstraint {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "constraint",
-            self.source_key(),
+            self.name(),
             icydb_schema::ConstraintSourceKey::try_new,
         );
         errs.result()

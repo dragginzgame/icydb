@@ -146,8 +146,8 @@ impl Canister {
 }
 
 #[cfg(test)]
-fn stable_memory_key(memory_namespace: &str, store_name: &str, role: &str) -> String {
-    format!("icydb.{memory_namespace}.{store_name}.{role}.v1")
+fn stable_memory_key(memory_namespace: &str, allocation: &str, role: &str) -> String {
+    format!("icydb.{memory_namespace}.{allocation}.{role}.v1")
 }
 
 impl HasType for Canister {

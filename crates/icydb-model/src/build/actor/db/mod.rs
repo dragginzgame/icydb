@@ -36,13 +36,12 @@ fn frontend_surfaces(builder: &ActorBuilder) -> TokenStream {
     let entities = builder.get_entities();
 
     for (_, entity) in entities {
-        let entity_source_key = entity.source_key();
-        let entity_name = entity.resolved_name();
+        let entity_name = entity.name();
         if let Some(sql_surface) = sql_surface.as_mut() {
             sql_surface.push_entity(entity_name);
         }
         if let Some(schema_surface) = schema_surface.as_mut() {
-            schema_surface.push_entity(entity_source_key);
+            schema_surface.push_entity(entity_name);
         }
     }
     let sql_surface = sql_surface.map_or_else(TokenStream::new, |sql_surface| quote!(#sql_surface));

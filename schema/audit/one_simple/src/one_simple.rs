@@ -12,7 +12,7 @@ define_fixture_canister!(
 );
 
 define_fixture_store!(
-    OneSimpleStore = "ONE_SIMPLE_STORE",
+    OneSimpleStore,
     canister = "OneSimpleCanister",
     storage(journaled(
         data_memory_id = 100,
@@ -24,5 +24,5 @@ define_fixture_store!(
 
 define_simple_audit_entities!(
     "OneSimpleStore";
-    OneSimpleEntity01 => "schema/audit/one_simple/src/one_simple.rs::OneSimpleEntity01"
+    OneSimpleEntity01
 );

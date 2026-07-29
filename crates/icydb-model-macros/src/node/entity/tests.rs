@@ -21,8 +21,7 @@ fn scalar_field(ident: &str) -> Field {
 
 fn primitive_field(ident: &str, primitive: Primitive) -> Field {
     Field {
-        source_key: LitStr::new(ident, Span::call_site()),
-        ident: format_ident!("{ident}"),
+        name: format_ident!("{ident}"),
         value: Value {
             opt: false,
             many: false,
@@ -39,8 +38,7 @@ fn primitive_field(ident: &str, primitive: Primitive) -> Field {
 
 fn many_scalar_field(ident: &str) -> Field {
     Field {
-        source_key: LitStr::new(ident, Span::call_site()),
-        ident: format_ident!("{ident}"),
+        name: format_ident!("{ident}"),
         value: Value {
             opt: false,
             many: true,
@@ -58,8 +56,7 @@ fn many_scalar_field(ident: &str) -> Field {
 
 fn unit_field(ident: &str) -> Field {
     Field {
-        source_key: LitStr::new(ident, Span::call_site()),
-        ident: format_ident!("{ident}"),
+        name: format_ident!("{ident}"),
         value: Value {
             opt: false,
             many: false,
@@ -86,19 +83,17 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
         def: Def::new(syn::parse_quote!(
             struct TestEntity;
         )),
-        source_key: LitStr::new("entity/test", Span::call_site()),
         store: syn::parse_quote!(UiDataStore),
         schema_version: 1,
         primary_key: PrimaryKey {
             fields: vec![format_ident!("id")],
             source: PrimaryKeySource::Internal,
         },
-        name: None,
         typed_adapters: false,
         indexes,
         relations: Vec::new(),
         constraints: Vec::new(),
-        audit_timestamps: None,
+        timestamps: false,
         fields: FieldList { fields },
         ty: Type::default(),
         traits: crate::trait_kind::TraitBuilder::default(),
@@ -304,7 +299,6 @@ fn validate_rejects_index_field_not_found() {
     let entity = entity_with_fields_and_indexes(
         vec![scalar_field("id")],
         vec![Index {
-            source_key: LitStr::new("index/missing", Span::call_site()),
             fields: field_list(&["missing_field"]),
             unique: false,
             predicate: None,
@@ -325,7 +319,6 @@ fn validate_rejects_many_cardinality_index_field() {
     let entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), many_scalar_field("tags")],
         vec![Index {
-            source_key: LitStr::new("index/tags", Span::call_site()),
             fields: field_list(&["tags"]),
             unique: false,
             predicate: None,
@@ -346,7 +339,6 @@ fn validate_rejects_expression_index_field_not_found() {
     let entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), scalar_field("email")],
         vec![Index {
-            source_key: LitStr::new("index/lower_name", Span::call_site()),
             fields: field_list(&["LOWER(name)"]),
             unique: false,
             predicate: None,
@@ -364,14 +356,12 @@ fn validate_rejects_expression_index_field_not_found() {
 #[test]
 fn from_list_parses_nested_indexes_and_fields() {
     let args = NestedMeta::parse_meta_list(quote!(
-        source_key = "entity/test",
         store = "UiDataStore",
         version = 1,
         pk(fields = ["id"]),
-        index(source_key = "index/missing", fields = ["missing_field"]),
+        index(fields = ["missing_field"]),
         fields(field(
-            source_key = "id",
-            ident = "id",
+            name = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ))
@@ -388,7 +378,7 @@ fn from_list_parses_nested_indexes_and_fields() {
     assert_eq!(
         node.fields.len(),
         1,
-        "omitting audit_timestamps(...) must not synthesize hidden fields"
+        "omitting timestamps must not synthesize hidden fields"
     );
     assert!(
         node.fields.get(&format_ident!("id")).is_some(),
@@ -399,42 +389,38 @@ fn from_list_parses_nested_indexes_and_fields() {
 }
 
 #[test]
-fn explicit_audit_timestamps_lower_to_managed_fields() {
+fn explicit_timestamps_lower_to_managed_fields() {
     let args = NestedMeta::parse_meta_list(quote!(
-        source_key = "entity/test",
         store = "UiDataStore",
         version = 1,
         pk(fields = ["id"]),
-        audit_timestamps(
-            created_at(source_key = "audit/created", ident = "created_on"),
-            updated_at(source_key = "audit/updated", ident = "updated_on")
-        ),
         fields(field(
-            source_key = "id",
-            ident = "id",
+            name = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
-        ))
+        )),
+        timestamps
     ))
     .expect("entity args should parse");
 
-    let node = Entity::from_list(&args).expect("explicit audit policy should lower");
+    let node = Entity::from_list(&args).expect("explicit timestamp policy should lower");
 
     assert_eq!(node.fields.len(), 3);
+    assert!(!node.timestamps, "parser-only marker should be consumed");
     let created = node
         .fields
-        .get(&format_ident!("created_on"))
+        .get(&format_ident!("created_at"))
         .expect("created field should be present");
-    assert_eq!(created.source_key.value(), "audit/created");
+    assert_eq!(created.name.to_string(), "created_at");
     assert_eq!(
         created.write_management,
         Some(FieldWriteManagement::CreatedAt)
     );
     let updated = node
         .fields
-        .get(&format_ident!("updated_on"))
+        .get(&format_ident!("updated_at"))
         .expect("updated field should be present");
-    assert_eq!(updated.source_key.value(), "audit/updated");
+    assert_eq!(updated.name.to_string(), "updated_at");
     assert_eq!(
         updated.write_management,
         Some(FieldWriteManagement::UpdatedAt)
@@ -442,89 +428,29 @@ fn explicit_audit_timestamps_lower_to_managed_fields() {
 }
 
 #[test]
-fn explicit_audit_timestamps_reject_field_identity_collisions() {
+fn explicit_timestamps_reject_fixed_field_name_collisions() {
     let args = NestedMeta::parse_meta_list(quote!(
-        source_key = "entity/test",
         store = "UiDataStore",
         version = 1,
         pk(fields = ["id"]),
-        audit_timestamps(
-            created_at(source_key = "id", ident = "created_on"),
-            updated_at(source_key = "audit/updated", ident = "updated_on")
+        fields(
+            field(
+                name = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
+            field(name = "created_at", value(item(prim = "Timestamp")))
         ),
-        fields(field(
-            source_key = "id",
-            ident = "id",
-            value(item(prim = "Ulid")),
-            generated(insert = "Ulid::generate")
-        ))
+        timestamps
     ))
     .expect("entity args should parse");
 
-    let error = Entity::from_list(&args).expect_err("duplicate source identity must reject");
+    let error = Entity::from_list(&args).expect_err("duplicate field name must reject");
 
     assert!(
         error
             .to_string()
-            .contains("audit timestamp source key 'id' conflicts"),
-        "unexpected diagnostic: {error}",
-    );
-}
-
-#[test]
-fn explicit_audit_timestamps_reject_duplicate_policy_identity() {
-    let args = NestedMeta::parse_meta_list(quote!(
-        source_key = "entity/test",
-        store = "UiDataStore",
-        version = 1,
-        pk(fields = ["id"]),
-        audit_timestamps(
-            created_at(source_key = "audit/shared", ident = "created_on"),
-            updated_at(source_key = "audit/shared", ident = "updated_on")
-        ),
-        fields(field(
-            source_key = "id",
-            ident = "id",
-            value(item(prim = "Ulid")),
-            generated(insert = "Ulid::generate")
-        ))
-    ))
-    .expect("entity args should parse");
-
-    let error = Entity::from_list(&args).expect_err("duplicate audit identity must reject");
-
-    assert!(
-        error
-            .to_string()
-            .contains("audit timestamp fields must use distinct source keys"),
-        "unexpected diagnostic: {error}",
-    );
-}
-
-#[test]
-fn explicit_audit_timestamps_require_both_policies() {
-    let args = NestedMeta::parse_meta_list(quote!(
-        source_key = "entity/test",
-        store = "UiDataStore",
-        version = 1,
-        pk(fields = ["id"]),
-        audit_timestamps(created_at(
-            source_key = "audit/created",
-            ident = "created_on"
-        )),
-        fields(field(
-            source_key = "id",
-            ident = "id",
-            value(item(prim = "Ulid")),
-            generated(insert = "Ulid::generate")
-        ))
-    ))
-    .expect("entity args should parse");
-
-    let error = Entity::from_list(&args).expect_err("partial audit policy must reject");
-
-    assert!(
-        error.to_string().contains("Missing field `updated_at`"),
+            .contains("managed timestamp field 'created_at' conflicts"),
         "unexpected diagnostic: {error}",
     );
 }
@@ -532,28 +458,18 @@ fn explicit_audit_timestamps_require_both_policies() {
 #[test]
 fn from_list_parses_relation_edges() {
     let args = NestedMeta::parse_meta_list(quote!(
-        source_key = "entity/test",
         store = "UiDataStore",
         version = 1,
         pk(fields = ["id"]),
         relation(
-            source_key = "author",
-            ident = "author",
+            name = "author",
             rel = "User",
             fields = ["author_tenant_id", "author_id"]
         ),
         fields(
-            field(source_key = "id", ident = "id", value(item(prim = "Ulid"))),
-            field(
-                source_key = "author_tenant_id",
-                ident = "author_tenant_id",
-                value(item(prim = "Nat64"))
-            ),
-            field(
-                source_key = "author_id",
-                ident = "author_id",
-                value(item(prim = "Ulid"))
-            )
+            field(name = "id", value(item(prim = "Ulid"))),
+            field(name = "author_tenant_id", value(item(prim = "Nat64"))),
+            field(name = "author_id", value(item(prim = "Ulid")))
         )
     ))
     .expect("entity args should parse");
@@ -561,7 +477,7 @@ fn from_list_parses_relation_edges() {
     let node = Entity::from_list(&args).expect("entity meta should lower");
 
     assert_eq!(node.relations.len(), 1);
-    assert_eq!(node.relations[0].ident.value(), "author");
+    assert_eq!(node.relations[0].name.value(), "author");
     assert_eq!(
         node.relations[0]
             .fields
@@ -583,8 +499,7 @@ fn schema_part_emits_relation_edge_metadata() {
         vec![],
     );
     entity.relations.push(Relation {
-        source_key: LitStr::new("author", Span::call_site()),
-        ident: LitStr::new("author", Span::call_site()),
+        name: LitStr::new("author", Span::call_site()),
         target: syn::parse_quote!(User),
         fields: field_list(&["author_tenant_id", "author_id"]),
     });

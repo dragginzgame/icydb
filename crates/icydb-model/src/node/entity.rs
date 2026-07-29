@@ -17,13 +17,9 @@ use std::any::Any;
 #[derive(Clone, Debug, Serialize)]
 pub struct Entity {
     def: Def,
-    source_key: &'static str,
     store: &'static str,
     schema_version: u32,
     primary_key: PrimaryKey,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<&'static str>,
 
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     indexes: &'static [Index],
@@ -46,11 +42,9 @@ impl Entity {
     )]
     pub const fn new(
         def: Def,
-        source_key: &'static str,
         store: &'static str,
         schema_version: u32,
         primary_key: PrimaryKey,
-        name: Option<&'static str>,
         indexes: &'static [Index],
         relations: &'static [RelationEdge],
         constraints: &'static [CheckConstraint],
@@ -59,23 +53,15 @@ impl Entity {
     ) -> Self {
         Self {
             def,
-            source_key,
             store,
             schema_version,
             primary_key,
-            name,
             indexes,
             relations,
             constraints,
             fields,
             ty,
         }
-    }
-
-    /// Borrow the immutable entity source key.
-    #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
     }
 
     #[must_use]
@@ -99,8 +85,8 @@ impl Entity {
     }
 
     #[must_use]
-    pub const fn name(&self) -> Option<&'static str> {
-        self.name
+    pub const fn name(&self) -> &'static str {
+        self.def().ident()
     }
 
     #[must_use]
@@ -136,21 +122,15 @@ impl Entity {
         self.fields().get(self.primary_key().scalar_field()?)
     }
 
-    /// Resolve the entity name used for schema identity.
-    #[must_use]
-    pub fn resolved_name(&self) -> &'static str {
-        self.name().unwrap_or_else(|| self.def().ident())
-    }
-
     fn validate_relation_storage_policy(&self, errs: &mut ErrorTree) {
         for field in self.fields().fields() {
             if let Some(target) = field.value().item().relation() {
-                self.validate_relation_target_storage_policy(errs, field.ident(), target);
+                self.validate_relation_target_storage_policy(errs, field.name(), target);
             }
         }
 
         for relation in self.relations() {
-            self.validate_relation_target_storage_policy(errs, relation.ident(), relation.target());
+            self.validate_relation_target_storage_policy(errs, relation.name(), relation.target());
         }
     }
 
@@ -209,10 +189,10 @@ impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
 
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "entity",
-            self.source_key(),
+            self.name(),
             icydb_schema::EntitySourceKey::try_new,
         );
         if self.schema_version() == 0 {
@@ -230,25 +210,25 @@ impl ValidateNode for Entity {
         }
 
         for index in self.indexes() {
-            validate_source_key(
+            validate_source_name(
                 &mut errs,
                 "index",
-                index.source_key(),
+                index.name(),
                 icydb_schema::IndexSourceKey::try_new,
             );
         }
         for relation in self.relations() {
-            validate_source_key(
+            validate_source_name(
                 &mut errs,
                 "relation",
-                relation.source_key(),
+                relation.name(),
                 icydb_schema::RelationSourceKey::try_new,
             );
             if let Err(e) = relation.validate_for_source(self) {
-                errs.merge_for(relation.ident(), e);
+                errs.merge_for(relation.name(), e);
             }
         }
-        validate_entity_local_source_keys(self, &mut errs);
+        validate_entity_local_names(self, &mut errs);
         self.validate_relation_storage_policy(&mut errs);
 
         errs.result()
@@ -270,41 +250,34 @@ impl VisitableNode for Entity {
     }
 }
 
-fn validate_entity_local_source_keys(entity: &Entity, errs: &mut ErrorTree) {
+fn validate_entity_local_names(entity: &Entity, errs: &mut ErrorTree) {
     validate_unique_local_keys(
         errs,
         "field",
-        entity.fields().fields().iter().map(Field::source_key),
+        entity.fields().fields().iter().map(Field::name),
     );
-    validate_unique_local_keys(
-        errs,
-        "index",
-        entity.indexes().iter().map(Index::source_key),
-    );
+    validate_unique_local_keys(errs, "index", entity.indexes().iter().map(Index::name));
     validate_unique_local_keys(
         errs,
         "relation",
-        entity.relations().iter().map(RelationEdge::source_key),
+        entity.relations().iter().map(RelationEdge::name),
     );
     validate_unique_local_keys(
         errs,
         "constraint",
-        entity.constraints().iter().map(CheckConstraint::source_key),
+        entity.constraints().iter().map(CheckConstraint::name),
     );
 }
 
 fn validate_unique_local_keys<'a>(
     errs: &mut ErrorTree,
     kind: &str,
-    source_keys: impl IntoIterator<Item = &'a str>,
+    names: impl IntoIterator<Item = &'a str>,
 ) {
     let mut seen = std::collections::BTreeSet::new();
-    for source_key in source_keys {
-        if !seen.insert(source_key) {
-            err!(
-                errs,
-                "duplicate {kind} source key '{source_key}' within entity",
-            );
+    for name in names {
+        if !seen.insert(name) {
+            err!(errs, "duplicate {kind} name '{name}' within entity",);
         }
     }
 }

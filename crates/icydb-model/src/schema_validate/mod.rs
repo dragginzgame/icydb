@@ -1,7 +1,7 @@
 //! Schema validation orchestration and shared helpers.
 
+mod definition_names;
 mod naming;
-mod source_keys;
 
 use crate::{
     error::ErrorTree,
@@ -31,5 +31,5 @@ fn validate_nodes(schema: &Schema) -> ErrorTree {
 // Run global validation passes that require a full schema view.
 fn validate_global(schema: &Schema, errors: &mut ErrorTree) {
     naming::validate_entity_naming(schema, errors);
-    source_keys::validate_definition_source_keys(schema, errors);
+    definition_names::validate_type_names(schema, errors);
 }

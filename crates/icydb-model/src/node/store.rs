@@ -1,6 +1,6 @@
 use crate::node::{
     validate_app_memory_id, validate_memory_id_in_range, validate_memory_id_not_reserved,
-    validate_stable_key, validate_stable_key_segment,
+    validate_stable_key,
 };
 use crate::prelude::*;
 
@@ -16,8 +16,6 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct Store {
     def: Def,
-    ident: &'static str,
-    name: &'static str,
     canister: &'static str,
     storage: StoreStorage,
 }
@@ -339,17 +337,9 @@ impl StoreJournaledMemoryConfig {
 impl Store {
     /// Build a heap-backed volatile store declaration.
     #[must_use]
-    pub const fn new_heap(
-        def: Def,
-        ident: &'static str,
-        store_name: &'static str,
-        canister: &'static str,
-        heap: StoreHeapConfig,
-    ) -> Self {
+    pub const fn new_heap(def: Def, canister: &'static str, heap: StoreHeapConfig) -> Self {
         Self {
             def,
-            ident,
-            name: store_name,
             canister,
             storage: StoreStorage::Heap(heap),
         }
@@ -359,15 +349,11 @@ impl Store {
     #[must_use]
     pub const fn new_journaled(
         def: Def,
-        ident: &'static str,
-        store_name: &'static str,
         canister: &'static str,
         journaled: StoreJournaledMemoryConfig,
     ) -> Self {
         Self {
             def,
-            ident,
-            name: store_name,
             canister,
             storage: StoreStorage::Journaled(journaled),
         }
@@ -376,16 +362,6 @@ impl Store {
     #[must_use]
     pub const fn def(&self) -> &Def {
         &self.def
-    }
-
-    #[must_use]
-    pub const fn ident(&self) -> &'static str {
-        self.ident
-    }
-
-    #[must_use]
-    pub const fn store_name(&self) -> &'static str {
-        self.name
     }
 
     #[must_use]
@@ -526,7 +502,7 @@ impl Store {
     pub fn journal_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
         StableMemoryAllocation::without_schema_metadata(
             self.journal_memory_id(),
-            stable_memory_key(memory_namespace, self.store_name(), "journal"),
+            stable_store_memory_key(memory_namespace, self.journal_memory_id(), "journal"),
         )
     }
 
@@ -559,7 +535,7 @@ impl Store {
 
         StableMemoryAllocation::without_schema_metadata(
             memory_id,
-            stable_memory_key(memory_namespace, self.store_name(), role.as_str()),
+            stable_store_memory_key(memory_namespace, memory_id, role.as_str()),
         )
     }
 
@@ -577,7 +553,7 @@ impl Store {
 
         StableMemoryAllocation::with_schema_metadata(
             memory_id,
-            stable_memory_key(memory_namespace, self.store_name(), role.as_str()),
+            stable_store_memory_key(memory_namespace, memory_id, role.as_str()),
             schema_metadata,
         )
     }
@@ -755,8 +731,14 @@ impl StableMemoryAllocation {
 }
 
 #[must_use]
-pub fn stable_memory_key(memory_namespace: &str, store_name: &str, role: &str) -> String {
-    format!("icydb.{memory_namespace}.{store_name}.{role}.v1")
+pub fn stable_memory_key(memory_namespace: &str, allocation: &str, role: &str) -> String {
+    format!("icydb.{memory_namespace}.{allocation}.{role}.v1")
+}
+
+#[must_use]
+fn stable_store_memory_key(memory_namespace: &str, memory_id: u8, role: &str) -> String {
+    // Physical allocation identity must survive source-level store renames.
+    format!("icydb.{memory_namespace}.memory_{memory_id}.{role}.v1")
 }
 
 impl MacroNode for Store {
@@ -773,15 +755,12 @@ impl ValidateNode for Store {
             let schema = schema_read();
 
             match schema.cast_node::<Canister>(self.canister()) {
-                Ok(canister) => {
-                    validate_stable_key_segment(&mut errs, "store store_name", self.store_name());
-                    match self.storage() {
-                        StoreStorage::Heap(_) => {}
-                        StoreStorage::Journaled(config) => {
-                            validate_journaled_memory_config(&mut errs, self, *config, canister);
-                        }
+                Ok(canister) => match self.storage() {
+                    StoreStorage::Heap(_) => {}
+                    StoreStorage::Journaled(config) => {
+                        validate_journaled_memory_config(&mut errs, self, *config, canister);
                     }
-                }
+                },
                 Err(e) => errs.add(e),
             }
         }
@@ -920,8 +899,6 @@ mod tests {
     fn store_allocations_default_to_absent_schema_metadata() {
         let store = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
-            "CHARACTER_STORE",
-            "characters",
             "demo::rpg::Canister",
             StoreJournaledMemoryConfig::new(110, 111, 112, 113),
         );
@@ -946,8 +923,6 @@ mod tests {
     fn allocation_metadata_is_role_specific_and_diagnostic_only() {
         let store = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
-            "CHARACTER_STORE",
-            "characters",
             "demo::rpg::Canister",
             StoreJournaledMemoryConfig::new(110, 111, 112, 113),
         );
@@ -1003,8 +978,6 @@ mod tests {
         insert_canister("store_heap_config", "Canister");
         let store = Store::new_heap(
             Def::new("store_heap_config", "Store"),
-            "STORE",
-            "heap_store",
             "store_heap_config::Canister",
             StoreHeapConfig::new(),
         );
@@ -1017,8 +990,6 @@ mod tests {
     fn heap_store_storage_capabilities_describe_volatile_contract() {
         let store = Store::new_heap(
             Def::new("store_heap_capabilities", "Store"),
-            "STORE",
-            "heap_store",
             "store_heap_capabilities::Canister",
             StoreHeapConfig::new(),
         );
@@ -1061,8 +1032,6 @@ mod tests {
         insert_canister("store_journaled_config", "Canister");
         let store = Store::new_journaled(
             Def::new("store_journaled_config", "Store"),
-            "STORE",
-            "journaled_store",
             "store_journaled_config::Canister",
             StoreJournaledMemoryConfig::new(110, 111, 112, 113),
         );
@@ -1088,8 +1057,6 @@ mod tests {
     fn journaled_store_storage_capabilities_describe_cached_stable_contract() {
         let store = Store::new_journaled(
             Def::new("store_journaled_capabilities", "Store"),
-            "STORE",
-            "journaled_store",
             "store_journaled_capabilities::Canister",
             StoreJournaledMemoryConfig::new(110, 111, 112, 113),
         );
@@ -1134,27 +1101,25 @@ mod tests {
     fn journaled_store_allocations_use_role_named_stable_keys() {
         let store = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
-            "CHARACTER_STORE",
-            "characters",
             "demo::rpg::Canister",
             StoreJournaledMemoryConfig::new(110, 111, 112, 113),
         );
 
         assert_eq!(
             store.stable_data_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.characters.data.v1",
+            "icydb.demo_rpg.memory_110.data.v1",
         );
         assert_eq!(
             store.stable_index_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.characters.index.v1",
+            "icydb.demo_rpg.memory_111.index.v1",
         );
         assert_eq!(
             store.stable_schema_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.characters.schema.v1",
+            "icydb.demo_rpg.memory_112.schema.v1",
         );
         assert_eq!(
             store.journal_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.characters.journal.v1",
+            "icydb.demo_rpg.memory_113.journal.v1",
         );
     }
 
@@ -1162,15 +1127,11 @@ mod tests {
     fn storage_capabilities_are_not_allocation_identity() {
         let store_a = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
-            "CHARACTER_STORE",
-            "characters",
             "demo::rpg::Canister",
             StoreJournaledMemoryConfig::new(110, 111, 112, 113),
         );
         let store_b = Store::new_journaled(
             Def::new("demo::rpg", "InventoryStore"),
-            "INVENTORY_STORE",
-            "inventory",
             "demo::rpg::Canister",
             StoreJournaledMemoryConfig::new(120, 121, 122, 123),
         );
@@ -1221,8 +1182,6 @@ mod tests {
         insert_canister("store_duplicate_journaled_role_memory_ids", "Canister");
         let store = Store::new_journaled(
             Def::new("store_duplicate_journaled_role_memory_ids", "Store"),
-            "STORE",
-            "duplicate_journaled_role_memory_ids",
             "store_duplicate_journaled_role_memory_ids::Canister",
             StoreJournaledMemoryConfig::new(110, 111, 112, 112),
         );

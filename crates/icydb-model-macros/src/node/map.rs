@@ -14,7 +14,8 @@ pub struct Map {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
-    pub(crate) source_key: LitStr,
+    #[darling(default)]
+    pub(crate) name: Option<LitStr>,
 
     pub(crate) key: Item,
     pub(crate) value: Value,
@@ -91,14 +92,14 @@ impl HasSchema for Map {
 impl HasSchemaPart for Map {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
-        let source_key = &self.source_key;
+        let name = self.current_name_literal(self.name.as_ref());
         let key = self.key.schema_part();
         let value = self.value.schema_part();
         let ty = self.ty.schema_part();
 
         // quote
         quote! {
-            ::icydb_model::node::Map::new(#def, #source_key, #key, #value, #ty)
+            ::icydb_model::node::Map::new(#def, #name, #key, #value, #ty)
         }
     }
 }
@@ -154,7 +155,7 @@ mod tests {
     fn map_node() -> Map {
         Map {
             def: Def::default(),
-            source_key: syn::parse_quote!("type/test_map"),
+            name: None,
             key: Item {
                 primitive: Some(Primitive::Text),
                 unbounded: true,

@@ -22,7 +22,7 @@ macro_rules! build_configured_canister {
 /// `memory_min`, `memory_max`, and `commit_memory_id` are canister-level
 /// stable-memory manager configuration. The maximum ID is reserved for
 /// integrity progress; per-store memory IDs live in
-/// `define_fixture_store!(storage(...))`.
+/// `define_fixture_store!(Store, canister = "...", storage(...))`.
 ///
 #[macro_export]
 macro_rules! define_fixture_canister {
@@ -51,7 +51,7 @@ macro_rules! define_fixture_canister {
 #[macro_export]
 macro_rules! define_fixture_store {
     (
-        $store:ident = $store_ident:literal,
+        $store:ident,
         canister = $canister_name:literal,
         storage(journaled(
             data_memory_id = $data_memory_id:literal,
@@ -65,7 +65,7 @@ macro_rules! define_fixture_store {
         #[doc = ""]
         #[doc = "Main store model used by wasm SQL fixtures."]
         #[doc = ""]
-        #[store(ident = $store_ident, store_name = "main", canister = $canister_name, storage(journaled(data_memory_id = $data_memory_id, index_memory_id = $index_memory_id, schema_memory_id = $schema_memory_id, journal_memory_id = $journal_memory_id)))]
+        #[store(canister = $canister_name, storage(journaled(data_memory_id = $data_memory_id, index_memory_id = $index_memory_id, schema_memory_id = $schema_memory_id, journal_memory_id = $journal_memory_id)))]
         pub struct $store {}
     };
 }
@@ -77,26 +77,23 @@ macro_rules! define_fixture_store {
 ///
 #[macro_export]
 macro_rules! define_simple_audit_entities {
-    ($store:literal; $($entity:ident => $source_key:literal),+ $(,)?) => {
+    ($store:literal; $($entity:ident),+ $(,)?) => {
         $(
             #[doc = ""]
             #[doc = stringify!($entity)]
             #[doc = ""]
             #[doc = "Repeated simple audit entity used to measure base per-entity wasm cost."]
             #[doc = ""]
-            #[entity(source_key = $source_key,
+            #[entity(
                 typed_adapters,
-    audit_timestamps(
-        created_at(source_key = "created_at", ident = "created_at"),
-        updated_at(source_key = "updated_at", ident = "updated_at")
-    ),
                 store = $store,
                 version = 1,
                 pk(fields = ["id"]),
                 fields(
-                    field(source_key = "id", ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-                    field(source_key = "name", ident = "name", value(item(prim = "Text", unbounded)))
-                )
+                    field(name = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
+                    field(name = "name", value(item(prim = "Text", unbounded)))
+                ),
+                timestamps
             )]
             pub struct $entity {}
         )+

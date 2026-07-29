@@ -1666,31 +1666,25 @@ mod tests {
         database: TargetDatabaseIdentity,
         store: TargetStoreIdentity,
     ) -> (SchemaProposal, EntitySourceKey, ConstraintSourceKey) {
-        let entity_source =
-            EntitySourceKey::try_new("abort:entity:item").expect("entity source should admit");
-        let id_source = FieldSourceKey::try_new("abort:field:id").expect("id source should admit");
-        let score_source =
-            FieldSourceKey::try_new("abort:field:score").expect("score source should admit");
+        let entity_source = EntitySourceKey::try_new("Item").expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("id source should admit");
+        let score_source = FieldSourceKey::try_new("score").expect("score source should admit");
         let check_source =
-            ConstraintSourceKey::try_new("abort:check:score").expect("check source should admit");
+            ConstraintSourceKey::try_new("score_non_negative").expect("check source should admit");
         let check = SourceCheckExpr::try_new(vec![
-            SourceCheckInstruction::Field(score_source.clone()),
+            SourceCheckInstruction::Field(score_source),
             SourceCheckInstruction::Literal(ScalarLiteral::Int(0)),
             SourceCheckInstruction::GreaterThanOrEqual,
         ])
         .expect("check expression should admit");
         let constraints = include_check
-            .then(|| {
-                ConstraintFragment::check(check_source.clone(), name("score_non_negative"), check)
-            })
+            .then(|| ConstraintFragment::check(name("score_non_negative"), check))
             .into_iter()
             .collect();
         let entity = EntityFragment::try_new(
-            entity_source.clone(),
             name("Item"),
             vec![
                 FieldFragment::new(
-                    id_source.clone(),
                     name("id"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
@@ -1698,7 +1692,6 @@ mod tests {
                     None,
                 ),
                 FieldFragment::new(
-                    score_source,
                     name("score"),
                     FieldType::Scalar(ScalarType::Int64),
                     false,

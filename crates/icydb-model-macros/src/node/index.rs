@@ -22,8 +22,6 @@ use icydb_schema::canonical_index_name_slug;
 
 #[derive(Debug)]
 pub struct Index {
-    pub(crate) source_key: LitStr,
-
     pub(crate) fields: Vec<LitStr>,
 
     pub(crate) unique: bool,
@@ -36,7 +34,6 @@ pub struct Index {
 impl FromMeta for Index {
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
         let mut fields = None;
-        let mut source_key = None;
         let mut unique = false;
         let mut unique_seen = false;
         let mut predicate = None;
@@ -54,16 +51,6 @@ impl FromMeta for Index {
                     unique_seen = true;
                 }
                 NestedMeta::Meta(syn::Meta::NameValue(name_value)) => {
-                    if name_value.path.is_ident("source_key") {
-                        set_index_arg_once(
-                            &mut source_key,
-                            parse_index_source_key_arg(&name_value.value)?,
-                            "index(...) accepts only one source_key = \"...\" argument",
-                            &name_value.path,
-                        )?;
-                        continue;
-                    }
-
                     if name_value.path.is_ident("field") {
                         set_index_arg_once(
                             &mut fields,
@@ -107,26 +94,24 @@ impl FromMeta for Index {
                     }
 
                     return Err(DarlingError::custom(
-                        "index(...) supports source_key = \"...\", field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
                     )
                     .with_span(&name_value.path));
                 }
                 NestedMeta::Meta(syn::Meta::Path(path)) => {
                     return Err(DarlingError::custom(
-                        "index(...) supports source_key = \"...\", field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
                     )
                     .with_span(path));
                 }
                 _ => {
                     return Err(DarlingError::custom(
-                        "index(...) supports source_key = \"...\", field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
                     ));
                 }
             }
         }
 
-        let source_key = source_key
-            .ok_or_else(|| DarlingError::custom("index(...) requires source_key = \"...\""))?;
         let fields = fields.ok_or_else(|| {
             DarlingError::custom("index(...) requires field = \"...\" or fields = [...]")
         })?;
@@ -138,7 +123,6 @@ impl FromMeta for Index {
         }
 
         Ok(Self {
-            source_key,
             fields,
             unique,
             predicate,
@@ -156,22 +140,6 @@ fn set_index_arg_once<T>(
         return Err(DarlingError::custom(duplicate_message).with_span(span));
     }
     Ok(())
-}
-
-fn parse_index_source_key_arg(expr: &syn::Expr) -> Result<LitStr, DarlingError> {
-    let syn::Expr::Lit(expr_lit) = expr else {
-        return Err(
-            DarlingError::custom("index(source_key = ...) requires a string literal")
-                .with_span(expr),
-        );
-    };
-    let syn::Lit::Str(literal) = &expr_lit.lit else {
-        return Err(
-            DarlingError::custom("index(source_key = ...) requires a string literal")
-                .with_span(expr),
-        );
-    };
-    Ok(literal.clone())
 }
 
 fn parse_index_string_arg(expr: &syn::Expr) -> Result<String, DarlingError> {
@@ -218,7 +186,6 @@ impl Index {
         entity: &Entity,
         entity_name: &str,
     ) -> Result<TokenStream, DarlingError> {
-        let source_key = &self.source_key;
         let name = self.generated_name(entity_name);
         let fields = self.validated_field_idents();
         let fields = quote_slice(&fields, to_str_lit);
@@ -244,7 +211,6 @@ impl Index {
 
         Ok(quote! {
             ::icydb_model::node::Index::new_with_key_items_and_predicate(
-                #source_key,
                 #name,
                 #fields,
                 #key_items,
@@ -597,7 +563,7 @@ fn predicate_field<'a>(entity: &'a Entity, field_name: &str) -> Result<&'a Field
     entity
         .fields
         .iter()
-        .find(|field| field.ident == field_name)
+        .find(|field| field.name == field_name)
         .ok_or_else(|| DarlingError::custom(format!("unknown schema field '{field_name}'")))
 }
 
@@ -718,10 +684,10 @@ fn source_field_instruction(
     field_name: &str,
 ) -> Result<TokenStream, DarlingError> {
     let field = predicate_field(entity, field_name)?;
-    let source_key = &field.source_key;
+    let name = quote_one(&field.name, to_str_lit);
     Ok(quote! {
         ::icydb_model::schema::SourceCheckInstruction::Field(
-            ::icydb_model::schema::FieldSourceKey::try_new(#source_key)?
+            ::icydb_model::schema::FieldSourceKey::try_new(#name)?
         )
     })
 }
@@ -962,22 +928,8 @@ mod tests {
     }
 
     fn parse_index(tokens: proc_macro2::TokenStream) -> Result<Index, darling::Error> {
-        let args = NestedMeta::parse_meta_list(quote!(
-            source_key = "index/test",
-            #tokens
-        ))
-        .expect("test meta should parse");
+        let args = NestedMeta::parse_meta_list(tokens).expect("test meta should parse");
         Index::from_list(&args)
-    }
-
-    #[test]
-    fn from_list_requires_source_key() {
-        let args =
-            NestedMeta::parse_meta_list(quote!(field = "email")).expect("test meta should parse");
-
-        let error = Index::from_list(&args).expect_err("index source identity must be explicit");
-
-        assert!(error.to_string().contains("requires source_key"));
     }
 
     #[test]
@@ -1037,7 +989,6 @@ mod tests {
     #[test]
     fn parsed_key_items_accept_supported_expression_and_field_mix() {
         let index = Index {
-            source_key: LitStr::new("index/test", Span::call_site()),
             fields: field_list(&["tenant_id", "LOWER(email)"]),
             unique: true,
             predicate: None,
@@ -1059,7 +1010,6 @@ mod tests {
     #[test]
     fn generated_name_uses_expression_key_item_canonical_text() {
         let index = Index {
-            source_key: LitStr::new("index/test", Span::call_site()),
             fields: field_list(&["LOWER(email)"]),
             unique: false,
             predicate: None,

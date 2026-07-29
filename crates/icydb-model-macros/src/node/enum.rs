@@ -15,7 +15,8 @@ pub struct Enum {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
-    pub(crate) source_key: LitStr,
+    #[darling(default)]
+    pub(crate) name: Option<LitStr>,
 
     #[darling(multiple, rename = "variant")]
     pub(crate) variants: Vec<EnumVariant>,
@@ -61,7 +62,7 @@ impl ValidateNode for Enum {
                     return Err(DarlingError::custom(format!(
                         "exactly one variant must be marked as default, found {default_count}"
                     ))
-                    .with_span(&variant.ident));
+                    .with_span(&variant.name));
                 }
             }
         }
@@ -79,7 +80,7 @@ impl ValidateNode for Enum {
                 "enum {} marks a Rust default variant but does not enable `traits(add(Default))`",
                 self.def.ident()
             ))
-            .with_span(&default_variant.ident));
+            .with_span(&default_variant.name));
         }
 
         Ok(())
@@ -95,13 +96,13 @@ impl HasSchema for Enum {
 impl HasSchemaPart for Enum {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
-        let source_key = &self.source_key;
+        let name = self.current_name_literal(self.name.as_ref());
         let variants = self.variants.iter().map(EnumVariant::schema_part);
         let ty = &self.ty.schema_part();
 
         // quote
         quote! {
-            ::icydb_model::node::Enum::new(#def, #source_key, &[#(#variants),*], #ty)
+            ::icydb_model::node::Enum::new(#def, #name, &[#(#variants),*], #ty)
         }
     }
 }
@@ -154,9 +155,7 @@ impl ToTokens for Enum {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct EnumVariant {
-    pub(crate) source_key: LitStr,
-
-    pub(crate) ident: Ident,
+    pub(crate) name: Ident,
 
     #[darling(default)]
     pub(crate) value: Option<Value>,
@@ -168,12 +167,12 @@ pub struct EnumVariant {
 impl EnumVariant {
     pub fn validate(&self) -> Result<(), DarlingError> {
         // Enforce variant naming before validating value payloads.
-        let ident_str = self.ident.to_string();
-        if !ident_str.is_case(Case::UpperCamel) {
+        let name = self.name.to_string();
+        if !name.is_case(Case::UpperCamel) {
             return Err(DarlingError::custom(format!(
-                "variant ident '{ident_str}' must be in UpperCamelCase",
+                "variant name '{name}' must be in UpperCamelCase",
             ))
-            .with_span(&self.ident));
+            .with_span(&self.name));
         }
 
         if let Some(value) = &self.value {
@@ -187,7 +186,7 @@ impl EnumVariant {
                 let message = format!(
                     "Vec<{item_ty}> does not implement the generated value surface. If this list holds a recursive or complex value type, use item(indirect, ...) to store Vec<Box<{item_ty}>>."
                 );
-                return Err(DarlingError::custom(message).with_span(&self.ident));
+                return Err(DarlingError::custom(message).with_span(&self.name));
             }
         }
 
@@ -197,15 +196,13 @@ impl EnumVariant {
 
 impl HasSchemaPart for EnumVariant {
     fn schema_part(&self) -> TokenStream {
-        let ident = quote_one(&self.ident, to_str_lit);
-        let source_key = &self.source_key;
+        let name = quote_one(&self.name, to_str_lit);
         let value = quote_option(self.value.as_ref(), Value::schema_part);
 
         // quote
         quote! {
             ::icydb_model::node::EnumVariant::new(
-                #source_key,
-                #ident,
+                #name,
                 #value,
             )
         }
@@ -214,13 +211,13 @@ impl HasSchemaPart for EnumVariant {
 
 impl HasTypeExpr for EnumVariant {
     fn type_expr(&self) -> TokenStream {
-        let ident = &self.ident;
+        let name = &self.name;
 
         let body = if let Some(value) = &self.value {
             let value = value.type_expr();
-            quote!(#ident(#value))
+            quote!(#name(#value))
         } else {
-            quote!(#ident)
+            quote!(#name)
         };
 
         quote! {

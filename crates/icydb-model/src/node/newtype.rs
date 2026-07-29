@@ -7,7 +7,7 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct Newtype {
     def: Def,
-    source_key: &'static str,
+    name: &'static str,
     item: Item,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -21,14 +21,14 @@ impl Newtype {
     #[must_use]
     pub const fn new(
         def: Def,
-        source_key: &'static str,
+        name: &'static str,
         item: Item,
         default: Option<Arg>,
         ty: Type,
     ) -> Self {
         Self {
             def,
-            source_key,
+            name,
             item,
             default,
             ty,
@@ -41,10 +41,10 @@ impl Newtype {
         &self.def
     }
 
-    /// Returns the immutable type source key.
+    /// Returns the current declared type name.
     #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
+    pub const fn name(&self) -> &'static str {
+        self.name
     }
 
     /// Returns the wrapped item descriptor.
@@ -75,10 +75,10 @@ impl MacroNode for Newtype {
 impl ValidateNode for Newtype {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "newtype",
-            self.source_key(),
+            self.name(),
             icydb_schema::TypeSourceKey::try_new,
         );
         errs.result()

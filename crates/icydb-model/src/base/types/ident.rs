@@ -11,15 +11,10 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/ident.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        rule(
-            source_key = "icydb.base.rule.ident.constant.length.v1",
-            kind = "length_range_inclusive",
-            args(1, 40)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(1, 40)),
         validator(path = "base::validator::text::case::UpperSnake"),
     )
 )]
@@ -30,15 +25,10 @@ pub struct Constant {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/ident.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        rule(
-            source_key = "icydb.base.rule.ident.field.length.v1",
-            kind = "length_range_inclusive",
-            args(2, 40)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(2, 40)),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -51,15 +41,10 @@ pub struct Field {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/ident.rs::newtype::3",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        rule(
-            source_key = "icydb.base.rule.ident.function.length.v1",
-            kind = "length_range_inclusive",
-            args(2, 64)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(2, 64)),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -70,15 +55,10 @@ pub struct Function {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/ident.rs::newtype::4",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        rule(
-            source_key = "icydb.base.rule.ident.variable.length.v1",
-            kind = "length_range_inclusive",
-            args(2, 40)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(2, 40)),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -89,15 +69,10 @@ pub struct Variable {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/ident.rs::newtype::5",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
-        rule(
-            source_key = "icydb.base.rule.ident.variant.length.v1",
-            kind = "length_range_inclusive",
-            args(1, 40)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(1, 40)),
         validator(path = "base::validator::text::case::UpperCamel"),
     )
 )]

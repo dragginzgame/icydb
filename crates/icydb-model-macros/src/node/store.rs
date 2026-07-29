@@ -3,11 +3,8 @@
 //! Does not own: runtime schema semantics.
 //! Boundary: macro metadata to node models.
 
-use crate::case::{Case, Casing};
 use crate::prelude::*;
-use crate::validate::memory::{
-    app_memory_id_error, memory_id_reserved_error, stable_key_segment_is_canonical,
-};
+use crate::validate::memory::{app_memory_id_error, memory_id_reserved_error};
 use darling::ast::NestedMeta;
 
 ///
@@ -18,8 +15,6 @@ use darling::ast::NestedMeta;
 pub struct Store {
     pub(crate) def: Def,
 
-    pub(crate) ident: Ident,
-    pub(crate) name: String,
     pub(crate) canister: Path,
     pub(crate) storage: ParsedStoreStorage,
 }
@@ -68,34 +63,12 @@ impl ParsedStoreJournaledMemoryConfig {
 
 impl FromMeta for Store {
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
-        let mut ident = None;
-        let mut name = None;
         let mut canister = None;
         let mut storage = None;
 
         for item in items {
             match item {
                 NestedMeta::Meta(syn::Meta::NameValue(name_value)) => {
-                    if name_value.path.is_ident("ident") {
-                        set_once(
-                            &mut ident,
-                            Ident::from_expr(&name_value.value)?,
-                            "store(...) accepts only one ident = ... argument",
-                            &name_value.path,
-                        )?;
-                        continue;
-                    }
-
-                    if name_value.path.is_ident("store_name") {
-                        set_once(
-                            &mut name,
-                            String::from_expr(&name_value.value)?,
-                            "store(...) accepts only one store_name = \"...\" argument",
-                            &name_value.path,
-                        )?;
-                        continue;
-                    }
-
                     if name_value.path.is_ident("canister") {
                         set_once(
                             &mut canister,
@@ -135,9 +108,6 @@ impl FromMeta for Store {
             }
         }
 
-        let ident = ident.ok_or_else(|| DarlingError::custom("store(...) requires ident = ..."))?;
-        let name =
-            name.ok_or_else(|| DarlingError::custom("store(...) requires store_name = \"...\""))?;
         let canister =
             canister.ok_or_else(|| DarlingError::custom("store(...) requires canister = ..."))?;
         let storage = storage.ok_or_else(|| {
@@ -146,15 +116,14 @@ impl FromMeta for Store {
 
         Ok(Self {
             def: Def::default(),
-            ident,
-            name,
             canister,
             storage,
         })
     }
 }
 
-const STORE_ARGS_MESSAGE: &str = "store(...) supports ident = ..., store_name = \"...\", canister = ..., and storage(heap()) or storage(journaled(...))";
+const STORE_ARGS_MESSAGE: &str =
+    "store(...) supports canister = ... and storage(heap()) or storage(journaled(...))";
 
 fn set_once<T>(
     slot: &mut Option<T>,
@@ -338,19 +307,7 @@ impl HasDef for Store {
 
 impl ValidateNode for Store {
     fn validate(&self) -> Result<(), DarlingError> {
-        let ident_str = self.ident.to_string();
-        if !ident_str.is_case(Case::UpperSnake) {
-            return Err(DarlingError::custom(format!(
-                "ident '{ident_str}' must be UPPER_SNAKE_CASE",
-            ))
-            .with_span(&self.ident));
-        }
-        if !stable_key_segment_is_canonical(&self.name) {
-            return Err(DarlingError::custom(
-                "store_name must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, and underscores",
-            )
-            .with_span(&self.ident));
-        }
+        let def_ident = self.def.ident();
         if let Some(journaled) = self.storage.journaled() {
             for (label, memory_id) in [
                 ("data_memory_id", journaled.data),
@@ -359,10 +316,10 @@ impl ValidateNode for Store {
                 ("journal_memory_id", journaled.journal),
             ] {
                 if let Some(message) = app_memory_id_error(label, memory_id) {
-                    return Err(DarlingError::custom(message).with_span(&self.ident));
+                    return Err(DarlingError::custom(message).with_span(&def_ident));
                 }
                 if let Some(message) = memory_id_reserved_error(label, memory_id) {
-                    return Err(DarlingError::custom(message).with_span(&self.ident));
+                    return Err(DarlingError::custom(message).with_span(&def_ident));
                 }
             }
             for (idx, (left_label, left_id)) in [
@@ -387,7 +344,7 @@ impl ValidateNode for Store {
                         return Err(DarlingError::custom(format!(
                             "{left_label} and {right_label} must differ (both are {left_id})"
                         ))
-                        .with_span(&self.ident));
+                        .with_span(&def_ident));
                     }
                 }
             }
@@ -406,16 +363,12 @@ impl HasSchema for Store {
 impl HasSchemaPart for Store {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
-        let ident = quote_one(&self.ident, to_str_lit);
-        let store_name = &self.name;
         let canister = quote_one(&self.canister, to_path);
         match self.storage {
             ParsedStoreStorage::Heap(_) => {
                 quote! {
                     ::icydb_model::node::Store::new_heap(
                         #def,
-                        #ident,
-                        #store_name,
                         #canister,
                         ::icydb_model::node::StoreHeapConfig::new(),
                     )
@@ -430,8 +383,6 @@ impl HasSchemaPart for Store {
                 quote! {
                     ::icydb_model::node::Store::new_journaled(
                         #def,
-                        #ident,
-                        #store_name,
                         #canister,
                         ::icydb_model::node::StoreJournaledMemoryConfig::new(
                             #data_memory_id,
@@ -487,12 +438,8 @@ mod tests {
 
     #[test]
     fn from_list_rejects_missing_storage() {
-        let err = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
-            canister = "AppCanister"
-        ))
-        .expect_err("stores require explicit storage");
+        let err = parse_store(quote!(canister = "AppCanister"))
+            .expect_err("stores require explicit storage");
 
         assert!(
             err.to_string().contains("storage(heap())"),
@@ -503,8 +450,6 @@ mod tests {
     #[test]
     fn from_list_rejects_flat_memory_ids() {
         let err = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
             canister = "AppCanister",
             data_memory_id = 10,
             index_memory_id = 11,
@@ -520,13 +465,8 @@ mod tests {
 
     #[test]
     fn from_list_accepts_heap_storage() {
-        let store = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
-            canister = "AppCanister",
-            storage(heap())
-        ))
-        .expect("heap storage should parse");
+        let store = parse_store(quote!(canister = "AppCanister", storage(heap())))
+            .expect("heap storage should parse");
 
         assert!(matches!(store.storage, ParsedStoreStorage::Heap(_)));
     }
@@ -534,8 +474,6 @@ mod tests {
     #[test]
     fn from_list_rejects_heap_storage_arguments() {
         let err = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
             canister = "AppCanister",
             storage(heap(data_memory_id = 10))
         ))
@@ -550,8 +488,6 @@ mod tests {
     #[test]
     fn from_list_accepts_journaled_storage_full_form() {
         let store = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
             canister = "AppCanister",
             storage(journaled(
                 data_memory_id = 10,
@@ -572,8 +508,6 @@ mod tests {
     #[test]
     fn from_list_rejects_journaled_storage_missing_stable_source_ids_as_malformed() {
         let err = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
             canister = "AppCanister",
             storage(journaled(journal_memory_id = 13))
         ))
@@ -589,8 +523,6 @@ mod tests {
     #[test]
     fn from_list_rejects_journaled_storage_unknown_field_as_malformed() {
         let err = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
             canister = "AppCanister",
             storage(journaled(foo = 13))
         ))
@@ -604,13 +536,8 @@ mod tests {
 
     #[test]
     fn from_list_rejects_unknown_storage_mode() {
-        let err = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
-            canister = "AppCanister",
-            storage(memory())
-        ))
-        .expect_err("unknown storage mode should reject");
+        let err = parse_store(quote!(canister = "AppCanister", storage(memory())))
+            .expect_err("unknown storage mode should reject");
 
         assert!(
             err.to_string().contains("unknown store storage mode"),

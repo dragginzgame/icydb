@@ -238,12 +238,12 @@ impl Schema {
         &self.nodes
     }
 
-    /// Resolve one authored unit-enum literal through immutable source keys.
+    /// Resolve one authored unit-enum literal through current declared names.
     ///
     /// # Errors
     ///
     /// Returns an invalid-enum-literal error when the path is not an enum, the
-    /// variant is absent, or either maintained source key is malformed.
+    /// variant is absent, or either maintained name is malformed.
     pub fn enum_unit_literal(
         &self,
         enum_path: &str,
@@ -256,11 +256,11 @@ impl Schema {
         let variant = r#enum
             .variants()
             .iter()
-            .find(|variant| variant.ident() == variant_name && variant.value().is_none())
+            .find(|variant| variant.name() == variant_name && variant.value().is_none())
             .ok_or(SchemaContractError::InvalidEnumLiteral)?;
         Ok(ScalarLiteral::EnumUnit {
-            enum_type: TypeSourceKey::try_new(r#enum.source_key())?,
-            variant: TypeSourceKey::try_new(variant.source_key())?,
+            enum_type: TypeSourceKey::try_new(r#enum.name())?,
+            variant: TypeSourceKey::try_new(variant.name())?,
         })
     }
 }

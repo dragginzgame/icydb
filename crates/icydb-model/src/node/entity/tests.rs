@@ -30,7 +30,6 @@ fn relation_item(primitive: Primitive, target: &'static str) -> Item {
 fn field(ident: &'static str, primitive: Primitive) -> Field {
     Field::new(
         ident,
-        ident,
         Value::new(Cardinality::One, primitive_item(primitive)),
         None,
         None,
@@ -40,7 +39,6 @@ fn field(ident: &'static str, primitive: Primitive) -> Field {
 
 fn relation_field(ident: &'static str, primitive: Primitive, target: &'static str) -> Field {
     Field::new(
-        ident,
         ident,
         Value::new(Cardinality::One, relation_item(primitive, target)),
         None,
@@ -52,8 +50,6 @@ fn relation_field(ident: &'static str, primitive: Primitive, target: &'static st
 fn store(path: &'static str) -> Store {
     Store::new_journaled(
         Def::new("schema_entity_relation_edge", "Store"),
-        "STORE",
-        "schema_entity_relation_edge_store",
         path,
         StoreJournaledMemoryConfig::new(110, 111, 112, 113),
     )
@@ -62,8 +58,6 @@ fn store(path: &'static str) -> Store {
 fn durable_store_in_module(module: &'static str, ident: &'static str) -> Store {
     Store::new_journaled(
         Def::new(module, ident),
-        "STORE",
-        "schema_entity_relation_edge_store",
         "schema_entity_relation_edge_store",
         StoreJournaledMemoryConfig::new(120, 121, 122, 123),
     )
@@ -72,8 +66,6 @@ fn durable_store_in_module(module: &'static str, ident: &'static str) -> Store {
 fn heap_store_in_module(module: &'static str, ident: &'static str) -> Store {
     Store::new_heap(
         Def::new(module, ident),
-        "HEAP_STORE",
-        "schema_entity_relation_edge_heap_store",
         "schema_entity_relation_edge_heap_store",
         StoreHeapConfig::new(),
     )
@@ -106,11 +98,9 @@ fn entity_in_module(
 ) -> Entity {
     Entity::new(
         Def::new(module, ident),
-        ident,
         store_path,
         1,
         PrimaryKey::new(pk_fields, PrimaryKeySource::External),
-        None,
         &[],
         relations,
         &[],
@@ -147,7 +137,6 @@ fn entity_validation_checks_owned_relation_edges() {
     );
     let source_relations = Box::leak(
         vec![RelationEdge::new(
-            "author",
             "author",
             "schema_entity_relation_edge::User",
             &["author_tenant_id", "author_id"],
@@ -186,13 +175,12 @@ fn entity_validation_rejects_zero_schema_version() {
 }
 
 #[test]
-fn entity_validation_rejects_duplicate_field_source_keys() {
+fn entity_validation_rejects_duplicate_field_names() {
     let store_path = "schema_entity_relation_edge::Store";
     schema_write().insert_node(SchemaNode::Store(store(store_path)));
     let fields = Box::leak(
         vec![
             Field::new(
-                "field/shared",
                 "id",
                 Value::new(Cardinality::One, primitive_item(Primitive::Ulid)),
                 None,
@@ -200,8 +188,7 @@ fn entity_validation_rejects_duplicate_field_source_keys() {
                 None,
             ),
             Field::new(
-                "field/shared",
-                "name",
+                "id",
                 Value::new(Cardinality::One, primitive_item(Primitive::Text)),
                 None,
                 None,
@@ -214,12 +201,12 @@ fn entity_validation_rejects_duplicate_field_source_keys() {
 
     let error = source
         .validate()
-        .expect_err("duplicate field source identities must fail");
+        .expect_err("duplicate field names must fail");
 
     assert!(
         error
             .to_string()
-            .contains("duplicate field source key 'field/shared' within entity"),
+            .contains("duplicate field name 'id' within entity"),
     );
 }
 
@@ -329,7 +316,6 @@ fn entity_validation_rejects_durable_source_relation_edge_to_heap_target() {
     let source_relations = Box::leak(
         vec![RelationEdge::new(
             "author",
-            "author",
             "schema_entity_relation_edge_durable_to_heap::User",
             &["author_tenant_id", "author_id"],
         )]
@@ -363,8 +349,6 @@ fn entity_validation_reports_relation_edge_errors_under_relation_name() {
     let store_path = "schema_entity_relation_edge_error::Store";
     schema_write().insert_node(SchemaNode::Store(Store::new_journaled(
         Def::new("schema_entity_relation_edge_error", "Store"),
-        "STORE",
-        "schema_entity_relation_edge_error_store",
         store_path,
         StoreJournaledMemoryConfig::new(113, 114, 115, 116),
     )));
@@ -386,7 +370,6 @@ fn entity_validation_reports_relation_edge_errors_under_relation_name() {
     let source_fields = Box::leak(vec![field("author_id", Primitive::Ulid)].into_boxed_slice());
     let source_relations = Box::leak(
         vec![RelationEdge::new(
-            "author",
             "author",
             "schema_entity_relation_edge_error::User",
             &["author_id"],

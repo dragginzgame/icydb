@@ -1,4 +1,4 @@
-//! Immutable source identities and opaque proposal routing tokens.
+//! Current source names and opaque proposal routing tokens.
 
 use std::fmt::{self, Display, Formatter};
 
@@ -6,10 +6,7 @@ use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use sha2::{Digest, Sha256};
 
-use crate::{
-    MAX_SCHEMA_NAME_BYTES, MAX_SCHEMA_SUBMISSION_KEY_BYTES, MAX_SOURCE_KEY_BYTES,
-    SchemaContractError,
-};
+use crate::{MAX_SCHEMA_SUBMISSION_KEY_BYTES, MAX_SOURCE_KEY_BYTES, SchemaContractError};
 
 fn validate_source_key(value: &str) -> Result<(), SchemaContractError> {
     validate_bounded_identity(value, MAX_SOURCE_KEY_BYTES)?;
@@ -36,7 +33,7 @@ const fn validate_bounded_identity(value: &str, max: usize) -> Result<(), Schema
 
 macro_rules! source_key {
     ($name:ident) => {
-        #[doc = concat!("Immutable author identity for one ", stringify!($name), ".")]
+        #[doc = concat!("Typed proposal key derived from one current ", stringify!($name), " name.")]
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
         pub struct $name(String);
 
@@ -57,6 +54,10 @@ macro_rules! source_key {
             #[must_use]
             pub const fn as_str(&self) -> &str {
                 self.0.as_str()
+            }
+
+            pub(crate) fn from_name(name: &SchemaName) -> Self {
+                Self(name.0.clone())
             }
         }
 
@@ -100,7 +101,7 @@ source_key!(RelationSourceKey);
 source_key!(RuleSourceKey);
 
 impl ConstraintSourceKey {
-    /// Derive one immutable targeted-rule identity under a persisted root.
+    /// Derive one targeted-rule proposal key under a persisted root.
     ///
     /// The domain-separated digest keeps the result within the frozen source
     /// key bound even when every authored identity uses its maximum length.
@@ -133,7 +134,7 @@ fn hash_bounded_part(hasher: &mut Sha256, value: &str) {
     hasher.update(value.as_bytes());
 }
 
-/// Bounded editable SQL/display name.
+/// Bounded current schema name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct SchemaName(String);
 
@@ -142,14 +143,11 @@ impl SchemaName {
     ///
     /// # Errors
     ///
-    /// Returns a typed contract error for empty, oversized, or control-bearing
+    /// Returns a typed contract error for empty, oversized, or non-canonical
     /// input.
     pub fn try_new(value: impl Into<String>) -> Result<Self, SchemaContractError> {
         let value = value.into();
-        validate_bounded_identity(&value, MAX_SCHEMA_NAME_BYTES)?;
-        if value.chars().any(char::is_control) {
-            return Err(SchemaContractError::InvalidSourceKey);
-        }
+        validate_source_key(&value)?;
         Ok(Self(value))
     }
 
@@ -157,6 +155,10 @@ impl SchemaName {
     #[must_use]
     pub const fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    pub(crate) fn for_targeted_rule(source_key: &ConstraintSourceKey) -> Self {
+        Self(format!("__icydb_{}", source_key.as_str().replace(':', "_")))
     }
 }
 

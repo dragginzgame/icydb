@@ -220,9 +220,9 @@ mod tests {
     #[test]
     fn explicit_paths_are_removed_from_node_arguments_and_rewrite_output() {
         let mut input = args(quote!(
-            source_key = "fixture",
             model_crate = "model_api",
-            icydb_crate = "runtime_api"
+            icydb_crate = "runtime_api",
+            name = "fixture"
         ));
         let overrides = CratePathOverrides::extract(&mut input).expect("overrides should validate");
         let rewritten = rewrite_generated_paths(

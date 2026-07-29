@@ -54,15 +54,10 @@ fn targeted_field_rule_constraint_source_is_deterministic_bounded_and_frozen() {
 }
 
 fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
-    let entity_key = source("entity/user", EntitySourceKey::try_new);
-    let id_key = source("field/user/id", FieldSourceKey::try_new);
-    let age_key = source("field/user/age", FieldSourceKey::try_new);
-    let constraint_key = source(
-        "constraint/user/age_nonnegative",
-        ConstraintSourceKey::try_new,
-    );
+    let entity_key = source(entity_name, EntitySourceKey::try_new);
+    let id_key = source("id", FieldSourceKey::try_new);
+    let age_key = source("age", FieldSourceKey::try_new);
     let id = FieldFragment::new(
-        id_key.clone(),
         SchemaName::try_new("id").expect("fixture name should admit"),
         FieldType::Scalar(ScalarType::Nat64),
         false,
@@ -70,7 +65,6 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
         None,
     );
     let age = FieldFragment::new(
-        age_key.clone(),
         SchemaName::try_new("age").expect("fixture name should admit"),
         FieldType::Scalar(ScalarType::Int64),
         false,
@@ -84,7 +78,6 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
     ])
     .expect("fixture expression should admit");
     let constraint = ConstraintFragment::check(
-        constraint_key,
         SchemaName::try_new("age_nonnegative").expect("fixture name should admit"),
         expression,
     );
@@ -94,7 +87,6 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
         vec![id, age]
     };
     let entity = EntityFragment::try_new(
-        entity_key.clone(),
         SchemaName::try_new(entity_name).expect("fixture name should admit"),
         fields,
         vec![id_key],
@@ -126,31 +118,22 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
 }
 
 fn targeted_rule_fragment(target: TypeSourceKey) -> SchemaFragment {
-    let entity = source("entity/measurement", EntitySourceKey::try_new);
-    let id = source("field/measurement/id", FieldSourceKey::try_new);
-    let value = source("field/measurement/value", FieldSourceKey::try_new);
-    let value_type = source("type/measurement/value", TypeSourceKey::try_new);
-    let unrelated_type = source("type/measurement/unrelated", TypeSourceKey::try_new);
-    let rule = source("rule/measurement/range", RuleSourceKey::try_new);
-    let constraint_source = ConstraintSourceKey::for_targeted_field_rule(&value, &target, &rule);
-    let constraint = ConstraintFragment::targeted_rule(
-        constraint_source,
-        SchemaName::try_new("measurement_range").expect("fixture name should admit"),
-        TargetedRuleFragment::new(
-            value.clone(),
-            target,
-            SourceRuleOperation::NumericRangeInclusive {
-                min: ScalarLiteral::Nat(0),
-                max: ScalarLiteral::Nat(360),
-            },
-        ),
-    );
+    let id = source("id", FieldSourceKey::try_new);
+    let value = source("value", FieldSourceKey::try_new);
+    let value_type = source("MeasurementValue", TypeSourceKey::try_new);
+    let constraint = ConstraintFragment::targeted_rule(TargetedRuleFragment::new(
+        value,
+        target,
+        SchemaName::try_new("range").expect("fixture name should admit"),
+        SourceRuleOperation::NumericRangeInclusive {
+            min: ScalarLiteral::Nat(0),
+            max: ScalarLiteral::Nat(360),
+        },
+    ));
     let entity = EntityFragment::try_new(
-        entity,
         SchemaName::try_new("measurements").expect("fixture name should admit"),
         vec![
             FieldFragment::new(
-                id.clone(),
                 SchemaName::try_new("id").expect("fixture name should admit"),
                 FieldType::Scalar(ScalarType::Nat64),
                 false,
@@ -158,9 +141,8 @@ fn targeted_rule_fragment(target: TypeSourceKey) -> SchemaFragment {
                 None,
             ),
             FieldFragment::new(
-                value,
                 SchemaName::try_new("value").expect("fixture name should admit"),
-                FieldType::Named(value_type.clone()),
+                FieldType::Named(value_type),
                 false,
                 FieldInsertPolicy::Required,
                 None,
@@ -173,16 +155,14 @@ fn targeted_rule_fragment(target: TypeSourceKey) -> SchemaFragment {
     )
     .expect("targeted-rule entity should admit");
     let types = vec![
-        NamedTypeFragment::Newtype {
-            source_key: value_type,
-            name: SchemaName::try_new("MeasurementValue").expect("fixture name should admit"),
-            inner: FieldType::Scalar(ScalarType::Nat16),
-        },
-        NamedTypeFragment::Newtype {
-            source_key: unrelated_type,
-            name: SchemaName::try_new("UnrelatedValue").expect("fixture name should admit"),
-            inner: FieldType::Scalar(ScalarType::Nat16),
-        },
+        NamedTypeFragment::newtype(
+            SchemaName::try_new("MeasurementValue").expect("fixture name should admit"),
+            FieldType::Scalar(ScalarType::Nat16),
+        ),
+        NamedTypeFragment::newtype(
+            SchemaName::try_new("UnrelatedValue").expect("fixture name should admit"),
+            FieldType::Scalar(ScalarType::Nat16),
+        ),
     ];
     SchemaFragment::try_new(vec![entity], types).expect("targeted-rule fragment should admit")
 }
@@ -195,6 +175,10 @@ fn source_keys_are_nonempty_bounded_and_canonical() {
     );
     assert!(matches!(
         EntitySourceKey::try_new("x".repeat(MAX_SOURCE_KEY_BYTES + 1)),
+        Err(SchemaContractError::IdentityTooLong { .. })
+    ));
+    assert!(matches!(
+        SchemaName::try_new("x".repeat(MAX_SOURCE_KEY_BYTES + 1)),
         Err(SchemaContractError::IdentityTooLong { .. })
     ));
     assert_eq!(
@@ -225,9 +209,9 @@ fn proposal_construction_is_order_independent_and_roundtrips_exactly() {
 }
 
 #[test]
-fn targeted_rule_source_contract_roundtrips_in_the_current_v1_proposal() {
-    let entity = source("entity/measurement", EntitySourceKey::try_new);
-    let fragment = targeted_rule_fragment(source("type/measurement/value", TypeSourceKey::try_new));
+fn targeted_rule_source_contract_roundtrips_in_the_current_pre_1_proposal() {
+    let entity = source("measurements", EntitySourceKey::try_new);
+    let fragment = targeted_rule_fragment(source("MeasurementValue", TypeSourceKey::try_new));
     let proposal = SchemaProposal::try_compose(
         vec![SchemaCapability::ACCEPTED_CHECKS],
         TargetDatabaseIdentity::from_bytes([0x31; 32]),
@@ -248,15 +232,15 @@ fn targeted_rule_source_contract_roundtrips_in_the_current_v1_proposal() {
     else {
         panic!("current proposal should retain the targeted-rule kind")
     };
-    assert_eq!(rule.root().as_str(), "field/measurement/value");
-    assert_eq!(rule.target_type().as_str(), "type/measurement/value");
+    assert_eq!(rule.root().as_str(), "value");
+    assert_eq!(rule.target_type().as_str(), "MeasurementValue");
+    assert_eq!(rule.rule().as_str(), "range");
 }
 
 #[test]
 fn targeted_rule_rejects_an_unreachable_nominal_target() {
-    let entity = source("entity/measurement", EntitySourceKey::try_new);
-    let fragment =
-        targeted_rule_fragment(source("type/measurement/unrelated", TypeSourceKey::try_new));
+    let entity = source("measurements", EntitySourceKey::try_new);
+    let fragment = targeted_rule_fragment(source("UnrelatedValue", TypeSourceKey::try_new));
     let error = SchemaProposal::try_compose(
         vec![SchemaCapability::ACCEPTED_CHECKS],
         TargetDatabaseIdentity::from_bytes([0x41; 32]),
@@ -276,11 +260,11 @@ fn targeted_rule_rejects_an_unreachable_nominal_target() {
 }
 
 #[test]
-fn editable_rename_preserves_source_identity_but_changes_meaning_digest() {
+fn current_name_change_changes_proposal_key_and_meaning_digest() {
     let before = proposal("users", false);
     let after = proposal("accounts", false);
 
-    assert_eq!(
+    assert_ne!(
         before.fragments()[0].entities()[0].source_key(),
         after.fragments()[0].entities()[0].source_key(),
     );
@@ -399,12 +383,10 @@ fn removals_conflict_only_with_the_exact_defined_source_key() {
 }
 
 #[test]
-fn entity_local_references_and_editable_names_are_closed() {
-    let entity_key = source("entity/local", EntitySourceKey::try_new);
-    let id_key = source("field/local/id", FieldSourceKey::try_new);
-    let missing_key = source("field/local/missing", FieldSourceKey::try_new);
+fn entity_local_references_and_current_names_are_closed() {
+    let id_key = source("id", FieldSourceKey::try_new);
+    let missing_key = source("missing", FieldSourceKey::try_new);
     let id = FieldFragment::new(
-        id_key.clone(),
         SchemaName::try_new("id").expect("name should admit"),
         FieldType::Scalar(ScalarType::Nat64),
         false,
@@ -418,13 +400,11 @@ fn entity_local_references_and_editable_names_are_closed() {
     ])
     .expect("expression stack should admit");
     let constraint = ConstraintFragment::check(
-        source("constraint/local/check", ConstraintSourceKey::try_new),
         SchemaName::try_new("local_check").expect("name should admit"),
         expression,
     );
     assert_eq!(
         EntityFragment::try_new(
-            entity_key.clone(),
             SchemaName::try_new("local").expect("name should admit"),
             vec![id.clone()],
             vec![id_key.clone()],
@@ -436,7 +416,6 @@ fn entity_local_references_and_editable_names_are_closed() {
     );
 
     let duplicate_name = FieldFragment::new(
-        source("field/local/other", FieldSourceKey::try_new),
         SchemaName::try_new("id").expect("name should admit"),
         FieldType::Scalar(ScalarType::Text { max_len: None }),
         false,
@@ -445,7 +424,6 @@ fn entity_local_references_and_editable_names_are_closed() {
     );
     assert_eq!(
         EntityFragment::try_new(
-            entity_key,
             SchemaName::try_new("local").expect("name should admit"),
             vec![id, duplicate_name],
             vec![id_key],
@@ -453,7 +431,7 @@ fn entity_local_references_and_editable_names_are_closed() {
             Vec::new(),
             Vec::new(),
         ),
-        Err(SchemaContractError::DuplicateEditableName),
+        Err(SchemaContractError::DuplicateSourceKey),
     );
 }
 
@@ -461,14 +439,13 @@ fn entity_local_references_and_editable_names_are_closed() {
 fn named_collection_fragments_roundtrip_canonically() {
     let fragment = SchemaFragment::try_new(
         Vec::new(),
-        vec![NamedTypeFragment::Tuple {
-            source_key: source("type/point", TypeSourceKey::try_new),
-            name: SchemaName::try_new("Point").expect("name should admit"),
-            members: vec![
+        vec![NamedTypeFragment::tuple(
+            SchemaName::try_new("Point").expect("name should admit"),
+            vec![
                 TupleElementFragment::new(FieldType::Scalar(ScalarType::Int64), false),
                 TupleElementFragment::new(FieldType::Scalar(ScalarType::Int64), true),
             ],
-        }],
+        )],
     )
     .expect("tuple fragment should admit");
     let bytes = encode_schema_fragment(&fragment).expect("fragment should encode");
@@ -488,10 +465,8 @@ fn repeated_field_shape_rejects_excessive_inline_depth() {
 
     assert_eq!(
         RecordTypeFragment::try_new(
-            source("type/deep-list", TypeSourceKey::try_new),
             SchemaName::try_new("DeepList").expect("name should admit"),
             vec![RecordFieldFragment::new(
-                source("field/deep-list/value", FieldSourceKey::try_new),
                 SchemaName::try_new("value").expect("name should admit"),
                 field_type,
                 false,
@@ -505,13 +480,10 @@ fn entity_with_field(
     field_type: FieldType,
     insert_policy: FieldInsertPolicy,
 ) -> Result<EntityFragment, SchemaContractError> {
-    let entity = source("entity/field_holder", EntitySourceKey::try_new);
-    let field = source("field/field_holder/value", FieldSourceKey::try_new);
+    let field = source("value", FieldSourceKey::try_new);
     EntityFragment::try_new(
-        entity,
         SchemaName::try_new("FieldHolder").expect("name should admit"),
         vec![FieldFragment::new(
-            field.clone(),
             SchemaName::try_new("value").expect("name should admit"),
             field_type,
             false,
@@ -534,10 +506,8 @@ fn entity_with_default(
 
 fn record_with_field(field_type: FieldType) -> Result<RecordTypeFragment, SchemaContractError> {
     RecordTypeFragment::try_new(
-        source("type/record_holder", TypeSourceKey::try_new),
         SchemaName::try_new("RecordHolder").expect("name should admit"),
         vec![RecordFieldFragment::new(
-            source("field/record_holder/value", FieldSourceKey::try_new),
             SchemaName::try_new("value").expect("name should admit"),
             field_type,
             false,
@@ -687,13 +657,9 @@ fn invalid_exact_scalar_field_shapes_reject_before_composition() {
 
 #[test]
 fn one_entity_cannot_duplicate_a_managed_timestamp_policy() {
-    let entity = source("entity/audit", EntitySourceKey::try_new);
-    let id = source("field/audit/id", FieldSourceKey::try_new);
-    let created_a = source("field/audit/created_a", FieldSourceKey::try_new);
-    let created_b = source("field/audit/created_b", FieldSourceKey::try_new);
-    let managed = |source_key, name| {
+    let id = source("id", FieldSourceKey::try_new);
+    let managed = |name| {
         FieldFragment::new(
-            source_key,
             SchemaName::try_new(name).expect("name should admit"),
             FieldType::Scalar(ScalarType::Timestamp),
             false,
@@ -704,19 +670,17 @@ fn one_entity_cannot_duplicate_a_managed_timestamp_policy() {
 
     assert_eq!(
         EntityFragment::try_new(
-            entity,
             SchemaName::try_new("Audit").expect("name should admit"),
             vec![
                 FieldFragment::new(
-                    id.clone(),
                     SchemaName::try_new("id").expect("name should admit"),
                     FieldType::Scalar(ScalarType::Nat64),
                     false,
                     FieldInsertPolicy::Required,
                     None,
                 ),
-                managed(created_a, "created_a"),
-                managed(created_b, "created_b"),
+                managed("created_a"),
+                managed("created_b"),
             ],
             vec![id],
             Vec::new(),
@@ -762,15 +726,13 @@ fn compose_types(
 }
 
 #[test]
-fn source_keyed_enum_defaults_validate_against_local_type_and_variant() {
-    let enum_key = source("type/status", TypeSourceKey::try_new);
-    let active_key = source("variant/status/active", TypeSourceKey::try_new);
+fn current_named_enum_defaults_validate_against_local_type_and_variant() {
+    let enum_key = source("Status", TypeSourceKey::try_new);
+    let active_key = source("Active", TypeSourceKey::try_new);
     let enum_type = NamedTypeFragment::Enum(
         EnumTypeFragment::try_new(
-            enum_key.clone(),
             SchemaName::try_new("Status").expect("name should admit"),
             vec![EnumVariantFragment::new(
-                active_key.clone(),
                 SchemaName::try_new("Active").expect("name should admit"),
             )],
         )
@@ -801,7 +763,7 @@ fn source_keyed_enum_defaults_validate_against_local_type_and_variant() {
             vec![enum_type.clone()],
             vec![holder(
                 enum_key.clone(),
-                source("variant/status/missing", TypeSourceKey::try_new),
+                source("Missing", TypeSourceKey::try_new),
             )],
             ExpectedAcceptedHead::Empty,
             Vec::new(),
@@ -812,8 +774,8 @@ fn source_keyed_enum_defaults_validate_against_local_type_and_variant() {
         compose_schema(
             vec![enum_type],
             vec![holder(
-                source("type/other_status", TypeSourceKey::try_new),
-                source("variant/status/active", TypeSourceKey::try_new),
+                source("OtherStatus", TypeSourceKey::try_new),
+                source("Active", TypeSourceKey::try_new),
             )],
             ExpectedAcceptedHead::Empty,
             Vec::new(),
@@ -824,21 +786,19 @@ fn source_keyed_enum_defaults_validate_against_local_type_and_variant() {
 
 #[test]
 fn named_type_graphs_accept_resolved_cycles_and_long_chains() {
-    let a = source("type/a", TypeSourceKey::try_new);
-    let b = source("type/b", TypeSourceKey::try_new);
+    let a = source("A", TypeSourceKey::try_new);
+    let b = source("B", TypeSourceKey::try_new);
     assert!(
         compose_types(
             vec![
-                NamedTypeFragment::Newtype {
-                    source_key: a.clone(),
-                    name: SchemaName::try_new("A").expect("name should admit"),
-                    inner: FieldType::Named(b.clone()),
-                },
-                NamedTypeFragment::Newtype {
-                    source_key: b,
-                    name: SchemaName::try_new("B").expect("name should admit"),
-                    inner: FieldType::Named(a),
-                },
+                NamedTypeFragment::newtype(
+                    SchemaName::try_new("A").expect("name should admit"),
+                    FieldType::Named(b),
+                ),
+                NamedTypeFragment::newtype(
+                    SchemaName::try_new("B").expect("name should admit"),
+                    FieldType::Named(a),
+                ),
             ],
             ExpectedAcceptedHead::Empty,
             Vec::new(),
@@ -848,30 +808,28 @@ fn named_type_graphs_accept_resolved_cycles_and_long_chains() {
 
     let mut deep = Vec::new();
     for ordinal in 0..=MAX_SCHEMA_FIELD_TYPE_DEPTH {
-        deep.push(NamedTypeFragment::Newtype {
-            source_key: source(&format!("type/deep/{ordinal:03}"), TypeSourceKey::try_new),
-            name: SchemaName::try_new(format!("Deep{ordinal:03}")).expect("name should admit"),
-            inner: if ordinal == MAX_SCHEMA_FIELD_TYPE_DEPTH {
+        deep.push(NamedTypeFragment::newtype(
+            SchemaName::try_new(format!("Deep{ordinal:03}")).expect("name should admit"),
+            if ordinal == MAX_SCHEMA_FIELD_TYPE_DEPTH {
                 FieldType::Scalar(ScalarType::Unit)
             } else {
                 FieldType::Named(source(
-                    &format!("type/deep/{:03}", ordinal + 1),
+                    &format!("Deep{:03}", ordinal + 1),
                     TypeSourceKey::try_new,
                 ))
             },
-        });
+        ));
     }
     assert!(compose_types(deep, ExpectedAcceptedHead::Empty, Vec::new()).is_ok());
 }
 
 #[test]
 fn unresolved_expected_head_references_are_deferred_but_never_removed() {
-    let external = source("type/external", TypeSourceKey::try_new);
-    let local = NamedTypeFragment::Newtype {
-        source_key: source("type/local", TypeSourceKey::try_new),
-        name: SchemaName::try_new("Local").expect("name should admit"),
-        inner: FieldType::Named(external.clone()),
-    };
+    let external = source("External", TypeSourceKey::try_new);
+    let local = NamedTypeFragment::newtype(
+        SchemaName::try_new("Local").expect("name should admit"),
+        FieldType::Named(external.clone()),
+    );
     assert_eq!(
         compose_types(vec![local.clone()], ExpectedAcceptedHead::Empty, Vec::new(),),
         Err(SchemaContractError::InvalidLocalReference),
@@ -897,26 +855,23 @@ fn relation_entities(
     EntitySourceKey,
     FieldSourceKey,
 ) {
-    let target_entity = source("entity/relation_target", EntitySourceKey::try_new);
-    let target_id = source("field/relation_target/id", FieldSourceKey::try_new);
-    let source_entity = source("entity/relation_source", EntitySourceKey::try_new);
-    let source_id = source("field/relation_source/id", FieldSourceKey::try_new);
-    let source_target = source("field/relation_source/target", FieldSourceKey::try_new);
+    let target_entity = source("RelationTarget", EntitySourceKey::try_new);
+    let target_id = source("id", FieldSourceKey::try_new);
+    let source_entity = source("RelationSource", EntitySourceKey::try_new);
+    let source_id = source("id", FieldSourceKey::try_new);
+    let source_target = source("target", FieldSourceKey::try_new);
     let relation = RelationFragment::try_new(
-        source("relation/source/target", crate::RelationSourceKey::try_new),
         SchemaName::try_new("target").expect("name should admit"),
-        vec![source_target.clone()],
+        vec![source_target],
         target_entity.clone(),
         vec![target_id.clone()],
         RelationDeleteAction::Restrict,
     )
     .expect("relation should admit");
     let source_definition = EntityFragment::try_new(
-        source_entity.clone(),
         SchemaName::try_new("RelationSource").expect("name should admit"),
         vec![
             FieldFragment::new(
-                source_id.clone(),
                 SchemaName::try_new("id").expect("name should admit"),
                 FieldType::Scalar(ScalarType::Nat64),
                 false,
@@ -924,7 +879,6 @@ fn relation_entities(
                 None,
             ),
             FieldFragment::new(
-                source_target,
                 SchemaName::try_new("target").expect("name should admit"),
                 FieldType::Scalar(source_kind),
                 false,
@@ -948,10 +902,8 @@ fn relation_entities(
     )];
     if include_target {
         let target_definition = EntityFragment::try_new(
-            target_entity.clone(),
             SchemaName::try_new("RelationTarget").expect("name should admit"),
             vec![FieldFragment::new(
-                target_id.clone(),
                 SchemaName::try_new("id").expect("name should admit"),
                 FieldType::Scalar(target_kind),
                 false,
@@ -1077,8 +1029,8 @@ fn proposal_digest_has_a_fixed_current_form_vector() {
             .expect("proposal should hash")
             .to_bytes(),
         [
-            134, 76, 92, 254, 145, 166, 170, 182, 33, 164, 119, 141, 33, 196, 122, 98, 18, 183,
-            158, 59, 119, 13, 254, 237, 182, 81, 224, 136, 187, 243, 194, 138,
+            77, 183, 204, 33, 239, 212, 153, 86, 47, 229, 95, 166, 238, 6, 46, 18, 171, 20, 185,
+            240, 219, 176, 79, 32, 45, 146, 197, 171, 76, 55, 32, 65,
         ],
     );
 }

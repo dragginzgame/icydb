@@ -30,7 +30,6 @@ fn relation_item(target_path: &'static str, primitive: Primitive) -> Item {
 fn field(ident: &'static str, primitive: Primitive) -> Field {
     Field::new(
         ident,
-        ident,
         Value::new(Cardinality::One, primitive_item(primitive)),
         None,
         None,
@@ -65,11 +64,9 @@ fn insert_entity(
     let path = Box::leak(format!("{module}::{ident}").into_boxed_str());
     schema_write().insert_node(SchemaNode::Entity(Entity::new(
         Def::new(module, ident),
-        ident,
         "SchemaItemRelationStore",
         1,
         PrimaryKey::new(pk_fields, PrimaryKeySource::External),
-        None,
         &[],
         &[],
         &[],
@@ -222,7 +219,6 @@ fn scalar_relation_target_validation_accepts_matching_scalar_kind() {
 #[test]
 fn scalar_relation_target_from_field_preserves_metadata_descriptor() {
     let field = Field::new(
-        "id",
         "id",
         Value::new(
             Cardinality::One,

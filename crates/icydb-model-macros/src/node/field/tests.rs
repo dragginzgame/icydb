@@ -9,14 +9,12 @@ use crate::{
     node::{Arg, Item},
 };
 use darling::{FromMeta, ast::NestedMeta};
-use proc_macro2::Span;
 use quote::{format_ident, quote};
-use syn::{LitStr, parse_quote};
+use syn::parse_quote;
 
 fn field(ident: &str, primitive: Primitive) -> Field {
     Field {
-        source_key: LitStr::new(ident, Span::call_site()),
-        ident: format_ident!("{ident}"),
+        name: format_ident!("{ident}"),
         value: Value {
             item: Item {
                 primitive: Some(primitive),
@@ -41,7 +39,7 @@ fn relation_fields_require_canonical_identity_suffixes() {
         .expect_err("one relation without the identity suffix must reject");
     assert!(error.to_string().contains("must end with '_id'"));
 
-    relation.ident = format_ident!("user_id");
+    relation.name = format_ident!("user_id");
     relation
         .validate()
         .expect("canonical relation identity suffix should validate");

@@ -7,7 +7,7 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct Record {
     def: Def,
-    source_key: &'static str,
+    name: &'static str,
     fields: FieldList,
     ty: Type,
 }
@@ -15,10 +15,10 @@ pub struct Record {
 impl Record {
     /// Creates a record node from its canonical schema parts.
     #[must_use]
-    pub const fn new(def: Def, source_key: &'static str, fields: FieldList, ty: Type) -> Self {
+    pub const fn new(def: Def, name: &'static str, fields: FieldList, ty: Type) -> Self {
         Self {
             def,
-            source_key,
+            name,
             fields,
             ty,
         }
@@ -30,10 +30,10 @@ impl Record {
         &self.def
     }
 
-    /// Returns the immutable type source key.
+    /// Returns the current declared type name.
     #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
+    pub const fn name(&self) -> &'static str {
+        self.name
     }
 
     /// Returns the record field list.
@@ -58,20 +58,16 @@ impl MacroNode for Record {
 impl ValidateNode for Record {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "record type",
-            self.source_key(),
+            self.name(),
             icydb_schema::TypeSourceKey::try_new,
         );
         let mut seen = std::collections::BTreeSet::new();
         for field in self.fields().fields() {
-            if !seen.insert(field.source_key()) {
-                err!(
-                    errs,
-                    "duplicate record field source key '{}'",
-                    field.source_key(),
-                );
+            if !seen.insert(field.name()) {
+                err!(errs, "duplicate record field name '{}'", field.name(),);
             }
         }
         errs.result()

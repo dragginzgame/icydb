@@ -12,11 +12,7 @@ use crate::prelude::*;
 /// Duration wrapper expressed in milliseconds.
 ///
 
-#[newtype(
-    source_key = "crates/icydb/src/base/types/time.rs::newtype::1",
-    primitive = "Nat64",
-    item(prim = "Nat64")
-)]
+#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Milliseconds {}
 
 ///
@@ -25,11 +21,7 @@ pub struct Milliseconds {}
 /// Duration wrapper expressed in seconds.
 ///
 
-#[newtype(
-    source_key = "crates/icydb/src/base/types/time.rs::newtype::2",
-    primitive = "Nat64",
-    item(prim = "Nat64")
-)]
+#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Seconds {}
 
 ///
@@ -38,9 +30,5 @@ pub struct Seconds {}
 /// Duration wrapper expressed in minutes.
 ///
 
-#[newtype(
-    source_key = "crates/icydb/src/base/types/time.rs::newtype::3",
-    primitive = "Nat64",
-    item(prim = "Nat64")
-)]
+#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Minutes {}

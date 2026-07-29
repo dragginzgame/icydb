@@ -24,8 +24,8 @@ impl FieldWalkBinding {
     #[must_use]
     pub fn from_field(field: &Field) -> Self {
         Self {
-            ident: field.ident.clone(),
-            name: field.ident.to_string(),
+            ident: field.name.clone(),
+            name: field.name.to_string(),
         }
     }
 

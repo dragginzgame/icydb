@@ -15,155 +15,88 @@ use model_api::{
 )]
 pub struct SchemaOnlyCanister {}
 
-#[store(
-    ident = "SCHEMA_ONLY_STORE",
-    store_name = "schema_only",
-    canister = "SchemaOnlyCanister",
-    storage(heap())
-)]
+#[store(canister = "SchemaOnlyCanister", storage(heap()))]
 pub struct SchemaOnlyStore {}
 
-#[record(
-    source_key = "fixture/model-schema-only/profile",
-    fields(field(source_key = "website", ident = "website", value(item(is = "Url"))))
-)]
+#[record(fields(field(name = "website", value(item(is = "Url")))))]
 pub struct SchemaOnlyProfile {}
 
-#[enum_(
-    source_key = "fixture/model-schema-only/state",
-    variant(source_key = "active", ident = "Active"),
-    variant(source_key = "disabled", ident = "Disabled")
-)]
+#[enum_(variant(name = "Active"), variant(name = "Disabled"))]
 pub struct SchemaOnlyState {}
 
-#[newtype(
-    source_key = "fixture/model-schema-only/field-key",
-    primitive = "Text",
-    item(prim = "Text", max_len = 64)
-)]
+#[newtype(primitive = "Text", item(prim = "Text", max_len = 64))]
 pub struct FieldKey {}
 
-#[map(
-    source_key = "fixture/model-schema-only/values",
-    key(is = "FieldKey"),
-    value(item(is = "FieldValue"))
-)]
+#[map(key(is = "FieldKey"), value(item(is = "FieldValue")))]
 pub struct Values {}
 
 #[enum_(
-    source_key = "fixture/model-schema-only/field-value",
-    variant(source_key = "one", ident = "One", value(item(indirect, is = "Value"))),
-    variant(
-        source_key = "many",
-        ident = "Many",
-        value(many, item(indirect, is = "Value"))
-    )
+    variant(name = "One", value(item(indirect, is = "Value"))),
+    variant(name = "Many", value(many, item(indirect, is = "Value")))
 )]
 pub struct FieldValue {}
 
 #[enum_(
-    source_key = "fixture/model-schema-only/value",
-    variant(
-        source_key = "text",
-        ident = "Text",
-        value(item(prim = "Text", max_len = 128))
-    ),
-    variant(source_key = "degrees", ident = "Degrees", value(item(is = "Degrees"))),
-    variant(
-        source_key = "record",
-        ident = "Record",
-        value(item(indirect, is = "Values"))
-    )
+    name = "SchemaOnlyValue",
+    variant(name = "Text", value(item(prim = "Text", max_len = 128))),
+    variant(name = "Degrees", value(item(is = "Degrees"))),
+    variant(name = "Record", value(item(indirect, is = "Values")))
 )]
 pub struct Value {}
 
-#[newtype(
-    source_key = "fixture/model-schema-only/tokens",
-    primitive = "Nat64",
-    item(prim = "Nat64")
-)]
+#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Tokens {}
 
 #[newtype(
-    source_key = "fixture/model-schema-only/token-amount",
+    name = "SchemaOnlyTokenAmount",
     primitive = "Nat64",
     item(prim = "Nat64")
 )]
 pub struct TokenAmount {}
 
-#[newtype(
-    source_key = "fixture/model-schema-only/tier",
-    primitive = "Text",
-    item(prim = "Text", max_len = 32)
-)]
+#[newtype(primitive = "Text", item(prim = "Text", max_len = 32))]
 pub struct Tier {}
 
 #[enum_(
-    source_key = "fixture/model-schema-only/claim-cost",
-    variant(source_key = "free", ident = "Free"),
-    variant(source_key = "icp", ident = "Icp", value(item(is = "crate::Tokens"))),
-    variant(
-        source_key = "icrc1",
-        ident = "Icrc1",
-        value(item(is = "crate::TokenAmount"))
-    )
+    variant(name = "Free"),
+    variant(name = "Icp", value(item(is = "crate::Tokens"))),
+    variant(name = "Icrc1", value(item(is = "crate::TokenAmount")))
 )]
 pub struct ClaimCost {}
 
-#[map(
-    source_key = "fixture/model-schema-only/claim-cost-tiers",
-    key(is = "Tier"),
-    value(item(is = "crate::ClaimCost"))
-)]
+#[map(key(is = "Tier"), value(item(is = "crate::ClaimCost")))]
 pub struct ClaimCostTiers {}
 
-#[record(
-    source_key = "fixture/model-schema-only/collection-policy",
-    fields(
-        field(source_key = "values", ident = "values", value(item(is = "Values"))),
-        field(
-            source_key = "fallback",
-            ident = "fallback",
-            value(opt, item(is = "Value"))
-        ),
-        field(
-            source_key = "claim-cost-tiers",
-            ident = "claim_cost_tiers",
-            value(item(is = "ClaimCostTiers"))
-        )
-    )
-)]
+#[record(fields(
+    field(name = "values", value(item(is = "Values"))),
+    field(name = "fallback", value(opt, item(is = "Value"))),
+    field(name = "claim_cost_tiers", value(item(is = "ClaimCostTiers")))
+))]
 pub struct CollectionPolicy {}
 
 #[entity(
-    source_key = "fixture/model-schema-only/entity",
     store = "SchemaOnlyStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
         field(
-            source_key = "id",
-            ident = "id",
+            name = "id",
             value(item(prim = "Nat64"))
         ),
         field(
-            source_key = "state",
-            ident = "state",
+            name = "state",
             value(item(is = "SchemaOnlyState"))
         ),
         field(
-            source_key = "profile",
-            ident = "profile",
+            name = "profile",
             value(item(is = "SchemaOnlyProfile"))
         ),
         field(
-            source_key = "degrees",
-            ident = "degrees",
+            name = "degrees",
             value(item(is = "Degrees"))
         ),
         field(
-            source_key = "policy",
-            ident = "policy",
+            name = "policy",
             value(item(is = "CollectionPolicy"))
         )
     )
@@ -183,10 +116,8 @@ mod tests {
     use model_api::Path as _;
 
     fn assert_targeted_degrees_rules(fragment: &SchemaFragment) {
-        let degrees_type = TypeSourceKey::try_new("crates/icydb/src/base/types/num.rs::newtype::1")
-            .expect("type source");
-        let rule_source = RuleSourceKey::try_new("icydb.base.rule.num.degrees.range.v1")
-            .expect("base rule source should admit");
+        let degrees_type = TypeSourceKey::try_new("Degrees").expect("type source");
+        let rule_source = RuleSourceKey::try_new("range").expect("base rule source should admit");
         for (root, source) in ["degrees", "policy"].map(|root| {
             let field = FieldSourceKey::try_new(root).expect("fixture field source should admit");
             let source =
@@ -226,9 +157,7 @@ mod tests {
                 .find(|candidate| candidate.source_key().as_str() == source_key)
                 .expect("reachable named type should be present")
         };
-        let NamedTypeFragment::Enum(field_value) =
-            named_type("fixture/model-schema-only/field-value")
-        else {
+        let NamedTypeFragment::Enum(field_value) = named_type("FieldValue") else {
             panic!("FieldValue should remain an enum")
         };
         let many = field_value
@@ -243,10 +172,10 @@ mod tests {
                 if matches!(
                     item.as_ref(),
                     FieldType::Named(source)
-                        if source.as_str() == "fixture/model-schema-only/value"
+                        if source.as_str() == "SchemaOnlyValue"
                 )
         ));
-        let NamedTypeFragment::Enum(value) = named_type("fixture/model-schema-only/value") else {
+        let NamedTypeFragment::Enum(value) = named_type("SchemaOnlyValue") else {
             panic!("Value should remain an enum")
         };
         assert!(matches!(
@@ -256,17 +185,14 @@ mod tests {
                 .find(|variant| variant.name().as_str() == "Record")
                 .and_then(model_api::schema::EnumVariantFragment::payload),
             Some(FieldType::Named(source))
-                if source.as_str() == "fixture/model-schema-only/values"
+                if source.as_str() == "Values"
         ));
-        let NamedTypeFragment::Enum(claim_cost) =
-            named_type("fixture/model-schema-only/claim-cost")
-        else {
+        let NamedTypeFragment::Enum(claim_cost) = named_type("ClaimCost") else {
             panic!("ClaimCost should remain an enum")
         };
-        for (variant_name, payload_source) in [
-            ("Icp", "fixture/model-schema-only/tokens"),
-            ("Icrc1", "fixture/model-schema-only/token-amount"),
-        ] {
+        for (variant_name, payload_source) in
+            [("Icp", "Tokens"), ("Icrc1", "SchemaOnlyTokenAmount")]
+        {
             assert!(matches!(
                 claim_cost
                     .variants()

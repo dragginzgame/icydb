@@ -73,15 +73,15 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
     let entity_stores = builder
         .get_entities()
         .into_iter()
-        .map(|(_, entity)| (entity.source_key().to_owned(), entity.store().to_owned()))
+        .map(|(_, entity)| (entity.name().to_owned(), entity.store().to_owned()))
         .collect::<Vec<_>>();
-    let entity_source_keys = entity_stores.iter().map(|(source, _)| source);
+    let entity_names = entity_stores.iter().map(|(name, _)| name);
     let store_paths = entity_stores.iter().map(|(_, store)| store);
 
     quote! {
         const ICYDB_SCHEMA_FRAGMENT: &[u8] = &[#(#fragment_bytes),*];
         const ICYDB_SCHEMA_ENTITY_STORES: &[(&str, &str)] = &[
-            #((#entity_source_keys, #store_paths)),*
+            #((#entity_names, #store_paths)),*
         ];
 
         fn ensure_schema_application(
@@ -115,9 +115,15 @@ fn store_registry_tokens(
     let mut journal_defs = quote!();
     let mut store_inits = quote!();
 
-    for (store_path, store) in builder.get_stores() {
+    for (store_ordinal, (store_path, store)) in builder.get_stores().into_iter().enumerate() {
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(&store_path, &store, memory_namespace, memory_authority);
+            store_registry_entry_tokens(
+                store_ordinal,
+                &store_path,
+                &store,
+                memory_namespace,
+                memory_authority,
+            );
         journal_defs.extend(journal_def);
         data_defs.extend(data_def);
         index_defs.extend(index_def);
@@ -137,6 +143,7 @@ fn store_registry_tokens(
 
 /// Render one store registry entry into data/index/schema cells plus registration.
 fn store_registry_entry_tokens(
+    store_ordinal: usize,
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
@@ -149,8 +156,11 @@ fn store_registry_entry_tokens(
     TokenStream,
 ) {
     match store.storage() {
-        StoreStorage::Heap(config) => heap_store_registry_entry_tokens(store_path, store, *config),
+        StoreStorage::Heap(config) => {
+            heap_store_registry_entry_tokens(store_ordinal, store_path, *config)
+        }
         StoreStorage::Journaled(config) => journaled_store_registry_entry_tokens(
+            store_ordinal,
             store_path,
             store,
             memory_namespace,
@@ -158,6 +168,10 @@ fn store_registry_entry_tokens(
             *config,
         ),
     }
+}
+
+fn store_cell_ident(store_ordinal: usize, role: &str) -> Ident {
+    format_ident!("__ICYDB_STORE_{store_ordinal}_{role}")
 }
 
 fn stable_store_cell_tokens(
@@ -212,8 +226,8 @@ fn journaled_store_cell_tokens(
 
 /// Render one volatile heap store registry entry into data/index/schema cells plus registration.
 fn heap_store_registry_entry_tokens(
+    store_ordinal: usize,
     store_path: &str,
-    store: &Store,
     _heap: StoreHeapConfig,
 ) -> (
     TokenStream,
@@ -222,9 +236,9 @@ fn heap_store_registry_entry_tokens(
     TokenStream,
     TokenStream,
 ) {
-    let data_cell_ident = format_ident!("{}_DATA", store.ident());
-    let index_cell_ident = format_ident!("{}_INDEX", store.ident());
-    let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
+    let data_cell_ident = store_cell_ident(store_ordinal, "DATA");
+    let index_cell_ident = store_cell_ident(store_ordinal, "INDEX");
+    let schema_cell_ident = store_cell_ident(store_ordinal, "SCHEMA");
 
     let data_def = quote! {
         thread_local! {
@@ -271,6 +285,7 @@ fn heap_store_registry_entry_tokens(
 /// Render one journaled cached-stable store registry entry into canonical
 /// stable data/index/schema cells, a journal-tail declaration, and registration.
 fn journaled_store_registry_entry_tokens(
+    store_ordinal: usize,
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
@@ -283,9 +298,9 @@ fn journaled_store_registry_entry_tokens(
     TokenStream,
     TokenStream,
 ) {
-    let data_cell_ident = format_ident!("{}_DATA", store.ident());
-    let index_cell_ident = format_ident!("{}_INDEX", store.ident());
-    let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
+    let data_cell_ident = store_cell_ident(store_ordinal, "DATA");
+    let index_cell_ident = store_cell_ident(store_ordinal, "INDEX");
+    let schema_cell_ident = store_cell_ident(store_ordinal, "SCHEMA");
     let data_allocation = store.stable_data_allocation(memory_namespace);
     let index_allocation = store.stable_index_allocation(memory_namespace);
     let schema_allocation = store.stable_schema_allocation(memory_namespace);
@@ -299,7 +314,7 @@ fn journaled_store_registry_entry_tokens(
     let schema_stable_key = schema_allocation.stable_key();
     let journal_stable_key = journal_allocation.stable_key();
 
-    let journal_cell_ident = format_ident!("{}_JOURNAL", store.ident());
+    let journal_cell_ident = store_cell_ident(store_ordinal, "JOURNAL");
     let journal_def = stable_store_cell_tokens(
         &journal_cell_ident,
         quote!(::icydb::__macro::JournalTailStore),
@@ -506,8 +521,6 @@ mod tests {
     fn heap_store() -> Store {
         Store::new_heap(
             Def::new("demo::schema", "ScratchStore"),
-            "SCRATCH_STORE",
-            "scratch",
             "demo::schema::DemoCanister",
             StoreHeapConfig::new(),
         )
@@ -516,8 +529,6 @@ mod tests {
     fn journaled_store() -> Store {
         Store::new_journaled(
             Def::new("demo::schema", "JournaledStore"),
-            "JOURNALED_STORE",
-            "journaled",
             "demo::schema::DemoCanister",
             StoreJournaledMemoryConfig::new(20, 21, 22, 23),
         )
@@ -527,7 +538,13 @@ mod tests {
     fn heap_store_wiring_uses_heap_initializers_and_absent_allocation_identity() {
         let store = heap_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens("demo::schema::ScratchStore", &store, "demo", "icydb.demo");
+            store_registry_entry_tokens(
+                0,
+                "demo::schema::ScratchStore",
+                &store,
+                "demo",
+                "icydb.demo",
+            );
         let rendered = quote! {
             #journal_def
             #data_def
@@ -542,6 +559,9 @@ mod tests {
         assert!(rendered.contains("SchemaStore :: init_heap"));
         assert!(rendered.contains("StoreAllocationIdentities :: absent"));
         assert!(rendered.contains("StoreRuntimeStorageCapabilities :: heap"));
+        assert!(rendered.contains("__ICYDB_STORE_0_DATA"));
+        assert!(rendered.contains("__ICYDB_STORE_0_INDEX"));
+        assert!(rendered.contains("__ICYDB_STORE_0_SCHEMA"));
         assert_eq!(rendered.matches("ic_memory_key").count(), 0);
         assert_eq!(
             rendered.matches("StoreAllocationIdentity :: new").count(),
@@ -555,6 +575,7 @@ mod tests {
         let store = journaled_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
             store_registry_entry_tokens(
+                0,
                 "demo::schema::JournaledStore",
                 &store,
                 "demo",
@@ -586,10 +607,10 @@ mod tests {
                 "journaled store wiring should render {expected}: {rendered}"
             );
         }
-        assert!(rendered.contains("icydb.demo.journaled.data.v1"));
-        assert!(rendered.contains("icydb.demo.journaled.index.v1"));
-        assert!(rendered.contains("icydb.demo.journaled.schema.v1"));
-        assert!(rendered.contains("icydb.demo.journaled.journal.v1"));
+        assert!(rendered.contains("icydb.demo.memory_20.data.v1"));
+        assert!(rendered.contains("icydb.demo.memory_21.index.v1"));
+        assert!(rendered.contains("icydb.demo.memory_22.schema.v1"));
+        assert!(rendered.contains("icydb.demo.memory_23.journal.v1"));
         assert!(!rendered.contains("init_heap"));
     }
 
@@ -598,6 +619,7 @@ mod tests {
         let mut store_inits = quote!();
         store_inits.extend(
             store_registry_entry_tokens(
+                0,
                 "demo::schema::ScratchStore",
                 &heap_store(),
                 "demo",

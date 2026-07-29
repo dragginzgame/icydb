@@ -9,7 +9,7 @@ use crate::{
     ConstraintSourceKey, Decimal, EntitySourceKey, FieldSourceKey, IndexSourceKey,
     MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS, MAX_FRAGMENT_INDEXES,
     MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_FIELD_TYPE_DEPTH, RelationSourceKey,
-    ScalarKind, ScalarLiteral, SchemaContractError, SchemaName, SourceCheckExpr,
+    RuleSourceKey, ScalarKind, ScalarLiteral, SchemaContractError, SchemaName, SourceCheckExpr,
     SourceRuleOperation, TypeSourceKey,
 };
 
@@ -221,7 +221,7 @@ pub enum FieldManagementPolicy {
     UpdatedAt,
 }
 
-/// One field definition keyed by immutable authorship identity.
+/// One field definition keyed by its current source name.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FieldFragment {
     source_key: FieldSourceKey,
@@ -235,8 +235,7 @@ pub struct FieldFragment {
 impl FieldFragment {
     /// Construct one field definition.
     #[must_use]
-    pub const fn new(
-        source_key: FieldSourceKey,
+    pub fn new(
         name: SchemaName,
         field_type: FieldType,
         nullable: bool,
@@ -244,7 +243,7 @@ impl FieldFragment {
         management: Option<FieldManagementPolicy>,
     ) -> Self {
         Self {
-            source_key,
+            source_key: FieldSourceKey::from_name(&name),
             name,
             field_type,
             nullable,
@@ -253,13 +252,13 @@ impl FieldFragment {
         }
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current field name.
     #[must_use]
     pub const fn source_key(&self) -> &FieldSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable field name.
+    /// Borrow the current field name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -290,6 +289,7 @@ impl FieldFragment {
     }
 
     pub(crate) fn validate(&self) -> Result<(), SchemaContractError> {
+        ensure_current_name_key(self.source_key.as_str(), &self.name)?;
         self.field_type.validate()?;
         if let FieldInsertPolicy::Default(literal) = &self.insert_policy {
             literal.validate()?;
@@ -373,7 +373,6 @@ impl IndexFragment {
     ///
     /// Returns a typed reference-list error when no key component is present.
     pub fn try_new(
-        source_key: IndexSourceKey,
         name: SchemaName,
         key: Vec<IndexKeyFragment>,
         unique: bool,
@@ -386,7 +385,7 @@ impl IndexFragment {
             predicate.validate()?;
         }
         Ok(Self {
-            source_key,
+            source_key: IndexSourceKey::from_name(&name),
             name,
             key,
             unique,
@@ -394,13 +393,13 @@ impl IndexFragment {
         })
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current index name.
     #[must_use]
     pub const fn source_key(&self) -> &IndexSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable index name.
+    /// Borrow the current index name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -425,18 +424,17 @@ impl IndexFragment {
     }
 
     fn validate(&self) -> Result<(), SchemaContractError> {
-        Self::try_new(
-            self.source_key.clone(),
+        let rebuilt = Self::try_new(
             self.name.clone(),
             self.key.clone(),
             self.unique,
             self.predicate.clone(),
-        )
-        .map(|_| ())
+        )?;
+        ensure_canonical_rebuild(self, &rebuilt)
     }
 }
 
-/// Maintained referential action in proposal version 1.
+/// Maintained referential action in the current proposal contract.
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RelationDeleteAction {
     /// Reject deletion while a source row refers to the target.
@@ -462,7 +460,6 @@ impl RelationFragment {
     /// Returns a typed reference-list error for empty or arity-mismatched
     /// components.
     pub fn try_new(
-        source_key: RelationSourceKey,
         name: SchemaName,
         local_fields: Vec<FieldSourceKey>,
         target_entity: EntitySourceKey,
@@ -475,7 +472,7 @@ impl RelationFragment {
         ensure_unique(&local_fields)?;
         ensure_unique(&target_fields)?;
         Ok(Self {
-            source_key,
+            source_key: RelationSourceKey::from_name(&name),
             name,
             local_fields,
             target_entity,
@@ -484,13 +481,13 @@ impl RelationFragment {
         })
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current relation name.
     #[must_use]
     pub const fn source_key(&self) -> &RelationSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable relation name.
+    /// Borrow the current relation name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -521,15 +518,14 @@ impl RelationFragment {
     }
 
     fn validate(&self) -> Result<(), SchemaContractError> {
-        Self::try_new(
-            self.source_key.clone(),
+        let rebuilt = Self::try_new(
             self.name.clone(),
             self.local_fields.clone(),
             self.target_entity.clone(),
             self.target_fields.clone(),
             self.on_delete,
-        )
-        .map(|_| ())
+        )?;
+        ensure_canonical_rebuild(self, &rebuilt)
     }
 }
 
@@ -556,20 +552,23 @@ impl ConstraintFragmentKind {
 pub struct TargetedRuleFragment {
     root: FieldSourceKey,
     target_type: TypeSourceKey,
+    rule: RuleSourceKey,
     operation: SourceRuleOperation,
 }
 
 impl TargetedRuleFragment {
     /// Construct one targeted rule below a persisted root field.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         root: FieldSourceKey,
         target_type: TypeSourceKey,
+        rule: SchemaName,
         operation: SourceRuleOperation,
     ) -> Self {
         Self {
             root,
             target_type,
+            rule: RuleSourceKey::from_name(&rule),
             operation,
         }
     }
@@ -584,6 +583,12 @@ impl TargetedRuleFragment {
     #[must_use]
     pub const fn target_type(&self) -> &TypeSourceKey {
         &self.target_type
+    }
+
+    /// Borrow the current durable-rule name as a typed proposal key.
+    #[must_use]
+    pub const fn rule(&self) -> &RuleSourceKey {
+        &self.rule
     }
 
     /// Borrow the closed durable operation.
@@ -608,13 +613,9 @@ pub struct ConstraintFragment {
 impl ConstraintFragment {
     /// Construct one general source check.
     #[must_use]
-    pub const fn check(
-        source_key: ConstraintSourceKey,
-        name: SchemaName,
-        expression: SourceCheckExpr,
-    ) -> Self {
+    pub fn check(name: SchemaName, expression: SourceCheckExpr) -> Self {
         Self {
-            source_key,
+            source_key: ConstraintSourceKey::from_name(&name),
             name,
             kind: ConstraintFragmentKind::Check(expression),
         }
@@ -622,11 +623,13 @@ impl ConstraintFragment {
 
     /// Construct one source-bound targeted durable rule.
     #[must_use]
-    pub const fn targeted_rule(
-        source_key: ConstraintSourceKey,
-        name: SchemaName,
-        rule: TargetedRuleFragment,
-    ) -> Self {
+    pub fn targeted_rule(rule: TargetedRuleFragment) -> Self {
+        let source_key = ConstraintSourceKey::for_targeted_field_rule(
+            rule.root(),
+            rule.target_type(),
+            rule.rule(),
+        );
+        let name = SchemaName::for_targeted_rule(&source_key);
         Self {
             source_key,
             name,
@@ -634,13 +637,13 @@ impl ConstraintFragment {
         }
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current declaration.
     #[must_use]
     pub const fn source_key(&self) -> &ConstraintSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable constraint name.
+    /// Borrow the current constraint name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -650,6 +653,17 @@ impl ConstraintFragment {
     #[must_use]
     pub const fn kind(&self) -> &ConstraintFragmentKind {
         &self.kind
+    }
+
+    fn validate(&self) -> Result<(), SchemaContractError> {
+        self.kind.validate()?;
+        let rebuilt = match &self.kind {
+            ConstraintFragmentKind::Check(expression) => {
+                Self::check(self.name.clone(), expression.clone())
+            }
+            ConstraintFragmentKind::TargetedRule(rule) => Self::targeted_rule(rule.clone()),
+        };
+        ensure_canonical_rebuild(self, &rebuilt)
     }
 }
 
@@ -673,7 +687,6 @@ impl EntityFragment {
     /// Returns a typed contract error for collection overflow, duplicate
     /// source keys, malformed policy, expression, or primary-key references.
     pub fn try_new(
-        source_key: EntitySourceKey,
         name: SchemaName,
         mut fields: Vec<FieldFragment>,
         primary_key: Vec<FieldSourceKey>,
@@ -681,6 +694,7 @@ impl EntityFragment {
         mut relations: Vec<RelationFragment>,
         mut constraints: Vec<ConstraintFragment>,
     ) -> Result<Self, SchemaContractError> {
+        let source_key = EntitySourceKey::from_name(&name);
         check_len("entity fields", fields.len(), MAX_FRAGMENT_FIELDS)?;
         check_len("entity indexes", indexes.len(), MAX_FRAGMENT_INDEXES)?;
         check_len("entity relations", relations.len(), MAX_FRAGMENT_RELATIONS)?;
@@ -716,7 +730,7 @@ impl EntityFragment {
             relation.validate()?;
         }
         for constraint in &constraints {
-            constraint.kind.validate()?;
+            constraint.validate()?;
         }
         let field_keys = fields
             .iter()
@@ -777,13 +791,13 @@ impl EntityFragment {
         })
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current entity name.
     #[must_use]
     pub const fn source_key(&self) -> &EntitySourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable entity name.
+    /// Borrow the current entity name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -820,16 +834,15 @@ impl EntityFragment {
     }
 
     pub(crate) fn validate(&self) -> Result<(), SchemaContractError> {
-        Self::try_new(
-            self.source_key.clone(),
+        let rebuilt = Self::try_new(
             self.name.clone(),
             self.fields.clone(),
             self.primary_key.clone(),
             self.indexes.clone(),
             self.relations.clone(),
             self.constraints.clone(),
-        )
-        .map(|_| ())
+        )?;
+        ensure_canonical_rebuild(self, &rebuilt)
     }
 }
 
@@ -848,27 +861,22 @@ pub struct RecordFieldFragment {
 impl RecordFieldFragment {
     /// Construct one exact structural record field.
     #[must_use]
-    pub const fn new(
-        source_key: FieldSourceKey,
-        name: SchemaName,
-        field_type: FieldType,
-        nullable: bool,
-    ) -> Self {
+    pub fn new(name: SchemaName, field_type: FieldType, nullable: bool) -> Self {
         Self {
-            source_key,
+            source_key: FieldSourceKey::from_name(&name),
             name,
             field_type,
             nullable,
         }
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current field name.
     #[must_use]
     pub const fn source_key(&self) -> &FieldSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable field name.
+    /// Borrow the current record-field name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -886,7 +894,10 @@ impl RecordFieldFragment {
         self.nullable
     }
 
-    const fn validate(&self) -> Result<(), SchemaContractError> {
+    fn validate(&self) -> Result<(), SchemaContractError> {
+        if !current_name_key_matches(self.source_key.as_str(), &self.name) {
+            return Err(SchemaContractError::NonCanonical);
+        }
         self.field_type.validate()
     }
 }
@@ -942,7 +953,6 @@ impl RecordTypeFragment {
     /// Returns a typed contract error for overflow, duplicates, or malformed
     /// fields.
     pub fn try_new(
-        source_key: TypeSourceKey,
         name: SchemaName,
         mut fields: Vec<RecordFieldFragment>,
     ) -> Result<Self, SchemaContractError> {
@@ -954,19 +964,19 @@ impl RecordTypeFragment {
             field.validate()?;
         }
         Ok(Self {
-            source_key,
+            source_key: TypeSourceKey::from_name(&name),
             name,
             fields,
         })
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current record name.
     #[must_use]
     pub const fn source_key(&self) -> &TypeSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable record name.
+    /// Borrow the current record name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -979,11 +989,7 @@ impl RecordTypeFragment {
     }
 
     fn validate(&self) -> Result<(), SchemaContractError> {
-        let rebuilt = Self::try_new(
-            self.source_key.clone(),
-            self.name.clone(),
-            self.fields.clone(),
-        )?;
+        let rebuilt = Self::try_new(self.name.clone(), self.fields.clone())?;
         if rebuilt != *self {
             return Err(SchemaContractError::NonCanonical);
         }
@@ -1002,9 +1008,9 @@ pub struct EnumVariantFragment {
 impl EnumVariantFragment {
     /// Construct one unit variant.
     #[must_use]
-    pub const fn new(source_key: TypeSourceKey, name: SchemaName) -> Self {
+    pub fn new(name: SchemaName) -> Self {
         Self {
-            source_key,
+            source_key: TypeSourceKey::from_name(&name),
             name,
             payload: None,
         }
@@ -1012,25 +1018,21 @@ impl EnumVariantFragment {
 
     /// Construct one payload-bearing variant.
     #[must_use]
-    pub const fn with_payload(
-        source_key: TypeSourceKey,
-        name: SchemaName,
-        payload: FieldType,
-    ) -> Self {
+    pub fn with_payload(name: SchemaName, payload: FieldType) -> Self {
         Self {
-            source_key,
+            source_key: TypeSourceKey::from_name(&name),
             name,
             payload: Some(payload),
         }
     }
 
-    /// Borrow the immutable variant source key.
+    /// Borrow the typed proposal key derived from the current variant name.
     #[must_use]
     pub const fn source_key(&self) -> &TypeSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable variant name.
+    /// Borrow the current variant name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -1042,7 +1044,10 @@ impl EnumVariantFragment {
         self.payload.as_ref()
     }
 
-    const fn validate(&self) -> Result<(), SchemaContractError> {
+    fn validate(&self) -> Result<(), SchemaContractError> {
+        if !current_name_key_matches(self.source_key.as_str(), &self.name) {
+            return Err(SchemaContractError::NonCanonical);
+        }
         match &self.payload {
             Some(payload) => payload.validate(),
             None => Ok(()),
@@ -1066,7 +1071,6 @@ impl EnumTypeFragment {
     /// Returns a typed contract error for empty, oversized, or duplicate
     /// variants.
     pub fn try_new(
-        source_key: TypeSourceKey,
         name: SchemaName,
         mut variants: Vec<EnumVariantFragment>,
     ) -> Result<Self, SchemaContractError> {
@@ -1081,19 +1085,19 @@ impl EnumTypeFragment {
             variant.validate()?;
         }
         Ok(Self {
-            source_key,
+            source_key: TypeSourceKey::from_name(&name),
             name,
             variants,
         })
     }
 
-    /// Borrow the immutable source key.
+    /// Borrow the typed proposal key derived from the current enum name.
     #[must_use]
     pub const fn source_key(&self) -> &TypeSourceKey {
         &self.source_key
     }
 
-    /// Borrow the editable enum name.
+    /// Borrow the current enum name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
@@ -1106,11 +1110,7 @@ impl EnumTypeFragment {
     }
 
     fn validate(&self) -> Result<(), SchemaContractError> {
-        let rebuilt = Self::try_new(
-            self.source_key.clone(),
-            self.name.clone(),
-            self.variants.clone(),
-        )?;
+        let rebuilt = Self::try_new(self.name.clone(), self.variants.clone())?;
         if rebuilt != *self {
             return Err(SchemaContractError::NonCanonical);
         }
@@ -1127,36 +1127,36 @@ pub enum NamedTypeFragment {
     Enum(EnumTypeFragment),
     /// Transparent named wrapper.
     Newtype {
-        /// Immutable type identity.
+        /// Typed proposal key derived from the current name.
         source_key: TypeSourceKey,
-        /// Editable display name.
+        /// Current schema name.
         name: SchemaName,
         /// Wrapped logical type.
         inner: FieldType,
     },
     /// Homogeneous ordered collection.
     List {
-        /// Immutable type identity.
+        /// Typed proposal key derived from the current name.
         source_key: TypeSourceKey,
-        /// Editable display name.
+        /// Current schema name.
         name: SchemaName,
         /// Element type.
         item: FieldType,
     },
     /// Homogeneous unique collection.
     Set {
-        /// Immutable type identity.
+        /// Typed proposal key derived from the current name.
         source_key: TypeSourceKey,
-        /// Editable display name.
+        /// Current schema name.
         name: SchemaName,
         /// Element type.
         item: FieldType,
     },
     /// Homogeneous key/value collection.
     Map {
-        /// Immutable type identity.
+        /// Typed proposal key derived from the current name.
         source_key: TypeSourceKey,
-        /// Editable display name.
+        /// Current schema name.
         name: SchemaName,
         /// Key type.
         key: FieldType,
@@ -1165,9 +1165,9 @@ pub enum NamedTypeFragment {
     },
     /// Ordered heterogeneous product.
     Tuple {
-        /// Immutable type identity.
+        /// Typed proposal key derived from the current name.
         source_key: TypeSourceKey,
-        /// Editable display name.
+        /// Current schema name.
         name: SchemaName,
         /// Ordered member types.
         members: Vec<TupleElementFragment>,
@@ -1175,7 +1175,58 @@ pub enum NamedTypeFragment {
 }
 
 impl NamedTypeFragment {
-    /// Borrow the immutable type source key.
+    /// Construct one transparent named wrapper from its current name.
+    #[must_use]
+    pub fn newtype(name: SchemaName, inner: FieldType) -> Self {
+        Self::Newtype {
+            source_key: TypeSourceKey::from_name(&name),
+            name,
+            inner,
+        }
+    }
+
+    /// Construct one named ordered collection from its current name.
+    #[must_use]
+    pub fn list(name: SchemaName, item: FieldType) -> Self {
+        Self::List {
+            source_key: TypeSourceKey::from_name(&name),
+            name,
+            item,
+        }
+    }
+
+    /// Construct one named unique collection from its current name.
+    #[must_use]
+    pub fn set(name: SchemaName, item: FieldType) -> Self {
+        Self::Set {
+            source_key: TypeSourceKey::from_name(&name),
+            name,
+            item,
+        }
+    }
+
+    /// Construct one named key/value collection from its current name.
+    #[must_use]
+    pub fn map(name: SchemaName, key: FieldType, value: FieldType) -> Self {
+        Self::Map {
+            source_key: TypeSourceKey::from_name(&name),
+            name,
+            key,
+            value,
+        }
+    }
+
+    /// Construct one named heterogeneous product from its current name.
+    #[must_use]
+    pub fn tuple(name: SchemaName, members: Vec<TupleElementFragment>) -> Self {
+        Self::Tuple {
+            source_key: TypeSourceKey::from_name(&name),
+            name,
+            members,
+        }
+    }
+
+    /// Borrow the typed proposal key derived from the current type name.
     #[must_use]
     pub const fn source_key(&self) -> &TypeSourceKey {
         match self {
@@ -1189,7 +1240,7 @@ impl NamedTypeFragment {
         }
     }
 
-    /// Borrow the editable type name.
+    /// Borrow the current type name.
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         match self {
@@ -1204,6 +1255,7 @@ impl NamedTypeFragment {
     }
 
     fn validate(&self) -> Result<(), SchemaContractError> {
+        ensure_current_name_key(self.source_key().as_str(), self.name())?;
         match self {
             Self::Record(record) => record.validate(),
             Self::Enum(r#enum) => r#enum.validate(),
@@ -1295,6 +1347,27 @@ pub(crate) const fn check_len(
     Ok(())
 }
 
+fn current_name_key_matches(source_key: &str, name: &SchemaName) -> bool {
+    source_key == name.as_str()
+}
+
+fn ensure_current_name_key(source_key: &str, name: &SchemaName) -> Result<(), SchemaContractError> {
+    if !current_name_key_matches(source_key, name) {
+        return Err(SchemaContractError::NonCanonical);
+    }
+    Ok(())
+}
+
+fn ensure_canonical_rebuild<T: PartialEq>(
+    current: &T,
+    rebuilt: &T,
+) -> Result<(), SchemaContractError> {
+    if current != rebuilt {
+        return Err(SchemaContractError::NonCanonical);
+    }
+    Ok(())
+}
+
 fn ensure_unique<T>(values: &[T]) -> Result<(), SchemaContractError>
 where
     T: Ord,
@@ -1324,7 +1397,7 @@ fn ensure_unique_names<'a>(
 ) -> Result<(), SchemaContractError> {
     let mut seen = BTreeSet::new();
     if names.into_iter().any(|name| !seen.insert(name)) {
-        return Err(SchemaContractError::DuplicateEditableName);
+        return Err(SchemaContractError::DuplicateName);
     }
     Ok(())
 }
@@ -1350,5 +1423,27 @@ fn decimal_fits_scale(value: Decimal, scale: u32) -> bool {
     match value.scale().cmp(&scale) {
         std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => true,
         std::cmp::Ordering::Less => value.scale_to_integer(scale).is_some(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType, ScalarType,
+        SchemaContractError, SchemaName,
+    };
+
+    #[test]
+    fn independently_decoded_field_key_and_name_must_match() {
+        let field = FieldFragment {
+            source_key: FieldSourceKey::try_new("legacy_name").expect("fixture key should admit"),
+            name: SchemaName::try_new("current_name").expect("fixture name should admit"),
+            field_type: FieldType::Scalar(ScalarType::Nat64),
+            nullable: false,
+            insert_policy: FieldInsertPolicy::Required,
+            management: None,
+        };
+
+        assert_eq!(field.validate(), Err(SchemaContractError::NonCanonical));
     }
 }

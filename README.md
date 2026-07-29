@@ -93,8 +93,6 @@ use icydb_model::prelude::*;
 pub struct AppCanister {}
 
 #[store(
-    ident = "APP_STORE",
-    store_name = "main",
     canister = "AppCanister",
     storage(journaled(
         data_memory_id = 100,
@@ -106,66 +104,53 @@ pub struct AppCanister {}
 pub struct AppStore {}
 
 #[entity(
-    source_key = "app.user",
     store = "AppStore",
     version = 1,
     typed_adapters,
     pk(field = "id"),
-    audit_timestamps(
-        created_at(
-            source_key = "app.user.created_at",
-            ident = "created_at"
-        ),
-        updated_at(
-            source_key = "app.user.updated_at",
-            ident = "updated_at"
-        )
-    ),
-    index(source_key = "app.user.index.name", field = "name"),
-    index(
-        source_key = "app.user.index.active_score",
-        fields = ["active", "score"]
-    ),
+    index(field = "name"),
+    index(fields = ["active", "score"]),
     constraint(
-        source_key = "app.user.score_nonnegative",
         name = "score_nonnegative",
         check = "score >= 0"
     ),
     fields(
         field(
-            source_key = "app.user.id",
-            ident = "id",
+            name = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
         field(
-            source_key = "app.user.name",
-            ident = "name",
+            name = "name",
             value(item(prim = "Text", unbounded))
         ),
         field(
-            source_key = "app.user.active",
-            ident = "active",
+            name = "active",
             value(item(prim = "Bool"))
         ),
         field(
-            source_key = "app.user.score",
-            ident = "score",
+            name = "score",
             value(item(prim = "Decimal", scale = 3))
         )
-    )
+    ),
+    timestamps
 )]
 pub struct User {}
 
 ```
 
-Source keys are explicit, immutable authorship identities. Keep their literals
-unchanged when Rust types, fields, or modules are renamed or moved. The main
-branch also accepts strict scalar shorthand such as `pk(field = "id")` and
-`index(source_key = "app.user.index.name", field = "name")`. Composite keys use
-ordered field lists such as `pk(fields = ["tenant_id", "local_id"])`.
-Managed audit timestamps are likewise explicit: omit `audit_timestamps(...)`
-when an entity should have no database-managed audit fields.
+Entity and named-type names come from their Rust declarations. Nested fields,
+variants, relations, constraints, and rules use one `name = "..."` vocabulary;
+indexes derive canonical names from their entity and key shape. The main branch
+also accepts strict scalar shorthand such as `pk(field = "id")` and
+`index(field = "name")`. Composite keys use ordered field lists such as
+`pk(fields = ["tenant_id", "local_id"])`.
+Managed timestamps are likewise explicit: place the bare `timestamps` marker
+after `fields(...)`, or omit it when an entity should have no database-managed
+timestamp fields. The marker creates fixed `created_at` and `updated_at`
+`Timestamp` fields.
+Entity and store names come directly from their Rust declarations; neither
+macro accepts a second name or generated-symbol override.
 
 ## Storage Modes
 
@@ -183,9 +168,11 @@ Stores choose one explicit storage contract:
 Journaled stores use four memory IDs: `data_memory_id`, `index_memory_id`,
 `schema_memory_id`, and `journal_memory_id`. The first three are the canonical
 stable source-of-truth roles; the fourth is the durable journal tail. `heap()`
-storage is never durable. Durable examples should use `storage(journaled(...))`
-unless volatility is the point of the example. The full operator-facing
-durability boundary is documented in
+storage is never durable. Stable allocation keys are derived from the canister
+memory namespace, memory ID, and role, so renaming a Rust store does not
+redirect its stable memory. Durable examples should use
+`storage(journaled(...))` unless volatility is the point of the example. The
+full operator-facing durability boundary is documented in
 [docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md).
 
 ## Query From Rust

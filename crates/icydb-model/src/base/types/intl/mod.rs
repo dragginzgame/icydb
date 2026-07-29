@@ -14,7 +14,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/intl/mod.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -32,7 +31,6 @@ pub struct CountryCode {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/intl/mod.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
@@ -50,7 +48,6 @@ pub struct LanguageCode {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/intl/mod.rs::newtype::3",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(

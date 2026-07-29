@@ -108,7 +108,7 @@ impl ScalarLiteral {
 /// One instruction in a bounded source-level postfix check expression.
 ///
 /// This is an AST transport, not accepted bytecode: field references remain
-/// immutable source keys and IcyDB still owns accepted binding and compilation.
+/// typed current-name keys and IcyDB still owns accepted binding and compilation.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SourceCheckInstruction {
     /// Push one field value.

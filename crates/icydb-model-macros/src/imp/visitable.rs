@@ -264,7 +264,7 @@ fn field_list_visitable_strategy(def: &Def, fields: &FieldList) -> TraitStrategy
 
 // enum_variant
 fn enum_variant(variant: &EnumVariant) -> (TokenStream, TokenStream) {
-    let ident = &variant.ident;
+    let ident = &variant.name;
 
     if variant.value.is_some() {
         let name = ident.to_string();

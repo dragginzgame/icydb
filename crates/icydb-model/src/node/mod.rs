@@ -133,15 +133,15 @@ pub(crate) trait VisitableNode: ValidateNode {
     fn drive<V: Visitor>(&self, _: &mut V) {}
 }
 
-// Add one typed protocol-key construction failure to the authoring diagnostic tree.
-pub(crate) fn validate_source_key<K>(
+// Add one source-protocol name construction failure to the authoring diagnostic tree.
+pub(crate) fn validate_source_name<K>(
     errs: &mut ErrorTree,
     kind: &str,
-    source_key: &str,
+    name: &str,
     constructor: impl FnOnce(String) -> Result<K, icydb_schema::SchemaContractError>,
 ) {
-    if let Err(error) = constructor(source_key.to_string()) {
-        err!(errs, "invalid {kind} source key '{source_key}': {error}");
+    if let Err(error) = constructor(name.to_string()) {
+        err!(errs, "invalid {kind} name '{name}': {error}");
     }
 }
 

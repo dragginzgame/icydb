@@ -35,7 +35,7 @@ impl Imp<Enum> for DefaultTrait {
                 "default variant is required for Default"
             ))));
         };
-        let variant_ident = &default_variant.ident;
+        let variant_ident = &default_variant.name;
 
         let mut implementor = Implementor::new(node.def(), TraitKind::Default);
         let inner = if let Some(value) = &default_variant.value {
@@ -158,7 +158,7 @@ pub(crate) fn validate_struct_default_request(
     let missing: Vec<_> = fields
         .iter()
         .filter(|field| !field.has_rust_default())
-        .map(|field| format!("`{}`", field.ident))
+        .map(|field| format!("`{}`", field.name))
         .collect();
     if missing.is_empty() {
         return Ok(());
@@ -196,7 +196,7 @@ fn struct_default_strategy(
 
 // Record fields lower only through schema-surface Rust construction values.
 fn record_default_assignment(field: &Field) -> Option<TokenStream> {
-    let ident = &field.ident;
+    let ident = &field.name;
     let expr = field.rust_default_expr()?;
 
     Some(quote!(#ident: #expr))
@@ -205,7 +205,7 @@ fn record_default_assignment(field: &Field) -> Option<TokenStream> {
 // Entity primary keys keep their key-conversion behavior when they have an
 // explicit schema-surface construction value.
 fn entity_default_assignment(field: &Field, primary_keys: &[Ident]) -> Option<TokenStream> {
-    let ident = &field.ident;
+    let ident = &field.name;
     let expr = field.rust_default_expr()?;
 
     Some(

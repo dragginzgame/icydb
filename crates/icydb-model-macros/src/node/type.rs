@@ -40,7 +40,7 @@ impl HasSchemaPart for Type {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct SourceRule {
-    pub(crate) source_key: LitStr,
+    pub(crate) name: LitStr,
     pub(crate) kind: SourceRuleKind,
 
     #[darling(default)]
@@ -49,12 +49,12 @@ pub struct SourceRule {
 
 impl HasSchemaPart for SourceRule {
     fn schema_part(&self) -> TokenStream {
-        let source_key = &self.source_key;
+        let name = &self.name;
         let kind = self.kind.schema_part();
         let args = self.args.schema_part();
 
         quote! {
-            ::icydb_model::node::SourceRule::new(#source_key, #kind, #args)
+            ::icydb_model::node::SourceRule::new(#name, #kind, #args)
         }
     }
 }

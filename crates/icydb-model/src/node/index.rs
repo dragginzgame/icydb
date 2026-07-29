@@ -108,7 +108,6 @@ pub enum IndexKeyItemsRef {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Index {
-    source_key: &'static str,
     name: &'static str,
     fields: &'static [&'static str],
 
@@ -130,19 +129,13 @@ pub struct Index {
 impl Index {
     /// Build one index declaration from field-list and uniqueness metadata.
     #[must_use]
-    pub const fn new(
-        source_key: &'static str,
-        name: &'static str,
-        fields: &'static [&'static str],
-        unique: bool,
-    ) -> Self {
-        Self::new_with_key_items_and_predicate(source_key, name, fields, None, unique, None, None)
+    pub const fn new(name: &'static str, fields: &'static [&'static str], unique: bool) -> Self {
+        Self::new_with_key_items_and_predicate(name, fields, None, unique, None, None)
     }
 
     /// Build one index declaration with optional conditional predicate metadata.
     #[must_use]
     pub const fn new_with_predicate(
-        source_key: &'static str,
         name: &'static str,
         fields: &'static [&'static str],
         unique: bool,
@@ -150,7 +143,6 @@ impl Index {
         predicate_expression: Option<SourceExpressionResolver>,
     ) -> Self {
         Self::new_with_key_items_and_predicate(
-            source_key,
             name,
             fields,
             None,
@@ -163,27 +155,17 @@ impl Index {
     /// Build one index declaration with explicit canonical key-item metadata.
     #[must_use]
     pub const fn new_with_key_items(
-        source_key: &'static str,
         name: &'static str,
         fields: &'static [&'static str],
         key_items: &'static [IndexKeyItem],
         unique: bool,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(
-            source_key,
-            name,
-            fields,
-            Some(key_items),
-            unique,
-            None,
-            None,
-        )
+        Self::new_with_key_items_and_predicate(name, fields, Some(key_items), unique, None, None)
     }
 
     /// Build one index declaration with explicit key items + predicate metadata.
     #[must_use]
     pub const fn new_with_key_items_and_predicate(
-        source_key: &'static str,
         name: &'static str,
         fields: &'static [&'static str],
         key_items: Option<&'static [IndexKeyItem]>,
@@ -192,7 +174,6 @@ impl Index {
         predicate_expression: Option<SourceExpressionResolver>,
     ) -> Self {
         Self {
-            source_key,
             name,
             fields,
             key_items,
@@ -202,13 +183,7 @@ impl Index {
         }
     }
 
-    /// Borrow the immutable index source key.
-    #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
-    }
-
-    /// Borrow the editable index name.
+    /// Borrow the current index name.
     #[must_use]
     pub const fn name(&self) -> &'static str {
         self.name
@@ -332,10 +307,10 @@ impl MacroNode for Index {
 impl ValidateNode for Index {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "index",
-            self.source_key(),
+            self.name(),
             icydb_schema::IndexSourceKey::try_new,
         );
         errs.result()
@@ -359,7 +334,6 @@ mod tests {
     #[test]
     fn index_with_predicate_reports_conditional_shape() {
         let index = Index::new_with_predicate(
-            "email_active",
             "idx_user__email",
             &["email"],
             false,
@@ -373,7 +347,7 @@ mod tests {
 
     #[test]
     fn index_without_predicate_preserves_unconditional_shape() {
-        let index = Index::new("email", "uidx_user__email", &["email"], true);
+        let index = Index::new("uidx_user__email", &["email"], true);
 
         assert_eq!(index.predicate(), None);
         assert_eq!(index.to_string(), "UNIQUE (email)");
@@ -386,7 +360,6 @@ mod tests {
             IndexKeyItem::Expression(IndexExpression::Lower("email")),
         ];
         let index = Index::new_with_key_items(
-            "tenant_lower_email",
             "idx_user__tenant_id__lower_email",
             &["tenant_id"],
             &KEY_ITEMS,

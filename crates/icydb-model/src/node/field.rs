@@ -22,8 +22,8 @@ impl FieldList {
 
     // get
     #[must_use]
-    pub fn get(&self, ident: &str) -> Option<&Field> {
-        self.fields.iter().find(|field| field.ident() == ident)
+    pub fn get(&self, name: &str) -> Option<&Field> {
+        self.fields.iter().find(|field| field.name() == name)
     }
 }
 
@@ -54,8 +54,7 @@ pub enum FieldWriteManagement {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Field {
-    source_key: &'static str,
-    ident: &'static str,
+    name: &'static str,
     value: Value,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,16 +70,14 @@ pub struct Field {
 impl Field {
     #[must_use]
     pub const fn new(
-        source_key: &'static str,
-        ident: &'static str,
+        name: &'static str,
         value: Value,
         default: Option<Arg>,
         generated: Option<FieldGeneration>,
         write_management: Option<FieldWriteManagement>,
     ) -> Self {
         Self {
-            source_key,
-            ident,
+            name,
             value,
             default,
             generated,
@@ -88,15 +85,10 @@ impl Field {
         }
     }
 
-    /// Borrow the immutable field source key.
+    /// Borrow the current declared field name.
     #[must_use]
-    pub const fn source_key(&self) -> &'static str {
-        self.source_key
-    }
-
-    #[must_use]
-    pub const fn ident(&self) -> &'static str {
-        self.ident
+    pub const fn name(&self) -> &'static str {
+        self.name
     }
 
     #[must_use]
@@ -123,10 +115,10 @@ impl Field {
 impl ValidateNode for Field {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
-        validate_source_key(
+        validate_source_name(
             &mut errs,
             "field",
-            self.source_key(),
+            self.name(),
             icydb_schema::FieldSourceKey::try_new,
         );
         errs.result()
@@ -135,7 +127,7 @@ impl ValidateNode for Field {
 
 impl VisitableNode for Field {
     fn route_key(&self) -> String {
-        self.ident().to_string()
+        self.name().to_string()
     }
 
     fn drive<V: Visitor>(&self, v: &mut V) {

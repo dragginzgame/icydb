@@ -12,14 +12,14 @@ use std::{
 };
 
 use icydb_schema::{
-    Account, Blob, ConstraintFragment, ConstraintSourceKey, DEFAULT_BIG_INT_MAX_BYTES, Date,
-    Decimal, Duration, EntityFragment, EntitySourceKey, EnumTypeFragment, EnumVariantFragment,
-    FieldFragment, FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey, FieldType, Float32,
-    Float64, IndexFragment, IndexKeyFragment, IndexSourceKey, IntBig, NamedTypeFragment, NatBig,
-    Principal, RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment,
-    RelationSourceKey, RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError,
-    SchemaFragment, SchemaName, SourceRuleOperation, Subaccount, TargetedRuleFragment, Timestamp,
-    TupleElementFragment, TypeSourceKey, Ulid, Unit,
+    Account, Blob, ConstraintFragment, DEFAULT_BIG_INT_MAX_BYTES, Date, Decimal, Duration,
+    EntityFragment, EntitySourceKey, EnumTypeFragment, EnumVariantFragment, FieldFragment,
+    FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey, FieldType, Float32, Float64,
+    IndexFragment, IndexKeyFragment, IntBig, NamedTypeFragment, NatBig, Principal,
+    RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey,
+    ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaName,
+    SourceRuleOperation, Subaccount, TargetedRuleFragment, Timestamp, TupleElementFragment,
+    TypeSourceKey, Ulid, Unit,
 };
 use thiserror::Error;
 
@@ -194,8 +194,7 @@ fn lower_entity(
     }
 
     EntityFragment::try_new(
-        EntitySourceKey::try_new(entity.source_key())?,
-        SchemaName::try_new(entity.resolved_name())?,
+        SchemaName::try_new(entity.name())?,
         fields,
         primary_key,
         indexes,
@@ -227,8 +226,7 @@ fn lower_entity_field(
         None => None,
     };
     Ok(FieldFragment::new(
-        FieldSourceKey::try_new(field.source_key())?,
-        SchemaName::try_new(field.ident())?,
+        SchemaName::try_new(field.name())?,
         field_type,
         nullable,
         insert_policy,
@@ -252,7 +250,6 @@ fn lower_index(
             .collect::<Result<Vec<_>, _>>()?,
     };
     IndexFragment::try_new(
-        IndexSourceKey::try_new(index.source_key())?,
         SchemaName::try_new(index.name())?,
         key,
         index.is_unique(),
@@ -290,15 +287,14 @@ fn lower_scalar_relation(
         .value()
         .item()
         .relation()
-        .ok_or_else(|| FragmentLoweringError::InvalidReference(field.ident().to_string()))?;
+        .ok_or_else(|| FragmentLoweringError::InvalidReference(field.name().to_string()))?;
     let target = schema
         .cast_node::<Entity>(target_path)
         .map_err(|_| FragmentLoweringError::InvalidReference(target_path.to_string()))?;
     RelationFragment::try_new(
-        RelationSourceKey::try_new(field.source_key())?,
-        SchemaName::try_new(field.ident())?,
-        vec![entity_field_source_key(entity, field.ident())?],
-        EntitySourceKey::try_new(target.source_key())?,
+        SchemaName::try_new(field.name())?,
+        vec![entity_field_source_key(entity, field.name())?],
+        EntitySourceKey::try_new(target.name())?,
         target
             .primary_key()
             .fields()
@@ -319,14 +315,13 @@ fn lower_composite_relation(
         .cast_node::<Entity>(relation.target())
         .map_err(|_| FragmentLoweringError::InvalidReference(relation.target().to_string()))?;
     RelationFragment::try_new(
-        RelationSourceKey::try_new(relation.source_key())?,
-        SchemaName::try_new(relation.ident())?,
+        SchemaName::try_new(relation.name())?,
         relation
             .local_fields()
             .iter()
             .map(|field| entity_field_source_key(entity, field))
             .collect::<Result<Vec<_>, _>>()?,
-        EntitySourceKey::try_new(target.source_key())?,
+        EntitySourceKey::try_new(target.name())?,
         target
             .primary_key()
             .fields()
@@ -343,7 +338,6 @@ fn lower_constraint(
     constraint: &CheckConstraint,
 ) -> Result<ConstraintFragment, FragmentLoweringError> {
     Ok(ConstraintFragment::check(
-        ConstraintSourceKey::try_new(constraint.source_key())?,
         SchemaName::try_new(constraint.name())?,
         constraint.source_expression(schema)?,
     ))
@@ -353,22 +347,18 @@ fn lower_field_rules(
     schema: &Schema,
     field: &Field,
 ) -> Result<Vec<ConstraintFragment>, FragmentLoweringError> {
-    let field_source = FieldSourceKey::try_new(field.source_key())?;
+    let field_source = FieldSourceKey::try_new(field.name())?;
     reachable_source_rules(schema, field.value().item())?
         .into_iter()
         .map(|(target_type, rule, target)| {
-            let source = ConstraintSourceKey::for_targeted_field_rule(
-                &field_source,
-                &target_type,
-                &RuleSourceKey::try_new(rule.source_key())?,
-            );
-            let name =
-                SchemaName::try_new(format!("__icydb_{}", source.as_str().replace(':', "_")))?;
             let operation = lower_source_rule_operation(schema, target, rule)?;
             Ok(ConstraintFragment::targeted_rule(
-                source,
-                name,
-                TargetedRuleFragment::new(field_source.clone(), target_type, operation),
+                TargetedRuleFragment::new(
+                    field_source.clone(),
+                    target_type,
+                    SchemaName::try_new(rule.name())?,
+                    operation,
+                ),
             ))
         })
         .collect()
@@ -393,21 +383,18 @@ fn reachable_source_rules<'schema>(
             .get_node(path.as_str())
             .ok_or_else(|| FragmentLoweringError::InvalidReference(path.clone()))?;
         let target_type = TypeSourceKey::try_new(
-            named_type_source_key(node)
+            named_type_name(node)
                 .ok_or_else(|| FragmentLoweringError::InvalidReference(path.clone()))?,
         )?;
         if !visited.insert(target_type.clone()) {
             continue;
         }
         for rule in schema_node_type(node)?.rules() {
-            let key = (
-                target_type.clone(),
-                RuleSourceKey::try_new(rule.source_key())?,
-            );
+            let key = (target_type.clone(), RuleSourceKey::try_new(rule.name())?);
             if rules.insert(key, (rule, node)).is_some() {
                 return Err(FragmentLoweringError::InvalidReference(format!(
                     "duplicate durable rule '{}' on type '{}'",
-                    rule.source_key(),
+                    rule.name(),
                     target_type
                 )));
             }
@@ -497,7 +484,7 @@ fn lower_source_rule_operation(
             .ok_or_else(|| {
                 FragmentLoweringError::InvalidReference(format!(
                     "rule '{}' has an invalid length bound",
-                    rule.source_key()
+                    rule.name()
                 ))
             })
     };
@@ -559,7 +546,7 @@ fn resolve_rule_value_shape<'schema>(
 ) -> Result<RuleValueShape<'schema>, FragmentLoweringError> {
     let mut visited = BTreeSet::new();
     loop {
-        let source = named_type_source_key(target)
+        let source = named_type_name(target)
             .ok_or_else(|| FragmentLoweringError::InvalidReference("non-type rule".to_string()))?;
         if !visited.insert(source) {
             return Err(FragmentLoweringError::InvalidReference(format!(
@@ -601,7 +588,7 @@ fn resolve_rule_value_shape<'schema>(
 fn invalid_rule_target(rule: &SourceRule) -> FragmentLoweringError {
     FragmentLoweringError::InvalidReference(format!(
         "durable rule '{}' does not match its nominal target",
-        rule.source_key()
+        rule.name()
     ))
 }
 
@@ -613,7 +600,7 @@ fn entity_field_source_key(
         .fields()
         .get(field_name)
         .ok_or_else(|| FragmentLoweringError::InvalidReference(field_name.to_string()))?;
-    FieldSourceKey::try_new(field.source_key()).map_err(Into::into)
+    FieldSourceKey::try_new(field.name()).map_err(Into::into)
 }
 
 // -----------------------------------------------------------------------------
@@ -629,7 +616,7 @@ fn lower_reachable_types(
         let node = schema
             .get_node(path.as_str())
             .ok_or_else(|| FragmentLoweringError::InvalidReference(path.clone()))?;
-        let source_key = named_type_source_key(node)
+        let source_key = named_type_name(node)
             .ok_or_else(|| FragmentLoweringError::InvalidReference(path.clone()))?;
         if lowered.contains_key(source_key) {
             continue;
@@ -640,15 +627,15 @@ fn lower_reachable_types(
     Ok(lowered.into_values().collect())
 }
 
-const fn named_type_source_key(node: &crate::node::SchemaNode) -> Option<&str> {
+const fn named_type_name(node: &crate::node::SchemaNode) -> Option<&str> {
     match node {
-        crate::node::SchemaNode::Enum(node) => Some(node.source_key()),
-        crate::node::SchemaNode::List(node) => Some(node.source_key()),
-        crate::node::SchemaNode::Map(node) => Some(node.source_key()),
-        crate::node::SchemaNode::Newtype(node) => Some(node.source_key()),
-        crate::node::SchemaNode::Record(node) => Some(node.source_key()),
-        crate::node::SchemaNode::Set(node) => Some(node.source_key()),
-        crate::node::SchemaNode::Tuple(node) => Some(node.source_key()),
+        crate::node::SchemaNode::Enum(node) => Some(node.name()),
+        crate::node::SchemaNode::List(node) => Some(node.name()),
+        crate::node::SchemaNode::Map(node) => Some(node.name()),
+        crate::node::SchemaNode::Newtype(node) => Some(node.name()),
+        crate::node::SchemaNode::Record(node) => Some(node.name()),
+        crate::node::SchemaNode::Set(node) => Some(node.name()),
+        crate::node::SchemaNode::Tuple(node) => Some(node.name()),
         crate::node::SchemaNode::Canister(_)
         | crate::node::SchemaNode::Entity(_)
         | crate::node::SchemaNode::Normalizer(_)
@@ -665,11 +652,10 @@ fn lower_named_type(
     match node {
         crate::node::SchemaNode::Record(record) => lower_record(schema, record, pending),
         crate::node::SchemaNode::Enum(r#enum) => lower_enum(schema, r#enum, pending),
-        crate::node::SchemaNode::Newtype(newtype) => Ok(NamedTypeFragment::Newtype {
-            source_key: TypeSourceKey::try_new(newtype.source_key())?,
-            name: SchemaName::try_new(newtype.def().ident())?,
-            inner: lower_item_type(schema, newtype.item(), pending)?,
-        }),
+        crate::node::SchemaNode::Newtype(newtype) => Ok(NamedTypeFragment::newtype(
+            SchemaName::try_new(newtype.name())?,
+            lower_item_type(schema, newtype.item(), pending)?,
+        )),
         crate::node::SchemaNode::List(list) => lower_list(schema, list, pending),
         crate::node::SchemaNode::Set(set) => lower_set(schema, set, pending),
         crate::node::SchemaNode::Map(map) => lower_map(schema, map, pending),
@@ -695,16 +681,14 @@ fn lower_record(
         .iter()
         .map(|field| {
             Ok(RecordFieldFragment::new(
-                FieldSourceKey::try_new(field.source_key())?,
-                SchemaName::try_new(field.ident())?,
+                SchemaName::try_new(field.name())?,
                 lower_value_type(schema, field.value(), pending)?,
                 field.value().cardinality() == Cardinality::Opt,
             ))
         })
         .collect::<Result<Vec<_>, FragmentLoweringError>>()?;
     Ok(NamedTypeFragment::Record(RecordTypeFragment::try_new(
-        TypeSourceKey::try_new(record.source_key())?,
-        SchemaName::try_new(record.def().ident())?,
+        SchemaName::try_new(record.name())?,
         fields,
     )?))
 }
@@ -718,28 +702,25 @@ fn lower_enum(
         .variants()
         .iter()
         .map(|variant| {
-            let source = TypeSourceKey::try_new(variant.source_key())?;
-            let name = SchemaName::try_new(variant.ident())?;
+            let name = SchemaName::try_new(variant.name())?;
             match variant.value() {
                 Some(value) if value.cardinality() == Cardinality::Opt => {
                     Err(FragmentLoweringError::UnsupportedCardinality(format!(
                         "{}::{}",
                         r#enum.def().path(),
-                        variant.ident()
+                        variant.name()
                     )))
                 }
                 Some(value) => Ok(EnumVariantFragment::with_payload(
-                    source,
                     name,
                     lower_value_type(schema, value, pending)?,
                 )),
-                None => Ok(EnumVariantFragment::new(source, name)),
+                None => Ok(EnumVariantFragment::new(name)),
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(NamedTypeFragment::Enum(EnumTypeFragment::try_new(
-        TypeSourceKey::try_new(r#enum.source_key())?,
-        SchemaName::try_new(r#enum.def().ident())?,
+        SchemaName::try_new(r#enum.name())?,
         variants,
     )?))
 }
@@ -749,11 +730,10 @@ fn lower_list(
     list: &List,
     pending: &mut Vec<String>,
 ) -> Result<NamedTypeFragment, FragmentLoweringError> {
-    Ok(NamedTypeFragment::List {
-        source_key: TypeSourceKey::try_new(list.source_key())?,
-        name: SchemaName::try_new(list.def().ident())?,
-        item: lower_item_type(schema, list.item(), pending)?,
-    })
+    Ok(NamedTypeFragment::list(
+        SchemaName::try_new(list.name())?,
+        lower_item_type(schema, list.item(), pending)?,
+    ))
 }
 
 fn lower_set(
@@ -761,11 +741,10 @@ fn lower_set(
     set: &Set,
     pending: &mut Vec<String>,
 ) -> Result<NamedTypeFragment, FragmentLoweringError> {
-    Ok(NamedTypeFragment::Set {
-        source_key: TypeSourceKey::try_new(set.source_key())?,
-        name: SchemaName::try_new(set.def().ident())?,
-        item: lower_item_type(schema, set.item(), pending)?,
-    })
+    Ok(NamedTypeFragment::set(
+        SchemaName::try_new(set.name())?,
+        lower_item_type(schema, set.item(), pending)?,
+    ))
 }
 
 fn lower_map(
@@ -778,12 +757,11 @@ fn lower_map(
             map.def().path(),
         ));
     }
-    Ok(NamedTypeFragment::Map {
-        source_key: TypeSourceKey::try_new(map.source_key())?,
-        name: SchemaName::try_new(map.def().ident())?,
-        key: lower_item_type(schema, map.key(), pending)?,
-        value: lower_value_type(schema, map.value(), pending)?,
-    })
+    Ok(NamedTypeFragment::map(
+        SchemaName::try_new(map.name())?,
+        lower_item_type(schema, map.key(), pending)?,
+        lower_value_type(schema, map.value(), pending)?,
+    ))
 }
 
 fn lower_tuple(
@@ -801,11 +779,10 @@ fn lower_tuple(
             ))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(NamedTypeFragment::Tuple {
-        source_key: TypeSourceKey::try_new(tuple.source_key())?,
-        name: SchemaName::try_new(tuple.def().ident())?,
+    Ok(NamedTypeFragment::tuple(
+        SchemaName::try_new(tuple.name())?,
         members,
-    })
+    ))
 }
 
 // -----------------------------------------------------------------------------
@@ -849,7 +826,7 @@ fn type_source_key_for_path<'schema>(
 ) -> Result<&'schema str, FragmentLoweringError> {
     let source = schema
         .get_node(path)
-        .and_then(named_type_source_key)
+        .and_then(named_type_name)
         .ok_or_else(|| FragmentLoweringError::InvalidReference(path.to_string()))?;
     Ok(source)
 }
@@ -907,7 +884,7 @@ fn lower_default(
     if let ItemTarget::Is(path) = field.value().item().target() {
         let Arg::ConstPath(default_path) = default else {
             return Err(FragmentLoweringError::InvalidDefault(
-                field.ident().to_string(),
+                field.name().to_string(),
             ));
         };
         let variant = default_path.rsplit("::").next().unwrap_or(default_path);
@@ -917,11 +894,11 @@ fn lower_default(
     }
     let ItemTarget::Primitive(primitive) = field.value().item().target() else {
         return Err(FragmentLoweringError::InvalidDefault(
-            field.ident().to_string(),
+            field.name().to_string(),
         ));
     };
     lower_scalar_default(*primitive, field.value().item(), default)
-        .ok_or_else(|| FragmentLoweringError::InvalidDefault(field.ident().to_string()))
+        .ok_or_else(|| FragmentLoweringError::InvalidDefault(field.name().to_string()))
 }
 
 fn lower_scalar_default(primitive: Primitive, item: &Item, default: &Arg) -> Option<ScalarLiteral> {
@@ -1144,7 +1121,7 @@ mod tests {
         Arg::Number(ArgNumber::Int32(360)),
     ];
     static NUMERIC_RULES: [SourceRule; 1] = [SourceRule::new(
-        "rule/degrees/range",
+        "range",
         SourceRuleKind::NumericRange,
         Args(&NUMERIC_RULE_ARGS),
     )];
@@ -1154,13 +1131,12 @@ mod tests {
         Arg::Number(ArgNumber::Int32(40)),
     ];
     static LENGTH_RULES: [SourceRule; 1] = [SourceRule::new(
-        "rule/label/length",
+        "length",
         SourceRuleKind::LengthRange,
         Args(&LENGTH_RULE_ARGS),
     )];
     static LENGTH_RULE_TYPE: Type = Type::new(&[], &[], &LENGTH_RULES);
     static NESTED_RULE_FIELDS: [Field; 1] = [Field::new(
-        "field/nested/degrees",
         "degrees",
         Value::new(
             Cardinality::One,
@@ -1180,9 +1156,8 @@ mod tests {
         None,
     )];
     static STATUS_VARIANTS: [EnumVariant; 2] = [
-        EnumVariant::new("variant/status/active", "Active", None),
+        EnumVariant::new("Active", None),
         EnumVariant::new(
-            "variant/status/retries",
             "Retries",
             Some(Value::new(
                 Cardinality::Many,
@@ -1205,7 +1180,7 @@ mod tests {
         let mut schema = Schema::new();
         schema.insert_node(SchemaNode::Newtype(Newtype::new(
             Def::new("test", "Degrees"),
-            "type/degrees",
+            "Degrees",
             Item::new(
                 ItemTarget::Primitive(Primitive::Nat16),
                 None,
@@ -1221,13 +1196,12 @@ mod tests {
         )));
         schema.insert_node(SchemaNode::Record(Record::new(
             Def::new("test", "Nested"),
-            "type/nested",
+            "Nested",
             FieldList::new(&NESTED_RULE_FIELDS),
             EMPTY_TYPE.clone(),
         )));
 
         let outer = Field::new(
-            "field/root/nested",
             "nested",
             Value::new(
                 Cardinality::One,
@@ -1252,8 +1226,8 @@ mod tests {
         let ConstraintFragmentKind::TargetedRule(rule) = constraints[0].kind() else {
             panic!("nested durable rule should use the targeted-rule contract")
         };
-        assert_eq!(rule.root().as_str(), "field/root/nested");
-        assert_eq!(rule.target_type().as_str(), "type/degrees");
+        assert_eq!(rule.root().as_str(), "nested");
+        assert_eq!(rule.target_type().as_str(), "Degrees");
         assert!(matches!(
             rule.operation(),
             SourceRuleOperation::NumericRangeInclusive { .. }
@@ -1262,7 +1236,6 @@ mod tests {
 
     static ENTITY_FIELDS: [Field; 5] = [
         Field::new(
-            "field/task/id",
             "id",
             Value::new(
                 Cardinality::One,
@@ -1282,7 +1255,6 @@ mod tests {
             None,
         ),
         Field::new(
-            "field/task/tags",
             "tags",
             Value::new(
                 Cardinality::Many,
@@ -1302,7 +1274,6 @@ mod tests {
             None,
         ),
         Field::new(
-            "field/task/status",
             "status",
             Value::new(
                 Cardinality::One,
@@ -1322,7 +1293,6 @@ mod tests {
             None,
         ),
         Field::new(
-            "field/task/degrees",
             "degrees",
             Value::new(
                 Cardinality::One,
@@ -1342,7 +1312,6 @@ mod tests {
             None,
         ),
         Field::new(
-            "field/task/label",
             "label",
             Value::new(
                 Cardinality::One,
@@ -1380,20 +1349,18 @@ mod tests {
         )));
         schema.insert_node(SchemaNode::Store(Store::new_heap(
             Def::new("test", "Store"),
-            "Store",
-            "store",
             "test::Canister",
             StoreHeapConfig::new(),
         )));
         schema.insert_node(SchemaNode::Enum(Enum::new(
             Def::new("test", "Status"),
-            "type/status",
+            "Status",
             &STATUS_VARIANTS,
             EMPTY_TYPE.clone(),
         )));
         schema.insert_node(SchemaNode::Newtype(Newtype::new(
             Def::new("test", "Degrees"),
-            "type/degrees",
+            "Degrees",
             Item::new(
                 ItemTarget::Primitive(Primitive::Nat16),
                 None,
@@ -1409,7 +1376,7 @@ mod tests {
         )));
         schema.insert_node(SchemaNode::Newtype(Newtype::new(
             Def::new("test", "Label"),
-            "type/label",
+            "Label",
             Item::new(
                 ItemTarget::Primitive(Primitive::Text),
                 None,
@@ -1425,11 +1392,9 @@ mod tests {
         )));
         schema.insert_node(SchemaNode::Entity(Entity::new(
             Def::new("test", "Task"),
-            "entity/task",
             "test::Store",
             1,
             PrimaryKey::new(&["id"], PrimaryKeySource::External),
-            None,
             &[],
             &[],
             &[],
@@ -1483,9 +1448,9 @@ mod tests {
         let constraints = fragment.entities()[0].constraints();
         assert_eq!(constraints.len(), 2);
         let degrees_source = ConstraintSourceKey::for_targeted_field_rule(
-            &FieldSourceKey::try_new("field/task/degrees").expect("field source"),
-            &TypeSourceKey::try_new("type/degrees").expect("type source"),
-            &RuleSourceKey::try_new("rule/degrees/range").expect("rule source"),
+            &FieldSourceKey::try_new("degrees").expect("field name"),
+            &TypeSourceKey::try_new("Degrees").expect("type name"),
+            &RuleSourceKey::try_new("range").expect("rule name"),
         );
         let degrees = constraints
             .iter()
@@ -1494,8 +1459,8 @@ mod tests {
         let ConstraintFragmentKind::TargetedRule(degrees) = degrees.kind() else {
             panic!("numeric rule should use the targeted-rule contract")
         };
-        assert_eq!(degrees.root().as_str(), "field/task/degrees");
-        assert_eq!(degrees.target_type().as_str(), "type/degrees");
+        assert_eq!(degrees.root().as_str(), "degrees");
+        assert_eq!(degrees.target_type().as_str(), "Degrees");
         assert!(matches!(
             degrees.operation(),
             SourceRuleOperation::NumericRangeInclusive { .. }
@@ -1507,7 +1472,7 @@ mod tests {
         let ConstraintFragmentKind::TargetedRule(label) = label.kind() else {
             panic!("length rule should use the targeted-rule contract")
         };
-        assert_eq!(label.target_type().as_str(), "type/label");
+        assert_eq!(label.target_type().as_str(), "Label");
         assert!(matches!(
             label.operation(),
             SourceRuleOperation::LengthRangeInclusive { min: 2, max: 40 }

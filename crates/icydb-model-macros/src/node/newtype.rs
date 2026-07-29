@@ -18,7 +18,8 @@ pub struct Newtype {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
-    pub(crate) source_key: LitStr,
+    #[darling(default)]
+    pub(crate) name: Option<LitStr>,
 
     pub(crate) primitive: Option<Primitive>,
     pub(crate) item: Item,
@@ -75,14 +76,14 @@ impl HasSchemaPart for Newtype {
         debug_assert!(self.validate().is_ok(), "invalid #[newtype] config");
 
         let def = self.def.schema_part();
-        let source_key = &self.source_key;
+        let name = self.current_name_literal(self.name.as_ref());
         let item = self.item.schema_part();
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
         let ty = self.ty.schema_part();
 
         // quote
         quote! {
-            ::icydb_model::node::Newtype::new(#def, #source_key, #item, #default, #ty)
+            ::icydb_model::node::Newtype::new(#def, #name, #item, #default, #ty)
         }
     }
 }
@@ -219,12 +220,9 @@ mod tests {
 
     #[test]
     fn from_list_parses_nested_item_primitive() {
-        let args = NestedMeta::parse_meta_list(quote!(
-            source_key = "type/test_decimal",
-            primitive = "Decimal",
-            item(prim = "Decimal")
-        ))
-        .expect("newtype args should parse");
+        let args =
+            NestedMeta::parse_meta_list(quote!(primitive = "Decimal", item(prim = "Decimal")))
+                .expect("newtype args should parse");
 
         let node = Newtype::from_list(&args).expect("newtype meta should lower");
 
@@ -235,7 +233,7 @@ mod tests {
     fn newtype_with_primitive(primitive: Primitive) -> Newtype {
         Newtype {
             def: Def::default(),
-            source_key: syn::parse_quote!("type/test_newtype"),
+            name: None,
             primitive: Some(primitive),
             item: Item {
                 primitive: Some(primitive),

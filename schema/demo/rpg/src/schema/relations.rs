@@ -10,7 +10,7 @@ define_fixture_canister!(
 );
 
 define_fixture_store!(
-    DemoRpgStore = "DEMO_RPG_STORE",
+    DemoRpgStore,
     canister = "DemoRpgCanister",
     storage(journaled(
         data_memory_id = 104,

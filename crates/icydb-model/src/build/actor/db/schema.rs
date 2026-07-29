@@ -75,15 +75,15 @@ mod tests {
     }
 
     #[test]
-    fn generated_schema_surface_resolves_immutable_entity_sources() {
+    fn generated_schema_surface_resolves_current_entity_names() {
         let mut surface_tokens = SchemaSurfaceTokens::empty();
-        surface_tokens.push_entity("demo:entity:character");
+        surface_tokens.push_entity("Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
 
         assert!(surface.contains("name=\"icydb_schema\""));
         assert!(surface.contains("fn__icydb_schema("));
-        assert!(surface.contains("try_describe_entity_by_source_key(\"demo:entity:character\")"));
+        assert!(surface.contains("try_describe_entity_by_source_key(\"Character\")"));
         assert!(!surface.contains("crate::Character"));
     }
 }

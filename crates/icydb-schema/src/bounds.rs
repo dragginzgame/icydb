@@ -6,11 +6,11 @@ pub const MAX_SCHEMA_FRAGMENT_BYTES: usize = 512 * 1024;
 /// Maximum encoded size of one database-scoped schema proposal.
 pub const MAX_SCHEMA_PROPOSAL_BYTES: usize = 2 * 1024 * 1024;
 
-/// Maximum byte length of one immutable source key.
+/// Maximum byte length of one typed current-name proposal key.
 pub const MAX_SOURCE_KEY_BYTES: usize = 128;
 
-/// Maximum byte length of one editable schema/display name.
-pub const MAX_SCHEMA_NAME_BYTES: usize = 256;
+/// Maximum byte length of one current schema name.
+pub const MAX_SCHEMA_NAME_BYTES: usize = MAX_SOURCE_KEY_BYTES;
 
 /// Maximum byte length of one caller-generated submission key.
 pub const MAX_SCHEMA_SUBMISSION_KEY_BYTES: usize = 128;

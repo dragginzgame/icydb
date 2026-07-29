@@ -8,23 +8,19 @@ use icydb_model::prelude::*;
 /// generated field declaration and typed-projection output.
 ///
 
-#[entity(source_key = "schema/test/fixtures/src/macro_test/field_projection_order.rs::entity::1",
-    audit_timestamps(
-        created_at(source_key = "created_at", ident = "created_at"),
-        updated_at(source_key = "updated_at", ident = "updated_at")
-    ),
-    store = "TestStore",
+#[entity(store = "TestStore",
     version = 1,
     pk(fields = ["id"]),
     fields(
-        field(source_key = "id", ident = "id",
+        field(name = "id",
             value(item(prim = "Ulid")),
             generated(insert = "Ulid::generate")
         ),
-        field(source_key = "title", ident = "title", value(item(prim = "Text", unbounded))),
-        field(source_key = "score", ident = "score", value(item(prim = "Nat32"))),
-        field(source_key = "nickname", ident = "nickname", value(opt, item(prim = "Text", unbounded))),
-        field(source_key = "tags", ident = "tags", value(many, item(prim = "Text", unbounded)))
-    )
+        field(name = "title", value(item(prim = "Text", unbounded))),
+        field(name = "score", value(item(prim = "Nat32"))),
+        field(name = "nickname", value(opt, item(prim = "Text", unbounded))),
+        field(name = "tags", value(many, item(prim = "Text", unbounded)))
+    ),
+    timestamps
 )]
 pub struct ProjectionOrderEntity {}

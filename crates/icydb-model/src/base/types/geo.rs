@@ -15,16 +15,11 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/geo.rs::newtype::1",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
-        rule(
-            source_key = "icydb.base.rule.geo.address_line.length.v1",
-            kind = "length_range_inclusive",
-            args(1, 100)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(1, 100)),
     )
 )]
 pub struct AddressLine {}
@@ -39,17 +34,12 @@ pub struct AddressLine {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/geo.rs::newtype::2",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Title"),
-        rule(
-            source_key = "icydb.base.rule.geo.city_name.length.v1",
-            kind = "length_range_inclusive",
-            args(1, 100)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(1, 100)),
     )
 )]
 pub struct CityName {}
@@ -64,17 +54,12 @@ pub struct CityName {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/geo.rs::newtype::3",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Upper"),
-        rule(
-            source_key = "icydb.base.rule.geo.postal_code.length.v1",
-            kind = "length_range_inclusive",
-            args(3, 12)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(3, 12)),
     )
 )]
 pub struct PostalCode {}
@@ -90,17 +75,12 @@ pub struct PostalCode {}
 ///
 
 #[newtype(
-    source_key = "crates/icydb/src/base/types/geo.rs::newtype::4",
     primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Upper"),
-        rule(
-            source_key = "icydb.base.rule.geo.region_name.length.v1",
-            kind = "length_range_inclusive",
-            args(2, 50)
-        ),
+        rule(name = "length", kind = "length_range_inclusive", args(2, 50)),
     )
 )]
 pub struct RegionName {}

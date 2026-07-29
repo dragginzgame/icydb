@@ -22,8 +22,8 @@ pub struct FieldList {
 }
 
 impl FieldList {
-    pub fn get(&self, ident: &Ident) -> Option<&Field> {
-        self.fields.iter().find(|f| f.ident == *ident)
+    pub fn get(&self, name: &Ident) -> Option<&Field> {
+        self.fields.iter().find(|field| field.name == *name)
     }
 
     pub const fn is_empty(&self) -> bool {
@@ -60,7 +60,11 @@ impl FieldList {
     /// Generate default assignments for struct initialization.
     pub fn default_assignments(&self) -> Vec<(Ident, TokenStream)> {
         self.iter()
-            .filter_map(|f| f.rust_default_expr().map(|expr| (f.ident.clone(), expr)))
+            .filter_map(|field| {
+                field
+                    .rust_default_expr()
+                    .map(|expr| (field.name.clone(), expr))
+            })
             .collect()
     }
 }
@@ -183,8 +187,7 @@ impl HasSchemaPart for FieldWriteManagement {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct Field {
-    pub(crate) source_key: LitStr,
-    pub(crate) ident: Ident,
+    pub(crate) name: Ident,
     pub(crate) value: Value,
 
     #[darling(default)]
@@ -203,28 +206,28 @@ const RELATION_MANY_SUFFIX: &str = "_ids";
 
 impl Field {
     pub fn validate(&self) -> Result<(), DarlingError> {
-        // Identifier validation.
-        let ident_str = self.ident.to_string();
+        // Name validation.
+        let name = self.name.to_string();
 
-        if ident_str.len() > MAX_FIELD_NAME_LEN {
+        if name.len() > MAX_FIELD_NAME_LEN {
             return Err(DarlingError::custom(format!(
-                "field name '{ident_str}' exceeds max length {MAX_FIELD_NAME_LEN}"
+                "field name '{name}' exceeds max length {MAX_FIELD_NAME_LEN}"
             ))
-            .with_span(&self.ident));
+            .with_span(&self.name));
         }
 
-        if is_reserved_word(&ident_str) {
+        if is_reserved_word(&name) {
             return Err(
-                DarlingError::custom(format!("the word '{ident_str}' is reserved"))
-                    .with_span(&self.ident),
+                DarlingError::custom(format!("the word '{name}' is reserved"))
+                    .with_span(&self.name),
             );
         }
 
-        if !ident_str.is_case(Case::Snake) {
-            return Err(DarlingError::custom(format!(
-                "field ident '{ident_str}' must be snake_case"
-            ))
-            .with_span(&self.ident));
+        if !name.is_case(Case::Snake) {
+            return Err(
+                DarlingError::custom(format!("field name '{name}' must be snake_case"))
+                    .with_span(&self.name),
+            );
         }
 
         // Value validation.
@@ -236,11 +239,11 @@ impl Field {
                 Cardinality::Many => RELATION_MANY_SUFFIX,
                 Cardinality::One | Cardinality::Opt => RELATION_ONE_SUFFIX,
             };
-            if !ident_str.ends_with(required_suffix) {
+            if !name.ends_with(required_suffix) {
                 return Err(DarlingError::custom(format!(
-                    "relation field ident '{ident_str}' must end with '{required_suffix}'"
+                    "relation field name '{name}' must end with '{required_suffix}'"
                 ))
-                .with_span(&self.ident));
+                .with_span(&self.name));
             }
         }
 
@@ -294,18 +297,13 @@ impl Field {
     }
 
     pub fn const_ident(&self) -> Ident {
-        let constant = self.ident.to_string().to_case(Case::Constant);
+        let constant = self.name.to_string().to_case(Case::Constant);
         format_ident!("{constant}")
     }
 
-    pub(crate) fn managed_timestamp(
-        source_key: LitStr,
-        ident: Ident,
-        write_management: FieldWriteManagement,
-    ) -> Self {
+    pub(crate) fn managed_timestamp(name: Ident, write_management: FieldWriteManagement) -> Self {
         Self {
-            source_key,
-            ident,
+            name,
             value: Value {
                 item: Item {
                     primitive: Some(Primitive::Timestamp),
@@ -344,28 +342,28 @@ impl Field {
             return Err(DarlingError::custom(
                 "generated(insert = ...) cannot be combined with auto-managed write fields",
             )
-            .with_span(&self.ident));
+            .with_span(&self.name));
         }
 
         if self.value.cardinality() != Cardinality::One {
             return Err(DarlingError::custom(
                 "generated(insert = ...) currently supports only single-value fields",
             )
-            .with_span(&self.ident));
+            .with_span(&self.name));
         }
 
         if self.value.item.is.is_some() || self.value.item.relation.is_some() {
             return Err(DarlingError::custom(
                 "generated(insert = ...) currently supports only primitive Ulid or Timestamp fields",
             )
-            .with_span(&self.ident));
+            .with_span(&self.name));
         }
 
         let Some(contract) = generated_insert_contract(generator) else {
             return Err(DarlingError::custom(
                 "generated(insert = ...) currently supports only Ulid::generate or Timestamp::now",
             )
-            .with_span(&self.ident));
+            .with_span(&self.name));
         };
 
         match (self.value.item.primitive, contract) {
@@ -375,19 +373,19 @@ impl Field {
                 return Err(DarlingError::custom(
                     "generated(insert = \"Ulid::generate\") requires a primitive Ulid field",
                 )
-                .with_span(&self.ident));
+                .with_span(&self.name));
             }
             (Some(_), GeneratedInsertContract::Timestamp) => {
                 return Err(DarlingError::custom(
                     "generated(insert = \"Timestamp::now\") requires a primitive Timestamp field",
                 )
-                .with_span(&self.ident));
+                .with_span(&self.name));
             }
             (None, _) => {
                 return Err(DarlingError::custom(
                     "generated(insert = ...) currently supports only primitive Ulid or Timestamp fields",
                 )
-                .with_span(&self.ident));
+                .with_span(&self.name));
             }
         }
 
@@ -395,7 +393,7 @@ impl Field {
             return Err(DarlingError::custom(
                 "generated(insert = ...) cannot be combined with default = ...; default is a database/schema default",
             )
-            .with_span(&self.ident));
+            .with_span(&self.name));
         }
 
         Ok(())
@@ -407,14 +405,14 @@ impl Field {
         };
 
         if authored_unit_enum_default(default, &self.value)
-            .map_err(|message| DarlingError::custom(message).with_span(&self.ident))?
+            .map_err(|message| DarlingError::custom(message).with_span(&self.name))?
             .is_some()
         {
             return Ok(());
         }
 
         validate_database_default_shape(default, &self.value)
-            .map_err(|message| DarlingError::custom(message).with_span(&self.ident))
+            .map_err(|message| DarlingError::custom(message).with_span(&self.name))
     }
 }
 
@@ -765,8 +763,7 @@ fn path_ends_with_segments(path: &Path, expected: &[&str]) -> bool {
 
 impl HasSchemaPart for Field {
     fn schema_part(&self) -> TokenStream {
-        let source_key = &self.source_key;
-        let ident = quote_one(&self.ident, to_str_lit);
+        let name = quote_one(&self.name, to_str_lit);
         let value = self.value.schema_part();
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
         let generated = quote_option(self.generated.as_ref(), FieldGeneration::schema_part);
@@ -777,8 +774,7 @@ impl HasSchemaPart for Field {
 
         quote! {
             ::icydb_model::node::Field::new(
-                #source_key,
-                #ident,
+                #name,
                 #value,
                 #default,
                 #generated,
@@ -790,11 +786,11 @@ impl HasSchemaPart for Field {
 
 impl HasTypeExpr for Field {
     fn type_expr(&self) -> TokenStream {
-        let ident = &self.ident;
+        let name = &self.name;
         let value = self.value.type_expr();
 
         quote! {
-            #ident: #value
+            #name: #value
         }
     }
 }
