@@ -228,7 +228,12 @@ fn normalize_compare_value_for_accepted_contract(
                     &mut budget,
                 )?);
             }
-            Ok(canonical_membership_value_list(normalized))
+            let normalized = canonical_membership_value_list(normalized);
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
+            if let Value::List(values) = &normalized {
+                crate::db::diagnostics::record_sql_membership_normalized(values);
+            }
+            Ok(normalized)
         }
         CompareOp::Contains => {
             let Some(element_contract) = contract.collection_element_contract() else {
@@ -369,7 +374,12 @@ fn normalize_compare_value_for_accepted_kind(
                 coercion,
                 op,
             )?;
-            Ok(canonical_membership_value_list(normalized))
+            let normalized = canonical_membership_value_list(normalized);
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
+            if let Value::List(values) = &normalized {
+                crate::db::diagnostics::record_sql_membership_normalized(values);
+            }
+            Ok(normalized)
         }
         CompareOp::Contains => {
             let element_kind = match field_kind {

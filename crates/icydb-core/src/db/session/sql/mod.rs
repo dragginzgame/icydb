@@ -20,7 +20,10 @@ mod update_policy;
 mod write_policy;
 
 #[cfg(feature = "diagnostics")]
-use crate::db::diagnostics::StoreCounterSnapshot;
+use crate::db::diagnostics::{
+    StoreCounterSnapshot, begin_sql_structural_work_attribution,
+    finish_sql_structural_work_attribution,
+};
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::{
     current_pure_covering_decode_local_instructions,
@@ -128,6 +131,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<(SqlStatementResult, SqlQueryExecutionAttribution), QueryError> {
+        begin_sql_structural_work_attribution();
         let entity_name = sql_statement_entity_name(sql)?;
         // Phase 1: measure the compile side of the new seam, including parse,
         // surface validation, and semantic command construction.
@@ -147,6 +151,7 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_compiled_sql_query_context_with_phase_attribution(&compiled)
             });
         let (result, execute_cache_attribution, execute_phase_attribution) = executed?;
+        let structural_work = finish_sql_structural_work_attribution();
         let store_counters = store_counters_before.delta_since();
         let pure_covering_decode_local_instructions =
             current_pure_covering_decode_local_instructions()
@@ -165,6 +170,7 @@ impl<C: CanisterKind> DbSession<C> {
                 pure_covering_decode_local_instructions,
                 pure_covering_row_assembly_local_instructions,
                 projection_materialization,
+                structural_work,
                 store_counters,
             },
         );

@@ -50,6 +50,9 @@ pub(crate) struct PerformanceMeasurementCoverage {
     /// Typed data/index store operation counters.
     pub(crate) storage_operations: PerformanceMeasurementStatus,
 
+    /// Query-scoped compound-range and membership/prefix structural work.
+    pub(crate) structural_work: PerformanceMeasurementStatus,
+
     /// Typed result row/count cardinality.
     pub(crate) result_cardinality: PerformanceMeasurementStatus,
 
@@ -71,10 +74,11 @@ pub(crate) struct PerformanceMeasurementCoverage {
 
 impl PerformanceMeasurementCoverage {
     /// Return every required dimension in stable report order.
-    pub(crate) const fn entries(self) -> [(&'static str, PerformanceMeasurementStatus); 8] {
+    pub(crate) const fn entries(self) -> [(&'static str, PerformanceMeasurementStatus); 9] {
         [
             ("instruction_attribution", self.instruction_attribution),
             ("storage_operations", self.storage_operations),
+            ("structural_work", self.structural_work),
             ("result_cardinality", self.result_cardinality),
             (
                 "projected_blob_output_bytes",
@@ -93,6 +97,7 @@ pub(crate) const fn current_measurement_coverage() -> PerformanceMeasurementCove
     PerformanceMeasurementCoverage {
         instruction_attribution: PerformanceMeasurementStatus::Measured,
         storage_operations: PerformanceMeasurementStatus::Measured,
+        structural_work: PerformanceMeasurementStatus::Measured,
         result_cardinality: PerformanceMeasurementStatus::Measured,
         projected_blob_output_bytes: PerformanceMeasurementStatus::Measured,
         peak_retained_candidates: PerformanceMeasurementStatus::Measured,
@@ -222,6 +227,10 @@ mod tests {
         );
         assert_eq!(
             coverage.storage_operations,
+            PerformanceMeasurementStatus::Measured,
+        );
+        assert_eq!(
+            coverage.structural_work,
             PerformanceMeasurementStatus::Measured,
         );
         assert_eq!(

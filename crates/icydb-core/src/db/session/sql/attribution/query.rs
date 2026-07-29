@@ -8,7 +8,7 @@ use super::{
 };
 use crate::db::{
     DirectDataRowAttribution, GroupedExecutionAttribution, KernelRowAttribution,
-    ScalarAggregateAttribution,
+    ScalarAggregateAttribution, SqlStructuralWorkAttribution,
     diagnostics::StoreCounterSnapshot,
     session::sql::{
         cache::SqlCacheAttribution, compile::SqlCompilePhaseAttribution,
@@ -41,6 +41,8 @@ pub struct SqlQueryExecutionAttribution {
     pub pure_covering: Option<SqlPureCoveringAttribution>,
     pub hybrid_covering: Option<SqlHybridCoveringAttribution>,
     pub output_blob: SqlOutputBlobAttribution,
+    /// Query-scoped compound-range and membership/prefix structural work.
+    pub structural_work: SqlStructuralWorkAttribution,
     pub store_get_calls: u64,
     pub index_store_get_calls: u64,
     pub index_store_range_scan_calls: u64,
@@ -61,6 +63,7 @@ pub(in crate::db::session::sql) struct SqlQueryExecutionAttributionInputs {
     pub pure_covering_decode_local_instructions: u64,
     pub pure_covering_row_assembly_local_instructions: u64,
     pub projection_materialization: SqlProjectionMaterializationMetrics,
+    pub structural_work: SqlStructuralWorkAttribution,
     pub store_counters: StoreCounterSnapshot,
 }
 
@@ -103,6 +106,7 @@ impl SqlQueryExecutionAttribution {
                 inputs.projection_materialization,
             ),
             output_blob: sql_output_blob_attribution(result),
+            structural_work: inputs.structural_work,
             store_get_calls: inputs.store_counters.data_store_get_calls,
             index_store_get_calls: inputs.store_counters.index_store_get_calls,
             index_store_range_scan_calls: inputs.store_counters.index_store_range_scan_calls,

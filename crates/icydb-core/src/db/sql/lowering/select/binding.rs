@@ -289,6 +289,8 @@ fn canonicalize_sql_compare_list_for_schema(
         .iter()
         .map(|item| schema.canonicalize_strict_sql_literal(field, item))
         .collect::<Option<Vec<_>>>()?;
+    #[cfg(feature = "diagnostics")]
+    crate::db::diagnostics::record_sql_membership_canonicalization(items.len());
     canonicalize_value_set(&mut items);
 
     Some((items, coercion))

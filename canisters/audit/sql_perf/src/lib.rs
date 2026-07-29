@@ -18,8 +18,8 @@ use icydb::{
         EntitySchemaDescription, GroupedCountAttribution, GroupedExecutionAttribution,
         IntegrityCheckError, IntegrityCheckResult, IntegrityJobOwner, SqlCompileAttribution,
         SqlExecutionAttribution, SqlIntegrityError, SqlPureCoveringAttribution,
-        SqlQueryCacheAttribution, SqlQueryExecutionAttribution, StructuralMutation,
-        StructuralPatch, WriteCell, sql::SqlQueryResult,
+        SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
+        StructuralMutation, StructuralPatch, WriteCell, sql::SqlQueryResult,
     },
     prelude::*,
     value::InputValue,
@@ -445,6 +445,90 @@ impl GroupedRuntimeTotals {
 }
 
 #[cfg(feature = "sql")]
+const fn record_structural_work(
+    total: &mut SqlStructuralWorkAttribution,
+    current: SqlStructuralWorkAttribution,
+) {
+    total.range_conjunctions_examined = total
+        .range_conjunctions_examined
+        .saturating_add(current.range_conjunctions_examined);
+    total.range_lower_bounds_extracted = total
+        .range_lower_bounds_extracted
+        .saturating_add(current.range_lower_bounds_extracted);
+    total.range_upper_bounds_extracted = total
+        .range_upper_bounds_extracted
+        .saturating_add(current.range_upper_bounds_extracted);
+    total.range_physical_children_emitted = total
+        .range_physical_children_emitted
+        .saturating_add(current.range_physical_children_emitted);
+    total.residual_predicate_evaluations = total
+        .residual_predicate_evaluations
+        .saturating_add(current.residual_predicate_evaluations);
+    total.membership_authored_members = total
+        .membership_authored_members
+        .saturating_add(current.membership_authored_members);
+    total.membership_normalized_members = total
+        .membership_normalized_members
+        .saturating_add(current.membership_normalized_members);
+    total.membership_distinct_members = total
+        .membership_distinct_members
+        .saturating_add(current.membership_distinct_members);
+    total.membership_null_members = total
+        .membership_null_members
+        .saturating_add(current.membership_null_members);
+    total.membership_canonicalization_passes = total
+        .membership_canonicalization_passes
+        .saturating_add(current.membership_canonicalization_passes);
+    total.membership_members_revisited = total
+        .membership_members_revisited
+        .saturating_add(current.membership_members_revisited);
+    total.prefix_branches_before_deduplication = total
+        .prefix_branches_before_deduplication
+        .saturating_add(current.prefix_branches_before_deduplication);
+    total.prefix_branches_after_deduplication = total
+        .prefix_branches_after_deduplication
+        .saturating_add(current.prefix_branches_after_deduplication);
+    total.prefix_exclusions_tested = total
+        .prefix_exclusions_tested
+        .saturating_add(current.prefix_exclusions_tested);
+    total.prefix_exclusions_pruned = total
+        .prefix_exclusions_pruned
+        .saturating_add(current.prefix_exclusions_pruned);
+    total.prefix_branch_cap_admissions = total
+        .prefix_branch_cap_admissions
+        .saturating_add(current.prefix_branch_cap_admissions);
+    total.prefix_branch_cap_rejections = total
+        .prefix_branch_cap_rejections
+        .saturating_add(current.prefix_branch_cap_rejections);
+}
+
+#[cfg(feature = "sql")]
+const fn average_structural_work(
+    total: SqlStructuralWorkAttribution,
+    divisor: u64,
+) -> SqlStructuralWorkAttribution {
+    SqlStructuralWorkAttribution {
+        range_conjunctions_examined: total.range_conjunctions_examined / divisor,
+        range_lower_bounds_extracted: total.range_lower_bounds_extracted / divisor,
+        range_upper_bounds_extracted: total.range_upper_bounds_extracted / divisor,
+        range_physical_children_emitted: total.range_physical_children_emitted / divisor,
+        residual_predicate_evaluations: total.residual_predicate_evaluations / divisor,
+        membership_authored_members: total.membership_authored_members / divisor,
+        membership_normalized_members: total.membership_normalized_members / divisor,
+        membership_distinct_members: total.membership_distinct_members / divisor,
+        membership_null_members: total.membership_null_members / divisor,
+        membership_canonicalization_passes: total.membership_canonicalization_passes / divisor,
+        membership_members_revisited: total.membership_members_revisited / divisor,
+        prefix_branches_before_deduplication: total.prefix_branches_before_deduplication / divisor,
+        prefix_branches_after_deduplication: total.prefix_branches_after_deduplication / divisor,
+        prefix_exclusions_tested: total.prefix_exclusions_tested / divisor,
+        prefix_exclusions_pruned: total.prefix_exclusions_pruned / divisor,
+        prefix_branch_cap_admissions: total.prefix_branch_cap_admissions / divisor,
+        prefix_branch_cap_rejections: total.prefix_branch_cap_rejections / divisor,
+    }
+}
+
+#[cfg(feature = "sql")]
 #[expect(clippy::too_many_arguments)]
 #[expect(
     clippy::field_reassign_with_default,
@@ -488,6 +572,7 @@ fn average_attribution(
     total_index_store_get_calls: u64,
     total_index_store_range_scan_calls: u64,
     total_index_store_entry_reads: u64,
+    total_structural_work: SqlStructuralWorkAttribution,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
@@ -572,6 +657,7 @@ fn average_attribution(
     attribution.index_store_get_calls = total_index_store_get_calls / divisor;
     attribution.index_store_range_scan_calls = total_index_store_range_scan_calls / divisor;
     attribution.index_store_entry_reads = total_index_store_entry_reads / divisor;
+    attribution.structural_work = average_structural_work(total_structural_work, divisor);
     attribution.response_decode_local_instructions =
         total_response_decode_local_instructions / divisor;
     attribution.execute_local_instructions = total_execute_local_instructions / divisor;
@@ -624,6 +710,7 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
     let mut total_index_store_get_calls = 0_u64;
     let mut total_index_store_range_scan_calls = 0_u64;
     let mut total_index_store_entry_reads = 0_u64;
+    let mut total_structural_work = SqlStructuralWorkAttribution::default();
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
@@ -717,6 +804,7 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
             .saturating_add(attribution.index_store_range_scan_calls);
         total_index_store_entry_reads =
             total_index_store_entry_reads.saturating_add(attribution.index_store_entry_reads);
+        record_structural_work(&mut total_structural_work, attribution.structural_work);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
         total_execute_local_instructions =
@@ -773,6 +861,7 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
             total_index_store_get_calls,
             total_index_store_range_scan_calls,
             total_index_store_entry_reads,
+            total_structural_work,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,

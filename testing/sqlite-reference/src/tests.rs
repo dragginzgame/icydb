@@ -12,11 +12,9 @@ use crate::{
     required_sqlite_reference_scenarios,
 };
 use icydb_testing_sql_generator::{
-    ALL_SELECT_GENERATOR_FAMILIES, MutationField, MutationFieldKind, MutationFieldRole,
-    MutationSnapshot, SelectField, SelectFieldKind, SelectIndex, SelectSnapshot,
-    TIER_A_MUTATION_BUDGETS, TIER_A_MUTATION_CASES_PER_ROOT, TIER_A_ROOT_SEEDS,
-    TIER_A_SELECT_BUDGETS, TIER_A_VALID_CASES_PER_FAMILY, generate_mutation_sequence,
-    generate_valid_select_case,
+    TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_REPETITIONS, TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS,
+    TIER_C_SELECT_REPETITIONS, generate_scheduled_mutation_sequence,
+    generate_scheduled_select_case, scheduled_mutation_witnesses, scheduled_select_witnesses,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -163,20 +161,22 @@ fn declared_common_value_families_map_losslessly() {
 }
 
 #[test]
-fn tier_a_generated_select_profile_executes_without_silent_exclusions() {
-    let snapshot = generated_select_snapshot();
+fn reviewed_generated_select_witnesses_execute_without_silent_exclusions() {
+    let witnesses = scheduled_select_witnesses().expect("reviewed witness catalog should decode");
     let mut executed = 0_u32;
-    for root_seed in TIER_A_ROOT_SEEDS {
-        for family in ALL_SELECT_GENERATOR_FAMILIES {
-            for case_index in 0..TIER_A_VALID_CASES_PER_FAMILY {
-                let generated = generate_valid_select_case(
-                    &snapshot,
+    for root_seed in TIER_C_ROOT_SEEDS {
+        for witness in &witnesses {
+            for repetition in 0..TIER_C_SELECT_REPETITIONS {
+                let generated = generate_scheduled_select_case(
+                    witness,
                     *root_seed,
-                    *family,
-                    case_index,
-                    TIER_A_SELECT_BUDGETS,
+                    repetition,
+                    TIER_C_SELECT_BUDGETS,
                 )
-                .expect("Tier A SQLite case should generate");
+                .expect("reviewed SQLite witness should generate");
+                if generated.violation().is_some() {
+                    continue;
+                }
                 execute_generated_select_case(&generated).unwrap_or_else(|error| {
                     panic!(
                         "generated SQLite case {:?} should execute: {error}",
@@ -191,46 +191,51 @@ fn tier_a_generated_select_profile_executes_without_silent_exclusions() {
     assert_eq!(
         executed,
         u32::try_from(
-            TIER_A_ROOT_SEEDS.len()
-                * ALL_SELECT_GENERATOR_FAMILIES.len()
-                * usize::try_from(TIER_A_VALID_CASES_PER_FAMILY)
-                    .expect("Tier A case count should fit usize"),
+            TIER_C_ROOT_SEEDS.len()
+                * witnesses
+                    .iter()
+                    .filter(|witness| !witness.signature().is_singly_invalid())
+                    .count()
+                * usize::try_from(TIER_C_SELECT_REPETITIONS)
+                    .expect("repetition count should fit usize"),
         )
-        .expect("Tier A generated profile should fit u32"),
+        .expect("reviewed generated profile should fit u32"),
     );
 }
 
 #[test]
-fn tier_a_generated_mutation_overlap_matches_independent_model() {
-    let snapshot = generated_mutation_snapshot();
+fn tier_c_generated_mutation_overlap_matches_independent_model() {
+    let witnesses = scheduled_mutation_witnesses().expect("mutation witness catalog should load");
     let mut compared = 0_u32;
     let mut excluded = 0_u32;
-    for root_seed in TIER_A_ROOT_SEEDS {
-        for case_index in 0..TIER_A_MUTATION_CASES_PER_ROOT {
-            let sequence = generate_mutation_sequence(
-                &snapshot,
-                *root_seed,
-                case_index,
-                TIER_A_MUTATION_BUDGETS,
-            )
-            .expect("Tier A mutation sequence should generate");
-            let evidence = execute_generated_mutation_sequence(&sequence)
-                .expect("eligible Tier A mutation steps should execute in bundled SQLite");
-            assert_eq!(evidence.len(), sequence.steps().len());
-            for (step, observed) in sequence.steps().iter().zip(evidence) {
-                match observed {
-                    MutationSqliteEvidence::Compared(outcome) => {
-                        assert_eq!(&outcome, step.expected());
-                        compared = compared.saturating_add(1);
-                    }
-                    MutationSqliteEvidence::Excluded(reason) => {
-                        assert_eq!(
-                            step.sqlite_eligibility(),
-                            icydb_testing_sql_generator::MutationSqliteEligibility::Excluded(
-                                reason
-                            )
-                        );
-                        excluded = excluded.saturating_add(1);
+    for root_seed in TIER_C_ROOT_SEEDS {
+        for witness in &witnesses {
+            for repetition in 0..TIER_C_MUTATION_REPETITIONS {
+                let sequence = generate_scheduled_mutation_sequence(
+                    witness,
+                    *root_seed,
+                    repetition,
+                    TIER_C_MUTATION_BUDGETS,
+                )
+                .expect("Tier C mutation witness should generate");
+                let evidence = execute_generated_mutation_sequence(&sequence)
+                    .expect("eligible Tier C mutation steps should execute in bundled SQLite");
+                assert_eq!(evidence.len(), sequence.steps().len());
+                for (step, observed) in sequence.steps().iter().zip(evidence) {
+                    match observed {
+                        MutationSqliteEvidence::Compared(outcome) => {
+                            assert_eq!(&outcome, step.expected());
+                            compared = compared.saturating_add(1);
+                        }
+                        MutationSqliteEvidence::Excluded(reason) => {
+                            assert_eq!(
+                                step.sqlite_eligibility(),
+                                icydb_testing_sql_generator::MutationSqliteEligibility::Excluded(
+                                    reason
+                                )
+                            );
+                            excluded = excluded.saturating_add(1);
+                        }
                     }
                 }
             }
@@ -239,51 +244,4 @@ fn tier_a_generated_mutation_overlap_matches_independent_model() {
 
     assert!(compared > 0);
     assert!(excluded > 0);
-}
-
-fn generated_select_snapshot() -> SelectSnapshot {
-    SelectSnapshot::try_new(
-        "sqlite-tier-a-v1",
-        "sqlite_reference::GeneratorEntity",
-        "GeneratorEntity",
-        1,
-        vec![
-            SelectField::new(1, "id", SelectFieldKind::Ulid, false, true, true),
-            SelectField::new(2, "name", SelectFieldKind::Text, false, false, false),
-            SelectField::new(3, "age", SelectFieldKind::Integer, false, false, false),
-            SelectField::new(4, "score", SelectFieldKind::Integer, false, false, false),
-            SelectField::new(5, "active", SelectFieldKind::Boolean, false, false, false),
-            SelectField::new(6, "note", SelectFieldKind::Text, true, false, false),
-        ],
-        vec![
-            SelectIndex::new(1, "by_name", vec![2]),
-            SelectIndex::new(2, "by_score", vec![4]),
-        ],
-    )
-    .expect("generated SQLite snapshot should be valid")
-}
-
-fn generated_mutation_snapshot() -> MutationSnapshot {
-    MutationSnapshot::try_new(
-        "sqlite-mutation-v1",
-        "sqlite_reference::MutationEntity",
-        "MutationEntity",
-        1,
-        vec![
-            MutationField::new(
-                1,
-                "id",
-                MutationFieldKind::UnsignedInteger,
-                MutationFieldRole::Key,
-            ),
-            MutationField::new(2, "name", MutationFieldKind::Text, MutationFieldRole::Text),
-            MutationField::new(
-                3,
-                "age",
-                MutationFieldKind::UnsignedInteger,
-                MutationFieldRole::Number,
-            ),
-        ],
-    )
-    .expect("generated SQLite mutation snapshot should be valid")
 }

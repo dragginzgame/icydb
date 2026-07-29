@@ -23,7 +23,8 @@ use sha2::{Digest, Sha256};
 const FIXTURE_PROFILE_VERSION: u32 = 1;
 const FIXTURE_GENERATOR_VERSION: u32 = 1;
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
-const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 1;
+const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 2;
+const DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID: &str = "icydb-sql-attribution/0.215/v2";
 
 ///
 /// PerfFixtureSurfaceIdentity
@@ -168,6 +169,9 @@ pub(crate) struct PerfComparableEnvironmentIdentity {
     /// Checked-in performance profile version.
     pub(crate) performance_profile_version: u32,
 
+    /// Stable checked-in performance profile identity.
+    pub(crate) performance_profile_identity: String,
+
     /// Exact P1 scenario-set identity.
     pub(crate) p1_scenario_set_hash: String,
 
@@ -197,6 +201,9 @@ pub(crate) struct PerfComparableEnvironmentIdentity {
 
     /// Diagnostics/attribution DTO schema version.
     pub(crate) diagnostics_attribution_schema_version: u32,
+
+    /// Stable diagnostics/attribution DTO schema identity.
+    pub(crate) diagnostics_attribution_schema_identity: String,
 
     /// Versioned phase-ownership schema.
     pub(crate) phase_ownership_version: u32,
@@ -326,6 +333,7 @@ pub(crate) fn capture_perf_environment(
     let identity = PerfEnvironmentIdentity {
         comparable: PerfComparableEnvironmentIdentity {
             performance_profile_version: profile.version(),
+            performance_profile_identity: profile.identity().to_string(),
             p1_scenario_set_hash: profile.expected_scenario_set_hash().to_string(),
             accepted_snapshot_hash,
             fixture: current_fixture_profile(profile)?,
@@ -345,6 +353,7 @@ pub(crate) fn capture_perf_environment(
             pocket_ic_version,
             pocket_ic_sha256: sha256_hex(&pocket_ic_bytes),
             diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,
+            diagnostics_attribution_schema_identity: DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID.to_string(),
             phase_ownership_version: PERFORMANCE_PHASE_OWNERSHIP_VERSION,
             cache_mode_policy: PerfCacheModePolicy::IsolatedColdAndTypedWarmV1,
             instruction_counter_policy:
@@ -379,6 +388,7 @@ pub(crate) fn validate_perf_environment(
         .map_err(PerfEnvironmentError::InvalidProfile)?;
     let comparable = &identity.comparable;
     if comparable.performance_profile_version != profile.version()
+        || comparable.performance_profile_identity != profile.identity()
         || comparable.p1_scenario_set_hash != profile.expected_scenario_set_hash()
         || comparable.fixture.scale_scenario_set_hash != profile.expected_scale_scenario_set_hash()
         || comparable.canister_build.cargo_profile != "wasm-release"
@@ -389,6 +399,7 @@ pub(crate) fn validate_perf_environment(
         || comparable.wasm_target != WASM_TARGET
         || comparable.diagnostics_attribution_schema_version
             != DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION
+        || comparable.diagnostics_attribution_schema_identity != DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID
         || comparable.phase_ownership_version != PERFORMANCE_PHASE_OWNERSHIP_VERSION
     {
         return Err(PerfEnvironmentError::InvalidIdentity(
@@ -396,6 +407,8 @@ pub(crate) fn validate_perf_environment(
         ));
     }
     let required_text = [
+        comparable.performance_profile_identity.as_str(),
+        comparable.diagnostics_attribution_schema_identity.as_str(),
         comparable.accepted_snapshot_hash.as_str(),
         comparable.rust_toolchain.as_str(),
         comparable.pocket_ic_version.as_str(),
@@ -444,6 +457,7 @@ pub(crate) fn require_comparable_environment(
     let checks = [
         (
             baseline.performance_profile_version == current.performance_profile_version
+                && baseline.performance_profile_identity == current.performance_profile_identity
                 && baseline.p1_scenario_set_hash == current.p1_scenario_set_hash,
             PerfEnvironmentField::PerformanceProfile,
         ),
@@ -478,7 +492,9 @@ pub(crate) fn require_comparable_environment(
         ),
         (
             baseline.diagnostics_attribution_schema_version
-                == current.diagnostics_attribution_schema_version,
+                == current.diagnostics_attribution_schema_version
+                && baseline.diagnostics_attribution_schema_identity
+                    == current.diagnostics_attribution_schema_identity,
             PerfEnvironmentField::DiagnosticsAttribution,
         ),
         (
@@ -916,6 +932,7 @@ pub(crate) mod tests {
         PerfEnvironmentIdentity {
             comparable: PerfComparableEnvironmentIdentity {
                 performance_profile_version: SQL_PERFORMANCE_PROFILE.version(),
+                performance_profile_identity: SQL_PERFORMANCE_PROFILE.identity().to_string(),
                 p1_scenario_set_hash: SQL_PERFORMANCE_PROFILE
                     .expected_scenario_set_hash()
                     .to_string(),
@@ -939,6 +956,8 @@ pub(crate) mod tests {
                 pocket_ic_version: "pocket-ic-server test".to_string(),
                 pocket_ic_sha256: "33".repeat(32),
                 diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,
+                diagnostics_attribution_schema_identity: DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID
+                    .to_string(),
                 phase_ownership_version: PERFORMANCE_PHASE_OWNERSHIP_VERSION,
                 cache_mode_policy: PerfCacheModePolicy::IsolatedColdAndTypedWarmV1,
                 instruction_counter_policy:

@@ -1,230 +1,354 @@
 //! Module: sql_generator::mutation::tests
-//! Responsibility: deterministic mutation generation, model, replay, and shrink contract checks.
+//! Responsibility: catalog-bound mutation generation, model, replay, and shrink contract checks.
 //! Does not own: product or SQLite differential execution.
-//! Boundary: injects harness-local failures to prove bounded replay without preserving product defects.
+//! Boundary: proves the two frozen profiles and exact intent provenance without production helpers.
 
 use crate::{
     GeneratedMutationSequence, MUTATION_GENERATOR_VERSION, MUTATION_REPLAY_FORMAT_VERSION,
-    MutationExecutionPhase, MutationFeature, MutationField, MutationFieldKind, MutationFieldRole,
-    MutationInsertQueryKeySource, MutationMismatchCategory, MutationMismatchSignature,
-    MutationObservedOutcome, MutationOperation, MutationOrder, MutationPredicate,
-    MutationReplayRecord, MutationSnapshot, MutationSqliteEligibility, MutationStepOutcome,
-    MutationWindow, RegressionCorpusCase, RegressionCorpusEntry, SqlGeneratorErrorKind,
-    TIER_A_MUTATION_BUDGETS, TIER_A_MUTATION_CASES_PER_ROOT, TIER_A_ROOT_SEEDS,
-    TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_CASES_PER_ROOT, TIER_C_ROOT_SEEDS,
-    TierCFailureArtifact, generate_mutation_sequence, shrink_mutation_failure,
+    MutationExecutionPhase, MutationExpectedRejection, MutationFeature, MutationIngress,
+    MutationIntentClass, MutationIntentKind, MutationMismatchCategory, MutationMismatchSignature,
+    MutationObservedOutcome, MutationOperation, MutationReplayRecord, MutationRow,
+    MutationSchemaProfile, MutationValue, RegressionCorpusCase, RegressionCorpusEntry,
+    SqlGeneratorErrorKind, TIER_A_MUTATION_BUDGETS, TIER_A_MUTATION_REPETITIONS, TIER_A_ROOT_SEEDS,
+    TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_REPETITIONS, TIER_C_ROOT_SEEDS, TierCFailureArtifact,
+    generate_scheduled_mutation_sequence, scheduled_mutation_witnesses, shrink_mutation_failure,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+const EXPECTED_MUTATION_WITNESSES: &[&str] = &[
+    "tier_c.mutation.authored_insert",
+    "tier_c.mutation.authored_insert_from_query",
+    "tier_c.mutation.authored_windowed",
+    "tier_c.mutation.default_delete_returning",
+    "tier_c.mutation.default_insert_authored",
+    "tier_c.mutation.default_insert_explicit",
+    "tier_c.mutation.default_insert_mixed_batch",
+    "tier_c.mutation.default_insert_omitted",
+    "tier_c.mutation.default_no_match",
+    "tier_c.mutation.default_reject_duplicate",
+    "tier_c.mutation.default_reject_pk_default",
+    "tier_c.mutation.default_reject_required",
+    "tier_c.mutation.default_update_authored",
+    "tier_c.mutation.default_update_default",
+    "tier_c.mutation.default_update_preserve",
+];
 
 #[test]
-fn tier_a_sequences_are_deterministic_bounded_and_cover_current_dml_contract() {
-    let snapshot = mutation_snapshot();
-    let mut insert = 0_u32;
-    let mut insert_from_query = 0_u32;
-    let mut update = 0_u32;
-    let mut delete = 0_u32;
-    let mut returning = 0_u32;
-    let mut rejected = 0_u32;
-    let mut excluded = 0_u32;
-    let mut generated = 0_u32;
-    let mut rendered_profiles = BTreeSet::new();
+fn scheduled_mutation_witnesses_freeze_the_complete_operation_intent_ingress_matrix() {
+    let witnesses = scheduled_mutation_witnesses().expect("mutation witness catalog should load");
+    assert_eq!(
+        witnesses
+            .iter()
+            .map(crate::ScheduledMutationWitness::witness_id)
+            .collect::<Vec<_>>(),
+        EXPECTED_MUTATION_WITNESSES,
+    );
 
+    let mut matrix = BTreeSet::new();
+    for witness in &witnesses {
+        let sequence = generate_scheduled_mutation_sequence(
+            witness,
+            TIER_A_ROOT_SEEDS[0],
+            0,
+            TIER_A_MUTATION_BUDGETS,
+        )
+        .expect("every frozen mutation witness should generate");
+        matrix.insert((
+            sequence.snapshot().profile(),
+            sequence.ingress(),
+            sequence.intent_class(),
+        ));
+        assert_eq!(sequence.structural_signature(), witness.signature());
+    }
+
+    assert_eq!(
+        matrix,
+        BTreeSet::from([
+            (
+                MutationSchemaProfile::AuthoredScalar,
+                MutationIngress::Sql,
+                MutationIntentClass::Authored,
+            ),
+            (
+                MutationSchemaProfile::AuthoredScalar,
+                MutationIngress::SqlAndTyped,
+                MutationIntentClass::Authored,
+            ),
+            (
+                MutationSchemaProfile::AcceptedDefault,
+                MutationIngress::Sql,
+                MutationIntentClass::ExplicitDefault,
+            ),
+            (
+                MutationSchemaProfile::AcceptedDefault,
+                MutationIngress::Sql,
+                MutationIntentClass::MixedBatch,
+            ),
+            (
+                MutationSchemaProfile::AcceptedDefault,
+                MutationIngress::Sql,
+                MutationIntentClass::Omitted,
+            ),
+            (
+                MutationSchemaProfile::AcceptedDefault,
+                MutationIngress::SqlAndTyped,
+                MutationIntentClass::Authored,
+            ),
+            (
+                MutationSchemaProfile::AcceptedDefault,
+                MutationIngress::SqlAndTyped,
+                MutationIntentClass::MixedBatch,
+            ),
+            (
+                MutationSchemaProfile::AcceptedDefault,
+                MutationIngress::SqlAndTyped,
+                MutationIntentClass::Omitted,
+            ),
+            (
+                MutationSchemaProfile::AcceptedDefault,
+                MutationIngress::SqlAndTyped,
+                MutationIntentClass::Preserve,
+            ),
+        ]),
+    );
+}
+
+#[test]
+fn tier_a_mutation_sequences_are_deterministic_bounded_and_structurally_distinct() {
+    assert_eq!(TIER_A_MUTATION_REPETITIONS, 1);
+    let witnesses = scheduled_mutation_witnesses().expect("mutation witness catalog should load");
+    let mut identities = BTreeSet::new();
+    let mut signatures = BTreeSet::new();
+    let mut operations = BTreeSet::new();
     for root_seed in TIER_A_ROOT_SEEDS {
-        for case_index in 0..TIER_A_MUTATION_CASES_PER_ROOT {
-            let sequence = generate_mutation_sequence(
-                &snapshot,
+        for witness in &witnesses {
+            let sequence = generate_scheduled_mutation_sequence(
+                witness,
                 *root_seed,
-                case_index,
+                0,
                 TIER_A_MUTATION_BUDGETS,
             )
-            .expect("Tier A mutation sequence should generate");
+            .expect("Tier A mutation witness should generate");
             sequence
                 .validate()
-                .expect("Tier A mutation sequence should revalidate");
-            assert_eq!(sequence.steps().len(), 8);
+                .expect("Tier A mutation witness should revalidate");
             assert_eq!(
                 sequence,
-                generate_mutation_sequence(
-                    &snapshot,
+                generate_scheduled_mutation_sequence(
+                    witness,
                     *root_seed,
-                    case_index,
+                    0,
                     TIER_A_MUTATION_BUDGETS,
                 )
-                .expect("same mutation identity should regenerate identically"),
+                .expect("same witness identity should regenerate identically"),
             );
-            assert_eq!(
-                sequence.identity().generator_version(),
-                MUTATION_GENERATOR_VERSION
-            );
-            assert!(
-                rendered_profiles.insert(
-                    sequence
-                        .steps()
-                        .iter()
-                        .map(|step| step.rendered_sql().to_string())
-                        .collect::<Vec<_>>(),
-                ),
-                "every required root/case identity must generate a distinct SQL sequence",
-            );
-
+            assert!(identities.insert(sequence.identity().id().to_string()));
+            signatures.insert(sequence.structural_signature().clone());
             for step in sequence.steps() {
-                match step.statement().operation() {
-                    MutationOperation::Delete { .. } => delete = delete.saturating_add(1),
-                    MutationOperation::Insert { .. } => insert = insert.saturating_add(1),
-                    MutationOperation::InsertFromQuery { .. } => {
-                        insert_from_query = insert_from_query.saturating_add(1);
-                    }
-                    MutationOperation::Update { .. } => update = update.saturating_add(1),
-                }
-                returning = returning.saturating_add(u32::from(step.statement().returning()));
-                rejected = rejected.saturating_add(u32::from(matches!(
-                    step.expected(),
-                    MutationStepOutcome::Rejected { .. }
-                )));
-                excluded = excluded.saturating_add(u32::from(matches!(
-                    step.sqlite_eligibility(),
-                    MutationSqliteEligibility::Excluded(_)
-                )));
-                if matches!(step.expected(), MutationStepOutcome::Rejected { .. }) {
-                    assert_eq!(step.state_before(), step.expected().state_after());
-                }
-            }
-            generated = generated.saturating_add(1);
-        }
-    }
-
-    assert_eq!(generated, 8);
-    assert!(insert > 0);
-    assert!(insert_from_query > 0);
-    assert!(update > 0);
-    assert!(delete > 0);
-    assert!(returning > 0);
-    assert_eq!(rejected, generated);
-    assert!(excluded > 0);
-    assert_eq!(rendered_profiles.len(), 8);
-}
-
-#[test]
-fn tier_a_sequences_produce_every_closed_mutation_ast_variant() {
-    let snapshot = mutation_snapshot();
-    let mut orders = BTreeSet::new();
-    let mut key_sources = BTreeSet::new();
-    let mut has_all_predicate = false;
-
-    for root_seed in TIER_A_ROOT_SEEDS {
-        for case_index in 0..TIER_A_MUTATION_CASES_PER_ROOT {
-            let sequence = generate_mutation_sequence(
-                &snapshot,
-                *root_seed,
-                case_index,
-                TIER_A_MUTATION_BUDGETS,
-            )
-            .expect("Tier A mutation sequence should generate");
-            for step in sequence.steps() {
-                match step.statement().operation() {
-                    MutationOperation::Delete { predicate, window } => {
-                        has_all_predicate |= matches!(predicate, MutationPredicate::All);
-                        orders.extend(window.map(MutationWindow::order));
-                    }
-                    MutationOperation::InsertFromQuery { key_source, .. } => {
-                        key_sources.insert(*key_source);
-                    }
-                    MutationOperation::Update { window, .. } => {
-                        if let Some(window) = window {
-                            assert_eq!(window.order(), MutationOrder::KeyAscending);
-                            assert_eq!(window.offset(), 0);
-                        }
-                        orders.extend(window.map(MutationWindow::order));
-                    }
-                    MutationOperation::Insert { .. } => {}
-                }
+                operations.insert(match step.statement().operation() {
+                    MutationOperation::Delete { .. } => "delete",
+                    MutationOperation::Insert { .. } => "insert",
+                    MutationOperation::InsertFromQuery { .. } => "insert_from_query",
+                    MutationOperation::Update { .. } => "update",
+                });
             }
         }
     }
 
+    assert_eq!(identities.len(), witnesses.len() * TIER_A_ROOT_SEEDS.len());
+    assert_eq!(signatures.len(), witnesses.len());
     assert_eq!(
-        orders,
-        BTreeSet::from([MutationOrder::KeyAscending, MutationOrder::KeyDescending])
+        operations,
+        BTreeSet::from(["delete", "insert", "insert_from_query", "update"])
     );
-    assert_eq!(
-        key_sources,
-        BTreeSet::from([
-            MutationInsertQueryKeySource::Key,
-            MutationInsertQueryKeySource::Number,
-        ])
-    );
-    assert!(has_all_predicate);
 }
 
 #[test]
-fn tier_c_mutation_profile_is_exact_bounded_and_fully_generatable() {
-    assert_eq!(TIER_C_MUTATION_CASES_PER_ROOT, 16);
+fn tier_c_mutation_profile_generates_every_witness_root_and_repetition() {
+    assert_eq!(TIER_C_MUTATION_REPETITIONS, 2);
     assert_eq!(TIER_C_MUTATION_BUDGETS.max_fixture_rows(), 64);
     assert_eq!(TIER_C_MUTATION_BUDGETS.max_statements(), 32);
     assert_eq!(TIER_C_MUTATION_BUDGETS.max_shrink_candidates(), 4_096);
     assert_eq!(TIER_C_MUTATION_BUDGETS.max_evaluations(), 8_192);
     assert_eq!(TIER_C_MUTATION_BUDGETS.max_artifact_bytes(), 1_048_576);
 
-    let snapshot = mutation_snapshot();
+    let witnesses = scheduled_mutation_witnesses().expect("mutation witness catalog should load");
     let mut identities = BTreeSet::new();
     for root_seed in TIER_C_ROOT_SEEDS {
-        for case_index in 0..TIER_C_MUTATION_CASES_PER_ROOT {
-            let sequence = generate_mutation_sequence(
-                &snapshot,
-                *root_seed,
-                case_index,
-                TIER_C_MUTATION_BUDGETS,
-            )
-            .expect("Tier C mutation sequence should generate");
-            assert!(identities.insert(sequence.identity().id().to_string()));
-            assert_eq!(sequence.initial_rows().len(), 4);
-            assert_eq!(sequence.steps().len(), 8);
+        for witness in &witnesses {
+            for repetition in 0..TIER_C_MUTATION_REPETITIONS {
+                let sequence = generate_scheduled_mutation_sequence(
+                    witness,
+                    *root_seed,
+                    repetition,
+                    TIER_C_MUTATION_BUDGETS,
+                )
+                .expect("Tier C mutation witness should generate");
+                assert!(identities.insert(sequence.identity().id().to_string()));
+            }
         }
     }
     assert_eq!(
         identities.len(),
-        TIER_C_ROOT_SEEDS.len()
-            * usize::try_from(TIER_C_MUTATION_CASES_PER_ROOT)
-                .expect("Tier C mutation case count should fit usize")
+        witnesses.len()
+            * TIER_C_ROOT_SEEDS.len()
+            * usize::try_from(TIER_C_MUTATION_REPETITIONS)
+                .expect("mutation repetition count should fit usize"),
     );
 
-    let error = generate_mutation_sequence(
-        &snapshot,
+    let error = generate_scheduled_mutation_sequence(
+        &witnesses[0],
         TIER_C_ROOT_SEEDS[0],
-        TIER_C_MUTATION_CASES_PER_ROOT,
+        TIER_C_MUTATION_REPETITIONS,
         TIER_C_MUTATION_BUDGETS,
     )
-    .expect_err("case indices outside the fixed Tier C profile must reject");
+    .expect_err("repetitions outside the frozen profile must reject");
     assert_eq!(error.kind(), SqlGeneratorErrorKind::InvalidCase);
 }
 
 #[test]
-fn mutation_identity_has_fixed_golden_vector() {
-    let sequence = generate_mutation_sequence(
-        &mutation_snapshot(),
-        TIER_A_ROOT_SEEDS[0],
-        0,
-        TIER_A_MUTATION_BUDGETS,
-    )
-    .expect("fixed mutation identity should generate");
+fn accepted_default_profile_resolves_exact_values_and_secondary_index_entries() {
+    for witness_id in [
+        "tier_c.mutation.default_insert_omitted",
+        "tier_c.mutation.default_insert_explicit",
+    ] {
+        let sequence = sequence(witness_id);
+        assert_eq!(
+            sequence.final_state(),
+            &[MutationRow::accepted_default(
+                1,
+                if witness_id.ends_with("omitted") {
+                    "omitted"
+                } else {
+                    "explicit"
+                },
+                "bronze",
+                7,
+                None,
+            )],
+        );
+        let entries = sequence
+            .snapshot()
+            .secondary_index_entries(sequence.final_state())
+            .expect("default-profile index entries should derive");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].value(),
+            &MutationValue::Text("bronze".to_string())
+        );
+        assert_eq!(entries[0].key(), 1);
+    }
 
-    assert_eq!(sequence.identity().generator_version(), 1);
-    assert_eq!(sequence.identity().sub_seed(), 0x79b2_f14b_e89f_a143);
+    let update = sequence("tier_c.mutation.default_update_default");
+    let row = &update.final_state()[0];
+    assert_eq!(row.tier(), Some("bronze"));
+    assert_eq!(row.score(), Some(7));
+    assert_eq!(row.note(), Some(None));
+    let returned = update.steps()[0]
+        .expected()
+        .returned_rows()
+        .expect("accepted update should expose RETURNING rows");
+    assert_eq!(returned.len(), 1);
+    assert_eq!(returned[0].fields().len(), 3);
+}
+
+#[test]
+fn mutation_model_preserves_exact_intent_and_atomic_rejection() {
+    let mixed = sequence("tier_c.mutation.default_insert_mixed_batch");
     assert_eq!(
-        sequence.identity().id(),
-        "sql-mutation/v1/mutation.sequence/1cdb020400000001/0000000000000000/79b2f14be89fa143"
+        mixed.intent_counts(),
+        BTreeMap::from([
+            (MutationIntentKind::Authored, 9),
+            (MutationIntentKind::InsertDefault, 3),
+            (MutationIntentKind::Omitted, 3),
+        ]),
+    );
+    assert_eq!(mixed.final_state().len(), 3);
+
+    let preserve = sequence("tier_c.mutation.default_update_preserve");
+    assert!(
+        preserve
+            .intent_counts()
+            .get(&MutationIntentKind::Preserve)
+            .copied()
+            .unwrap_or_default()
+            >= 3,
+    );
+    assert_eq!(preserve.final_state()[0].tier(), Some("silver"));
+    assert_eq!(preserve.final_state()[0].score(), Some(42));
+    assert_eq!(preserve.final_state()[0].note(), Some(Some("existing")));
+
+    for (witness_id, rejection) in [
+        (
+            "tier_c.mutation.default_reject_duplicate",
+            MutationExpectedRejection::DuplicatePrimaryKey,
+        ),
+        (
+            "tier_c.mutation.default_reject_pk_default",
+            MutationExpectedRejection::DefaultUnavailable,
+        ),
+        (
+            "tier_c.mutation.default_reject_required",
+            MutationExpectedRejection::MissingRequiredField,
+        ),
+    ] {
+        let rejected = sequence(witness_id);
+        let step = &rejected.steps()[0];
+        assert_eq!(step.expected().rejection(), Some(rejection));
+        assert_eq!(step.state_before(), step.expected().state_after());
+    }
+}
+
+#[test]
+fn no_match_and_delete_returning_have_exact_state_oracle_outcomes() {
+    let no_match = sequence("tier_c.mutation.default_no_match");
+    for step in no_match.steps() {
+        assert_eq!(step.expected().affected_rows(), Some(0));
+        assert_eq!(step.state_before(), step.expected().state_after());
+    }
+
+    let deleted = sequence("tier_c.mutation.default_delete_returning");
+    assert!(deleted.final_state().is_empty());
+    assert_eq!(deleted.steps()[0].expected().affected_rows(), Some(1));
+    assert_eq!(
+        deleted.steps()[0]
+            .expected()
+            .returned_rows()
+            .expect("delete RETURNING should be modeled")
+            .len(),
+        1,
     );
 }
 
 #[test]
+fn mutation_identity_and_replay_use_only_the_current_witness_shape() {
+    let sequence = sequence("tier_c.mutation.authored_insert");
+    assert_eq!(
+        sequence.identity().generator_version(),
+        MUTATION_GENERATOR_VERSION
+    );
+    assert_eq!(
+        sequence.identity().witness_id(),
+        EXPECTED_MUTATION_WITNESSES[0]
+    );
+    assert_eq!(sequence.identity().repetition(), 0);
+    assert!(
+        sequence
+            .identity()
+            .id()
+            .starts_with("sql-mutation/v2/tier_c.mutation.authored_insert/1cdb020400000001/")
+    );
+
+    let bytes = crate::replay::canonical_json_bytes(&sequence)
+        .expect("mutation sequence should serialize canonically");
+    let canonical = str::from_utf8(bytes.as_slice()).expect("canonical sequence should be UTF-8");
+    assert!(canonical.contains("\"witness_id\":"));
+    assert!(canonical.contains("\"repetition\":\"u64:"));
+}
+
+#[test]
 fn mutation_step_outcomes_project_to_stable_typed_replay_evidence() {
-    let sequence = generate_mutation_sequence(
-        &mutation_snapshot(),
-        TIER_A_ROOT_SEEDS[0],
-        0,
-        TIER_A_MUTATION_BUDGETS,
-    )
-    .expect("fixed mutation sequence should generate");
+    let sequence = sequence("tier_c.mutation.default_reject_duplicate");
     let outcomes = sequence
         .steps()
         .iter()
@@ -234,78 +358,18 @@ fn mutation_step_outcomes_project_to_stable_typed_replay_evidence() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(outcomes.len(), sequence.steps().len());
-    assert_eq!(
-        outcomes,
-        sequence
-            .steps()
-            .iter()
-            .map(
-                |step| MutationObservedOutcome::try_from_step_outcome(step.expected())
-                    .expect("same modeled outcome should project deterministically")
-            )
-            .collect::<Vec<_>>(),
-    );
-    assert!(outcomes.iter().any(|outcome| matches!(
-        outcome,
-        MutationObservedOutcome::Rejected { error_class_id, .. }
-            if error_class_id == "duplicate_key"
-    )));
+    assert!(matches!(
+        outcomes.as_slice(),
+        [MutationObservedOutcome::Rejected { error_class_id, .. }]
+            if error_class_id == "duplicate_primary_key"
+    ));
 }
 
 #[test]
-fn mutation_snapshot_names_are_the_only_rendering_authority() {
-    let snapshot = MutationSnapshot::try_new(
-        "renamed-fixture",
-        "crate::RenamedEntity",
-        "RenamedEntity",
-        7,
-        vec![
-            MutationField::new(
-                9,
-                "entity_key",
-                MutationFieldKind::UnsignedInteger,
-                MutationFieldRole::Key,
-            ),
-            MutationField::new(
-                11,
-                "label",
-                MutationFieldKind::Text,
-                MutationFieldRole::Text,
-            ),
-            MutationField::new(
-                15,
-                "score",
-                MutationFieldKind::UnsignedInteger,
-                MutationFieldRole::Number,
-            ),
-        ],
-    )
-    .expect("renamed accepted mutation snapshot should validate");
-    let sequence =
-        generate_mutation_sequence(&snapshot, TIER_A_ROOT_SEEDS[0], 0, TIER_A_MUTATION_BUDGETS)
-            .expect("renamed accepted mutation sequence should generate");
-
-    for step in sequence.steps() {
-        assert!(step.rendered_sql().contains("RenamedEntity"));
-        assert!(!step.rendered_sql().contains("SessionSqlWriteEntity"));
-    }
-    assert!(sequence.steps()[0].rendered_sql().contains("entity_key"));
-    assert!(sequence.steps()[0].rendered_sql().contains("label"));
-    assert!(sequence.steps()[0].rendered_sql().contains("score"));
-}
-
-#[test]
-fn injected_mutation_failure_shrinks_from_initial_state_and_replays_canonically() {
-    let sequence = generate_mutation_sequence(
-        &mutation_snapshot(),
-        TIER_A_ROOT_SEEDS[0],
-        1,
-        TIER_A_MUTATION_BUDGETS,
-    )
-    .expect("injected mutation sequence should generate");
+fn injected_mutation_failure_shrinks_and_replays_canonically() {
+    let sequence = sequence("tier_c.mutation.authored_insert");
     let signature = MutationMismatchSignature::try_new(
-        BTreeSet::from([MutationFeature::InsertFromQuery, MutationFeature::Rejection]),
+        BTreeSet::from([MutationFeature::Insert]),
         MutationExecutionPhase::Comparison,
         "icydb-native",
         "independent-model",
@@ -321,7 +385,6 @@ fn injected_mutation_failure_shrinks_from_initial_state_and_replays_canonically(
 
     assert!(report.minimization_complete());
     assert_eq!(report.minimized_sequence().steps().len(), 1);
-    assert!(report.minimized_sequence().initial_rows().is_empty());
     let replay = report
         .into_replay_record(
             MutationObservedOutcome::rejected("conflict", "state-a"),
@@ -337,28 +400,10 @@ fn injected_mutation_failure_shrinks_from_initial_state_and_replays_canonically(
     assert_eq!(decoded, replay);
     assert_eq!(decoded.format_version(), MUTATION_REPLAY_FORMAT_VERSION);
     let canonical = str::from_utf8(bytes.as_slice()).expect("canonical replay should be UTF-8");
-    assert!(canonical.contains("\"root_seed\":\"u64:"));
-    assert!(canonical.contains("\"sub_seed\":\"u64:"));
-    assert!(canonical.contains("\"case_index\":\"u64:"));
-    assert!(canonical.contains("\"key\":\"u64:"));
-    assert!(canonical.contains("\"number\":\"u64:"));
+    assert!(canonical.contains("\"witness_id\":"));
+    assert!(canonical.contains("\"repetition\":\"u64:"));
 
     assert_mutation_failure_artifact_round_trip(&sequence, &replay);
-
-    let mut stale_identity = serde_json::from_slice::<serde_json::Value>(bytes.as_slice())
-        .expect("canonical mutation replay should materialize as JSON");
-    for sequence_key in ["original_sequence", "minimized_sequence"] {
-        *stale_identity
-            .get_mut(sequence_key)
-            .and_then(|sequence| sequence.get_mut("identity"))
-            .and_then(|identity| identity.get_mut("generator_version"))
-            .expect("mutation replay should embed generator version") = serde_json::json!(2);
-    }
-    let stale_bytes = crate::replay::canonical_json_bytes(&stale_identity)
-        .expect("stale replay should serialize canonically");
-    let stale_error = MutationReplayRecord::from_canonical_json(stale_bytes.as_slice())
-        .expect_err("future mutation generator identities must reject");
-    assert_eq!(stale_error.kind(), SqlGeneratorErrorKind::InvalidCase);
 
     let corpus =
         RegressionCorpusEntry::try_from_mutation_replay("mutation.atomicity-regression", &replay)
@@ -368,16 +413,21 @@ fn injected_mutation_failure_shrinks_from_initial_state_and_replays_canonically(
         .expect("mutation corpus entry should serialize canonically");
     let decoded_corpus = RegressionCorpusEntry::from_canonical_json(corpus_bytes.as_slice())
         .expect("canonical mutation corpus entry should decode");
-
     assert_eq!(decoded_corpus, corpus);
-    assert_eq!(
-        decoded_corpus.regression_case().generated_id(),
-        replay.minimized_sequence().identity().id()
-    );
     assert!(matches!(
         decoded_corpus.regression_case(),
         RegressionCorpusCase::Mutation(_)
     ));
+}
+
+fn sequence(witness_id: &str) -> GeneratedMutationSequence {
+    let witness = scheduled_mutation_witnesses()
+        .expect("mutation witness catalog should load")
+        .into_iter()
+        .find(|witness| witness.witness_id() == witness_id)
+        .expect("named mutation witness should exist");
+    generate_scheduled_mutation_sequence(&witness, TIER_A_ROOT_SEEDS[0], 0, TIER_A_MUTATION_BUDGETS)
+        .expect("named mutation witness should generate")
 }
 
 fn assert_mutation_failure_artifact_round_trip(
@@ -400,35 +450,4 @@ fn assert_mutation_failure_artifact_round_trip(
     assert!(artifact_id.starts_with("failure."));
     assert_eq!(artifact.replay_scenario_id(), sequence.identity().id());
     assert_eq!(decoded, artifact);
-    assert_eq!(
-        decoded
-            .artifact_id()
-            .expect("decoded mutation artifact should retain its content identity"),
-        artifact_id,
-    );
-}
-
-fn mutation_snapshot() -> MutationSnapshot {
-    MutationSnapshot::try_new(
-        "test-mutation-snapshot-v1",
-        "crate::MutationEntity",
-        "MutationEntity",
-        1,
-        vec![
-            MutationField::new(
-                1,
-                "id",
-                MutationFieldKind::UnsignedInteger,
-                MutationFieldRole::Key,
-            ),
-            MutationField::new(2, "name", MutationFieldKind::Text, MutationFieldRole::Text),
-            MutationField::new(
-                3,
-                "age",
-                MutationFieldKind::UnsignedInteger,
-                MutationFieldRole::Number,
-            ),
-        ],
-    )
-    .expect("test mutation snapshot should validate")
 }

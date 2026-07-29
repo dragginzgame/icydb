@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// Current hard-cut canonical mutation replay format.
-pub const MUTATION_REPLAY_FORMAT_VERSION: u32 = 1;
+pub const MUTATION_REPLAY_FORMAT_VERSION: u32 = 2;
 
 /// Domain separator for canonical mutation row-set fingerprints.
-const MUTATION_ROWS_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sql-mutation-rows/v1";
+const MUTATION_ROWS_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sql-mutation-rows/v2";
 
 ///
 /// MutationFeature
@@ -335,17 +335,19 @@ impl MutationObservedOutcome {
                 affected_rows,
                 returned_rows,
                 state_after,
+                index_after,
             } => Ok(Self::accepted(
                 *affected_rows,
                 mutation_rows_fingerprint(b"returning", returned_rows)?,
-                mutation_rows_fingerprint(b"state", state_after)?,
+                mutation_rows_fingerprint(b"state", &(state_after, index_after))?,
             )),
             crate::MutationStepOutcome::Rejected {
                 rejection,
                 state_after,
+                index_after,
             } => Ok(Self::rejected(
                 rejection.id(),
-                mutation_rows_fingerprint(b"state", state_after)?,
+                mutation_rows_fingerprint(b"state", &(state_after, index_after))?,
             )),
         }
     }
@@ -376,9 +378,9 @@ impl MutationObservedOutcome {
     }
 }
 
-fn mutation_rows_fingerprint(
+fn mutation_rows_fingerprint<T: Serialize + ?Sized>(
     role: &[u8],
-    rows: &[crate::MutationRow],
+    rows: &T,
 ) -> Result<String, SqlGeneratorError> {
     let bytes = canonical_json_bytes(rows)?;
     let mut hasher = blake3::Hasher::new();
@@ -573,6 +575,7 @@ impl MutationReplayRecord {
             ));
         }
         self.original_sequence.validate()?;
+        crate::mutation::generator::validate_generated_mutation_witness(&self.original_sequence)?;
         self.minimized_sequence.validate()?;
         self.signature.validate()?;
         self.subject_outcome.validate()?;

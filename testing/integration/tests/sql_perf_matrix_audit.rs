@@ -484,6 +484,23 @@ struct MatrixSample {
     index_store_get_calls: u64,
     index_store_range_scan_calls: u64,
     index_store_entry_reads: u64,
+    range_conjunctions_examined: u64,
+    range_lower_bounds_extracted: u64,
+    range_upper_bounds_extracted: u64,
+    range_physical_children_emitted: u64,
+    residual_predicate_evaluations: u64,
+    membership_authored_members: u64,
+    membership_normalized_members: u64,
+    membership_distinct_members: u64,
+    membership_null_members: u64,
+    membership_canonicalization_passes: u64,
+    membership_members_revisited: u64,
+    prefix_branches_before_deduplication: u64,
+    prefix_branches_after_deduplication: u64,
+    prefix_exclusions_tested: u64,
+    prefix_exclusions_pruned: u64,
+    prefix_branch_cap_admissions: u64,
+    prefix_branch_cap_rejections: u64,
     output_blob_values: u64,
     output_blob_bytes: u64,
     output_blob_hex_bytes: u64,
@@ -3223,10 +3240,28 @@ const fn fill_matrix_store_output_cache_sample(
     sample: &mut MatrixSample,
     attribution: &SqlQueryExecutionAttribution,
 ) {
+    let structural = attribution.structural_work;
     sample.data_store_get_calls = attribution.store_get_calls;
     sample.index_store_get_calls = attribution.index_store_get_calls;
     sample.index_store_range_scan_calls = attribution.index_store_range_scan_calls;
     sample.index_store_entry_reads = attribution.index_store_entry_reads;
+    sample.range_conjunctions_examined = structural.range_conjunctions_examined;
+    sample.range_lower_bounds_extracted = structural.range_lower_bounds_extracted;
+    sample.range_upper_bounds_extracted = structural.range_upper_bounds_extracted;
+    sample.range_physical_children_emitted = structural.range_physical_children_emitted;
+    sample.residual_predicate_evaluations = structural.residual_predicate_evaluations;
+    sample.membership_authored_members = structural.membership_authored_members;
+    sample.membership_normalized_members = structural.membership_normalized_members;
+    sample.membership_distinct_members = structural.membership_distinct_members;
+    sample.membership_null_members = structural.membership_null_members;
+    sample.membership_canonicalization_passes = structural.membership_canonicalization_passes;
+    sample.membership_members_revisited = structural.membership_members_revisited;
+    sample.prefix_branches_before_deduplication = structural.prefix_branches_before_deduplication;
+    sample.prefix_branches_after_deduplication = structural.prefix_branches_after_deduplication;
+    sample.prefix_exclusions_tested = structural.prefix_exclusions_tested;
+    sample.prefix_exclusions_pruned = structural.prefix_exclusions_pruned;
+    sample.prefix_branch_cap_admissions = structural.prefix_branch_cap_admissions;
+    sample.prefix_branch_cap_rejections = structural.prefix_branch_cap_rejections;
     sample.output_blob_values = attribution.output_blob.projected_values;
     sample.output_blob_bytes = attribution.output_blob.projected_bytes;
     sample.output_blob_hex_bytes = attribution.output_blob.rendered_hex_bytes;
@@ -6058,7 +6093,7 @@ fn test_matrix_report(samples: Vec<MatrixSample>, failures: Vec<MatrixFailure>) 
     let declared_scenario_count = samples.len() + failures.len();
 
     MatrixReport {
-        performance_profile_version: 1,
+        performance_profile_version: SQL_PERFORMANCE_PROFILE.version(),
         expected_scenario_set_hash: "test-scenario-set".to_string(),
         observed_scenario_set_hash: "test-scenario-set".to_string(),
         broad_scan_complete: false,

@@ -17,6 +17,7 @@
 deps/
 .dfx
 .icp
+.icq
 *.wasm
 
 # MS

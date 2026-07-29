@@ -95,6 +95,7 @@ pub use icydb_core::db::{RowCheckMetrics, with_row_check_metrics};
 pub use icydb_core::db::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlOutputBlobAttribution,
     SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
+    SqlStructuralWorkAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]

@@ -17,6 +17,7 @@ mod rng;
 mod scheduled;
 mod shard;
 mod shrink;
+mod structure;
 
 #[cfg(test)]
 mod tests;
@@ -40,28 +41,31 @@ pub use failure::{
 };
 pub use fixture::{GeneratedFixture, GeneratedFixtureRow, GeneratedValue};
 pub use generator::{
-    TIER_A_INVALID_CASES_PER_VIOLATION, TIER_A_ROOT_SEEDS, TIER_A_VALID_CASES_PER_FAMILY,
-    TIER_C_INVALID_CASES_PER_VIOLATION, TIER_C_ROOT_SEEDS, TIER_C_VALID_CASES_PER_FAMILY,
-    generate_invalid_select_case, generate_valid_select_case,
+    TIER_A_INVALID_REPETITIONS, TIER_A_ROOT_SEEDS, TIER_A_SELECT_REPETITIONS,
+    TIER_C_INVALID_REPETITIONS, TIER_C_ROOT_SEEDS, TIER_C_SELECT_REPETITIONS,
+    generate_invalid_select_case, generate_scheduled_select_case,
 };
 pub use model::{
-    ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedSelectCase,
-    GeneratedSelectIdentity, SelectBudgets, SelectExpectedOutcome, SelectExpectedRejection,
-    SelectFeature, SelectField, SelectFieldKind, SelectGeneratorFamily, SelectIndex,
-    SelectProvider, SelectQuery, SelectQueryShape, SelectResultOrder, SelectSnapshot,
-    SelectValueKind, SelectViolation, TIER_A_SELECT_BUDGETS, TIER_C_SELECT_BUDGETS,
+    ALL_SELECT_VIOLATIONS, GeneratedSelectCase, GeneratedSelectIdentity, SelectBudgets,
+    SelectExpectedOutcome, SelectExpectedRejection, SelectFeature, SelectField, SelectFieldKind,
+    SelectIndex, SelectProvider, SelectQuery, SelectQueryShape, SelectResultOrder,
+    SelectSchemaProfile, SelectSnapshot, SelectValueKind, SelectViolation, TIER_A_SELECT_BUDGETS,
+    TIER_C_SELECT_BUDGETS,
 };
 pub use mutation::{
     GeneratedMutationIdentity, GeneratedMutationSequence, GeneratedMutationStep,
     MUTATION_GENERATOR_VERSION, MUTATION_REPLAY_FORMAT_VERSION, MutationAssignment,
-    MutationBudgets, MutationExecutionPhase, MutationExpectedRejection, MutationFeature,
-    MutationField, MutationFieldKind, MutationFieldRole, MutationInsertQueryKeySource,
-    MutationMismatchCategory, MutationMismatchSignature, MutationObservedOutcome,
-    MutationOperation, MutationOrder, MutationPredicate, MutationReplayRecord, MutationRow,
-    MutationShrinkReport, MutationSnapshot, MutationSqliteEligibility, MutationSqliteExclusion,
-    MutationStatement, MutationStepOutcome, MutationWindow, TIER_A_MUTATION_BUDGETS,
-    TIER_A_MUTATION_CASES_PER_ROOT, TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_CASES_PER_ROOT,
-    generate_mutation_sequence, shrink_mutation_failure,
+    MutationBudgets, MutationDefaultValue, MutationExecutionPhase, MutationExpectedRejection,
+    MutationFeature, MutationField, MutationFieldKind, MutationFieldRole, MutationIndexEntry,
+    MutationIngress, MutationInsertQueryKeySource, MutationInsertRow, MutationIntentClass,
+    MutationIntentKind, MutationMismatchCategory, MutationMismatchSignature,
+    MutationObservedOutcome, MutationOperation, MutationOrder, MutationPredicate,
+    MutationProjectedField, MutationProjectedRow, MutationReplayRecord, MutationReturning,
+    MutationRow, MutationRowPayload, MutationSchemaProfile, MutationShrinkReport, MutationSnapshot,
+    MutationSqliteEligibility, MutationSqliteExclusion, MutationStatement, MutationStepOutcome,
+    MutationUpdateIntent, MutationValue, MutationWindow, MutationWriteIntent,
+    TIER_A_MUTATION_BUDGETS, TIER_A_MUTATION_REPETITIONS, TIER_C_MUTATION_BUDGETS,
+    TIER_C_MUTATION_REPETITIONS, generate_scheduled_mutation_sequence, shrink_mutation_failure,
 };
 pub use replay::{
     SELECT_REPLAY_FORMAT_VERSION, SelectComparisonProvider, SelectExecutionPhase,
@@ -75,3 +79,7 @@ pub use scheduled::{
 };
 pub use shard::{SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, scheduled_sql_scenario_shard};
 pub use shrink::{SelectShrinkReport, shrink_select_failure};
+pub use structure::{
+    ScheduledMutationWitness, ScheduledSelectWitness, StructuralSignature,
+    scheduled_mutation_witnesses, scheduled_select_witnesses, structural_obligation_catalog_hash,
+};

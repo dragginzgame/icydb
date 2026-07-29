@@ -9,8 +9,8 @@ use crate::{
     SelectQueryShape, SelectValueKind, SqlGeneratorError, TierCEvidenceError, TierCMergedReport,
     TierCScenarioOutcome, TierCShardReport,
     model::{
-        SelectExpression, SelectFunction, SelectGeneratorFamily, SelectOrderTarget,
-        SelectPredicate, SelectQuery, SelectViolation,
+        SelectExpression, SelectFunction, SelectOrderTarget, SelectPredicate, SelectQuery,
+        SelectViolation,
     },
     replay::canonical_json_bytes,
     scheduled::TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
@@ -26,7 +26,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut Tier C coverage-distribution artifact format.
-pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 1;
+pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 2;
 
 // -----------------------------------------------------------------------------
 // Shared coverage taxonomy
@@ -719,18 +719,25 @@ impl TierCCoverageLabels {
 enum TierCGeneratedProfile {
     Mutation {
         fixture_row_count: u32,
+        ingress: String,
+        intent_class: String,
+        intent_counts: BTreeMap<String, u32>,
         schema_field_count: u32,
         schema_fixture_family: String,
         statement_count: u32,
+        structural_signature_digest: String,
     },
     Select {
         executed_fixture_properties: BTreeSet<GeneratedFixtureProperty>,
         fixture_row_count: u32,
+        fixture_class: String,
+        repetition: u64,
         schema_field_count: u32,
         schema_fixture_family: String,
         schema_generated_field_count: u32,
         schema_index_count: u32,
         schema_nullable_field_count: u32,
+        structural_signature_digest: String,
     },
 }
 
@@ -738,9 +745,20 @@ impl TierCGeneratedProfile {
     fn mutation(sequence: &GeneratedMutationSequence) -> Result<Self, TierCDistributionError> {
         Ok(Self::Mutation {
             fixture_row_count: bounded_count(sequence.initial_rows().len())?,
+            ingress: sequence.ingress().id().to_string(),
+            intent_class: sequence.intent_class().id().to_string(),
+            intent_counts: sequence
+                .intent_counts()
+                .into_iter()
+                .map(|(intent, count)| (intent.id().to_string(), count))
+                .collect(),
             schema_field_count: bounded_count(sequence.snapshot().fields().len())?,
             schema_fixture_family: sequence.snapshot().fixture_family().to_string(),
             statement_count: bounded_count(sequence.steps().len())?,
+            structural_signature_digest: sequence
+                .structural_signature()
+                .digest()
+                .map_err(TierCDistributionError::GeneratedCase)?,
         })
     }
 
@@ -754,6 +772,8 @@ impl TierCGeneratedProfile {
         Ok(Self::Select {
             executed_fixture_properties,
             fixture_row_count: bounded_count(case.fixture().len())?,
+            fixture_class: case.structural_signature().fixture_class().to_string(),
+            repetition: case.identity().repetition(),
             schema_field_count: bounded_count(case.snapshot().fields().len())?,
             schema_fixture_family: case.snapshot().fixture_family().to_string(),
             schema_generated_field_count: bounded_count(
@@ -771,6 +791,10 @@ impl TierCGeneratedProfile {
                     .filter(|field| field.nullable())
                     .count(),
             )?,
+            structural_signature_digest: case
+                .structural_signature()
+                .digest()
+                .map_err(TierCDistributionError::GeneratedCase)?,
         })
     }
 }
@@ -842,6 +866,7 @@ pub struct TierCScenarioDeclaration {
     expected: TierCExpectedAcceptance,
     labels: TierCCoverageLabels,
     generated_profile: Option<TierCGeneratedProfile>,
+    structural_signature: Option<crate::StructuralSignature>,
 }
 
 impl TierCScenarioDeclaration {
@@ -865,6 +890,7 @@ impl TierCScenarioDeclaration {
             expected,
             labels,
             None,
+            None,
         )
     }
 
@@ -875,6 +901,7 @@ impl TierCScenarioDeclaration {
         expected: TierCExpectedAcceptance,
         labels: TierCCoverageLabels,
         generated_profile: TierCGeneratedProfile,
+        structural_signature: Option<crate::StructuralSignature>,
     ) -> Result<Self, TierCDistributionError> {
         Self::try_new_with_generated_profile(
             scenario_id,
@@ -883,6 +910,7 @@ impl TierCScenarioDeclaration {
             expected,
             labels,
             Some(generated_profile),
+            structural_signature,
         )
     }
 
@@ -893,6 +921,7 @@ impl TierCScenarioDeclaration {
         expected: TierCExpectedAcceptance,
         labels: TierCCoverageLabels,
         generated_profile: Option<TierCGeneratedProfile>,
+        structural_signature: Option<crate::StructuralSignature>,
     ) -> Result<Self, TierCDistributionError> {
         let declaration = Self {
             scenario_id: scenario_id.into(),
@@ -901,6 +930,7 @@ impl TierCScenarioDeclaration {
             expected,
             labels,
             generated_profile,
+            structural_signature,
         };
         declaration.validate()?;
 
@@ -1004,30 +1034,44 @@ impl TierCStratumDistribution {
 #[serde(deny_unknown_fields)]
 struct TierCGeneratedDistribution {
     mutation_fixture_rows: BTreeMap<String, u32>,
+    mutation_ingresses: BTreeMap<String, u32>,
+    mutation_intent_classes: BTreeMap<String, u32>,
+    mutation_intent_occurrences: BTreeMap<String, u32>,
     mutation_schema_fields: BTreeMap<String, u32>,
     mutation_statement_counts: BTreeMap<String, u32>,
+    mutation_structural_signatures: BTreeMap<String, u32>,
     schema_fixture_families: BTreeMap<String, u32>,
     select_executed_fixture_properties: BTreeMap<String, u32>,
+    select_fixture_classes: BTreeMap<String, u32>,
     select_fixture_rows: BTreeMap<String, u32>,
+    select_repetitions: BTreeMap<String, u32>,
     select_schema_fields: BTreeMap<String, u32>,
     select_schema_generated_fields: BTreeMap<String, u32>,
     select_schema_indexes: BTreeMap<String, u32>,
     select_schema_nullable_fields: BTreeMap<String, u32>,
+    select_structural_signatures: BTreeMap<String, u32>,
 }
 
 impl TierCGeneratedDistribution {
     const fn empty() -> Self {
         Self {
             mutation_fixture_rows: BTreeMap::new(),
+            mutation_ingresses: BTreeMap::new(),
+            mutation_intent_classes: BTreeMap::new(),
+            mutation_intent_occurrences: BTreeMap::new(),
             mutation_schema_fields: BTreeMap::new(),
             mutation_statement_counts: BTreeMap::new(),
+            mutation_structural_signatures: BTreeMap::new(),
             schema_fixture_families: BTreeMap::new(),
             select_executed_fixture_properties: BTreeMap::new(),
+            select_fixture_classes: BTreeMap::new(),
             select_fixture_rows: BTreeMap::new(),
+            select_repetitions: BTreeMap::new(),
             select_schema_fields: BTreeMap::new(),
             select_schema_generated_fields: BTreeMap::new(),
             select_schema_indexes: BTreeMap::new(),
             select_schema_nullable_fields: BTreeMap::new(),
+            select_structural_signatures: BTreeMap::new(),
         }
     }
 
@@ -1035,26 +1079,48 @@ impl TierCGeneratedDistribution {
         match profile {
             TierCGeneratedProfile::Mutation {
                 fixture_row_count,
+                ingress,
+                intent_class,
+                intent_counts,
                 schema_field_count,
                 schema_fixture_family,
                 statement_count,
+                structural_signature_digest,
             } => {
                 increment_numeric_count(&mut self.mutation_fixture_rows, *fixture_row_count)?;
+                increment_count(&mut self.mutation_ingresses, ingress)?;
+                increment_count(&mut self.mutation_intent_classes, intent_class)?;
+                for (intent, count) in intent_counts {
+                    let entry = self
+                        .mutation_intent_occurrences
+                        .entry(intent.clone())
+                        .or_default();
+                    *entry = entry
+                        .checked_add(*count)
+                        .ok_or(TierCDistributionError::ScenarioCountOverflow)?;
+                }
                 increment_numeric_count(&mut self.mutation_schema_fields, *schema_field_count)?;
                 increment_count(
                     &mut self.schema_fixture_families,
                     schema_fixture_family.as_str(),
                 )?;
                 increment_numeric_count(&mut self.mutation_statement_counts, *statement_count)?;
+                increment_count(
+                    &mut self.mutation_structural_signatures,
+                    structural_signature_digest,
+                )?;
             }
             TierCGeneratedProfile::Select {
                 executed_fixture_properties,
                 fixture_row_count,
+                fixture_class,
+                repetition,
                 schema_field_count,
                 schema_fixture_family,
                 schema_generated_field_count,
                 schema_index_count,
                 schema_nullable_field_count,
+                structural_signature_digest,
             } => {
                 for property in executed_fixture_properties {
                     increment_count(
@@ -1063,6 +1129,11 @@ impl TierCGeneratedDistribution {
                     )?;
                 }
                 increment_numeric_count(&mut self.select_fixture_rows, *fixture_row_count)?;
+                increment_count(&mut self.select_fixture_classes, fixture_class)?;
+                increment_count(
+                    &mut self.select_repetitions,
+                    format!("u64:{repetition:016x}").as_str(),
+                )?;
                 increment_numeric_count(&mut self.select_schema_fields, *schema_field_count)?;
                 increment_numeric_count(
                     &mut self.select_schema_generated_fields,
@@ -1076,6 +1147,10 @@ impl TierCGeneratedDistribution {
                 increment_count(
                     &mut self.schema_fixture_families,
                     schema_fixture_family.as_str(),
+                )?;
+                increment_count(
+                    &mut self.select_structural_signatures,
+                    structural_signature_digest,
                 )?;
             }
         }
@@ -1268,6 +1343,46 @@ impl TierCCoverageDistributionReport {
         numeric_count(&self.generated.mutation_statement_counts, statement_count)
     }
 
+    /// Return how many generated mutation scenarios require one ingress class.
+    #[must_use]
+    pub fn generated_mutation_ingress_count(&self, ingress: &str) -> u32 {
+        self.generated
+            .mutation_ingresses
+            .get(ingress)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return how many generated mutation scenarios declare one primary intent class.
+    #[must_use]
+    pub fn generated_mutation_intent_class_count(&self, intent_class: &str) -> u32 {
+        self.generated
+            .mutation_intent_classes
+            .get(intent_class)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return exact per-field occurrences of one mutation intent.
+    #[must_use]
+    pub fn generated_mutation_intent_occurrence_count(&self, intent: &str) -> u32 {
+        self.generated
+            .mutation_intent_occurrences
+            .get(intent)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return how many generated mutation scenarios use one structural signature.
+    #[must_use]
+    pub fn generated_mutation_structural_signature_count(&self, digest: &str) -> u32 {
+        self.generated
+            .mutation_structural_signatures
+            .get(digest)
+            .copied()
+            .unwrap_or_default()
+    }
+
     /// Return how many generated scenarios use one accepted snapshot-fixture family.
     #[must_use]
     pub fn generated_schema_fixture_family_count(&self, fixture_family: &str) -> u32 {
@@ -1282,6 +1397,32 @@ impl TierCCoverageDistributionReport {
     #[must_use]
     pub fn generated_select_fixture_row_count(&self, row_count: u32) -> u32 {
         numeric_count(&self.generated.select_fixture_rows, row_count)
+    }
+
+    /// Return how many generated SELECT repetitions use one exact fixture package.
+    #[must_use]
+    pub fn generated_select_fixture_class_count(&self, fixture_class: &str) -> u32 {
+        self.generated
+            .select_fixture_classes
+            .get(fixture_class)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return how many generated SELECT scenarios use one exact repetition ordinal.
+    #[must_use]
+    pub fn generated_select_repetition_count(&self, repetition: u64) -> u32 {
+        self.generated
+            .select_repetitions
+            .get(format!("u64:{repetition:016x}").as_str())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Return the number of distinct generated SELECT structural signatures.
+    #[must_use]
+    pub fn generated_select_structural_signature_count(&self) -> usize {
+        self.generated.select_structural_signatures.len()
     }
 
     /// Return how many accepted generated SELECTs execute one exact fixture property.
@@ -1477,6 +1618,9 @@ pub enum TierCDistributionError {
 
     /// Canonical JSON materialization or encoding failed.
     Serialization(SqlGeneratorError),
+
+    /// A generated declaration and its exact receipt carried different structures.
+    StructuralSignatureMismatch(String),
 }
 
 impl Display for TierCDistributionError {
@@ -1548,6 +1692,10 @@ impl Display for TierCDistributionError {
                     "failed to serialize Tier C distribution: {source}"
                 )
             }
+            Self::StructuralSignatureMismatch(scenario_id) => write!(
+                formatter,
+                "Tier C scenario {scenario_id:?} receipt signature disagrees with its generated declaration",
+            ),
         }
     }
 }
@@ -1641,6 +1789,7 @@ pub fn generated_select_tier_c_declaration(
         expected,
         labels,
         TierCGeneratedProfile::select(case)?,
+        Some(case.structural_signature().clone()),
     )
 }
 
@@ -1672,7 +1821,7 @@ pub fn generated_mutation_tier_c_declaration(
             provider_ids.insert("sqlite.generated_mutation".to_string());
         }
         let statement = step.statement();
-        if statement.returning() {
+        if statement.returning().is_returning() {
             contract_features.insert("mutation.returning".to_string());
             contract_features.insert("returning.fields".to_string());
         }
@@ -1716,7 +1865,18 @@ pub fn generated_mutation_tier_c_declaration(
         BTreeSet::from([EvidenceStrength::ReferenceOracle]),
         BTreeSet::from([GeneratedExpressionDepth::NotApplicable]),
         mutations,
-        BTreeSet::from([NullabilityClass::NonNullable]),
+        BTreeSet::from([
+            if sequence
+                .snapshot()
+                .fields()
+                .iter()
+                .any(crate::MutationField::nullable)
+            {
+                NullabilityClass::Nullable
+            } else {
+                NullabilityClass::NonNullable
+            },
+        ]),
         predicates,
         providers,
         BTreeSet::from([RouteFamily::NotContractual]),
@@ -1733,18 +1893,21 @@ pub fn generated_mutation_tier_c_declaration(
         TierCExpectedAcceptance::Accepted,
         labels,
         TierCGeneratedProfile::mutation(sequence)?,
+        Some(sequence.structural_signature().clone()),
     )
 }
 
-// Keep the closed family-to-contract attribution table centralized so exact
-// generated evidence cannot drift across helpers.
-#[expect(
-    clippy::too_many_lines,
-    reason = "closed generated-family attribution table is intentionally centralized"
-)]
+// Contract attribution is derived from the typed AST and accepted outcome.
+// The removed generator-family taxonomy is not a coverage authority.
 fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<String> {
     if let Some(violation) = case.violation() {
         let feature = match violation {
+            SelectViolation::AmbiguousAlias | SelectViolation::InvalidOrderTarget => {
+                "ordering.projection_alias"
+            }
+            SelectViolation::InvalidAggregateScope | SelectViolation::InvalidGrouping => {
+                "projection.aggregate"
+            }
             SelectViolation::InvalidClauseOrder | SelectViolation::LimitOverflow => {
                 "pagination.scalar_limit_offset"
             }
@@ -1757,102 +1920,83 @@ fn generated_select_contract_features(case: &GeneratedSelectCase) -> BTreeSet<St
 
     let query = case.query();
     let mut features = BTreeSet::new();
-    match case.family() {
-        SelectGeneratorFamily::Distinct => {
+    match query.shape() {
+        SelectQueryShape::Scalar => {
             insert_contract_feature(&mut features, "projection.scalar");
-            insert_contract_feature(&mut features, "select.scalar_distinct");
+            insert_contract_feature(&mut features, "select.scalar_rows");
         }
-        SelectGeneratorFamily::Expression => {
-            insert_contract_feature(&mut features, "select.computed_projection");
-            if case.features().contains(&SelectFeature::NumericFunction) {
-                insert_contract_feature(&mut features, "expression.numeric_functions");
-            }
-            if case.features().contains(&SelectFeature::SearchedCase) {
-                insert_contract_feature(&mut features, "expression.searched_case");
-            }
-            if case.features().contains(&SelectFeature::Text) {
-                insert_contract_feature(&mut features, "expression.text_functions");
-            }
-            if case.features().contains(&SelectFeature::Null) {
-                insert_contract_feature(&mut features, "expression.value_selection");
-            }
-        }
-        SelectGeneratorFamily::GlobalAggregate => {
+        SelectQueryShape::GlobalAggregate => {
             insert_contract_feature(&mut features, "projection.aggregate");
             insert_contract_feature(&mut features, "select.global_aggregate");
-            if case.features().contains(&SelectFeature::AggregateDistinct)
-                || case.features().contains(&SelectFeature::AggregateFilter)
-            {
-                insert_contract_feature(&mut features, "select.aggregate_distinct_filter");
-            }
         }
-        SelectGeneratorFamily::GroupedAggregate => {
+        SelectQueryShape::GroupedAggregate => {
             insert_contract_feature(&mut features, "projection.aggregate");
             insert_contract_feature(&mut features, "projection.grouped_layout");
             insert_contract_feature(&mut features, "select.grouped_aggregate");
         }
-        SelectGeneratorFamily::Having => {
-            insert_contract_feature(&mut features, "projection.aggregate");
-            match query.shape() {
-                SelectQueryShape::GlobalAggregate => {
-                    insert_contract_feature(&mut features, "having.global_aggregate");
-                }
-                SelectQueryShape::GroupedAggregate => {
-                    insert_contract_feature(&mut features, "having.grouped_aggregate");
-                }
-                SelectQueryShape::Scalar => {}
+    }
+    if query.is_distinct() {
+        insert_contract_feature(&mut features, "select.scalar_distinct");
+    }
+    if query
+        .projections()
+        .iter()
+        .any(|projection| projection.alias().is_some())
+    {
+        insert_contract_feature(&mut features, "projection.aliases");
+    }
+    if case.features().contains(&SelectFeature::Function)
+        || case.features().contains(&SelectFeature::Arithmetic)
+        || case.features().contains(&SelectFeature::SearchedCase)
+    {
+        insert_contract_feature(&mut features, "select.computed_projection");
+    }
+    if case.features().contains(&SelectFeature::NumericFunction) {
+        insert_contract_feature(&mut features, "expression.numeric_functions");
+    }
+    if case.features().contains(&SelectFeature::SearchedCase) {
+        insert_contract_feature(&mut features, "expression.searched_case");
+    }
+    if case.features().contains(&SelectFeature::Text) {
+        insert_contract_feature(&mut features, "expression.text_functions");
+    }
+    if case.features().contains(&SelectFeature::Null) {
+        insert_contract_feature(&mut features, "expression.value_selection");
+    }
+    if case.features().contains(&SelectFeature::AggregateDistinct)
+        || case.features().contains(&SelectFeature::AggregateFilter)
+    {
+        insert_contract_feature(&mut features, "select.aggregate_distinct_filter");
+    }
+    if let Some(predicate) = query.predicate() {
+        collect_predicate_contract_features(predicate, &mut features);
+    }
+    if let Some(_having) = query.having() {
+        match query.shape() {
+            SelectQueryShape::GlobalAggregate => {
+                insert_contract_feature(&mut features, "having.global_aggregate");
             }
-            if query
-                .order()
-                .iter()
-                .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
-            {
-                insert_contract_feature(&mut features, "ordering.projection_alias");
+            SelectQueryShape::GroupedAggregate => {
+                insert_contract_feature(&mut features, "having.grouped_aggregate");
             }
-            if is_grouped_composition(query) {
-                insert_contract_feature(&mut features, "select.grouped_composition");
-            }
+            SelectQueryShape::Scalar => {}
         }
-        SelectGeneratorFamily::Predicate => {
-            if let Some(predicate) = query.predicate() {
-                collect_predicate_contract_features(predicate, &mut features);
-            }
-        }
-        SelectGeneratorFamily::ScalarProjection => {
-            insert_contract_feature(&mut features, "projection.scalar");
-            insert_contract_feature(&mut features, "select.scalar_rows");
-            if query
-                .projections()
-                .iter()
-                .any(|projection| projection.alias().is_some())
-            {
-                insert_contract_feature(&mut features, "projection.aliases");
-            }
-        }
-        SelectGeneratorFamily::Window => {
-            insert_contract_feature(&mut features, "projection.scalar");
-            insert_contract_feature(&mut features, "select.scalar_rows");
-            if case.features().contains(&SelectFeature::NumericFunction) {
-                insert_contract_feature(&mut features, "expression.numeric_functions");
-                insert_contract_feature(&mut features, "select.computed_projection");
-            }
-            if let Some(predicate) = query.predicate() {
-                collect_predicate_contract_features(predicate, &mut features);
-            }
-            if query.limit().is_some() || query.offset().is_some() {
-                insert_contract_feature(&mut features, "pagination.scalar_limit_offset");
-            }
-            if query
-                .order()
-                .iter()
-                .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
-            {
-                insert_contract_feature(&mut features, "ordering.projection_alias");
-            }
-            if is_scalar_composition(query) {
-                insert_contract_feature(&mut features, "select.scalar_composition");
-            }
-        }
+    }
+    if query.limit().is_some() || query.offset().is_some() {
+        insert_contract_feature(&mut features, "pagination.scalar_limit_offset");
+    }
+    if query
+        .order()
+        .iter()
+        .any(|term| matches!(term.target(), SelectOrderTarget::Alias(_)))
+    {
+        insert_contract_feature(&mut features, "ordering.projection_alias");
+    }
+    if is_grouped_composition(query) {
+        insert_contract_feature(&mut features, "select.grouped_composition");
+    }
+    if is_scalar_composition(query) {
+        insert_contract_feature(&mut features, "select.scalar_composition");
     }
 
     features
@@ -2119,6 +2263,26 @@ fn validate_membership(
                 .collect(),
         });
     }
+    let observed_signatures = merged
+        .shard_reports()
+        .iter()
+        .flat_map(TierCShardReport::observations)
+        .map(|observation| {
+            (
+                observation.scenario_id(),
+                observation.structural_signature(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    for declaration in declarations {
+        if let Some(expected) = declaration.structural_signature.as_ref()
+            && observed_signatures.get(declaration.scenario_id()).copied() != Some(expected)
+        {
+            return Err(TierCDistributionError::StructuralSignatureMismatch(
+                declaration.scenario_id.clone(),
+            ));
+        }
+    }
 
     Ok(())
 }
@@ -2219,12 +2383,14 @@ mod tests {
     use crate::{
         EligibleProvider, EvidenceStrength, GeneratedExpressionDepth, MutationKind,
         NullabilityClass, PredicateFamily, QueryShape, RouteFamily, SQL_SCHEDULED_SHARD_COUNT,
-        StatementFamily, TierCCoverageDistributionReport, TierCCoverageLabels,
-        TierCDistributionError, TierCExpectedAcceptance, TierCMergedReport,
+        StatementFamily, TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TierCCoverageDistributionReport,
+        TierCCoverageLabels, TierCDistributionError, TierCExpectedAcceptance, TierCMergedReport,
         TierCScenarioDeclaration, TierCScenarioObservation, TierCScenarioOutcome, TierCShardReport,
-        ValueTypeFamily, WindowBehavior, scheduled_sql_scenario_shard,
+        ValueTypeFamily, WindowBehavior, generate_scheduled_select_case,
+        generated_select_tier_c_declaration, scheduled_select_witnesses,
+        scheduled_sql_scenario_shard,
     };
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn multi_label_declarations_project_each_exercised_mutation_family() {
@@ -2290,6 +2456,48 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn unexpected_observed_signature_cannot_satisfy_a_required_declaration() {
+        let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+        let witness = &witnesses[0];
+        let different_signature = witnesses[1].signature().clone();
+        let generated =
+            generate_scheduled_select_case(witness, TIER_C_ROOT_SEEDS[0], 0, TIER_C_SELECT_BUDGETS)
+                .expect("scheduled SELECT should generate");
+        let declaration = generated_select_tier_c_declaration(witness.witness_id(), &generated)
+            .expect("generated declaration should derive");
+        let declarations = vec![declaration];
+        let declared = vec![witness.witness_id()];
+        let assigned_shard = scheduled_sql_scenario_shard(witness.witness_id())
+            .expect("scheduled witness should shard");
+        let reports = (0..SQL_SCHEDULED_SHARD_COUNT)
+            .map(|shard_index| {
+                let observations = if shard_index == assigned_shard {
+                    vec![
+                        TierCScenarioObservation::try_new(
+                            witness.witness_id(),
+                            different_signature.clone(),
+                            TierCScenarioOutcome::Passed,
+                        )
+                        .expect("different full signature should remain valid discovery evidence"),
+                    ]
+                } else {
+                    Vec::new()
+                };
+                TierCShardReport::try_new(shard_index, &declared, observations)
+                    .expect("shard membership should remain exact")
+            })
+            .collect();
+        let merged =
+            TierCMergedReport::try_merge(&declared, reports).expect("receipts should merge");
+
+        assert!(matches!(
+            TierCCoverageDistributionReport::try_from_clean_evidence(&declarations, &merged),
+            Err(TierCDistributionError::StructuralSignatureMismatch(scenario_id))
+                if scenario_id == witness.witness_id()
+        ));
+    }
+
     fn mutation_declaration(scenario_id: &str) -> TierCScenarioDeclaration {
         let labels = TierCCoverageLabels::try_new(
             BTreeSet::from([EvidenceStrength::ReferenceOracle]),
@@ -2331,10 +2539,15 @@ mod tests {
             labels,
             TierCGeneratedProfile::Mutation {
                 fixture_row_count: 4,
+                ingress: "sql_and_typed".to_string(),
+                intent_class: "authored".to_string(),
+                intent_counts: BTreeMap::from([("authored".to_string(), 3)]),
                 schema_field_count: 3,
                 schema_fixture_family: "test-mutation-snapshot-v1".to_string(),
                 statement_count: 8,
+                structural_signature_digest: "test-mutation-signature".to_string(),
             },
+            None,
         )
         .expect("test declaration should validate")
     }
@@ -2356,6 +2569,7 @@ mod tests {
                     .map(|scenario_id| {
                         TierCScenarioObservation::try_new(
                             *scenario_id,
+                            test_signature(),
                             TierCScenarioOutcome::Passed,
                         )
                         .expect("test observation should validate")
@@ -2384,5 +2598,15 @@ mod tests {
             .into_iter()
             .map(|scenario_id| scenario_id.expect("search should populate every shard"))
             .collect()
+    }
+
+    fn test_signature() -> crate::StructuralSignature {
+        scheduled_select_witnesses()
+            .expect("checked-in witnesses should decode")
+            .into_iter()
+            .next()
+            .expect("catalog should contain a generated SELECT witness")
+            .signature()
+            .clone()
     }
 }

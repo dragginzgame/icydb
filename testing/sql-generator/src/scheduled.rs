@@ -5,9 +5,9 @@
 
 use crate::{
     MUTATION_GENERATOR_VERSION, REGRESSION_CORPUS_FORMAT_VERSION, SELECT_GENERATOR_VERSION,
-    SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, SqlGeneratorError, TIER_C_ROOT_SEEDS,
-    is_valid_tier_c_failure_artifact_id, replay::canonical_json_bytes,
-    scheduled_sql_scenario_shard,
+    SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, SqlGeneratorError, StructuralSignature,
+    TIER_C_ROOT_SEEDS, is_valid_tier_c_failure_artifact_id, replay::canonical_json_bytes,
+    scheduled_sql_scenario_shard, structural_obligation_catalog_hash,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,7 +17,7 @@ use std::{
 };
 
 /// Current hard-cut Tier C correctness evidence format.
-pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 1;
+pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 2;
 
 /// Semantic SQL coverage-manifest revision required by current Tier C evidence.
 ///
@@ -30,10 +30,10 @@ pub const TIER_C_SQL_COVERAGE_MANIFEST_REVISION: &str =
 pub const TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES: usize = 1_048_576;
 
 /// Domain separator for the complete Tier C correctness scenario-set identity.
-const TIER_C_SCENARIO_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-scenarios/v1";
+const TIER_C_SCENARIO_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-scenarios/v2";
 
 /// Domain separator for one Tier C correctness shard membership identity.
-const TIER_C_SHARD_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-shard-scenarios/v1";
+const TIER_C_SHARD_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-shard-scenarios/v2";
 
 ///
 /// TierCScenarioOutcome
@@ -83,6 +83,7 @@ impl TierCScenarioOutcome {
 #[serde(deny_unknown_fields)]
 pub struct TierCScenarioObservation {
     scenario_id: String,
+    structural_signature: StructuralSignature,
     outcome: TierCScenarioOutcome,
 }
 
@@ -94,10 +95,12 @@ impl TierCScenarioObservation {
     /// Returns a typed evidence error for an invalid scenario or failure-artifact identity.
     pub fn try_new(
         scenario_id: impl Into<String>,
+        structural_signature: StructuralSignature,
         outcome: TierCScenarioOutcome,
     ) -> Result<Self, TierCEvidenceError> {
         let observation = Self {
             scenario_id: scenario_id.into(),
+            structural_signature,
             outcome,
         };
         observation.validate()?;
@@ -117,9 +120,21 @@ impl TierCScenarioObservation {
         &self.outcome
     }
 
+    /// Borrow the full observed structural signature.
+    #[must_use]
+    pub const fn structural_signature(&self) -> &StructuralSignature {
+        &self.structural_signature
+    }
+
     fn validate(&self) -> Result<(), TierCEvidenceError> {
         scheduled_sql_scenario_shard(self.scenario_id.as_str()).map_err(|source| {
             TierCEvidenceError::InvalidScenarioId {
+                scenario_id: self.scenario_id.clone(),
+                source,
+            }
+        })?;
+        self.structural_signature.validate().map_err(|source| {
+            TierCEvidenceError::InvalidStructuralSignature {
                 scenario_id: self.scenario_id.clone(),
                 source,
             }
@@ -140,6 +155,7 @@ impl TierCScenarioObservation {
 pub struct TierCShardReport {
     format_version: u32,
     manifest_revision: String,
+    obligation_catalog_hash: String,
     select_generator_version: u32,
     mutation_generator_version: u32,
     regression_corpus_format_version: u32,
@@ -183,6 +199,8 @@ impl TierCShardReport {
         Ok(Self {
             format_version: TIER_C_EVIDENCE_FORMAT_VERSION,
             manifest_revision: TIER_C_SQL_COVERAGE_MANIFEST_REVISION.to_string(),
+            obligation_catalog_hash: structural_obligation_catalog_hash()
+                .map_err(TierCEvidenceError::ObligationCatalog)?,
             select_generator_version: SELECT_GENERATOR_VERSION,
             mutation_generator_version: MUTATION_GENERATOR_VERSION,
             regression_corpus_format_version: REGRESSION_CORPUS_FORMAT_VERSION,
@@ -206,6 +224,12 @@ impl TierCShardReport {
     #[must_use]
     pub const fn shard_index(&self) -> u8 {
         self.shard_index
+    }
+
+    /// Borrow the frozen obligation-catalog identity carried by this receipt.
+    #[must_use]
+    pub const fn obligation_catalog_hash(&self) -> &str {
+        self.obligation_catalog_hash.as_str()
     }
 
     /// Borrow the full expected Tier C scenario-set identity.
@@ -315,6 +339,7 @@ impl TierCShardReport {
 pub struct TierCMergedReport {
     format_version: u32,
     manifest_revision: String,
+    obligation_catalog_hash: String,
     select_generator_version: u32,
     mutation_generator_version: u32,
     regression_corpus_format_version: u32,
@@ -410,6 +435,8 @@ impl TierCMergedReport {
         Ok(Self {
             format_version: TIER_C_EVIDENCE_FORMAT_VERSION,
             manifest_revision: TIER_C_SQL_COVERAGE_MANIFEST_REVISION.to_string(),
+            obligation_catalog_hash: structural_obligation_catalog_hash()
+                .map_err(TierCEvidenceError::ObligationCatalog)?,
             select_generator_version: SELECT_GENERATOR_VERSION,
             mutation_generator_version: MUTATION_GENERATOR_VERSION,
             regression_corpus_format_version: REGRESSION_CORPUS_FORMAT_VERSION,
@@ -430,6 +457,12 @@ impl TierCMergedReport {
     #[must_use]
     pub const fn expected_scenario_set_hash(&self) -> &str {
         self.expected_scenario_set_hash.as_str()
+    }
+
+    /// Borrow the frozen obligation-catalog identity shared by every shard.
+    #[must_use]
+    pub const fn obligation_catalog_hash(&self) -> &str {
+        self.obligation_catalog_hash.as_str()
     }
 
     /// Return the complete observed scenario count.
@@ -601,6 +634,14 @@ pub enum TierCEvidenceError {
         source: ScenarioShardError,
     },
 
+    /// One receipt carried a malformed full structural signature.
+    InvalidStructuralSignature {
+        /// Stable scenario identity whose signature failed.
+        scenario_id: String,
+        /// Typed signature validation cause.
+        source: SqlGeneratorError,
+    },
+
     /// The requested shard index was outside the fixed current shard range.
     InvalidShardIndex {
         /// Requested zero-based shard index.
@@ -617,6 +658,9 @@ pub enum TierCEvidenceError {
 
     /// A decoded artifact was valid JSON but not canonical current JSON.
     NonCanonicalArtifact,
+
+    /// The frozen obligation catalog could not supply the current receipt identity.
+    ObligationCatalog(SqlGeneratorError),
 
     /// One observation appeared in a report other than its deterministic shard.
     ScenarioAssignedToDifferentShard {
@@ -663,6 +707,10 @@ pub enum TierCEvidenceError {
 }
 
 impl Display for TierCEvidenceError {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the closed Tier C evidence error vocabulary has one exhaustive display owner"
+    )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AggregateScenarioCountMismatch {
@@ -715,6 +763,13 @@ impl Display for TierCEvidenceError {
                 "Tier C shard index {shard_index} is outside zero through {}",
                 shard_count.saturating_sub(1),
             ),
+            Self::InvalidStructuralSignature {
+                scenario_id,
+                source,
+            } => write!(
+                formatter,
+                "Tier C scenario {scenario_id:?} has an invalid structural signature: {source}",
+            ),
             Self::MergedReportDrift => {
                 formatter.write_str("Tier C merged report disagrees with recomputed evidence")
             }
@@ -723,6 +778,9 @@ impl Display for TierCEvidenceError {
             }
             Self::NonCanonicalArtifact => {
                 formatter.write_str("Tier C artifact is not canonical current JSON")
+            }
+            Self::ObligationCatalog(source) => {
+                write!(formatter, "Tier C obligation catalog is invalid: {source}")
             }
             Self::ScenarioAssignedToDifferentShard {
                 scenario_id,
@@ -767,7 +825,9 @@ impl Error for TierCEvidenceError {
         match self {
             Self::Decode { source } => Some(source),
             Self::InvalidScenarioId { source, .. } => Some(source),
-            Self::Serialization(source) => Some(source),
+            Self::InvalidStructuralSignature { source, .. }
+            | Self::ObligationCatalog(source)
+            | Self::Serialization(source) => Some(source),
             _ => None,
         }
     }
@@ -1044,7 +1104,7 @@ mod tests {
     use crate::{
         SQL_SCHEDULED_SHARD_COUNT, TierCEvidenceError, TierCMergedReport, TierCScenarioObservation,
         TierCScenarioOutcome, TierCShardReport, scheduled::TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
-        scheduled_sql_scenario_shard,
+        scheduled_select_witnesses, scheduled_sql_scenario_shard,
     };
 
     #[test]
@@ -1110,7 +1170,7 @@ mod tests {
         assert_eq!(forward, reversed);
         assert_eq!(
             forward,
-            "eb8df215669ca3f5f36225a8a54910f26e3e1c44590e4b0a5ac65c98365bdc23",
+            "af735ffb10f0b5fc354358b6598b9bc682ddd17f1c3f656e54e34a6e05e2d390",
         );
     }
 
@@ -1133,6 +1193,7 @@ mod tests {
         let misassigned = vec![
             TierCScenarioObservation::try_new(
                 scenario_ids[1].clone(),
+                test_signature(),
                 TierCScenarioOutcome::Passed,
             )
             .expect("observation should construct"),
@@ -1150,6 +1211,7 @@ mod tests {
         assert!(matches!(
             TierCScenarioObservation::try_new(
                 scenario_ids[5].clone(),
+                test_signature(),
                 TierCScenarioOutcome::Failed("not-content-addressed".to_string()),
             ),
             Err(TierCEvidenceError::InvalidFailureArtifactId)
@@ -1275,8 +1337,12 @@ mod tests {
                     == shard_index
             })
             .map(|scenario_id| {
-                TierCScenarioObservation::try_new((*scenario_id).to_string(), outcome.clone())
-                    .expect("test observation should construct")
+                TierCScenarioObservation::try_new(
+                    (*scenario_id).to_string(),
+                    test_signature(),
+                    outcome.clone(),
+                )
+                .expect("test observation should construct")
             })
             .collect()
     }
@@ -1294,5 +1360,15 @@ mod tests {
                     .expect("each fixed shard should receive a finite test identity")
             })
             .collect()
+    }
+
+    fn test_signature() -> crate::StructuralSignature {
+        scheduled_select_witnesses()
+            .expect("checked-in witnesses should decode")
+            .into_iter()
+            .next()
+            .expect("catalog should contain a generated SELECT witness")
+            .signature()
+            .clone()
     }
 }

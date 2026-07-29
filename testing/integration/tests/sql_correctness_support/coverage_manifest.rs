@@ -3,6 +3,8 @@
 //! Does not own: product behavior or the deterministic evidence supplied by cited tests.
 //! Boundary: validates manifest entries against `SQL_SUBSET.md` and repository test providers.
 
+mod obligations;
+
 use crate::sql_harness::{EligibleProvider, EvidenceClass, EvidenceStrength};
 use icydb_testing_integration::sql_performance_contract::{
     SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES, SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,

@@ -16,26 +16,45 @@ pub const TIER_A_SELECT_BUDGETS: SelectBudgets = SelectBudgets::new(16, 3, 4, 3,
 pub const TIER_C_SELECT_BUDGETS: SelectBudgets =
     SelectBudgets::new(64, 4, 4, 3, 4_096, 8_192, 1_048_576);
 
-/// Every maintained SELECT generator family in stable identity order.
-pub const ALL_SELECT_GENERATOR_FAMILIES: &[SelectGeneratorFamily] = &[
-    SelectGeneratorFamily::Distinct,
-    SelectGeneratorFamily::Expression,
-    SelectGeneratorFamily::GlobalAggregate,
-    SelectGeneratorFamily::GroupedAggregate,
-    SelectGeneratorFamily::Having,
-    SelectGeneratorFamily::Predicate,
-    SelectGeneratorFamily::ScalarProjection,
-    SelectGeneratorFamily::Window,
-];
-
 /// Every initial classified invalid mutation in stable identity order.
 pub const ALL_SELECT_VIOLATIONS: &[SelectViolation] = &[
+    SelectViolation::AmbiguousAlias,
+    SelectViolation::InvalidAggregateScope,
     SelectViolation::InvalidClauseOrder,
+    SelectViolation::InvalidGrouping,
+    SelectViolation::InvalidOrderTarget,
     SelectViolation::LimitOverflow,
     SelectViolation::UnknownField,
     SelectViolation::UnsupportedFunctionSignature,
     SelectViolation::WrongOperatorType,
 ];
+
+///
+/// SelectSchemaProfile
+///
+/// Exact accepted schema profiles owned by current SELECT generation.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectSchemaProfile {
+    /// Reference scalar fields used by general expression and aggregate witnesses.
+    ReferenceScalar,
+
+    /// Nullable fields plus single-field and compatible composite indexes.
+    IndexedNullableReference,
+}
+
+impl SelectSchemaProfile {
+    /// Borrow the stable profile identity used by structural signatures.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::ReferenceScalar => "reference_scalar",
+            Self::IndexedNullableReference => "indexed_nullable_reference",
+        }
+    }
+}
 
 ///
 /// SelectValueKind
@@ -352,117 +371,6 @@ impl SelectSnapshot {
 }
 
 ///
-/// SelectGeneratorFamily
-///
-/// Independently seeded SELECT generation family owned by the 0.204 harness.
-/// Family identity partitions deterministic streams and evidence coverage.
-///
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SelectGeneratorFamily {
-    /// Scalar `SELECT DISTINCT` projection and ordering semantics.
-    Distinct,
-
-    /// Arithmetic, functions, null-producing expressions, and searched `CASE`.
-    Expression,
-
-    /// Whole-input aggregate projection without explicit grouping keys.
-    GlobalAggregate,
-
-    /// Explicit grouping keys paired with aggregate projections.
-    GroupedAggregate,
-
-    /// Global and grouped post-aggregate rejection predicates.
-    Having,
-
-    /// Typed WHERE comparisons, boolean combinations, text, and null predicates.
-    Predicate,
-
-    /// Plain and aliased scalar projection shapes.
-    ScalarProjection,
-
-    /// Deterministic ordering, limits, offsets, and alias order targets.
-    Window,
-}
-
-impl SelectGeneratorFamily {
-    /// Return the stable family identity included in BLAKE3 sub-seeds.
-    #[must_use]
-    pub const fn id(self) -> &'static str {
-        match self {
-            Self::Distinct => "select.distinct",
-            Self::Expression => "select.expression",
-            Self::GlobalAggregate => "select.global_aggregate",
-            Self::GroupedAggregate => "select.grouped_aggregate",
-            Self::Having => "select.having",
-            Self::Predicate => "select.predicate",
-            Self::ScalarProjection => "select.scalar_projection",
-            Self::Window => "select.window",
-        }
-    }
-
-    /// Borrow contract identifiers covered by the family as a whole.
-    #[must_use]
-    pub const fn contract_features(self) -> &'static [&'static str] {
-        match self {
-            Self::Distinct => &["projection.scalar", "select.scalar_distinct"],
-            Self::Expression => &[
-                "expression.numeric_functions",
-                "expression.searched_case",
-                "expression.text_functions",
-                "expression.value_selection",
-                "select.computed_projection",
-            ],
-            Self::GlobalAggregate => &[
-                "projection.aggregate",
-                "select.aggregate_distinct_filter",
-                "select.global_aggregate",
-            ],
-            Self::GroupedAggregate => &[
-                "projection.aggregate",
-                "projection.grouped_layout",
-                "select.grouped_aggregate",
-            ],
-            Self::Having => &[
-                "having.global_aggregate",
-                "having.grouped_aggregate",
-                "ordering.projection_alias",
-                "projection.aggregate",
-                "select.grouped_composition",
-            ],
-            Self::Predicate => &[
-                "predicate.boolean_comparison",
-                "predicate.boolean_truth",
-                "predicate.casefold_prefix",
-                "predicate.expression_arguments",
-                "predicate.field_comparison",
-                "predicate.membership",
-                "predicate.null",
-                "predicate.prefix_pattern",
-                "predicate.range",
-                "predicate.starts_with",
-            ],
-            Self::ScalarProjection => &[
-                "projection.aliases",
-                "projection.scalar",
-                "select.scalar_rows",
-            ],
-            Self::Window => &[
-                "expression.numeric_functions",
-                "ordering.projection_alias",
-                "pagination.scalar_limit_offset",
-                "predicate.boolean_comparison",
-                "projection.scalar",
-                "select.computed_projection",
-                "select.scalar_composition",
-                "select.scalar_rows",
-            ],
-        }
-    }
-}
-
-///
 /// SelectViolation
 ///
 /// One classified invalid mutation applied to an otherwise valid typed case.
@@ -472,8 +380,20 @@ impl SelectGeneratorFamily {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SelectViolation {
+    /// Declare the same projection alias twice and target it through `ORDER BY`.
+    AmbiguousAlias,
+
+    /// Mix aggregate and non-aggregate projection without a grouping key.
+    InvalidAggregateScope,
+
     /// Place `OFFSET` before `LIMIT` contrary to the current SELECT grammar.
     InvalidClauseOrder,
+
+    /// Reference an ungrouped field from a grouped aggregate.
+    InvalidGrouping,
+
+    /// Reference a projection alias that does not exist.
+    InvalidOrderTarget,
 
     /// Render a limit one greater than the unsigned 32-bit grammar range.
     LimitOverflow,
@@ -489,11 +409,31 @@ pub enum SelectViolation {
 }
 
 impl SelectViolation {
+    /// Borrow the structural-signature violation code.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::AmbiguousAlias => "ambiguous_alias_binding",
+            Self::InvalidAggregateScope => "aggregate_scope",
+            Self::InvalidClauseOrder => "invalid_clause_order",
+            Self::InvalidGrouping => "invalid_grouping",
+            Self::InvalidOrderTarget => "invalid_order_target",
+            Self::LimitOverflow => "limit_overflow",
+            Self::UnknownField => "unknown_field",
+            Self::UnsupportedFunctionSignature => "unsupported_function_signature",
+            Self::WrongOperatorType => "wrong_operator_type",
+        }
+    }
+
     /// Return the stable independently seeded violation-family identity.
     #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
+            Self::AmbiguousAlias => "invalid.ambiguous_alias",
+            Self::InvalidAggregateScope => "invalid.aggregate_scope",
             Self::InvalidClauseOrder => "invalid.clause_order",
+            Self::InvalidGrouping => "invalid.grouping",
+            Self::InvalidOrderTarget => "invalid.order_target",
             Self::LimitOverflow => "invalid.limit_overflow",
             Self::UnknownField => "invalid.unknown_field",
             Self::UnsupportedFunctionSignature => "invalid.function_signature",
@@ -505,7 +445,11 @@ impl SelectViolation {
     #[must_use]
     pub const fn expected_rejection(self) -> SelectExpectedRejection {
         match self {
+            Self::AmbiguousAlias => SelectExpectedRejection::AmbiguousAlias,
+            Self::InvalidAggregateScope => SelectExpectedRejection::InvalidAggregateScope,
             Self::InvalidClauseOrder => SelectExpectedRejection::InvalidClauseOrder,
+            Self::InvalidGrouping => SelectExpectedRejection::InvalidGrouping,
+            Self::InvalidOrderTarget => SelectExpectedRejection::InvalidOrderTarget,
             Self::LimitOverflow => SelectExpectedRejection::LimitOverflow,
             Self::UnknownField => SelectExpectedRejection::UnknownField,
             Self::UnsupportedFunctionSignature => {
@@ -526,8 +470,20 @@ impl SelectViolation {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SelectExpectedRejection {
+    /// Alias binding rejected a duplicated projection name.
+    AmbiguousAlias,
+
+    /// Aggregate-scope validation rejected mixed grouped and non-grouped terms.
+    InvalidAggregateScope,
+
     /// Current SELECT clause ordering rejected the statement.
     InvalidClauseOrder,
+
+    /// Group-scope validation rejected an ungrouped field.
+    InvalidGrouping,
+
+    /// Order-target binding rejected an absent projection alias.
+    InvalidOrderTarget,
 
     /// The SQL unsigned limit literal exceeded its admitted range.
     LimitOverflow,
@@ -774,7 +730,7 @@ impl SelectBudgets {
 ///
 /// GeneratedSelectIdentity
 ///
-/// Stable generator version, family, root, case, and derived independent stream.
+/// Stable generator version, witness, root, repetition, and derived independent stream.
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -782,31 +738,31 @@ impl SelectBudgets {
 pub struct GeneratedSelectIdentity {
     id: String,
     generator_version: u32,
-    family_id: String,
+    witness_id: String,
     #[serde(with = "tagged_u64")]
     root_seed: u64,
     #[serde(with = "tagged_u64")]
     sub_seed: u64,
     #[serde(with = "tagged_u64")]
-    case_index: u64,
+    repetition: u64,
 }
 
 impl GeneratedSelectIdentity {
     pub(crate) const fn new(
         id: String,
         generator_version: u32,
-        family_id: String,
+        witness_id: String,
         root_seed: u64,
         sub_seed: u64,
-        case_index: u64,
+        repetition: u64,
     ) -> Self {
         Self {
             id,
             generator_version,
-            family_id,
+            witness_id,
             root_seed,
             sub_seed,
-            case_index,
+            repetition,
         }
     }
 
@@ -822,10 +778,10 @@ impl GeneratedSelectIdentity {
         self.generator_version
     }
 
-    /// Borrow the independently seeded generator or violation family identity.
+    /// Borrow the independently seeded scheduled witness or typed violation identity.
     #[must_use]
-    pub const fn family_id(&self) -> &str {
-        self.family_id.as_str()
+    pub const fn witness_id(&self) -> &str {
+        self.witness_id.as_str()
     }
 
     /// Return the configured root seed.
@@ -834,16 +790,16 @@ impl GeneratedSelectIdentity {
         self.root_seed
     }
 
-    /// Return the BLAKE3-derived family/case sub-seed.
+    /// Return the BLAKE3-derived witness/repetition sub-seed.
     #[must_use]
     pub const fn sub_seed(&self) -> u64 {
         self.sub_seed
     }
 
-    /// Return the case index inside its independent family stream.
+    /// Return the repetition ordinal inside its independent witness stream.
     #[must_use]
-    pub const fn case_index(&self) -> u64 {
-        self.case_index
+    pub const fn repetition(&self) -> u64 {
+        self.repetition
     }
 }
 
@@ -922,6 +878,25 @@ impl SelectQuery {
             order,
             limit,
             offset: None,
+        }
+    }
+
+    pub(crate) const fn distinct_window(
+        projections: Vec<SelectProjection>,
+        predicate: Option<SelectPredicate>,
+        order: Vec<SelectOrderTerm>,
+        limit: u32,
+        offset: u32,
+    ) -> Self {
+        Self {
+            distinct: true,
+            projections,
+            predicate,
+            group_by: Vec::new(),
+            having: None,
+            order,
+            limit: Some(limit),
+            offset: Some(offset),
         }
     }
 
@@ -1462,7 +1437,7 @@ impl SelectQuery {
 #[serde(deny_unknown_fields)]
 pub struct GeneratedSelectCase {
     identity: GeneratedSelectIdentity,
-    family: SelectGeneratorFamily,
+    structural_signature: crate::StructuralSignature,
     violation: Option<SelectViolation>,
     snapshot: SelectSnapshot,
     fixture: GeneratedFixture,
@@ -1481,7 +1456,7 @@ impl GeneratedSelectCase {
     )]
     pub(crate) const fn new(
         identity: GeneratedSelectIdentity,
-        family: SelectGeneratorFamily,
+        structural_signature: crate::StructuralSignature,
         violation: Option<SelectViolation>,
         snapshot: SelectSnapshot,
         fixture: GeneratedFixture,
@@ -1494,7 +1469,7 @@ impl GeneratedSelectCase {
     ) -> Self {
         Self {
             identity,
-            family,
+            structural_signature,
             violation,
             snapshot,
             fixture,
@@ -1513,10 +1488,10 @@ impl GeneratedSelectCase {
         &self.identity
     }
 
-    /// Return the valid SELECT family from which this case was generated.
+    /// Borrow the full derived structural identity.
     #[must_use]
-    pub const fn family(&self) -> SelectGeneratorFamily {
-        self.family
+    pub const fn structural_signature(&self) -> &crate::StructuralSignature {
+        &self.structural_signature
     }
 
     /// Return the classified invalid mutation, when present.

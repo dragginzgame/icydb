@@ -12,16 +12,19 @@ mod shrink;
 mod tests;
 
 pub use generator::{
-    MUTATION_GENERATOR_VERSION, TIER_A_MUTATION_CASES_PER_ROOT, TIER_C_MUTATION_CASES_PER_ROOT,
-    generate_mutation_sequence,
+    MUTATION_GENERATOR_VERSION, TIER_A_MUTATION_REPETITIONS, TIER_C_MUTATION_REPETITIONS,
+    generate_scheduled_mutation_sequence,
 };
 pub use model::{
     GeneratedMutationIdentity, GeneratedMutationSequence, GeneratedMutationStep,
-    MutationAssignment, MutationBudgets, MutationExpectedRejection, MutationField,
-    MutationFieldKind, MutationFieldRole, MutationInsertQueryKeySource, MutationOperation,
-    MutationOrder, MutationPredicate, MutationRow, MutationSnapshot, MutationSqliteEligibility,
-    MutationSqliteExclusion, MutationStatement, MutationStepOutcome, MutationWindow,
-    TIER_A_MUTATION_BUDGETS, TIER_C_MUTATION_BUDGETS,
+    MutationAssignment, MutationBudgets, MutationDefaultValue, MutationExpectedRejection,
+    MutationField, MutationFieldKind, MutationFieldRole, MutationIndexEntry, MutationIngress,
+    MutationInsertQueryKeySource, MutationInsertRow, MutationIntentClass, MutationIntentKind,
+    MutationOperation, MutationOrder, MutationPredicate, MutationProjectedField,
+    MutationProjectedRow, MutationReturning, MutationRow, MutationRowPayload,
+    MutationSchemaProfile, MutationSnapshot, MutationSqliteEligibility, MutationSqliteExclusion,
+    MutationStatement, MutationStepOutcome, MutationUpdateIntent, MutationValue, MutationWindow,
+    MutationWriteIntent, TIER_A_MUTATION_BUDGETS, TIER_C_MUTATION_BUDGETS,
 };
 pub use replay::{
     MUTATION_REPLAY_FORMAT_VERSION, MutationExecutionPhase, MutationFeature,

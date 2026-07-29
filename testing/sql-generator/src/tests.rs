@@ -1,22 +1,24 @@
 //! Module: sql_generator::tests
-//! Responsibility: deterministic machinery, generation bounds, shrinking, and replay contracts.
-//! Does not own: IcyDB or SQLite execution-provider behavior.
-//! Boundary: proves the test-owned generator is stable before product adapters consume it.
+//! Responsibility: structural generation, replay, shrinking, and receipt contracts.
+//! Does not own: IcyDB execution or bundled SQLite semantics.
+//! Boundary: proves the obligation-driven generator is stable before adapters consume it.
 
 use crate::{
-    ALL_SELECT_GENERATOR_FAMILIES, ALL_SELECT_VIOLATIONS, GeneratedSelectCase,
-    REGRESSION_CORPUS_FORMAT_VERSION, RegressionCorpusCase, RegressionCorpusEntry,
-    SELECT_GENERATOR_VERSION, SELECT_REPLAY_FORMAT_VERSION, SelectBudgets,
-    SelectComparisonProvider, SelectExecutionPhase, SelectFeature, SelectField, SelectFieldKind,
-    SelectGeneratorFamily, SelectIndex, SelectMismatchCategory, SelectMismatchSignature,
-    SelectObservedOutcome, SelectProvider, SelectReplayRecord, SelectSnapshot, SelectViolation,
-    SqlGeneratorErrorKind, TIER_A_INVALID_CASES_PER_VIOLATION, TIER_A_ROOT_SEEDS,
-    TIER_A_SELECT_BUDGETS, TIER_A_VALID_CASES_PER_FAMILY, TIER_C_INVALID_CASES_PER_VIOLATION,
-    TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TIER_C_VALID_CASES_PER_FAMILY, TierCFailureArtifact,
-    TierCFailureArtifactError, generate_invalid_select_case, generate_valid_select_case,
+    ALL_SELECT_VIOLATIONS, GeneratedFixtureProperty, REGRESSION_CORPUS_FORMAT_VERSION,
+    RegressionCorpusCase, RegressionCorpusEntry, SELECT_GENERATOR_VERSION,
+    SELECT_REPLAY_FORMAT_VERSION, SQL_SCHEDULED_SHARD_COUNT, ScheduledSelectWitness,
+    SelectComparisonProvider, SelectExecutionPhase, SelectFeature, SelectMismatchCategory,
+    SelectMismatchSignature, SelectObservedOutcome, SelectProvider, SelectSchemaProfile,
+    StructuralSignature, TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS, TIER_C_INVALID_REPETITIONS,
+    TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_REPETITIONS, TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS,
+    TIER_C_SELECT_REPETITIONS, TierCCoverageDistributionReport, TierCFailureArtifact,
+    TierCMergedReport, TierCScenarioObservation, TierCScenarioOutcome, TierCShardReport,
+    generate_invalid_select_case, generate_scheduled_mutation_sequence,
+    generate_scheduled_select_case, generated_mutation_tier_c_declaration,
     generated_select_tier_c_declaration,
-    rng::{SplitMix64, derive_sql_sub_seed},
-    shrink_select_failure,
+    rng::{SplitMix64, derive_select_witness_sub_seed},
+    scheduled_mutation_witnesses, scheduled_select_witnesses, scheduled_sql_scenario_shard,
+    shrink_select_failure, structural_obligation_catalog_hash,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,256 +40,305 @@ fn splitmix64_state_transition_has_fixed_golden_vector() {
 }
 
 #[test]
-fn splitmix64_bounded_and_weighted_choices_have_fixed_golden_vectors() {
-    let mut bounded_rng = SplitMix64::new(0x1020_3040_5060_7080);
-    let bounded = (0..8)
-        .map(|_| bounded_rng.bounded(7).expect("non-zero bound should work"))
-        .collect::<Vec<_>>();
-    let mut weighted_rng = SplitMix64::new(0x1020_3040_5060_7080);
-    let weighted = (0..8)
-        .map(|_| {
-            weighted_rng
-                .weighted_index(&[1, 3, 2])
-                .expect("checked weights should work")
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(bounded, vec![4, 6, 1, 4, 3, 1, 0, 6]);
-    assert_eq!(weighted, vec![1, 2, 1, 2, 1, 1, 1, 0]);
-}
-
-#[test]
-fn select_sub_seeds_have_fixed_blake3_golden_vectors() {
-    let actual = derive_sql_sub_seed(
+fn witness_sub_seed_is_stable_and_independent_of_catalog_order() {
+    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+    let first = &witnesses[0];
+    let sub_seed = derive_select_witness_sub_seed(
         SELECT_GENERATOR_VERSION,
         TIER_A_ROOT_SEEDS[0],
-        SelectGeneratorFamily::Expression.id(),
-        3,
+        first.witness_id(),
+        0,
     )
-    .expect("fixed family identity should derive");
+    .expect("fixed witness identity should derive");
 
-    assert_eq!(actual, 0xf25a_a4d4_38d2_2440);
-
-    let corpus_source = derive_sql_sub_seed(
-        SELECT_GENERATOR_VERSION,
-        TIER_A_ROOT_SEEDS[0],
-        SelectGeneratorFamily::GlobalAggregate.id(),
-        6,
-    )
-    .expect("fixed corpus source identity should derive");
-    assert_eq!(corpus_source, 0xfe70_a2ad_2a8f_4a81);
-}
-
-#[test]
-fn accepted_snapshot_order_and_representative_case_are_golden() {
-    let snapshot = select_snapshot();
-    let case = generate_valid_select_case(
-        &snapshot,
-        TIER_A_ROOT_SEEDS[0],
-        SelectGeneratorFamily::Expression,
-        3,
-        TIER_A_SELECT_BUDGETS,
-    )
-    .expect("representative generated case should be valid");
-    let canonical = crate::replay::canonical_json_bytes(&case)
-        .expect("representative generated case should serialize");
-
+    assert_eq!(sub_seed, 0x30eb_dc72_dc79_7307);
+    let mut reverse = witnesses.clone();
+    reverse.reverse();
+    let reversed = reverse
+        .iter()
+        .find(|candidate| candidate.witness_id() == first.witness_id())
+        .expect("reversed catalog should retain the witness");
     assert_eq!(
-        snapshot
-            .fields()
+        derive_select_witness_sub_seed(
+            SELECT_GENERATOR_VERSION,
+            TIER_A_ROOT_SEEDS[0],
+            reversed.witness_id(),
+            0,
+        )
+        .expect("reordered witness should derive"),
+        sub_seed,
+    );
+}
+
+#[test]
+fn frozen_catalog_exposes_exact_select_witnesses_and_hash() {
+    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+    assert_eq!(witnesses.len(), 17);
+    assert_eq!(
+        structural_obligation_catalog_hash().expect("catalog hash should decode"),
+        "b4f839c170e09a2691dd8cbc6a5b14ad8c3794af0d2ea796df47bec4968e4b9f",
+    );
+    assert_eq!(
+        witnesses
             .iter()
-            .map(SelectField::id)
-            .collect::<Vec<_>>(),
-        vec![1, 2, 3, 4, 5, 6],
+            .map(ScheduledSelectWitness::witness_id)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        witnesses.len(),
     );
-    assert_eq!(
-        case.rendered_sql(),
-        "SELECT LENGTH(name) AS generated_value FROM GeneratorEntity",
-    );
-    assert_eq!(
-        blake3::hash(&canonical).to_hex().as_str(),
-        "d7919694f435f93a2957c084d21a5275173b264a4119dfda328456ea1bfd9cba",
+    assert!(
+        witnesses
+            .iter()
+            .all(|witness| witness.provider_id().starts_with("generated.select."))
     );
 }
 
 #[test]
-fn tier_a_generation_is_deterministic_bounded_and_feature_complete() {
-    let snapshot = select_snapshot();
-    let mut identities = BTreeSet::new();
-    let mut reached = BTreeMap::<SelectGeneratorFamily, BTreeSet<SelectFeature>>::new();
+fn structural_signature_round_trip_equality_and_order_are_lossless() {
+    let mut signatures = scheduled_select_witnesses()
+        .expect("catalog should decode")
+        .into_iter()
+        .map(|witness| witness.signature().clone())
+        .collect::<Vec<_>>();
+    for signature in &signatures {
+        let encoded = signature
+            .to_canonical_json()
+            .expect("signature should encode canonically");
+        assert_eq!(
+            StructuralSignature::from_canonical_json(encoded.as_slice())
+                .expect("current signature should decode"),
+            *signature,
+        );
+        assert_eq!(signature.digest().expect("digest should derive").len(), 64);
+    }
+    let mut reversed = signatures.iter().rev().cloned().collect::<Vec<_>>();
+    signatures.sort();
+    reversed.sort();
+    assert_eq!(signatures, reversed);
+}
 
-    for root_seed in TIER_A_ROOT_SEEDS {
-        for family in ALL_SELECT_GENERATOR_FAMILIES {
-            for case_index in 0..TIER_A_VALID_CASES_PER_FAMILY {
-                let first = generate_valid_select_case(
-                    &snapshot,
+#[test]
+fn every_required_select_structure_generates_deterministically() {
+    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+    let mut identities = BTreeSet::new();
+    let mut signature_counts = BTreeMap::new();
+    let mut profile_counts = BTreeMap::new();
+    let mut fixture_classes = BTreeSet::new();
+    let mut expression_depths = BTreeSet::new();
+    for root_seed in TIER_C_ROOT_SEEDS {
+        for witness in &witnesses {
+            for repetition in 0..TIER_C_SELECT_REPETITIONS {
+                let first = generate_scheduled_select_case(
+                    witness,
                     *root_seed,
-                    *family,
-                    case_index,
-                    TIER_A_SELECT_BUDGETS,
+                    repetition,
+                    TIER_C_SELECT_BUDGETS,
                 )
-                .expect("Tier A valid case should generate");
-                let second = generate_valid_select_case(
-                    &snapshot,
+                .expect("required SELECT witness should generate");
+                let second = generate_scheduled_select_case(
+                    witness,
                     *root_seed,
-                    *family,
-                    case_index,
-                    TIER_A_SELECT_BUDGETS,
+                    repetition,
+                    TIER_C_SELECT_BUDGETS,
                 )
-                .expect("same Tier A valid case should reproduce");
+                .expect("same witness repetition should reproduce");
                 assert_eq!(first, second);
+                assert_eq!(first.structural_signature(), witness.signature());
                 assert!(identities.insert(first.identity().id().to_string()));
-                assert!(first.fixture().len() <= 16);
-                assert!(first.query().projection_count() <= 4);
-                assert!(first.query().group_key_count() <= 4);
-                assert!(first.query().order_term_count() <= 3);
                 first.validate().expect("generated case should revalidate");
-                reached
-                    .entry(*family)
-                    .or_default()
-                    .extend(first.features().iter().copied());
+                *signature_counts
+                    .entry(
+                        first
+                            .structural_signature()
+                            .digest()
+                            .expect("signature digest should derive"),
+                    )
+                    .or_insert(0_u32) += 1;
+                *profile_counts
+                    .entry(first.structural_signature().schema_profile().to_string())
+                    .or_insert(0_u32) += 1;
+                fixture_classes.insert(first.structural_signature().fixture_class().to_string());
+                expression_depths.insert(first.query().max_expression_depth());
             }
         }
     }
 
-    assert_eq!(reached.len(), ALL_SELECT_GENERATOR_FAMILIES.len());
-    assert_family_features(&reached);
+    assert_eq!(
+        identities.len(),
+        TIER_C_ROOT_SEEDS.len()
+            * witnesses.len()
+            * usize::try_from(TIER_C_SELECT_REPETITIONS).expect("repetitions fit usize"),
+    );
+    assert_eq!(signature_counts.len(), witnesses.len());
+    assert!(signature_counts.values().all(|count| *count == 16));
+    assert_eq!(
+        profile_counts,
+        BTreeMap::from([
+            ("indexed_nullable_reference".to_string(), 112),
+            ("reference_scalar".to_string(), 160),
+        ]),
+    );
+    assert_eq!(
+        fixture_classes,
+        BTreeSet::from([
+            "computed_null_and_nonnull".to_string(),
+            "computed_null_order_ties".to_string(),
+            "duplicate_computed_null".to_string(),
+            "duplicate_computed_stored_null".to_string(),
+            "duplicate_rich".to_string(),
+            "duplicate_rich_indexed".to_string(),
+            "empty".to_string(),
+            "multiple_duplicate_rich_indexed_groups".to_string(),
+            "multiple_groups".to_string(),
+            "order_ties".to_string(),
+            "order_ties_more_than_window".to_string(),
+            "small_duplicate_rich".to_string(),
+            "stored_null_duplicate_rich".to_string(),
+            "stored_null_duplicate_rich_indexed".to_string(),
+            "stored_null_order_ties".to_string(),
+            "valid_base".to_string(),
+        ]),
+    );
+    assert_eq!(expression_depths, BTreeSet::from([1, 2, 3]));
 }
 
 #[test]
-fn independent_family_streams_do_not_depend_on_iteration_order() {
-    let snapshot = select_snapshot();
-    let mut forward = BTreeMap::new();
-    let mut reverse = BTreeMap::new();
-    for family in ALL_SELECT_GENERATOR_FAMILIES {
-        let case = generated_case(&snapshot, *family, 5);
-        forward.insert(*family, case);
-    }
-    for family in ALL_SELECT_GENERATOR_FAMILIES.iter().rev() {
-        let case = generated_case(&snapshot, *family, 5);
-        reverse.insert(*family, case);
-    }
-
-    assert_eq!(forward, reverse);
-}
-
-#[test]
-fn tier_a_invalid_generation_attaches_one_typed_rejection_before_rendering() {
-    let snapshot = select_snapshot();
+fn every_invalid_kind_is_singly_invalid_and_deterministic() {
     let mut identities = BTreeSet::new();
-    for root_seed in TIER_A_ROOT_SEEDS {
+    for root_seed in TIER_C_ROOT_SEEDS {
         for violation in ALL_SELECT_VIOLATIONS {
-            for case_index in 0..TIER_A_INVALID_CASES_PER_VIOLATION {
+            for repetition in 0..TIER_C_INVALID_REPETITIONS {
                 let generated = generate_invalid_select_case(
-                    &snapshot,
+                    SelectSchemaProfile::ReferenceScalar,
                     *root_seed,
                     *violation,
-                    case_index,
+                    repetition,
                     TIER_A_SELECT_BUDGETS,
                 )
-                .expect("Tier A invalid case should generate from a valid base");
+                .expect("typed invalid proposal should generate");
                 assert_eq!(generated.violation(), Some(*violation));
-                assert_eq!(
-                    generated.expected(),
-                    crate::SelectExpectedOutcome::Rejected(violation.expected_rejection()),
-                );
                 assert_eq!(generated.provider(), SelectProvider::RejectionInvariant);
+                assert!(generated.structural_signature().is_singly_invalid());
+                assert_eq!(
+                    generated.structural_signature().expected_violation(),
+                    violation.code(),
+                );
                 assert!(identities.insert(generated.identity().id().to_string()));
                 generated
                     .validate()
-                    .expect("classified invalid case should revalidate structurally");
+                    .expect("singly invalid generated case should revalidate");
             }
         }
     }
+    assert_eq!(
+        identities.len(),
+        TIER_C_ROOT_SEEDS.len()
+            * ALL_SELECT_VIOLATIONS.len()
+            * usize::try_from(TIER_C_INVALID_REPETITIONS)
+                .expect("invalid repetition count should fit usize"),
+    );
 }
 
 #[test]
-fn tier_c_profile_is_exact_bounded_and_fully_generatable() {
+fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
+    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+    let cases = TIER_C_ROOT_SEEDS
+        .iter()
+        .flat_map(|root_seed| {
+            witnesses.iter().flat_map(move |witness| {
+                (0..TIER_C_SELECT_REPETITIONS).map(move |repetition| {
+                    generate_scheduled_select_case(
+                        witness,
+                        *root_seed,
+                        repetition,
+                        TIER_C_SELECT_BUDGETS,
+                    )
+                    .expect("scheduled witness repetition should generate")
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let declarations = cases
+        .iter()
+        .map(|case| {
+            generated_select_tier_c_declaration(case.identity().id(), case)
+                .expect("typed declaration should derive")
+        })
+        .collect::<Vec<_>>();
+    let declared = cases
+        .iter()
+        .map(|case| case.identity().id())
+        .collect::<Vec<_>>();
+    let reports = (0..SQL_SCHEDULED_SHARD_COUNT)
+        .map(|shard_index| {
+            let observations = cases
+                .iter()
+                .filter(|case| {
+                    scheduled_sql_scenario_shard(case.identity().id())
+                        .expect("catalog witness should shard")
+                        == shard_index
+                })
+                .map(|case| {
+                    let outcome = if case.violation().is_some() {
+                        TierCScenarioOutcome::ExpectedRejection
+                    } else {
+                        TierCScenarioOutcome::Passed
+                    };
+                    TierCScenarioObservation::try_new(
+                        case.identity().id(),
+                        case.structural_signature().clone(),
+                        outcome,
+                    )
+                    .expect("observed signature should validate")
+                })
+                .collect();
+            TierCShardReport::try_new(shard_index, &declared, observations)
+                .expect("exact shard receipt should validate")
+        })
+        .collect();
+    let merged =
+        TierCMergedReport::try_merge(&declared, reports).expect("exact receipts should merge");
     assert_eq!(
-        TIER_C_ROOT_SEEDS,
-        &[
-            0x1cdb_0204_0000_0011,
-            0x1cdb_0204_0000_0012,
-            0x1cdb_0204_0000_0013,
-            0x1cdb_0204_0000_0014,
-            0x1cdb_0204_0000_0015,
-            0x1cdb_0204_0000_0016,
-            0x1cdb_0204_0000_0017,
-            0x1cdb_0204_0000_0018,
-        ]
+        merged.obligation_catalog_hash(),
+        structural_obligation_catalog_hash()
+            .expect("catalog hash should decode")
+            .as_str(),
     );
-    assert_eq!(TIER_C_VALID_CASES_PER_FAMILY, 32);
-    assert_eq!(TIER_C_INVALID_CASES_PER_VIOLATION, 8);
-    assert_eq!(TIER_C_SELECT_BUDGETS.max_fixture_rows(), 64);
-    assert_eq!(TIER_C_SELECT_BUDGETS.max_expression_depth(), 4);
-    assert_eq!(TIER_C_SELECT_BUDGETS.max_shrink_candidates(), 4_096);
-    assert_eq!(TIER_C_SELECT_BUDGETS.max_evaluations(), 8_192);
-    assert_eq!(TIER_C_SELECT_BUDGETS.max_artifact_bytes(), 1_048_576);
-
-    let snapshot = select_snapshot();
-    let mut declared_features = BTreeMap::<SelectGeneratorFamily, BTreeSet<String>>::new();
-    let mut expression_depths = BTreeSet::new();
-    let mut fixture_row_counts = BTreeSet::new();
-    let mut identities = BTreeSet::new();
-    for root_seed in TIER_C_ROOT_SEEDS {
-        for family in ALL_SELECT_GENERATOR_FAMILIES {
-            for case_index in 0..TIER_C_VALID_CASES_PER_FAMILY {
-                let generated = generate_valid_select_case(
-                    &snapshot,
-                    *root_seed,
-                    *family,
-                    case_index,
-                    TIER_C_SELECT_BUDGETS,
-                )
-                .expect("Tier C valid case should generate");
-                assert!(identities.insert(generated.identity().id().to_string()));
-                expression_depths.insert(generated.query().max_expression_depth());
-                fixture_row_counts.insert(generated.fixture().len());
-                let declaration =
-                    generated_select_tier_c_declaration(generated.identity().id(), &generated)
-                        .expect("Tier C valid declaration should derive from typed facts");
-                declared_features
-                    .entry(*family)
-                    .or_default()
-                    .extend(declaration.contract_features().iter().cloned());
-            }
-        }
-        for violation in ALL_SELECT_VIOLATIONS {
-            for case_index in 0..TIER_C_INVALID_CASES_PER_VIOLATION {
-                let generated = generate_invalid_select_case(
-                    &snapshot,
-                    *root_seed,
-                    *violation,
-                    case_index,
-                    TIER_C_SELECT_BUDGETS,
-                )
-                .expect("Tier C invalid case should generate");
-                assert!(identities.insert(generated.identity().id().to_string()));
-            }
-        }
-    }
-
-    let expected_count = TIER_C_ROOT_SEEDS.len()
-        * (ALL_SELECT_GENERATOR_FAMILIES.len()
-            * usize::try_from(TIER_C_VALID_CASES_PER_FAMILY)
-                .expect("Tier C valid count should fit usize")
-            + ALL_SELECT_VIOLATIONS.len()
-                * usize::try_from(TIER_C_INVALID_CASES_PER_VIOLATION)
-                    .expect("Tier C invalid count should fit usize"));
-    assert_eq!(identities.len(), expected_count);
-    assert_eq!(expression_depths, BTreeSet::from([1, 2, 3, 4]));
-    assert!(fixture_row_counts.is_superset(&BTreeSet::from([0, 1, 32, 64])));
-    for family in ALL_SELECT_GENERATOR_FAMILIES {
-        assert_eq!(
-            declared_features.get(family),
-            Some(
-                &family
-                    .contract_features()
-                    .iter()
-                    .map(|feature| (*feature).to_string())
-                    .collect::<BTreeSet<_>>()
+    assert!(merged.is_clean());
+    let distribution =
+        TierCCoverageDistributionReport::try_from_clean_evidence(&declarations, &merged)
+            .expect("exact generated receipts should project");
+    assert_eq!(
+        distribution.generated_select_structural_signature_count(),
+        witnesses.len(),
+    );
+    assert_eq!(
+        distribution.generated_select_fixture_class_count("empty"),
+        u32::try_from(TIER_C_ROOT_SEEDS.len())
+            .expect("root count should fit u32")
+            .saturating_mul(
+                u32::try_from(TIER_C_SELECT_REPETITIONS).expect("repetition count should fit u32"),
             ),
-            "Tier C exact cases must collectively cover {family:?}",
+    );
+    assert_eq!(
+        distribution.generated_select_repetition_count(0),
+        u32::try_from(TIER_C_ROOT_SEEDS.len() * witnesses.len())
+            .expect("scheduled repetition population should fit u32"),
+    );
+    assert_eq!(
+        distribution.generated_select_repetition_count(1),
+        u32::try_from(TIER_C_ROOT_SEEDS.len() * witnesses.len())
+            .expect("scheduled repetition population should fit u32"),
+    );
+    for property in [
+        GeneratedFixtureProperty::DuplicateValue,
+        GeneratedFixtureProperty::NumericBoundary,
+        GeneratedFixtureProperty::OrderingTie,
+        GeneratedFixtureProperty::StoredNull,
+    ] {
+        assert!(
+            distribution.generated_select_fixture_property_count(property) > 0,
+            "scheduled SELECT profile must execute fixture property {property:?}",
         );
     }
 }
@@ -295,147 +346,134 @@ fn tier_c_profile_is_exact_bounded_and_fully_generatable() {
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "exact per-slot contract attribution remains one auditable table"
+    reason = "one receipt test proves the complete mutation schedule and its distributions together"
 )]
-fn tier_c_select_declarations_derive_exact_case_contract_features() {
-    let snapshot = select_snapshot();
-    let cases = [
-        (
-            SelectGeneratorFamily::Expression,
-            0,
-            &["expression.numeric_functions", "select.computed_projection"][..],
-        ),
-        (
-            SelectGeneratorFamily::Expression,
-            5,
-            &["expression.value_selection", "select.computed_projection"][..],
-        ),
-        (
-            SelectGeneratorFamily::GlobalAggregate,
-            4,
-            &[
-                "projection.aggregate",
-                "select.aggregate_distinct_filter",
-                "select.global_aggregate",
-            ][..],
-        ),
-        (
-            SelectGeneratorFamily::Having,
-            7,
-            &[
-                "having.grouped_aggregate",
-                "ordering.projection_alias",
-                "projection.aggregate",
-                "select.grouped_composition",
-            ][..],
-        ),
-        (
-            SelectGeneratorFamily::Predicate,
-            0,
-            &["predicate.membership"][..],
-        ),
-        (
-            SelectGeneratorFamily::Predicate,
-            3,
-            &[
-                "predicate.casefold_prefix",
-                "predicate.expression_arguments",
-                "predicate.starts_with",
-            ][..],
-        ),
-        (
-            SelectGeneratorFamily::Predicate,
-            4,
-            &["predicate.boolean_comparison", "predicate.field_comparison"][..],
-        ),
-        (
-            SelectGeneratorFamily::Predicate,
-            7,
-            &["predicate.boolean_comparison", "predicate.range"][..],
-        ),
-        (
-            SelectGeneratorFamily::Window,
-            2,
-            &[
-                "ordering.projection_alias",
-                "pagination.scalar_limit_offset",
-                "projection.scalar",
-                "select.scalar_rows",
-            ][..],
-        ),
-        (
-            SelectGeneratorFamily::Window,
-            4,
-            &["projection.scalar", "select.scalar_rows"][..],
-        ),
-        (
-            SelectGeneratorFamily::Window,
-            7,
-            &[
-                "expression.numeric_functions",
-                "ordering.projection_alias",
-                "pagination.scalar_limit_offset",
-                "predicate.boolean_comparison",
-                "projection.scalar",
-                "select.computed_projection",
-                "select.scalar_composition",
-                "select.scalar_rows",
-            ][..],
-        ),
-    ];
-
-    for (family, case_index, expected) in cases {
-        let generated = generate_valid_select_case(
-            &snapshot,
-            TIER_C_ROOT_SEEDS[0],
-            family,
-            case_index,
-            TIER_C_SELECT_BUDGETS,
-        )
-        .expect("exact Tier C feature case should generate");
-        let declaration =
-            generated_select_tier_c_declaration(generated.identity().id(), &generated)
-                .expect("exact Tier C feature declaration should project");
-        assert_eq!(
-            declaration.contract_features(),
-            &expected
+fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
+    let witnesses = scheduled_mutation_witnesses().expect("mutation catalog should decode");
+    let sequences = TIER_C_ROOT_SEEDS
+        .iter()
+        .flat_map(|root_seed| {
+            witnesses.iter().flat_map(move |witness| {
+                (0..TIER_C_MUTATION_REPETITIONS).map(move |repetition| {
+                    generate_scheduled_mutation_sequence(
+                        witness,
+                        *root_seed,
+                        repetition,
+                        TIER_C_MUTATION_BUDGETS,
+                    )
+                    .expect("scheduled mutation repetition should generate")
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let declarations = sequences
+        .iter()
+        .map(|sequence| {
+            generated_mutation_tier_c_declaration(sequence.identity().id(), sequence)
+                .expect("typed mutation declaration should derive")
+        })
+        .collect::<Vec<_>>();
+    let declared = sequences
+        .iter()
+        .map(|sequence| sequence.identity().id())
+        .collect::<Vec<_>>();
+    let reports = (0..SQL_SCHEDULED_SHARD_COUNT)
+        .map(|shard_index| {
+            let observations = sequences
                 .iter()
-                .map(|feature| (*feature).to_string())
-                .collect::<BTreeSet<_>>(),
-            "unexpected exact feature projection for {family:?}/{case_index}",
+                .filter(|sequence| {
+                    scheduled_sql_scenario_shard(sequence.identity().id())
+                        .expect("mutation witness should shard")
+                        == shard_index
+                })
+                .map(|sequence| {
+                    TierCScenarioObservation::try_new(
+                        sequence.identity().id(),
+                        sequence.structural_signature().clone(),
+                        TierCScenarioOutcome::Passed,
+                    )
+                    .expect("observed mutation signature should validate")
+                })
+                .collect();
+            TierCShardReport::try_new(shard_index, &declared, observations)
+                .expect("exact mutation shard receipt should validate")
+        })
+        .collect();
+    let merged =
+        TierCMergedReport::try_merge(&declared, reports).expect("mutation receipts should merge");
+    assert!(merged.is_clean());
+    let distribution =
+        TierCCoverageDistributionReport::try_from_clean_evidence(&declarations, &merged)
+            .expect("exact mutation receipts should project");
+    assert_eq!(
+        distribution.scenario_count(),
+        u32::try_from(sequences.len()).expect("mutation scenario count should fit u32"),
+    );
+    assert_eq!(distribution.generated_mutation_ingress_count("sql"), 96);
+    assert_eq!(
+        distribution.generated_mutation_ingress_count("sql_and_typed"),
+        144,
+    );
+    assert_eq!(
+        distribution.generated_mutation_intent_class_count("authored"),
+        112,
+    );
+    assert_eq!(
+        distribution.generated_mutation_intent_class_count("explicit_default"),
+        48,
+    );
+    assert_eq!(
+        distribution.generated_mutation_intent_class_count("mixed_batch"),
+        32,
+    );
+    assert_eq!(
+        distribution.generated_mutation_intent_class_count("omitted"),
+        32,
+    );
+    assert_eq!(
+        distribution.generated_mutation_intent_class_count("preserve"),
+        16,
+    );
+    let mut expected_intents = BTreeMap::new();
+    for sequence in &sequences {
+        for (intent, count) in sequence.intent_counts() {
+            *expected_intents.entry(intent.id()).or_insert(0_u32) += count;
+        }
+    }
+    for (intent, count) in expected_intents {
+        assert_eq!(
+            distribution.generated_mutation_intent_occurrence_count(intent),
+            count,
         );
     }
-
-    let invalid = generate_invalid_select_case(
-        &snapshot,
-        TIER_C_ROOT_SEEDS[0],
-        SelectViolation::WrongOperatorType,
-        0,
-        TIER_C_SELECT_BUDGETS,
-    )
-    .expect("exact invalid Tier C feature case should generate");
-    let invalid_declaration =
-        generated_select_tier_c_declaration(invalid.identity().id(), &invalid)
-            .expect("exact invalid Tier C feature declaration should project");
-    assert_eq!(
-        invalid_declaration.contract_features(),
-        &BTreeSet::from(["expression.numeric_functions".to_string()]),
-    );
+    for witness in &witnesses {
+        assert_eq!(
+            distribution.generated_mutation_structural_signature_count(
+                witness
+                    .signature()
+                    .digest()
+                    .expect("mutation signature digest should derive")
+                    .as_str(),
+            ),
+            16,
+        );
+    }
 }
 
 #[test]
-fn injected_failure_shrinks_and_round_trips_as_canonical_replay() {
-    let snapshot = select_snapshot();
-    let original = generated_case(&snapshot, SelectGeneratorFamily::Expression, 6);
+fn mismatch_shrinks_and_round_trips_in_current_formats() {
+    let witness = scheduled_select_witnesses()
+        .expect("catalog should decode")
+        .into_iter()
+        .find(|witness| witness.witness_id() == "tier_c.scalar.reference_full_window")
+        .expect("full-window witness should exist");
+    let original =
+        generate_scheduled_select_case(&witness, TIER_C_ROOT_SEEDS[0], 0, TIER_C_SELECT_BUDGETS)
+            .expect("full-window witness should generate");
     let signature = mismatch_signature(&original);
     let report = shrink_select_failure(&original, &signature, |_| Ok(Some(signature.clone())))
-        .expect("injected stable mismatch should shrink");
-
+        .expect("stable mismatch should shrink");
     assert!(report.minimization_complete());
-    assert!(report.minimized_case().fixture().len() < original.fixture().len());
-    assert!(
-        report.minimized_case().query().projection_count() <= original.query().projection_count()
-    );
     let replay = report
         .into_replay_record(
             SelectObservedOutcome::accepted("subject-result", 2),
@@ -447,180 +485,43 @@ fn injected_failure_shrinks_and_round_trips_as_canonical_replay() {
         .expect("replay should fit its artifact budget");
     let decoded = crate::SelectReplayRecord::from_canonical_json(&bytes)
         .expect("canonical current replay should decode");
-
     assert_eq!(decoded, replay);
     assert_eq!(decoded.format_version(), SELECT_REPLAY_FORMAT_VERSION);
 
-    assert_select_failure_artifact_round_trip(&original, &replay);
+    let artifact =
+        TierCFailureArtifact::try_from_select_replay(original.identity().id(), replay.clone())
+            .expect("complete replay should form a failure artifact");
+    let artifact_bytes = artifact
+        .to_canonical_json()
+        .expect("failure artifact should encode");
+    assert_eq!(
+        TierCFailureArtifact::from_canonical_json(&artifact_bytes)
+            .expect("current failure artifact should decode"),
+        artifact,
+    );
 
-    let corpus = RegressionCorpusEntry::try_from_select_replay(
-        "select.expression-value-regression",
-        &replay,
-    )
-    .expect("complete minimized replay should form a current corpus entry");
+    let corpus =
+        RegressionCorpusEntry::try_from_select_replay("select.full-window-regression", &replay)
+            .expect("complete replay should form a corpus entry");
     let corpus_bytes = corpus
         .to_canonical_json()
-        .expect("corpus entry should fit the replay artifact budget");
+        .expect("corpus entry should encode");
     let decoded_corpus = RegressionCorpusEntry::from_canonical_json(&corpus_bytes)
-        .expect("canonical current corpus entry should decode");
-
+        .expect("current corpus entry should decode");
     assert_eq!(decoded_corpus, corpus);
     assert_eq!(
         decoded_corpus.format_version(),
-        REGRESSION_CORPUS_FORMAT_VERSION
-    );
-    assert_eq!(
-        decoded_corpus.regression_case().generated_id(),
-        replay.minimized_case().identity().id()
+        REGRESSION_CORPUS_FORMAT_VERSION,
     );
     assert!(matches!(
         decoded_corpus.regression_case(),
         RegressionCorpusCase::Select(_)
     ));
-
-    let mut unknown_field = serde_json::from_slice::<serde_json::Value>(&corpus_bytes)
-        .expect("canonical corpus should materialize as JSON");
-    unknown_field
-        .as_object_mut()
-        .expect("corpus root should be an object")
-        .insert(
-            "unexpected_field".to_string(),
-            serde_json::Value::Bool(true),
-        );
-    let unknown_field_bytes = crate::replay::canonical_json_bytes(&unknown_field)
-        .expect("tampered JSON should serialize canonically");
-    let unknown_field_error =
-        RegressionCorpusEntry::from_canonical_json(unknown_field_bytes.as_slice())
-            .expect_err("unknown corpus fields must fail closed");
-    assert_eq!(
-        unknown_field_error.kind(),
-        SqlGeneratorErrorKind::CanonicalCorpus
-    );
-
-    let invalid_id_error = RegressionCorpusEntry::try_from_select_replay("Invalid ID", &replay)
-        .expect_err("non-canonical regression IDs must reject");
-    assert_eq!(
-        invalid_id_error.kind(),
-        SqlGeneratorErrorKind::CanonicalCorpus
-    );
 }
 
-fn assert_select_failure_artifact_round_trip(
-    original: &GeneratedSelectCase,
-    replay: &SelectReplayRecord,
-) {
-    let artifact =
-        TierCFailureArtifact::try_from_select_replay(original.identity().id(), replay.clone())
-            .expect("complete SELECT replay should form a Tier C failure artifact");
-    let artifact_id = artifact
-        .artifact_id()
-        .expect("valid failure artifact should have a content identity");
-    let bytes = artifact
-        .to_canonical_json()
-        .expect("failure artifact should fit its byte budget");
-    let decoded = TierCFailureArtifact::from_canonical_json(bytes.as_slice())
-        .expect("canonical current failure artifact should decode");
-
-    assert!(artifact.minimization_complete());
-    assert!(artifact_id.starts_with("failure."));
-    assert_eq!(artifact.replay_scenario_id(), original.identity().id());
-    assert_eq!(decoded, artifact);
-    assert_eq!(
-        decoded
-            .artifact_id()
-            .expect("decoded artifact should retain its content identity"),
-        artifact_id,
-    );
-
-    let mut unknown_field = serde_json::from_slice::<serde_json::Value>(bytes.as_slice())
-        .expect("canonical failure artifact should materialize as JSON");
-    unknown_field
-        .as_object_mut()
-        .expect("failure artifact root should be an object")
-        .insert(
-            "unexpected_field".to_string(),
-            serde_json::Value::Bool(true),
-        );
-    let unknown_field_bytes = crate::replay::canonical_json_bytes(&unknown_field)
-        .expect("tampered failure JSON should serialize canonically");
-    assert!(matches!(
-        TierCFailureArtifact::from_canonical_json(unknown_field_bytes.as_slice()),
-        Err(TierCFailureArtifactError::Decode { .. })
-    ));
-}
-
-#[test]
-fn shrink_budget_exhaustion_remains_an_incomplete_failure() {
-    let snapshot = select_snapshot();
-    let budgets = SelectBudgets::new(16, 3, 4, 3, 1, 1, 262_144);
-    let original = generate_valid_select_case(
-        &snapshot,
-        TIER_A_ROOT_SEEDS[0],
-        SelectGeneratorFamily::ScalarProjection,
-        6,
-        budgets,
-    )
-    .expect("bounded shrink test case should generate");
-    let signature = mismatch_signature(&original);
-    let report = shrink_select_failure(&original, &signature, |_| Ok(Some(signature.clone())))
-        .expect("budget exhaustion should produce a report");
-
-    assert!(!report.minimization_complete());
-    assert_eq!(report.shrink_candidates_attempted(), 1);
-    assert_eq!(report.evaluations(), 1);
-    assert!(report.minimized_case().fixture().len() < original.fixture().len());
-
-    let replay = report
-        .into_replay_record(
-            SelectObservedOutcome::accepted("subject-result", 2),
-            SelectObservedOutcome::accepted("reference-result", 2),
-        )
-        .expect("incomplete shrink report should remain replayable");
-    let error = RegressionCorpusEntry::try_from_select_replay("incomplete-select", &replay)
-        .expect_err("incomplete minimization must not enter the reviewed corpus");
-    assert_eq!(error.kind(), SqlGeneratorErrorKind::CanonicalCorpus);
-}
-
-fn select_snapshot() -> SelectSnapshot {
-    SelectSnapshot::try_new(
-        "tier-a-select-v1",
-        "tests::GeneratorEntity",
-        "GeneratorEntity",
-        1,
-        vec![
-            SelectField::new(5, "active", SelectFieldKind::Boolean, false, false, false),
-            SelectField::new(1, "id", SelectFieldKind::Ulid, false, true, true),
-            SelectField::new(4, "score", SelectFieldKind::Integer, false, false, false),
-            SelectField::new(2, "name", SelectFieldKind::Text, false, false, false),
-            SelectField::new(3, "age", SelectFieldKind::Integer, false, false, false),
-            SelectField::new(6, "note", SelectFieldKind::Text, true, false, false),
-        ],
-        vec![
-            SelectIndex::new(2, "by_score", vec![4]),
-            SelectIndex::new(1, "by_name", vec![2]),
-        ],
-    )
-    .expect("test accepted snapshot should be valid")
-}
-
-fn generated_case(
-    snapshot: &SelectSnapshot,
-    family: SelectGeneratorFamily,
-    case_index: u64,
-) -> GeneratedSelectCase {
-    generate_valid_select_case(
-        snapshot,
-        TIER_A_ROOT_SEEDS[0],
-        family,
-        case_index,
-        TIER_A_SELECT_BUDGETS,
-    )
-    .expect("fixed generated case should be valid")
-}
-
-fn mismatch_signature(case: &GeneratedSelectCase) -> SelectMismatchSignature {
+fn mismatch_signature(case: &crate::GeneratedSelectCase) -> SelectMismatchSignature {
     SelectMismatchSignature::try_new(
-        case.features().clone(),
+        BTreeSet::from([SelectFeature::Projection]),
         SelectExecutionPhase::Comparison,
         "icydb",
         SelectComparisonProvider::SqliteReference,
@@ -628,77 +529,10 @@ fn mismatch_signature(case: &GeneratedSelectCase) -> SelectMismatchSignature {
         SelectMismatchCategory::Value,
         None,
     )
-    .expect("test mismatch signature should be valid")
-}
-
-fn assert_family_features(reached: &BTreeMap<SelectGeneratorFamily, BTreeSet<SelectFeature>>) {
-    let distinct = &reached[&SelectGeneratorFamily::Distinct];
-    assert!(distinct.contains(&SelectFeature::Distinct));
-    assert!(distinct.contains(&SelectFeature::Projection));
-
-    let scalar = &reached[&SelectGeneratorFamily::ScalarProjection];
-    assert!(scalar.contains(&SelectFeature::Alias));
-    assert!(scalar.contains(&SelectFeature::Projection));
-
-    let expression = &reached[&SelectGeneratorFamily::Expression];
-    for feature in [
-        SelectFeature::Arithmetic,
-        SelectFeature::Function,
-        SelectFeature::Null,
-        SelectFeature::NumericFunction,
-        SelectFeature::SearchedCase,
-        SelectFeature::Text,
-    ] {
-        assert!(expression.contains(&feature), "missing {feature:?}");
-    }
-
-    let predicate = &reached[&SelectGeneratorFamily::Predicate];
-    for feature in [
-        SelectFeature::Boolean,
-        SelectFeature::Comparison,
-        SelectFeature::Membership,
-        SelectFeature::Predicate,
-        SelectFeature::Range,
-        SelectFeature::Text,
-    ] {
-        assert!(predicate.contains(&feature), "missing {feature:?}");
-    }
-
-    let global = &reached[&SelectGeneratorFamily::GlobalAggregate];
-    for feature in [
-        SelectFeature::Aggregate,
-        SelectFeature::AggregateDistinct,
-        SelectFeature::AggregateFilter,
-    ] {
-        assert!(global.contains(&feature), "missing {feature:?}");
-    }
-
-    let grouped = &reached[&SelectGeneratorFamily::GroupedAggregate];
-    for feature in [
-        SelectFeature::Aggregate,
-        SelectFeature::AggregateDistinct,
-        SelectFeature::Grouping,
-    ] {
-        assert!(grouped.contains(&feature), "missing {feature:?}");
-    }
-
-    let having = &reached[&SelectGeneratorFamily::Having];
-    for feature in [
-        SelectFeature::Aggregate,
-        SelectFeature::Grouping,
-        SelectFeature::Having,
-    ] {
-        assert!(having.contains(&feature), "missing {feature:?}");
-    }
-
-    let window = &reached[&SelectGeneratorFamily::Window];
-    for feature in [
-        SelectFeature::Limit,
-        SelectFeature::NumericFunction,
-        SelectFeature::Offset,
-        SelectFeature::Ordering,
-        SelectFeature::Predicate,
-    ] {
-        assert!(window.contains(&feature), "missing {feature:?}");
-    }
+    .unwrap_or_else(|error| {
+        panic!(
+            "test mismatch for {:?} should be valid: {error}",
+            case.identity().id()
+        )
+    })
 }

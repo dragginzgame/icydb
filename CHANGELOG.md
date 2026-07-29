@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.215.x] 🧪 - 2026-07-29 - SQL Structural Verification
+
+Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
+
+- `0.215.0` replaces fixed generated SQL families with catalog-bound typed
+  witnesses and adds exact structural work attribution without changing
+  production SQL behavior.
+
 ## [0.214.x] 🔢 - 2026-07-29 - Exact Unsigned Identity Generation
 
 Detailed notes: [docs/changelog/0.214.md](docs/changelog/0.214.md)

@@ -105,6 +105,9 @@ fn lower_sql_membership_expr(
     negated: bool,
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
+    #[cfg(feature = "diagnostics")]
+    crate::db::diagnostics::record_sql_membership_authored(values);
+
     let membership = Expr::FunctionCall {
         function: Function::InList,
         args: vec![

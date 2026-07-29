@@ -17,7 +17,9 @@ use icydb_testing_sql_generator::{
 use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
 
 /// Current checked-in SQL performance profile version.
-pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
+pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 2;
+/// Stable identity of the post-0.214 SQL performance authority.
+pub(crate) const SQL_PERFORMANCE_PROFILE_ID: &str = "icydb-sql-performance/0.215/v2";
 
 const EXPECTED_SCENARIO_COUNT: usize = 1_787;
 const EXPECTED_SCENARIO_SET_HASH: &str =
@@ -104,6 +106,7 @@ const SCALE_SLOPE_REGRESSION_THRESHOLD: PerformanceThreshold = PerformanceThresh
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PerformanceProfile {
     version: u32,
+    identity: &'static str,
     expected_scenario_count: usize,
     expected_scenario_set_hash: &'static str,
     expected_scale_scenario_count: usize,
@@ -129,6 +132,11 @@ impl PerformanceProfile {
     /// Return the profile version carried by every comparable artifact.
     pub(crate) const fn version(self) -> u32 {
         self.version
+    }
+
+    /// Return the stable profile identity carried by every comparable artifact.
+    pub(crate) const fn identity(self) -> &'static str {
+        self.identity
     }
 
     /// Return the exact broad-scan scenario count.
@@ -257,11 +265,7 @@ impl PerformanceProfile {
     ///
     /// Returns a typed profile error when a checked-in budget or identity is invalid.
     pub(crate) fn validate(self) -> Result<(), PerformanceProfileError> {
-        if self.version == 0 {
-            return Err(PerformanceProfileError::InvalidContract(
-                "profile version must be non-zero",
-            ));
-        }
+        validate_profile_identity(self)?;
         if self.expected_scenario_count == 0 {
             return Err(PerformanceProfileError::InvalidContract(
                 "expected scenario count must be non-zero",
@@ -352,7 +356,7 @@ impl PerformanceProfile {
                 })
         {
             return Err(PerformanceProfileError::InvalidContract(
-                "fixed performance budgets drifted from the 0.204 contract",
+                "fixed performance budgets drifted from the 0.215 contract",
             ));
         }
 
@@ -400,6 +404,18 @@ impl PerformanceProfile {
     }
 }
 
+fn validate_profile_identity(profile: PerformanceProfile) -> Result<(), PerformanceProfileError> {
+    if profile.version != SQL_PERFORMANCE_PROFILE_VERSION
+        || profile.identity != SQL_PERFORMANCE_PROFILE_ID
+    {
+        return Err(PerformanceProfileError::InvalidContract(
+            "performance profile identity drifted",
+        ));
+    }
+
+    Ok(())
+}
+
 /// Validate the exact promoted set independently from the fixed profile fields.
 fn validate_regression_sentinels(
     regression_sentinels: &[&str],
@@ -444,6 +460,7 @@ fn validate_contract_sentinels(
 /// Current SQL performance discovery and confirmation profile.
 pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfile {
     version: SQL_PERFORMANCE_PROFILE_VERSION,
+    identity: SQL_PERFORMANCE_PROFILE_ID,
     expected_scenario_count: EXPECTED_SCENARIO_COUNT,
     expected_scenario_set_hash: EXPECTED_SCENARIO_SET_HASH,
     expected_scale_scenario_count: EXPECTED_SCALE_SCENARIO_COUNT,
@@ -606,6 +623,7 @@ mod tests {
         let slope = PerformanceProfile::scale_slope_regression_threshold();
 
         assert_eq!(profile.version(), SQL_PERFORMANCE_PROFILE_VERSION);
+        assert_eq!(profile.identity(), SQL_PERFORMANCE_PROFILE_ID);
         assert_eq!(profile.expected_scenario_count(), 1_787);
         assert_eq!(
             profile.expected_scenario_set_hash(),

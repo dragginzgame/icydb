@@ -73,6 +73,8 @@ pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub use diagnostics::SqlStructuralWorkAttribution;
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
     StoreSnapshotStorageMode,

@@ -1,15 +1,15 @@
 # SQL Regression Corpus
 
-This directory owns reviewed, minimized SQL regression inputs for the current
-0.204 generator format.
+This directory owns reviewed, minimized SQL regression inputs for the sole
+current generator and corpus formats.
 
 The current inventory contains
 `select.filtered-global-count-residual-scan.json`, minimized deterministically
-from the Tier A native/SQLite mismatch for generated case
-`sql-select/v1/session-accepted-snapshot-v1/select.global_aggregate/1cdb020400000001/0000000000000006/sqlite_reference`.
+from the native/SQLite mismatch now represented by the stable scheduled
+`tier_c.global.nonempty_distinct_filter` witness.
 It locks the corrected scan-time residual-filter contract for filtered global
-`COUNT(*)` over the smallest one-row fixture that preserves the historical
-value mismatch.
+`COUNT(DISTINCT ...) FILTER (...)` over the smallest duplicate fixture that
+preserves the historical value mismatch.
 
 Each future entry is one RFC 8785 canonical JSON file named
 `<regression-id>.json`. The filename stem must equal the entry's `regression_id`,

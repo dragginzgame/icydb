@@ -373,7 +373,18 @@ fn branch_values_for_key_item(
             };
             branch_values.push(lookup_value);
         }
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        let branches_before_deduplication = branch_values.len();
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        crate::db::diagnostics::record_sql_membership_canonicalization(
+            branches_before_deduplication,
+        );
         crate::value::canonicalize_value_set(&mut branch_values);
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        crate::db::diagnostics::record_sql_prefix_branch_deduplication(
+            branches_before_deduplication,
+            branch_values.len(),
+        );
         if let Some(existing) = &matched
             && existing != &branch_values
         {

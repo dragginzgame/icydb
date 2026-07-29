@@ -5,7 +5,7 @@ use icydb::{
     db::{
         DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, IntegrityPhase,
         IntegrityTerminalOutcome, SqlIntegrityError, SqlQueryExecutionAttribution,
-        sql::SqlQueryResult,
+        SqlStructuralWorkAttribution, sql::SqlQueryResult,
     },
 };
 use icydb_testing_integration::{
@@ -173,6 +173,7 @@ struct SqlPerfScenarioSample {
     index_store_get_calls: u64,
     index_store_range_scan_calls: u64,
     index_store_entry_reads: u64,
+    structural_work: SqlStructuralWorkAttribution,
     sql_compiled_command_cache_hits: u64,
     sql_compiled_command_cache_misses: u64,
     shared_query_plan_cache_hits: u64,
@@ -626,6 +627,7 @@ fn build_sql_perf_scenario_sample(
         index_store_get_calls: attribution.index_store_get_calls,
         index_store_range_scan_calls: attribution.index_store_range_scan_calls,
         index_store_entry_reads: attribution.index_store_entry_reads,
+        structural_work: attribution.structural_work,
         sql_compiled_command_cache_hits: attribution.cache.sql_compiled_command_hits,
         sql_compiled_command_cache_misses: attribution.cache.sql_compiled_command_misses,
         shared_query_plan_cache_hits: attribution.cache.shared_query_plan_hits,
@@ -735,6 +737,15 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 50";
 
+const TOKEN_BRANCH_SET_OVERCAP_PRUNED_LIMIT50_SQL: &str = "\
+SELECT id \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07') \
+  AND stage NOT IN ('Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07') \
+ORDER BY id ASC \
+LIMIT 50";
+
 const TOKEN_BRANCH_SET_LARGE_IN_FALLBACK_LIMIT50_SQL: &str = "\
 SELECT id \
 FROM PerfAuditToken \
@@ -808,6 +819,11 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "token.collection_stage_id.overcap_fallback.page_only.limit50",
             SqlPerfSurface::Token,
             TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.overcap_pruned.page_only.limit50",
+            SqlPerfSurface::Token,
+            TOKEN_BRANCH_SET_OVERCAP_PRUNED_LIMIT50_SQL,
         ),
         scenario(
             "token.collection_stage_id.large_in_fallback.page_only.limit50",
@@ -930,9 +946,20 @@ fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
     let sql_misses = sample.sql_compiled_command_cache_misses;
     let shared_hits = sample.shared_query_plan_cache_hits;
     let shared_misses = sample.shared_query_plan_cache_misses;
+    let structural = sample.structural_work;
 
     println!(
-        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} compile_key={compile_key} compile_lookup={compile_lookup} parse={parse} tokenize={tokenize} select={select} expr={expr} predicate={predicate} agg_check={aggregate_check} prepare={prepare} lower={lower} bind={bind} cache_insert={cache_insert} execute={execute} total={total} data_gets={data_gets} index_gets={index_gets} index_ranges={index_ranges} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} hybrid_hits={hybrid_hits} hybrid_index_fields={hybrid_index_fields} hybrid_row_fields={hybrid_row_fields} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses}",
+        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} compile_key={compile_key} compile_lookup={compile_lookup} parse={parse} tokenize={tokenize} select={select} expr={expr} predicate={predicate} agg_check={aggregate_check} prepare={prepare} lower={lower} bind={bind} cache_insert={cache_insert} execute={execute} total={total} data_gets={data_gets} index_gets={index_gets} index_ranges={index_ranges} index_entries={index_entries} authored_members={} normalized_members={} canonical_passes={} members_revisited={} branches_before={} branches_after={} exclusions_tested={} exclusions_pruned={} cap_admitted={} cap_rejected={} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} hybrid_hits={hybrid_hits} hybrid_index_fields={hybrid_index_fields} hybrid_row_fields={hybrid_row_fields} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses}",
+        structural.membership_authored_members,
+        structural.membership_normalized_members,
+        structural.membership_canonicalization_passes,
+        structural.membership_members_revisited,
+        structural.prefix_branches_before_deduplication,
+        structural.prefix_branches_after_deduplication,
+        structural.prefix_exclusions_tested,
+        structural.prefix_exclusions_pruned,
+        structural.prefix_branch_cap_admissions,
+        structural.prefix_branch_cap_rejections,
     );
 }
 
@@ -2150,7 +2177,76 @@ fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
                 .saturating_add(perf.attribution.compile.parse_predicate_local_instructions),
             "membership scenario '{scenario_key}' should keep parse subphases exhaustive",
         );
+        assert_eq!(
+            perf.attribution.structural_work.membership_authored_members, 3,
+            "membership scenario '{scenario_key}' should retain the exact authored list cardinality",
+        );
+        assert_eq!(
+            perf.attribution
+                .structural_work
+                .membership_normalized_members,
+            3,
+            "membership scenario '{scenario_key}' should retain the exact normalized list cardinality",
+        );
+        assert_eq!(
+            perf.attribution.structural_work.membership_distinct_members, 3,
+            "membership scenario '{scenario_key}' should retain the exact distinct member count",
+        );
+        assert_eq!(
+            perf.attribution.structural_work.membership_null_members, 0,
+            "membership scenario '{scenario_key}' should report no authored null member",
+        );
+        assert!(
+            perf.attribution
+                .structural_work
+                .membership_canonicalization_passes
+                > 0,
+            "membership scenario '{scenario_key}' should attribute canonicalization work",
+        );
+        assert!(
+            perf.attribution
+                .structural_work
+                .membership_members_revisited
+                >= perf.attribution.structural_work.membership_authored_members,
+            "membership scenario '{scenario_key}' should attribute every revisited member",
+        );
     }
+}
+
+#[test]
+fn sql_perf_compound_range_reports_one_bounded_physical_child() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let perf = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Token,
+        "SELECT id FROM PerfAuditToken \
+         WHERE collection_id = '01KV5N439P0000000000000000' \
+           AND stage >= 'Draft' \
+           AND stage < 'Review' \
+         ORDER BY stage ASC, id ASC \
+         LIMIT 50",
+        1,
+    )
+    .expect("compound-range attribution query should succeed");
+    let structural = perf.attribution.structural_work;
+
+    assert_eq!(structural.range_conjunctions_examined, 1);
+    assert_eq!(structural.range_lower_bounds_extracted, 1);
+    assert_eq!(structural.range_upper_bounds_extracted, 1);
+    assert_eq!(
+        structural.range_physical_children_emitted, 1,
+        "compatible bounds should lower to one physical range child",
+    );
+    assert_eq!(
+        structural.residual_predicate_evaluations, 0,
+        "the fully extracted compound range should not retain a runtime residual",
+    );
+    assert_eq!(
+        perf.attribution.index_store_range_scan_calls, 1,
+        "one lowered range child should execute one physical range traversal for this fixture",
+    );
 }
 
 #[test]
@@ -2288,6 +2384,10 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         &fixture,
         sql_perf_scenario_by_key("token.collection_stage_id.overcap_fallback.page_only.limit50"),
     );
+    let pruned = sample_perf_scenario(
+        &fixture,
+        sql_perf_scenario_by_key("token.collection_stage_id.overcap_pruned.page_only.limit50"),
+    );
     let large_in_fallback = sample_perf_scenario(
         &fixture,
         sql_perf_scenario_by_key("token.collection_stage_id.large_in_fallback.page_only.limit50"),
@@ -2299,6 +2399,7 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
     print_branch_set_perf_sample("limit50 branch", &branch);
     print_branch_set_perf_sample("limit50 wide branch", &wide_branch);
     print_branch_set_perf_sample("limit50 overcap fallback", &fallback);
+    print_branch_set_perf_sample("limit50 overcap pruned", &pruned);
     print_branch_set_perf_sample("limit50 large IN fallback", &large_in_fallback);
     print_branch_set_perf_sample("limit50 sparse collection IN", &sparse_collection_in);
     let execute_delta = i128::from(fallback.execute_local_instructions)
@@ -2313,6 +2414,26 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         &fallback,
         &large_in_fallback,
         &sparse_collection_in,
+    );
+    assert!(
+        branch.structural_work.prefix_branch_cap_admissions > 0,
+        "bounded branch-set planning should report at least one branch-cap admission",
+    );
+    assert!(
+        fallback.structural_work.prefix_branch_cap_rejections > 0,
+        "over-cap fallback planning should report at least one branch-cap rejection",
+    );
+    assert!(
+        pruned.structural_work.prefix_exclusions_tested > 0,
+        "over-cap pruning should report the exclusions it tests",
+    );
+    assert!(
+        pruned.structural_work.prefix_exclusions_pruned > 0,
+        "over-cap pruning should report removed branches",
+    );
+    assert!(
+        pruned.structural_work.prefix_branch_cap_admissions > 0,
+        "post-pruning branch cardinality should pass the branch cap",
     );
 }
 
@@ -2476,6 +2597,12 @@ fn sql_perf_token_branch_set_changed_queries_stay_bounded() {
         .attribution
         .scalar_aggregate
         .expect("duplicate branch COUNT should report scalar aggregate attribution");
+    let duplicate_membership = duplicate_count.structural_work;
+    assert!(
+        duplicate_membership.membership_authored_members
+            > duplicate_membership.membership_distinct_members,
+        "duplicate membership attribution should distinguish authored from distinct members",
+    );
     assert_eq!(
         scalar_aggregate.sink_mode.as_deref(),
         Some("IndexPrefixCardinality"),

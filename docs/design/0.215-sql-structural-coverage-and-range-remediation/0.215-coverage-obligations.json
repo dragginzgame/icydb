@@ -1,0 +1,4639 @@
+{
+  "format_version": 1,
+  "catalog_hash": "b4f839c170e09a2691dd8cbc6a5b14ad8c3794af0d2ea796df47bec4968e4b9f",
+  "catalog": {
+    "design_line": "0.215",
+    "opening_baseline": {
+      "release": "v0.214.1",
+      "commit": "420aeec1160780a4b11e6c111e07384acbc43ab7",
+      "manifest_features": 106,
+      "deterministic_providers": 102,
+      "raw_sql_perf_wasm_bytes": 5272813,
+      "raw_sql_perf_wasm_sha256": "80c9371ea616a9c0f37f7b0a77f7f54b506cba6584d6d5ce777248843092f381"
+    },
+    "opening_inventory": {
+      "tier_c_top_level_declarations": 2505,
+      "valid_generated_select_declarations": 2048,
+      "invalid_generated_select_declarations": 320,
+      "generated_mutation_sequence_declarations": 128,
+      "deterministic_sqlite_declarations": 8,
+      "regression_corpus_declarations": 1,
+      "current_select_profiles": [
+        "reference_scalar"
+      ],
+      "current_mutation_profiles": [
+        "authored_scalar"
+      ],
+      "current_valid_select_template_slots": 64,
+      "current_invalid_select_templates": 5,
+      "current_mutation_structural_variants": 4,
+      "current_structural_identities": 73,
+      "p1_scenarios": 1787,
+      "scale_scenarios": 72,
+      "accepted_p2_confirmations": 424,
+      "focused_hotspot_scenarios": 15,
+      "regression_sentinels": 351
+    },
+    "current_structural_identities": [
+      {
+        "id": "current.invalid_select.clause_order",
+        "kind": "invalid_select_template",
+        "family": "clause_order",
+        "slot": 0
+      },
+      {
+        "id": "current.invalid_select.function_signature",
+        "kind": "invalid_select_template",
+        "family": "function_signature",
+        "slot": 1
+      },
+      {
+        "id": "current.invalid_select.limit_overflow",
+        "kind": "invalid_select_template",
+        "family": "limit_overflow",
+        "slot": 2
+      },
+      {
+        "id": "current.invalid_select.operator_type",
+        "kind": "invalid_select_template",
+        "family": "operator_type",
+        "slot": 3
+      },
+      {
+        "id": "current.invalid_select.unknown_field",
+        "kind": "invalid_select_template",
+        "family": "unknown_field",
+        "slot": 4
+      },
+      {
+        "id": "current.mutation.authored_scalar.variant_0",
+        "kind": "mutation_structural_variant",
+        "family": "authored_scalar",
+        "slot": 0
+      },
+      {
+        "id": "current.mutation.authored_scalar.variant_1",
+        "kind": "mutation_structural_variant",
+        "family": "authored_scalar",
+        "slot": 1
+      },
+      {
+        "id": "current.mutation.authored_scalar.variant_2",
+        "kind": "mutation_structural_variant",
+        "family": "authored_scalar",
+        "slot": 2
+      },
+      {
+        "id": "current.mutation.authored_scalar.variant_3",
+        "kind": "mutation_structural_variant",
+        "family": "authored_scalar",
+        "slot": 3
+      },
+      {
+        "id": "current.select.distinct.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 0
+      },
+      {
+        "id": "current.select.distinct.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 1
+      },
+      {
+        "id": "current.select.distinct.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 2
+      },
+      {
+        "id": "current.select.distinct.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 3
+      },
+      {
+        "id": "current.select.distinct.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 4
+      },
+      {
+        "id": "current.select.distinct.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 5
+      },
+      {
+        "id": "current.select.distinct.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 6
+      },
+      {
+        "id": "current.select.distinct.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "distinct",
+        "slot": 7
+      },
+      {
+        "id": "current.select.expression.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 0
+      },
+      {
+        "id": "current.select.expression.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 1
+      },
+      {
+        "id": "current.select.expression.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 2
+      },
+      {
+        "id": "current.select.expression.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 3
+      },
+      {
+        "id": "current.select.expression.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 4
+      },
+      {
+        "id": "current.select.expression.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 5
+      },
+      {
+        "id": "current.select.expression.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 6
+      },
+      {
+        "id": "current.select.expression.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "expression",
+        "slot": 7
+      },
+      {
+        "id": "current.select.global_aggregate.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 0
+      },
+      {
+        "id": "current.select.global_aggregate.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 1
+      },
+      {
+        "id": "current.select.global_aggregate.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 2
+      },
+      {
+        "id": "current.select.global_aggregate.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 3
+      },
+      {
+        "id": "current.select.global_aggregate.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 4
+      },
+      {
+        "id": "current.select.global_aggregate.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 5
+      },
+      {
+        "id": "current.select.global_aggregate.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 6
+      },
+      {
+        "id": "current.select.global_aggregate.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "global_aggregate",
+        "slot": 7
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 0
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 1
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 2
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 3
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 4
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 5
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 6
+      },
+      {
+        "id": "current.select.grouped_aggregate.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "grouped_aggregate",
+        "slot": 7
+      },
+      {
+        "id": "current.select.having.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 0
+      },
+      {
+        "id": "current.select.having.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 1
+      },
+      {
+        "id": "current.select.having.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 2
+      },
+      {
+        "id": "current.select.having.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 3
+      },
+      {
+        "id": "current.select.having.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 4
+      },
+      {
+        "id": "current.select.having.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 5
+      },
+      {
+        "id": "current.select.having.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 6
+      },
+      {
+        "id": "current.select.having.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "having",
+        "slot": 7
+      },
+      {
+        "id": "current.select.predicate.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 0
+      },
+      {
+        "id": "current.select.predicate.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 1
+      },
+      {
+        "id": "current.select.predicate.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 2
+      },
+      {
+        "id": "current.select.predicate.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 3
+      },
+      {
+        "id": "current.select.predicate.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 4
+      },
+      {
+        "id": "current.select.predicate.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 5
+      },
+      {
+        "id": "current.select.predicate.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 6
+      },
+      {
+        "id": "current.select.predicate.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "predicate",
+        "slot": 7
+      },
+      {
+        "id": "current.select.scalar_projection.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 0
+      },
+      {
+        "id": "current.select.scalar_projection.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 1
+      },
+      {
+        "id": "current.select.scalar_projection.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 2
+      },
+      {
+        "id": "current.select.scalar_projection.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 3
+      },
+      {
+        "id": "current.select.scalar_projection.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 4
+      },
+      {
+        "id": "current.select.scalar_projection.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 5
+      },
+      {
+        "id": "current.select.scalar_projection.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 6
+      },
+      {
+        "id": "current.select.scalar_projection.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "scalar_projection",
+        "slot": 7
+      },
+      {
+        "id": "current.select.window.slot_0",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 0
+      },
+      {
+        "id": "current.select.window.slot_1",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 1
+      },
+      {
+        "id": "current.select.window.slot_2",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 2
+      },
+      {
+        "id": "current.select.window.slot_3",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 3
+      },
+      {
+        "id": "current.select.window.slot_4",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 4
+      },
+      {
+        "id": "current.select.window.slot_5",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 5
+      },
+      {
+        "id": "current.select.window.slot_6",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 6
+      },
+      {
+        "id": "current.select.window.slot_7",
+        "kind": "valid_select_template_slot",
+        "family": "window",
+        "slot": 7
+      }
+    ],
+    "interaction_groups": [
+      {
+        "id": "cache_entry_parity",
+        "axes": [
+          {
+            "name": "cache",
+            "members": [
+              "cold",
+              "warm"
+            ]
+          },
+          {
+            "name": "entry",
+            "members": [
+              "compiled_direct",
+              "sql_fluent"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.cache.cold_compiled_direct",
+          "interaction.cache.cold_sql_fluent",
+          "interaction.cache.warm_sql_fluent"
+        ]
+      },
+      {
+        "id": "field_paths",
+        "axes": [
+          {
+            "name": "operation",
+            "members": [
+              "select",
+              "returning"
+            ]
+          },
+          {
+            "name": "leaf",
+            "members": [
+              "stored_selectable",
+              "stored_unselectable"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.field_path.selectable_returning",
+          "interaction.field_path.selectable_select",
+          "interaction.field_path.unselectable_select"
+        ]
+      },
+      {
+        "id": "global_aggregation",
+        "axes": [
+          {
+            "name": "input",
+            "members": [
+              "empty",
+              "nonempty"
+            ]
+          },
+          {
+            "name": "modifiers",
+            "members": [
+              "distinct_filter",
+              "multiple_projection"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.global.empty_distinct_filter",
+          "interaction.global.nonempty_distinct_filter",
+          "interaction.global.nonempty_multiple_projection"
+        ]
+      },
+      {
+        "id": "grouped_aggregation",
+        "axes": [
+          {
+            "name": "mode",
+            "members": [
+              "hash",
+              "ordered"
+            ]
+          },
+          {
+            "name": "window",
+            "members": [
+              "bounded",
+              "continuation"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.grouped.hash_bounded",
+          "interaction.grouped.ordered_bounded",
+          "interaction.grouped.ordered_continuation"
+        ]
+      },
+      {
+        "id": "indexed_scalar_execution",
+        "axes": [
+          {
+            "name": "access",
+            "members": [
+              "composite_prefix",
+              "expression_range",
+              "primary_exact",
+              "secondary_range"
+            ]
+          },
+          {
+            "name": "covering",
+            "members": [
+              "hybrid",
+              "non_covering",
+              "pure"
+            ]
+          },
+          {
+            "name": "order",
+            "members": [
+              "compatible",
+              "incompatible",
+              "none"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.indexed.composite_prefix_hybrid",
+          "interaction.indexed.expression_range_non_covering",
+          "interaction.indexed.primary_exact_non_covering",
+          "interaction.indexed.secondary_range_non_covering_incompatible",
+          "interaction.indexed.secondary_range_pure_compatible"
+        ]
+      },
+      {
+        "id": "mutation",
+        "axes": [
+          {
+            "name": "profile",
+            "members": [
+              "accepted_default",
+              "authored_scalar"
+            ]
+          },
+          {
+            "name": "operation",
+            "members": [
+              "delete_returning",
+              "insert",
+              "insert_from_query",
+              "no_match",
+              "reject_duplicate",
+              "reject_pk_default",
+              "reject_required",
+              "update",
+              "windowed"
+            ]
+          },
+          {
+            "name": "intent",
+            "members": [
+              "authored",
+              "explicit_default",
+              "mixed_batch",
+              "omitted",
+              "preserve"
+            ]
+          },
+          {
+            "name": "ingress",
+            "members": [
+              "sql",
+              "sql_and_typed",
+              "typed"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.mutation.authored_insert",
+          "interaction.mutation.authored_insert_from_query",
+          "interaction.mutation.authored_windowed",
+          "interaction.mutation.default_delete_returning",
+          "interaction.mutation.default_insert_authored",
+          "interaction.mutation.default_insert_explicit",
+          "interaction.mutation.default_insert_explicit_typed",
+          "interaction.mutation.default_insert_mixed_batch",
+          "interaction.mutation.default_insert_omitted",
+          "interaction.mutation.default_no_match",
+          "interaction.mutation.default_reject_duplicate",
+          "interaction.mutation.default_reject_pk_default",
+          "interaction.mutation.default_reject_pk_default_typed",
+          "interaction.mutation.default_reject_required",
+          "interaction.mutation.default_update_authored",
+          "interaction.mutation.default_update_default",
+          "interaction.mutation.default_update_default_typed",
+          "interaction.mutation.default_update_preserve"
+        ]
+      },
+      {
+        "id": "null_semantics",
+        "axes": [
+          {
+            "name": "source",
+            "members": [
+              "computed",
+              "stored"
+            ]
+          },
+          {
+            "name": "context",
+            "members": [
+              "aggregate",
+              "comparison",
+              "distinct",
+              "membership",
+              "ordering"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.null.computed_aggregate",
+          "interaction.null.computed_distinct",
+          "interaction.null.computed_ordering",
+          "interaction.null.stored_comparison_membership",
+          "interaction.null.stored_ordering"
+        ]
+      },
+      {
+        "id": "scalar_composition",
+        "axes": [
+          {
+            "name": "profile",
+            "members": [
+              "indexed_nullable_reference",
+              "reference_scalar"
+            ]
+          },
+          {
+            "name": "shape",
+            "members": [
+              "computed_distinct_window",
+              "full_scalar_window",
+              "invalid_alias_order"
+            ]
+          }
+        ],
+        "interaction_obligations": [
+          "interaction.scalar.indexed_computed_distinct_window",
+          "interaction.scalar.reference_full_window",
+          "interaction.scalar.reference_invalid_alias_order"
+        ]
+      }
+    ],
+    "manifest_participation": [
+      {
+        "feature_id": "blob.hex_literal",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "blob.literal_size_limit",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "blob.ordering",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "blob.read_write_compare",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "ddl.alter_add_check_constraint",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.alter_add_check_not_valid",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.alter_add_column",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.alter_column_default",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.alter_column_nullability",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.alter_drop_constraint",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.alter_validate_constraint",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.create_index_expression",
+        "interaction_obligations": [
+          "interaction.indexed.expression_range_non_covering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "ddl.create_index_field_path",
+        "interaction_obligations": [
+          "interaction.field_path.selectable_select"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "ddl.create_index_filtered",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.create_index_if_not_exists",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.create_index_multi_field",
+        "interaction_obligations": [
+          "interaction.indexed.composite_prefix_hybrid"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "ddl.create_unique_index",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.destructive_publication_atomicity",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.drop_column",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.drop_index",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.drop_index_if_exists",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.generated_owned_objects",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.index_ascending",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.index_descending",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "ddl.rename_column",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "explain.query_delete",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "expression.cast",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "expression.numeric_functions",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "expression.searched_case",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "expression.simple_case",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "expression.text_functions",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "expression.value_selection",
+        "interaction_obligations": [
+          "interaction.null.computed_aggregate",
+          "interaction.null.computed_distinct",
+          "interaction.null.computed_ordering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "having.global_aggregate",
+        "interaction_obligations": [
+          "interaction.global.nonempty_multiple_projection"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "having.grouped_aggregate",
+        "interaction_obligations": [
+          "interaction.grouped.hash_bounded",
+          "interaction.grouped.ordered_bounded"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "having.raw_row_escape",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "introspection.catalog_projection",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "introspection.describe",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.generated_policy",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "introspection.index_origin",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "introspection.show_columns",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.show_constraints",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.show_entities",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.show_entity",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.show_indexes",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.show_memory",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.show_stores",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "introspection.storage_modes",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "introspection.unsupported_modifiers",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles."
+      },
+      {
+        "feature_id": "mutation.delete",
+        "interaction_obligations": [
+          "interaction.mutation.authored_windowed",
+          "interaction.mutation.default_delete_returning",
+          "interaction.mutation.default_no_match"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "mutation.generated_query_ddl",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "mutation.generated_update_bounded",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "mutation.generated_update_disabled",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "mutation.generated_update_primary_key",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "mutation.insert",
+        "interaction_obligations": [
+          "interaction.mutation.authored_insert",
+          "interaction.mutation.authored_insert_from_query",
+          "interaction.mutation.default_insert_authored",
+          "interaction.mutation.default_insert_explicit",
+          "interaction.mutation.default_insert_explicit_typed",
+          "interaction.mutation.default_insert_mixed_batch",
+          "interaction.mutation.default_insert_omitted",
+          "interaction.mutation.default_reject_duplicate",
+          "interaction.mutation.default_reject_pk_default",
+          "interaction.mutation.default_reject_pk_default_typed",
+          "interaction.mutation.default_reject_required"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "mutation.lane_ownership",
+        "interaction_obligations": [
+          "interaction.mutation.authored_insert",
+          "interaction.mutation.authored_insert_from_query",
+          "interaction.mutation.default_insert_authored",
+          "interaction.mutation.default_insert_explicit",
+          "interaction.mutation.default_insert_explicit_typed",
+          "interaction.mutation.default_insert_mixed_batch",
+          "interaction.mutation.default_insert_omitted",
+          "interaction.mutation.default_reject_duplicate",
+          "interaction.mutation.default_reject_pk_default",
+          "interaction.mutation.default_reject_required",
+          "interaction.mutation.default_update_preserve"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "mutation.returning",
+        "interaction_obligations": [
+          "interaction.field_path.selectable_returning",
+          "interaction.mutation.authored_windowed",
+          "interaction.mutation.default_delete_returning",
+          "interaction.mutation.default_update_authored",
+          "interaction.mutation.default_update_default"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "mutation.trusted_resumable_update",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "mutation.trusted_update",
+        "interaction_obligations": [
+          "interaction.mutation.authored_windowed"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "mutation.trusted_update_window",
+        "interaction_obligations": [
+          "interaction.mutation.authored_windowed"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "mutation.update",
+        "interaction_obligations": [
+          "interaction.mutation.authored_windowed",
+          "interaction.mutation.default_no_match",
+          "interaction.mutation.default_update_authored",
+          "interaction.mutation.default_update_default",
+          "interaction.mutation.default_update_default_typed",
+          "interaction.mutation.default_update_preserve"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "naming.single_binding",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "operational.byte_metrics",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "operational.transport_controls",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      },
+      {
+        "feature_id": "ordering.null_values",
+        "interaction_obligations": [
+          "interaction.indexed.secondary_range_pure_compatible",
+          "interaction.null.computed_ordering",
+          "interaction.null.stored_ordering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "ordering.projection_alias",
+        "interaction_obligations": [
+          "interaction.grouped.ordered_bounded",
+          "interaction.indexed.secondary_range_non_covering_incompatible",
+          "interaction.null.computed_ordering",
+          "interaction.scalar.indexed_computed_distinct_window",
+          "interaction.scalar.reference_invalid_alias_order"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "pagination.grouped_cursor",
+        "interaction_obligations": [
+          "interaction.grouped.ordered_continuation"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "pagination.scalar_cursor",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "pagination.scalar_limit_offset",
+        "interaction_obligations": [
+          "interaction.cache.warm_sql_fluent",
+          "interaction.scalar.reference_full_window"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "predicate.boolean_comparison",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.boolean_truth",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.casefold_prefix",
+        "interaction_obligations": [
+          "interaction.indexed.expression_range_non_covering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "predicate.expression_arguments",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.field_bound_range",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.field_comparison",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.grouped_where_field_comparison",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.membership",
+        "interaction_obligations": [
+          "interaction.indexed.composite_prefix_hybrid",
+          "interaction.null.stored_comparison_membership"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "predicate.non_prefix_pattern",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.null",
+        "interaction_obligations": [
+          "interaction.null.stored_comparison_membership"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "predicate.prefix_pattern",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "predicate.range",
+        "interaction_obligations": [
+          "interaction.indexed.secondary_range_non_covering_incompatible",
+          "interaction.indexed.secondary_range_pure_compatible"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "predicate.starts_with",
+        "interaction_obligations": [
+          "interaction.indexed.expression_range_non_covering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "projection.aggregate",
+        "interaction_obligations": [
+          "interaction.global.empty_distinct_filter",
+          "interaction.global.nonempty_distinct_filter",
+          "interaction.global.nonempty_multiple_projection",
+          "interaction.null.computed_aggregate"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "projection.aliases",
+        "interaction_obligations": [
+          "interaction.scalar.reference_full_window",
+          "interaction.scalar.reference_invalid_alias_order"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "projection.grouped_layout",
+        "interaction_obligations": [
+          "interaction.grouped.hash_bounded",
+          "interaction.grouped.ordered_bounded"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "projection.invalid_grouped_layout",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "projection.scalar",
+        "interaction_obligations": [
+          "interaction.field_path.selectable_select",
+          "interaction.field_path.unselectable_select",
+          "interaction.indexed.secondary_range_pure_compatible",
+          "interaction.null.stored_ordering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "query.multi_entity",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "query.set_operations",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "query.subquery_cte",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "query.transactions",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "query.window_functions",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "returning.computed",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe."
+      },
+      {
+        "feature_id": "returning.fields",
+        "interaction_obligations": [
+          "interaction.field_path.selectable_returning",
+          "interaction.mutation.default_update_default"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "returning.star",
+        "interaction_obligations": [
+          "interaction.mutation.default_delete_returning",
+          "interaction.mutation.default_update_authored"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.aggregate_distinct_filter",
+        "interaction_obligations": [
+          "interaction.global.empty_distinct_filter",
+          "interaction.global.nonempty_distinct_filter",
+          "interaction.null.computed_aggregate"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.computed_projection",
+        "interaction_obligations": [
+          "interaction.null.computed_distinct",
+          "interaction.scalar.indexed_computed_distinct_window",
+          "interaction.scalar.reference_full_window"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.exact_primary_key",
+        "interaction_obligations": [
+          "interaction.indexed.primary_exact_non_covering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.global_aggregate",
+        "interaction_obligations": [
+          "interaction.global.empty_distinct_filter",
+          "interaction.global.nonempty_distinct_filter",
+          "interaction.global.nonempty_multiple_projection"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.grouped_aggregate",
+        "interaction_obligations": [
+          "interaction.grouped.ordered_continuation"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.grouped_composition",
+        "interaction_obligations": [
+          "interaction.grouped.hash_bounded",
+          "interaction.grouped.ordered_bounded",
+          "interaction.grouped.ordered_continuation"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.placeholder_parameters",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction."
+      },
+      {
+        "feature_id": "select.scalar_composition",
+        "interaction_obligations": [
+          "interaction.cache.cold_sql_fluent",
+          "interaction.cache.warm_sql_fluent",
+          "interaction.indexed.composite_prefix_hybrid",
+          "interaction.indexed.secondary_range_non_covering_incompatible",
+          "interaction.indexed.secondary_range_pure_compatible",
+          "interaction.scalar.indexed_computed_distinct_window",
+          "interaction.scalar.reference_full_window"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.scalar_distinct",
+        "interaction_obligations": [
+          "interaction.null.computed_distinct",
+          "interaction.scalar.indexed_computed_distinct_window"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "select.scalar_rows",
+        "interaction_obligations": [
+          "interaction.cache.cold_compiled_direct",
+          "interaction.cache.cold_sql_fluent",
+          "interaction.cache.warm_sql_fluent",
+          "interaction.indexed.primary_exact_non_covering"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "surface.single_entity",
+        "interaction_obligations": [
+          "interaction.cache.cold_compiled_direct",
+          "interaction.cache.cold_sql_fluent"
+        ],
+        "no_structural_interaction_required": null
+      },
+      {
+        "feature_id": "surface.trusted_entrypoints",
+        "interaction_obligations": [],
+        "no_structural_interaction_required": "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction."
+      }
+    ],
+    "interaction_obligations": [
+      {
+        "id": "interaction.cache.cold_compiled_direct",
+        "group": "cache_entry_parity",
+        "tuple": [
+          {
+            "axis": "cache",
+            "value": "cold"
+          },
+          {
+            "axis": "entry",
+            "value": "compiled_direct"
+          }
+        ],
+        "contract_features": [
+          "surface.single_entity",
+          "select.scalar_rows"
+        ],
+        "schema_facts": [
+          "accepted entity resolved before both entry paths"
+        ],
+        "fixture_properties": [
+          "identical fixture snapshot"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "execution_mode_equivalent",
+        "route_facts": [
+          "compiled and direct execution select the same access contract"
+        ],
+        "disposition": "deterministic_required",
+        "reason": "Compiled/direct parity already has an exact deterministic product provider.",
+        "required_structural_obligations": [
+          "required.cache.cold_compiled_direct"
+        ]
+      },
+      {
+        "id": "interaction.cache.cold_sql_fluent",
+        "group": "cache_entry_parity",
+        "tuple": [
+          {
+            "axis": "cache",
+            "value": "cold"
+          },
+          {
+            "axis": "entry",
+            "value": "sql_fluent"
+          }
+        ],
+        "contract_features": [
+          "surface.single_entity",
+          "select.scalar_composition",
+          "select.scalar_rows"
+        ],
+        "schema_facts": [
+          "one accepted snapshot feeds SQL and fluent lowering"
+        ],
+        "fixture_properties": [
+          "identical fixture snapshot"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "SQL and fluent observations retain matching route facts"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 1 must schedule the same derived declaration through SQL and fluent adapters.",
+        "required_structural_obligations": [
+          "required.cache.cold_sql_fluent"
+        ]
+      },
+      {
+        "id": "interaction.cache.warm_sql_fluent",
+        "group": "cache_entry_parity",
+        "tuple": [
+          {
+            "axis": "cache",
+            "value": "warm"
+          },
+          {
+            "axis": "entry",
+            "value": "sql_fluent"
+          }
+        ],
+        "contract_features": [
+          "pagination.scalar_limit_offset",
+          "select.scalar_composition",
+          "select.scalar_rows"
+        ],
+        "schema_facts": [
+          "one accepted snapshot and compiled-plan identity"
+        ],
+        "fixture_properties": [
+          "identical fixture snapshot"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "execution_mode_equivalent",
+        "route_facts": [
+          "warm reuse cannot change result or selected route"
+        ],
+        "disposition": "deterministic_required",
+        "reason": "Warm-cache behavior is an IcyDB execution contract, not SQLite authority.",
+        "required_structural_obligations": [
+          "required.cache.warm_sql_fluent"
+        ]
+      },
+      {
+        "id": "interaction.field_path.selectable_returning",
+        "group": "field_paths",
+        "tuple": [
+          {
+            "axis": "operation",
+            "value": "returning"
+          },
+          {
+            "axis": "leaf",
+            "value": "stored_selectable"
+          }
+        ],
+        "contract_features": [
+          "mutation.returning",
+          "returning.fields"
+        ],
+        "schema_facts": [
+          "accepted stored leaf can be returned from a complete admitted row"
+        ],
+        "fixture_properties": [
+          "one matching row"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "frontend_equivalent",
+        "route_facts": [
+          "mutation RETURNING projects the accepted post-image or old delete image"
+        ],
+        "disposition": "deterministic_required",
+        "reason": "Structured RETURNING remains with its exact deterministic mutation provider.",
+        "required_structural_obligations": [
+          "required.field_path.selectable_returning"
+        ]
+      },
+      {
+        "id": "interaction.field_path.selectable_select",
+        "group": "field_paths",
+        "tuple": [
+          {
+            "axis": "operation",
+            "value": "select"
+          },
+          {
+            "axis": "leaf",
+            "value": "stored_selectable"
+          }
+        ],
+        "contract_features": [
+          "ddl.create_index_field_path",
+          "projection.scalar"
+        ],
+        "schema_facts": [
+          "accepted stored leaf is selectable and queryable"
+        ],
+        "fixture_properties": [
+          "nested leaf values and duplicates"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "icydb_contract_only",
+        "route_facts": [
+          "field-path index route and complete row projection"
+        ],
+        "disposition": "deterministic_required",
+        "reason": "Nested accepted values remain outside the generated SQLite profile.",
+        "required_structural_obligations": [
+          "required.field_path.selectable_select"
+        ]
+      },
+      {
+        "id": "interaction.field_path.unselectable_select",
+        "group": "field_paths",
+        "tuple": [
+          {
+            "axis": "operation",
+            "value": "select"
+          },
+          {
+            "axis": "leaf",
+            "value": "stored_unselectable"
+          }
+        ],
+        "contract_features": [
+          "projection.scalar"
+        ],
+        "schema_facts": [
+          "accepted stored leaf is explicitly non-selectable"
+        ],
+        "fixture_properties": [],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "rejection_invariant",
+        "route_facts": [],
+        "disposition": "inapplicable",
+        "reason": "A non-selectable accepted leaf cannot form a type-valid SELECT obligation.",
+        "required_structural_obligations": []
+      },
+      {
+        "id": "interaction.global.empty_distinct_filter",
+        "group": "global_aggregation",
+        "tuple": [
+          {
+            "axis": "input",
+            "value": "empty"
+          },
+          {
+            "axis": "modifiers",
+            "value": "distinct_filter"
+          }
+        ],
+        "contract_features": [
+          "projection.aggregate",
+          "select.aggregate_distinct_filter",
+          "select.global_aggregate"
+        ],
+        "schema_facts": [
+          "reference scalar aggregate inputs"
+        ],
+        "fixture_properties": [
+          "empty input"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "global aggregate emits one result row"
+        ],
+        "disposition": "generated_required",
+        "reason": "The current fixed slots do not make this complete interaction a required witness.",
+        "required_structural_obligations": [
+          "required.global.empty_distinct_filter"
+        ]
+      },
+      {
+        "id": "interaction.global.nonempty_distinct_filter",
+        "group": "global_aggregation",
+        "tuple": [
+          {
+            "axis": "input",
+            "value": "nonempty"
+          },
+          {
+            "axis": "modifiers",
+            "value": "distinct_filter"
+          }
+        ],
+        "contract_features": [
+          "projection.aggregate",
+          "select.aggregate_distinct_filter",
+          "select.global_aggregate"
+        ],
+        "schema_facts": [
+          "reference scalar aggregate inputs"
+        ],
+        "fixture_properties": [
+          "duplicate aggregate inputs"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "global aggregate over admitted predicate"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 1 must compose FILTER and DISTINCT under one typed declaration.",
+        "required_structural_obligations": [
+          "required.global.nonempty_distinct_filter"
+        ]
+      },
+      {
+        "id": "interaction.global.nonempty_multiple_projection",
+        "group": "global_aggregation",
+        "tuple": [
+          {
+            "axis": "input",
+            "value": "nonempty"
+          },
+          {
+            "axis": "modifiers",
+            "value": "multiple_projection"
+          }
+        ],
+        "contract_features": [
+          "having.global_aggregate",
+          "projection.aggregate",
+          "select.global_aggregate"
+        ],
+        "schema_facts": [
+          "two compatible reference scalar aggregate inputs"
+        ],
+        "fixture_properties": [
+          "retained and rejected HAVING cases"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "global HAVING after aggregate finalization"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 1 must require multiple aggregate outputs and global HAVING together.",
+        "required_structural_obligations": [
+          "required.global.nonempty_multiple_projection"
+        ]
+      },
+      {
+        "id": "interaction.grouped.hash_bounded",
+        "group": "grouped_aggregation",
+        "tuple": [
+          {
+            "axis": "mode",
+            "value": "hash"
+          },
+          {
+            "axis": "window",
+            "value": "bounded"
+          }
+        ],
+        "contract_features": [
+          "having.grouped_aggregate",
+          "projection.grouped_layout",
+          "select.grouped_composition"
+        ],
+        "schema_facts": [
+          "group key lacks compatible ordered route"
+        ],
+        "fixture_properties": [
+          "multiple duplicate-rich groups"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "hash grouping",
+          "aggregate alias order",
+          "bounded limit"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 1 must require the complete hash-grouped composition.",
+        "required_structural_obligations": [
+          "required.grouped.hash_bounded"
+        ]
+      },
+      {
+        "id": "interaction.grouped.ordered_bounded",
+        "group": "grouped_aggregation",
+        "tuple": [
+          {
+            "axis": "mode",
+            "value": "ordered"
+          },
+          {
+            "axis": "window",
+            "value": "bounded"
+          }
+        ],
+        "contract_features": [
+          "having.grouped_aggregate",
+          "ordering.projection_alias",
+          "projection.grouped_layout",
+          "select.grouped_composition"
+        ],
+        "schema_facts": [
+          "group key has compatible secondary index order"
+        ],
+        "fixture_properties": [
+          "multiple duplicate-rich indexed groups"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "ordered grouping",
+          "aggregate alias order",
+          "bounded limit"
+        ],
+        "disposition": "generated_required",
+        "reason": "The indexed nullable profile is required to own ordered grouping evidence.",
+        "required_structural_obligations": [
+          "required.grouped.ordered_bounded"
+        ]
+      },
+      {
+        "id": "interaction.grouped.ordered_continuation",
+        "group": "grouped_aggregation",
+        "tuple": [
+          {
+            "axis": "mode",
+            "value": "ordered"
+          },
+          {
+            "axis": "window",
+            "value": "continuation"
+          }
+        ],
+        "contract_features": [
+          "pagination.grouped_cursor",
+          "select.grouped_aggregate",
+          "select.grouped_composition"
+        ],
+        "schema_facts": [
+          "group key has compatible secondary index order"
+        ],
+        "fixture_properties": [
+          "more groups than one response page"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "execution_mode_equivalent",
+        "route_facts": [
+          "ordered grouped continuation"
+        ],
+        "disposition": "deterministic_required",
+        "reason": "Opaque grouped continuation is an IcyDB transport contract.",
+        "required_structural_obligations": [
+          "required.grouped.ordered_continuation"
+        ]
+      },
+      {
+        "id": "interaction.indexed.composite_prefix_hybrid",
+        "group": "indexed_scalar_execution",
+        "tuple": [
+          {
+            "axis": "access",
+            "value": "composite_prefix"
+          },
+          {
+            "axis": "covering",
+            "value": "hybrid"
+          },
+          {
+            "axis": "order",
+            "value": "compatible"
+          }
+        ],
+        "contract_features": [
+          "ddl.create_index_multi_field",
+          "predicate.membership",
+          "select.scalar_composition"
+        ],
+        "schema_facts": [
+          "compatible composite index with equality prefix and projected row field"
+        ],
+        "fixture_properties": [
+          "duplicate-rich indexed prefixes"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "icydb_contract_only",
+        "route_facts": [
+          "composite prefix",
+          "hybrid covering",
+          "compatible suffix order"
+        ],
+        "disposition": "generated_required",
+        "reason": "The indexed nullable profile must make composite-prefix route evidence structural.",
+        "required_structural_obligations": [
+          "required.indexed.composite_prefix_hybrid"
+        ]
+      },
+      {
+        "id": "interaction.indexed.expression_range_non_covering",
+        "group": "indexed_scalar_execution",
+        "tuple": [
+          {
+            "axis": "access",
+            "value": "expression_range"
+          },
+          {
+            "axis": "covering",
+            "value": "non_covering"
+          },
+          {
+            "axis": "order",
+            "value": "none"
+          }
+        ],
+        "contract_features": [
+          "ddl.create_index_expression",
+          "predicate.casefold_prefix",
+          "predicate.starts_with"
+        ],
+        "schema_facts": [
+          "accepted casefold expression index"
+        ],
+        "fixture_properties": [
+          "Unicode and casefold prefix values"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "icydb_contract_only",
+        "route_facts": [
+          "expression index range with exact residual prefix check"
+        ],
+        "disposition": "deterministic_required",
+        "reason": "Expression-index semantics have no declared lossless generated SQLite mapping.",
+        "required_structural_obligations": [
+          "required.indexed.expression_range_non_covering"
+        ]
+      },
+      {
+        "id": "interaction.indexed.primary_exact_non_covering",
+        "group": "indexed_scalar_execution",
+        "tuple": [
+          {
+            "axis": "access",
+            "value": "primary_exact"
+          },
+          {
+            "axis": "covering",
+            "value": "non_covering"
+          },
+          {
+            "axis": "order",
+            "value": "none"
+          }
+        ],
+        "contract_features": [
+          "select.exact_primary_key",
+          "select.scalar_rows"
+        ],
+        "schema_facts": [
+          "sole scalar primary key"
+        ],
+        "fixture_properties": [
+          "present and absent exact keys"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "ByKey or Empty"
+        ],
+        "disposition": "deterministic_required",
+        "reason": "Current exact-key value and route providers already close this interaction.",
+        "required_structural_obligations": [
+          "required.indexed.primary_exact_non_covering"
+        ]
+      },
+      {
+        "id": "interaction.indexed.secondary_range_non_covering_incompatible",
+        "group": "indexed_scalar_execution",
+        "tuple": [
+          {
+            "axis": "access",
+            "value": "secondary_range"
+          },
+          {
+            "axis": "covering",
+            "value": "non_covering"
+          },
+          {
+            "axis": "order",
+            "value": "incompatible"
+          }
+        ],
+        "contract_features": [
+          "ordering.projection_alias",
+          "predicate.range",
+          "select.scalar_composition"
+        ],
+        "schema_facts": [
+          "single-field secondary index and row-backed projection"
+        ],
+        "fixture_properties": [
+          "nonempty bounded range with order ties"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "one bounded secondary range",
+          "materialized incompatible order"
+        ],
+        "disposition": "generated_required",
+        "reason": "The current generated snapshot has no secondary index.",
+        "required_structural_obligations": [
+          "required.indexed.secondary_range_non_covering_incompatible"
+        ]
+      },
+      {
+        "id": "interaction.indexed.secondary_range_pure_compatible",
+        "group": "indexed_scalar_execution",
+        "tuple": [
+          {
+            "axis": "access",
+            "value": "secondary_range"
+          },
+          {
+            "axis": "covering",
+            "value": "pure"
+          },
+          {
+            "axis": "order",
+            "value": "compatible"
+          }
+        ],
+        "contract_features": [
+          "ordering.null_values",
+          "predicate.range",
+          "projection.scalar",
+          "select.scalar_composition"
+        ],
+        "schema_facts": [
+          "single-field nullable secondary index with index-only projection"
+        ],
+        "fixture_properties": [
+          "stored nulls",
+          "duplicate-rich indexed values"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "one bounded secondary range",
+          "compatible index order",
+          "pure covering"
+        ],
+        "disposition": "generated_required",
+        "reason": "The indexed nullable profile is required to exercise route and null roles together.",
+        "required_structural_obligations": [
+          "required.indexed.secondary_range_pure_compatible"
+        ]
+      },
+      {
+        "id": "interaction.mutation.authored_insert",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "authored_scalar"
+          },
+          {
+            "axis": "operation",
+            "value": "insert"
+          },
+          {
+            "axis": "intent",
+            "value": "authored"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "caller-authored Nat64 primary key, text, and Nat64 value"
+        ],
+        "fixture_properties": [
+          "single and multi-row inserts"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "SQL and typed converge before admission"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 2 replaces the fixed mutation vector with an obligation-owned sequence.",
+        "required_structural_obligations": [
+          "required.mutation.authored_insert"
+        ]
+      },
+      {
+        "id": "interaction.mutation.authored_insert_from_query",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "authored_scalar"
+          },
+          {
+            "axis": "operation",
+            "value": "insert_from_query"
+          },
+          {
+            "axis": "intent",
+            "value": "authored"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "caller-authored scalar destination and maintained key/number source"
+        ],
+        "fixture_properties": [
+          "bounded source rows"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "SQL INSERT FROM QUERY into shared admission"
+        ],
+        "disposition": "generated_required",
+        "reason": "INSERT FROM QUERY is SQL-only but belongs in the independent state model.",
+        "required_structural_obligations": [
+          "required.mutation.authored_insert_from_query"
+        ]
+      },
+      {
+        "id": "interaction.mutation.authored_windowed",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "authored_scalar"
+          },
+          {
+            "axis": "operation",
+            "value": "windowed"
+          },
+          {
+            "axis": "intent",
+            "value": "authored"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.delete",
+          "mutation.returning",
+          "mutation.trusted_update",
+          "mutation.trusted_update_window",
+          "mutation.update"
+        ],
+        "schema_facts": [
+          "caller-authored scalar row"
+        ],
+        "fixture_properties": [
+          "exact, compound, and bounded matching sets"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "exact and bounded canonical primary-key selection"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 2 must derive update/delete windows from bounded typed operations.",
+        "required_structural_obligations": [
+          "required.mutation.authored_windowed"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_delete_returning",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "delete_returning"
+          },
+          {
+            "axis": "intent",
+            "value": "authored"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.delete",
+          "mutation.returning",
+          "returning.star"
+        ],
+        "schema_facts": [
+          "accepted default profile with indexed tier"
+        ],
+        "fixture_properties": [
+          "one matching row"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "delete returns complete old logical row and removes tier index entry"
+        ],
+        "disposition": "generated_required",
+        "reason": "Delete RETURNING must agree with the independent complete-state oracle.",
+        "required_structural_obligations": [
+          "required.mutation.default_delete_returning"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_insert_authored",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "insert"
+          },
+          {
+            "axis": "intent",
+            "value": "authored"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "accepted default profile with indexed tier"
+        ],
+        "fixture_properties": [
+          "all five fields authored"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "shared structural admission and tier index delta"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 2 introduces the exact accepted-default profile.",
+        "required_structural_obligations": [
+          "required.mutation.default_insert_authored"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_insert_explicit",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "insert"
+          },
+          {
+            "axis": "intent",
+            "value": "explicit_default"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "tier and score constant defaults; nullable note default"
+        ],
+        "fixture_properties": [
+          "explicit DEFAULT for tier, score, and note"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "SQL intent lowering into accepted default materialization"
+        ],
+        "disposition": "generated_required",
+        "reason": "Explicit DEFAULT is a SQL-only provenance form with state-model authority.",
+        "required_structural_obligations": [
+          "required.mutation.default_insert_explicit"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_insert_explicit_typed",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "insert"
+          },
+          {
+            "axis": "intent",
+            "value": "explicit_default"
+          },
+          {
+            "axis": "ingress",
+            "value": "typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "accepted default profile"
+        ],
+        "fixture_properties": [],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "frontend_equivalent",
+        "route_facts": [],
+        "disposition": "inapplicable",
+        "reason": "The canonical typed create surface expresses omission, not SQL DEFAULT tokens.",
+        "required_structural_obligations": []
+      },
+      {
+        "id": "interaction.mutation.default_insert_mixed_batch",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "insert"
+          },
+          {
+            "axis": "intent",
+            "value": "mixed_batch"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "accepted default profile with indexed tier"
+        ],
+        "fixture_properties": [
+          "authored, omitted, and explicit-default rows"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "one atomic SQL batch and complete tier index delta"
+        ],
+        "disposition": "generated_required",
+        "reason": "Mixed provenance must remain row-specific inside one atomic batch.",
+        "required_structural_obligations": [
+          "required.mutation.default_insert_mixed_batch"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_insert_omitted",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "insert"
+          },
+          {
+            "axis": "intent",
+            "value": "omitted"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "tier and score constant defaults; nullable note omission"
+        ],
+        "fixture_properties": [
+          "id and name authored only"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "accepted omission materialization and tier index delta"
+        ],
+        "disposition": "generated_required",
+        "reason": "Omission provenance must be explicit in SQL and canonical typed create.",
+        "required_structural_obligations": [
+          "required.mutation.default_insert_omitted"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_no_match",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "no_match"
+          },
+          {
+            "axis": "intent",
+            "value": "authored"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.delete",
+          "mutation.update"
+        ],
+        "schema_facts": [
+          "accepted default profile"
+        ],
+        "fixture_properties": [
+          "absent primary key"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "exact empty mutation selection"
+        ],
+        "disposition": "generated_required",
+        "reason": "No-match update/delete must preserve complete state.",
+        "required_structural_obligations": [
+          "required.mutation.default_no_match"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_reject_duplicate",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "reject_duplicate"
+          },
+          {
+            "axis": "intent",
+            "value": "mixed_batch"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "sole Nat64 primary key and indexed tier"
+        ],
+        "fixture_properties": [
+          "duplicate-primary-key multi-row batch"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "atomic rejection with unchanged row and index state"
+        ],
+        "disposition": "generated_required",
+        "reason": "Duplicate rejection must prove batch atomicity under both ingresses.",
+        "required_structural_obligations": [
+          "required.mutation.default_reject_duplicate"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_reject_pk_default",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "reject_pk_default"
+          },
+          {
+            "axis": "intent",
+            "value": "explicit_default"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "policy-free required caller-authored primary key"
+        ],
+        "fixture_properties": [
+          "unchanged pre-state"
+        ],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "rejection_invariant",
+        "route_facts": [
+          "rejection before marker publication"
+        ],
+        "disposition": "generated_required",
+        "reason": "DEFAULT on a policy-free primary key must reject without state change.",
+        "required_structural_obligations": [
+          "required.mutation.default_reject_pk_default"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_reject_pk_default_typed",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "reject_pk_default"
+          },
+          {
+            "axis": "intent",
+            "value": "explicit_default"
+          },
+          {
+            "axis": "ingress",
+            "value": "typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert"
+        ],
+        "schema_facts": [
+          "policy-free required caller-authored primary key"
+        ],
+        "fixture_properties": [],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "frontend_equivalent",
+        "route_facts": [],
+        "disposition": "inapplicable",
+        "reason": "The typed create surface requires primary-key authorship and has no DEFAULT token.",
+        "required_structural_obligations": []
+      },
+      {
+        "id": "interaction.mutation.default_reject_required",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "reject_required"
+          },
+          {
+            "axis": "intent",
+            "value": "omitted"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql"
+          }
+        ],
+        "contract_features": [
+          "mutation.insert",
+          "mutation.lane_ownership"
+        ],
+        "schema_facts": [
+          "required name has no default"
+        ],
+        "fixture_properties": [
+          "unchanged pre-state"
+        ],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "rejection_invariant",
+        "route_facts": [
+          "rejection before marker publication"
+        ],
+        "disposition": "generated_required",
+        "reason": "Required-field omission needs one typed singly-invalid mutation witness.",
+        "required_structural_obligations": [
+          "required.mutation.default_reject_required"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_update_authored",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "update"
+          },
+          {
+            "axis": "intent",
+            "value": "authored"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.returning",
+          "mutation.update",
+          "returning.star"
+        ],
+        "schema_facts": [
+          "accepted default profile with indexed tier"
+        ],
+        "fixture_properties": [
+          "one primary-key match"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "exact primary-key mutation and tier index replacement"
+        ],
+        "disposition": "generated_required",
+        "reason": "Authored default-profile updates require SQL/typed parity.",
+        "required_structural_obligations": [
+          "required.mutation.default_update_authored"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_update_default",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "update"
+          },
+          {
+            "axis": "intent",
+            "value": "explicit_default"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql"
+          }
+        ],
+        "contract_features": [
+          "mutation.returning",
+          "mutation.update",
+          "returning.fields"
+        ],
+        "schema_facts": [
+          "accepted default profile with indexed tier"
+        ],
+        "fixture_properties": [
+          "one row holding non-default values"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "exact update and accepted default resolution"
+        ],
+        "disposition": "generated_required",
+        "reason": "SET field = DEFAULT is a SQL-only state transition.",
+        "required_structural_obligations": [
+          "required.mutation.default_update_default"
+        ]
+      },
+      {
+        "id": "interaction.mutation.default_update_default_typed",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "update"
+          },
+          {
+            "axis": "intent",
+            "value": "explicit_default"
+          },
+          {
+            "axis": "ingress",
+            "value": "typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.update"
+        ],
+        "schema_facts": [
+          "accepted default profile"
+        ],
+        "fixture_properties": [],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "frontend_equivalent",
+        "route_facts": [],
+        "disposition": "inapplicable",
+        "reason": "The typed update patch does not expose a SQL DEFAULT token.",
+        "required_structural_obligations": []
+      },
+      {
+        "id": "interaction.mutation.default_update_preserve",
+        "group": "mutation",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "accepted_default"
+          },
+          {
+            "axis": "operation",
+            "value": "update"
+          },
+          {
+            "axis": "intent",
+            "value": "preserve"
+          },
+          {
+            "axis": "ingress",
+            "value": "sql_and_typed"
+          }
+        ],
+        "contract_features": [
+          "mutation.lane_ownership",
+          "mutation.update"
+        ],
+        "schema_facts": [
+          "accepted default profile with indexed tier"
+        ],
+        "fixture_properties": [
+          "one row holding non-default values"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "route_facts": [
+          "absent assignment preserves accepted values and index state"
+        ],
+        "disposition": "generated_required",
+        "reason": "Preservation must remain distinct from default application.",
+        "required_structural_obligations": [
+          "required.mutation.default_update_preserve"
+        ]
+      },
+      {
+        "id": "interaction.null.computed_aggregate",
+        "group": "null_semantics",
+        "tuple": [
+          {
+            "axis": "source",
+            "value": "computed"
+          },
+          {
+            "axis": "context",
+            "value": "aggregate"
+          }
+        ],
+        "contract_features": [
+          "expression.value_selection",
+          "projection.aggregate",
+          "select.aggregate_distinct_filter"
+        ],
+        "schema_facts": [
+          "reference scalar nullable result kind"
+        ],
+        "fixture_properties": [
+          "computed null and non-null aggregate inputs"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "global aggregate"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 1 must require computed-null aggregate input rather than incidental generation.",
+        "required_structural_obligations": [
+          "required.null.computed_aggregate"
+        ]
+      },
+      {
+        "id": "interaction.null.computed_distinct",
+        "group": "null_semantics",
+        "tuple": [
+          {
+            "axis": "source",
+            "value": "computed"
+          },
+          {
+            "axis": "context",
+            "value": "distinct"
+          }
+        ],
+        "contract_features": [
+          "expression.value_selection",
+          "select.computed_projection",
+          "select.scalar_distinct"
+        ],
+        "schema_facts": [
+          "reference scalar nullable result kind"
+        ],
+        "fixture_properties": [
+          "duplicate computed nulls and values"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "scalar distinct"
+        ],
+        "disposition": "generated_required",
+        "reason": "The fixed families do not require computed projection and DISTINCT together.",
+        "required_structural_obligations": [
+          "required.null.computed_distinct"
+        ]
+      },
+      {
+        "id": "interaction.null.computed_ordering",
+        "group": "null_semantics",
+        "tuple": [
+          {
+            "axis": "source",
+            "value": "computed"
+          },
+          {
+            "axis": "context",
+            "value": "ordering"
+          }
+        ],
+        "contract_features": [
+          "expression.value_selection",
+          "ordering.null_values",
+          "ordering.projection_alias"
+        ],
+        "schema_facts": [
+          "reference scalar nullable computed result"
+        ],
+        "fixture_properties": [
+          "computed nulls and order ties"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "materialized computed order"
+        ],
+        "disposition": "generated_required",
+        "reason": "Computed-null ordering is a reviewed composition gap.",
+        "required_structural_obligations": [
+          "required.null.computed_ordering"
+        ]
+      },
+      {
+        "id": "interaction.null.stored_comparison_membership",
+        "group": "null_semantics",
+        "tuple": [
+          {
+            "axis": "source",
+            "value": "stored"
+          },
+          {
+            "axis": "context",
+            "value": "membership"
+          }
+        ],
+        "contract_features": [
+          "predicate.membership",
+          "predicate.null"
+        ],
+        "schema_facts": [
+          "nullable stored scalar"
+        ],
+        "fixture_properties": [
+          "stored nulls",
+          "membership null and duplicate members"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "residual three-valued membership"
+        ],
+        "disposition": "generated_required",
+        "reason": "The indexed nullable profile must bind null membership to accepted schema roles.",
+        "required_structural_obligations": [
+          "required.null.stored_comparison_membership"
+        ]
+      },
+      {
+        "id": "interaction.null.stored_ordering",
+        "group": "null_semantics",
+        "tuple": [
+          {
+            "axis": "source",
+            "value": "stored"
+          },
+          {
+            "axis": "context",
+            "value": "ordering"
+          }
+        ],
+        "contract_features": [
+          "ordering.null_values",
+          "projection.scalar"
+        ],
+        "schema_facts": [
+          "nullable stored scalar"
+        ],
+        "fixture_properties": [
+          "stored nulls and tied present values"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "canonical null-sensitive order"
+        ],
+        "disposition": "generated_required",
+        "reason": "Slice 1 must require null ordering under the accepted nullable profile.",
+        "required_structural_obligations": [
+          "required.null.stored_ordering"
+        ]
+      },
+      {
+        "id": "interaction.scalar.indexed_computed_distinct_window",
+        "group": "scalar_composition",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "indexed_nullable_reference"
+          },
+          {
+            "axis": "shape",
+            "value": "computed_distinct_window"
+          }
+        ],
+        "contract_features": [
+          "ordering.projection_alias",
+          "select.computed_projection",
+          "select.scalar_composition",
+          "select.scalar_distinct"
+        ],
+        "schema_facts": [
+          "indexed nullable reference fields"
+        ],
+        "fixture_properties": [
+          "duplicate computed values",
+          "stored nulls",
+          "order ties"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "indexed predicate with materialized computed DISTINCT order"
+        ],
+        "disposition": "generated_required",
+        "reason": "This is a primary 0.215 missing interaction and requires the new profile.",
+        "required_structural_obligations": [
+          "required.scalar.indexed_computed_distinct_window"
+        ]
+      },
+      {
+        "id": "interaction.scalar.reference_full_window",
+        "group": "scalar_composition",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "reference_scalar"
+          },
+          {
+            "axis": "shape",
+            "value": "full_scalar_window"
+          }
+        ],
+        "contract_features": [
+          "pagination.scalar_limit_offset",
+          "projection.aliases",
+          "select.computed_projection",
+          "select.scalar_composition"
+        ],
+        "schema_facts": [
+          "reference scalar fields"
+        ],
+        "fixture_properties": [
+          "order ties and more rows than the window"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "predicate before materialized order and window"
+        ],
+        "disposition": "generated_required",
+        "reason": "The old window slots do not compose every required scalar axis in one case.",
+        "required_structural_obligations": [
+          "required.scalar.reference_full_window"
+        ]
+      },
+      {
+        "id": "interaction.scalar.reference_invalid_alias_order",
+        "group": "scalar_composition",
+        "tuple": [
+          {
+            "axis": "profile",
+            "value": "reference_scalar"
+          },
+          {
+            "axis": "shape",
+            "value": "invalid_alias_order"
+          }
+        ],
+        "contract_features": [
+          "ordering.projection_alias",
+          "projection.aliases"
+        ],
+        "schema_facts": [
+          "reference scalar fields"
+        ],
+        "fixture_properties": [
+          "valid base declaration"
+        ],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "rejection_invariant",
+        "route_facts": [],
+        "disposition": "generated_required",
+        "reason": "Slice 1 must add a singly-invalid alias-binding violation with a typed cause.",
+        "required_structural_obligations": [
+          "required.scalar.reference_invalid_alias_order"
+        ]
+      }
+    ],
+    "required_structural_obligations": [
+      {
+        "id": "required.cache.cold_compiled_direct",
+        "interaction_obligations": [
+          "interaction.cache.cold_compiled_direct"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "plain_fields",
+          "predicate_shape": "strict_scalar_comparison",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "limit",
+          "field_roles": "sole_primary_key|stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "small_duplicate_rich",
+          "required_access": "primary_exact",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "identical cold fixture"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "execution_mode_equivalent",
+        "provider_id": "core.query.public_read_families",
+        "provider_state": "existing_deterministic_provider",
+        "route_facts": [
+          "same selected access"
+        ],
+        "witness_id": "existing.core.query.public_read_families",
+        "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
+      },
+      {
+        "id": "required.cache.cold_sql_fluent",
+        "interaction_obligations": [
+          "interaction.cache.cold_sql_fluent"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "computed_and_plain_fields",
+          "predicate_shape": "strict_scalar_comparison",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "projection_alias_then_primary_key",
+          "window_shape": "limit_offset",
+          "field_roles": "sole_primary_key|stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "small_duplicate_rich",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "identical cold fixture"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "matching SQL/fluent route observation"
+        ],
+        "witness_id": "tier_c.cache.cold_sql_fluent",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.cache.warm_sql_fluent",
+        "interaction_obligations": [
+          "interaction.cache.warm_sql_fluent"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "plain_fields",
+          "predicate_shape": "strict_scalar_comparison",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "limit",
+          "field_roles": "sole_primary_key|stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "small_duplicate_rich",
+          "required_access": "primary_exact",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "identical warm fixture"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "execution_mode_equivalent",
+        "provider_id": "core.query.scalar_matrix",
+        "provider_state": "existing_deterministic_provider",
+        "route_facts": [
+          "cold/warm selected access parity"
+        ],
+        "witness_id": "existing.core.query.scalar_matrix",
+        "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
+      },
+      {
+        "id": "required.field_path.selectable_returning",
+        "interaction_obligations": [
+          "interaction.field_path.selectable_returning"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "deterministic_nested_field_path",
+          "statement_family": "update",
+          "result_shape": "returned_fields",
+          "projection_shape": "stored_leaf",
+          "predicate_shape": "primary_key_exact",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|stored_leaf",
+          "semantic_value_class": "authored",
+          "fixture_class": "singleton",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "one matching structured row"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "frontend_equivalent",
+        "provider_id": "core.mutation.returning_fields",
+        "provider_state": "existing_deterministic_provider",
+        "route_facts": [
+          "exact mutation selection"
+        ],
+        "witness_id": "existing.core.mutation.returning_fields",
+        "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
+      },
+      {
+        "id": "required.field_path.selectable_select",
+        "interaction_obligations": [
+          "interaction.field_path.selectable_select"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "deterministic_nested_field_path",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "stored_leaf",
+          "predicate_shape": "stored_leaf_comparison",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "stored_leaf_then_primary_key",
+          "window_shape": "limit",
+          "field_roles": "stored_leaf|single_secondary_index",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "small_duplicate_rich",
+          "required_access": "secondary_range",
+          "required_covering": "hybrid",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "nested stored leaves"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "icydb_contract_only",
+        "provider_id": "core.ddl.create_field_path",
+        "provider_state": "existing_deterministic_provider",
+        "route_facts": [
+          "accepted field-path index"
+        ],
+        "witness_id": "existing.core.ddl.create_field_path",
+        "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
+      },
+      {
+        "id": "required.global.empty_distinct_filter",
+        "interaction_obligations": [
+          "interaction.global.empty_distinct_filter"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "global_aggregate",
+          "projection_shape": "aggregate_terminals",
+          "predicate_shape": "aggregate_filter",
+          "grouping_shape": "global",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "empty",
+          "fixture_class": "empty",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "empty input"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "global aggregate"
+        ],
+        "witness_id": "tier_c.global.empty_distinct_filter",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.global.nonempty_distinct_filter",
+        "interaction_obligations": [
+          "interaction.global.nonempty_distinct_filter"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "global_aggregate",
+          "projection_shape": "aggregate_distinct_filter",
+          "predicate_shape": "strict_scalar_comparison",
+          "grouping_shape": "global",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "duplicate_nonempty",
+          "fixture_class": "duplicate_rich",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "duplicate aggregate inputs"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "global aggregate"
+        ],
+        "witness_id": "tier_c.global.nonempty_distinct_filter",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.global.nonempty_multiple_projection",
+        "interaction_obligations": [
+          "interaction.global.nonempty_multiple_projection"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "global_aggregate",
+          "projection_shape": "multiple_aggregate_terminals",
+          "predicate_shape": "strict_scalar_comparison",
+          "grouping_shape": "global",
+          "having_shape": "aggregate_comparison",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "small_duplicate_rich",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "retained and rejected HAVING cases"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "global aggregate"
+        ],
+        "witness_id": "tier_c.global.nonempty_multiple_projection",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.grouped.hash_bounded",
+        "interaction_obligations": [
+          "interaction.grouped.hash_bounded"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "grouped_rows",
+          "projection_shape": "group_key_then_multiple_aggregates",
+          "predicate_shape": "strict_scalar_comparison",
+          "grouping_shape": "one_group_key",
+          "having_shape": "aggregate_comparison",
+          "order_shape": "aggregate_alias_desc_then_group_key",
+          "window_shape": "limit",
+          "field_roles": "stored_scalar|non_indexed_group_key",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "multiple_groups",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "multiple groups",
+          "HAVING retained and rejected groups"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "hash grouping"
+        ],
+        "witness_id": "tier_c.grouped.hash_bounded",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.grouped.ordered_bounded",
+        "interaction_obligations": [
+          "interaction.grouped.ordered_bounded"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "grouped_rows",
+          "projection_shape": "group_key_then_multiple_aggregates",
+          "predicate_shape": "indexed_scalar_comparison",
+          "grouping_shape": "one_indexed_group_key",
+          "having_shape": "aggregate_comparison",
+          "order_shape": "aggregate_alias_desc_then_group_key",
+          "window_shape": "limit",
+          "field_roles": "single_secondary_index|stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "multiple_duplicate_rich_indexed_groups",
+          "required_access": "secondary_range",
+          "required_covering": "hybrid",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "multiple indexed groups",
+          "HAVING retained and rejected groups"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "ordered grouping"
+        ],
+        "witness_id": "tier_c.grouped.ordered_bounded",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.grouped.ordered_continuation",
+        "interaction_obligations": [
+          "interaction.grouped.ordered_continuation"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "grouped_rows_with_cursor",
+          "projection_shape": "group_key_then_aggregate",
+          "predicate_shape": "none",
+          "grouping_shape": "one_indexed_group_key",
+          "having_shape": "none",
+          "order_shape": "group_key_ascending",
+          "window_shape": "grouped_continuation",
+          "field_roles": "single_secondary_index|stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "more_than_one_group_page",
+          "required_access": "secondary_range",
+          "required_covering": "pure",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "more than one grouped page"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "execution_mode_equivalent",
+        "provider_id": "core.query.grouped_cursor",
+        "provider_state": "existing_deterministic_provider",
+        "route_facts": [
+          "ordered grouped continuation"
+        ],
+        "witness_id": "existing.core.query.grouped_cursor",
+        "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
+      },
+      {
+        "id": "required.indexed.composite_prefix_hybrid",
+        "interaction_obligations": [
+          "interaction.indexed.composite_prefix_hybrid"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "index_and_row_fields",
+          "predicate_shape": "equality_prefix_and_membership",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "compatible_index_suffix_then_primary_key",
+          "window_shape": "limit",
+          "field_roles": "composite_index_prefix_1|row_backed_projection",
+          "semantic_value_class": "membership_duplicate_nonnull",
+          "fixture_class": "duplicate_rich_indexed",
+          "required_access": "composite_prefix",
+          "required_covering": "hybrid",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "duplicate-rich index prefixes"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "icydb_contract_only",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "composite prefix",
+          "hybrid covering"
+        ],
+        "witness_id": "tier_c.indexed.composite_prefix_hybrid",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.indexed.expression_range_non_covering",
+        "interaction_obligations": [
+          "interaction.indexed.expression_range_non_covering"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "deterministic_expression_index",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "plain_fields",
+          "predicate_shape": "casefold_prefix",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "limit",
+          "field_roles": "accepted_expression_index|row_backed_projection",
+          "semantic_value_class": "ordinary_prefix",
+          "fixture_class": "unicode_prefix",
+          "required_access": "expression_range",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "Unicode casefold prefixes"
+        ],
+        "minimum_evidence": "contract_assertion",
+        "provider_eligibility": "icydb_contract_only",
+        "provider_id": "core.ddl.create_expression",
+        "provider_state": "existing_deterministic_provider",
+        "route_facts": [
+          "expression index range",
+          "residual prefix"
+        ],
+        "witness_id": "existing.core.ddl.create_expression",
+        "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
+      },
+      {
+        "id": "required.indexed.primary_exact_non_covering",
+        "interaction_obligations": [
+          "interaction.indexed.primary_exact_non_covering"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "plain_fields",
+          "predicate_shape": "primary_key_exact",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|row_backed_projection",
+          "semantic_value_class": "point",
+          "fixture_class": "singleton",
+          "required_access": "primary_exact",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "present and absent exact keys"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "core.query.exact_key_execute",
+        "provider_state": "existing_deterministic_provider",
+        "route_facts": [
+          "ByKey or Empty"
+        ],
+        "witness_id": "existing.core.query.exact_key_execute",
+        "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
+      },
+      {
+        "id": "required.indexed.secondary_range_non_covering_incompatible",
+        "interaction_obligations": [
+          "interaction.indexed.secondary_range_non_covering_incompatible"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "computed_and_row_fields",
+          "predicate_shape": "nonempty_bounded_range_and_residual",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "computed_alias_then_primary_key",
+          "window_shape": "limit_offset",
+          "field_roles": "single_secondary_index|row_backed_projection",
+          "semantic_value_class": "bounded_nonempty",
+          "fixture_class": "order_ties",
+          "required_access": "secondary_range",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "nonempty bounded range",
+          "order ties"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "one bounded secondary range",
+          "materialized order"
+        ],
+        "witness_id": "tier_c.indexed.secondary_range_non_covering_incompatible",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.indexed.secondary_range_pure_compatible",
+        "interaction_obligations": [
+          "interaction.indexed.secondary_range_pure_compatible"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "index_fields_only",
+          "predicate_shape": "nonempty_bounded_range",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "compatible_index_order_then_primary_key",
+          "window_shape": "limit",
+          "field_roles": "nullable|single_secondary_index|index_projectable",
+          "semantic_value_class": "bounded_nonempty",
+          "fixture_class": "stored_null_duplicate_rich_indexed",
+          "required_access": "secondary_range",
+          "required_covering": "pure",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "stored nulls",
+          "duplicate-rich indexed values"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "one bounded secondary range",
+          "pure covering"
+        ],
+        "witness_id": "tier_c.indexed.secondary_range_pure_compatible",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.authored_insert",
+        "interaction_obligations": [
+          "interaction.mutation.authored_insert"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "authored_scalar",
+          "statement_family": "insert",
+          "result_shape": "affected_count_and_optional_rows",
+          "projection_shape": "none",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|authored_fields",
+          "semantic_value_class": "authored_single_and_multi",
+          "fixture_class": "empty_then_nonempty_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "single row",
+          "multi row"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.authored_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "shared structural admission"
+        ],
+        "witness_id": "tier_c.mutation.authored_insert",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.authored_insert_from_query",
+        "interaction_obligations": [
+          "interaction.mutation.authored_insert_from_query"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "authored_scalar",
+          "statement_family": "insert_from_query",
+          "result_shape": "affected_count",
+          "projection_shape": "none",
+          "predicate_shape": "source_query",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "source_primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|authored_fields",
+          "semantic_value_class": "authored_from_query",
+          "fixture_class": "bounded_source",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "bounded source rows"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.authored_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "shared structural admission"
+        ],
+        "witness_id": "tier_c.mutation.authored_insert_from_query",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.authored_windowed",
+        "interaction_obligations": [
+          "interaction.mutation.authored_windowed"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "authored_scalar",
+          "statement_family": "update_delete_window",
+          "result_shape": "affected_count_and_returning",
+          "projection_shape": "plain_fields",
+          "predicate_shape": "exact_compound_bounded",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|authored_fields",
+          "semantic_value_class": "authored_patch",
+          "fixture_class": "multiple_matching_rows",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "exact",
+          "compound",
+          "bounded matches"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.authored_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "canonical bounded selection"
+        ],
+        "witness_id": "tier_c.mutation.authored_windowed",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_delete_returning",
+        "interaction_obligations": [
+          "interaction.mutation.default_delete_returning"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "delete",
+          "result_shape": "affected_count_and_old_complete_row",
+          "projection_shape": "returning_star",
+          "predicate_shape": "primary_key_exact",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "authored",
+          "fixture_class": "one_matching_row",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "one matching row"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "exact delete",
+          "tier index removal"
+        ],
+        "witness_id": "tier_c.mutation.default_delete_returning",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_insert_authored",
+        "interaction_obligations": [
+          "interaction.mutation.default_insert_authored"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "insert",
+          "result_shape": "affected_count_and_complete_row",
+          "projection_shape": "all_fields",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "all_authored",
+          "fixture_class": "empty_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "all fields authored"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "shared structural admission",
+          "tier index delta"
+        ],
+        "witness_id": "tier_c.mutation.default_insert_authored",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_insert_explicit",
+        "interaction_obligations": [
+          "interaction.mutation.default_insert_explicit"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "insert",
+          "result_shape": "affected_count_and_complete_row",
+          "projection_shape": "all_fields",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "explicit_defaults",
+          "fixture_class": "empty_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "explicit defaults"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "accepted default resolution",
+          "tier index delta"
+        ],
+        "witness_id": "tier_c.mutation.default_insert_explicit",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_insert_mixed_batch",
+        "interaction_obligations": [
+          "interaction.mutation.default_insert_mixed_batch"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "insert",
+          "result_shape": "affected_count_and_complete_rows",
+          "projection_shape": "all_fields",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "mixed_authored_omitted_explicit_default",
+          "fixture_class": "empty_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "three-row mixed provenance batch"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "atomic batch",
+          "complete tier index delta"
+        ],
+        "witness_id": "tier_c.mutation.default_insert_mixed_batch",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_insert_omitted",
+        "interaction_obligations": [
+          "interaction.mutation.default_insert_omitted"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "insert",
+          "result_shape": "affected_count_and_complete_row",
+          "projection_shape": "all_fields",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "omitted_defaults",
+          "fixture_class": "empty_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "id and name authored only"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "accepted default resolution",
+          "tier index delta"
+        ],
+        "witness_id": "tier_c.mutation.default_insert_omitted",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_no_match",
+        "interaction_obligations": [
+          "interaction.mutation.default_no_match"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "update_delete_no_match",
+          "result_shape": "zero_affected",
+          "projection_shape": "none",
+          "predicate_shape": "primary_key_exact_absent",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key",
+          "semantic_value_class": "authored",
+          "fixture_class": "absent_key",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "absent primary key"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "exact empty mutation selection"
+        ],
+        "witness_id": "tier_c.mutation.default_no_match",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_reject_duplicate",
+        "interaction_obligations": [
+          "interaction.mutation.default_reject_duplicate"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "singly_invalid",
+          "schema_profile": "accepted_default",
+          "statement_family": "insert",
+          "result_shape": "typed_error",
+          "projection_shape": "none",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|single_secondary_index",
+          "semantic_value_class": "duplicate_primary_key_batch",
+          "fixture_class": "unchanged_pre_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "duplicate_primary_key"
+        },
+        "fixture_properties": [
+          "duplicate primary-key batch"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "no marker publication",
+          "unchanged tier index"
+        ],
+        "witness_id": "tier_c.mutation.default_reject_duplicate",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_reject_pk_default",
+        "interaction_obligations": [
+          "interaction.mutation.default_reject_pk_default"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "singly_invalid",
+          "schema_profile": "accepted_default",
+          "statement_family": "insert",
+          "result_shape": "typed_error",
+          "projection_shape": "none",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|required_without_default",
+          "semantic_value_class": "explicit_default",
+          "fixture_class": "unchanged_pre_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "default_unavailable"
+        },
+        "fixture_properties": [
+          "unchanged pre-state"
+        ],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "rejection_invariant",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "no marker publication"
+        ],
+        "witness_id": "tier_c.mutation.default_reject_pk_default",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_reject_required",
+        "interaction_obligations": [
+          "interaction.mutation.default_reject_required"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "singly_invalid",
+          "schema_profile": "accepted_default",
+          "statement_family": "insert",
+          "result_shape": "typed_error",
+          "projection_shape": "none",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "required_without_default",
+          "semantic_value_class": "omitted_required",
+          "fixture_class": "unchanged_pre_state",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "missing_required_field"
+        },
+        "fixture_properties": [
+          "unchanged pre-state"
+        ],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "rejection_invariant",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "no marker publication"
+        ],
+        "witness_id": "tier_c.mutation.default_reject_required",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_update_authored",
+        "interaction_obligations": [
+          "interaction.mutation.default_update_authored"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "update",
+          "result_shape": "affected_count_and_complete_row",
+          "projection_shape": "returning_star",
+          "predicate_shape": "primary_key_exact",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "authored_patch",
+          "fixture_class": "one_matching_row",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "one matching row"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "exact mutation selection",
+          "tier index replacement"
+        ],
+        "witness_id": "tier_c.mutation.default_update_authored",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_update_default",
+        "interaction_obligations": [
+          "interaction.mutation.default_update_default"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "update",
+          "result_shape": "affected_count_and_returned_fields",
+          "projection_shape": "tier_score_note",
+          "predicate_shape": "primary_key_exact",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "explicit_update_defaults",
+          "fixture_class": "one_nondefault_row",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "one non-default row"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "accepted default resolution",
+          "tier index replacement"
+        ],
+        "witness_id": "tier_c.mutation.default_update_default",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.mutation.default_update_preserve",
+        "interaction_obligations": [
+          "interaction.mutation.default_update_preserve"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "accepted_default",
+          "statement_family": "update",
+          "result_shape": "affected_count_and_complete_row",
+          "projection_shape": "all_fields",
+          "predicate_shape": "primary_key_exact",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "none",
+          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
+          "semantic_value_class": "absent_assignments_preserve",
+          "fixture_class": "one_nondefault_row",
+          "required_access": "mutation_selection",
+          "required_covering": "not_applicable",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "one non-default row"
+        ],
+        "minimum_evidence": "state_model_reference",
+        "provider_eligibility": "state_model_reference",
+        "provider_id": "generated.mutation.accepted_default",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "preserved tier index state"
+        ],
+        "witness_id": "tier_c.mutation.default_update_preserve",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.null.computed_aggregate",
+        "interaction_obligations": [
+          "interaction.null.computed_aggregate"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "global_aggregate",
+          "projection_shape": "aggregate_over_nullif",
+          "predicate_shape": "none",
+          "grouping_shape": "global",
+          "having_shape": "none",
+          "order_shape": "none",
+          "window_shape": "none",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "computed_null",
+          "fixture_class": "computed_null_and_nonnull",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "computed null and non-null inputs"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "global aggregate"
+        ],
+        "witness_id": "tier_c.null.computed_aggregate",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.null.computed_distinct",
+        "interaction_obligations": [
+          "interaction.null.computed_distinct"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "distinct_nullif",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "computed_alias_then_primary_key",
+          "window_shape": "limit",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "computed_null",
+          "fixture_class": "duplicate_computed_null",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "duplicate computed nulls"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "scalar distinct"
+        ],
+        "witness_id": "tier_c.null.computed_distinct",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.null.computed_ordering",
+        "interaction_obligations": [
+          "interaction.null.computed_ordering"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "nullif_alias",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "computed_nullable_alias_then_primary_key",
+          "window_shape": "limit_offset",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "computed_null",
+          "fixture_class": "computed_null_order_ties",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "computed nulls",
+          "order ties"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "materialized computed order"
+        ],
+        "witness_id": "tier_c.null.computed_ordering",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.null.stored_comparison_membership",
+        "interaction_obligations": [
+          "interaction.null.stored_comparison_membership"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "plain_fields",
+          "predicate_shape": "nullable_membership_and_null_test",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "primary_key_ascending",
+          "window_shape": "limit",
+          "field_roles": "nullable|stored_scalar",
+          "semantic_value_class": "membership_duplicate_with_null",
+          "fixture_class": "stored_null_duplicate_rich",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "stored nulls",
+          "membership nulls and duplicates"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "three-valued residual membership"
+        ],
+        "witness_id": "tier_c.null.stored_comparison_membership",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.null.stored_ordering",
+        "interaction_obligations": [
+          "interaction.null.stored_ordering"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "nullable_and_primary_key",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "nullable_ascending_then_primary_key",
+          "window_shape": "limit_offset",
+          "field_roles": "nullable|stored_scalar",
+          "semantic_value_class": "stored_null",
+          "fixture_class": "stored_null_order_ties",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "stored nulls",
+          "order ties"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "canonical null-sensitive order"
+        ],
+        "witness_id": "tier_c.null.stored_ordering",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.scalar.indexed_computed_distinct_window",
+        "interaction_obligations": [
+          "interaction.scalar.indexed_computed_distinct_window"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "distinct_computed_and_plain_aliases",
+          "predicate_shape": "indexed_comparison_and_residual",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "computed_alias_then_primary_key",
+          "window_shape": "limit_offset",
+          "field_roles": "nullable|single_secondary_index|row_backed_projection",
+          "semantic_value_class": "bounded_nonempty",
+          "fixture_class": "duplicate_computed_stored_null",
+          "required_access": "secondary_range",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "duplicate computed values",
+          "stored nulls",
+          "order ties"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "secondary range",
+          "materialized DISTINCT order"
+        ],
+        "witness_id": "tier_c.scalar.indexed_computed_distinct_window",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.scalar.reference_full_window",
+        "interaction_obligations": [
+          "interaction.scalar.reference_full_window"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "plain_and_computed_aliases",
+          "predicate_shape": "boolean_tree_with_comparison",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "projection_alias_then_primary_key",
+          "window_shape": "limit_offset",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "order_ties_more_than_window",
+          "required_access": "full_scan",
+          "required_covering": "non_covering",
+          "expected_violation": "none"
+        },
+        "fixture_properties": [
+          "order ties",
+          "more rows than window"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "predicate",
+          "materialized order",
+          "window"
+        ],
+        "witness_id": "tier_c.scalar.reference_full_window",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
+        "id": "required.scalar.reference_invalid_alias_order",
+        "interaction_obligations": [
+          "interaction.scalar.reference_invalid_alias_order"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "singly_invalid",
+          "schema_profile": "reference_scalar",
+          "statement_family": "select",
+          "result_shape": "scalar_rows",
+          "projection_shape": "ambiguous_aliases",
+          "predicate_shape": "none",
+          "grouping_shape": "none",
+          "having_shape": "none",
+          "order_shape": "ambiguous_projection_alias",
+          "window_shape": "limit",
+          "field_roles": "stored_scalar",
+          "semantic_value_class": "ordinary",
+          "fixture_class": "valid_base",
+          "required_access": "not_applicable",
+          "required_covering": "not_applicable",
+          "expected_violation": "ambiguous_alias_binding"
+        },
+        "fixture_properties": [
+          "valid base declaration"
+        ],
+        "minimum_evidence": "boundary_assertion",
+        "provider_eligibility": "rejection_invariant",
+        "provider_id": "generated.select.reference_scalar",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [],
+        "witness_id": "tier_c.scalar.reference_invalid_alias_order",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      }
+    ],
+    "gap_ledger": [
+      {
+        "id": "215-000",
+        "finding": "The provisional design baseline says 98 features and 93 providers; v0.214.1 has 106 and 102.",
+        "evidence": "Exact SQL_SUBSET metadata/manifest bijection and provider registry counts.",
+        "owning_slice": "design_review_before_slice_1",
+        "exclusion": "Do not delete post-design 0.213/0.214 obligations to recover provisional counts."
+      },
+      {
+        "id": "215-001",
+        "finding": "Current generated SELECT evidence has 64 family/slot identities but no derived lossless structural signature.",
+        "evidence": "Eight SelectGeneratorFamily variants multiplied by eight handwritten case slots.",
+        "owning_slice": "slice_1",
+        "exclusion": "Slice 0 does not change generator or replay formats."
+      },
+      {
+        "id": "215-002",
+        "finding": "The indexed nullable reference SELECT profile and its required generated witnesses are absent.",
+        "evidence": "Current SelectSnapshot has one reference-scalar profile and no secondary index.",
+        "owning_slice": "slice_1",
+        "exclusion": "Do not add a third generated SELECT profile."
+      },
+      {
+        "id": "215-003",
+        "finding": "Five fixed invalid SELECT templates do not cover the reviewed alias/grouping/leaf interaction rejections.",
+        "evidence": "ALL_SELECT_VIOLATIONS contains exactly five variants.",
+        "owning_slice": "slice_1",
+        "exclusion": "Keep singly-invalid typed proposals; do not generate free-form malformed SQL."
+      },
+      {
+        "id": "215-004",
+        "finding": "Mutation generation has four authored-scalar vectors and no accepted-default profile or intent-provenance oracle.",
+        "evidence": "MUTATION_STRUCTURAL_VARIANT_COUNT is four and sequence_statements authors fixed rows.",
+        "owning_slice": "slice_2",
+        "exclusion": "Do not generalize the model to relations, managed fields, Identity, or structured values."
+      },
+      {
+        "id": "215-005",
+        "finding": "The current P1/P2/scale evidence predates the post-0.214 source and Wasm identity.",
+        "evidence": "Opening v0.214.1 raw Wasm is recorded; no comparable current instruction cohort exists.",
+        "owning_slice": "slice_3",
+        "exclusion": "Historical 0.206 instructions are context, not a comparable 0.215 baseline."
+      },
+      {
+        "id": "215-006",
+        "finding": "The current planner already constructs one bounded SemanticIndexRangeSpec for a normalized AND range.",
+        "evidence": "index_range_from_and plus merge_range_constraint lower both bounds into one range envelope.",
+        "owning_slice": "slice_3_then_slice_4_decision",
+        "exclusion": "Do not assume the historical two-traversal symptom still exists; require current attributed evidence before production change."
+      },
+      {
+        "id": "215-007",
+        "finding": "Findings 206-010 through 206-014 still lack member/pass/branch eliminated-work counters.",
+        "evidence": "Current membership, SQL binding, and prefix planner owners expose instructions but no typed work counters.",
+        "owning_slice": "slice_3",
+        "exclusion": "Measurement does not authorize a second production optimization in 0.215."
+      },
+      {
+        "id": "215-008",
+        "finding": "Tier C receipts do not carry the frozen catalog hash, scheduled witness ID, or observed structural signature.",
+        "evidence": "Current scheduled evidence format remains version 1 with the 0.204 manifest revision only.",
+        "owning_slice": "slice_1",
+        "exclusion": "No compatibility decoder or dual current receipt format."
+      }
+    ],
+    "owner_map": [
+      {
+        "concern": "compound_range_bound_intersection",
+        "current_owner": "crates/icydb-core/src/db/query/plan/planner/range/bounds.rs",
+        "current_entrypoint": "merge_range_constraint",
+        "slice_0_disposition": "current owner already merges lower and upper bounds and rejects empty or crossed intervals"
+      },
+      {
+        "concern": "compound_range_candidate",
+        "current_owner": "crates/icydb-core/src/db/query/plan/planner/range/extract.rs",
+        "current_entrypoint": "index_range_from_and",
+        "slice_0_disposition": "current normalized AND path emits one SemanticIndexRangeSpec and leaves unrelated compares residual"
+      },
+      {
+        "concern": "compound_range_execution",
+        "current_owner": "crates/icydb-core/src/db/executor/stream/access/traversal.rs",
+        "current_entrypoint": "access visitor index_range path",
+        "slice_0_disposition": "consumes one lowered range envelope; current instructions still require the Slice 3 cohort"
+      },
+      {
+        "concern": "compound_range_lowering",
+        "current_owner": "crates/icydb-core/src/db/access/lowering.rs",
+        "current_entrypoint": "lower_access_with_schema_info",
+        "slice_0_disposition": "materializes one raw lower/upper envelope from SemanticIndexRangeSpec"
+      },
+      {
+        "concern": "coverage_manifest",
+        "current_owner": "testing/integration/tests/sql_correctness_support/coverage_manifest.rs",
+        "current_entrypoint": "MANIFEST and PROVIDERS",
+        "slice_0_disposition": "extended by this module; remains the code authority projected into the checked-in JSON"
+      },
+      {
+        "concern": "generated_select_fixture",
+        "current_owner": "testing/sql-generator/src/generator.rs",
+        "current_entrypoint": "generate_fixture",
+        "slice_0_disposition": "one reference-scalar fixture owner; indexed nullable profile is a Slice 1 gap"
+      },
+      {
+        "concern": "generated_select_structure",
+        "current_owner": "testing/sql-generator/src/generator.rs",
+        "current_entrypoint": "generate_query and eight family builders",
+        "slice_0_disposition": "64 family/slot identities; replacement belongs to Slice 1"
+      },
+      {
+        "concern": "membership_canonicalization",
+        "current_owner": "crates/icydb-core/src/db/predicate/membership.rs",
+        "current_entrypoint": "canonical_membership_value_list",
+        "slice_0_disposition": "canonicalizes a value set; no eliminated-work counter exists"
+      },
+      {
+        "concern": "membership_sql_binding",
+        "current_owner": "crates/icydb-core/src/db/sql/lowering/select/binding.rs",
+        "current_entrypoint": "canonicalize_sql_in_list_expr_for_schema",
+        "slice_0_disposition": "binds and canonicalizes SQL list members; finding 206-011 remains measurement-only"
+      },
+      {
+        "concern": "mutation_generation",
+        "current_owner": "testing/sql-generator/src/mutation/generator.rs",
+        "current_entrypoint": "sequence_statements",
+        "slice_0_disposition": "four complete authored-scalar variants; replacement belongs to Slice 2"
+      },
+      {
+        "concern": "performance_scenario_authority",
+        "current_owner": "testing/integration/tests/sql_perf_matrix_audit.rs",
+        "current_entrypoint": "sql_perf_scenarios and scale declarations",
+        "slice_0_disposition": "current P1/P2/scale owner; hard-cut profile replacement belongs to Slice 3"
+      },
+      {
+        "concern": "prefix_branch_construction",
+        "current_owner": "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
+        "current_entrypoint": "index_branch_set_from_and",
+        "slice_0_disposition": "owns exclusion pruning, branch-cap admission, and wide branch construction for findings 206-012 through 206-014"
+      },
+      {
+        "concern": "prefix_multi_lookup",
+        "current_owner": "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
+        "current_entrypoint": "index_multi_lookup_for_in",
+        "slice_0_disposition": "owns sparse membership access construction for finding 206-010; no eliminated-work counter exists"
+      },
+      {
+        "concern": "route_and_materialization_facts",
+        "current_owner": "crates/icydb-core/src/db/query/plan and crates/icydb-core/src/db/executor",
+        "current_entrypoint": "access choice, covering plan, grouped strategy, and execution diagnostics",
+        "slice_0_disposition": "observed facts must feed the Slice 1 structural signature without SQL-text inference"
+      },
+      {
+        "concern": "scheduled_correctness",
+        "current_owner": "testing/sql-generator/src/scheduled.rs",
+        "current_entrypoint": "Tier C declarations, shards, receipts, and merge",
+        "slice_0_disposition": "receipts do not yet carry the 0.215 catalog hash or observed signatures"
+      }
+    ]
+  }
+}

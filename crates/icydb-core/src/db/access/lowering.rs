@@ -619,6 +619,8 @@ fn lower_index_specs_for_path<K>(
             }
         }
         AccessPath::IndexRange { spec } => {
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
+            crate::db::diagnostics::record_sql_range_physical_child();
             debug_assert_eq!(
                 spec.field_slots().len(),
                 spec.prefix_values().len().saturating_add(1),
