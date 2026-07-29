@@ -786,7 +786,7 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
 }
 
 #[test]
-fn identity_range_preflight_rejects_stale_state_and_apply_requires_exact_advance_identity() {
+fn two_identity_cursors_reject_the_stale_range_and_require_exact_advance_identity() {
     let entity_tag = EntityTag::new(111);
     let field_id = FieldId::new(1);
     let initial = identity_candidate_for_test(
@@ -804,10 +804,39 @@ fn identity_range_preflight_rejects_stale_state_and_apply_requires_exact_advance
             &initial,
         )
         .expect("initial identity declaration should publish");
-    let owner = IdentityStateOwner::try_new(test_database_incarnation(), entity_tag, field_id)
-        .expect("identity owner should build");
-    let range =
-        IdentityRangeAdvance::try_new(owner, 0, 2, 2).expect("contiguous range should build");
+    let mut first_cursor = store
+        .identity_statement_cursor(
+            test_database_incarnation(),
+            entity_tag,
+            field_id,
+            &AcceptedFieldKind::Nat64,
+        )
+        .expect("the first statement cursor should open at zero");
+    let mut stale_cursor = store
+        .identity_statement_cursor(
+            test_database_incarnation(),
+            entity_tag,
+            field_id,
+            &AcceptedFieldKind::Nat64,
+        )
+        .expect("the competing statement cursor should observe the same zero state");
+    for ordinal in 0..2 {
+        first_cursor
+            .allocate(0, ordinal)
+            .expect("the first cursor should allocate a bounded value");
+        stale_cursor
+            .allocate(0, ordinal)
+            .expect("the stale cursor should tentatively allocate the same value");
+    }
+    let range = first_cursor
+        .into_range_advance()
+        .expect("the first cursor should close")
+        .expect("the first cursor should carry one range");
+    let stale_range = stale_cursor
+        .into_range_advance()
+        .expect("the stale cursor should close")
+        .expect("the stale cursor should carry one range");
+    assert_eq!(stale_range, range);
     let advance =
         IdentityAdvanceId::try_new([0x31; 16], [0x41; 16], 7, 2).expect("advance should build");
 
@@ -825,7 +854,7 @@ fn identity_range_preflight_rejects_stale_state_and_apply_requires_exact_advance
         .expect("exact materialized range should verify");
 
     let stale = store
-        .preflight_identity_range_advance(range)
+        .preflight_identity_range_advance(stale_range)
         .expect_err("stale expected high-water must reject before marker publication");
     assert_eq!(stale.class(), ErrorClass::Conflict);
     assert_eq!(stale.origin(), ErrorOrigin::Identity);

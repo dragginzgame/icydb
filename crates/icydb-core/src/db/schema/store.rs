@@ -1938,6 +1938,21 @@ impl SchemaStore {
         Ok(false)
     }
 
+    /// Return the retained Identity owner count after admitting one candidate.
+    pub(in crate::db) fn projected_identity_state_count(
+        &self,
+        incarnation: DatabaseIncarnationId,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<usize, InternalError> {
+        Ok(self
+            .prepare_identity_state_transition(
+                incarnation,
+                candidate,
+                IdentityStateStorageView::Effective,
+            )?
+            .projected_inventory_len())
+    }
+
     /// Apply one marker-bound schema candidate to the journaled live projection.
     pub(in crate::db) fn apply_journaled_accepted_schema_candidate(
         &mut self,

@@ -530,6 +530,11 @@ impl IdentityStateTransition {
         self.updates
     }
 
+    #[must_use]
+    pub(in crate::db::schema) fn projected_inventory_len(&self) -> usize {
+        self.projected_inventory.len()
+    }
+
     pub(in crate::db::schema) fn into_projected_inventory(self) -> IdentityStateInventory {
         self.projected_inventory
     }

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.214.md](docs/changelog/0.214.md)
 
+- `0.214.1` enforces the retained Identity-owner ceiling across the complete
+  database before atomic schema publication and closes stale multi-owner
+  publication and replay evidence.
+
 - `0.214.0` adds durable exact unsigned `Identity::next` generation across
   maintained insert frontends; incompatible pre-1.0 development state must be
   recreated.

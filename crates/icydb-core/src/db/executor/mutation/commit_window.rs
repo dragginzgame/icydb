@@ -1345,13 +1345,28 @@ mod tests {
     use super::*;
     use crate::{
         db::{
-            data::DecodedDataStoreKey,
+            data::{DataStore, DecodedDataStoreKey},
+            index::IndexStore,
+            integrity::DatabaseIncarnationId,
+            journal::JournalTailStore,
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
-            registry::StoreRegistry,
+            registry::{
+                StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+                StoreRuntimeStorageCapabilities,
+            },
+            schema::{
+                AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldInsertGeneration,
+                FieldStorageDecode, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+                SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout,
+                SchemaStore, SchemaVersion, accepted_schema_candidate_for_tests,
+            },
         },
+        error::{ErrorClass, ErrorOrigin},
+        testing::test_memory,
         traits::Path,
         types::EntityTag,
     };
+    use std::collections::BTreeMap;
 
     struct SchedulerOverlayTestCanister;
 
@@ -1369,6 +1384,91 @@ mod tests {
 
     thread_local! {
         static TEST_REGISTRY: StoreRegistry = StoreRegistry::new();
+        static FIRST_IDENTITY_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(240)));
+        static FIRST_IDENTITY_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(241)));
+        static FIRST_IDENTITY_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(242)));
+        static FIRST_IDENTITY_JOURNAL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(243)));
+        static SECOND_IDENTITY_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(244)));
+        static SECOND_IDENTITY_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(245)));
+        static SECOND_IDENTITY_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(246)));
+        static SECOND_IDENTITY_JOURNAL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(247)));
+    }
+
+    const IDENTITY_INCARNATION: DatabaseIncarnationId = DatabaseIncarnationId::for_tests(0x71);
+
+    fn identity_candidate(
+        store_path: &str,
+        entity_tag: EntityTag,
+    ) -> crate::db::schema::CandidateSchemaRevision {
+        let field_id = FieldId::new(1);
+        let kind = AcceptedFieldKind::Nat64;
+        let leaf_codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            format!("tests::Identity{}", entity_tag.value()),
+            format!("Identity{}", entity_tag.value()),
+            field_id,
+            SchemaRowLayout::initial(vec![(field_id, SchemaFieldSlot::new(0))]),
+            vec![PersistedFieldSnapshot::new_initial_with_write_policy(
+                field_id,
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                kind,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                SchemaFieldWritePolicy::from_model_policies(
+                    Some(FieldInsertGeneration::Identity),
+                    None,
+                ),
+                FieldStorageDecode::ByKind,
+                leaf_codec,
+            )],
+        );
+        accepted_schema_candidate_for_tests(
+            store_path,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([(entity_tag, snapshot)]),
+        )
+    }
+
+    fn identity_store_handles() -> (StoreHandle, StoreHandle) {
+        (
+            StoreHandle::new_journaled(
+                &FIRST_IDENTITY_DATA,
+                &FIRST_IDENTITY_INDEX,
+                &FIRST_IDENTITY_SCHEMA,
+                &FIRST_IDENTITY_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(240, "icydb.test.identity-set.first.data.v1"),
+                    StoreAllocationIdentity::new(241, "icydb.test.identity-set.first.index.v1"),
+                    StoreAllocationIdentity::new(242, "icydb.test.identity-set.first.schema.v1"),
+                    StoreAllocationIdentity::new(243, "icydb.test.identity-set.first.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ),
+            StoreHandle::new_journaled(
+                &SECOND_IDENTITY_DATA,
+                &SECOND_IDENTITY_INDEX,
+                &SECOND_IDENTITY_SCHEMA,
+                &SECOND_IDENTITY_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(244, "icydb.test.identity-set.second.data.v1"),
+                    StoreAllocationIdentity::new(245, "icydb.test.identity-set.second.index.v1"),
+                    StoreAllocationIdentity::new(246, "icydb.test.identity-set.second.schema.v1"),
+                    StoreAllocationIdentity::new(247, "icydb.test.identity-set.second.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ),
+        )
     }
 
     fn test_key(value: u64) -> DecodedDataStoreKey {
@@ -1424,5 +1524,95 @@ mod tests {
                 .is_none(),
             "the complete batch must mask deleted rows before storage-backed proofs",
         );
+    }
+
+    #[test]
+    fn stale_multi_owner_preflight_is_read_only_for_the_complete_owner_set() {
+        let (first, second) = identity_store_handles();
+        let first_entity = EntityTag::new(51);
+        let second_entity = EntityTag::new(52);
+        for (store_path, handle, entity_tag) in [
+            ("tests::FirstIdentityStore", first, first_entity),
+            ("tests::SecondIdentityStore", second, second_entity),
+        ] {
+            handle
+                .with_schema_mut(|store| {
+                    *store =
+                        SchemaStore::init_journaled(test_memory(if entity_tag == first_entity {
+                            242
+                        } else {
+                            246
+                        }));
+                    store.publish_accepted_schema_candidate(
+                        IDENTITY_INCARNATION,
+                        AcceptedSchemaRevision::NONE,
+                        &identity_candidate(store_path, entity_tag),
+                    )
+                })
+                .expect("the Identity owner should publish with explicit zero state");
+        }
+
+        let first_owner = crate::db::schema::IdentityStateOwner::try_new(
+            IDENTITY_INCARNATION,
+            first_entity,
+            FieldId::new(1),
+        )
+        .expect("the first owner should admit");
+        let second_owner = crate::db::schema::IdentityStateOwner::try_new(
+            IDENTITY_INCARNATION,
+            second_entity,
+            FieldId::new(1),
+        )
+        .expect("the second owner should admit");
+        let second_committed = IdentityRangeAdvance::try_new(second_owner, 0, 1, 1)
+            .expect("the committed second-owner range should admit");
+        second
+            .with_schema_mut(|store| {
+                store.apply_identity_range_advance(
+                    second_committed,
+                    IdentityAdvanceId::try_new([0x11; 16], [0x21; 16], 1, 0)
+                        .expect("the committed advance identity should admit"),
+                )
+            })
+            .expect("the competing second-owner range should materialize");
+
+        let prepared = [
+            PreparedIdentityRangeApply {
+                store_path: "tests::FirstIdentityStore",
+                handle: first,
+                range: IdentityRangeAdvance::try_new(first_owner, 0, 1, 1)
+                    .expect("the first pending range should admit"),
+                advance_id: IdentityAdvanceId::try_new([0x12; 16], [0x22; 16], 2, 0)
+                    .expect("the first pending advance identity should admit"),
+            },
+            PreparedIdentityRangeApply {
+                store_path: "tests::SecondIdentityStore",
+                handle: second,
+                range: IdentityRangeAdvance::try_new(second_owner, 0, 1, 1)
+                    .expect("the stale second-owner range should remain structurally valid"),
+                advance_id: IdentityAdvanceId::try_new([0x12; 16], [0x23; 16], 3, 0)
+                    .expect("the second pending advance identity should admit"),
+            },
+        ];
+
+        let error = preflight_identity_range_applies(prepared.as_slice())
+            .expect_err("one stale owner must reject the complete set before publication");
+        assert_eq!(error.class(), ErrorClass::Conflict);
+        assert_eq!(error.origin(), ErrorOrigin::Identity);
+        for (handle, entity_tag, expected_high_water) in
+            [(first, first_entity, 0), (second, second_entity, 1)]
+        {
+            let cursor = handle
+                .with_schema(|store| {
+                    store.identity_statement_cursor(
+                        IDENTITY_INCARNATION,
+                        entity_tag,
+                        FieldId::new(1),
+                        &AcceptedFieldKind::Nat64,
+                    )
+                })
+                .expect("set preflight must leave every owner unchanged");
+            assert_eq!(cursor.expected_high_water(), expected_high_water);
+        }
     }
 }

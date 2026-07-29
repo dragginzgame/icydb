@@ -27,11 +27,11 @@ use crate::{
             AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
             ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
             ConstraintValidationPhase, ConstraintValidationProgress, ExistingProposalStore,
-            ProposalStoreTarget, SchemaApplicationRecord, SchemaApplicationRecordOp,
-            SchemaChangeActivation, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
-            SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
-            SchemaChangeValidationPhase, StagedUserIndexDomainError, UnpublishedRowLocalValidation,
-            advance_accepted_row_local_constraint_activation,
+            MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, ProposalStoreTarget, SchemaApplicationRecord,
+            SchemaApplicationRecordOp, SchemaChangeActivation, SchemaChangeJob, SchemaChangeJobId,
+            SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
+            SchemaChangeReceipt, SchemaChangeValidationPhase, StagedUserIndexDomainError,
+            UnpublishedRowLocalValidation, advance_accepted_row_local_constraint_activation,
             constraint_validation_finding_diagnostic, derive_schema_change_job_id,
             lower_existing_schema_proposal, lower_initial_schema_proposal,
             prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
@@ -600,6 +600,11 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
         candidates,
         pending,
     } = lower_application_candidates(&target, proposal, authorities.as_slice())?;
+    validate_database_identity_state_capacity(
+        authorities.as_slice(),
+        candidates.as_slice(),
+        database_incarnation_id()?,
+    )?;
     let accepted_head = if let Some(pending) = pending.as_ref() {
         let final_candidates =
             final_candidates_for_pending_row_local_constraint(&candidates, pending)?;
@@ -710,6 +715,40 @@ fn lower_application_candidates(
         candidates,
         pending,
     })
+}
+
+fn validate_database_identity_state_capacity(
+    authorities: &[StoreApplicationAuthority],
+    candidates: &[CandidateSchemaRevision],
+    incarnation: crate::db::integrity::DatabaseIncarnationId,
+) -> Result<(), InternalError> {
+    let mut total = 0usize;
+    for authority in authorities {
+        let count = match candidates
+            .iter()
+            .find(|candidate| candidate.store_path() == authority.path)
+        {
+            Some(candidate) => authority.handle.with_schema(|store| {
+                store.projected_identity_state_count(incarnation, candidate)
+            })?,
+            None => authority
+                .handle
+                .with_schema(|store| store.identity_state_inventory_for_integrity(incarnation))?
+                .len(),
+        };
+        total = include_identity_state_count(total, count)?;
+    }
+    Ok(())
+}
+
+fn include_identity_state_count(total: usize, count: usize) -> Result<usize, InternalError> {
+    let total = total
+        .checked_add(count)
+        .ok_or_else(InternalError::identity_state_capacity_exhausted)?;
+    if total > MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
+        return Err(InternalError::identity_state_capacity_exhausted());
+    }
+    Ok(total)
 }
 
 fn preflight_initial_application(
@@ -1504,8 +1543,8 @@ mod tests {
         AcceptedSchemaPublication, AcceptedStoreHead, abort_schema_application,
         aborted_generated_row_local_candidate, apply_schema, continue_schema_application,
         derive_accepted_head, derive_schema_change_job_id, ensure_recovered,
-        lower_existing_schema_proposal, lower_initial_schema_proposal,
-        publish_accepted_schema_candidates_with_application_record,
+        include_identity_state_count, lower_existing_schema_proposal,
+        lower_initial_schema_proposal, publish_accepted_schema_candidates_with_application_record,
         require_exact_empty_entity_count, schema_application_target,
     };
     use crate::{
@@ -1525,7 +1564,7 @@ mod tests {
                 SchemaChangeJob, SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
             },
         },
-        error::ErrorClass,
+        error::{ErrorClass, ErrorOrigin},
         testing::test_memory,
         traits::{CanisterKind, Path},
     };
@@ -1539,6 +1578,20 @@ mod tests {
     use std::cell::RefCell;
 
     const ABORT_STORE_PATH: &str = "schema_application_tests::AbortStore";
+
+    #[test]
+    fn database_identity_state_capacity_combines_store_inventories_exactly() {
+        let below = include_identity_state_count(0, 65_535)
+            .expect("the first store inventory should remain below the database cap");
+        let exact = include_identity_state_count(below, 1)
+            .expect("the combined database boundary should admit");
+        assert_eq!(exact, 65_536);
+
+        let error = include_identity_state_count(exact, 1)
+            .expect_err("the next owner in another store must reject");
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+        assert_eq!(error.origin(), ErrorOrigin::Identity);
+    }
 
     #[test]
     fn exact_empty_entity_proof_distinguishes_corruption_from_non_empty_input() {
