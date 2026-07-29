@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.214.x] 🔢 - 2026-07-29 - Exact Unsigned Identity Generation
+
+Detailed notes: [docs/changelog/0.214.md](docs/changelog/0.214.md)
+
+- `0.214.0` adds durable exact unsigned `Identity::next` generation across
+  maintained insert frontends; incompatible pre-1.0 development state must be
+  recreated.
+
 ## [0.213.x] 🧭 - 2026-07-24 - Schema Authority And Application Separation
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)

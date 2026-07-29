@@ -90,6 +90,7 @@ fn render_describe_lines_output_contract_vector_is_stable() {
             "entity: ExampleEntity".to_string(),
             "path: schema.public.ExampleEntity".to_string(),
             "row layout: current=1 history_floor=1".to_string(),
+            "identity: none".to_string(),
             String::new(),
             "fields:".to_string(),
             "+------+------+------+----------+-----+-----------+-----------+-----------------+----------------+---------------+--------------+-------------------+-----------------+------------+-----------+".to_string(),

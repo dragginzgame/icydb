@@ -2888,6 +2888,18 @@ fn lower_write_policy(
     kind: &AcceptedFieldKind,
 ) -> Result<SchemaFieldWritePolicy, InternalError> {
     let insert_generation = match insert {
+        FieldInsertPolicy::Generated
+            if matches!(
+                kind,
+                AcceptedFieldKind::Nat8
+                    | AcceptedFieldKind::Nat16
+                    | AcceptedFieldKind::Nat32
+                    | AcceptedFieldKind::Nat64
+                    | AcceptedFieldKind::Nat128
+            ) =>
+        {
+            Some(FieldInsertGeneration::Identity)
+        }
         FieldInsertPolicy::Generated if matches!(kind, AcceptedFieldKind::Ulid) => {
             Some(FieldInsertGeneration::Ulid)
         }
@@ -3058,7 +3070,8 @@ mod tests {
             AcceptedRuleTarget, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
             AcceptedSchemaSnapshot, AcceptedStoreCatalogScope, AcceptedValueCatalogHandle,
             AcceptedValueContract, CompiledAcceptedRowConstraints, ConstraintActivationKind,
-            ConstraintOrigin, PersistedFieldSnapshot, SchemaInsertDefault, ValueAdmissionBudget,
+            ConstraintOrigin, FieldInsertGeneration, PersistedFieldSnapshot, SchemaInsertDefault,
+            ValueAdmissionBudget,
             composite_catalog::AcceptedCompositeShape,
             enum_catalog::{
                 AcceptedEnumVariantBody, ValueAdmissionError, normalize_candidate_value,
@@ -3343,6 +3356,91 @@ mod tests {
                 .constraint_binding_count_for_tests(entity_tag),
             1,
         );
+    }
+
+    #[test]
+    fn initial_identity_policy_lowers_all_exact_unsigned_widths_to_accepted_ids() {
+        for (index, scalar) in [
+            ScalarType::Nat8,
+            ScalarType::Nat16,
+            ScalarType::Nat32,
+            ScalarType::Nat64,
+            ScalarType::Nat128,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let entity_name = format!("Identity{index}");
+            let entity_source =
+                EntitySourceKey::try_new(&entity_name).expect("entity source should admit");
+            let id_source = FieldSourceKey::try_new("id").expect("field source should admit");
+            let entity = EntityFragment::try_new(
+                name(&entity_name),
+                vec![FieldFragment::new(
+                    name("id"),
+                    FieldType::Scalar(scalar),
+                    false,
+                    FieldInsertPolicy::Generated,
+                    None,
+                )],
+                vec![id_source.clone()],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("exact unsigned identity proposal should admit");
+            let fragment = SchemaFragment::try_new(vec![entity], Vec::new())
+                .expect("identity fragment should admit");
+            let discriminator =
+                u8::try_from(index).expect("identity width fixture index should fit one byte");
+            let store = TargetStoreIdentity::from_bytes(
+                [0x70_u8
+                    .checked_add(discriminator)
+                    .expect("identity width fixture discriminator should fit"); 32],
+            );
+            let proposal = SchemaProposal::try_compose(
+                vec![SchemaCapability::GENERATED_VALUES],
+                TargetDatabaseIdentity::from_bytes([0x61; 32]),
+                SchemaSubmissionKey::try_new(format!("identity-{index}"))
+                    .expect("submission key should admit"),
+                ExpectedAcceptedHead::Empty,
+                vec![fragment],
+                vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+                Vec::new(),
+            )
+            .expect("identity proposal should compose");
+
+            let candidates = lower_initial_schema_proposal(
+                &proposal,
+                &[ProposalStoreTarget {
+                    path: "test::IdentityStore",
+                    identity: store,
+                }],
+            )
+            .expect("identity proposal should lower through accepted authority");
+            let candidate = &candidates[0];
+            let entity_tag = candidate
+                .bundle()
+                .source_bindings_for_tests()
+                .entity(&entity_source)
+                .expect("entity source should bind to accepted identity");
+            let field_id = candidate
+                .bundle()
+                .source_bindings_for_tests()
+                .field(entity_tag, &id_source)
+                .expect("field source should bind to accepted identity");
+            let field = candidate.bundle().entity_snapshots()[&entity_tag]
+                .fields()
+                .iter()
+                .find(|field| field.id() == field_id)
+                .expect("accepted identity field should exist");
+
+            assert_eq!(candidate.store_path(), "test::IdentityStore");
+            assert_eq!(
+                field.write_policy().insert_generation(),
+                Some(FieldInsertGeneration::Identity),
+            );
+        }
     }
 
     #[test]

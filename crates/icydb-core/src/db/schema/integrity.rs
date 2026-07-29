@@ -8,8 +8,8 @@ mod index;
 mod relation;
 
 use crate::db::schema::{
-    FieldId, PersistedFieldSnapshot, RowLayoutVersion, SchemaHistoricalFill, SchemaRowLayout,
-    SchemaVersion,
+    AcceptedFieldKind, FieldId, FieldInsertGeneration, PersistedFieldSnapshot, RowLayoutVersion,
+    SchemaHistoricalFill, SchemaRowLayout, SchemaVersion,
 };
 
 pub(in crate::db::schema) use constraint::schema_snapshot_constraint_integrity_detail;
@@ -116,6 +116,52 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
 
     if matched_primary_key_fields != primary_key_field_ids.len() {
         return Some(());
+    }
+
+    if insert_generation_detail(primary_key_field_ids, fields).is_some() {
+        return Some(());
+    }
+
+    None
+}
+
+// Keep database-owned insert synthesis exact in accepted authority. Identity
+// is narrower than the existing stateless generators: it belongs only to one
+// generated, non-null, exact unsigned scalar sole primary key.
+fn insert_generation_detail(
+    primary_key_field_ids: &[FieldId],
+    fields: &[PersistedFieldSnapshot],
+) -> Option<()> {
+    for field in fields {
+        let Some(generation) = field.write_policy().insert_generation() else {
+            continue;
+        };
+        if !field.generated()
+            || field.nullable()
+            || field.insert_default().slot_payload().is_some()
+            || field.write_policy().write_management().is_some()
+        {
+            return Some(());
+        }
+
+        match (generation, field.kind()) {
+            (
+                FieldInsertGeneration::Identity,
+                AcceptedFieldKind::Nat8
+                | AcceptedFieldKind::Nat16
+                | AcceptedFieldKind::Nat32
+                | AcceptedFieldKind::Nat64
+                | AcceptedFieldKind::Nat128,
+            ) if primary_key_field_ids == [field.id()] => {}
+            (FieldInsertGeneration::Ulid, AcceptedFieldKind::Ulid)
+            | (FieldInsertGeneration::Timestamp, AcceptedFieldKind::Timestamp) => {}
+            (
+                FieldInsertGeneration::Identity
+                | FieldInsertGeneration::Ulid
+                | FieldInsertGeneration::Timestamp,
+                _,
+            ) => return Some(()),
+        }
     }
 
     None

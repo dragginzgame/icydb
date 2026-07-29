@@ -6,8 +6,8 @@
 use super::{Entity, Timestamps, composite_primary_key_type_part, entity_typed_adapter_tokens};
 use crate::authoring_types::Primitive;
 use crate::node::{
-    Def, Field, FieldList, FieldWriteManagement, HasSchemaPart, Index, Item, PrimaryKey,
-    PrimaryKeySource, Relation, Type, ValidateNode, Value,
+    Arg, Def, Field, FieldGeneration, FieldList, FieldWriteManagement, HasSchemaPart, Index, Item,
+    PrimaryKey, PrimaryKeySource, Relation, Type, ValidateNode, Value,
 };
 use darling::{FromMeta, ast::NestedMeta};
 use proc_macro2::Span;
@@ -34,6 +34,14 @@ fn primitive_field(ident: &str, primitive: Primitive) -> Field {
         generated: None,
         write_management: None,
     }
+}
+
+fn identity_field(ident: &str, primitive: Primitive) -> Field {
+    let mut field = primitive_field(ident, primitive);
+    field.generated = Some(FieldGeneration::Insert(Arg::FuncPath(syn::parse_quote!(
+        Identity::next
+    ))));
+    field
 }
 
 fn many_scalar_field(ident: &str) -> Field {
@@ -201,6 +209,29 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
 }
 
 #[test]
+fn typed_identity_insert_omits_the_database_owned_primary_key() {
+    let mut entity = entity_with_fields_and_indexes(
+        vec![
+            identity_field("id", Primitive::Nat64),
+            primitive_field("name", Primitive::Text),
+        ],
+        vec![],
+    );
+    entity.typed_adapters = true;
+
+    let tokens = entity_typed_adapter_tokens(&entity).to_string();
+
+    assert!(
+        !tokens.contains("pub id : :: icydb :: db :: WriteCell"),
+        "identity must be absent from typed insert intent: {tokens}",
+    );
+    assert!(
+        tokens.contains("id : < u64 as :: icydb :: __macro :: TypedOutputValue"),
+        "decoded rows must retain the concrete identity: {tokens}",
+    );
+}
+
+#[test]
 fn fatal_errors_validate_each_ordered_primary_key_field() {
     let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), many_scalar_field("tenant_id")],
@@ -219,6 +250,38 @@ fn fatal_errors_validate_each_ordered_primary_key_field() {
         error_text.contains("primary key field 'tenant_id' must have cardinality One"),
         "unexpected fatal errors: {error_text}",
     );
+}
+
+#[test]
+fn fatal_errors_reject_identity_outside_the_sole_primary_key() {
+    let mut non_primary = entity_with_fields_and_indexes(
+        vec![
+            scalar_field("id"),
+            identity_field("sequence", Primitive::Nat32),
+        ],
+        vec![],
+    );
+    let mut composite = entity_with_fields_and_indexes(
+        vec![
+            identity_field("id", Primitive::Nat64),
+            primitive_field("tenant_id", Primitive::Nat64),
+        ],
+        vec![],
+    );
+    composite.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("id")];
+
+    for entity in [&mut non_primary, &mut composite] {
+        let errors = entity.fatal_errors();
+        let error_text = errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            error_text.contains("allowed only on the sole primary-key field"),
+            "unexpected fatal errors: {error_text}",
+        );
+    }
 }
 
 #[test]

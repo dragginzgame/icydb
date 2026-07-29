@@ -9,13 +9,14 @@ use crate::{
         data::decode_admitted_value_from_accepted_field_contract,
         schema::{
             AcceptedConstraintKind, AcceptedFieldKind, AcceptedFieldPersistenceContract,
-            AcceptedInsertOmissionPolicy, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintActivationSnapshot,
-            ConstraintActivationState, ConstraintOrigin, ConstraintValidationJob, FieldId,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
-            PersistedSchemaSnapshot, SchemaHistoricalFill,
+            AcceptedIdentityInspection, AcceptedInsertOmissionPolicy,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
+            ConstraintOrigin, ConstraintValidationJob, FieldId, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
-            field_type_from_persisted_kind, output_value_from_runtime,
+            field_type_from_persisted_kind, identity_kind_maximum, output_value_from_runtime,
             render_accepted_check_expr_sql,
             runtime::AcceptedRowLayoutRuntimeField,
         },
@@ -42,6 +43,7 @@ pub struct EntitySchemaDescription {
     pub(crate) entity_name: String,
     pub(crate) primary_key: String,
     pub(crate) primary_key_fields: Vec<String>,
+    pub(crate) identity: Option<Box<EntityIdentityDescription>>,
     pub(crate) fields: Vec<EntityFieldDescription>,
     pub(crate) indexes: Vec<EntityIndexDescription>,
     pub(crate) relations: Vec<EntityRelationDescription>,
@@ -74,6 +76,7 @@ impl EntitySchemaDescription {
             entity_name,
             primary_key,
             primary_key_fields,
+            identity: None,
             fields,
             indexes,
             relations,
@@ -105,6 +108,12 @@ impl EntitySchemaDescription {
     #[must_use]
     pub const fn primary_key_fields(&self) -> &[String] {
         self.primary_key_fields.as_slice()
+    }
+
+    /// Borrow the accepted Identity policy and lifetime allocation state.
+    #[must_use]
+    pub fn identity(&self) -> Option<&EntityIdentityDescription> {
+        self.identity.as_deref()
     }
 
     /// Borrow field description entries.
@@ -142,6 +151,114 @@ impl EntitySchemaDescription {
     pub const fn row_layout_history_floor(&self) -> u32 {
         self.row_layout_history_floor
     }
+
+    fn with_identity(mut self, identity: Option<EntityIdentityDescription>) -> Self {
+        self.identity = identity.map(Box::new);
+        self
+    }
+}
+
+/// Accepted Identity generator policy, exact unsigned domain, and current
+/// lifetime allocation state for one entity.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct EntityIdentityDescription {
+    field: String,
+    generator: String,
+    accepted_kind: String,
+    minimum: u128,
+    maximum: u128,
+    high_water: u128,
+    remaining: u128,
+    exhausted: bool,
+}
+
+impl EntityIdentityDescription {
+    pub(in crate::db) fn new(
+        field: String,
+        accepted_kind: String,
+        maximum: u128,
+        high_water: u128,
+    ) -> Result<Self, InternalError> {
+        let remaining = maximum
+            .checked_sub(high_water)
+            .ok_or_else(InternalError::identity_state_corruption)?;
+        Ok(Self {
+            field,
+            generator: "Identity::next".to_string(),
+            accepted_kind,
+            minimum: 1,
+            maximum,
+            high_water,
+            remaining,
+            exhausted: high_water == maximum,
+        })
+    }
+
+    /// Borrow the accepted Identity field name.
+    #[must_use]
+    pub const fn field(&self) -> &str {
+        self.field.as_str()
+    }
+
+    /// Borrow the fixed accepted generator spelling.
+    #[must_use]
+    pub const fn generator(&self) -> &str {
+        self.generator.as_str()
+    }
+
+    /// Borrow the exact accepted unsigned field kind.
+    #[must_use]
+    pub const fn accepted_kind(&self) -> &str {
+        self.accepted_kind.as_str()
+    }
+
+    /// Return the first generated value.
+    #[must_use]
+    pub const fn minimum(&self) -> u128 {
+        self.minimum
+    }
+
+    /// Return the exact accepted lifetime allocation maximum.
+    #[must_use]
+    pub const fn maximum(&self) -> u128 {
+        self.maximum
+    }
+
+    /// Return the greatest committed value, or zero before the first commit.
+    #[must_use]
+    pub const fn high_water(&self) -> u128 {
+        self.high_water
+    }
+
+    /// Return the remaining lifetime allocation capacity.
+    #[must_use]
+    pub const fn remaining(&self) -> u128 {
+        self.remaining
+    }
+
+    /// Return whether the exact accepted unsigned domain is exhausted.
+    #[must_use]
+    pub const fn exhausted(&self) -> bool {
+        self.exhausted
+    }
+}
+
+pub(in crate::db) fn describe_accepted_identity(
+    identity: &AcceptedIdentityInspection,
+    high_water: u128,
+) -> Result<EntityIdentityDescription, InternalError> {
+    let accepted_kind = identity
+        .accepted_kind()
+        .describe_kind_name()
+        .ok_or_else(InternalError::identity_state_corruption)?;
+    let maximum = identity_kind_maximum(identity.accepted_kind())
+        .ok_or_else(InternalError::identity_state_corruption)?;
+    EntityIdentityDescription::new(
+        identity.field_name().to_string(),
+        accepted_kind.to_string(),
+        maximum,
+        high_water,
+    )
 }
 
 #[cfg_attr(
@@ -662,14 +779,16 @@ pub(in crate::db) fn describe_accepted_entity_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
+    identity: Option<EntityIdentityDescription>,
 ) -> Result<EntitySchemaDescription, InternalError> {
-    describe_entity_with_persisted_schema(schema, value_catalog, validation_jobs)
+    describe_entity_with_persisted_schema(schema, value_catalog, validation_jobs, identity)
 }
 
 fn describe_entity_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
+    identity: Option<EntityIdentityDescription>,
 ) -> Result<EntitySchemaDescription, InternalError> {
     let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
     let fields = describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)?;
@@ -694,7 +813,8 @@ fn describe_entity_with_persisted_schema(
         describe_entity_constraints_with_persisted_schema(schema, value_catalog, validation_jobs)?,
         row_layout.current_layout_version().get(),
         row_layout.history_floor().get(),
-    ))
+    )
+    .with_identity(identity))
 }
 
 // Assemble the common DESCRIBE payload once field rows have already been built.
@@ -1665,3 +1785,31 @@ impl DescribeKindName for AcceptedFieldKind {
 //
 // TESTS
 //
+
+#[cfg(test)]
+mod tests {
+    use super::EntityIdentityDescription;
+
+    #[test]
+    fn identity_description_reports_exact_remaining_capacity_and_exhaustion() {
+        let available =
+            EntityIdentityDescription::new("id".to_string(), "nat8".to_string(), 255, 254)
+                .expect("in-domain Identity description should build");
+        assert_eq!(available.minimum(), 1);
+        assert_eq!(available.maximum(), 255);
+        assert_eq!(available.high_water(), 254);
+        assert_eq!(available.remaining(), 1);
+        assert!(!available.exhausted());
+
+        let exhausted =
+            EntityIdentityDescription::new("id".to_string(), "nat8".to_string(), 255, 255)
+                .expect("exact-domain exhaustion should remain describable");
+        assert_eq!(exhausted.remaining(), 0);
+        assert!(exhausted.exhausted());
+
+        assert!(
+            EntityIdentityDescription::new("id".to_string(), "nat8".to_string(), 255, 256).is_err(),
+            "state beyond the accepted domain must not be described",
+        );
+    }
+}

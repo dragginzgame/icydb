@@ -153,7 +153,33 @@ fn audit_label(&self) -> String {
 }
 ```
 
-## 10. Rationale
+## 10. Generated Numeric Identity
+
+`generated(insert = "Identity::next")` is an accepted write policy on one
+exact unsigned field. It is not a Serial type, Rust callback, default
+expression, or authorization mechanism.
+
+- The field must be the sole required primary key and exactly `Nat8`, `Nat16`,
+  `Nat32`, `Nat64`, or `Nat128`.
+- Values start at one, advance by one, never cycle, and are GENERATED ALWAYS.
+- The database owns the field on logical insert. Typed insert inputs omit it;
+  structural and SQL inserts may omit it or use `DEFAULT`.
+- Rejected work consumes no value. A committed value is never reused after
+  deletion, so visible values need not be dense.
+- Capacity is lifetime committed allocation: `255`, `65,535`,
+  `4,294,967,295`, `18,446,744,073,709,551,615`, or `2^128 - 1` respectively.
+- `Nat64` is the normal general-purpose choice. Narrower kinds do not imply a
+  smaller current physical-key encoding.
+- The allocation owner is entity-local and store-local. ULID remains the
+  appropriate choice for decentralized or cross-system allocation.
+- SQL DML consumes accepted Identity policy, including `RETURNING`; SQL DDL
+  authoring, reseeding, custom starts or steps, cycling, and BY DEFAULT remain
+  unsupported.
+
+Schema description exposes the fixed generator, exact accepted kind, domain,
+committed lifetime high-water, remaining capacity, and exhaustion state.
+
+## 11. Rationale
 
 `Id<E>` and primitive keys are not interchangeable concepts.
 
@@ -168,9 +194,11 @@ IcyDB keeps relation naming, identity typing, and key transport separate so code
 
 This separation improves correctness, prevents accidental cross-entity key mixing, and makes identity flows auditable.
 
-## 11. Do Not Do This
+## 12. Do Not Do This
 
 - Do not treat `Id<E>` as a capability, session token, or proof object.
 - Do not assume authorization, ownership, or existence from possession of an ID.
 - Do not rename schema relation fields to `*_id` as a style default.
 - Do not collapse identity (`Id<E>`) and storage key (`Ulid`/`Principal`/etc.) into one naming convention.
+- Do not infer authorization, secrecy, global uniqueness, or density from a
+  generated numeric Identity value.

@@ -16,7 +16,8 @@ use crate::db::{
 use crate::{
     db::{
         commit::{
-            CommitMarker, begin_commit, finish_commit, generate_commit_id, generate_marker_batch_id,
+            CommitMarker, begin_commit, database_incarnation_id, finish_commit, generate_commit_id,
+            generate_marker_batch_id,
         },
         journal::{JournalBatch, JournalRecord, JournalSequence},
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
@@ -150,11 +151,13 @@ fn publish_accepted_schema_candidates_with_optional_application_record(
         )?;
     }
 
+    let incarnation = database_incarnation_id()?;
     let already_current = publications
         .iter()
         .map(|publication| {
             publication.store.with_schema(|schema_store| {
                 schema_store.preflight_accepted_schema_candidate(
+                    incarnation,
                     publication.expected_revision,
                     publication.candidate,
                 )
@@ -177,6 +180,7 @@ fn publish_accepted_schema_candidates_with_optional_application_record(
             == StoreSchemaMetadataCapability::LiveRebuiltMetadata
         {
             preflight_live_schema_checkpoint(
+                incarnation,
                 publication.store_path,
                 publication.expected_revision,
                 publication.candidate,
@@ -396,10 +400,11 @@ fn publish_live_candidate_with_prepared_domains(
     {
         return Err(InternalError::store_unsupported());
     }
+    let incarnation = database_incarnation_id()?;
     store.with_schema(|schema_store| {
-        schema_store.preflight_accepted_schema_candidate(expected_revision, candidate)
+        schema_store.preflight_accepted_schema_candidate(incarnation, expected_revision, candidate)
     })?;
-    preflight_live_schema_checkpoint(store_path, expected_revision, candidate)?;
+    preflight_live_schema_checkpoint(incarnation, store_path, expected_revision, candidate)?;
     let marker_id = generate_commit_id()?;
     let record = JournalRecord::accepted_schema_publish(
         store_path,
@@ -412,9 +417,13 @@ fn publish_live_candidate_with_prepared_domains(
     let commit = begin_commit(marker)?;
 
     finish_commit(commit, |_guard| {
-        apply_live_schema_checkpoint(store_path, expected_revision, candidate)?;
+        apply_live_schema_checkpoint(incarnation, store_path, expected_revision, candidate)?;
         store.with_schema_mut(|schema_store| {
-            schema_store.publish_accepted_schema_candidate(expected_revision, candidate)
+            schema_store.publish_accepted_schema_candidate(
+                incarnation,
+                expected_revision,
+                candidate,
+            )
         })?;
         apply_staged_schema_domains(store, domains);
         Ok(())
@@ -430,6 +439,10 @@ fn publish_journaled_candidate(
     job_change: ConstraintValidationJobChange<'_>,
     application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
+    let incarnation = database_incarnation_id()?;
+    store.with_schema(|schema_store| {
+        schema_store.preflight_accepted_schema_candidate(incarnation, expected_revision, candidate)
+    })?;
     let journal_store = store
         .journal_tail_store()
         .ok_or_else(InternalError::store_invariant)?;
@@ -457,7 +470,11 @@ fn publish_journaled_candidate(
     finish_commit(commit, |_guard| {
         journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
         store.with_schema_mut(|schema_store| {
-            schema_store.apply_journaled_accepted_schema_candidate(expected_revision, candidate)
+            schema_store.apply_journaled_accepted_schema_candidate(
+                incarnation,
+                expected_revision,
+                candidate,
+            )
         })?;
         apply_constraint_validation_job_change(store, job_change)?;
         apply_staged_schema_domains(store, domains);
@@ -472,6 +489,7 @@ fn publish_candidates_atomically(
     publications: &[AcceptedSchemaPublication<'_>],
     application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
+    let incarnation = database_incarnation_id()?;
     let marker_id = generate_commit_id()?;
     let mut batches = Vec::with_capacity(publications.len());
     for (ordinal, publication) in publications.iter().enumerate() {
@@ -517,6 +535,7 @@ fn publish_candidates_atomically(
                 == StoreSchemaMetadataCapability::LiveRebuiltMetadata
             {
                 apply_live_schema_checkpoint(
+                    incarnation,
                     publication.store_path,
                     publication.expected_revision,
                     publication.candidate,
@@ -531,12 +550,14 @@ fn publish_candidates_atomically(
                 ) {
                     (AcceptedSchemaRevision::NONE, _) | (_, StoreRecoveryCapability::None) => {
                         schema_store.publish_accepted_schema_candidate(
+                            incarnation,
                             publication.expected_revision,
                             publication.candidate,
                         )
                     }
                     (_, StoreRecoveryCapability::StableBasePlusJournalReplay) => schema_store
                         .apply_journaled_accepted_schema_candidate(
+                            incarnation,
                             publication.expected_revision,
                             publication.candidate,
                         ),
@@ -865,10 +886,11 @@ mod tests {
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::{
                 AcceptedFieldKind, AcceptedSchemaRevision, CandidateSchemaRevision, FieldId,
-                FieldStorageDecode, LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-                ScalarCodec, SchemaApplicationRecord, SchemaApplicationRecordOp,
-                SchemaChangeOutcome, SchemaChangeReceipt, SchemaFieldSlot, SchemaInsertDefault,
-                SchemaRowLayout, SchemaStore, SchemaVersion, accepted_schema_candidate_for_tests,
+                FieldInsertGeneration, FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, ScalarCodec, SchemaApplicationRecord,
+                SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt,
+                SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout,
+                SchemaStore, SchemaVersion, accepted_schema_candidate_for_tests,
                 empty_accepted_schema_candidate_for_tests, load_live_schema_checkpoint,
                 with_schema_application_store,
             },
@@ -956,6 +978,41 @@ mod tests {
         )
     }
 
+    fn candidate_with_identity_entity(
+        store_path: &str,
+        revision: AcceptedSchemaRevision,
+        entity_tag: EntityTag,
+    ) -> CandidateSchemaRevision {
+        let field_id = FieldId::new(1);
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema_publication_tests::IdentityEntity".to_string(),
+            "IdentityEntity".to_string(),
+            field_id,
+            SchemaRowLayout::initial(vec![(field_id, SchemaFieldSlot::new(0))]),
+            vec![PersistedFieldSnapshot::new_initial_with_write_policy(
+                field_id,
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                SchemaFieldWritePolicy::from_model_policies(
+                    Some(FieldInsertGeneration::Identity),
+                    None,
+                ),
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            )],
+        );
+        accepted_schema_candidate_for_tests(
+            store_path,
+            revision,
+            std::collections::BTreeMap::from([(entity_tag, snapshot)]),
+        )
+    }
+
     struct CompletionCanister;
 
     impl Path for CompletionCanister {
@@ -1024,8 +1081,14 @@ mod tests {
         let checkpoint = load_live_schema_checkpoint(candidate.store_path())
             .expect("live accepted checkpoint should remain readable")
             .expect("live accepted checkpoint should exist");
-        assert_eq!(checkpoint.encoded_bundle(), candidate.encoded_bundle());
-        assert_eq!(checkpoint.encoded_root(), candidate.encoded_root());
+        assert_eq!(
+            checkpoint.candidate().encoded_bundle(),
+            candidate.encoded_bundle()
+        );
+        assert_eq!(
+            checkpoint.candidate().encoded_root(),
+            candidate.encoded_root()
+        );
         let loaded = with_schema_application_store(|store| {
             store.load(
                 record.receipt().database_identity(),
@@ -1047,9 +1110,10 @@ mod tests {
         let store = db
             .store_handle(COMPLETION_STORE_PATH)
             .expect("completion heap store should resolve");
-        let candidate = empty_accepted_schema_candidate_for_tests(
+        let candidate = candidate_with_identity_entity(
             COMPLETION_STORE_PATH,
             AcceptedSchemaRevision::new(1),
+            EntityTag::new(72),
         );
         let record = applied_record(&candidate, 0x51, "single-live-completion");
         let operation =
@@ -1094,6 +1158,19 @@ mod tests {
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
         ensure_recovered(&db).expect("latest plain checkpoint should restore after upgrade");
         assert_candidate_and_record_published(store, &second, &record);
+
+        let reused = candidate_with_identity_entity(
+            COMPLETION_STORE_PATH,
+            AcceptedSchemaRevision::new(3),
+            EntityTag::new(72),
+        );
+        publish_accepted_schema_candidate(
+            COMPLETION_STORE_PATH,
+            store,
+            AcceptedSchemaRevision::new(2),
+            &reused,
+        )
+        .expect_err("retired identity owner must remain unavailable after checkpoint recovery");
     }
 
     #[test]

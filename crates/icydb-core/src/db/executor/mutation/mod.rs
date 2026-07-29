@@ -6,6 +6,10 @@
 pub(super) mod commit_window;
 mod constraint_scheduler;
 
+#[cfg(test)]
+pub(in crate::db) use commit_window::{
+    IdentityCommitInterruption, interrupt_next_identity_commit_for_tests,
+};
 pub(in crate::db) use commit_window::{
     commit_delete_row_ops_with_window_for_path, commit_structural_save_row_ops_with_window_for_path,
 };

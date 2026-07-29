@@ -20,7 +20,7 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitMarker, CommitRowOp, CommitSchemaFingerprint,
+            CommitMarker, CommitRowOp, CommitSchemaFingerprint, database_incarnation_id,
             memory::{
                 CommitMemoryAllocation, configure_commit_memory_id,
                 current_commit_memory_allocation,
@@ -42,10 +42,11 @@ use crate::{
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedSchemaRevision, CandidateSchemaRevision,
-            ConstraintId, SchemaStore, accepted_commit_schema_fingerprint,
-            apply_live_schema_checkpoint, apply_schema_application_record_op,
-            decode_constraint_validation_job, decode_persisted_schema_snapshot,
-            load_accepted_schema_snapshot, load_live_schema_checkpoint,
+            ConstraintId, IdentityAdvanceId, SchemaStore, accepted_commit_schema_fingerprint,
+            apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
+            apply_schema_application_record_op, decode_constraint_validation_job,
+            decode_persisted_schema_snapshot, load_accepted_schema_snapshot,
+            load_live_schema_checkpoint, verify_live_identity_range_checkpoint,
             verify_live_schema_checkpoint, verify_schema_application_record_op,
         },
     },
@@ -215,6 +216,7 @@ fn restore_live_schema_checkpoints<C: CanisterKind>(
     db: &Db<C>,
     marker: Option<&CommitMarker>,
 ) -> Result<(), InternalError> {
+    let incarnation = database_incarnation_id()?;
     db.with_store_registry(|registry| {
         for (store_path, handle) in registry.iter() {
             if handle.storage_capabilities().schema_metadata()
@@ -225,21 +227,31 @@ fn restore_live_schema_checkpoints<C: CanisterKind>(
             let checkpoint = load_live_schema_checkpoint(store_path)?;
             let current = handle.with_schema(SchemaStore::current_accepted_schema_root)?;
             match (current, checkpoint) {
-                (None, Some(candidate)) => handle.with_schema_mut(|store| {
-                    store.restore_live_accepted_schema_checkpoint(&candidate)
+                (None, Some(checkpoint)) => handle.with_schema_mut(|store| {
+                    store.restore_live_accepted_schema_checkpoint(
+                        incarnation,
+                        checkpoint.candidate(),
+                        checkpoint.identity_states(),
+                    )
                 })?,
-                (Some(current), Some(candidate)) if current.root() == candidate.root() => {
+                (Some(current), Some(checkpoint))
+                    if current.root() == checkpoint.candidate().root() =>
+                {
                     handle.with_schema_mut(|store| {
-                        store.restore_live_accepted_schema_checkpoint(&candidate)
+                        store.restore_live_accepted_schema_checkpoint(
+                            incarnation,
+                            checkpoint.candidate(),
+                            checkpoint.identity_states(),
+                        )
                     })?;
                 }
-                (Some(current), Some(candidate))
+                (Some(current), Some(checkpoint))
                     if marker.is_some_and(|marker| {
                         marker_advances_live_checkpoint(
                             marker,
                             store_path,
                             current.root().revision(),
-                            &candidate,
+                            checkpoint.candidate(),
                         )
                     }) => {}
                 (Some(_), Some(_) | None) => {
@@ -282,6 +294,7 @@ fn apply_marker_live_schema_checkpoints<C: CanisterKind>(
     db: &Db<C>,
     marker: &CommitMarker,
 ) -> Result<(), InternalError> {
+    let incarnation = database_incarnation_id()?;
     for batch in marker.journal_batches() {
         let (store_path, handle) = journal_batch_store_handle(db, batch)?;
         if handle.storage_capabilities().schema_metadata()
@@ -298,7 +311,7 @@ fn apply_marker_live_schema_checkpoints<C: CanisterKind>(
             }) => *expected_revision,
             _ => return Err(InternalError::store_corruption()),
         };
-        apply_live_schema_checkpoint(store_path, expected_revision, &candidate)?;
+        apply_live_schema_checkpoint(incarnation, store_path, expected_revision, &candidate)?;
     }
     Ok(())
 }
@@ -422,6 +435,19 @@ enum JournalRecordApplyMode {
     Fold,
 }
 
+fn identity_advance_id(
+    batch: &JournalBatch,
+    record_ordinal: usize,
+) -> Result<IdentityAdvanceId, InternalError> {
+    IdentityAdvanceId::try_new(
+        batch.commit_marker_id(),
+        batch.batch_id(),
+        batch.journal_sequence().get(),
+        u32::try_from(record_ordinal).map_err(|_| InternalError::store_corruption())?,
+    )
+    .map_err(|_| InternalError::store_corruption())
+}
+
 fn replay_journal_batch<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -440,8 +466,16 @@ fn replay_journal_batch<C: CanisterKind>(
         JournalRecordApplyMode::Replay,
     )?;
 
-    for record in batch.records() {
-        replay_journal_record(db, expected_store_path, expected_handle, record)?;
+    for (record_ordinal, record) in batch.records().iter().enumerate() {
+        apply_journal_record(
+            db,
+            expected_store_path,
+            expected_handle,
+            batch,
+            record_ordinal,
+            record,
+            JournalRecordApplyMode::Replay,
+        )?;
     }
 
     Ok(())
@@ -465,41 +499,19 @@ fn fold_journal_batch<C: CanisterKind>(
         JournalRecordApplyMode::Fold,
     )?;
 
-    for record in batch.records() {
-        fold_journal_record(db, expected_store_path, expected_handle, record)?;
+    for (record_ordinal, record) in batch.records().iter().enumerate() {
+        apply_journal_record(
+            db,
+            expected_store_path,
+            expected_handle,
+            batch,
+            record_ordinal,
+            record,
+            JournalRecordApplyMode::Fold,
+        )?;
     }
 
     Ok(())
-}
-
-fn replay_journal_record<C: CanisterKind>(
-    db: &Db<C>,
-    expected_store_path: &'static str,
-    expected_handle: StoreHandle,
-    record: &JournalRecord,
-) -> Result<(), InternalError> {
-    apply_journal_record(
-        db,
-        expected_store_path,
-        expected_handle,
-        record,
-        JournalRecordApplyMode::Replay,
-    )
-}
-
-fn fold_journal_record<C: CanisterKind>(
-    db: &Db<C>,
-    expected_store_path: &'static str,
-    expected_handle: StoreHandle,
-    record: &JournalRecord,
-) -> Result<(), InternalError> {
-    apply_journal_record(
-        db,
-        expected_store_path,
-        expected_handle,
-        record,
-        JournalRecordApplyMode::Fold,
-    )
 }
 
 #[expect(
@@ -510,6 +522,8 @@ fn apply_journal_record<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
+    batch: &JournalBatch,
+    record_ordinal: usize,
     record: &JournalRecord,
     mode: JournalRecordApplyMode,
 ) -> Result<(), InternalError> {
@@ -577,6 +591,7 @@ fn apply_journal_record<C: CanisterKind>(
             if candidate.store_path() != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
+            let incarnation = database_incarnation_id()?;
             expected_handle.with_schema_mut(|schema_store| {
                 match (
                     *expected_revision,
@@ -585,15 +600,21 @@ fn apply_journal_record<C: CanisterKind>(
                 ) {
                     (AcceptedSchemaRevision::NONE, _, JournalRecordApplyMode::Replay)
                     | (_, StoreRecoveryCapability::None, JournalRecordApplyMode::Replay) => {
-                        schema_store
-                            .publish_accepted_schema_candidate(*expected_revision, &candidate)
+                        schema_store.publish_accepted_schema_candidate(
+                            incarnation,
+                            *expected_revision,
+                            &candidate,
+                        )
                     }
                     (
                         _,
                         StoreRecoveryCapability::StableBasePlusJournalReplay,
                         JournalRecordApplyMode::Replay,
-                    ) => schema_store
-                        .apply_journaled_accepted_schema_candidate(*expected_revision, &candidate),
+                    ) => schema_store.apply_journaled_accepted_schema_candidate(
+                        incarnation,
+                        *expected_revision,
+                        &candidate,
+                    ),
                     (AcceptedSchemaRevision::NONE, _, JournalRecordApplyMode::Fold)
                     | (_, StoreRecoveryCapability::None, JournalRecordApplyMode::Fold) => {
                         Err(InternalError::store_corruption())
@@ -602,8 +623,11 @@ fn apply_journal_record<C: CanisterKind>(
                         _,
                         StoreRecoveryCapability::StableBasePlusJournalReplay,
                         JournalRecordApplyMode::Fold,
-                    ) => schema_store
-                        .fold_journaled_accepted_schema_candidate(*expected_revision, &candidate),
+                    ) => schema_store.fold_journaled_accepted_schema_candidate(
+                        incarnation,
+                        *expected_revision,
+                        &candidate,
+                    ),
                 }
             })
         }
@@ -644,6 +668,28 @@ fn apply_journal_record<C: CanisterKind>(
                 }
             })
         }
+        JournalRecord::IdentityRangeAdvance { range } => {
+            let advance_id = identity_advance_id(batch, record_ordinal)?;
+            match mode {
+                JournalRecordApplyMode::Replay => {
+                    if expected_handle.storage_capabilities().schema_metadata()
+                        == StoreSchemaMetadataCapability::LiveRebuiltMetadata
+                    {
+                        apply_live_identity_range_checkpoint(
+                            expected_store_path,
+                            *range,
+                            advance_id,
+                        )?;
+                    }
+                    expected_handle.with_schema_mut(|schema_store| {
+                        schema_store.apply_identity_range_advance(*range, advance_id)
+                    })
+                }
+                JournalRecordApplyMode::Fold => expected_handle.with_schema_mut(|schema_store| {
+                    schema_store.fold_identity_range_advance(*range, advance_id)
+                }),
+            }
+        }
     }
 }
 
@@ -663,7 +709,7 @@ fn validate_journal_batch_records<C: CanisterKind>(
         candidate.as_ref(),
     )?;
 
-    for record in batch.records() {
+    for (record_ordinal, record) in batch.records().iter().enumerate() {
         match record {
             JournalRecord::RowPut { .. } => {
                 validate_journal_batch_row_put(
@@ -707,6 +753,27 @@ fn validate_journal_batch_records<C: CanisterKind>(
                 // The first pass decoded and verified the candidate before any
                 // candidate-bound row rewrite was admitted, including the exact
                 // final activation/job closure.
+            }
+            JournalRecord::IdentityRangeAdvance { range } => {
+                let runtime_entity = db
+                    .accepted_runtime_entity_for_tag(range.owner().entity_tag())
+                    .map_err(|_| InternalError::store_corruption())?;
+                if runtime_entity.store_path() != expected_store_path
+                    || range.owner().database_incarnation_id() != database_incarnation_id()?
+                {
+                    return Err(InternalError::store_corruption());
+                }
+                let advance_id = identity_advance_id(batch, record_ordinal)?;
+                let commit_state = expected_handle.with_schema(|store| {
+                    store.identity_range_commit_state(
+                        *range,
+                        advance_id,
+                        mode == JournalRecordApplyMode::Fold,
+                    )
+                })?;
+                if commit_state.materialized_high_water() > commit_state.committed_high_water() {
+                    return Err(InternalError::identity_state_corruption());
+                }
             }
         }
     }
@@ -856,7 +923,8 @@ fn journal_batch_schema_candidate(
             | JournalRecord::RowDelete { .. }
             | JournalRecord::SchemaPut { .. }
             | JournalRecord::ConstraintValidationJobPut { .. }
-            | JournalRecord::ConstraintValidationJobDelete { .. } => {}
+            | JournalRecord::ConstraintValidationJobDelete { .. }
+            | JournalRecord::IdentityRangeAdvance { .. } => {}
         }
     }
 
@@ -1172,6 +1240,7 @@ fn journal_batch_store_handle<C: CanisterKind>(
     };
     if handle.storage_capabilities().recovery() == StoreRecoveryCapability::None
         && !journal_batch_is_direct_schema_publication(batch)
+        && !journal_batch_is_direct_identity_commit(batch)
     {
         return Err(InternalError::store_corruption());
     }
@@ -1185,6 +1254,20 @@ fn journal_batch_is_direct_schema_publication(batch: &JournalBatch) -> bool {
             batch.records(),
             [JournalRecord::AcceptedSchemaPublish { .. }]
         )
+}
+
+fn journal_batch_is_direct_identity_commit(batch: &JournalBatch) -> bool {
+    batch.journal_sequence() == JournalSequence::new(0)
+        && batch
+            .records()
+            .iter()
+            .any(|record| matches!(record, JournalRecord::IdentityRangeAdvance { .. }))
+        && batch.records().iter().all(|record| {
+            matches!(
+                record,
+                JournalRecord::RowPut { .. } | JournalRecord::IdentityRangeAdvance { .. }
+            )
+        })
 }
 
 fn journal_record_store_handle<C: CanisterKind>(
@@ -1201,6 +1284,12 @@ fn journal_record_store_handle<C: CanisterKind>(
         | JournalRecord::ConstraintValidationJobPut { store_path, .. }
         | JournalRecord::ConstraintValidationJobDelete { store_path, .. } => {
             registry_store_handle_for_path(db, store_path)
+        }
+        JournalRecord::IdentityRangeAdvance { range } => {
+            let runtime_entity = db
+                .accepted_runtime_entity_for_tag(range.owner().entity_tag())
+                .map_err(|_| InternalError::store_corruption())?;
+            registry_store_handle_for_path(db, runtime_entity.store_path())
         }
     }
 }
@@ -1380,6 +1469,11 @@ enum RecoveredEffectIdentity {
         entity_tag: u64,
         constraint_id: u32,
     },
+    IdentityRange {
+        store_path: String,
+        entity_tag: u64,
+        field_id: u32,
+    },
 }
 
 // Verify the bounded final effect set owned by the recovered marker.
@@ -1409,8 +1503,8 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
                 }
             }
 
-            for record in batch.records().iter().rev() {
-                verify_recovered_record(db, record, &mut verified)?;
+            for (record_ordinal, record) in batch.records().iter().enumerate().rev() {
+                verify_recovered_record(db, batch, record_ordinal, record, &mut verified)?;
             }
         }
     }
@@ -1432,6 +1526,8 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
 
 fn verify_recovered_record<C: CanisterKind>(
     db: &Db<C>,
+    batch: &JournalBatch,
+    record_ordinal: usize,
     record: &JournalRecord,
     verified: &mut BTreeSet<RecoveredEffectIdentity>,
 ) -> Result<(), InternalError> {
@@ -1495,6 +1591,31 @@ fn verify_recovered_record<C: CanisterKind>(
             None,
             verified,
         )?,
+        JournalRecord::IdentityRangeAdvance { range } => {
+            let runtime_entity = db
+                .accepted_runtime_entity_for_tag(range.owner().entity_tag())
+                .map_err(|_| InternalError::recovery_effect_verification_failed())?;
+            let identity = RecoveredEffectIdentity::IdentityRange {
+                store_path: runtime_entity.store_path().to_string(),
+                entity_tag: range.owner().entity_tag().value(),
+                field_id: range.owner().field_id().get(),
+            };
+            if verified.insert(identity) {
+                let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
+                let advance_id = identity_advance_id(batch, record_ordinal)?;
+                handle
+                    .with_schema(|store| store.verify_identity_range_advance(*range, advance_id))?;
+                if handle.storage_capabilities().schema_metadata()
+                    == StoreSchemaMetadataCapability::LiveRebuiltMetadata
+                {
+                    verify_live_identity_range_checkpoint(
+                        runtime_entity.store_path(),
+                        *range,
+                        advance_id,
+                    )?;
+                }
+            }
+        }
     }
 
     Ok(())

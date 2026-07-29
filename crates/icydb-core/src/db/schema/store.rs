@@ -3,6 +3,13 @@
 //! Does not own: reconciliation policy, typed snapshot encoding, or generated proposal construction.
 //! Boundary: provides the third per-store stable memory alongside row and index stores.
 
+use crate::db::schema::identity_state::{
+    IdentityAdvanceId, IdentityRangeAdvance, IdentityRangeCommitState, IdentityState,
+    IdentityStateInventory, IdentityStateLifecycle, IdentityStateTransition,
+    IdentityStatementCursor, MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, decode_identity_state,
+    encode_identity_state, identity_kind_maximum, prepare_identity_state_transition,
+    validate_identity_state_closure,
+};
 use crate::{
     db::{
         codec::{
@@ -11,14 +18,15 @@ use crate::{
         },
         commit::CommitSchemaFingerprint,
         direction::Direction,
+        integrity::DatabaseIncarnationId,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
-            ConstraintValidationJob, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-            PersistedSchemaSnapshot, SchemaVersion, accepted_constraint_field_paths,
-            accepted_schema_cache_fingerprint,
+            ConstraintValidationJob, FieldId, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedSchemaSnapshot, SchemaVersion,
+            accepted_constraint_field_paths, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_constraint_validation_job,
             decode_persisted_schema_snapshot, encode_constraint_validation_job,
@@ -57,6 +65,7 @@ const SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT: u8 = 0;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE: u8 = 1;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT: u8 = 2;
 const SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB: u8 = 3;
+const SCHEMA_KEY_NAMESPACE_IDENTITY_STATE: u8 = 4;
 // Every role exposes the sole current method version while its separate domain
 // tag keeps data, index, and full-catalog fingerprint inputs disjoint.
 const SCHEMA_STORE_FINGERPRINT_METHOD_VERSION: u8 = 1;
@@ -162,6 +171,14 @@ impl RawSchemaKey {
         Self(out)
     }
 
+    fn from_identity_state(entity: EntityTag, field_id: FieldId) -> Self {
+        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        out[0] = SCHEMA_KEY_NAMESPACE_IDENTITY_STATE;
+        out[4..12].copy_from_slice(&entity.value().to_be_bytes());
+        out[12..].copy_from_slice(&field_id.get().to_be_bytes());
+        Self(out)
+    }
+
     /// Return the entity tag encoded in this schema key.
     #[must_use]
     fn entity_tag(self) -> EntityTag {
@@ -211,6 +228,17 @@ impl RawSchemaKey {
         )
     }
 
+    const fn all_identity_state_range_bounds() -> (RangeBound<Self>, RangeBound<Self>) {
+        let mut start = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        start[0] = SCHEMA_KEY_NAMESPACE_IDENTITY_STATE;
+        let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
+        end[0] = SCHEMA_KEY_NAMESPACE_IDENTITY_STATE;
+        (
+            RangeBound::Included(Self(start)),
+            RangeBound::Included(Self(end)),
+        )
+    }
+
     #[cfg(test)]
     const fn is_entity_snapshot(self) -> bool {
         self.0[0] == SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT
@@ -222,6 +250,10 @@ impl RawSchemaKey {
 
     const fn is_constraint_validation_job(self) -> bool {
         self.0[0] == SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB
+    }
+
+    const fn is_identity_state(self) -> bool {
+        self.0[0] == SCHEMA_KEY_NAMESPACE_IDENTITY_STATE
     }
 
     fn constraint_id(self) -> Option<ConstraintId> {
@@ -790,6 +822,19 @@ impl SchemaStoreVisit {
     }
 }
 
+#[derive(Clone, Copy)]
+enum IdentityStateStorageView {
+    Effective,
+    Canonical,
+}
+
+#[derive(Clone, Copy)]
+enum IdentityStateWriteTarget {
+    Durable,
+    Materialized,
+    Canonical,
+}
+
 impl SchemaStore {
     /// Initialize a volatile heap-backed schema store.
     #[must_use]
@@ -816,6 +861,344 @@ impl SchemaStore {
             accepted_bundle_cache: RefCell::new(None),
             accepted_catalog_scope: OnceCell::new(),
         }
+    }
+
+    fn prepare_identity_state_transition(
+        &self,
+        incarnation: DatabaseIncarnationId,
+        candidate: &CandidateSchemaRevision,
+        view: IdentityStateStorageView,
+    ) -> Result<IdentityStateTransition, InternalError> {
+        let current = match view {
+            IdentityStateStorageView::Effective => self
+                .current_accepted_schema_bundle_ref()?
+                .as_ref()
+                .map(|bundle| (*bundle).clone()),
+            IdentityStateStorageView::Canonical => {
+                self.current_canonical_accepted_schema_bundle()?
+            }
+        };
+        let inventory = self.identity_state_inventory(view)?;
+        prepare_identity_state_transition(
+            incarnation,
+            current.as_ref(),
+            candidate.bundle(),
+            inventory,
+        )
+    }
+
+    fn validate_identity_state_closure(
+        &self,
+        bundle: &AcceptedSchemaRevisionBundle,
+    ) -> Result<(), InternalError> {
+        let inventory = self.identity_state_inventory(IdentityStateStorageView::Effective)?;
+        validate_identity_state_closure(bundle, &inventory)
+    }
+
+    /// Read one accepted active Identity owner into statement-local allocation state.
+    pub(in crate::db) fn identity_statement_cursor(
+        &self,
+        database_incarnation_id: DatabaseIncarnationId,
+        entity_tag: EntityTag,
+        field_id: FieldId,
+        accepted_kind: &AcceptedFieldKind,
+    ) -> Result<IdentityStatementCursor, InternalError> {
+        let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
+        let raw = self
+            .get_raw_snapshot(&key)
+            .ok_or_else(InternalError::identity_state_corruption)?;
+        let state = decode_identity_state(raw.as_bytes())?;
+        let owner = state.owner();
+        if owner.database_incarnation_id() != database_incarnation_id
+            || owner.entity_tag() != entity_tag
+            || owner.field_id() != field_id
+            || state.accepted_kind() != accepted_kind
+            || state.lifecycle() != IdentityStateLifecycle::Active
+        {
+            return Err(InternalError::identity_state_corruption());
+        }
+        IdentityStatementCursor::from_active_state(&state)
+    }
+
+    /// Read one quiescent materialized high-water for bounded row integrity.
+    pub(in crate::db) fn identity_high_water_for_integrity(
+        &self,
+        database_incarnation_id: DatabaseIncarnationId,
+        entity_tag: EntityTag,
+        field_id: FieldId,
+        accepted_kind: &AcceptedFieldKind,
+    ) -> Result<u128, InternalError> {
+        let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
+        let raw = self
+            .get_raw_snapshot(&key)
+            .ok_or_else(InternalError::identity_state_corruption)?;
+        let state = decode_identity_state(raw.as_bytes())?;
+        let owner = state.owner();
+        if owner.database_incarnation_id() != database_incarnation_id
+            || owner.entity_tag() != entity_tag
+            || owner.field_id() != field_id
+            || state.accepted_kind() != accepted_kind
+            || state.lifecycle() != IdentityStateLifecycle::Active
+        {
+            return Err(InternalError::identity_state_corruption());
+        }
+        Ok(state.materialized_high_water())
+    }
+
+    /// Revalidate one tentative range against the quiescent effective state.
+    pub(in crate::db) fn preflight_identity_range_advance(
+        &self,
+        range: IdentityRangeAdvance,
+    ) -> Result<(), InternalError> {
+        let state =
+            self.identity_state_for_owner(range.owner(), IdentityStateStorageView::Effective)?;
+        if state.lifecycle() != IdentityStateLifecycle::Active
+            || range.new_high_water()
+                > identity_kind_maximum(state.accepted_kind())
+                    .ok_or_else(InternalError::identity_state_corruption)?
+        {
+            return Err(InternalError::identity_state_corruption());
+        }
+        if state.materialized_high_water() != range.expected_high_water() {
+            return Err(InternalError::identity_state_conflict());
+        }
+        Ok(())
+    }
+
+    /// Materialize one marker-owned range in the effective live projection.
+    pub(in crate::db) fn apply_identity_range_advance(
+        &mut self,
+        range: IdentityRangeAdvance,
+        advance_id: IdentityAdvanceId,
+    ) -> Result<(), InternalError> {
+        self.apply_identity_range_advance_to(
+            range,
+            advance_id,
+            IdentityStateStorageView::Effective,
+            IdentityStateWriteTarget::Materialized,
+        )
+    }
+
+    /// Fold one marker-owned range into canonical journaled state.
+    pub(in crate::db) fn fold_identity_range_advance(
+        &mut self,
+        range: IdentityRangeAdvance,
+        advance_id: IdentityAdvanceId,
+    ) -> Result<(), InternalError> {
+        self.apply_identity_range_advance_to(
+            range,
+            advance_id,
+            IdentityStateStorageView::Canonical,
+            IdentityStateWriteTarget::Canonical,
+        )
+    }
+
+    /// Verify one exact range identity against effective state.
+    pub(in crate::db) fn verify_identity_range_advance(
+        &self,
+        range: IdentityRangeAdvance,
+        advance_id: IdentityAdvanceId,
+    ) -> Result<(), InternalError> {
+        let state =
+            self.identity_state_for_owner(range.owner(), IdentityStateStorageView::Effective)?;
+        if state.materialized_high_water() != range.new_high_water()
+            || state.last_applied_advance() != Some(advance_id)
+        {
+            return Err(InternalError::recovery_effect_verification_failed());
+        }
+        Ok(())
+    }
+
+    /// Resolve committed versus materialized range state without changing it.
+    pub(in crate::db) fn identity_range_commit_state(
+        &self,
+        range: IdentityRangeAdvance,
+        advance_id: IdentityAdvanceId,
+        canonical: bool,
+    ) -> Result<IdentityRangeCommitState, InternalError> {
+        let view = if canonical {
+            IdentityStateStorageView::Canonical
+        } else {
+            IdentityStateStorageView::Effective
+        };
+        self.identity_state_for_owner(range.owner(), view)?
+            .range_commit_state(range, advance_id)
+    }
+
+    /// Enumerate and validate the complete current-form active/retired state
+    /// inventory for bounded database-wide integrity inspection.
+    pub(in crate::db) fn identity_state_inventory_for_integrity(
+        &self,
+        incarnation: DatabaseIncarnationId,
+    ) -> Result<Vec<IdentityState>, InternalError> {
+        let has_accepted_bundle = self.current_accepted_schema_bundle_ref()?.is_some();
+        let inventory = self.identity_state_inventory(IdentityStateStorageView::Effective)?;
+        if !has_accepted_bundle && !inventory.is_empty() {
+            return Err(InternalError::identity_state_corruption());
+        }
+        if inventory
+            .values()
+            .any(|state| state.owner().database_incarnation_id() != incarnation)
+        {
+            return Err(InternalError::identity_state_corruption());
+        }
+        Ok(inventory.into_values().collect())
+    }
+
+    fn identity_state_for_owner(
+        &self,
+        owner: crate::db::schema::identity_state::IdentityStateOwner,
+        view: IdentityStateStorageView,
+    ) -> Result<IdentityState, InternalError> {
+        let key = RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id());
+        let raw = match view {
+            IdentityStateStorageView::Effective => self.get_raw_snapshot(&key),
+            IdentityStateStorageView::Canonical => self.get_canonical_raw_value(&key)?,
+        }
+        .ok_or_else(InternalError::identity_state_corruption)?;
+        let state = decode_identity_state(raw.as_bytes())?;
+        if state.owner() != owner {
+            return Err(InternalError::identity_state_corruption());
+        }
+        Ok(state)
+    }
+
+    fn apply_identity_range_advance_to(
+        &mut self,
+        range: IdentityRangeAdvance,
+        advance_id: IdentityAdvanceId,
+        view: IdentityStateStorageView,
+        target: IdentityStateWriteTarget,
+    ) -> Result<(), InternalError> {
+        let state = self.identity_state_for_owner(range.owner(), view)?;
+        let advanced = state.apply_range_advance(range, advance_id)?;
+        let key = RawSchemaKey::from_identity_state(
+            advanced.owner().entity_tag(),
+            advanced.owner().field_id(),
+        );
+        let bytes = encode_identity_state(&advanced)?;
+        match target {
+            IdentityStateWriteTarget::Materialized => {
+                self.insert_raw_snapshot(
+                    key,
+                    RawSchemaSnapshot::from_encoded_control_record(bytes),
+                );
+            }
+            IdentityStateWriteTarget::Canonical => {
+                self.insert_canonical_raw_value(key, bytes)?;
+            }
+            IdentityStateWriteTarget::Durable => {
+                return Err(InternalError::store_invariant());
+            }
+        }
+        Ok(())
+    }
+
+    fn identity_state_inventory(
+        &self,
+        view: IdentityStateStorageView,
+    ) -> Result<IdentityStateInventory, InternalError> {
+        let bounds = RawSchemaKey::all_identity_state_range_bounds();
+        let mut inventory = StdBTreeMap::new();
+        let mut collect = |key: &RawSchemaKey,
+                           raw: &RawSchemaSnapshot|
+         -> Result<SchemaStoreVisit, InternalError> {
+            if inventory.len() >= MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
+                return Err(InternalError::identity_state_corruption());
+            }
+            let state = decode_identity_state(raw.as_bytes())?;
+            let state_key = (key.entity_tag(), FieldId::new(key.version()));
+            if !key.is_identity_state()
+                || state.owner().entity_tag() != state_key.0
+                || state.owner().field_id() != state_key.1
+                || inventory.insert(state_key, state).is_some()
+            {
+                return Err(InternalError::identity_state_corruption());
+            }
+            Ok(SchemaStoreVisit::Continue)
+        };
+
+        match (&self.backend, view) {
+            (SchemaStoreBackend::Heap(map), IdentityStateStorageView::Effective) => {
+                for (key, raw) in map.range((bounds.0, bounds.1)) {
+                    collect(key, raw)?;
+                }
+            }
+            (
+                SchemaStoreBackend::Journaled {
+                    canonical,
+                    live,
+                    tombstones,
+                },
+                IdentityStateStorageView::Effective,
+            ) => Self::visit_journaled_raw_snapshot_range(
+                canonical,
+                live,
+                tombstones,
+                bounds,
+                Direction::Asc,
+                &mut collect,
+            )?,
+            (
+                SchemaStoreBackend::Journaled { canonical, .. },
+                IdentityStateStorageView::Canonical,
+            ) => {
+                for entry in canonical.range((bounds.0, bounds.1)) {
+                    collect(entry.key(), &entry.value())?;
+                }
+            }
+            (SchemaStoreBackend::Heap(_), IdentityStateStorageView::Canonical) => {
+                return Err(InternalError::store_invariant());
+            }
+        }
+
+        Ok(inventory)
+    }
+
+    fn apply_identity_state_transition(
+        &mut self,
+        transition: IdentityStateTransition,
+        target: IdentityStateWriteTarget,
+    ) -> Result<(), InternalError> {
+        for state in transition.into_updates() {
+            let key = RawSchemaKey::from_identity_state(
+                state.owner().entity_tag(),
+                state.owner().field_id(),
+            );
+            let bytes = encode_identity_state(&state)?;
+            match target {
+                IdentityStateWriteTarget::Durable => {
+                    self.insert_durable_raw_value(key, bytes);
+                }
+                IdentityStateWriteTarget::Materialized => {
+                    self.insert_raw_snapshot(
+                        key,
+                        RawSchemaSnapshot::from_encoded_control_record(bytes),
+                    );
+                }
+                IdentityStateWriteTarget::Canonical => {
+                    self.insert_canonical_raw_value(key, bytes)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn current_canonical_accepted_schema_bundle(
+        &self,
+    ) -> Result<Option<AcceptedSchemaRevisionBundle>, InternalError> {
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        let Some(selection) =
+            select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
+        else {
+            return Ok(None);
+        };
+        let bundle_key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
+        let raw = self
+            .get_canonical_raw_value(&bundle_key)?
+            .ok_or_else(InternalError::store_corruption)?;
+        decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes()).map(Some)
     }
 
     /// Insert or replace one typed persisted schema snapshot.
@@ -1384,10 +1767,19 @@ impl SchemaStore {
     /// bootstrap and marker-owned live-projection updates.
     pub(in crate::db) fn publish_accepted_schema_candidate(
         &mut self,
+        incarnation: DatabaseIncarnationId,
         expected_revision: AcceptedSchemaRevision,
         candidate: &CandidateSchemaRevision,
     ) -> Result<(), InternalError> {
+        let identity_transition = self.prepare_identity_state_transition(
+            incarnation,
+            candidate,
+            IdentityStateStorageView::Effective,
+        )?;
         if self.current_root_matches_candidate(candidate)? {
+            if !identity_transition.is_empty() {
+                return Err(InternalError::identity_state_corruption());
+            }
             let selection = self
                 .current_accepted_schema_root()?
                 .ok_or_else(InternalError::store_corruption)?;
@@ -1412,6 +1804,10 @@ impl SchemaStore {
         let _verified = decode_verified_accepted_schema_revision_bundle(
             candidate.root(),
             persisted_bundle.as_bytes(),
+        )?;
+        self.apply_identity_state_transition(
+            identity_transition,
+            IdentityStateWriteTarget::Durable,
         )?;
 
         // Re-read the root immediately before the inactive-slot write. This is
@@ -1441,25 +1837,59 @@ impl SchemaStore {
     /// store from its durable database-control checkpoint.
     pub(in crate::db) fn restore_live_accepted_schema_checkpoint(
         &mut self,
+        incarnation: DatabaseIncarnationId,
         candidate: &CandidateSchemaRevision,
+        checkpoint_identity_states: &IdentityStateInventory,
     ) -> Result<(), InternalError> {
         if !matches!(self.backend, SchemaStoreBackend::Heap(_)) {
             return Err(InternalError::store_invariant());
         }
+        let checkpoint_validation = prepare_identity_state_transition(
+            incarnation,
+            Some(candidate.bundle()),
+            candidate.bundle(),
+            checkpoint_identity_states.clone(),
+        )?;
+        if !checkpoint_validation.is_empty() {
+            return Err(InternalError::identity_state_corruption());
+        }
         if self.current_root_matches_candidate(candidate)? {
+            for state in checkpoint_identity_states.values() {
+                let key = RawSchemaKey::from_identity_state(
+                    state.owner().entity_tag(),
+                    state.owner().field_id(),
+                );
+                self.insert_durable_raw_value(key, encode_identity_state(state)?);
+            }
+            if self.identity_state_inventory(IdentityStateStorageView::Effective)?
+                != *checkpoint_identity_states
+            {
+                return Err(InternalError::identity_state_corruption());
+            }
             let selection = self
                 .current_accepted_schema_root()?
                 .ok_or_else(InternalError::store_corruption)?;
             self.retain_durable_candidate_entries(candidate, selection.slot())?;
             return Ok(());
         }
-        if self.current_accepted_schema_root()?.is_some() {
+        if self.current_accepted_schema_root()?.is_some()
+            || !self
+                .identity_state_inventory(IdentityStateStorageView::Effective)?
+                .is_empty()
+        {
             return Err(InternalError::store_corruption());
         }
 
         self.insert_durable_candidate_snapshots(candidate)?;
         let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
         self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec());
+        for state in checkpoint_identity_states.values() {
+            let key = RawSchemaKey::from_identity_state(
+                state.owner().entity_tag(),
+                state.owner().field_id(),
+            );
+            self.insert_durable_raw_value(key, encode_identity_state(state)?);
+        }
         let root_key = RawSchemaKey::from_accepted_root_slot(0)?;
         self.insert_durable_raw_value(root_key, candidate.encoded_root().to_vec());
 
@@ -1481,10 +1911,19 @@ impl SchemaStore {
     /// before opening one marker-owned commit window.
     pub(in crate::db) fn preflight_accepted_schema_candidate(
         &self,
+        incarnation: DatabaseIncarnationId,
         expected_revision: AcceptedSchemaRevision,
         candidate: &CandidateSchemaRevision,
     ) -> Result<bool, InternalError> {
+        let identity_transition = self.prepare_identity_state_transition(
+            incarnation,
+            candidate,
+            IdentityStateStorageView::Effective,
+        )?;
         if self.current_root_matches_candidate(candidate)? {
+            if !identity_transition.is_empty() {
+                return Err(InternalError::identity_state_corruption());
+            }
             return Ok(true);
         }
         let first = self.accepted_root_slot_bytes(0)?;
@@ -1502,13 +1941,22 @@ impl SchemaStore {
     /// Apply one marker-bound schema candidate to the journaled live projection.
     pub(in crate::db) fn apply_journaled_accepted_schema_candidate(
         &mut self,
+        incarnation: DatabaseIncarnationId,
         expected_revision: AcceptedSchemaRevision,
         candidate: &CandidateSchemaRevision,
     ) -> Result<(), InternalError> {
         if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
             return Err(InternalError::store_invariant());
         }
+        let identity_transition = self.prepare_identity_state_transition(
+            incarnation,
+            candidate,
+            IdentityStateStorageView::Effective,
+        )?;
         if self.current_root_matches_candidate(candidate)? {
+            if !identity_transition.is_empty() {
+                return Err(InternalError::identity_state_corruption());
+            }
             let selection = self
                 .current_accepted_schema_root()?
                 .ok_or_else(InternalError::store_corruption)?;
@@ -1540,6 +1988,10 @@ impl SchemaStore {
             candidate.root(),
             persisted_bundle.as_bytes(),
         )?;
+        self.apply_identity_state_transition(
+            identity_transition,
+            IdentityStateWriteTarget::Materialized,
+        )?;
 
         let first = self.accepted_root_slot_bytes(0)?;
         let second = self.accepted_root_slot_bytes(1)?;
@@ -1568,10 +2020,19 @@ impl SchemaStore {
     /// Fold one committed schema candidate into the canonical schema BTree.
     pub(in crate::db) fn fold_journaled_accepted_schema_candidate(
         &mut self,
+        incarnation: DatabaseIncarnationId,
         expected_revision: AcceptedSchemaRevision,
         candidate: &CandidateSchemaRevision,
     ) -> Result<(), InternalError> {
+        let identity_transition = self.prepare_identity_state_transition(
+            incarnation,
+            candidate,
+            IdentityStateStorageView::Canonical,
+        )?;
         if self.canonical_root_matches_candidate(candidate)? {
+            if !identity_transition.is_empty() {
+                return Err(InternalError::identity_state_corruption());
+            }
             let first = self.canonical_root_slot_bytes(0)?;
             let second = self.canonical_root_slot_bytes(1)?;
             let selection =
@@ -1601,6 +2062,10 @@ impl SchemaStore {
         let _verified = decode_verified_accepted_schema_revision_bundle(
             candidate.root(),
             persisted_bundle.as_bytes(),
+        )?;
+        self.apply_identity_state_transition(
+            identity_transition,
+            IdentityStateWriteTarget::Canonical,
         )?;
 
         let first = self.canonical_root_slot_bytes(0)?;
@@ -2024,7 +2489,9 @@ impl SchemaStore {
         let keep = Self::candidate_entry_keys(candidate, root_slot)?;
         self.accepted_bundle_cache.get_mut().take();
         match &mut self.backend {
-            SchemaStoreBackend::Heap(map) => map.retain(|key, _| keep.contains(key)),
+            SchemaStoreBackend::Heap(map) => {
+                map.retain(|key, _| keep.contains(key) || key.is_identity_state());
+            }
             SchemaStoreBackend::Journaled {
                 canonical,
                 live,
@@ -2032,12 +2499,15 @@ impl SchemaStore {
             } => {
                 let stale = canonical
                     .iter()
-                    .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
+                    .filter_map(|entry| {
+                        (!keep.contains(entry.key()) && !entry.key().is_identity_state())
+                            .then_some(*entry.key())
+                    })
                     .collect::<Vec<_>>();
                 for key in stale {
                     canonical.remove(&key);
                 }
-                live.retain(|key, _| keep.contains(key));
+                live.retain(|key, _| keep.contains(key) || key.is_identity_state());
                 tombstones.clear();
             }
         }
@@ -2059,13 +2529,13 @@ impl SchemaStore {
         else {
             return Err(InternalError::store_invariant());
         };
-        live.retain(|key, _| keep.contains(key));
+        live.retain(|key, _| keep.contains(key) || key.is_identity_state());
         let canonical_keys = canonical
             .iter()
             .map(|entry| *entry.key())
             .collect::<Vec<_>>();
         for key in canonical_keys {
-            if keep.contains(&key) {
+            if keep.contains(&key) || key.is_identity_state() {
                 tombstones.remove(&key);
             } else {
                 tombstones.insert(key);
@@ -2086,7 +2556,10 @@ impl SchemaStore {
         };
         let stale = canonical
             .iter()
-            .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
+            .filter_map(|entry| {
+                (!keep.contains(entry.key()) && !entry.key().is_identity_state())
+                    .then_some(*entry.key())
+            })
             .collect::<Vec<_>>();
         for key in stale {
             canonical.remove(&key);
@@ -2220,14 +2693,15 @@ impl SchemaStore {
             .accepted_bundle_cache
             .try_borrow()
             .map_err(|_| InternalError::store_invariant())?;
-        Ref::filter_map(cache, |cache| {
+        let bundle = Ref::filter_map(cache, |cache| {
             cache
                 .as_ref()
                 .filter(|cached| cached.selection == selection)
                 .map(|cached| &cached.bundle)
         })
-        .map(Some)
-        .map_err(|_| InternalError::store_invariant())
+        .map_err(|_| InternalError::store_invariant())?;
+        self.validate_identity_state_closure(&bundle)?;
+        Ok(Some(bundle))
     }
 
     fn latest_raw_snapshots_by_entity(

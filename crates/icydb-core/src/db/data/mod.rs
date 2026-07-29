@@ -27,9 +27,9 @@ pub(in crate::db) use persisted_row::encode_canonical_value_for_accepted_field_c
 pub(in crate::db) use persisted_row::encode_input_value_for_accepted_field_contract;
 pub(in crate::db) use persisted_row::validate_default_payload_for_accepted_field_contract;
 pub(in crate::db) use persisted_row::{
-    AcceptedFieldWriteProvenance, AcceptedMutationIntentPatch, CanonicalSlotReader, FieldSlot,
-    StructuralSlotReader, canonical_row_from_raw_row_with_accepted_decode_contract,
-    canonical_row_from_stored_raw_row,
+    AcceptedFieldWriteProvenance, AcceptedMutationIntentPatch, AcceptedPreKeyInsert,
+    CanonicalSlotReader, FieldSlot, StructuralSlotReader,
+    canonical_row_from_raw_row_with_accepted_decode_contract, canonical_row_from_stored_raw_row,
     canonical_row_from_structural_slot_reader_with_accepted_contract,
     resolve_existing_replace_structural_patch_with_accepted_contract,
     resolve_insert_structural_patch_with_accepted_contract,

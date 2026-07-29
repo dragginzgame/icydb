@@ -48,6 +48,16 @@ struct SqlQueryPerfResult {
     compiler_instructions: u64,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct IdentityCloseoutPerfResult {
+    caller_nat64_instructions: u64,
+    generated_nat64_instructions: u64,
+    generated_nat128_instructions: u64,
+    one_row_batch_instructions: u64,
+    maximum_batch_instructions: u64,
+    maximum_batch_rows: u32,
+}
+
 fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
     // Build the dedicated SQL smoke canister once, then install that wasm into
     // a fresh standalone IC testkit instance with empty init args.
@@ -70,6 +80,33 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
     // Keep each test isolated by resetting and then loading the deterministic
     // baseline fixture set through the live canister update surface.
     reset_icydb_fixtures(fixture);
+}
+
+#[test]
+#[ignore = "release-closeout instruction probe over the exact journal record-cap batch"]
+fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
+    let fixture = install_sql_canister_fixture();
+    let result: Result<IdentityCloseoutPerfResult, Error> = fixture
+        .update_call("measure_identity_closeout_perf", ())
+        .expect("Identity closeout perf result should decode");
+    let result = result.expect("Identity closeout perf endpoint should succeed");
+
+    assert!(result.caller_nat64_instructions > 0);
+    assert!(result.generated_nat64_instructions > 0);
+    assert!(result.generated_nat128_instructions > 0);
+    assert!(result.one_row_batch_instructions > 0);
+    assert!(result.maximum_batch_instructions > result.one_row_batch_instructions);
+    assert_eq!(result.maximum_batch_rows, 16 * 1024 - 1);
+
+    println!(
+        "identity closeout instructions: caller_nat64={} generated_nat64={} generated_nat128={} one_row_batch={} maximum_batch={} maximum_batch_rows={}",
+        result.caller_nat64_instructions,
+        result.generated_nat64_instructions,
+        result.generated_nat128_instructions,
+        result.one_row_batch_instructions,
+        result.maximum_batch_instructions,
+        result.maximum_batch_rows,
+    );
 }
 
 fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {

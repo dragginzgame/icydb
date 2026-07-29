@@ -205,6 +205,15 @@ const RELATION_ONE_SUFFIX: &str = "_id";
 const RELATION_MANY_SUFFIX: &str = "_ids";
 
 impl Field {
+    /// Return whether this field requests database-owned unsigned identity
+    /// generation.
+    pub(crate) fn is_identity_generated(&self) -> bool {
+        self.generated.as_ref().is_some_and(|generated| {
+            let FieldGeneration::Insert(generator) = generated;
+            generated_insert_contract(generator) == Some(GeneratedInsertContract::Identity)
+        })
+    }
+
     pub fn validate(&self) -> Result<(), DarlingError> {
         // Name validation.
         let name = self.name.to_string();
@@ -278,6 +287,13 @@ impl Field {
     /// field has a database default.
     pub fn rust_default_expr(&self) -> Option<TokenStream> {
         if let Some(FieldGeneration::Insert(generator)) = &self.generated {
+            if self.is_identity_generated() {
+                // Identity is a declarative database generator rather than a
+                // callable Rust constructor. Full row values use zero only as
+                // their ordinary Rust Default placeholder; typed inserts omit
+                // the database-owned field structurally.
+                return Some(quote!(Default::default()));
+            }
             return Some(quote!(#generator.into()));
         }
 
@@ -354,21 +370,31 @@ impl Field {
 
         if self.value.item.is.is_some() || self.value.item.relation.is_some() {
             return Err(DarlingError::custom(
-                "generated(insert = ...) currently supports only primitive Ulid or Timestamp fields",
+                "generated(insert = ...) currently supports only primitive Ulid, Timestamp, Nat8, Nat16, Nat32, Nat64, or Nat128 fields",
             )
             .with_span(&self.name));
         }
 
         let Some(contract) = generated_insert_contract(generator) else {
             return Err(DarlingError::custom(
-                "generated(insert = ...) currently supports only Ulid::generate or Timestamp::now",
+                "generated(insert = ...) currently supports only Ulid::generate, Timestamp::now, or Identity::next",
             )
             .with_span(&self.name));
         };
 
         match (self.value.item.primitive, contract) {
             (Some(Primitive::Ulid), GeneratedInsertContract::Ulid)
-            | (Some(Primitive::Timestamp), GeneratedInsertContract::Timestamp) => {}
+            | (Some(Primitive::Timestamp), GeneratedInsertContract::Timestamp)
+            | (
+                Some(
+                    Primitive::Nat8
+                    | Primitive::Nat16
+                    | Primitive::Nat32
+                    | Primitive::Nat64
+                    | Primitive::Nat128,
+                ),
+                GeneratedInsertContract::Identity,
+            ) => {}
             (Some(_), GeneratedInsertContract::Ulid) => {
                 return Err(DarlingError::custom(
                     "generated(insert = \"Ulid::generate\") requires a primitive Ulid field",
@@ -381,9 +407,15 @@ impl Field {
                 )
                 .with_span(&self.name));
             }
+            (Some(_), GeneratedInsertContract::Identity) => {
+                return Err(DarlingError::custom(
+                    "generated(insert = \"Identity::next\") requires a primitive Nat8, Nat16, Nat32, Nat64, or Nat128 field",
+                )
+                .with_span(&self.name));
+            }
             (None, _) => {
                 return Err(DarlingError::custom(
-                    "generated(insert = ...) currently supports only primitive Ulid or Timestamp fields",
+                    "generated(insert = ...) currently supports only primitive Ulid, Timestamp, Nat8, Nat16, Nat32, Nat64, or Nat128 fields",
                 )
                 .with_span(&self.name));
             }
@@ -456,6 +488,7 @@ fn authored_unit_enum_default<'a>(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum GeneratedInsertContract {
+    Identity,
     Ulid,
     Timestamp,
 }
@@ -467,6 +500,9 @@ fn generated_insert_contract(generator: &Arg) -> Option<GeneratedInsertContract>
         }
         Arg::FuncPath(path) if path_ends_with_segments(path, &["Timestamp", "now"]) => {
             Some(GeneratedInsertContract::Timestamp)
+        }
+        Arg::FuncPath(path) if path_ends_with_segments(path, &["Identity", "next"]) => {
+            Some(GeneratedInsertContract::Identity)
         }
         Arg::Bool(_)
         | Arg::Char(_)

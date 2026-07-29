@@ -210,7 +210,9 @@ fn entity_default_assignment(field: &Field, primary_keys: &[Ident]) -> Option<To
 
     Some(
         if primary_keys.iter().any(|primary_key| ident == primary_key) {
-            if let Some(FieldGeneration::Insert(generator)) = &field.generated {
+            if field.is_identity_generated() {
+                quote!(#ident: #expr)
+            } else if let Some(FieldGeneration::Insert(generator)) = &field.generated {
                 quote!(#ident: (#generator).into())
             } else {
                 quote!(#ident: #expr)

@@ -17,7 +17,9 @@ use crate::{
             StoreAllocationIdentities, StoreHandle, StoreRuntimeStorageCapabilities,
             StoreRuntimeStorageMode,
         },
-        schema::AcceptedInspectionPlan,
+        schema::{
+            AcceptedInspectionPlan, IdentityStateLifecycle, MAX_IDENTITY_STATE_RECORDS_PER_DATABASE,
+        },
     },
     error::{ConstraintValuePath, ErrorClass, ErrorOrigin, InternalError},
     traits::CanisterKind,
@@ -117,6 +119,7 @@ pub enum IntegrityCheckResult {
 fn validate_quick_integrity_control<C: CanisterKind>(
     db: &crate::db::Db<C>,
     plan: &AcceptedInspectionPlan,
+    incarnation: DatabaseIncarnationId,
 ) -> Result<Vec<IntegrityFinding>, InternalError> {
     let identity = plan.identity();
     let source_store = db.store_handle(identity.store_path())?;
@@ -131,6 +134,7 @@ fn validate_quick_integrity_control<C: CanisterKind>(
 
     let _database_control = database_control_proof_identity()?;
     proof::validate_integrity_allocation_registry()?;
+    validate_quick_identity_control(db, incarnation)?;
     let mut findings = Vec::new();
     for (store_path, store) in &participating_stores {
         if let Some(finding) = validate_quick_store_control(plan, store_path, *store)? {
@@ -144,6 +148,56 @@ fn validate_quick_integrity_control<C: CanisterKind>(
     }
 
     Ok(findings)
+}
+
+fn validate_quick_identity_control<C: CanisterKind>(
+    db: &crate::db::Db<C>,
+    incarnation: DatabaseIncarnationId,
+) -> Result<(), InternalError> {
+    let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+    stores.sort_by_key(|(store_path, _)| *store_path);
+
+    let mut owners = BTreeMap::new();
+    let mut state_count = 0usize;
+    for (store_path, store) in stores {
+        let states = store.with_schema(|schema_store| {
+            schema_store.identity_state_inventory_for_integrity(incarnation)
+        })?;
+        state_count = state_count
+            .checked_add(states.len())
+            .ok_or_else(InternalError::identity_state_corruption)?;
+        if state_count > MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
+            return Err(InternalError::identity_state_corruption());
+        }
+
+        for state in states {
+            let owner = state.owner();
+            record_quick_identity_owner(&mut owners, store_path, &state)?;
+            if state.lifecycle() == IdentityStateLifecycle::Active {
+                let runtime_entity = db
+                    .accepted_runtime_entity_for_tag(owner.entity_tag())
+                    .map_err(|_| InternalError::identity_state_corruption())?;
+                if runtime_entity.store_path() != store_path {
+                    return Err(InternalError::identity_state_corruption());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn record_quick_identity_owner<'a>(
+    owners: &mut BTreeMap<(crate::types::EntityTag, crate::db::schema::FieldId), &'a str>,
+    store_path: &'a str,
+    state: &crate::db::schema::IdentityState,
+) -> Result<(), InternalError> {
+    let owner = state.owner();
+    let key = (owner.entity_tag(), owner.field_id());
+    if owners.insert(key, store_path).is_some() {
+        return Err(InternalError::identity_state_corruption());
+    }
+    Ok(())
 }
 
 fn validate_quick_store_control(
@@ -406,6 +460,12 @@ pub enum IntegrityFindingKind {
     /// The physical key and decoded primary-key field values disagree.
     PrimaryKeyMismatch,
 
+    /// An Identity primary key is zero or has the wrong exact unsigned shape.
+    InvalidIdentityValue,
+
+    /// A live Identity primary key is above committed high-water.
+    IdentityHighWaterExceeded,
+
     /// One validated accepted row-local constraint is violated.
     ConstraintViolation,
 
@@ -490,6 +550,9 @@ pub enum IntegrityVerifierFamily {
 
     /// Physical key versus accepted row primary-key fields.
     PrimaryKey,
+
+    /// Accepted Identity owner and committed high-water.
+    IdentityState,
 
     /// Validated accepted row-local constraints.
     ValidatedConstraints,
@@ -896,7 +959,7 @@ pub(in crate::db) fn execute_quick_integrity<C: CanisterKind>(
 ) -> Result<QuickIntegrityResult, InternalError> {
     ensure_recovered(db)?;
     let incarnation = database_incarnation_id()?;
-    let findings = match validate_quick_integrity_control(db, plan) {
+    let findings = match validate_quick_integrity_control(db, plan, incarnation) {
         Ok(findings) => findings,
         Err(error) => {
             return Ok(uninspectable_quick_integrity(
@@ -930,9 +993,9 @@ mod tests {
             schema::{
                 AcceptedCatalogIdentity, AcceptedCompositeCatalog, AcceptedFieldKind,
                 AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
-                FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
-                SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-                empty_accepted_enum_catalog_for_tests,
+                FieldId, IdentityState, IdentityStateOwner, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
+                SchemaVersion, empty_accepted_enum_catalog_for_tests,
             },
         },
         types::EntityTag,
@@ -1108,5 +1171,24 @@ mod tests {
         ));
         assert_eq!(result.total_findings(), 0);
         assert_eq!(result.omitted_findings(), 0);
+    }
+
+    #[test]
+    fn quick_identity_inventory_rejects_active_retired_owner_collision_first() {
+        let incarnation = DatabaseIncarnationId::for_tests(12);
+        let owner = IdentityStateOwner::try_new(incarnation, EntityTag::new(31), FieldId::new(1))
+            .expect("identity owner should admit");
+        let active = IdentityState::new_active(owner, AcceptedFieldKind::Nat64)
+            .expect("active identity state should admit");
+        let retired = active.retire().expect("active state should retire");
+        let mut owners = BTreeMap::new();
+
+        record_quick_identity_owner(&mut owners, "tests::first", &active)
+            .expect("the first owner should admit");
+        let error = record_quick_identity_owner(&mut owners, "tests::second", &retired)
+            .expect_err("an active/retired owner collision must reject");
+
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Identity);
     }
 }

@@ -14,12 +14,13 @@ use crate::db::schema::show_indexes_for_schema_info_with_runtime_state;
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
-        DbSession, EntityCatalogCounts, EntityCatalogDescription, EntitySchemaDescription,
-        SchemaApplicationTarget, SchemaChangeJobId, SchemaChangeProgress, SchemaChangeReceipt,
-        StorageReport, StoreCatalogDescription,
+        DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityIdentityDescription,
+        EntitySchemaDescription, SchemaApplicationTarget, SchemaChangeJobId, SchemaChangeProgress,
+        SchemaChangeReceipt, StorageReport, StoreCatalogDescription,
+        commit::database_incarnation_id,
         schema::{
             AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot,
-            describe_accepted_entity_with_persisted_schema,
+            describe_accepted_entity_with_persisted_schema, describe_accepted_identity,
         },
     },
     error::InternalError,
@@ -211,12 +212,35 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &crate::db::session::AcceptedSchemaCatalogContext,
     ) -> Result<EntitySchemaDescription, InternalError> {
         let validation_jobs = self.constraint_validation_jobs_for_accepted_catalog(catalog)?;
+        let identity = self.identity_description_for_accepted_catalog(catalog)?;
 
         describe_accepted_entity_with_persisted_schema(
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
+            identity,
         )
+    }
+
+    pub(in crate::db::session) fn identity_description_for_accepted_catalog(
+        &self,
+        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+    ) -> Result<Option<EntityIdentityDescription>, InternalError> {
+        let Some(identity) = catalog.inspection_plan().identity_inspection() else {
+            return Ok(None);
+        };
+        let catalog_identity = catalog.identity();
+        let store = self.db.recovered_store(catalog_identity.store_path())?;
+        let incarnation = database_incarnation_id()?;
+        let high_water = store.with_schema(|schema_store| {
+            schema_store.identity_high_water_for_integrity(
+                incarnation,
+                catalog_identity.entity_tag(),
+                identity.field_id(),
+                identity.accepted_kind(),
+            )
+        })?;
+        describe_accepted_identity(identity, high_water).map(Some)
     }
 
     pub(in crate::db::session) fn constraint_validation_jobs_for_accepted_catalog(

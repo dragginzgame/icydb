@@ -76,3 +76,63 @@ pub struct SqlTestUser {}
     timestamps
 )]
 pub struct SqlTestNumericTypes {}
+
+/// Caller-authored Nat64 control for the Identity closeout instruction probe.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(name = "id", value(item(prim = "Nat64"))),
+        field(name = "payload", value(item(prim = "Nat64")))
+    )
+)]
+pub struct SqlTestCallerNat64 {}
+
+/// Generated Nat64 subject for the Identity closeout instruction probe.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(
+            name = "id",
+            value(item(prim = "Nat64")),
+            generated(insert = "Identity::next")
+        ),
+        field(name = "payload", value(item(prim = "Nat64")))
+    )
+)]
+pub struct SqlTestIdentityNat64 {}
+
+/// Generated Nat128 subject for the Identity closeout instruction probe.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(
+            name = "id",
+            value(item(prim = "Nat128")),
+            generated(insert = "Identity::next")
+        ),
+        field(name = "payload", value(item(prim = "Nat64")))
+    )
+)]
+pub struct SqlTestIdentityNat128 {}
+
+/// Isolated generated owner for one-row and record-cap batch measurements.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(
+            name = "id",
+            value(item(prim = "Nat64")),
+            generated(insert = "Identity::next")
+        ),
+        field(name = "payload", value(item(prim = "Nat64")))
+    )
+)]
+pub struct SqlTestIdentityBatch {}

@@ -9,7 +9,8 @@ use crate::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
         journal::{
-            JournalBatch, decode_journal_batch, encode_journal_batch, journal_batch_encoded_len,
+            JournalBatch, JournalRecord, decode_journal_batch, encode_journal_batch,
+            journal_batch_encoded_len,
         },
         schema::{ApplicationRecordKey, SchemaApplicationRecordOp},
     },
@@ -563,12 +564,22 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     // stores participating in one commit may legitimately use the same next
     // sequence.
     let mut batch_ids = BTreeSet::new();
+    let mut identity_owners = Vec::new();
     for batch in &marker.journal_batches {
         if batch.commit_marker_id() != marker.id {
             return Err(InternalError::commit_corruption());
         }
         if !batch_ids.insert(batch.batch_id()) {
             return Err(InternalError::commit_corruption());
+        }
+        for record in batch.records() {
+            let JournalRecord::IdentityRangeAdvance { range } = record else {
+                continue;
+            };
+            if identity_owners.contains(&range.owner()) {
+                return Err(InternalError::commit_corruption());
+            }
+            identity_owners.push(range.owner());
         }
     }
     if let Some(operation) = marker.schema_application() {

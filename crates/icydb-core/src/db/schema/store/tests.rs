@@ -1,29 +1,37 @@
 use super::{
     ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST,
-    ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET, AcceptedStoreCatalogScope, RawSchemaKey,
-    RawSchemaSnapshot, SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore, SchemaStoreBackend,
-    SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests, hash_accepted_field_kind,
-    reset_accepted_schema_bundle_cache_miss_count_for_tests,
+    ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET, AcceptedStoreCatalogScope, IdentityStateStorageView,
+    RawSchemaKey, RawSchemaSnapshot, SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore,
+    SchemaStoreBackend, SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests,
+    hash_accepted_field_kind, reset_accepted_schema_bundle_cache_miss_count_for_tests,
+};
+use crate::db::schema::identity_state::{
+    IdentityAdvanceId, IdentityRangeAdvance, IdentityState, IdentityStateLifecycle,
+    IdentityStateOwner, MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, decode_identity_state,
+    encode_identity_state,
 };
 use crate::{
     db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         direction::Direction,
+        integrity::DatabaseIncarnationId,
         schema::{
             AcceptedCheckExprV1, AcceptedCompositeCatalog, AcceptedFieldKind,
             AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
             CandidateSchemaRevision, ConstraintActivationState, ConstraintOrigin,
-            ConstraintValidationJob, FieldId, PersistedFieldSnapshot,
+            ConstraintValidationJob, FieldId, FieldInsertGeneration, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId,
-            SchemaInsertDefault, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout,
+            SchemaVersion, accepted_schema_cache_fingerprint, accepted_schema_candidate_for_tests,
             composite_catalog::CompositeTypeId,
             empty_accepted_schema_candidate_for_tests,
             encode_unchecked_persisted_schema_snapshot_for_tests,
             enum_catalog::{AcceptedSchemaFingerprint, AcceptedSchemaRevisionBundle},
         },
     },
+    error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
     types::EntityTag,
 };
@@ -35,6 +43,10 @@ fn accepted_field_kind_fingerprint(kind: &AcceptedFieldKind) -> [u8; 32] {
     let mut hasher = new_hash_sha256();
     hash_accepted_field_kind(&mut hasher, kind);
     finalize_hash_sha256(hasher)
+}
+
+const fn test_database_incarnation() -> DatabaseIncarnationId {
+    DatabaseIncarnationId::for_tests(0x61)
 }
 
 #[test]
@@ -91,7 +103,11 @@ fn schema_store_matches_only_its_current_root_authority() {
         AcceptedSchemaRevision::INITIAL,
     );
     store
-        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
         .expect("initial accepted schema root should bootstrap");
     let store_scope = store
         .accepted_catalog_scope
@@ -151,7 +167,11 @@ fn schema_store_matches_only_its_current_root_authority() {
         AcceptedSchemaRevision::new(2),
     );
     store
-        .publish_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
         .expect("second accepted schema root should publish");
     assert!(store.accepted_bundle_cache.borrow().is_none());
     assert!(
@@ -210,7 +230,11 @@ fn schema_store_requires_exact_job_closure_for_validating_activation() {
         CandidateSchemaRevision::new(initial_bundle).expect("activation candidate should encode");
     let mut store = SchemaStore::init_heap();
     store
-        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
         .expect("Enforcing activation should publish without a job");
 
     let validating_catalog = snapshot
@@ -582,7 +606,11 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
         AcceptedSchemaRevision::INITIAL,
     );
     store
-        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
         .expect("initial accepted schema root should bootstrap");
     assert_eq!(store.canonical_len_for_tests(), 2);
 
@@ -591,10 +619,18 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
         AcceptedSchemaRevision::new(2),
     );
     store
-        .apply_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
         .expect("journal replay should publish the live root");
     store
-        .apply_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
         .expect("replaying an already-current candidate should be idempotent");
     assert_eq!(
         store
@@ -616,13 +652,25 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
         AcceptedSchemaRevision::INITIAL,
     );
     reopened
-        .apply_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
         .expect("tail replay should restore the live candidate");
     reopened
-        .fold_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .fold_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
         .expect("committed candidate should fold into the canonical BTree");
     reopened
-        .fold_journaled_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .fold_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
         .expect("repeated candidate fold should be idempotent");
     reopened
         .reset_journaled_live_projection()
@@ -639,6 +687,402 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
 }
 
 #[test]
+fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corruption() {
+    let entity_tag = EntityTag::new(101);
+    let field_id = FieldId::new(1);
+    let initial = identity_candidate_for_test(
+        "test::IdentityStateStore",
+        AcceptedSchemaRevision::INITIAL,
+        entity_tag,
+        field_id,
+        AcceptedFieldKind::Nat64,
+    );
+    let mut store = SchemaStore::init_heap();
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .expect("initial identity declaration should publish with zero state");
+
+    let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
+    let state = decode_identity_state(
+        store
+            .get_raw_snapshot(&key)
+            .expect("published identity must have explicit state")
+            .as_bytes(),
+    )
+    .expect("published identity state should decode");
+    assert_eq!(state.lifecycle(), IdentityStateLifecycle::Active);
+    assert_eq!(state.materialized_high_water(), 0);
+    assert_eq!(state.last_applied_advance(), None);
+    assert_eq!(state.accepted_kind(), &AcceptedFieldKind::Nat64);
+    assert_eq!(
+        state.owner().database_incarnation_id(),
+        test_database_incarnation(),
+    );
+    assert!(
+        store
+            .preflight_accepted_schema_candidate(
+                test_database_incarnation(),
+                AcceptedSchemaRevision::NONE,
+                &initial,
+            )
+            .expect("exact publication replay should preflight"),
+    );
+    let cursor = store
+        .identity_statement_cursor(
+            test_database_incarnation(),
+            entity_tag,
+            field_id,
+            &AcceptedFieldKind::Nat64,
+        )
+        .expect("active accepted state should open a statement cursor");
+    assert_eq!(cursor.owner(), state.owner());
+    assert_eq!(cursor.expected_high_water(), 0);
+    for (incarnation, kind) in [
+        (
+            DatabaseIncarnationId::for_tests(0xFF),
+            AcceptedFieldKind::Nat64,
+        ),
+        (test_database_incarnation(), AcceptedFieldKind::Nat32),
+    ] {
+        let error = store
+            .identity_statement_cursor(incarnation, entity_tag, field_id, &kind)
+            .expect_err("a mismatched owner or kind must reject");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Identity);
+    }
+
+    let SchemaStoreBackend::Heap(map) = &mut store.backend else {
+        panic!("identity missing-state fixture requires a heap store");
+    };
+    map.remove(&key);
+    let error = store
+        .identity_statement_cursor(
+            test_database_incarnation(),
+            entity_tag,
+            field_id,
+            &AcceptedFieldKind::Nat64,
+        )
+        .expect_err("a missing active state must not synthesize zero");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+    let error = store
+        .current_accepted_schema_bundle()
+        .expect_err("accepted identity without explicit state must be corruption");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+
+    let mut malformed = encode_identity_state(&state).expect("identity state should encode");
+    malformed[9] ^= 0xFF;
+    store.insert_durable_raw_value(key, malformed);
+    let error = store
+        .current_accepted_schema_bundle()
+        .expect_err("malformed identity state must be corruption");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+}
+
+#[test]
+fn identity_range_preflight_rejects_stale_state_and_apply_requires_exact_advance_identity() {
+    let entity_tag = EntityTag::new(111);
+    let field_id = FieldId::new(1);
+    let initial = identity_candidate_for_test(
+        "test::IdentityRangeStore",
+        AcceptedSchemaRevision::INITIAL,
+        entity_tag,
+        field_id,
+        AcceptedFieldKind::Nat64,
+    );
+    let mut store = SchemaStore::init_heap();
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .expect("initial identity declaration should publish");
+    let owner = IdentityStateOwner::try_new(test_database_incarnation(), entity_tag, field_id)
+        .expect("identity owner should build");
+    let range =
+        IdentityRangeAdvance::try_new(owner, 0, 2, 2).expect("contiguous range should build");
+    let advance =
+        IdentityAdvanceId::try_new([0x31; 16], [0x41; 16], 7, 2).expect("advance should build");
+
+    store
+        .preflight_identity_range_advance(range)
+        .expect("current expected high-water should admit");
+    store
+        .apply_identity_range_advance(range, advance)
+        .expect("first range apply should advance state");
+    store
+        .apply_identity_range_advance(range, advance)
+        .expect("exact advance replay should be idempotent");
+    store
+        .verify_identity_range_advance(range, advance)
+        .expect("exact materialized range should verify");
+
+    let stale = store
+        .preflight_identity_range_advance(range)
+        .expect_err("stale expected high-water must reject before marker publication");
+    assert_eq!(stale.class(), ErrorClass::Conflict);
+    assert_eq!(stale.origin(), ErrorOrigin::Identity);
+
+    let other_advance =
+        IdentityAdvanceId::try_new([0x32; 16], [0x42; 16], 7, 2).expect("advance should build");
+    let mismatch = store
+        .apply_identity_range_advance(range, other_advance)
+        .expect_err("numeric equality without exact advance identity must be corruption");
+    assert_eq!(mismatch.class(), ErrorClass::Corruption);
+    assert_eq!(mismatch.origin(), ErrorOrigin::Identity);
+}
+
+#[test]
+fn journaled_identity_range_replay_and_fold_share_exact_advance_identity() {
+    let entity_tag = EntityTag::new(112);
+    let field_id = FieldId::new(1);
+    let initial = identity_candidate_for_test(
+        "test::JournaledIdentityRangeStore",
+        AcceptedSchemaRevision::INITIAL,
+        entity_tag,
+        field_id,
+        AcceptedFieldKind::Nat128,
+    );
+    let mut store = SchemaStore::init_journaled(test_memory(182));
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .expect("journaled identity declaration should publish");
+    let owner = IdentityStateOwner::try_new(test_database_incarnation(), entity_tag, field_id)
+        .expect("identity owner should build");
+    let range =
+        IdentityRangeAdvance::try_new(owner, 0, 3, 3).expect("contiguous range should build");
+    let advance =
+        IdentityAdvanceId::try_new([0x51; 16], [0x61; 16], 9, 3).expect("advance should build");
+
+    store
+        .apply_identity_range_advance(range, advance)
+        .expect("range replay should update the live projection");
+    store
+        .fold_identity_range_advance(range, advance)
+        .expect("range fold should update canonical state");
+    store
+        .fold_identity_range_advance(range, advance)
+        .expect("exact canonical fold replay should be idempotent");
+    store
+        .reset_journaled_live_projection()
+        .expect("live projection should reset to canonical state");
+    store
+        .verify_identity_range_advance(range, advance)
+        .expect("folded exact identity should survive projection rebuild");
+}
+
+#[test]
+fn identity_removal_retires_state_and_reuse_is_rejected() {
+    let entity_tag = EntityTag::new(102);
+    let field_id = FieldId::new(1);
+    let store_path = "test::IdentityRetirementStore";
+    let initial = identity_candidate_for_test(
+        store_path,
+        AcceptedSchemaRevision::INITIAL,
+        entity_tag,
+        field_id,
+        AcceptedFieldKind::Nat32,
+    );
+    let removed =
+        empty_accepted_schema_candidate_for_tests(store_path, AcceptedSchemaRevision::new(2));
+    let reused = identity_candidate_for_test(
+        store_path,
+        AcceptedSchemaRevision::new(3),
+        entity_tag,
+        field_id,
+        AcceptedFieldKind::Nat32,
+    );
+    let mut store = SchemaStore::init_heap();
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .expect("identity declaration should publish");
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &removed,
+        )
+        .expect("identity removal should retire its state");
+
+    let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
+    let retired = decode_identity_state(
+        store
+            .get_raw_snapshot(&key)
+            .expect("retired identity state must be retained")
+            .as_bytes(),
+    )
+    .expect("retired state should decode");
+    assert_eq!(retired.lifecycle(), IdentityStateLifecycle::Retired);
+    assert_eq!(retired.materialized_high_water(), 0);
+    assert_eq!(retired.accepted_kind(), &AcceptedFieldKind::Nat32);
+    assert_eq!(
+        store
+            .identity_state_inventory_for_integrity(test_database_incarnation())
+            .expect("integrity inventory should retain retired state"),
+        vec![retired],
+    );
+    let incarnation_error = store
+        .identity_state_inventory_for_integrity(DatabaseIncarnationId::for_tests(0x62))
+        .expect_err("integrity inventory must reject another database incarnation");
+    assert_eq!(incarnation_error.class(), ErrorClass::Corruption);
+    assert_eq!(incarnation_error.origin(), ErrorOrigin::Identity);
+
+    let error = store
+        .preflight_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::new(2),
+            &reused,
+        )
+        .expect_err("retired accepted owner must never be reused");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+    assert_eq!(
+        store
+            .current_accepted_schema_bundle()
+            .expect("current accepted bundle should remain readable")
+            .expect("removed revision should remain current")
+            .revision(),
+        AcceptedSchemaRevision::new(2),
+    );
+}
+
+#[test]
+fn journaled_identity_retirement_replays_and_folds_with_schema_publication() {
+    let entity_tag = EntityTag::new(103);
+    let field_id = FieldId::new(1);
+    let store_path = "test::JournaledIdentityStateStore";
+    let initial = identity_candidate_for_test(
+        store_path,
+        AcceptedSchemaRevision::INITIAL,
+        entity_tag,
+        field_id,
+        AcceptedFieldKind::Nat16,
+    );
+    let removed =
+        empty_accepted_schema_candidate_for_tests(store_path, AcceptedSchemaRevision::new(2));
+    let memory = test_memory(181);
+    let mut store = SchemaStore::init_journaled(memory.clone());
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .expect("initial identity should bootstrap canonical zero state");
+    store
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &removed,
+        )
+        .expect("schema replay should retire the live identity state");
+
+    let live = store
+        .identity_state_inventory(IdentityStateStorageView::Effective)
+        .expect("live identity inventory should decode");
+    let canonical = store
+        .identity_state_inventory(IdentityStateStorageView::Canonical)
+        .expect("canonical identity inventory should decode");
+    assert_eq!(
+        live[&(entity_tag, field_id)].lifecycle(),
+        IdentityStateLifecycle::Retired,
+    );
+    assert_eq!(
+        canonical[&(entity_tag, field_id)].lifecycle(),
+        IdentityStateLifecycle::Active,
+    );
+
+    let mut reopened = SchemaStore::init_journaled(memory);
+    reopened
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &removed,
+        )
+        .expect("journal replay should reconstruct retired live state");
+    reopened
+        .fold_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &removed,
+        )
+        .expect("journal fold should retain retired canonical state");
+    reopened
+        .reset_journaled_live_projection()
+        .expect("live projection should reset to folded authority");
+    let folded = reopened
+        .identity_state_inventory(IdentityStateStorageView::Effective)
+        .expect("folded identity inventory should decode");
+    assert_eq!(
+        folded[&(entity_tag, field_id)].lifecycle(),
+        IdentityStateLifecycle::Retired,
+    );
+}
+
+#[test]
+fn identity_state_inventory_enforces_the_database_lifetime_cap() {
+    let incarnation = test_database_incarnation();
+    let mut store = SchemaStore::init_heap();
+    for ordinal in 0..MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
+        let entity_value =
+            u64::try_from(ordinal).expect("identity-state ordinal should fit u64") + 1;
+        let owner =
+            IdentityStateOwner::try_new(incarnation, EntityTag::new(entity_value), FieldId::new(1))
+                .expect("bounded identity owner should admit");
+        let state = IdentityState::new_active(owner, AcceptedFieldKind::Nat64)
+            .and_then(|state| state.retire())
+            .expect("retired identity fixture should admit");
+        store.insert_durable_raw_value(
+            RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id()),
+            encode_identity_state(&state).expect("retired identity state should encode"),
+        );
+    }
+    assert_eq!(
+        store
+            .identity_state_inventory(IdentityStateStorageView::Effective)
+            .expect("the exact inventory limit should remain readable")
+            .len(),
+        MAX_IDENTITY_STATE_RECORDS_PER_DATABASE,
+    );
+    let candidate = identity_candidate_for_test(
+        "test::IdentityCapacityStore",
+        AcceptedSchemaRevision::INITIAL,
+        EntityTag::new(
+            u64::try_from(MAX_IDENTITY_STATE_RECORDS_PER_DATABASE)
+                .expect("identity-state limit should fit u64")
+                + 1,
+        ),
+        FieldId::new(1),
+        AcceptedFieldKind::Nat64,
+    );
+
+    let error = store
+        .preflight_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .expect_err("one owner beyond the lifetime cap must reject");
+    assert_eq!(error.class(), ErrorClass::Unsupported);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+}
+
+#[test]
 fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
     let mut store = SchemaStore::init_heap();
     let initial = empty_accepted_schema_candidate_for_tests(
@@ -646,7 +1090,11 @@ fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
         AcceptedSchemaRevision::INITIAL,
     );
     store
-        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &initial)
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
         .expect("initial accepted schema root should bootstrap");
     reset_accepted_schema_bundle_cache_miss_count_for_tests();
 
@@ -666,7 +1114,11 @@ fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
         AcceptedSchemaRevision::new(2),
     );
     store
-        .publish_accepted_schema_candidate(AcceptedSchemaRevision::INITIAL, &second)
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
         .expect("second accepted schema root should publish");
     assert!(
         store
@@ -714,7 +1166,11 @@ fn accepted_catalog_selection_reuses_verified_entity_bytes() {
     let candidate = CandidateSchemaRevision::new(bundle).expect("accepted candidate should encode");
     let mut store = SchemaStore::init_heap();
     store
-        .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &candidate)
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
         .expect("accepted candidate should publish");
 
     let first = store
@@ -1414,6 +1870,43 @@ fn visit_journaled_schema_range(
     );
 
     visited
+}
+
+fn identity_candidate_for_test(
+    store_path: &str,
+    revision: AcceptedSchemaRevision,
+    entity_tag: EntityTag,
+    field_id: FieldId,
+    kind: AcceptedFieldKind,
+) -> CandidateSchemaRevision {
+    let leaf_codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        format!("IdentityStateEntity{}", entity_tag.value()),
+        format!("IdentityStateEntity{}", entity_tag.value()),
+        field_id,
+        SchemaRowLayout::initial(vec![(field_id, SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial_with_write_policy(
+            field_id,
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            kind,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            SchemaFieldWritePolicy::from_model_policies(
+                Some(FieldInsertGeneration::Identity),
+                None,
+            ),
+            FieldStorageDecode::ByKind,
+            leaf_codec,
+        )],
+    );
+    accepted_schema_candidate_for_tests(
+        store_path,
+        revision,
+        std::collections::BTreeMap::from([(entity_tag, snapshot)]),
+    )
 }
 
 fn persisted_schema_snapshot_for_test(

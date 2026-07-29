@@ -15,8 +15,9 @@ use crate::{
         index::AcceptedIndexInspectionPlan,
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{
-            AcceptedCatalogIdentity, AcceptedRowLayoutRuntimeContract, AcceptedSchemaFingerprint,
-            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, CompiledAcceptedRowConstraints,
+            AcceptedCatalogIdentity, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
+            AcceptedSchemaFingerprint, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            CompiledAcceptedRowConstraints, FieldId, FieldInsertGeneration,
         },
     },
     error::InternalError,
@@ -58,7 +59,33 @@ pub(in crate::db) struct AcceptedInspectionPlan {
     write_constraints: CompiledAcceptedRowConstraints,
     index_inspection: AcceptedIndexInspectionPlan,
     relation_inspection: Vec<RelationConstraintProjection>,
+    identity_inspection: Option<AcceptedIdentityInspection>,
     fingerprint: AcceptedInspectionPlanFingerprint,
+}
+
+/// Exact accepted Identity declaration needed by bounded physical inspection.
+#[derive(Clone, Debug)]
+pub(in crate::db) struct AcceptedIdentityInspection {
+    field_id: FieldId,
+    field_name: String,
+    accepted_kind: AcceptedFieldKind,
+}
+
+impl AcceptedIdentityInspection {
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn field_name(&self) -> &str {
+        self.field_name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_kind(&self) -> &AcceptedFieldKind {
+        &self.accepted_kind
+    }
 }
 
 impl AcceptedInspectionPlan {
@@ -144,6 +171,7 @@ impl AcceptedInspectionPlan {
         let index_inspection =
             AcceptedIndexInspectionPlan::compile(&snapshot, value_catalog.clone(), &row_contract)?;
         let relation_inspection = build_relations(&snapshot, &row_contract)?;
+        let identity_inspection = accepted_identity_inspection(&snapshot)?;
         let fingerprint = accepted_inspection_plan_fingerprint(
             &identity,
             value_catalog.authority().fingerprint(),
@@ -157,6 +185,7 @@ impl AcceptedInspectionPlan {
             write_constraints,
             index_inspection,
             relation_inspection,
+            identity_inspection,
             fingerprint,
         })
     }
@@ -209,11 +238,41 @@ impl AcceptedInspectionPlan {
         self.relation_inspection.as_slice()
     }
 
+    /// Borrow the exact accepted Identity declaration, when present.
+    #[must_use]
+    pub(in crate::db) const fn identity_inspection(&self) -> Option<&AcceptedIdentityInspection> {
+        self.identity_inspection.as_ref()
+    }
+
     /// Return the fingerprint of the complete accepted inspection projection.
     #[must_use]
     pub(in crate::db) const fn fingerprint(&self) -> AcceptedInspectionPlanFingerprint {
         self.fingerprint
     }
+}
+
+fn accepted_identity_inspection(
+    snapshot: &AcceptedSchemaSnapshot,
+) -> Result<Option<AcceptedIdentityInspection>, InternalError> {
+    let mut identity = None;
+    for field in snapshot
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .filter(|field| {
+            field.write_policy().insert_generation() == Some(FieldInsertGeneration::Identity)
+        })
+    {
+        if identity.is_some() {
+            return Err(InternalError::identity_state_corruption());
+        }
+        identity = Some(AcceptedIdentityInspection {
+            field_id: field.id(),
+            field_name: field.name().to_string(),
+            accepted_kind: field.kind().clone(),
+        });
+    }
+    Ok(identity)
 }
 
 fn accepted_inspection_plan_fingerprint(

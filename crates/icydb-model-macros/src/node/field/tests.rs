@@ -103,6 +103,51 @@ fn generated_ulid_is_schema_owned_and_shape_checked() {
 }
 
 #[test]
+fn generated_identity_accepts_every_exact_unsigned_width() {
+    for primitive in [
+        Primitive::Nat8,
+        Primitive::Nat16,
+        Primitive::Nat32,
+        Primitive::Nat64,
+        Primitive::Nat128,
+    ] {
+        let mut id = field("id", primitive);
+        id.generated = Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+            Identity::next
+        ))));
+
+        id.validate()
+            .expect("exact unsigned identity generator should validate");
+        assert!(id.is_identity_generated());
+        assert_eq!(
+            id.rust_default_expr()
+                .expect("identity should have a Rust placeholder")
+                .to_string(),
+            quote!(Default::default()).to_string(),
+        );
+    }
+}
+
+#[test]
+fn generated_identity_rejects_other_primitive_kinds() {
+    let mut id = field("id", Primitive::Int64);
+    id.generated = Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+        Identity::next
+    ))));
+
+    let error = id
+        .validate()
+        .expect_err("signed identity generation must reject");
+
+    assert!(
+        error
+            .to_string()
+            .contains("requires a primitive Nat8, Nat16, Nat32, Nat64, or Nat128 field"),
+        "unexpected diagnostic: {error}",
+    );
+}
+
+#[test]
 fn generated_clause_requires_a_quoted_function_path() {
     let generated = FieldGeneration::from_list(&[NestedMeta::Meta(syn::Meta::NameValue(
         parse_quote!(insert = "Timestamp::now"),

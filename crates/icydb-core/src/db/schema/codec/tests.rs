@@ -11,6 +11,7 @@ use crate::{
         PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
         RowLayoutVersion, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
         SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        accepted_schema_cache_fingerprint_for_persisted_snapshot,
         composite_catalog::CompositeTypeId, decode_persisted_schema_snapshot,
         encode_persisted_schema_snapshot,
     },
@@ -780,6 +781,67 @@ fn persisted_schema_snapshot_round_trips_field_write_policy() {
         decoded.fields()[1].write_policy().write_management(),
         Some(FieldWriteManagement::UpdatedAt),
         "managed write policy should survive schema snapshot round-trip",
+    );
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_identity_generation() {
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::Identity".to_string(),
+        "Identity".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial_with_write_policy(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Nat128,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            SchemaFieldWritePolicy::from_model_policies(
+                Some(FieldInsertGeneration::Identity),
+                None,
+            ),
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        )],
+    );
+    let encoded =
+        encode_persisted_schema_snapshot(&snapshot).expect("identity schema should encode");
+    let decoded =
+        decode_persisted_schema_snapshot(&encoded).expect("identity schema should decode");
+
+    assert_eq!(
+        decoded.fields()[0].write_policy().insert_generation(),
+        Some(FieldInsertGeneration::Identity),
+    );
+
+    let caller_owned = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::Identity".to_string(),
+        "Identity".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Nat128,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        )],
+    );
+    assert_ne!(
+        accepted_schema_cache_fingerprint_for_persisted_snapshot(&snapshot)
+            .expect("identity fingerprint should derive"),
+        accepted_schema_cache_fingerprint_for_persisted_snapshot(&caller_owned)
+            .expect("caller-owned fingerprint should derive"),
+        "identity policy must participate in accepted schema fingerprints",
     );
 }
 

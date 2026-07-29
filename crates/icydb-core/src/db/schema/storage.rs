@@ -77,6 +77,8 @@ pub(in crate::db) enum CompositeCodec {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum FieldInsertGeneration {
+    /// Allocate the next database-owned unsigned identity.
+    Identity,
     /// Generate a fresh ULID.
     Ulid,
     /// Generate the operation timestamp.

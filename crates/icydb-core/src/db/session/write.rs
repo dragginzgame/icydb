@@ -12,8 +12,8 @@ use crate::{
         DynamicTypedFieldType, DynamicTypedMutation, DynamicTypedStructuralPatch, DynamicWriteCell,
         commit::{CommitRowOp, database_incarnation_id},
         data::{
-            AcceptedMutationIntentPatch, DecodedDataStoreKey, FieldSlot, RawRow,
-            StructuralRowContract, StructuralSlotReader,
+            AcceptedMutationIntentPatch, AcceptedPreKeyInsert, DecodedDataStoreKey, FieldSlot,
+            RawRow, StructuralRowContract, StructuralSlotReader,
             canonical_row_from_raw_row_with_accepted_decode_contract,
             resolve_existing_replace_structural_patch_with_accepted_contract,
             resolve_insert_structural_patch_with_accepted_contract,
@@ -24,7 +24,8 @@ use crate::{
             commit_structural_save_row_ops_with_window_for_path, mutation_key_exists_error,
         },
         schema::{
-            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, lower_field_type,
+            AcceptedFieldKind, AcceptedIdentityAllocation, AcceptedRowLayoutRuntimeContract,
+            FieldId, FieldInsertGeneration, IdentityStatementCursor, lower_field_type,
             output_value_from_runtime,
         },
         write_context::{AcceptedWriteContext, MutationMode},
@@ -37,6 +38,13 @@ use crate::{
 };
 use icydb_schema::{EntitySourceKey, FieldSourceKey, FieldType, TypeSourceKey};
 use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AcceptedIdentityInsertField {
+    field_id: FieldId,
+    field_slot: usize,
+    accepted_kind: AcceptedFieldKind,
+}
 
 /// Accepted row identity carried by a structural mutation after frontend
 /// lowering but before the canonical after-image exists.
@@ -102,6 +110,14 @@ const fn dynamic_typed_mutation_mode(request: &DynamicTypedMutation) -> Mutation
 
 const fn dynamic_write_context(operation_timestamp: Timestamp) -> AcceptedWriteContext {
     AcceptedWriteContext::new(operation_timestamp)
+}
+
+fn insert_key_exists_after_generation(identity_generated: bool) -> InternalError {
+    if identity_generated {
+        InternalError::identity_state_corruption()
+    } else {
+        mutation_key_exists_error()
+    }
 }
 
 fn dynamic_key(
@@ -230,6 +246,60 @@ fn preserve_dynamic_replacement_identity(
     }
 
     Ok(patch)
+}
+
+// Locate the sole accepted Identity owner that is eligible to resolve a
+// keyless insert. Accepted-schema integrity already freezes the exact shape;
+// this runtime check fails closed if a malformed contract reaches execution.
+fn accepted_identity_insert_field(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+) -> Result<Option<AcceptedIdentityInsertField>, InternalError> {
+    let mut identity = None;
+    for field in descriptor.fields() {
+        if field.write_policy().insert_generation() != Some(FieldInsertGeneration::Identity) {
+            continue;
+        }
+        let field_slot = usize::from(field.slot().get());
+        if identity
+            .replace(AcceptedIdentityInsertField {
+                field_id: field.field_id(),
+                field_slot,
+                accepted_kind: field.kind().clone(),
+            })
+            .is_some()
+            || descriptor.primary_key_slot_indices() != [field_slot]
+        {
+            return Err(InternalError::identity_corruption());
+        }
+    }
+    Ok(identity)
+}
+
+fn checked_pre_key_candidate_count(count: usize) -> Result<u32, InternalError> {
+    u32::try_from(count).map_err(|_| InternalError::identity_candidate_count_exhausted())
+}
+
+fn validate_identity_materialization(
+    entity_tag: crate::types::EntityTag,
+    identity_field: &AcceptedIdentityInsertField,
+    candidate: &AcceptedPreKeyInsert,
+    allocation: &AcceptedIdentityAllocation,
+    data_key: &DecodedDataStoreKey,
+    reader: &StructuralSlotReader<'_>,
+) -> Result<(), InternalError> {
+    let owner = allocation.owner();
+    let slot_value = reader.required_cached_value(identity_field.field_slot)?;
+    if candidate.entity_tag() != entity_tag
+        || candidate.input_ordinal() != allocation.input_ordinal()
+        || owner.entity_tag() != entity_tag
+        || owner.field_id() != identity_field.field_id
+        || allocation.field_slot() != identity_field.field_slot
+        || slot_value != allocation.value()
+        || data_key.primary_key_runtime_value() != *allocation.value()
+    {
+        return Err(InternalError::identity_corruption());
+    }
+    Ok(())
 }
 
 fn data_key_from_row(
@@ -640,6 +710,15 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let store = self.db.recovered_store(store_path)?;
         let write_context = dynamic_write_context(operation_timestamp);
+        let identity_field = accepted_identity_insert_field(descriptor)?;
+        let identity_incarnation = identity_field
+            .as_ref()
+            .map(|_| database_incarnation_id())
+            .transpose()?;
+        if identity_field.is_some() {
+            let _ = checked_pre_key_candidate_count(mutations.len())?;
+        }
+        let mut identity_cursor: Option<IdentityStatementCursor> = None;
         let mut scheduler = AcceptedMutationConstraintScheduler::for_save(
             &self.db,
             entity_path,
@@ -652,17 +731,38 @@ impl<C: CanisterKind> DbSession<C> {
         let mut output = Vec::with_capacity(mutations.len());
         let mut seen_keys = BTreeSet::new();
 
-        for mutation in mutations {
-            let expected_key = match mutation.target {
-                AcceptedStructuralMutationTarget::ResolveFromAfterImage => None,
-                AcceptedStructuralMutationTarget::Expected(key) => Some(*key),
+        for (input_index, mutation) in mutations.into_iter().enumerate() {
+            let input_ordinal = u32::try_from(input_index)
+                .map_err(|_| InternalError::identity_candidate_count_exhausted())?;
+            let (expected_key, pre_key_insert, mut keyed_patch) = match mutation.target {
+                AcceptedStructuralMutationTarget::ResolveFromAfterImage => (
+                    None,
+                    Some(AcceptedPreKeyInsert::new(
+                        identity.entity_tag(),
+                        mutation.patch,
+                        input_ordinal,
+                    )),
+                    None,
+                ),
+                AcceptedStructuralMutationTarget::Expected(key) => {
+                    (Some(*key), None, Some(mutation.patch))
+                }
             };
-            let mut patch = mutation.patch;
             if matches!(mode, MutationMode::Replace)
                 && let Some(key) = expected_key.as_ref()
             {
-                patch = preserve_dynamic_replacement_identity(key, descriptor, patch)?;
+                let patch = keyed_patch
+                    .take()
+                    .ok_or_else(InternalError::executor_invariant)?;
+                keyed_patch = Some(preserve_dynamic_replacement_identity(
+                    key, descriptor, patch,
+                )?);
             }
+            let patch = pre_key_insert
+                .as_ref()
+                .map(AcceptedPreKeyInsert::fields)
+                .or(keyed_patch.as_ref())
+                .ok_or_else(InternalError::executor_invariant)?;
             let before = expected_key
                 .as_ref()
                 .map(|key| validated_existing_row(store, key, &row_contract))
@@ -681,6 +781,49 @@ impl<C: CanisterKind> DbSession<C> {
                 MutationMode::Insert | MutationMode::Replace | MutationMode::Update => {}
             }
 
+            let identity_allocation = if let Some(identity_field) = identity_field.as_ref()
+                && matches!(mode, MutationMode::Insert)
+                && before.is_none()
+            {
+                let candidate = pre_key_insert.as_ref().ok_or_else(|| {
+                    let field_name = descriptor
+                        .field_for_slot_index(identity_field.field_slot)
+                        .map_or("", |field| field.name());
+                    InternalError::mutation_database_owned_field_explicit(entity_path, field_name)
+                })?;
+                if identity_cursor.is_none() {
+                    let incarnation = identity_incarnation
+                        .ok_or_else(InternalError::identity_state_corruption)?;
+                    identity_cursor = Some(store.with_schema(|schema_store| {
+                        schema_store.identity_statement_cursor(
+                            incarnation,
+                            identity.entity_tag(),
+                            identity_field.field_id,
+                            &identity_field.accepted_kind,
+                        )
+                    })?);
+                }
+                Some(
+                    identity_cursor
+                        .as_mut()
+                        .ok_or_else(InternalError::identity_state_corruption)?
+                        .allocate(identity_field.field_slot, candidate.input_ordinal())?,
+                )
+            } else if let Some(identity_field) = identity_field.as_ref()
+                && matches!(mode, MutationMode::Replace)
+                && before.is_none()
+            {
+                let field_name = descriptor
+                    .field_for_slot_index(identity_field.field_slot)
+                    .map_or("", |field| field.name());
+                return Err(InternalError::mutation_database_owned_field_explicit(
+                    entity_path,
+                    field_name,
+                ));
+            } else {
+                None
+            };
+
             let resolved = match (mode, before.as_ref()) {
                 (MutationMode::Insert | MutationMode::Replace, None) => {
                     resolve_insert_structural_patch_with_accepted_contract(
@@ -688,8 +831,9 @@ impl<C: CanisterKind> DbSession<C> {
                         row_decode_contract.clone(),
                         catalog.fingerprint(),
                         catalog.accepted_row_constraints(),
-                        &patch,
+                        patch,
                         write_context,
+                        identity_allocation.as_ref(),
                     )?
                 }
                 (MutationMode::Update, Some(before)) => {
@@ -699,7 +843,7 @@ impl<C: CanisterKind> DbSession<C> {
                         catalog.fingerprint(),
                         catalog.accepted_row_constraints(),
                         before,
-                        &patch,
+                        patch,
                         write_context,
                     )?
                 }
@@ -710,7 +854,7 @@ impl<C: CanisterKind> DbSession<C> {
                         catalog.fingerprint(),
                         catalog.accepted_row_constraints(),
                         before,
-                        &patch,
+                        patch,
                         write_context,
                     )?
                 }
@@ -719,13 +863,12 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             };
             let (after, provenance) = resolved.into_parts();
+            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                after.as_raw_row(),
+                &row_contract,
+            )?;
             let data_key = match expected_key {
                 Some(key) => {
-                    let reader =
-                        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                            after.as_raw_row(),
-                            &row_contract,
-                        )?;
                     reader.validate_primary_key(&key)?;
                     key
                 }
@@ -733,10 +876,26 @@ impl<C: CanisterKind> DbSession<C> {
                     data_key_from_row(identity.entity_tag(), &row_contract, after.as_raw_row())?
                 }
             };
+            if let Some(allocation) = identity_allocation.as_ref() {
+                validate_identity_materialization(
+                    identity.entity_tag(),
+                    identity_field
+                        .as_ref()
+                        .ok_or_else(InternalError::identity_corruption)?,
+                    pre_key_insert
+                        .as_ref()
+                        .ok_or_else(InternalError::identity_corruption)?,
+                    allocation,
+                    &data_key,
+                    &reader,
+                )?;
+            }
             if matches!(mode, MutationMode::Insert)
                 && validated_existing_row(store, &data_key, &row_contract)?.is_some()
             {
-                return Err(mutation_key_exists_error());
+                return Err(insert_key_exists_after_generation(
+                    identity_allocation.is_some(),
+                ));
             }
             let raw_key = data_key.to_raw()?;
             if !seen_keys.insert(raw_key.clone()) {
@@ -795,10 +954,6 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
 
-            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                after.as_raw_row(),
-                &row_contract,
-            )?;
             let mut values = Vec::with_capacity(descriptor.fields().len());
             for field in descriptor.fields() {
                 values.push(
@@ -818,11 +973,21 @@ impl<C: CanisterKind> DbSession<C> {
 
         let batch = scheduler.finish()?;
         let prepared = precommit_preparation(output)?;
+        let identity_ranges = identity_cursor
+            .map(IdentityStatementCursor::into_range_advance)
+            .transpose()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        if batch.is_empty() && !identity_ranges.is_empty() {
+            return Err(InternalError::identity_corruption());
+        }
         if !batch.is_empty() {
             commit_structural_save_row_ops_with_window_for_path(
                 &self.db,
                 entity_path,
                 batch,
+                identity_ranges,
                 "accepted_structural_batch_apply",
             )?;
         }
@@ -1475,6 +1640,704 @@ mod typed_adapter_tests {
             );
             assert_eq!(result.row_count, 1);
         }
+    }
+}
+
+#[cfg(test)]
+mod identity_pre_key_tests {
+    use super::{
+        AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
+        AcceptedStructuralMutationTarget, DbSession, DynamicMutation, DynamicStructuralPatch,
+        DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicTypedMutation,
+        DynamicWriteCell, FieldSlot, checked_pre_key_candidate_count,
+        insert_key_exists_after_generation,
+    };
+    use crate::{
+        db::{
+            commit::{database_incarnation_id, forget_recovered_domain_for_tests},
+            data::DataStore,
+            executor::{IdentityCommitInterruption, interrupt_next_identity_commit_for_tests},
+            index::IndexStore,
+            integrity::{
+                PhysicalUnitCheckpoint, QuickIntegrityStatus, RowInspectionLimits,
+                execute_quick_integrity, execute_row_integrity_page,
+            },
+            journal::JournalTailStore,
+            registry::{
+                StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+                StoreRuntimeStorageCapabilities,
+            },
+            schema::{
+                AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldInsertGeneration,
+                FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+                PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+                PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
+                SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
+                accepted_schema_candidate_with_field_bindings_for_tests,
+            },
+            write_context::MutationMode,
+        },
+        error::{ErrorClass, ErrorOrigin, InternalError},
+        testing::test_memory,
+        traits::{CanisterKind, Path},
+        types::{EntityTag, Timestamp},
+        value::{InputValue, Value},
+    };
+    use icydb_schema::{FieldSourceKey, ScalarType};
+    use std::{cell::RefCell, collections::BTreeMap, time::Instant};
+
+    const STORE_PATH: &str = "session::write::identity_pre_key_tests::Store";
+    const ENTITY_SOURCE: &str = "session::write::identity_pre_key_tests::Entity";
+    const ID_SOURCE: &str = "session::write::identity_pre_key_tests::Entity::id";
+    const PAYLOAD_SOURCE: &str = "session::write::identity_pre_key_tests::Entity::payload";
+    const ENTITY_NAME: &str = "IdentityRow";
+    const ENTITY_TAG: EntityTag = EntityTag::new(93);
+    const JOURNALED_STORE_PATH: &str = "session::write::identity_pre_key_tests::JournaledStore";
+
+    struct TestCanister;
+
+    impl Path for TestCanister {
+        const PATH: &'static str = "session::write::identity_pre_key_tests::Canister";
+    }
+
+    impl CanisterKind for TestCanister {
+        const COMMIT_MEMORY_ID: u8 = 45;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.identity_pre_key_tests.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 46;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.identity_pre_key_tests.integrity.progress.v1";
+    }
+
+    thread_local! {
+        static DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+        static INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+        static SCHEMA_STORE: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
+        static STORE_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_store(
+                STORE_PATH,
+                &DATA_STORE,
+                &INDEX_STORE,
+                &SCHEMA_STORE,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("identity pre-key test store should register");
+            registry
+        };
+        static JOURNALED_DATA_STORE: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(186)));
+        static JOURNALED_INDEX_STORE: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(187)));
+        static JOURNALED_SCHEMA_STORE: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(188)));
+        static JOURNALED_TAIL_STORE: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(189)));
+        static JOURNALED_STORE_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                JOURNALED_STORE_PATH,
+                &JOURNALED_DATA_STORE,
+                &JOURNALED_INDEX_STORE,
+                &JOURNALED_SCHEMA_STORE,
+                &JOURNALED_TAIL_STORE,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(186, "icydb.test.identity-range.data.v1"),
+                    StoreAllocationIdentity::new(187, "icydb.test.identity-range.index.v1"),
+                    StoreAllocationIdentity::new(188, "icydb.test.identity-range.schema.v1"),
+                    StoreAllocationIdentity::new(189, "icydb.test.identity-range.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("identity range journaled store should register");
+            registry
+        };
+    }
+
+    struct JournaledTestCanister;
+
+    impl Path for JournaledTestCanister {
+        const PATH: &'static str = "session::write::identity_pre_key_tests::JournaledCanister";
+    }
+
+    impl CanisterKind for JournaledTestCanister {
+        const COMMIT_MEMORY_ID: u8 = 190;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.identity_range_tests.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 191;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.identity_range_tests.integrity.progress.v1";
+    }
+
+    fn source_key(source: &str) -> FieldSourceKey {
+        FieldSourceKey::try_new(source).expect("identity test field source should admit")
+    }
+
+    fn identity_snapshot(store_path: &str) -> PersistedSchemaSnapshot {
+        let fields = vec![
+            PersistedFieldSnapshot::new_initial_with_write_policy(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                SchemaFieldWritePolicy::from_model_policies(
+                    Some(FieldInsertGeneration::Identity),
+                    None,
+                ),
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "payload".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+        ];
+        PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            ENTITY_SOURCE.to_string(),
+            ENTITY_NAME.to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+            vec![PersistedIndexSnapshot::new(
+                SchemaIndexId::new(1).expect("identity test index ID should admit"),
+                1,
+                "by_payload".to_string(),
+                store_path.to_string(),
+                false,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["payload".to_string()],
+                    AcceptedFieldKind::Nat64,
+                    false,
+                )]),
+                None,
+            )],
+        )
+    }
+
+    fn initialize() -> DbSession<TestCanister> {
+        DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+        session
+            .db
+            .ensure_recovered_state()
+            .expect("identity pre-key test database should initialize");
+        let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            STORE_PATH,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([(ENTITY_TAG, identity_snapshot(STORE_PATH))]),
+            BTreeMap::from([
+                ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
+                ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
+            ]),
+        );
+        let store = session
+            .db
+            .store_handle(STORE_PATH)
+            .expect("identity pre-key test store should resolve");
+        crate::db::commit::publish_accepted_schema_candidate(
+            STORE_PATH,
+            store,
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .expect("identity candidate should publish with explicit zero state");
+        session
+    }
+
+    fn initialize_journaled() -> DbSession<JournaledTestCanister> {
+        let session = DbSession::<JournaledTestCanister>::new(&JOURNALED_STORE_REGISTRY);
+        session
+            .db
+            .ensure_recovered_state()
+            .expect("journaled identity database should initialize");
+        let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            JOURNALED_STORE_PATH,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([(ENTITY_TAG, identity_snapshot(JOURNALED_STORE_PATH))]),
+            BTreeMap::from([
+                ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
+                ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
+            ]),
+        );
+        let store = session
+            .db
+            .store_handle(JOURNALED_STORE_PATH)
+            .expect("journaled identity store should resolve");
+        crate::db::commit::publish_accepted_schema_candidate(
+            JOURNALED_STORE_PATH,
+            store,
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .expect("journaled identity candidate should publish");
+        session
+    }
+
+    fn payload_patch(value: u64) -> AcceptedMutationIntentPatch {
+        AcceptedMutationIntentPatch::new()
+            .set_authored(FieldSlot::from_validated_index(1), InputValue::Nat64(value))
+    }
+
+    fn batch(values: &[u64]) -> Vec<AcceptedStructuralMutation> {
+        values
+            .iter()
+            .map(|value| {
+                AcceptedStructuralMutation::new(
+                    AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                    payload_patch(*value),
+                )
+            })
+            .collect()
+    }
+
+    fn assert_identity_boundary(error: &InternalError) {
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+        assert_eq!(error.origin(), ErrorOrigin::Identity);
+    }
+
+    #[test]
+    fn generated_candidate_collision_is_identity_corruption_before_generic_uniqueness() {
+        let generated = insert_key_exists_after_generation(true);
+        assert_eq!(generated.class(), ErrorClass::Corruption);
+        assert_eq!(generated.origin(), ErrorOrigin::Identity);
+
+        let ordinary = insert_key_exists_after_generation(false);
+        assert_ne!(ordinary.origin(), ErrorOrigin::Identity);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn pre_key_candidate_count_rejects_values_beyond_the_persisted_u32_bound() {
+        let error = checked_pre_key_candidate_count(
+            usize::try_from(u64::from(u32::MAX) + 1).expect("64-bit usize should hold u32 + 1"),
+        )
+        .expect_err("candidate counts beyond u32 must reject");
+        assert_identity_boundary(&error);
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one lifecycle proves shared materialization and every maintained frontend against the same zero-state owner"
+    )]
+    #[test]
+    fn identity_insert_frontends_share_one_committed_range_without_rejected_consumption() {
+        let session = initialize();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("identity catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("identity row layout should build");
+        let initial_description = session
+            .try_describe_entity_by_name(ENTITY_NAME)
+            .expect("accepted Identity description should resolve");
+        let initial_identity = initial_description
+            .identity()
+            .expect("accepted Identity policy should be described");
+        assert_eq!(initial_identity.field(), "id");
+        assert_eq!(initial_identity.generator(), "Identity::next");
+        assert_eq!(initial_identity.accepted_kind(), "nat64");
+        assert_eq!(initial_identity.minimum(), 1);
+        assert_eq!(initial_identity.maximum(), u128::from(u64::MAX));
+        assert_eq!(initial_identity.high_water(), 0);
+        assert_eq!(initial_identity.remaining(), u128::from(u64::MAX));
+        assert!(!initial_identity.exhausted());
+
+        let rejected = session
+            .execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                MutationMode::Insert,
+                batch(&[1_000, 2_000]),
+                Timestamp::from_millis(6),
+                |_| Err::<(), _>(InternalError::executor_unsupported()),
+            )
+            .expect_err("a rejected precommit result must not publish its tentative range");
+        assert_eq!(rejected.class(), ErrorClass::Unsupported);
+        assert_eq!(DATA_STORE.with(|store| store.borrow().len()), 0);
+
+        let rows = session
+            .execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                MutationMode::Insert,
+                batch(&[10, 20, 30]),
+                Timestamp::from_millis(7),
+                Ok,
+            )
+            .expect("one accepted batch should commit rows and one identity range");
+        assert_eq!(
+            rows.into_iter().map(|row| row.values).collect::<Vec<_>>(),
+            vec![
+                vec![Value::Nat64(1), Value::Nat64(10)],
+                vec![Value::Nat64(2), Value::Nat64(20)],
+                vec![Value::Nat64(3), Value::Nat64(30)],
+            ],
+        );
+
+        let dynamic = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "payload".to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(40)),
+                )]),
+            })
+            .expect("dynamic omission should commit through shared Identity generation");
+        assert_eq!(dynamic.affected_rows, 1);
+
+        for request in [
+            DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: DynamicStructuralPatch::new(vec![
+                    (
+                        "id".to_string(),
+                        DynamicWriteCell::Value(InputValue::Nat64(41)),
+                    ),
+                    (
+                        "payload".to_string(),
+                        DynamicWriteCell::Value(InputValue::Nat64(42)),
+                    ),
+                ]),
+            },
+            DynamicMutation::Update {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(1),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "id".to_string(),
+                    DynamicWriteCell::Default,
+                )]),
+            },
+        ] {
+            let error = session
+                .execute_trusted_dynamic_mutation(&request)
+                .expect_err("structural Identity authorship and regeneration must reject");
+            assert_eq!(error.class(), ErrorClass::Unsupported);
+            assert_eq!(error.origin(), ErrorOrigin::Executor);
+        }
+
+        let binding = session
+            .issue_typed_entity_binding(
+                ENTITY_SOURCE,
+                &[
+                    DynamicTypedFieldBindingRequest::new(
+                        ID_SOURCE.to_string(),
+                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
+                        false,
+                    ),
+                    DynamicTypedFieldBindingRequest::new(
+                        PAYLOAD_SOURCE.to_string(),
+                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
+                        false,
+                    ),
+                ],
+            )
+            .expect("typed output should bind the Identity field");
+        let typed_patch = binding
+            .bind_write_fields(vec![(
+                PAYLOAD_SOURCE.to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(50)),
+            )])
+            .expect("typed payload should lower");
+        let typed = session
+            .execute_trusted_typed_mutation(
+                &binding,
+                &DynamicTypedMutation::Insert { patch: typed_patch },
+            )
+            .expect("typed omission should commit through shared Identity generation");
+        assert_eq!(
+            typed
+                .expect("typed insert should return one mutation result")
+                .affected_rows,
+            1,
+        );
+        let explicit_typed_patch = binding
+            .bind_write_fields(vec![
+                (
+                    ID_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(51)),
+                ),
+                (
+                    PAYLOAD_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(52)),
+                ),
+            ])
+            .expect("the low-level binding should retain exact authored intent");
+        let explicit_typed_error = session
+            .execute_trusted_typed_mutation(
+                &binding,
+                &DynamicTypedMutation::Insert {
+                    patch: explicit_typed_patch,
+                },
+            )
+            .expect_err("typed Identity authorship must reject before allocation");
+        assert_eq!(explicit_typed_error.class(), ErrorClass::Unsupported);
+        assert_eq!(explicit_typed_error.origin(), ErrorOrigin::Executor);
+
+        let replace_error = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Replace {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(99),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "payload".to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(60)),
+                )]),
+            })
+            .expect_err("save-as-insert with a chosen Identity must reject");
+        assert_eq!(replace_error.class(), ErrorClass::Unsupported);
+        assert_eq!(replace_error.origin(), ErrorOrigin::Executor);
+
+        #[cfg(feature = "sql")]
+        {
+            for sql in [
+                "INSERT INTO IdentityRow (payload) VALUES (70) RETURNING id, payload",
+                "INSERT INTO IdentityRow (id, payload) VALUES (DEFAULT, 80) RETURNING id",
+            ] {
+                let _result = session
+                    .execute_trusted_sql_mutation(sql)
+                    .expect("SQL omission and DEFAULT should commit Identity generation");
+            }
+
+            let error = session
+                .execute_trusted_sql_mutation(
+                    "INSERT INTO IdentityRow (id, payload) VALUES (42, 90)",
+                )
+                .expect_err("an explicit SQL Identity value must reject before allocation");
+            let diagnostic = error.diagnostic();
+            assert_eq!(
+                diagnostic.code(),
+                icydb_diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary,
+            );
+            assert!(matches!(
+                diagnostic.detail(),
+                Some(icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+                    boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::ExplicitGeneratedField,
+                }),
+            ));
+        }
+
+        let expected_committed = if cfg!(feature = "sql") { 7 } else { 5 };
+        assert_eq!(
+            DATA_STORE.with(|store| store.borrow().len()),
+            expected_committed
+        );
+        SCHEMA_STORE.with(|store| {
+            let cursor = store
+                .borrow()
+                .identity_statement_cursor(
+                    database_incarnation_id().expect("database incarnation should remain readable"),
+                    ENTITY_TAG,
+                    FieldId::new(1),
+                    &AcceptedFieldKind::Nat64,
+                )
+                .expect("committed writes must leave active state readable");
+            assert_eq!(cursor.expected_high_water(), u128::from(expected_committed),);
+            assert!(!cursor.has_allocations());
+        });
+        let committed_description = session
+            .try_describe_entity_by_name(ENTITY_NAME)
+            .expect("committed Identity description should resolve");
+        let committed_identity = committed_description
+            .identity()
+            .expect("accepted Identity policy should remain described");
+        assert_eq!(
+            committed_identity.high_water(),
+            u128::from(expected_committed),
+        );
+        assert_eq!(
+            committed_identity.remaining(),
+            u128::from(u64::MAX - expected_committed),
+        );
+        assert!(!committed_identity.exhausted());
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one ordered scenario exercises every durable interruption boundary, guarded recovery, derived rebuild, and both integrity tiers"
+    )]
+    fn journaled_identity_recovery_quiesces_every_publication_interruption_before_reallocation() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled identity catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled identity row layout should build");
+
+        for (ordinal, interruption) in [
+            IdentityCommitInterruption::MarkerPersisted,
+            IdentityCommitInterruption::JournalPublished,
+            IdentityCommitInterruption::RowsPublished,
+            IdentityCommitInterruption::StateMaterialized,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            interrupt_next_identity_commit_for_tests(interruption);
+            let interrupted = session.execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                MutationMode::Insert,
+                batch(&[u64::try_from(ordinal).expect("ordinal should fit")]),
+                Timestamp::from_millis(8),
+                Ok,
+            );
+            assert!(
+                interrupted.is_err(),
+                "the selected durable boundary should interrupt",
+            );
+
+            let committed = session
+                .execute_accepted_structural_save_batch(
+                    &catalog,
+                    &descriptor,
+                    MutationMode::Insert,
+                    batch(&[100 + u64::try_from(ordinal).expect("ordinal should fit")]),
+                    Timestamp::from_millis(9),
+                    Ok,
+                )
+                .expect("the next mutation must recover before allocating");
+            let expected_high_water =
+                u64::try_from((ordinal + 1) * 2).expect("small test high-water should fit");
+            assert_eq!(
+                committed
+                    .into_iter()
+                    .map(|row| row.values)
+                    .collect::<Vec<_>>(),
+                vec![vec![
+                    Value::Nat64(expected_high_water),
+                    Value::Nat64(100 + u64::try_from(ordinal).expect("ordinal should fit")),
+                ]],
+            );
+            assert_eq!(
+                JOURNALED_DATA_STORE.with(|store| store.borrow().len()),
+                expected_high_water,
+            );
+            JOURNALED_SCHEMA_STORE.with(|store| {
+                let cursor = store
+                    .borrow()
+                    .identity_statement_cursor(
+                        database_incarnation_id()
+                            .expect("database incarnation should remain readable"),
+                        ENTITY_TAG,
+                        FieldId::new(1),
+                        &AcceptedFieldKind::Nat64,
+                    )
+                    .expect("guarded recovery must leave quiescent active state");
+                assert_eq!(
+                    cursor.expected_high_water(),
+                    u128::from(expected_high_water),
+                );
+                assert!(!cursor.has_allocations());
+            });
+        }
+
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("the final journal tail should remain recoverable");
+        session
+            .db
+            .ensure_recovered_state()
+            .expect("derived rebuild must not allocate another identity");
+
+        let quick = execute_quick_integrity(&session.db, catalog.inspection_plan())
+            .expect("quiescent Identity control inventory should be inspectable");
+        assert_eq!(quick.status(), &QuickIntegrityStatus::CompleteClean);
+        let row_page = execute_row_integrity_page(
+            &session.db,
+            catalog.inspection_plan(),
+            PhysicalUnitCheckpoint::BeforeFirst,
+            RowInspectionLimits::standard(),
+        )
+        .expect("Identity rows should remain within committed high-water");
+        assert!(row_page.exhausted());
+        assert!(row_page.findings().is_empty());
+
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 8);
+        assert!(
+            JOURNALED_INDEX_STORE.with(|store| !store.borrow().is_empty()),
+            "derived index rebuild should restore witnesses without allocating identities",
+        );
+        assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+        JOURNALED_SCHEMA_STORE.with(|store| {
+            let cursor = store
+                .borrow()
+                .identity_statement_cursor(
+                    database_incarnation_id().expect("database incarnation should remain readable"),
+                    ENTITY_TAG,
+                    FieldId::new(1),
+                    &AcceptedFieldKind::Nat64,
+                )
+                .expect("folded identity state should reopen without allocating");
+            assert_eq!(cursor.expected_high_water(), 8);
+            assert!(!cursor.has_allocations());
+        });
+    }
+
+    #[test]
+    #[ignore = "release-closeout native timing probe for one marker-authorized Identity recovery"]
+    fn identity_recovery_closeout_reports_guarded_reentry_time() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled identity catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled identity row layout should build");
+
+        interrupt_next_identity_commit_for_tests(IdentityCommitInterruption::RowsPublished);
+        let interrupted = session.execute_accepted_structural_save_batch(
+            &catalog,
+            &descriptor,
+            MutationMode::Insert,
+            batch(&[1]),
+            Timestamp::from_millis(10),
+            Ok,
+        );
+        assert!(
+            interrupted.is_err(),
+            "the selected publication boundary should interrupt",
+        );
+
+        let start = Instant::now();
+        let committed = session
+            .execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                MutationMode::Insert,
+                batch(&[2]),
+                Timestamp::from_millis(11),
+                Ok,
+            )
+            .expect("guarded reentry should recover before allocation");
+        let elapsed = start.elapsed();
+        assert_eq!(
+            committed
+                .into_iter()
+                .map(|row| row.values)
+                .collect::<Vec<_>>(),
+            vec![vec![Value::Nat64(2), Value::Nat64(2)]],
+        );
+
+        println!(
+            "identity recovery closeout: guarded_reentry_nanos={}",
+            elapsed.as_nanos(),
+        );
     }
 }
 

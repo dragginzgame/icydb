@@ -11,13 +11,15 @@ use super::{
 };
 use crate::{
     db::{
+        commit::CommitMarker,
         data::{DecodedDataStoreKey, RawDataStoreKey},
+        integrity::DatabaseIncarnationId,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
             AcceptedCheckExprV1, AcceptedSchemaFingerprint, AcceptedSchemaRevision,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
-            ConstraintId, ConstraintOrigin, ConstraintValidationJob,
-            empty_accepted_schema_candidate_for_tests,
+            ConstraintId, ConstraintOrigin, ConstraintValidationJob, FieldId, IdentityRangeAdvance,
+            IdentityStateOwner, empty_accepted_schema_candidate_for_tests,
         },
     },
     error::{ErrorClass, ErrorOrigin},
@@ -71,6 +73,29 @@ fn accepted_schema_publish_record() -> JournalRecord {
         candidate.encoded_root().to_vec(),
     )
     .expect("accepted schema publication record should build")
+}
+
+fn identity_range_record(count: u32) -> JournalRecord {
+    identity_range_record_from(0, count)
+}
+
+fn identity_range_record_from(expected_high_water: u128, count: u32) -> JournalRecord {
+    let owner = IdentityStateOwner::try_new(
+        DatabaseIncarnationId::for_tests(0x51),
+        EntityTag::new(1),
+        FieldId::new(3),
+    )
+    .expect("identity owner should build");
+    let range = IdentityRangeAdvance::try_new(
+        owner,
+        expected_high_water,
+        expected_high_water
+            .checked_add(u128::from(count))
+            .expect("small test range should fit"),
+        count,
+    )
+    .expect("contiguous identity range should build");
+    JournalRecord::identity_range_advance(range).expect("identity range record should build")
 }
 
 fn validation_job() -> ConstraintValidationJob {
@@ -191,6 +216,95 @@ fn journal_batch_codec_round_trips_validation_job_replacement_and_removal() {
         decode_journal_batch(&encoded).expect("validation job removal should decode"),
         removal,
     );
+}
+
+#[test]
+fn journal_batch_codec_binds_one_identity_range_to_its_exact_ordered_row_set() {
+    let batch = JournalBatch::new(
+        [0x34; 16],
+        [0x44; 16],
+        JournalSequence::new(3),
+        vec![
+            row_put_record(1),
+            row_put_record(2),
+            identity_range_record(2),
+        ],
+    )
+    .expect("ordered identity range batch should build");
+    let encoded = encode_journal_batch(&batch).expect("identity range batch should encode");
+    assert_eq!(
+        decode_journal_batch(&encoded).expect("identity range batch should decode"),
+        batch,
+    );
+
+    for records in [
+        vec![
+            row_put_record(2),
+            row_put_record(1),
+            identity_range_record(2),
+        ],
+        vec![row_put_record(1), identity_range_record(2)],
+        vec![
+            row_put_record(1),
+            row_delete_record(2),
+            identity_range_record(1),
+        ],
+    ] {
+        let error = JournalBatch::new([0x35; 16], [0x45; 16], JournalSequence::new(4), records)
+            .expect_err("range/row order, count, and operation mismatches must reject");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
+}
+
+#[test]
+fn identity_range_adds_one_fixed_65_byte_record_per_owner_batch() {
+    let row_only = JournalBatch::new(
+        [0x36; 16],
+        [0x46; 16],
+        JournalSequence::new(5),
+        vec![row_put_record(1)],
+    )
+    .expect("row-only comparison batch should build");
+    let with_range = JournalBatch::new(
+        [0x36; 16],
+        [0x46; 16],
+        JournalSequence::new(5),
+        vec![row_put_record(1), identity_range_record(1)],
+    )
+    .expect("identity range comparison batch should build");
+    let row_only_bytes = encode_journal_batch(&row_only)
+        .expect("row-only comparison batch should encode")
+        .len();
+    let with_range_bytes = encode_journal_batch(&with_range)
+        .expect("identity range comparison batch should encode")
+        .len();
+
+    assert_eq!(with_range_bytes.saturating_sub(row_only_bytes), 65);
+}
+
+#[test]
+fn commit_marker_rejects_duplicate_identity_owner_ranges_across_batches() {
+    let marker_id = [0x46; 16];
+    let first = JournalBatch::new(
+        [0x56; 16],
+        marker_id,
+        JournalSequence::new(1),
+        vec![row_put_record(1), identity_range_record_from(0, 1)],
+    )
+    .expect("first range batch should build");
+    let second = JournalBatch::new(
+        [0x57; 16],
+        marker_id,
+        JournalSequence::new(2),
+        vec![row_put_record(2), identity_range_record_from(1, 1)],
+    )
+    .expect("second range batch should build");
+
+    let error = CommitMarker::from_parts(marker_id, vec![first, second])
+        .expect_err("one marker must not carry the same identity owner twice");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
 }
 
 #[test]

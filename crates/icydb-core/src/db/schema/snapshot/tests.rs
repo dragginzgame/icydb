@@ -54,6 +54,36 @@ fn accepted_schema_fixture_with_payload_slots(
     ))
 }
 
+fn identity_schema_fixture(
+    kind: AcceptedFieldKind,
+    nullable: bool,
+    insert_default: SchemaInsertDefault,
+) -> PersistedSchemaSnapshot {
+    let leaf_codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+    PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "schema::snapshot::tests::Identity".to_string(),
+        "Identity".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial_with_write_policy(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            kind,
+            Vec::new(),
+            nullable,
+            insert_default,
+            SchemaFieldWritePolicy::from_model_policies(
+                Some(FieldInsertGeneration::Identity),
+                None,
+            ),
+            FieldStorageDecode::ByKind,
+            leaf_codec,
+        )],
+    )
+}
+
 #[test]
 fn accepted_schema_snapshot_exposes_schema_facts_without_raw_payload_access() {
     let snapshot = accepted_schema_fixture();
@@ -235,6 +265,69 @@ fn accepted_schema_snapshot_try_new_rejects_zero_schema_version() {
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should hard-cut non-positive schema versions"
     );
+}
+
+#[test]
+fn accepted_identity_policy_admits_every_exact_unsigned_width() {
+    for kind in [
+        AcceptedFieldKind::Nat8,
+        AcceptedFieldKind::Nat16,
+        AcceptedFieldKind::Nat32,
+        AcceptedFieldKind::Nat64,
+        AcceptedFieldKind::Nat128,
+    ] {
+        AcceptedSchemaSnapshot::try_new(identity_schema_fixture(
+            kind,
+            false,
+            SchemaInsertDefault::None,
+        ))
+        .expect("exact unsigned identity schema should pass accepted integrity");
+    }
+}
+
+#[test]
+fn accepted_identity_policy_rejects_ineligible_persisted_shapes() {
+    for snapshot in [
+        identity_schema_fixture(AcceptedFieldKind::Int64, false, SchemaInsertDefault::None),
+        identity_schema_fixture(AcceptedFieldKind::Nat64, true, SchemaInsertDefault::None),
+        identity_schema_fixture(
+            AcceptedFieldKind::Nat64,
+            false,
+            SchemaInsertDefault::SlotPayload(vec![1]),
+        ),
+    ] {
+        AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("ineligible persisted identity policy must reject");
+    }
+
+    let composite_primary_key = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "schema::snapshot::tests::CompositeIdentity".to_string(),
+        "CompositeIdentity".to_string(),
+        vec![FieldId::new(1), FieldId::new(2)],
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
+        vec![
+            identity_schema_fixture(AcceptedFieldKind::Nat64, false, SchemaInsertDefault::None)
+                .fields()[0]
+                .clone(),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "partition".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+        ],
+    );
+    AcceptedSchemaSnapshot::try_new(composite_primary_key)
+        .expect_err("identity on a composite primary key must reject");
 }
 
 #[test]

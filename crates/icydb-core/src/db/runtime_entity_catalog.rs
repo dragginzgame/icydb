@@ -297,6 +297,7 @@ mod tests {
         db::{
             data::DataStore,
             index::IndexStore,
+            integrity::DatabaseIncarnationId,
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::{
                 AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode, LeafCodec,
@@ -375,7 +376,11 @@ mod tests {
             let mut store = store.borrow_mut();
             *store = SchemaStore::init_heap();
             store
-                .publish_accepted_schema_candidate(AcceptedSchemaRevision::NONE, &candidate)
+                .publish_accepted_schema_candidate(
+                    DatabaseIncarnationId::for_tests(0x62),
+                    AcceptedSchemaRevision::NONE,
+                    &candidate,
+                )
                 .expect("accepted runtime candidate should publish");
         });
 

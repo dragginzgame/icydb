@@ -7,11 +7,14 @@ use crate::{
     db::{
         codec::MAX_ROW_BYTES,
         commit::{CommitSchemaFingerprint, MAX_COMMIT_BYTES},
-        data::RawDataStoreKey,
+        data::{DecodedDataStoreKey, RawDataStoreKey},
+        integrity::DatabaseIncarnationId,
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
-            MAX_CONSTRAINT_VALIDATION_JOB_BYTES, MAX_SCHEMA_SNAPSHOT_BYTES,
-            decode_constraint_validation_job, encode_constraint_validation_job,
+            FieldId, IdentityRangeAdvance, IdentityStateOwner, MAX_CONSTRAINT_VALIDATION_JOB_BYTES,
+            MAX_SCHEMA_SNAPSHOT_BYTES, decode_constraint_validation_job,
+            encode_constraint_validation_job,
         },
     },
     error::InternalError,
@@ -35,6 +38,7 @@ const JOURNAL_RECORD_SCHEMA_PUT: u8 = 3;
 const JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH: u8 = 4;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT: u8 = 5;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE: u8 = 6;
+const JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE: u8 = 7;
 
 pub(in crate::db) type JournalBatchId = [u8; JOURNAL_BATCH_ID_BYTES];
 pub(in crate::db) type JournalCommitMarkerId = [u8; JOURNAL_COMMIT_MARKER_ID_BYTES];
@@ -136,6 +140,8 @@ pub(in crate::db) enum JournalRecord {
         entity_tag: EntityTag,
         constraint_id: ConstraintId,
     },
+    /// One contiguous marker-owned advance for an accepted Identity owner.
+    IdentityRangeAdvance { range: IdentityRangeAdvance },
 }
 
 impl JournalRecord {
@@ -224,6 +230,14 @@ impl JournalRecord {
             entity_tag,
             constraint_id,
         };
+        validate_journal_record(&record)?;
+        Ok(record)
+    }
+
+    pub(in crate::db) fn identity_range_advance(
+        range: IdentityRangeAdvance,
+    ) -> Result<Self, InternalError> {
+        let record = Self::IdentityRangeAdvance { range };
         validate_journal_record(&record)?;
         Ok(record)
     }
@@ -521,11 +535,25 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             out.extend_from_slice(&entity_tag.value().to_le_bytes());
             out.extend_from_slice(&constraint_id.get().to_le_bytes());
         }
+        JournalRecord::IdentityRangeAdvance { range } => {
+            let owner = range.owner();
+            out.push(JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE);
+            out.extend_from_slice(&owner.database_incarnation_id().to_bytes());
+            out.extend_from_slice(&owner.entity_tag().value().to_le_bytes());
+            out.extend_from_slice(&owner.field_id().get().to_le_bytes());
+            out.extend_from_slice(&range.expected_high_water().to_le_bytes());
+            out.extend_from_slice(&range.new_high_water().to_le_bytes());
+            out.extend_from_slice(&range.allocation_count().to_le_bytes());
+        }
     }
 
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one exhaustive decoder keeps every current journal record tag on the same bounded cursor authority"
+)]
 fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord, InternalError> {
     let tag = *bytes.get(*cursor).ok_or_else(journal_batch_corruption)?;
     *cursor = cursor.saturating_add(1);
@@ -616,6 +644,29 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
             .ok_or_else(journal_batch_corruption)?;
             JournalRecord::constraint_validation_job_delete(store_path, entity_tag, constraint_id)
         }
+        JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE => {
+            let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(
+                read_fixed_array::<16>(bytes, cursor, "journal identity database incarnation")?,
+            )
+            .map_err(|_| journal_batch_corruption())?;
+            let entity_tag =
+                EntityTag::new(read_u64_le(bytes, cursor, "journal identity entity tag")?);
+            let field_id = FieldId::new(read_u32_le(bytes, cursor, "journal identity field id")?);
+            let expected_high_water =
+                read_u128_le(bytes, cursor, "journal identity expected high-water")?;
+            let new_high_water = read_u128_le(bytes, cursor, "journal identity new high-water")?;
+            let allocation_count = read_u32_le(bytes, cursor, "journal identity allocation count")?;
+            let owner = IdentityStateOwner::try_new(database_incarnation_id, entity_tag, field_id)
+                .map_err(|_| journal_batch_corruption())?;
+            let range = IdentityRangeAdvance::try_new(
+                owner,
+                expected_high_water,
+                new_high_water,
+                allocation_count,
+            )
+            .map_err(|_| journal_batch_corruption())?;
+            JournalRecord::identity_range_advance(range)
+        }
         _ => Err(journal_batch_corruption()),
     }
 }
@@ -686,6 +737,12 @@ fn journal_record_payload_len(record: &JournalRecord) -> usize {
             .saturating_add(size_of::<u32>() + store_path.len())
             .saturating_add(size_of::<u64>())
             .saturating_add(size_of::<u32>()),
+        JournalRecord::IdentityRangeAdvance { .. } => 1usize
+            .saturating_add(16)
+            .saturating_add(size_of::<u64>())
+            .saturating_add(size_of::<u32>())
+            .saturating_add(size_of::<u128>() * 2)
+            .saturating_add(size_of::<u32>()),
     }
 }
 
@@ -702,7 +759,70 @@ fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalErro
     for record in &batch.records {
         validate_journal_record(record)?;
     }
+    validate_identity_range_row_sets(batch)?;
 
+    Ok(())
+}
+
+fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), InternalError> {
+    let ranges = batch
+        .records
+        .iter()
+        .filter_map(|record| match record {
+            JournalRecord::IdentityRangeAdvance { range } => Some(*range),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for (index, range) in ranges.iter().copied().enumerate() {
+        if ranges[..index]
+            .iter()
+            .any(|existing| existing.owner() == range.owner())
+        {
+            return Err(journal_batch_corruption());
+        }
+        let mut expected = range.expected_high_water();
+        let mut count = 0u32;
+        for record in &batch.records {
+            match record {
+                JournalRecord::RowPut { primary_key, .. } => {
+                    let key = DecodedDataStoreKey::try_from_raw(primary_key)
+                        .map_err(|_| journal_batch_corruption())?;
+                    if key.entity_tag() != range.owner().entity_tag() {
+                        continue;
+                    }
+                    let value = match key.primary_key_value() {
+                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) => {
+                            u128::from(value)
+                        }
+                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => value,
+                        _ => return Err(journal_batch_corruption()),
+                    };
+                    expected = expected
+                        .checked_add(1)
+                        .ok_or_else(journal_batch_corruption)?;
+                    count = count.checked_add(1).ok_or_else(journal_batch_corruption)?;
+                    if value != expected {
+                        return Err(journal_batch_corruption());
+                    }
+                }
+                JournalRecord::RowDelete { primary_key, .. } => {
+                    let key = DecodedDataStoreKey::try_from_raw(primary_key)
+                        .map_err(|_| journal_batch_corruption())?;
+                    if key.entity_tag() == range.owner().entity_tag() {
+                        return Err(journal_batch_corruption());
+                    }
+                }
+                JournalRecord::SchemaPut { .. }
+                | JournalRecord::AcceptedSchemaPublish { .. }
+                | JournalRecord::ConstraintValidationJobPut { .. }
+                | JournalRecord::ConstraintValidationJobDelete { .. }
+                | JournalRecord::IdentityRangeAdvance { .. } => {}
+            }
+        }
+        if count != range.allocation_count() || expected != range.new_high_water() {
+            return Err(journal_batch_corruption());
+        }
+    }
     Ok(())
 }
 
@@ -771,6 +891,15 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
         }
         JournalRecord::ConstraintValidationJobDelete { store_path, .. } => {
             validate_path(store_path, "journal validation job store_path")?;
+        }
+        JournalRecord::IdentityRangeAdvance { range } => {
+            IdentityRangeAdvance::try_new(
+                range.owner(),
+                range.expected_high_water(),
+                range.new_high_water(),
+                range.allocation_count(),
+            )
+            .map_err(|_| journal_batch_corruption())?;
         }
     }
 
@@ -861,6 +990,15 @@ fn read_u64_le(
         payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
         payload[7],
     ]))
+}
+
+fn read_u128_le(
+    bytes: &[u8],
+    cursor: &mut usize,
+    _label: &'static str,
+) -> Result<u128, InternalError> {
+    let payload = read_fixed_array::<16>(bytes, cursor, "journal u128")?;
+    Ok(u128::from_le_bytes(payload))
 }
 
 fn read_u32_le(

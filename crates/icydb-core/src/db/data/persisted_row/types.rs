@@ -2,6 +2,7 @@ use crate::{
     db::data::persisted_row::codec::ScalarSlotValueRef,
     db::schema::LeafCodec,
     error::InternalError,
+    types::EntityTag,
     value::{InputValue, Value},
 };
 
@@ -164,6 +165,51 @@ impl AcceptedMutationIntentPatch {
     #[must_use]
     pub(in crate::db) const fn entries(&self) -> &[AcceptedMutationFieldUpdate] {
         self.entries.as_slice()
+    }
+}
+
+/// One accepted insert candidate before database-owned identity resolves its key.
+///
+/// The candidate deliberately carries no `DecodedDataStoreKey`: its canonical
+/// row and primary key do not exist until accepted insert generation has
+/// resolved every database-owned field.
+pub(in crate::db) struct AcceptedPreKeyInsert {
+    entity_tag: EntityTag,
+    fields: AcceptedMutationIntentPatch,
+    input_ordinal: u32,
+}
+
+impl AcceptedPreKeyInsert {
+    /// Bind frontend-lowered field intent to one accepted entity and input order.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        entity_tag: EntityTag,
+        fields: AcceptedMutationIntentPatch,
+        input_ordinal: u32,
+    ) -> Self {
+        Self {
+            entity_tag,
+            fields,
+            input_ordinal,
+        }
+    }
+
+    /// Return the accepted runtime entity selected before row materialization.
+    #[must_use]
+    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
+        self.entity_tag
+    }
+
+    /// Borrow the exact unresolved field intent.
+    #[must_use]
+    pub(in crate::db) const fn fields(&self) -> &AcceptedMutationIntentPatch {
+        &self.fields
+    }
+
+    /// Return stable statement input order.
+    #[must_use]
+    pub(in crate::db) const fn input_ordinal(&self) -> u32 {
+        self.input_ordinal
     }
 }
 

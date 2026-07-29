@@ -154,6 +154,49 @@ an omitted nested entry retains its conventional name.
 Entity and store names come directly from their Rust declarations; neither
 macro accepts a second name or generated-symbol override.
 
+## Generated Numeric Identities
+
+Use `Identity::next` when one entity needs a database-authored sequential
+unsigned primary key:
+
+```rust
+#[entity(
+    store = "AppStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(
+            name = "id",
+            value(item(prim = "Nat64")),
+            generated(insert = "Identity::next")
+        ),
+        field(name = "name", value(item(prim = "Text", unbounded)))
+    )
+)]
+pub struct Project {}
+```
+
+The supported exact kinds are `Nat8`, `Nat16`, `Nat32`, `Nat64`, and
+`Nat128`; `Nat64` is the normal default. Values start at one, advance by one,
+never cycle, and are generated only for logical inserts. Rejected writes
+consume nothing, but deleting a committed row does not make its value reusable,
+so visible IDs are not guaranteed to be dense.
+
+Generated typed insert inputs omit `id`. SQL can omit the field or use
+`DEFAULT`, and `RETURNING` obtains the generated value:
+
+```sql
+INSERT INTO Project (name) VALUES ('North') RETURNING id;
+INSERT INTO Project (id, name) VALUES (DEFAULT, 'South') RETURNING id;
+```
+
+SQL DDL such as `GENERATED ALWAYS AS IDENTITY` is not accepted yet; the schema
+macro remains the authoring surface. Ordinary Nat primary keys without
+`generated(insert = "Identity::next")` remain caller-authored. Numeric
+Identity is entity-local and store-local; use ULID for decentralized or
+cross-system allocation. Narrower Nat kinds constrain the lifetime allocation
+domain but do not currently promise smaller physical keys.
+
 ## Storage Modes
 
 Stores choose one explicit storage contract:

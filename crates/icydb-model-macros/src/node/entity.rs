@@ -442,6 +442,20 @@ impl ValidateNode for Entity {
         for pk_ident in self.primary_key.fields() {
             self.collect_primary_key_field_errors(pk_ident, &mut errors);
         }
+        for field in self
+            .fields
+            .iter()
+            .filter(|field| field.is_identity_generated())
+        {
+            if self.primary_key.fields().len() != 1
+                || self.primary_key.fields().first() != Some(&field.name)
+            {
+                errors.push(syn::Error::new_spanned(
+                    &field.name,
+                    "generated(insert = \"Identity::next\") is allowed only on the sole primary-key field",
+                ));
+            }
+        }
 
         errors
     }

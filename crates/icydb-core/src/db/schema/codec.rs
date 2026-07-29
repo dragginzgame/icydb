@@ -373,6 +373,7 @@ struct SchemaFieldWritePolicyWire {
 // Candid wire enum for insert-time generated value metadata.
 #[derive(CandidType, Deserialize)]
 enum FieldInsertGenerationWire {
+    Identity,
     Ulid,
     Timestamp,
 }
@@ -1411,6 +1412,7 @@ impl SchemaFieldWritePolicyWire {
     const fn from_policy(policy: SchemaFieldWritePolicy) -> Self {
         Self {
             insert_generation: match policy.insert_generation() {
+                Some(FieldInsertGeneration::Identity) => Some(FieldInsertGenerationWire::Identity),
                 Some(FieldInsertGeneration::Ulid) => Some(FieldInsertGenerationWire::Ulid),
                 Some(FieldInsertGeneration::Timestamp) => {
                     Some(FieldInsertGenerationWire::Timestamp)
@@ -1428,6 +1430,7 @@ impl SchemaFieldWritePolicyWire {
     const fn into_policy(self) -> SchemaFieldWritePolicy {
         SchemaFieldWritePolicy::from_model_policies(
             match self.insert_generation {
+                Some(FieldInsertGenerationWire::Identity) => Some(FieldInsertGeneration::Identity),
                 Some(FieldInsertGenerationWire::Ulid) => Some(FieldInsertGeneration::Ulid),
                 Some(FieldInsertGenerationWire::Timestamp) => {
                     Some(FieldInsertGeneration::Timestamp)

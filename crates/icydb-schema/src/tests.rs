@@ -504,6 +504,35 @@ fn entity_with_default(
     entity_with_field(field_type, FieldInsertPolicy::Default(literal))
 }
 
+fn entity_with_non_primary_generated_field(
+    field_type: FieldType,
+) -> Result<EntityFragment, SchemaContractError> {
+    let id = source("id", FieldSourceKey::try_new);
+    EntityFragment::try_new(
+        SchemaName::try_new("GeneratedFieldHolder").expect("name should admit"),
+        vec![
+            FieldFragment::new(
+                SchemaName::try_new("id").expect("name should admit"),
+                FieldType::Scalar(ScalarType::Ulid),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+            FieldFragment::new(
+                SchemaName::try_new("value").expect("name should admit"),
+                field_type,
+                false,
+                FieldInsertPolicy::Generated,
+                None,
+            ),
+        ],
+        vec![id],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
 fn record_with_field(field_type: FieldType) -> Result<RecordTypeFragment, SchemaContractError> {
     RecordTypeFragment::try_new(
         SchemaName::try_new("RecordHolder").expect("name should admit"),
@@ -652,6 +681,74 @@ fn invalid_exact_scalar_field_shapes_reject_before_composition() {
     assert_eq!(
         record_with_field(FieldType::Scalar(ScalarType::NatBig { max_bytes: 0 })),
         Err(SchemaContractError::InvalidFieldType),
+    );
+}
+
+#[test]
+fn unsigned_identity_generation_requires_the_sole_exact_primary_key() {
+    for scalar in [
+        ScalarType::Nat8,
+        ScalarType::Nat16,
+        ScalarType::Nat32,
+        ScalarType::Nat64,
+        ScalarType::Nat128,
+    ] {
+        entity_with_field(FieldType::Scalar(scalar), FieldInsertPolicy::Generated)
+            .expect("exact unsigned identity primary key should admit");
+    }
+
+    for scalar in [
+        ScalarType::Int64,
+        ScalarType::NatBig { max_bytes: 16 },
+        ScalarType::Text { max_len: Some(64) },
+    ] {
+        assert_eq!(
+            entity_with_field(FieldType::Scalar(scalar), FieldInsertPolicy::Generated,),
+            Err(SchemaContractError::InvalidFieldPolicy),
+        );
+    }
+    assert_eq!(
+        entity_with_non_primary_generated_field(FieldType::Scalar(ScalarType::Nat64)),
+        Err(SchemaContractError::InvalidFieldPolicy),
+    );
+}
+
+#[test]
+fn generated_policy_rejects_nullable_or_collection_identity_shapes() {
+    let value = source("value", FieldSourceKey::try_new);
+    assert_eq!(
+        EntityFragment::try_new(
+            SchemaName::try_new("NullableIdentity").expect("name should admit"),
+            vec![FieldFragment::new(
+                SchemaName::try_new("value").expect("name should admit"),
+                FieldType::Scalar(ScalarType::Nat64),
+                true,
+                FieldInsertPolicy::Generated,
+                None,
+            )],
+            vec![value.clone()],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ),
+        Err(SchemaContractError::InvalidFieldPolicy),
+    );
+    assert_eq!(
+        EntityFragment::try_new(
+            SchemaName::try_new("ListIdentity").expect("name should admit"),
+            vec![FieldFragment::new(
+                SchemaName::try_new("value").expect("name should admit"),
+                FieldType::List(Box::new(FieldType::Scalar(ScalarType::Nat64))),
+                false,
+                FieldInsertPolicy::Generated,
+                None,
+            )],
+            vec![value],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ),
+        Err(SchemaContractError::InvalidFieldPolicy),
     );
 }
 

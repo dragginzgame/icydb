@@ -42,6 +42,20 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
         description.row_layout_current(),
         description.row_layout_history_floor(),
     ));
+    match description.identity() {
+        Some(identity) => lines.push(format!(
+            "identity: field={} generator={} type={} domain={}..={} high_water={} remaining={} exhausted={}",
+            identity.field(),
+            identity.generator(),
+            identity.accepted_kind(),
+            identity.minimum(),
+            identity.maximum(),
+            identity.high_water(),
+            identity.remaining(),
+            if identity.exhausted() { "yes" } else { "no" },
+        )),
+        None => lines.push("identity: none".to_string()),
+    }
 
     // Phase 2: emit field descriptors in stable model order using the same
     // padded ASCII table shape as shell query results.

@@ -177,6 +177,7 @@ pub(in crate::db::schema) enum SchemaTransitionRejectionDetailCode {
     NestedLeaf { field_index: usize },
     FieldNullability { field_index: usize },
     FieldDefault { field_index: usize },
+    FieldWritePolicy { field_index: usize },
     FieldStorageDecode { field_index: usize },
     FieldLeafCodec { field_index: usize },
     Snapshot,
@@ -921,6 +922,20 @@ fn field_snapshot_storage_mismatch_detail(
         ));
     }
 
+    if actual.write_policy() != expected.write_policy() {
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            transition_detail!(
+                SchemaTransitionRejectionDetailCode::FieldWritePolicy { field_index: index },
+                format!(
+                    "field[{index}] write policy changed: stored={:?} generated={:?}",
+                    actual.write_policy(),
+                    expected.write_policy(),
+                )
+            ),
+        ));
+    }
+
     if actual.storage_decode() != expected.storage_decode() {
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
@@ -950,4 +965,55 @@ fn field_snapshot_storage_mismatch_detail(
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema::{
+        AcceptedFieldKind, FieldInsertGeneration, FieldStorageDecode, LeafCodec, ScalarCodec,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout,
+        SchemaVersion,
+    };
+
+    fn snapshot(generation: Option<FieldInsertGeneration>) -> PersistedSchemaSnapshot {
+        PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::transition::Identity".to_string(),
+            "Identity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+            vec![PersistedFieldSnapshot::new_initial_with_write_policy(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                SchemaFieldWritePolicy::from_model_policies(generation, None),
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            )],
+        )
+    }
+
+    #[test]
+    fn generated_transition_rejects_identity_policy_drift() {
+        for (actual, expected) in [
+            (None, Some(FieldInsertGeneration::Identity)),
+            (Some(FieldInsertGeneration::Identity), None),
+        ] {
+            let decision = decide_schema_transition(&snapshot(actual), &snapshot(expected));
+            let SchemaTransitionDecision::Rejected(rejection) = decision else {
+                panic!("identity policy drift must require an explicit migration");
+            };
+
+            assert_eq!(rejection.kind, SchemaTransitionRejectionKind::FieldContract);
+            assert_eq!(
+                rejection.detail.code,
+                SchemaTransitionRejectionDetailCode::FieldWritePolicy { field_index: 0 },
+            );
+        }
+    }
 }

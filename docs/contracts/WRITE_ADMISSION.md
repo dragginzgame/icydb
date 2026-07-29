@@ -112,7 +112,7 @@ in the apply phase.
 | Structural, typed-adapter, and SQL `DELETE` | Resolve selected rows through accepted authority, validate relation delete safety, and prepare row/index/relation removals before the marker. Deletes have no row after-image. |
 | Atomic single-entity batches | Admit and stage every item before opening one commit window. One rejected item rejects the entire batch. |
 | Non-atomic single-entity batches | Apply the complete admission contract independently to each item. A previously committed prefix is not rolled back when a later item rejects. |
-| Defaults, generated values, and managed fields | Materialize only from accepted absence/write policy and pass normal canonical row admission. |
+| Defaults, generated values, and managed fields | Materialize only from accepted absence/write policy and pass normal canonical row admission. `Identity::next` is admitted only for an omitted/`DEFAULT` sole unsigned primary key, uses one statement-local cursor per accepted owner, and proves the final field/key value before commit preparation. |
 | SQL DDL and schema row rewrites | Derive an accepted-after catalog candidate first. Any physical row rewrite must preserve or construct values admitted by that candidate before accepted-schema publication becomes authoritative. |
 | Index and reverse-relation projection | Derived state only. Projection must consume row images already decoded through the accepted contract; it is not an independent row ingress. |
 | Recovery replay | Not a fresh mutation ingress. It may replay only internally produced marker/journal state that passes the durable replay checks in `DURABILITY.md`. |

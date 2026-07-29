@@ -7,8 +7,8 @@ use super::{default_strategy_entity, record_default_strategy, validate_struct_de
 use crate::authoring_types::Primitive;
 use crate::{
     node::{
-        Arg, Def, Entity, Field, FieldList, Item, PrimaryKey, PrimaryKeySource, Record, Timestamps,
-        Type, Value,
+        Arg, Def, Entity, Field, FieldGeneration, FieldList, Item, PrimaryKey, PrimaryKeySource,
+        Record, Timestamps, Type, Value,
     },
     trait_kind::{TraitBuilder, TraitKind},
 };
@@ -123,6 +123,24 @@ fn entity_defaults_keep_manual_impl_for_custom_default_constructors() {
         strategy.imp.is_some(),
         "custom defaults still require an explicit Default impl",
     );
+}
+
+#[test]
+fn entity_identity_default_never_calls_the_declarative_generator() {
+    let mut entity = redundant_default_entity();
+    entity.fields.fields[0].default = None;
+    entity.fields.fields[0].generated = Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+        Identity::next
+    ))));
+
+    let strategy = default_strategy_entity(&entity);
+    let tokens = strategy
+        .imp
+        .expect("identity placeholder requires an explicit Default impl")
+        .to_string();
+
+    assert!(tokens.contains("id : Default :: default ()"));
+    assert!(!tokens.contains("Identity :: next"));
 }
 
 #[test]

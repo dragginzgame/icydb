@@ -739,6 +739,7 @@ impl EntityFragment {
         if primary_key.iter().any(|field| !field_keys.contains(field)) {
             return Err(SchemaContractError::InvalidLocalReference);
         }
+        validate_insert_generation(&fields, &primary_key)?;
         for index in &indexes {
             if index
                 .key()
@@ -844,6 +845,37 @@ impl EntityFragment {
         )?;
         ensure_canonical_rebuild(self, &rebuilt)
     }
+}
+
+// Keep the public proposal contract exact even when fragments are constructed
+// without the source macro. Numeric generation is unsigned identity
+// generation and therefore belongs only to one non-null scalar primary key.
+fn validate_insert_generation(
+    fields: &[FieldFragment],
+    primary_key: &[FieldSourceKey],
+) -> Result<(), SchemaContractError> {
+    for field in fields {
+        if !matches!(field.insert_policy(), FieldInsertPolicy::Generated) {
+            continue;
+        }
+        if field.nullable() || field.management().is_some() {
+            return Err(SchemaContractError::InvalidFieldPolicy);
+        }
+        match field.field_type() {
+            FieldType::Scalar(ScalarType::Ulid | ScalarType::Timestamp) => {}
+            FieldType::Scalar(
+                ScalarType::Nat8
+                | ScalarType::Nat16
+                | ScalarType::Nat32
+                | ScalarType::Nat64
+                | ScalarType::Nat128,
+            ) if primary_key.len() == 1 && primary_key.first() == Some(field.source_key()) => {}
+            FieldType::Scalar(_) | FieldType::List(_) | FieldType::Named(_) => {
+                return Err(SchemaContractError::InvalidFieldPolicy);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One structural field in a named record type.

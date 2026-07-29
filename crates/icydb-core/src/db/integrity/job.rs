@@ -646,6 +646,7 @@ fn index_checkpoint_is_well_formed(checkpoint: &PhysicalUnitCheckpoint) -> bool 
                     | IntegrityVerifierFamily::RowEnvelope
                     | IntegrityVerifierFamily::FieldValue
                     | IntegrityVerifierFamily::PrimaryKey
+                    | IntegrityVerifierFamily::IdentityState
                     | IntegrityVerifierFamily::ValidatedConstraints
                     | IntegrityVerifierFamily::ForwardIndex
                     | IntegrityVerifierFamily::Relation
@@ -666,6 +667,7 @@ fn reverse_checkpoint_is_well_formed(checkpoint: &PhysicalUnitCheckpoint) -> boo
                     | IntegrityVerifierFamily::RowEnvelope
                     | IntegrityVerifierFamily::FieldValue
                     | IntegrityVerifierFamily::PrimaryKey
+                    | IntegrityVerifierFamily::IdentityState
                     | IntegrityVerifierFamily::ValidatedConstraints
                     | IntegrityVerifierFamily::ForwardIndex
                     | IntegrityVerifierFamily::Relation

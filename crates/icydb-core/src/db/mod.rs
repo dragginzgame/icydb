@@ -177,9 +177,9 @@ pub use response::GroupedRow;
 pub use schema::validate_generated_constraint_name;
 pub use schema::{
     ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
-    EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
-    EntitySchemaDescription, SchemaLiteralValidationReason, SchemaStore, SchemaValidationOperator,
-    ValidateError,
+    EntityIdentityDescription, EntityIndexDescription, EntityRelationCardinality,
+    EntityRelationDescription, EntitySchemaDescription, SchemaLiteralValidationReason, SchemaStore,
+    SchemaValidationOperator, ValidateError,
 };
 pub use schema::{
     SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeJob, SchemaChangeJobId,

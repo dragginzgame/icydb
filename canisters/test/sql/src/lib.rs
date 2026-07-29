@@ -2,6 +2,7 @@
 //! Small SQL canister used for lightweight SQL fixture smoke tests.
 //!
 
+use candid::CandidType;
 use ic_cdk::update;
 use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
@@ -14,6 +15,17 @@ use icydb::{
 icydb::start!();
 
 const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
+const IDENTITY_MAX_BATCH_ROWS: u32 = 16 * 1024 - 1;
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+struct IdentityCloseoutPerfResult {
+    caller_nat64_instructions: u64,
+    generated_nat64_instructions: u64,
+    generated_nat128_instructions: u64,
+    one_row_batch_instructions: u64,
+    maximum_batch_instructions: u64,
+    maximum_batch_rows: u32,
+}
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
 #[allow(
@@ -174,6 +186,95 @@ fn sql_numeric_type_patch(
                 Float64::try_new(float64_value).expect("finite float64 fixture value"),
             )),
         )
+}
+
+fn identity_payload_patch(payload: u64) -> StructuralPatch {
+    StructuralPatch::new().field("payload", WriteCell::Value(InputValue::Nat64(payload)))
+}
+
+fn caller_nat64_patch(id: u64, payload: u64) -> StructuralPatch {
+    identity_payload_patch(payload).field("id", WriteCell::Value(InputValue::Nat64(id)))
+}
+
+/// Measure the final Identity write matrix on one fresh test canister.
+#[update]
+fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb::Error> {
+    let session = db()?;
+
+    // Warm each accepted entity and the shared journaled store before sampling.
+    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "SqlTestCallerNat64".to_string(),
+        patch: caller_nat64_patch(1, 1),
+    })?;
+    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "SqlTestIdentityNat64".to_string(),
+        patch: identity_payload_patch(1),
+    })?;
+    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "SqlTestIdentityNat128".to_string(),
+        patch: identity_payload_patch(1),
+    })?;
+    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "SqlTestIdentityBatch".to_string(),
+        patch: identity_payload_patch(1),
+    })?;
+
+    let start = ic_cdk::api::performance_counter(1);
+    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "SqlTestCallerNat64".to_string(),
+        patch: caller_nat64_patch(2, 2),
+    })?;
+    let caller_nat64_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let start = ic_cdk::api::performance_counter(1);
+    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "SqlTestIdentityNat64".to_string(),
+        patch: identity_payload_patch(2),
+    })?;
+    let generated_nat64_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let start = ic_cdk::api::performance_counter(1);
+    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+        entity: "SqlTestIdentityNat128".to_string(),
+        patch: identity_payload_patch(2),
+    })?;
+    let generated_nat128_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let start = ic_cdk::api::performance_counter(1);
+    let one_row = session.execute_trusted_structural_insert_batch(
+        "SqlTestIdentityBatch",
+        vec![identity_payload_patch(2)],
+    )?;
+    let one_row_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if one_row.affected_rows != 1 {
+        return Err(icydb::Error::from_kind(
+            ErrorKind::Query(QueryErrorKind::Validate),
+            ErrorOrigin::Executor,
+        ));
+    }
+
+    let maximum_batch = (0..IDENTITY_MAX_BATCH_ROWS)
+        .map(|ordinal| identity_payload_patch(u64::from(ordinal) + 3))
+        .collect();
+    let start = ic_cdk::api::performance_counter(1);
+    let maximum =
+        session.execute_trusted_structural_insert_batch("SqlTestIdentityBatch", maximum_batch)?;
+    let maximum_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if maximum.affected_rows != IDENTITY_MAX_BATCH_ROWS {
+        return Err(icydb::Error::from_kind(
+            ErrorKind::Query(QueryErrorKind::Validate),
+            ErrorOrigin::Executor,
+        ));
+    }
+
+    Ok(IdentityCloseoutPerfResult {
+        caller_nat64_instructions,
+        generated_nat64_instructions,
+        generated_nat128_instructions,
+        one_row_batch_instructions,
+        maximum_batch_instructions,
+        maximum_batch_rows: IDENTITY_MAX_BATCH_ROWS,
+    })
 }
 
 #[cfg(feature = "candid-export")]

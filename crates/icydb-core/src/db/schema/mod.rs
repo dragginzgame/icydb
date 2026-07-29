@@ -25,6 +25,7 @@ mod fingerprint;
 #[cfg(any(test, feature = "query"))]
 mod format;
 mod identity;
+mod identity_state;
 mod info;
 mod inspection_plan;
 mod integrity;
@@ -55,8 +56,8 @@ pub(in crate::db) const MAX_ACCEPTED_RECURSIVE_DEPTH: usize =
 
 pub use describe::{
     ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
-    EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
-    EntitySchemaDescription,
+    EntityIdentityDescription, EntityIndexDescription, EntityRelationCardinality,
+    EntityRelationDescription, EntitySchemaDescription,
 };
 pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 
@@ -140,9 +141,11 @@ pub(in crate::db) use constraint_validation::{
     accepted_constraint_field_paths, decode_constraint_validation_job,
     encode_constraint_validation_job,
 };
-pub(in crate::db) use describe::describe_accepted_entity_with_persisted_schema;
 #[cfg(feature = "sql")]
 pub(in crate::db) use describe::describe_entity_fields_with_persisted_schema;
+pub(in crate::db) use describe::{
+    describe_accepted_entity_with_persisted_schema, describe_accepted_identity,
+};
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db) use enum_catalog::AcceptedSchemaAuthority;
 pub(in crate::db::schema) use enum_catalog::AcceptedStoreCatalogScope;
@@ -180,19 +183,26 @@ pub(in crate::db) use format::show_indexes_for_schema_info_with_runtime_state;
 pub(in crate::db) use identity::{
     ConstraintId, ConstraintIdAllocator, FieldId, RelationId, SchemaIndexId,
 };
+pub(in crate::db) use identity_state::{
+    AcceptedIdentityAllocation, IdentityAdvanceId, IdentityRangeAdvance, IdentityState,
+    IdentityStateLifecycle, IdentityStateOwner, IdentityStatementCursor,
+    MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, identity_kind_maximum,
+};
 pub(in crate::db) use info::{
     SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
     SchemaIndexInfo, SchemaInfo, schema_expression_index_info_from_accepted_index,
     schema_index_info_from_accepted_index,
 };
-pub(in crate::db) use inspection_plan::AcceptedInspectionPlan;
+pub(in crate::db) use inspection_plan::{AcceptedIdentityInspection, AcceptedInspectionPlan};
 pub(in crate::db::schema) use integrity::{
     schema_snapshot_constraint_integrity_detail, schema_snapshot_index_integrity_detail,
     schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use live_schema_checkpoint::{
-    apply_live_schema_checkpoint, load_live_schema_checkpoint, preflight_live_schema_checkpoint,
+    apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
+    load_live_schema_checkpoint, preflight_live_identity_range_checkpoint,
+    preflight_live_schema_checkpoint, verify_live_identity_range_checkpoint,
     verify_live_schema_checkpoint,
 };
 #[cfg(any(test, feature = "query"))]

@@ -149,6 +149,13 @@ only after these postconditions hold. This recovered-effect proof is not a
 claim that unrelated database state was inspected; Quick and Deep remain
 explicit read-only inspection operations.
 
+Identity-bearing recovery treats the marker range as committed authority and
+the schema-control record as its materialized projection. It never derives
+high-water from live rows, reevaluates the generator, or allocates during row,
+index, or relation rebuild. Before guarded recovery returns, every committed
+range has converged to the exact materialized high-water and last-applied
+advance identity.
+
 Deep progress and retention remain outside recovered database authority. Each
 well-formed authorized integrity attempt performs one bounded progress-store
 maintenance page after the requested operation. The persisted job owns expiry

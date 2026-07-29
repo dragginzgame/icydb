@@ -28,9 +28,9 @@ use crate::{
             },
         },
         schema::{
-            AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
-            AcceptedRowDecodeContract, CompiledAcceptedRowConstraints,
-            accepted_row_constraint_write_error,
+            AcceptedFieldPersistenceContract, AcceptedIdentityAllocation,
+            AcceptedInsertOmissionPolicy, AcceptedRowDecodeContract,
+            CompiledAcceptedRowConstraints, accepted_row_constraint_write_error,
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
         write_context::AcceptedWriteContext,
@@ -359,6 +359,7 @@ fn resolve_insert_active_slot(
     slot: usize,
     intent: Option<AcceptedMutationFieldWriteIntent>,
     write_context: AcceptedWriteContext,
+    identity_allocation: Option<&AcceptedIdentityAllocation>,
 ) -> Result<(Vec<u8>, AcceptedFieldWriteProvenance), InternalError> {
     let field = contract.required_accepted_field_contract(slot)?;
     let write_policy = field.write_policy();
@@ -410,7 +411,8 @@ fn resolve_insert_active_slot(
     };
 
     if let Some(generation) = write_policy.insert_generation() {
-        let value = accepted_insert_generated_value(generation, write_context)?;
+        let value =
+            accepted_insert_generated_value(generation, slot, write_context, identity_allocation)?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         let payload = encode_canonical_value_for_accepted_field_contract(encoding, &value)?;
 
@@ -465,6 +467,7 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
     constraints: &CompiledAcceptedRowConstraints,
     patch: &AcceptedMutationIntentPatch,
     write_context: AcceptedWriteContext,
+    identity_allocation: Option<&AcceptedIdentityAllocation>,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let constraint_context = AcceptedRowConstraintWriteContext::new(
         entity_path,
@@ -503,6 +506,7 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
             slot,
             intents[slot].take(),
             write_context,
+            identity_allocation,
         )?;
         payloads[slot] = Some(payload);
         provenance[slot] = Some(source);
@@ -703,6 +707,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         constraints,
         patch,
         write_context,
+        None,
     )?;
     let (inserted, mut provenance) = inserted.into_parts();
     let contract = StructuralRowContract::from_owned_accepted_decode_contract(
@@ -892,9 +897,17 @@ fn resolve_explicit_update_default(
 
 fn accepted_insert_generated_value(
     generation: FieldInsertGeneration,
+    field_slot: usize,
     write_context: AcceptedWriteContext,
+    identity_allocation: Option<&AcceptedIdentityAllocation>,
 ) -> Result<Value, InternalError> {
     Ok(match generation {
+        FieldInsertGeneration::Identity => {
+            let allocation = identity_allocation
+                .filter(|allocation| allocation.field_slot() == field_slot)
+                .ok_or_else(InternalError::executor_invariant)?;
+            allocation.value().clone()
+        }
         FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()?),
         FieldInsertGeneration::Timestamp => Value::Timestamp(write_context.operation_timestamp()),
     })
@@ -978,6 +991,7 @@ mod tests {
             &constraints,
             &patch,
             AcceptedWriteContext::new(crate::types::Timestamp::from_millis(1)),
+            None,
         ) else {
             panic!("explicit null should violate accepted not-null");
         };

@@ -91,7 +91,6 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Borrow the accepted persisted field kind.
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> &'a AcceptedFieldKind {
         self.kind

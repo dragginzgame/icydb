@@ -7,6 +7,7 @@ use crate::{
     db::{
         Db,
         codec::MAX_ROW_BYTES,
+        commit::database_incarnation_id,
         data::{
             DecodedDataStoreKey, RawDataStoreKey, RawRow, SlotReader, StoreVisit,
             StructuralSlotReader,
@@ -16,9 +17,12 @@ use crate::{
             IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
             IntegrityPhase, IntegritySeverity, IntegrityVerifierFamily, relation_field_paths,
         },
-        key_taxonomy::RawDataStoreKeyRange,
+        key_taxonomy::{PrimaryKeyComponent, RawDataStoreKeyRange},
         relation::RelationConstraintProjection,
-        schema::{AcceptedInspectionPlan, AcceptedRowConstraintEvaluationError},
+        schema::{
+            AcceptedFieldKind, AcceptedInspectionPlan, AcceptedRowConstraintEvaluationError,
+            identity_kind_maximum,
+        },
     },
     error::{ErrorClass, InternalError},
     traits::CanisterKind,
@@ -248,6 +252,19 @@ pub(in crate::db) fn execute_row_integrity_page<C: CanisterKind>(
     let limits = limits.validate()?;
     let identity = plan.identity();
     let store = db.recovered_store(identity.store_path())?;
+    let identity_high_water = plan
+        .identity_inspection()
+        .map(|identity_inspection| {
+            store.with_schema(|schema_store| {
+                schema_store.identity_high_water_for_integrity(
+                    database_incarnation_id()?,
+                    identity.entity_tag(),
+                    identity_inspection.field_id(),
+                    identity_inspection.accepted_kind(),
+                )
+            })
+        })
+        .transpose()?;
     let relations = plan.relation_inspection();
     let range = RawDataStoreKeyRange::entity_prefix(identity.entity_tag());
     let checkpoint_key = checkpoint.raw_data_key()?;
@@ -300,7 +317,15 @@ pub(in crate::db) fn execute_row_integrity_page<C: CanisterKind>(
 
             let start = start_atom_for_row(&page.checkpoint, raw_key, plan, relations.len())?;
             inspect_one_row(
-                db, plan, relations, raw_key, raw_row, start, limits, &mut page,
+                db,
+                plan,
+                relations,
+                identity_high_water,
+                raw_key,
+                raw_row,
+                start,
+                limits,
+                &mut page,
             )?;
 
             if page.stopped {
@@ -326,6 +351,7 @@ fn inspect_one_row<C: CanisterKind>(
     db: &Db<C>,
     plan: &AcceptedInspectionPlan,
     relations: &[RelationConstraintProjection],
+    identity_high_water: Option<u128>,
     raw_key: &RawDataStoreKey,
     raw_row: &RawRow,
     mut atom: Option<RowAtom>,
@@ -359,6 +385,7 @@ fn inspect_one_row<C: CanisterKind>(
             &decoded_key,
             &mut reader,
             &mut decoded_values,
+            identity_high_water,
             current,
         )?;
         page.atoms_classified = page
@@ -419,6 +446,7 @@ fn inspect_row_atom<C: CanisterKind>(
     decoded_key: &Result<DecodedDataStoreKey, crate::db::data::DecodedDataStoreKeyDecodeError>,
     reader: &mut Option<Result<StructuralSlotReader<'_>, InternalError>>,
     decoded_values: &mut DecodedRowValues,
+    identity_high_water: Option<u128>,
     atom: RowAtom,
 ) -> Result<RowAtomOutcome, InternalError> {
     match atom.family {
@@ -435,6 +463,19 @@ fn inspect_row_atom<C: CanisterKind>(
                 icydb_diagnostic_code::ErrorCode::STORE_CORRUPTION.raw(),
             )?)),
         },
+        IntegrityVerifierFamily::IdentityState => {
+            let (Some(identity), Some(high_water)) =
+                (plan.identity_inspection(), identity_high_water)
+            else {
+                return Err(InternalError::store_invariant());
+            };
+            let Some(key) = decoded_key.as_ref().ok() else {
+                return Ok(RowAtomOutcome::Blocked(
+                    IntegrityVerifierFamily::IdentityState,
+                ));
+            };
+            inspect_identity_key(plan, identity, key, raw_key, high_water)
+        }
         IntegrityVerifierFamily::RowEnvelope => {
             if raw_row.len() > MAX_ROW_BYTES as usize {
                 return Ok(RowAtomOutcome::Finding(row_finding(
@@ -736,6 +777,90 @@ fn decode_all_fields<'a>(
     }
 }
 
+fn inspect_identity_key(
+    plan: &AcceptedInspectionPlan,
+    identity: &crate::db::schema::AcceptedIdentityInspection,
+    decoded_key: &DecodedDataStoreKey,
+    raw_key: &RawDataStoreKey,
+    committed_high_water: u128,
+) -> Result<RowAtomOutcome, InternalError> {
+    let (classification, value) = classify_identity_scalar(
+        identity.accepted_kind(),
+        decoded_key.primary_key_value().scalar_component(),
+        committed_high_water,
+    )?;
+    if classification == IdentityScalarIntegrity::Clean {
+        return Ok(RowAtomOutcome::Clean);
+    }
+    let kind = match classification {
+        IdentityScalarIntegrity::Clean => return Err(InternalError::store_invariant()),
+        IdentityScalarIntegrity::Invalid => IntegrityFindingKind::InvalidIdentityValue,
+        IdentityScalarIntegrity::HighWaterExceeded => {
+            IntegrityFindingKind::IdentityHighWaterExceeded
+        }
+    };
+    let observed = value.map_or_else(
+        || "wrong_unsigned_key_shape".to_string(),
+        |value| value.to_string(),
+    );
+    let error = InternalError::identity_state_corruption();
+    Ok(RowAtomOutcome::Finding(IntegrityFinding {
+        diagnostic_code: error.diagnostic_code().error_code().raw(),
+        class: IntegrityFindingClass::Corruption,
+        severity: IntegritySeverity::Error,
+        kind,
+        entity: IntegrityEntityIdentity::from_plan(plan),
+        store_path: plan.identity().store_path().to_string(),
+        phase: IntegrityPhase::Rows,
+        verifier_family: IntegrityVerifierFamily::IdentityState,
+        physical_key: bounded_physical_key(raw_key)?,
+        primary_key: primary_key_bytes(Some(decoded_key), raw_key),
+        field_paths: vec![identity.field_name().to_string()],
+        value_path: None,
+        constraint_id: None,
+        constraint_name: None,
+        schema_index_id: None,
+        relation_id: None,
+        expected: Some(format!("1..={committed_high_water}")),
+        observed: Some(observed),
+    }))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IdentityScalarIntegrity {
+    Clean,
+    Invalid,
+    HighWaterExceeded,
+}
+
+fn classify_identity_scalar(
+    accepted_kind: &AcceptedFieldKind,
+    component: Option<PrimaryKeyComponent>,
+    committed_high_water: u128,
+) -> Result<(IdentityScalarIntegrity, Option<u128>), InternalError> {
+    let value = match (accepted_kind, component) {
+        (
+            AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64,
+            Some(PrimaryKeyComponent::Nat64(value)),
+        ) => Some(u128::from(value)),
+        (AcceptedFieldKind::Nat128, Some(PrimaryKeyComponent::Nat128(value))) => Some(value),
+        _ => None,
+    };
+    let maximum = identity_kind_maximum(accepted_kind)
+        .ok_or_else(InternalError::identity_state_corruption)?;
+    let classification = match value {
+        Some(value) if value > 0 && value <= maximum && value <= committed_high_water => {
+            IdentityScalarIntegrity::Clean
+        }
+        Some(value) if value > 0 && value <= maximum => IdentityScalarIntegrity::HighWaterExceeded,
+        Some(_) | None => IdentityScalarIntegrity::Invalid,
+    };
+    Ok((classification, value))
+}
+
 fn start_atom_for_row(
     checkpoint: &PhysicalUnitCheckpoint,
     raw_key: &RawDataStoreKey,
@@ -775,10 +900,27 @@ fn next_row_atom(
     relation_count: usize,
 ) -> Result<Option<RowAtom>, InternalError> {
     let next = match atom.family {
-        IntegrityVerifierFamily::DataKey if atom.ordinal == 0 => RowAtom {
-            family: IntegrityVerifierFamily::RowEnvelope,
-            ordinal: 0,
-        },
+        IntegrityVerifierFamily::DataKey if atom.ordinal == 0 => {
+            if plan.identity_inspection().is_some() {
+                RowAtom {
+                    family: IntegrityVerifierFamily::IdentityState,
+                    ordinal: 0,
+                }
+            } else {
+                RowAtom {
+                    family: IntegrityVerifierFamily::RowEnvelope,
+                    ordinal: 0,
+                }
+            }
+        }
+        IntegrityVerifierFamily::IdentityState
+            if atom.ordinal == 0 && plan.identity_inspection().is_some() =>
+        {
+            RowAtom {
+                family: IntegrityVerifierFamily::RowEnvelope,
+                ordinal: 0,
+            }
+        }
         IntegrityVerifierFamily::RowEnvelope if atom.ordinal == 0 => {
             if plan.row_contract().field_count() == 0 {
                 RowAtom {
@@ -886,6 +1028,7 @@ fn next_row_atom(
         }
         IntegrityVerifierFamily::RowEnvelope
         | IntegrityVerifierFamily::PrimaryKey
+        | IntegrityVerifierFamily::IdentityState
         | IntegrityVerifierFamily::IndexEntry
         | IntegrityVerifierFamily::UniqueIndex
         | IntegrityVerifierFamily::ReverseRelationEntry
@@ -1066,4 +1209,52 @@ fn raw_key_in_range(range: &RawDataStoreKeyRange, key: &RawDataStoreKey) -> bool
         && range
             .upper_exclusive()
             .is_none_or(|upper| key.as_bytes() < upper)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_row_classification_precedes_generic_row_checks() {
+        assert_eq!(
+            classify_identity_scalar(
+                &AcceptedFieldKind::Nat64,
+                Some(PrimaryKeyComponent::Nat64(9)),
+                8,
+            )
+            .expect("Nat64 identity should classify"),
+            (
+                IdentityScalarIntegrity::HighWaterExceeded,
+                Some(u128::from(9_u8)),
+            ),
+        );
+        assert_eq!(
+            classify_identity_scalar(
+                &AcceptedFieldKind::Nat8,
+                Some(PrimaryKeyComponent::Nat64(0)),
+                8,
+            )
+            .expect("zero identity should classify"),
+            (IdentityScalarIntegrity::Invalid, Some(0)),
+        );
+        assert_eq!(
+            classify_identity_scalar(
+                &AcceptedFieldKind::Nat128,
+                Some(PrimaryKeyComponent::Nat128(8)),
+                8,
+            )
+            .expect("Nat128 identity should classify"),
+            (IdentityScalarIntegrity::Clean, Some(8)),
+        );
+        assert_eq!(
+            classify_identity_scalar(
+                &AcceptedFieldKind::Nat128,
+                Some(PrimaryKeyComponent::Nat64(8)),
+                8,
+            )
+            .expect("wrong key shape should classify"),
+            (IdentityScalarIntegrity::Invalid, None),
+        );
+    }
 }

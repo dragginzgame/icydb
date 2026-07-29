@@ -81,7 +81,8 @@ pub struct CollectionPolicy {}
     fields(
         field(
             name = "id",
-            value(item(prim = "Nat64"))
+            value(item(prim = "Nat64")),
+            generated(insert = "Identity::next")
         ),
         field(
             name = "state",
@@ -107,9 +108,9 @@ pub struct SchemaOnlyEntity {}
 mod tests {
     use model_api::build::{BuildOptions, generate_with_options, get_schema};
     use model_api::schema::{
-        ConstraintFragmentKind, ConstraintSourceKey, FieldSourceKey, FieldType, NamedTypeFragment,
-        RuleSourceKey, SchemaFragment, SourceRuleOperation, TypeSourceKey, decode_schema_fragment,
-        encode_schema_fragment,
+        ConstraintFragmentKind, ConstraintSourceKey, FieldInsertPolicy, FieldSourceKey, FieldType,
+        NamedTypeFragment, RuleSourceKey, SchemaFragment, SourceRuleOperation, TypeSourceKey,
+        decode_schema_fragment, encode_schema_fragment,
     };
 
     use super::SchemaOnlyCanister;
@@ -149,6 +150,15 @@ mod tests {
             .schema_fragment_for_canister(canister_path)
             .expect("schema-only fixture should lower one complete fragment");
         assert_eq!(fragment.entities().len(), 1);
+        assert!(matches!(
+            fragment.entities()[0]
+                .fields()
+                .iter()
+                .find(|field| field.name().as_str() == "id")
+                .expect("identity field should lower")
+                .insert_policy(),
+            FieldInsertPolicy::Generated,
+        ));
         assert_targeted_degrees_rules(&fragment);
         let named_type = |source_key: &str| {
             fragment

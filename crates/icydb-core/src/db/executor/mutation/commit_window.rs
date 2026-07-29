@@ -9,8 +9,8 @@ use crate::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedIndexMutation,
-            PreparedRowCommitOp, begin_commit, finish_commit, generate_commit_id,
-            generate_marker_batch_id, prepare_row_commit_with_context,
+            PreparedRowCommitOp, begin_commit, database_incarnation_id, finish_commit,
+            generate_commit_id, generate_marker_batch_id, prepare_row_commit_with_context,
             rollback_prepared_row_ops_reverse,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
@@ -20,7 +20,14 @@ use crate::{
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
         key_taxonomy::PrimaryKeyValue,
-        registry::{StoreCommitParticipation, StoreHandle, StoreRecoveryCapability},
+        registry::{
+            StoreCommitParticipation, StoreHandle, StoreRecoveryCapability,
+            StoreSchemaMetadataCapability,
+        },
+        schema::{
+            IdentityAdvanceId, IdentityRangeAdvance, apply_live_identity_range_checkpoint,
+            preflight_live_identity_range_checkpoint,
+        },
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, MutationCommitClass, record},
@@ -37,6 +44,45 @@ use std::{
 use super::constraint_scheduler::AcceptedMutationConstraintBatch;
 
 const MUTATION_COMMIT_INITIAL_RESERVE_ROWS: usize = 64;
+
+/// Test-only durable interruption boundaries around Identity publication.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum IdentityCommitInterruption {
+    MarkerPersisted,
+    JournalPublished,
+    RowsPublished,
+    StateMaterialized,
+}
+
+#[cfg(test)]
+thread_local! {
+    static NEXT_IDENTITY_COMMIT_INTERRUPTION: std::cell::Cell<Option<IdentityCommitInterruption>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(in crate::db) fn interrupt_next_identity_commit_for_tests(
+    interruption: IdentityCommitInterruption,
+) {
+    NEXT_IDENTITY_COMMIT_INTERRUPTION.with(|next| next.set(Some(interruption)));
+}
+
+#[cfg(test)]
+fn take_identity_commit_interruption(
+    interruption: IdentityCommitInterruption,
+    has_identity_ranges: bool,
+) -> bool {
+    has_identity_ranges
+        && NEXT_IDENTITY_COMMIT_INTERRUPTION.with(|next| {
+            if next.get() == Some(interruption) {
+                next.set(None);
+                true
+            } else {
+                false
+            }
+        })
+}
 
 ///
 /// PreparedRowOpDelta
@@ -86,7 +132,7 @@ impl PreparedRowOpDelta {
 pub(in crate::db::executor) struct OpenCommitWindow {
     pub(in crate::db::executor) commit: CommitGuard,
     pub(in crate::db::executor) prepared_row_ops: Vec<PreparedRowCommitOp>,
-    journal_appends: Vec<PreparedJournalAppend>,
+    effects: PreparedCommitEffects,
     pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
     pub(in crate::db::executor) delta: PreparedRowOpDelta,
     pub(in crate::db::executor) commit_class: MutationCommitClass,
@@ -100,7 +146,20 @@ pub(in crate::db::executor) struct PreparedJournalAppend {
 
 struct CommitWindowPayload {
     marker: CommitMarker,
+    effects: PreparedCommitEffects,
+}
+
+struct PreparedCommitEffects {
     journal_appends: Vec<PreparedJournalAppend>,
+    identity_range_applies: Vec<PreparedIdentityRangeApply>,
+}
+
+#[derive(Clone, Copy)]
+struct PreparedIdentityRangeApply {
+    store_path: &'static str,
+    handle: StoreHandle,
+    range: IdentityRangeAdvance,
+    advance_id: IdentityAdvanceId,
 }
 
 ///
@@ -585,6 +644,7 @@ fn preflight_prepare_row_ops_with_overlay<C: CanisterKind>(
 pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: Vec<CommitRowOp>,
+    identity_ranges: Vec<IdentityRangeAdvance>,
 ) -> Result<OpenCommitWindow, InternalError> {
     let PreparedRowOpBatch {
         prepared_row_ops,
@@ -593,16 +653,19 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     } = preflight_prepare_row_op_batch_structural(db, &row_ops)?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let CommitWindowPayload {
-        marker,
-        journal_appends,
-    } = commit_window_payload_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
+    let CommitWindowPayload { marker, effects } = commit_window_payload_for_prepared_row_ops(
+        db,
+        &row_ops,
+        &prepared_row_ops,
+        identity_ranges.as_slice(),
+    )?;
+    preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let commit = begin_commit_window_payload(marker)?;
 
     Ok(OpenCommitWindow {
         commit,
         prepared_row_ops,
-        journal_appends,
+        effects,
         index_store_guards,
         delta,
         commit_class,
@@ -610,11 +673,11 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
 }
 
 /// Apply prepared row ops under the shared commit-window guard.
-pub(in crate::db::executor) fn apply_prepared_row_ops(
+fn apply_prepared_row_ops(
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_ops: Vec<PreparedRowCommitOp>,
-    journal_appends: Vec<PreparedJournalAppend>,
+    effects: PreparedCommitEffects,
     index_store_guards: Vec<IndexStoreGenerationGuard>,
     on_index_applied: impl FnOnce(),
     on_data_applied: impl FnOnce(),
@@ -622,12 +685,30 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
     finish_commit(commit, |guard| {
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
         let _ = guard;
+        #[cfg(test)]
+        let has_identity_ranges = !effects.identity_range_applies.is_empty();
 
         // Enforce that index stores are unchanged between preflight and apply.
         for index_store_guard in &index_store_guards {
             index_store_guard.verify()?;
         }
-        append_prepared_journal_batches(&journal_appends)?;
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::MarkerPersisted,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
+        append_prepared_journal_batches(&effects.journal_appends)?;
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::JournalPublished,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
 
         // Single-row writes dominate the hot write lanes, so avoid the extra
         // rollback vector and reverse-apply scaffolding when only one prepared
@@ -640,6 +721,23 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
             apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
 
             row_op.apply();
+            #[cfg(test)]
+            if take_identity_commit_interruption(
+                IdentityCommitInterruption::RowsPublished,
+                has_identity_ranges,
+            ) {
+                std::mem::forget(apply_guard);
+                return Err(InternalError::executor_invariant());
+            }
+            apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
+            #[cfg(test)]
+            if take_identity_commit_interruption(
+                IdentityCommitInterruption::StateMaterialized,
+                has_identity_ranges,
+            ) {
+                std::mem::forget(apply_guard);
+                return Err(InternalError::executor_invariant());
+            }
             on_index_applied();
             on_data_applied();
             apply_guard.finish()?;
@@ -656,6 +754,23 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
         for row_op in prepared_row_ops {
             row_op.apply();
         }
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::RowsPublished,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
+        apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::StateMaterialized,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
         on_index_applied();
         on_data_applied();
         apply_guard.finish()?;
@@ -670,7 +785,7 @@ fn apply_prepared_single_row_op(
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_op: PreparedRowCommitOp,
-    journal_appends: Vec<PreparedJournalAppend>,
+    effects: PreparedCommitEffects,
     index_store_guards: SingleRowIndexStoreGuards,
     on_index_applied: impl FnOnce(),
     on_data_applied: impl FnOnce(),
@@ -678,14 +793,49 @@ fn apply_prepared_single_row_op(
     finish_commit(commit, |guard| {
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
         let _ = guard;
+        #[cfg(test)]
+        let has_identity_ranges = !effects.identity_range_applies.is_empty();
 
         // Enforce that index stores are unchanged between preflight and apply.
         index_store_guards.verify()?;
-        append_prepared_journal_batches(&journal_appends)?;
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::MarkerPersisted,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
+        append_prepared_journal_batches(&effects.journal_appends)?;
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::JournalPublished,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
 
         apply_guard.record_single_row_rollback(prepared_row_op.snapshot_rollback());
 
         prepared_row_op.apply();
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::RowsPublished,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
+        apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
+        #[cfg(test)]
+        if take_identity_commit_interruption(
+            IdentityCommitInterruption::StateMaterialized,
+            has_identity_ranges,
+        ) {
+            std::mem::forget(apply_guard);
+            return Err(InternalError::executor_invariant());
+        }
         on_index_applied();
         on_data_applied();
         apply_guard.finish()?;
@@ -718,11 +868,11 @@ pub(in crate::db) fn commit_delete_row_ops_with_window_for_path<C: CanisterKind>
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
-        journal_appends,
+        effects,
         index_store_guards,
         delta,
         commit_class,
-    } = open_commit_window_structural(db, row_ops)?;
+    } = open_commit_window_structural(db, row_ops, Vec::new())?;
     record_mutation_commit_plan(entity_path, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
@@ -731,7 +881,7 @@ pub(in crate::db) fn commit_delete_row_ops_with_window_for_path<C: CanisterKind>
         commit,
         apply_phase,
         prepared_row_ops,
-        journal_appends,
+        effects,
         index_store_guards,
         || emit_delete_index_delta_metrics_for_path(entity_path, &delta),
         || {},
@@ -745,17 +895,18 @@ pub(in crate::db) fn commit_structural_save_row_ops_with_window_for_path<C: Cani
     db: &Db<C>,
     entity_path: &str,
     batch: AcceptedMutationConstraintBatch,
+    identity_ranges: Vec<IdentityRangeAdvance>,
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     let row_ops = batch.into_save_rows()?;
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
-        journal_appends,
+        effects,
         index_store_guards,
         delta,
         commit_class,
-    } = open_commit_window_structural(db, row_ops)?;
+    } = open_commit_window_structural(db, row_ops, identity_ranges)?;
     record_mutation_commit_plan(entity_path, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
@@ -764,7 +915,7 @@ pub(in crate::db) fn commit_structural_save_row_ops_with_window_for_path<C: Cani
         commit,
         apply_phase,
         prepared_row_ops,
-        journal_appends,
+        effects,
         index_store_guards,
         || emit_index_delta_metrics_for_path(entity_path, &delta),
         || {},
@@ -786,21 +937,20 @@ fn commit_prepared_single_row_op_with_window(
         guards: index_store_guards,
         delta,
     } = prepare_single_row_apply(&prepared_row_op);
-    let CommitWindowPayload {
-        marker,
-        journal_appends,
-    } = commit_window_payload_for_prepared_row_ops(
+    let CommitWindowPayload { marker, effects } = commit_window_payload_for_prepared_row_ops(
         db,
         &[row_op],
         std::slice::from_ref(&prepared_row_op),
+        &[],
     )?;
+    preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let commit = begin_commit_window_payload(marker)?;
 
     apply_prepared_single_row_op(
         commit,
         apply_phase,
         prepared_row_op,
-        journal_appends,
+        effects,
         index_store_guards,
         || on_index_applied(&delta),
         on_data_applied,
@@ -913,64 +1063,165 @@ pub(in crate::db::executor) fn affected_store_handles_for_prepared_row_ops<C: Ca
 // Journaled stores embed logical journal records in the marker so journal
 // publication can happen before live projections are updated. Heap stores
 // remain live-only and absent from durable recovery payloads.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one builder must bind row records, range ordinals, journal sequence, and marker identity before publication"
+)]
 fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
     db: &Db<C>,
     row_ops: &[CommitRowOp],
     prepared_row_ops: &[PreparedRowCommitOp],
+    identity_ranges: &[IdentityRangeAdvance],
 ) -> Result<CommitWindowPayload, InternalError> {
     if row_ops.len() != prepared_row_ops.len() {
         return Err(InternalError::executor_invariant());
     }
 
     let marker_id = generate_commit_id()?;
-    let registered_handles = db.with_store_registry(|registry| {
-        registry
+    let registered_stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+    let incarnation = database_incarnation_id()?;
+    let mut range_routes = Vec::with_capacity(identity_ranges.len());
+    for (ordinal, range) in identity_ranges.iter().copied().enumerate() {
+        if range.owner().database_incarnation_id() != incarnation
+            || identity_ranges[..ordinal]
+                .iter()
+                .any(|existing| existing.owner() == range.owner())
+        {
+            return Err(InternalError::identity_state_corruption());
+        }
+        let runtime_entity = db.accepted_runtime_entity_for_tag(range.owner().entity_tag())?;
+        let (store_path, handle) = registered_stores
             .iter()
-            .map(|(_, handle)| handle)
-            .collect::<Vec<StoreHandle>>()
-    });
+            .copied()
+            .find(|(store_path, _)| *store_path == runtime_entity.store_path())
+            .ok_or_else(InternalError::executor_invariant)?;
+        range_routes.push((range, store_path, handle));
+    }
     let mut journal_records = Vec::<(StoreHandle, Vec<JournalRecord>)>::new();
 
     for (row_op, prepared_row_op) in row_ops.iter().zip(prepared_row_ops) {
-        let handle = registered_handles
+        let handle = registered_stores
             .iter()
+            .map(|(_, handle)| handle)
             .find(|handle| ptr::eq(handle.data_store(), prepared_row_op.data_store))
             .ok_or_else(InternalError::executor_invariant)?;
 
-        match handle.storage_capabilities().recovery() {
-            StoreRecoveryCapability::StableBasePlusJournalReplay => {
-                let record = journal_record_for_row_op(row_op)?;
-                push_journal_record(&mut journal_records, *handle, record);
-            }
-            StoreRecoveryCapability::None => {}
+        let range_binds_store = range_routes
+            .iter()
+            .any(|(_, _, route_handle)| ptr::eq(route_handle.data_store(), handle.data_store()));
+        if handle.storage_capabilities().recovery()
+            == StoreRecoveryCapability::StableBasePlusJournalReplay
+            || range_binds_store
+        {
+            let record = journal_record_for_row_op(row_op)?;
+            push_journal_record(&mut journal_records, *handle, record);
         }
+    }
+    for (range, _, handle) in &range_routes {
+        push_journal_record(
+            &mut journal_records,
+            *handle,
+            JournalRecord::identity_range_advance(*range)?,
+        );
     }
 
     let mut journal_appends = Vec::with_capacity(journal_records.len());
     let mut marker_batches = Vec::with_capacity(journal_records.len());
+    let mut identity_range_applies = Vec::with_capacity(identity_ranges.len());
     for (ordinal, (handle, records)) in journal_records.into_iter().enumerate() {
-        let journal_store = handle
-            .journal_tail_store()
-            .ok_or_else(InternalError::executor_invariant)?;
-        let sequence = journal_store
-            .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
+        let journal_store = handle.journal_tail_store();
+        let sequence =
+            journal_store.map_or(Ok(crate::db::journal::JournalSequence::new(0)), |store| {
+                store.with_borrow(
+                    crate::db::journal::JournalTailStore::next_mutation_append_sequence,
+                )
+            })?;
         // Preserve the established single-store bytes while giving every
         // additional tail its own marker-local batch identity.
         let batch_id = generate_marker_batch_id(marker_id, ordinal)?;
         let batch = JournalBatch::new(batch_id, marker_id, sequence, records)?;
+        let store_path = registered_stores
+            .iter()
+            .find_map(|(store_path, registered_handle)| {
+                ptr::eq(registered_handle.data_store(), handle.data_store()).then_some(*store_path)
+            })
+            .ok_or_else(InternalError::executor_invariant)?;
+        for (record_ordinal, record) in batch.records().iter().enumerate() {
+            let JournalRecord::IdentityRangeAdvance { range } = record else {
+                continue;
+            };
+            let record_ordinal =
+                u32::try_from(record_ordinal).map_err(|_| InternalError::store_invariant())?;
+            let advance_id = IdentityAdvanceId::try_new(
+                batch.commit_marker_id(),
+                batch.batch_id(),
+                batch.journal_sequence().get(),
+                record_ordinal,
+            )?;
+            identity_range_applies.push(PreparedIdentityRangeApply {
+                store_path,
+                handle,
+                range: *range,
+                advance_id,
+            });
+        }
         marker_batches.push(batch.clone());
-        journal_appends.push(PreparedJournalAppend {
-            journal_store,
-            batch,
-        });
+        if let Some(journal_store) = journal_store {
+            journal_appends.push(PreparedJournalAppend {
+                journal_store,
+                batch,
+            });
+        }
+    }
+    if identity_range_applies.len() != identity_ranges.len() {
+        return Err(InternalError::identity_state_corruption());
     }
 
     let marker = CommitMarker::from_parts(marker_id, marker_batches)?;
 
     Ok(CommitWindowPayload {
         marker,
-        journal_appends,
+        effects: PreparedCommitEffects {
+            journal_appends,
+            identity_range_applies,
+        },
     })
+}
+
+fn preflight_identity_range_applies(
+    identity_ranges: &[PreparedIdentityRangeApply],
+) -> Result<(), InternalError> {
+    for prepared in identity_ranges {
+        prepared
+            .handle
+            .with_schema(|store| store.preflight_identity_range_advance(prepared.range))?;
+        if prepared.handle.storage_capabilities().schema_metadata()
+            == StoreSchemaMetadataCapability::LiveRebuiltMetadata
+        {
+            preflight_live_identity_range_checkpoint(prepared.store_path, prepared.range)?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_identity_range_applies(
+    identity_ranges: &[PreparedIdentityRangeApply],
+) -> Result<(), InternalError> {
+    for prepared in identity_ranges {
+        if prepared.handle.storage_capabilities().schema_metadata()
+            == StoreSchemaMetadataCapability::LiveRebuiltMetadata
+        {
+            apply_live_identity_range_checkpoint(
+                prepared.store_path,
+                prepared.range,
+                prepared.advance_id,
+            )?;
+        }
+        prepared.handle.with_schema_mut(|store| {
+            store.apply_identity_range_advance(prepared.range, prepared.advance_id)
+        })?;
+    }
+    Ok(())
 }
 
 fn begin_commit_window_payload(marker: CommitMarker) -> Result<CommitGuard, InternalError> {

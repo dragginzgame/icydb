@@ -52,4 +52,6 @@ pub(in crate::db) use reader::{
     decode_sparse_required_slot_with_contract,
 };
 pub(in crate::db) use types::SlotReader;
-pub(in crate::db) use types::{AcceptedMutationIntentPatch, CanonicalSlotReader, FieldSlot};
+pub(in crate::db) use types::{
+    AcceptedMutationIntentPatch, AcceptedPreKeyInsert, CanonicalSlotReader, FieldSlot,
+};

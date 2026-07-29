@@ -117,6 +117,10 @@ pub(in crate::db) use mutation::{
     AcceptedMutationConstraintScheduler, commit_delete_row_ops_with_window_for_path,
     commit_structural_save_row_ops_with_window_for_path,
 };
+#[cfg(test)]
+pub(in crate::db) use mutation::{
+    IdentityCommitInterruption, interrupt_next_identity_commit_for_tests,
+};
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db::executor) use order::{
     BoundedOrderWindow, OrderReadableRow, PendingOrderRows,

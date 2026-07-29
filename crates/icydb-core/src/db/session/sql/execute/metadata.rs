@@ -45,10 +45,14 @@ impl<C: CanisterKind> DbSession<C> {
         let validation_jobs = self
             .constraint_validation_jobs_for_accepted_catalog(catalog)
             .map_err(QueryError::execute)?;
+        let identity = self
+            .identity_description_for_accepted_catalog(catalog)
+            .map_err(QueryError::execute)?;
         describe_accepted_entity_with_persisted_schema(
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
+            identity,
         )
         .map(SqlStatementResult::Describe)
         .map_err(QueryError::execute)
@@ -65,6 +69,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
+            None,
         )
         .map(|description| SqlStatementResult::ShowConstraints(description.constraints().to_vec()))
         .map_err(QueryError::execute)

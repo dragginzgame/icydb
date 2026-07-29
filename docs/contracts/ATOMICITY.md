@@ -160,6 +160,20 @@ Commit markers are **authoritative**, not diagnostic.
   present, recovery publishes and folds its journal batches before read or
   mutation execution proceeds
 
+### Marker-bound Identity allocation
+
+Identity allocation is tentative until marker publication. One statement
+aggregates generated values into one contiguous range per accepted owner and
+revalidates every expected high-water immediately before publication. A stale
+owner rejects without publishing a marker, row, or range.
+
+The marker binds each accepted range to its exact rows and journal envelope.
+After publication the range is committed even if its row or state projection
+has not yet materialized. Guarded recovery completes journal publication, row
+application, exact range materialization, fold, and derived rebuild before a
+later mutation may open another cursor. Reapplication is idempotent only when
+both high-water and complete advance identity match.
+
 ### Marker-bound schema publication
 
 A schema mutation that changes row layout or derived state prepares one

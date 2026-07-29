@@ -1084,6 +1084,31 @@ impl InternalError {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Identity)
     }
 
+    /// Construct the canonical identity-control-state corruption error.
+    pub(crate) fn identity_state_corruption() -> Self {
+        Self::identity_corruption()
+    }
+
+    /// Construct the typed stale high-water conflict for identity publication.
+    pub(crate) fn identity_state_conflict() -> Self {
+        Self::new(ErrorClass::Conflict, ErrorOrigin::Identity)
+    }
+
+    /// Construct the bounded identity-state inventory exhaustion error.
+    pub(crate) fn identity_state_capacity_exhausted() -> Self {
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Identity)
+    }
+
+    /// Construct the exact unsigned identity-domain exhaustion error.
+    pub(crate) fn identity_exhausted() -> Self {
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Identity)
+    }
+
+    /// Construct the bounded pre-key candidate-count exhaustion error.
+    pub(crate) fn identity_candidate_count_exhausted() -> Self {
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Identity)
+    }
+
     /// Construct a store-origin unsupported error.
     #[cold]
     #[inline(never)]

@@ -433,6 +433,13 @@ allocates the next dense identity. Nonempty entities plus primary-key,
 generated, and index-dependent fields reject before publication.
 `DROP COLUMN IF EXISTS` reports `no_op` only when the target field is absent.
 
+Accepted `Identity::next` fields participate in SQL DML but not SQL DDL.
+`INSERT` may omit the field or spell `DEFAULT`, and `RETURNING` exposes the
+generated exact Nat value. Explicit values reject because Identity is
+GENERATED ALWAYS. `GENERATED ... AS IDENTITY`, custom start/step, BY DEFAULT,
+cycle, alter, restart, and reseed syntax remain unsupported; SQL cannot create
+or mutate Identity policy in this release.
+
 `ADD CONSTRAINT ... CHECK` accepts the bounded V1 check-expression subset and
 binds field identity against the accepted-before catalog. Plain `ADD` validates
 the complete historical domain in one bounded call and publishes the validated

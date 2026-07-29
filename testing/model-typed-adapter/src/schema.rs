@@ -28,7 +28,8 @@ pub struct TypedAdapterStore {}
     fields(
         field(
             name = "id",
-            value(item(prim = "Nat64"))
+            value(item(prim = "Nat64")),
+            generated(insert = "Identity::next")
         ),
         field(
             name = "name",
