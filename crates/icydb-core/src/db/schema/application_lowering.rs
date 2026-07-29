@@ -631,7 +631,6 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
         return Err(InternalError::store_unsupported());
     }
     candidates.sort_by(|left, right| left.store_path().cmp(right.store_path()));
-    verify_record_member_rename_coverage(stores, &types, candidates.as_slice())?;
     Ok(candidates)
 }
 
@@ -773,17 +772,6 @@ fn lower_existing_store_candidate(
         removals.entities.as_slice(),
     )?;
     advance_removed_entity_schema_versions(&mut snapshots, &removal_entity_tags)?;
-    let proposed_entity_tags = entities
-        .iter()
-        .map(|entity| {
-            store
-                .bundle
-                .source_bindings()
-                .entity(entity.source_key())
-                .ok_or_else(InternalError::store_unsupported)
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    verify_unrebuildable_enum_predicates(store.bundle, &catalogs, &proposed_entity_tags)?;
     let mut changed = !removals.is_empty();
     for entity in entities {
         let entity_tag = store
@@ -1400,7 +1388,6 @@ fn advance_removed_entity_schema_versions(
 struct ExistingCatalogCandidate {
     enum_catalog: AcceptedEnumCatalog,
     composite_catalog: AcceptedCompositeCatalog,
-    enum_changed: bool,
     changed: bool,
 }
 
@@ -1463,7 +1450,6 @@ fn lower_existing_named_catalogs(
         }
     }
 
-    let mut enum_catalog = bundle.enum_catalog().clone();
     for source in &visited {
         let Some(NamedTypeFragment::Enum(proposed)) = types.get(source).copied() else {
             continue;
@@ -1497,20 +1483,20 @@ fn lower_existing_named_catalogs(
                 Ok((variant_id, (variant.name().as_str().to_string(), payload)))
             })
             .collect::<Result<BTreeMap<_, _>, InternalError>>()?;
-        enum_catalog = enum_catalog
-            .with_redeclared_metadata(type_id, proposed.name().as_str().to_string(), variants)
-            .map_err(|_| InternalError::store_unsupported())?;
+        let accepted = bundle
+            .enum_catalog()
+            .enum_type(type_id)
+            .ok_or_else(InternalError::store_invariant)?;
+        if !accepted.matches_exact_definition(proposed.name().as_str(), &variants) {
+            return Err(InternalError::store_unsupported());
+        }
     }
-    let enum_changed = enum_catalog != *bundle.enum_catalog();
 
-    let composite_catalog =
-        lower_existing_composite_catalog(bundle, &visited, types, &enum_catalog)?;
-    let changed = enum_changed || composite_catalog != *bundle.composite_catalog();
+    let composite_catalog = lower_existing_composite_catalog(bundle, &visited, types)?;
     Ok(ExistingCatalogCandidate {
-        enum_catalog,
+        enum_catalog: bundle.enum_catalog().clone(),
         composite_catalog,
-        enum_changed,
-        changed,
+        changed: false,
     })
 }
 
@@ -1518,9 +1504,7 @@ fn lower_existing_composite_catalog(
     bundle: &AcceptedSchemaRevisionBundle,
     visited: &BTreeSet<TypeSourceKey>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-    enum_catalog: &AcceptedEnumCatalog,
 ) -> Result<AcceptedCompositeCatalog, InternalError> {
-    let mut composite_catalog = bundle.composite_catalog().clone();
     for source in visited {
         let Some(definition) = types.get(source).copied() else {
             continue;
@@ -1533,104 +1517,15 @@ fn lower_existing_composite_catalog(
             continue;
         };
         let shape = lower_existing_composite_shape(bundle.source_bindings(), type_id, definition)?;
-        let accepted = composite_catalog
+        let accepted = bundle
+            .composite_catalog()
             .composite_type(type_id)
             .ok_or_else(InternalError::store_invariant)?;
-        composite_catalog = match (&shape, accepted.shape()) {
-            (
-                AcceptedCompositeShape::Record(fields),
-                AcceptedCompositeShape::Record(accepted_fields),
-            ) if record_member_names_only_changed(accepted_fields, fields) => composite_catalog
-                .with_redeclared_record_metadata(
-                    type_id,
-                    definition.name().as_str().to_string(),
-                    fields.clone(),
-                    enum_catalog,
-                )
-                .map_err(|_| InternalError::store_unsupported())?,
-            _ if accepted.shape() == &shape => composite_catalog
-                .with_redeclared_path(
-                    type_id,
-                    definition.name().as_str().to_string(),
-                    enum_catalog,
-                )
-                .map_err(|_| InternalError::store_unsupported())?,
-            _ => return Err(InternalError::store_unsupported()),
-        };
-    }
-    Ok(composite_catalog)
-}
-
-fn record_member_names_only_changed(
-    accepted: &[AcceptedCompositeField],
-    candidate: &[AcceptedCompositeField],
-) -> bool {
-    accepted.len() == candidate.len()
-        && accepted.iter().all(|accepted_field| {
-            candidate.iter().any(|candidate_field| {
-                candidate_field.id() == accepted_field.id()
-                    && candidate_field.contract() == accepted_field.contract()
-            })
-        })
-        && accepted != candidate
-}
-
-/// Require one source-keyed record-member rename to reach every accepted
-/// store-local copy of that same generated type.
-///
-/// A complete application proposal normally redeclares every affected entity.
-/// This guard prevents a partial proposal from changing one store-local
-/// catalog while leaving another copy of the same source definition behind.
-fn verify_record_member_rename_coverage(
-    stores: &[ExistingProposalStore<'_>],
-    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-    candidates: &[CandidateSchemaRevision],
-) -> Result<(), InternalError> {
-    for (source, definition) in types {
-        let NamedTypeFragment::Record(_) = definition else {
-            continue;
-        };
-        for store in stores {
-            let Some(AcceptedNamedTypeIdentity::Composite(type_id)) =
-                store.bundle.source_bindings().named_type(source)
-            else {
-                continue;
-            };
-            let proposed = lower_existing_composite_shape(
-                store.bundle.source_bindings(),
-                type_id,
-                definition,
-            )?;
-            let accepted = store
-                .bundle
-                .composite_catalog()
-                .composite_type(type_id)
-                .ok_or_else(InternalError::store_invariant)?;
-            let (
-                AcceptedCompositeShape::Record(accepted_fields),
-                AcceptedCompositeShape::Record(proposed_fields),
-            ) = (accepted.shape(), &proposed)
-            else {
-                return Err(InternalError::store_unsupported());
-            };
-            if !record_member_names_only_changed(accepted_fields, proposed_fields) {
-                continue;
-            }
-            let candidate = candidates
-                .iter()
-                .find(|candidate| candidate.store_path() == store.path)
-                .ok_or_else(InternalError::store_unsupported)?;
-            let redeclared = candidate
-                .bundle()
-                .composite_catalog()
-                .composite_type(type_id)
-                .ok_or_else(InternalError::store_invariant)?;
-            if redeclared.path() != definition.name().as_str() || redeclared.shape() != &proposed {
-                return Err(InternalError::store_unsupported());
-            }
+        if accepted.path() != definition.name().as_str() || accepted.shape() != &shape {
+            return Err(InternalError::store_unsupported());
         }
     }
-    Ok(())
+    Ok(bundle.composite_catalog().clone())
 }
 
 fn named_field_type_source(field_type: &FieldType) -> Option<TypeSourceKey> {
@@ -1639,34 +1534,6 @@ fn named_field_type_source(field_type: &FieldType) -> Option<TypeSourceKey> {
         FieldType::Named(source) => Some(source.clone()),
         FieldType::Scalar(_) => None,
     }
-}
-
-fn verify_unrebuildable_enum_predicates(
-    bundle: &AcceptedSchemaRevisionBundle,
-    catalogs: &ExistingCatalogCandidate,
-    proposed_entity_tags: &BTreeSet<EntityTag>,
-) -> Result<(), InternalError> {
-    if !catalogs.enum_changed {
-        return Ok(());
-    }
-    let has_unrebuildable_predicate =
-        bundle
-            .entity_snapshots()
-            .iter()
-            .any(|(entity_tag, snapshot)| {
-                snapshot
-                    .indexes()
-                    .iter()
-                    .chain(snapshot.candidate_indexes())
-                    .any(|index| {
-                        index.predicate_sql().is_some()
-                            && (!proposed_entity_tags.contains(entity_tag) || !index.generated())
-                    })
-            });
-    if has_unrebuildable_predicate {
-        return Err(InternalError::store_unsupported());
-    }
-    Ok(())
 }
 
 fn lower_existing_composite_shape(
@@ -5141,6 +5008,76 @@ mod tests {
                 .composite_catalog()
                 .type_id("Profile")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn existing_named_type_redeclaration_accepts_exact_current_definitions() {
+        let (keys, active, named_types) = named_type_fragments();
+        let (entity_source, entity) = named_holder_entity(&keys, active);
+        let store = TargetStoreIdentity::from_bytes([0x35; 32]);
+        let initial = SchemaProposal::try_compose(
+            vec![
+                SchemaCapability::EXACT_COMPOSITE_TYPES,
+                SchemaCapability::INSERT_DEFAULTS,
+            ],
+            TargetDatabaseIdentity::from_bytes([0x25; 32]),
+            SchemaSubmissionKey::try_new("exact-named-type-initial")
+                .expect("initial submission key should admit"),
+            ExpectedAcceptedHead::Empty,
+            vec![
+                SchemaFragment::try_new(vec![entity], named_types)
+                    .expect("initial named-type fragment should admit"),
+            ],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            Vec::new(),
+        )
+        .expect("initial named-type proposal should compose");
+        let initial_candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("initial named-type proposal should lower");
+
+        let (keys, active, named_types) = named_type_fragments();
+        let (_, entity) = named_holder_entity(&keys, active);
+        let exact = SchemaProposal::try_compose(
+            vec![
+                SchemaCapability::EXACT_COMPOSITE_TYPES,
+                SchemaCapability::INSERT_DEFAULTS,
+            ],
+            TargetDatabaseIdentity::from_bytes([0x25; 32]),
+            SchemaSubmissionKey::try_new("exact-named-type-redeclaration")
+                .expect("existing submission key should admit"),
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x45; 32]),
+            },
+            vec![
+                SchemaFragment::try_new(vec![entity], named_types)
+                    .expect("exact named-type fragment should admit"),
+            ],
+            vec![EntityStoreAssignment::new(entity_source, store)],
+            Vec::new(),
+        )
+        .expect("exact named-type proposal should compose");
+
+        let candidates = lower_existing_schema_proposal(
+            &exact,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_candidates[0].bundle(),
+            }],
+        )
+        .expect("exact current named-type definitions should remain valid");
+
+        assert!(
+            candidates.is_empty(),
+            "an exact named-type redeclaration must remain a no-op"
         );
     }
 

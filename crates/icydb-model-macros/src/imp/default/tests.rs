@@ -7,7 +7,8 @@ use super::{default_strategy_entity, record_default_strategy, validate_struct_de
 use crate::authoring_types::Primitive;
 use crate::{
     node::{
-        Arg, Def, Entity, Field, FieldList, Item, PrimaryKey, PrimaryKeySource, Record, Type, Value,
+        Arg, Def, Entity, Field, FieldList, Item, PrimaryKey, PrimaryKeySource, Record, Timestamps,
+        Type, Value,
     },
     trait_kind::{TraitBuilder, TraitKind},
 };
@@ -63,7 +64,7 @@ fn redundant_default_entity() -> Entity {
         indexes: vec![],
         relations: vec![],
         constraints: vec![],
-        timestamps: false,
+        timestamps: Timestamps::default(),
         fields: FieldList {
             fields: vec![
                 field_with_primitive_default(

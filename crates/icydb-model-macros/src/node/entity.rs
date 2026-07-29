@@ -7,11 +7,70 @@
 mod tests;
 
 use crate::{case::Casing, imp::*, prelude::*};
+use darling::ast::NestedMeta;
 use std::collections::HashSet;
 
 //
 // Entity
 //
+
+/// Optional current name for one managed timestamp field.
+#[derive(Debug, FromMeta)]
+struct TimestampName {
+    name: Ident,
+}
+
+/// Nested current-name overrides for managed timestamp fields.
+#[derive(Debug, Default, FromMeta)]
+struct TimestampNames {
+    #[darling(default)]
+    created_at: Option<TimestampName>,
+
+    #[darling(default)]
+    updated_at: Option<TimestampName>,
+}
+
+/// Parser-only managed timestamp declaration.
+#[derive(Debug, Default)]
+pub(crate) struct Timestamps {
+    names: Option<TimestampNames>,
+}
+
+impl Timestamps {
+    fn field_names(&self) -> Option<(Ident, Ident)> {
+        let names = self.names.as_ref()?;
+        let created_at = names
+            .created_at
+            .as_ref()
+            .map_or_else(|| format_ident!("created_at"), |field| field.name.clone());
+        let updated_at = names
+            .updated_at
+            .as_ref()
+            .map_or_else(|| format_ident!("updated_at"), |field| field.name.clone());
+
+        Some((created_at, updated_at))
+    }
+}
+
+impl FromMeta for Timestamps {
+    fn from_word() -> Result<Self, DarlingError> {
+        Ok(Self {
+            names: Some(TimestampNames::default()),
+        })
+    }
+
+    fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
+        if items.is_empty() {
+            return Err(DarlingError::custom(
+                "timestamps(...) requires created_at(name = \"...\") or updated_at(name = \"...\")",
+            ));
+        }
+
+        Ok(Self {
+            names: Some(TimestampNames::from_list(items)?),
+        })
+    }
+}
 
 #[derive(Debug, FromMeta)]
 #[darling(and_then = "Entity::lower_timestamps")]
@@ -39,10 +98,9 @@ pub struct Entity {
     #[darling(multiple, rename = "constraint")]
     pub(crate) constraints: Vec<Constraint>,
 
-    /// Parser-only shorthand consumed into ordinary managed fields before the
-    /// entity can be validated or emitted.
+    /// Parser-only declaration consumed before validation or emission.
     #[darling(default)]
-    pub(crate) timestamps: bool,
+    pub(crate) timestamps: Timestamps,
 
     #[darling(default)]
     pub(crate) fields: FieldList,
@@ -56,12 +114,16 @@ pub struct Entity {
 
 impl Entity {
     fn lower_timestamps(mut self) -> Result<Self, DarlingError> {
-        if !self.timestamps {
+        let Some((created_at_name, updated_at_name)) = self.timestamps.field_names() else {
             return Ok(self);
+        };
+        self.timestamps = Timestamps::default();
+        if created_at_name == updated_at_name {
+            return Err(DarlingError::custom(format!(
+                "managed timestamp fields must use distinct names; both resolve to '{created_at_name}'"
+            ))
+            .with_span(&updated_at_name));
         }
-        self.timestamps = false;
-        let created_at_name = format_ident!("created_at");
-        let updated_at_name = format_ident!("updated_at");
         Self::reject_timestamp_field_collision(&self.fields, &created_at_name)?;
         Self::reject_timestamp_field_collision(&self.fields, &updated_at_name)?;
 

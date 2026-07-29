@@ -3,7 +3,7 @@
 //! Does not own: production behavior.
 //! Boundary: test-only contracts.
 
-use super::{Entity, composite_primary_key_type_part, entity_typed_adapter_tokens};
+use super::{Entity, Timestamps, composite_primary_key_type_part, entity_typed_adapter_tokens};
 use crate::authoring_types::Primitive;
 use crate::node::{
     Def, Field, FieldList, FieldWriteManagement, HasSchemaPart, Index, Item, PrimaryKey,
@@ -93,7 +93,7 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
         indexes,
         relations: Vec::new(),
         constraints: Vec::new(),
-        timestamps: false,
+        timestamps: Timestamps::default(),
         fields: FieldList { fields },
         ty: Type::default(),
         traits: crate::trait_kind::TraitBuilder::default(),
@@ -406,7 +406,10 @@ fn explicit_timestamps_lower_to_managed_fields() {
     let node = Entity::from_list(&args).expect("explicit timestamp policy should lower");
 
     assert_eq!(node.fields.len(), 3);
-    assert!(!node.timestamps, "parser-only marker should be consumed");
+    assert!(
+        node.timestamps.field_names().is_none(),
+        "parser-only declaration should be consumed"
+    );
     let created = node
         .fields
         .get(&format_ident!("created_at"))
@@ -424,6 +427,151 @@ fn explicit_timestamps_lower_to_managed_fields() {
     assert_eq!(
         updated.write_management,
         Some(FieldWriteManagement::UpdatedAt)
+    );
+}
+
+#[test]
+fn timestamps_accepts_nested_current_names_and_retains_unspecified_defaults() {
+    let args = NestedMeta::parse_meta_list(quote!(
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        fields(field(
+            name = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        )),
+        timestamps(
+            created_at(name = "inserted_at"),
+            updated_at(name = "modified_at")
+        )
+    ))
+    .expect("entity args should parse");
+
+    let node = Entity::from_list(&args).expect("custom timestamp names should lower");
+
+    let created = node
+        .fields
+        .get(&format_ident!("inserted_at"))
+        .expect("custom created-at field should be present");
+    assert_eq!(
+        created.write_management,
+        Some(FieldWriteManagement::CreatedAt)
+    );
+    let updated = node
+        .fields
+        .get(&format_ident!("modified_at"))
+        .expect("custom updated-at field should be present");
+    assert_eq!(
+        updated.write_management,
+        Some(FieldWriteManagement::UpdatedAt)
+    );
+    assert!(node.fields.get(&format_ident!("created_at")).is_none());
+    assert!(node.fields.get(&format_ident!("updated_at")).is_none());
+
+    let partial_args = NestedMeta::parse_meta_list(quote!(
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        fields(field(
+            name = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        )),
+        timestamps(updated_at(name = "modified_at"))
+    ))
+    .expect("entity args should parse");
+
+    let partial = Entity::from_list(&partial_args)
+        .expect("unspecified timestamp name should use its default");
+    assert!(partial.fields.get(&format_ident!("created_at")).is_some());
+    assert!(partial.fields.get(&format_ident!("modified_at")).is_some());
+}
+
+#[test]
+fn timestamps_rejects_assigned_and_empty_argument_forms() {
+    for marker in [
+        quote!(timestamps = true),
+        quote!(timestamps = false),
+        quote!(timestamps = "true"),
+        quote!(timestamps()),
+    ] {
+        let args = NestedMeta::parse_meta_list(quote!(
+            store = "UiDataStore",
+            version = 1,
+            pk(fields = ["id"]),
+            fields(field(
+                name = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            )),
+            #marker
+        ))
+        .expect("invalid timestamp marker form should remain syntactically parseable");
+
+        Entity::from_list(&args).expect_err("invalid timestamps form must reject");
+    }
+}
+
+#[test]
+fn timestamps_rejects_invalid_nested_name_configuration() {
+    for marker in [
+        quote!(timestamps(created_at(name = ""))),
+        quote!(timestamps(
+            created_at(name = "inserted_at"),
+            created_at(name = "again")
+        )),
+        quote!(timestamps(unknown(name = "inserted_at"))),
+        quote!(timestamps(
+            created_at(name = "same"),
+            updated_at(name = "same")
+        )),
+    ] {
+        let args = NestedMeta::parse_meta_list(quote!(
+            store = "UiDataStore",
+            version = 1,
+            pk(fields = ["id"]),
+            fields(field(
+                name = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            )),
+            #marker
+        ))
+        .expect("invalid timestamp configuration should remain syntactically parseable");
+
+        Entity::from_list(&args).expect_err("invalid timestamp names must reject");
+    }
+}
+
+#[test]
+fn timestamps_custom_names_use_ordinary_field_name_validation() {
+    let args = NestedMeta::parse_meta_list(quote!(
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        fields(field(
+            name = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        )),
+        timestamps(created_at(name = "InsertedAt"))
+    ))
+    .expect("entity args should parse");
+
+    let node =
+        Entity::from_list(&args).expect("timestamp name should lower into an ordinary field");
+    let inserted_at = node
+        .fields
+        .get(&format_ident!("InsertedAt"))
+        .expect("custom timestamp field should be present");
+    let error = inserted_at
+        .validate()
+        .expect_err("custom timestamp name must satisfy field naming rules");
+
+    assert!(
+        error.to_string().contains("must be snake_case"),
+        "unexpected diagnostic: {error}",
     );
 }
 
@@ -451,6 +599,34 @@ fn explicit_timestamps_reject_fixed_field_name_collisions() {
         error
             .to_string()
             .contains("managed timestamp field 'created_at' conflicts"),
+        "unexpected diagnostic: {error}",
+    );
+}
+
+#[test]
+fn explicit_timestamps_reject_custom_field_name_collisions() {
+    let args = NestedMeta::parse_meta_list(quote!(
+        store = "UiDataStore",
+        version = 1,
+        pk(fields = ["id"]),
+        fields(
+            field(
+                name = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
+            field(name = "inserted_at", value(item(prim = "Timestamp")))
+        ),
+        timestamps(created_at(name = "inserted_at"))
+    ))
+    .expect("entity args should parse");
+
+    let error = Entity::from_list(&args).expect_err("duplicate field name must reject");
+
+    assert!(
+        error
+            .to_string()
+            .contains("managed timestamp field 'inserted_at' conflicts"),
         "unexpected diagnostic: {error}",
     );
 }

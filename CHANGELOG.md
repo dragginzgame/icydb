@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.213.md](docs/changelog/0.213.md)
 
+- `0.213.41` finalizes current-name schema authoring with typed timestamps and
+  exact existing-head named-type matching, deleting the residual implicit
+  metadata-rename machinery.
+
 - `0.213.40` simplifies schema authoring to one visible current-name
   vocabulary and fixed opt-in timestamps, removing identity and generated-name
   overrides in a deliberate pre-1.0 hard cut.

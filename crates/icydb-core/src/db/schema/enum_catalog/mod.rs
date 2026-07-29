@@ -198,7 +198,7 @@ impl AcceptedValueCatalogHandle {
     }
 }
 
-type InitialEnumVariantDefinitions =
+pub(in crate::db::schema) type InitialEnumVariantDefinitions =
     BTreeMap<EnumVariantId, (String, Option<(AcceptedFieldKind, FieldStorageDecode)>)>;
 type InitialEnumDefinitions = BTreeMap<EnumTypeId, (String, InitialEnumVariantDefinitions)>;
 
@@ -272,80 +272,6 @@ impl AcceptedEnumCatalog {
             return Err(EnumCatalogBuildError::LookupMapInvariant);
         }
         Ok(catalog)
-    }
-
-    /// Re-declare editable enum metadata under existing accepted IDs while
-    /// preserving every exact unit/payload contract.
-    ///
-    /// Source bindings resolve the supplied type and variant IDs before this
-    /// boundary. This owner permits only path/name changes; variant identity,
-    /// cardinality, ordering policy, and unit contracts remain exact.
-    pub(in crate::db::schema) fn with_redeclared_metadata(
-        mut self,
-        type_id: EnumTypeId,
-        path: String,
-        variants: InitialEnumVariantDefinitions,
-    ) -> Result<Self, EnumCatalogBuildError> {
-        let accepted = self
-            .by_id
-            .get(&type_id)
-            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
-        if path.is_empty()
-            || variants.len() != accepted.variants_by_id.len()
-            || variants.iter().any(|(variant_id, (_, payload))| {
-                accepted
-                    .variants_by_id
-                    .get(variant_id)
-                    .is_none_or(|variant| !variant_payload_matches(&variant.body, payload.as_ref()))
-            })
-        {
-            return Err(EnumCatalogBuildError::LookupMapInvariant);
-        }
-        let old_path = accepted.path.clone();
-        let ordering = accepted.ordering;
-        let mut variants_by_id = BTreeMap::new();
-        let mut variant_id_by_name = BTreeMap::new();
-        for (variant_id, (name, payload)) in variants {
-            if name.is_empty()
-                || variant_id_by_name
-                    .insert(name.clone(), variant_id)
-                    .is_some()
-            {
-                return Err(EnumCatalogBuildError::LookupMapInvariant);
-            }
-            variants_by_id.insert(
-                variant_id,
-                AcceptedEnumVariant {
-                    name,
-                    body: payload.map_or(
-                        AcceptedEnumVariantBody::Unit,
-                        |(kind, storage_decode)| AcceptedEnumVariantBody::Payload {
-                            contract: AcceptedValueContract {
-                                kind,
-                                storage_decode,
-                            },
-                        },
-                    ),
-                },
-            );
-        }
-        self.id_by_path.remove(old_path.as_str());
-        if self.id_by_path.insert(path.clone(), type_id).is_some() {
-            return Err(EnumCatalogBuildError::ConflictingDefinition { path });
-        }
-        self.by_id.insert(
-            type_id,
-            AcceptedEnumType {
-                path,
-                variants_by_id,
-                variant_id_by_name,
-                ordering,
-            },
-        );
-        if !self.validate() {
-            return Err(EnumCatalogBuildError::LookupMapInvariant);
-        }
-        Ok(self)
     }
 
     /// Remove an exact set of accepted enum definitions.
@@ -543,6 +469,23 @@ impl AcceptedEnumType {
         self.variants_by_id.values()
     }
 
+    /// Return whether one source-bound declaration exactly matches this
+    /// accepted type without interpreting name changes as metadata edits.
+    pub(in crate::db::schema) fn matches_exact_definition(
+        &self,
+        path: &str,
+        variants: &InitialEnumVariantDefinitions,
+    ) -> bool {
+        self.path == path
+            && self.variants_by_id.len() == variants.len()
+            && variants.iter().all(|(variant_id, (name, payload))| {
+                self.variants_by_id.get(variant_id).is_some_and(|variant| {
+                    variant.name == *name
+                        && variant_payload_matches(&variant.body, payload.as_ref())
+                })
+            })
+    }
+
     fn lookup_maps_are_bijective(&self) -> bool {
         self.variants_by_id.len() == self.variant_id_by_name.len()
             && self.variant_id_by_name.iter().all(|(name, variant_id)| {
@@ -667,6 +610,7 @@ pub(in crate::db) enum EnumCatalogBuildError {
         path: String,
         name: String,
     },
+    #[cfg(test)]
     ConflictingDefinition {
         path: String,
     },

@@ -48,7 +48,10 @@ pub struct UnitKey {}
         value(item(prim = "Ulid")),
         generated(insert = "Ulid::generate")
     )),
-    timestamps
+    timestamps(
+        created_at(name = "inserted_at"),
+        updated_at(name = "modified_at")
+    )
 )]
 pub struct RenamedEntity {}
 

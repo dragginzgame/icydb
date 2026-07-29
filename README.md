@@ -145,10 +145,12 @@ indexes derive canonical names from their entity and key shape. The main branch
 also accepts strict scalar shorthand such as `pk(field = "id")` and
 `index(field = "name")`. Composite keys use ordered field lists such as
 `pk(fields = ["tenant_id", "local_id"])`.
-Managed timestamps are likewise explicit: place the bare `timestamps` marker
-after `fields(...)`, or omit it when an entity should have no database-managed
-timestamp fields. The marker creates fixed `created_at` and `updated_at`
-`Timestamp` fields.
+Managed timestamps are likewise explicit: place `timestamps` after
+`fields(...)`, or omit it when an entity should have no database-managed
+timestamp fields. The bare form creates conventional `created_at` and
+`updated_at` `Timestamp` fields. Either current name can be overridden with
+`timestamps(created_at(name = "inserted_at"), updated_at(name = "modified_at"))`;
+an omitted nested entry retains its conventional name.
 Entity and store names come directly from their Rust declarations; neither
 macro accepts a second name or generated-symbol override.
 

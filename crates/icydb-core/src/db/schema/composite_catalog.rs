@@ -119,92 +119,6 @@ impl AcceptedCompositeCatalog {
         Ok(catalog)
     }
 
-    /// Re-declare an editable composite path under one accepted ID.
-    ///
-    /// Record member names are part of canonical record values and are not
-    /// metadata-only. The full shape and structural codec therefore remain
-    /// exact while only the nominal type path changes.
-    pub(in crate::db::schema) fn with_redeclared_path(
-        mut self,
-        type_id: CompositeTypeId,
-        path: String,
-        enum_catalog: &AcceptedEnumCatalog,
-    ) -> Result<Self, CompositeCatalogBuildError> {
-        let accepted = self
-            .by_id
-            .get(&type_id)
-            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
-        if path.is_empty() {
-            return Err(CompositeCatalogBuildError::FieldKindResolution);
-        }
-        let old_path = accepted.path.clone();
-        let codec = accepted.codec;
-        let shape = accepted.shape.clone();
-        self.id_by_path.remove(old_path.as_str());
-        if self.id_by_path.insert(path.clone(), type_id).is_some() {
-            return Err(CompositeCatalogBuildError::ConflictingDefinition { path });
-        }
-        self.by_id
-            .insert(type_id, AcceptedCompositeType { path, codec, shape });
-        if !self.validate(enum_catalog) {
-            return Err(CompositeCatalogBuildError::FieldKindResolution);
-        }
-        Ok(self)
-    }
-
-    /// Re-declare one record's editable path and member names.
-    ///
-    /// Stable member IDs and their accepted contracts must remain exact. The
-    /// application boundary separately proves that no persisted row or
-    /// derived key can still contain the previous canonical member names.
-    pub(in crate::db::schema) fn with_redeclared_record_metadata(
-        mut self,
-        type_id: CompositeTypeId,
-        path: String,
-        fields: Vec<AcceptedCompositeField>,
-        enum_catalog: &AcceptedEnumCatalog,
-    ) -> Result<Self, CompositeCatalogBuildError> {
-        if path.is_empty() {
-            return Err(CompositeCatalogBuildError::FieldKindResolution);
-        }
-        let accepted = self
-            .by_id
-            .get(&type_id)
-            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
-        let AcceptedCompositeShape::Record(accepted_fields) = &accepted.shape else {
-            return Err(CompositeCatalogBuildError::ExistingTypeContractChanged { path });
-        };
-        if accepted_fields.len() != fields.len()
-            || accepted_fields.iter().any(|accepted_field| {
-                fields.iter().all(|candidate_field| {
-                    candidate_field.id != accepted_field.id
-                        || candidate_field.contract != accepted_field.contract
-                })
-            })
-        {
-            return Err(CompositeCatalogBuildError::ExistingTypeContractChanged { path });
-        }
-
-        let old_path = accepted.path.clone();
-        let codec = accepted.codec;
-        self.id_by_path.remove(old_path.as_str());
-        if self.id_by_path.insert(path.clone(), type_id).is_some() {
-            return Err(CompositeCatalogBuildError::ConflictingDefinition { path });
-        }
-        self.by_id.insert(
-            type_id,
-            AcceptedCompositeType {
-                path,
-                codec,
-                shape: AcceptedCompositeShape::Record(fields),
-            },
-        );
-        if !self.validate(enum_catalog) {
-            return Err(CompositeCatalogBuildError::FieldKindResolution);
-        }
-        Ok(self)
-    }
-
     /// Remove an exact set of accepted composite definitions.
     ///
     /// Validation rejects retained composite definitions that still refer to
@@ -467,11 +381,9 @@ impl AcceptedCompositeElement {
     }
 }
 
-/// Typed rejection while constructing or editing an accepted composite catalog.
+/// Typed rejection while constructing an accepted composite catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum CompositeCatalogBuildError {
-    ConflictingDefinition { path: String },
-    ExistingTypeContractChanged { path: String },
     FieldKindResolution,
 }
 
