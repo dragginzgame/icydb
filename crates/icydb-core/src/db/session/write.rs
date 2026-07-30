@@ -438,6 +438,7 @@ fn prepare_dynamic_mutation_result(
     catalog: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     rows: Vec<AcceptedStructuralMutationRow>,
+    enforce_mixed_batch_result_bound: bool,
 ) -> Result<DynamicMutationResult, InternalError> {
     let affected_rows = rows.iter().try_fold(0_u32, |total, row| {
         total
@@ -468,7 +469,9 @@ fn prepare_dynamic_mutation_result(
         affected_rows,
     };
     let encoded = candid::encode_one(&result).map_err(|_| InternalError::executor_invariant())?;
-    validate_structural_mutation_result_bytes(encoded.len())?;
+    if enforce_mixed_batch_result_bound {
+        validate_structural_mutation_result_bytes(encoded.len())?;
+    }
     Ok(result)
 }
 
@@ -1158,7 +1161,7 @@ impl<C: CanisterKind> DbSession<C> {
             descriptor,
             vec![AcceptedStructuralMutation::save(mode, target, patch)],
             Timestamp::now(),
-            |rows| prepare_dynamic_mutation_result(catalog, descriptor, rows),
+            |rows| prepare_dynamic_mutation_result(catalog, descriptor, rows, false),
         )?;
         record(MetricsEvent::SaveMutation {
             entity_path: entity_path.into(),
@@ -1182,7 +1185,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &DynamicMutation,
     ) -> Result<DynamicMutationResult, InternalError> {
-        self.execute_trusted_dynamic_mutation_batch(vec![request.clone()])
+        self.execute_trusted_dynamic_mutation_batch_with_result_policy(vec![request.clone()], false)
     }
 
     /// Execute one bounded same-entity structural mutation batch atomically.
@@ -1193,6 +1196,14 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_trusted_dynamic_mutation_batch(
         &self,
         requests: Vec<DynamicMutation>,
+    ) -> Result<DynamicMutationResult, InternalError> {
+        self.execute_trusted_dynamic_mutation_batch_with_result_policy(requests, true)
+    }
+
+    fn execute_trusted_dynamic_mutation_batch_with_result_policy(
+        &self,
+        requests: Vec<DynamicMutation>,
+        enforce_mixed_batch_result_bound: bool,
     ) -> Result<DynamicMutationResult, InternalError> {
         if requests.is_empty() {
             return Err(InternalError::mutation_batch_empty());
@@ -1248,7 +1259,12 @@ impl<C: CanisterKind> DbSession<C> {
                     .zip(save_kinds)
                     .filter_map(|(row, kind)| kind.map(|kind| (kind, row.logical_changed())))
                     .collect::<Vec<_>>();
-                let result = prepare_dynamic_mutation_result(&catalog, &descriptor, rows)?;
+                let result = prepare_dynamic_mutation_result(
+                    &catalog,
+                    &descriptor,
+                    rows,
+                    enforce_mixed_batch_result_bound,
+                )?;
                 Ok((result, metrics))
             },
         )?;
@@ -1316,7 +1332,7 @@ impl<C: CanisterKind> DbSession<C> {
                 patch,
             })
             .collect();
-        self.execute_trusted_dynamic_mutation_batch(mutations)
+        self.execute_trusted_dynamic_mutation_batch_with_result_policy(mutations, false)
     }
 }
 

@@ -879,7 +879,9 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: StructuralMutation,
     ) -> Result<DynamicMutationResult, Error> {
-        self.execute_trusted_structural_mutation_batch(vec![request])
+        Ok(self
+            .inner
+            .execute_trusted_dynamic_mutation(&request.into_core())?)
     }
 
     /// Execute one bounded same-entity structural mutation batch atomically.
@@ -914,14 +916,13 @@ impl<C: CanisterKind> DbSession<C> {
         entity: &str,
         patches: Vec<StructuralPatch>,
     ) -> Result<DynamicMutationResult, Error> {
-        let mutations = patches
+        let patches = patches
             .into_iter()
-            .map(|patch| StructuralMutation::Insert {
-                entity: entity.to_string(),
-                patch,
-            })
+            .map(StructuralPatch::into_core)
             .collect();
-        self.execute_trusted_structural_mutation_batch(mutations)
+        Ok(self
+            .inner
+            .execute_trusted_dynamic_insert_batch(entity, patches)?)
     }
 
     fn typed_output_row(

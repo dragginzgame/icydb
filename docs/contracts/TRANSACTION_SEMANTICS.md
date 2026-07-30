@@ -93,7 +93,10 @@ absent.
 Public value conversion and exact Candid response-size validation complete
 before the marker is opened. The current bounds are 4,096 operations, 16 MiB
 of cumulative encoded keys plus canonical before/after rows, 4 MiB per row,
-and 1 MiB for the encoded public result.
+and 1 MiB for the encoded public result of
+`execute_trusted_structural_mutation_batch`. Existing single-mutation and
+insert-only convenience calls retain their prior response behavior; SQL
+`RETURNING` owns an independent query response bound.
 
 If any step fails, execution returns an error and does not open a commit window.
 
