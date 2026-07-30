@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
 
+- `0.215.5` fixes same-batch relation release and completes final-overlay and
+  caller-key recovery proof for atomic mixed structural mutations.
+
 - `0.215.4` closes the line with exact atomic holding-conservation and SQL-free
   facade proof, documenting the synchronous application flow without adding
   compare-and-set or cross-entity transaction semantics.

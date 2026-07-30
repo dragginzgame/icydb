@@ -171,6 +171,14 @@ where
                             let source_raw_row = source_reader.read_primary_row(&source_data_key)?;
 
                             let Some(source_raw_row) = source_raw_row else {
+                                if source_reader
+                                    .has_primary_row_override(&source_data_key)?
+                                {
+                                    // The canonical final overlay explicitly removed this
+                                    // source, so its committed reverse-index witness cannot
+                                    // block a target deleted by the same batch.
+                                    return Ok(false);
+                                }
                                 let target = relation.target();
                                 return Err(InternalError::reverse_index_entry_corrupted(
                                     source_path,

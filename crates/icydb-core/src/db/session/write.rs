@@ -1732,6 +1732,526 @@ mod typed_adapter_tests {
 }
 
 #[cfg(test)]
+mod mixed_relation_batch_tests {
+    use super::{DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
+    use crate::{
+        db::{
+            data::DataStore,
+            index::IndexStore,
+            registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
+            schema::{
+                AcceptedConstraintCatalog, AcceptedFieldKind, AcceptedSchemaRevision, FieldId,
+                FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+                PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+                PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, ScalarCodec,
+                SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore,
+                SchemaVersion, accepted_schema_candidate_with_field_bindings_for_tests,
+            },
+        },
+        error::{ConstraintDiagnosticKind, ErrorClass},
+        traits::{CanisterKind, Path},
+        types::EntityTag,
+        value::{InputValue, OutputValue},
+    };
+    use icydb_schema::FieldSourceKey;
+    use std::{cell::RefCell, collections::BTreeMap};
+
+    const STORE_PATH: &str = "session::write::mixed_relation_batch_tests::Store";
+    const ENTITY_SOURCE: &str = "session::write::mixed_relation_batch_tests::Node";
+    const ID_SOURCE: &str = "session::write::mixed_relation_batch_tests::Node::id";
+    const PARENT_SOURCE: &str = "session::write::mixed_relation_batch_tests::Node::parent_id";
+    const CODE_SOURCE: &str = "session::write::mixed_relation_batch_tests::Node::code";
+    const ENTITY_NAME: &str = "MixedRelationNode";
+    const ENTITY_TAG: EntityTag = EntityTag::new(94);
+    const OTHER_ENTITY_SOURCE: &str = "session::write::mixed_relation_batch_tests::Other";
+    const OTHER_ID_SOURCE: &str = "session::write::mixed_relation_batch_tests::Other::id";
+    const OTHER_VALUE_SOURCE: &str = "session::write::mixed_relation_batch_tests::Other::value";
+    const OTHER_ENTITY_NAME: &str = "MixedRelationOther";
+    const OTHER_ENTITY_TAG: EntityTag = EntityTag::new(95);
+
+    struct TestCanister;
+
+    impl Path for TestCanister {
+        const PATH: &'static str = "session::write::mixed_relation_batch_tests::Canister";
+    }
+
+    impl CanisterKind for TestCanister {
+        const COMMIT_MEMORY_ID: u8 = 47;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.mixed_relation_batch_tests.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 48;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.mixed_relation_batch_tests.integrity.progress.v1";
+    }
+
+    thread_local! {
+        static DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+        static INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+        static SCHEMA_STORE: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
+        static STORE_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_store(
+                STORE_PATH,
+                &DATA_STORE,
+                &INDEX_STORE,
+                &SCHEMA_STORE,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("mixed relation test store should register");
+            registry
+        };
+    }
+
+    fn source_key(source: &str) -> FieldSourceKey {
+        FieldSourceKey::try_new(source).expect("mixed relation field source should admit")
+    }
+
+    fn relation_snapshot() -> PersistedSchemaSnapshot {
+        let fields = vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "parent_id".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Relation {
+                    target_path: ENTITY_SOURCE.to_string(),
+                    target_entity_name: ENTITY_NAME.to_string(),
+                    target_entity_tag: ENTITY_TAG,
+                    target_store_path: STORE_PATH.to_string(),
+                    key_kind: Box::new(AcceptedFieldKind::Nat64),
+                },
+                Vec::new(),
+                true,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(3),
+                "code".to_string(),
+                SchemaFieldSlot::new(2),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+        ];
+        let relation = PersistedRelationEdgeSnapshot::new(
+            RelationId::new(1).expect("mixed relation identity should be non-zero"),
+            "parent".to_string(),
+            ENTITY_SOURCE.to_string(),
+            vec![FieldId::new(2)],
+        );
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            ENTITY_SOURCE.to_string(),
+            ENTITY_NAME.to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+            vec![PersistedIndexSnapshot::new(
+                SchemaIndexId::new(1).expect("mixed unique index identity should be non-zero"),
+                1,
+                "by_code".to_string(),
+                STORE_PATH.to_string(),
+                true,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(3),
+                    SchemaFieldSlot::new(2),
+                    vec!["code".to_string()],
+                    AcceptedFieldKind::Nat64,
+                    false,
+                )]),
+                None,
+            )],
+        )
+        .with_relations(vec![relation]);
+        let constraints = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+        )
+        .expect("mixed relation constraints should close");
+        snapshot.with_constraint_catalog(constraints)
+    }
+
+    fn other_snapshot() -> PersistedSchemaSnapshot {
+        let fields = vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "value".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+        ];
+        PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            OTHER_ENTITY_SOURCE.to_string(),
+            OTHER_ENTITY_NAME.to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+        )
+    }
+
+    fn initialize() -> DbSession<TestCanister> {
+        DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+        session
+            .db
+            .ensure_recovered_state()
+            .expect("mixed relation database should initialize");
+        let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            STORE_PATH,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([
+                (ENTITY_TAG, relation_snapshot()),
+                (OTHER_ENTITY_TAG, other_snapshot()),
+            ]),
+            BTreeMap::from([
+                ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
+                ((ENTITY_TAG, source_key(PARENT_SOURCE)), FieldId::new(2)),
+                ((ENTITY_TAG, source_key(CODE_SOURCE)), FieldId::new(3)),
+                (
+                    (OTHER_ENTITY_TAG, source_key(OTHER_ID_SOURCE)),
+                    FieldId::new(1),
+                ),
+                (
+                    (OTHER_ENTITY_TAG, source_key(OTHER_VALUE_SOURCE)),
+                    FieldId::new(2),
+                ),
+            ]),
+        );
+        let store = session
+            .db
+            .store_handle(STORE_PATH)
+            .expect("mixed relation store should resolve");
+        crate::db::commit::publish_accepted_schema_candidate(
+            STORE_PATH,
+            store,
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .expect("mixed relation candidate should publish");
+        session
+    }
+
+    fn patch(id: Option<u64>, parent: Option<u64>, code: Option<u64>) -> DynamicStructuralPatch {
+        let mut fields = Vec::new();
+        if let Some(id) = id {
+            fields.push((
+                "id".to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(id)),
+            ));
+        }
+        fields.push((
+            "parent_id".to_string(),
+            parent.map_or(DynamicWriteCell::Null, |parent| {
+                DynamicWriteCell::Value(InputValue::Nat64(parent))
+            }),
+        ));
+        if let Some(code) = code {
+            fields.push((
+                "code".to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(code)),
+            ));
+        }
+        DynamicStructuralPatch::new(fields)
+    }
+
+    fn insert(id: u64, parent: Option<u64>) -> DynamicMutation {
+        insert_with_code(id, parent, id)
+    }
+
+    fn insert_with_code(id: u64, parent: Option<u64>, code: u64) -> DynamicMutation {
+        DynamicMutation::Insert {
+            entity: ENTITY_NAME.to_string(),
+            patch: patch(Some(id), parent, Some(code)),
+        }
+    }
+
+    fn update_parent(id: u64, parent: Option<u64>) -> DynamicMutation {
+        DynamicMutation::Update {
+            entity: ENTITY_NAME.to_string(),
+            key: InputValue::Nat64(id),
+            patch: patch(None, parent, None),
+        }
+    }
+
+    fn update_code(id: u64, code: u64) -> DynamicMutation {
+        DynamicMutation::Update {
+            entity: ENTITY_NAME.to_string(),
+            key: InputValue::Nat64(id),
+            patch: DynamicStructuralPatch::new(vec![(
+                "code".to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(code)),
+            )]),
+        }
+    }
+
+    fn delete(id: u64) -> DynamicMutation {
+        DynamicMutation::Delete {
+            entity: ENTITY_NAME.to_string(),
+            key: InputValue::Nat64(id),
+        }
+    }
+
+    fn expected_row(id: u64, parent: Option<u64>) -> Vec<OutputValue> {
+        expected_row_with_code(id, parent, id)
+    }
+
+    fn expected_row_with_code(id: u64, parent: Option<u64>, code: u64) -> Vec<OutputValue> {
+        vec![
+            OutputValue::Nat64(id),
+            parent.map_or(OutputValue::Null, OutputValue::Nat64),
+            OutputValue::Nat64(code),
+        ]
+    }
+
+    fn other_patch(id: Option<u64>, value: u64) -> DynamicStructuralPatch {
+        let mut fields = Vec::new();
+        if let Some(id) = id {
+            fields.push((
+                "id".to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(id)),
+            ));
+        }
+        fields.push((
+            "value".to_string(),
+            DynamicWriteCell::Value(InputValue::Nat64(value)),
+        ));
+        DynamicStructuralPatch::new(fields)
+    }
+
+    fn assert_relation_violation(error: &crate::error::InternalError) {
+        let diagnostic = error
+            .constraint_diagnostic()
+            .expect("relation violations should retain their accepted constraint");
+        assert_eq!(
+            diagnostic.constraint_kind(),
+            ConstraintDiagnosticKind::Relation,
+        );
+    }
+
+    #[test]
+    fn mixed_relation_validation_uses_the_complete_final_row_overlay() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![insert(1, None), insert(2, Some(1))])
+            .expect("the initial relation should commit");
+
+        let blocked = session
+            .execute_trusted_dynamic_mutation(&delete(1))
+            .expect_err("an unaffected committed source must block target deletion");
+        assert_relation_violation(&blocked);
+
+        let deleted = session
+            .execute_trusted_dynamic_mutation_batch(vec![delete(2), delete(1)])
+            .expect("a source and its target should delete atomically");
+        assert_eq!(
+            deleted.rows,
+            vec![expected_row(2, Some(1)), expected_row(1, None)],
+        );
+
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![insert(3, None), insert(4, Some(3))])
+            .expect("the update-away fixture should commit");
+        let updated_away = session
+            .execute_trusted_dynamic_mutation_batch(vec![update_parent(4, None), delete(3)])
+            .expect("an updated final source may release a deleted target");
+        assert_eq!(
+            updated_away.rows,
+            vec![expected_row(4, None), expected_row(3, None)],
+        );
+
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![insert(5, None), insert(6, Some(5))])
+            .expect("the retained-reference fixture should commit");
+        let retained = session
+            .execute_trusted_dynamic_mutation_batch(vec![update_parent(6, Some(5)), delete(5)])
+            .expect_err("a final updated source must still block target deletion");
+        assert_relation_violation(&retained);
+
+        session
+            .execute_trusted_dynamic_mutation(&insert(7, None))
+            .expect("the inserted-reference fixture target should commit");
+        let inserted_reference = session
+            .execute_trusted_dynamic_mutation_batch(vec![insert(8, Some(7)), delete(7)])
+            .expect_err("a final inserted source must not reference a deleted target");
+        assert_relation_violation(&inserted_reference);
+
+        let inserted_target = session
+            .execute_trusted_dynamic_mutation_batch(vec![insert(10, Some(9)), insert(9, None)])
+            .expect("an inserted relation should see its batch-final target");
+        assert_eq!(
+            inserted_target.rows,
+            vec![expected_row(10, Some(9)), expected_row(9, None)],
+        );
+
+        session
+            .execute_trusted_dynamic_mutation(&insert(11, None))
+            .expect("the updated-reference fixture source should commit");
+        let updated_target = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                update_parent(11, Some(12)),
+                insert(12, None),
+            ])
+            .expect("an updated relation should see its batch-final target");
+        assert_eq!(
+            updated_target.rows,
+            vec![expected_row(11, Some(12)), expected_row(12, None)],
+        );
+    }
+
+    #[test]
+    fn mixed_batch_rejects_cross_entity_missing_and_collision_then_honors_replace() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation(&insert(1, None))
+            .expect("the primary mixed fixture row should commit");
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: OTHER_ENTITY_NAME.to_string(),
+                patch: other_patch(Some(1), 10),
+            })
+            .expect("the secondary mixed fixture row should commit");
+
+        let mixed_entity = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                update_code(1, 11),
+                DynamicMutation::Update {
+                    entity: OTHER_ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: other_patch(None, 11),
+                },
+            ])
+            .expect_err("one atomic batch must not cross accepted entities");
+        assert_eq!(mixed_entity.class(), ErrorClass::Conflict);
+
+        let missing = session
+            .execute_trusted_dynamic_mutation_batch(vec![update_code(1, 12), delete(99)])
+            .expect_err("a late missing delete must reject the earlier staged update");
+        assert_eq!(missing.class(), ErrorClass::NotFound);
+
+        session
+            .execute_trusted_dynamic_mutation(&insert(2, None))
+            .expect("the collision fixture should commit");
+        let collision = session
+            .execute_trusted_dynamic_mutation_batch(vec![update_code(1, 13), insert(2, None)])
+            .expect_err("an insert collision must reject the earlier staged update");
+        assert_eq!(collision.class(), ErrorClass::Conflict);
+        let failures_unchanged = session
+            .execute_trusted_dynamic_mutation(&update_code(1, 1))
+            .expect("failed batches must preserve the original unique value");
+        assert_eq!(failures_unchanged.affected_rows, 0);
+
+        let replaced = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                update_code(1, 14),
+                DynamicMutation::Replace {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(99),
+                    patch: patch(None, None, Some(99)),
+                },
+            ])
+            .expect("ordinary caller-key replace should insert its absent final row");
+        assert_eq!(
+            replaced.rows,
+            vec![
+                expected_row_with_code(1, None, 14),
+                expected_row_with_code(99, None, 99),
+            ],
+        );
+
+        let unchanged = session
+            .execute_trusted_dynamic_mutation(&update_code(1, 14))
+            .expect("the successful mixed replace must publish its preceding update");
+        assert_eq!(unchanged.affected_rows, 0);
+        let other_unchanged = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                entity: OTHER_ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(1),
+                patch: other_patch(None, 10),
+            })
+            .expect("cross-entity rejection must preserve the secondary row");
+        assert_eq!(other_unchanged.affected_rows, 0);
+    }
+
+    #[test]
+    fn mixed_batch_unique_swap_and_delete_release_use_the_final_overlay() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                insert_with_code(1, None, 10),
+                insert_with_code(2, None, 20),
+            ])
+            .expect("the unique-overlay fixture should commit");
+
+        let swapped = session
+            .execute_trusted_dynamic_mutation_batch(vec![update_code(1, 20), update_code(2, 10)])
+            .expect("two final rows should atomically swap unique memberships");
+        assert_eq!(
+            swapped.rows,
+            vec![
+                expected_row_with_code(1, None, 20),
+                expected_row_with_code(2, None, 10),
+            ],
+        );
+
+        let released = session
+            .execute_trusted_dynamic_mutation_batch(vec![delete(1), insert_with_code(3, None, 20)])
+            .expect("a delete should release unique membership to a final inserted row");
+        assert_eq!(
+            released.rows,
+            vec![
+                expected_row_with_code(1, None, 20),
+                expected_row_with_code(3, None, 20),
+            ],
+        );
+    }
+}
+
+#[cfg(test)]
 mod identity_pre_key_tests {
     use super::{
         AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
@@ -2595,40 +3115,67 @@ mod identity_pre_key_tests {
             });
         }
 
-        interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::RowPrefixPublished);
-        let interrupted = session.execute_trusted_dynamic_mutation_batch(vec![
-            DynamicMutation::Update {
-                entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(1),
-                patch: dynamic_payload_patch(501),
-            },
-            DynamicMutation::Delete {
-                entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(2),
-            },
-        ]);
-        assert!(
-            interrupted.is_err(),
-            "a caller-key mixed batch should interrupt after its first physical row",
-        );
-        let recovered_update = session
-            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
-                entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(1),
-                patch: dynamic_payload_patch(501),
-            })
-            .expect("guarded reentry should complete the marker-authorized mixed batch");
-        assert_eq!(
-            recovered_update.affected_rows, 0,
-            "the recovered update must already expose its admitted final image",
-        );
-        let recovered_delete = session
-            .execute_trusted_dynamic_mutation(&DynamicMutation::Delete {
-                entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(2),
-            })
-            .expect_err("the recovered delete must already be materialized");
-        assert_eq!(recovered_delete.class(), ErrorClass::NotFound);
+        for (ordinal, (interruption, deleted_key)) in [
+            (MutationCommitInterruption::MarkerPersisted, 2),
+            (MutationCommitInterruption::JournalPublished, 4),
+            (MutationCommitInterruption::RowPrefixPublished, 6),
+            (MutationCommitInterruption::RowsPublished, 8),
+            (MutationCommitInterruption::StateMaterialized, 7),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let expected_payload =
+                501 + u64::try_from(ordinal).expect("small interruption ordinal should fit");
+            interrupt_next_mutation_commit_for_tests(interruption);
+            let interrupted = session.execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(expected_payload),
+                },
+                DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(deleted_key),
+                },
+            ]);
+            assert!(
+                interrupted.is_err(),
+                "the selected caller-key mixed publication boundary should interrupt",
+            );
+            let recovered_update = session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(expected_payload),
+                })
+                .expect("guarded reentry should complete the marker-authorized mixed batch");
+            assert_eq!(
+                recovered_update.affected_rows, 0,
+                "the recovered update must already expose its admitted final image",
+            );
+            let recovered_delete = session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(deleted_key),
+                })
+                .expect_err("the recovered delete must already be materialized");
+            assert_eq!(recovered_delete.class(), ErrorClass::NotFound);
+            JOURNALED_SCHEMA_STORE.with(|store| {
+                let cursor = store
+                    .borrow()
+                    .identity_statement_cursor(
+                        database_incarnation_id()
+                            .expect("database incarnation should remain readable"),
+                        ENTITY_TAG,
+                        FieldId::new(1),
+                        &AcceptedFieldKind::Nat64,
+                    )
+                    .expect("caller-key recovery must preserve active Identity state");
+                assert_eq!(cursor.expected_high_water(), 8);
+                assert!(!cursor.has_allocations());
+            });
+        }
 
         forget_recovered_domain_for_tests(&session.db)
             .expect("the final journal tail should remain recoverable");
@@ -2650,7 +3197,7 @@ mod identity_pre_key_tests {
         assert!(row_page.exhausted());
         assert!(row_page.findings().is_empty());
 
-        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 7);
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 3);
         assert!(
             JOURNALED_INDEX_STORE.with(|store| !store.borrow().is_empty()),
             "derived index rebuild should restore witnesses without allocating identities",
@@ -3136,10 +3683,16 @@ mod targeted_rule_mutation_tests {
         }
 
         session
-            .execute_trusted_dynamic_insert_batch(
-                "TargetedMutation",
-                vec![structural_patch(4, 5), structural_patch(5, 12)],
-            )
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Insert {
+                    entity: "TargetedMutation".to_string(),
+                    patch: structural_patch(4, 5),
+                },
+                DynamicMutation::Insert {
+                    entity: "TargetedMutation".to_string(),
+                    patch: structural_patch(5, 12),
+                },
+            ])
             .expect_err("one invalid targeted value must reject the whole batch");
         assert_eq!(
             DATA_STORE.with(|store| store.borrow().exact_entity_count(entity_tag)),
@@ -3148,18 +3701,35 @@ mod targeted_rule_mutation_tests {
         );
 
         let admitted = session
-            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
-                entity: "TargetedMutation".to_string(),
-                patch: structural_patch(6, 5),
-            })
-            .expect("compliant targeted value should commit after managed timestamp resolution");
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Insert {
+                    entity: "TargetedMutation".to_string(),
+                    patch: structural_patch(6, 5),
+                },
+                DynamicMutation::Insert {
+                    entity: "TargetedMutation".to_string(),
+                    patch: structural_patch(7, 8),
+                },
+            ])
+            .expect("compliant targeted values should share one accepted batch");
+        let [first, second] = admitted.rows.as_slice() else {
+            panic!("the mixed targeted batch should return two rows");
+        };
+        let first_timestamp = first
+            .get(2)
+            .expect("the first mixed row should contain its managed timestamp");
         assert!(matches!(
-            admitted.rows.first().and_then(|row| row.get(2)),
-            Some(crate::value::OutputValue::Timestamp(_))
+            first_timestamp,
+            crate::value::OutputValue::Timestamp(_)
         ));
         assert_eq!(
+            second.get(2),
+            Some(first_timestamp),
+            "one accepted mixed batch must materialize one managed timestamp",
+        );
+        assert_eq!(
             DATA_STORE.with(|store| store.borrow().exact_entity_count(entity_tag)),
-            Some(1),
+            Some(2),
         );
     }
 }
