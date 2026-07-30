@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Raised the generated-canister memory runtime floor to `ic-memory 0.12.1`,
-  binding repeated bootstrap to the same sealed declarations and policy
-  identity while preserving deferred registration failures deterministically.
+- Raised the generated-canister memory runtime floor to `ic-memory 0.12.3`,
+  preserving the unified thread-local runtime and stable ledger format while
+  adding fallible foreign-memory preflight plus bounded, fallible bootstrap
+  policy identities and policy-aware diagnostics.
 
 ## [0.215.x] 🧪 - 2026-07-29 - SQL Structural Verification
 

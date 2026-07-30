@@ -468,8 +468,9 @@ fn prepare_dynamic_mutation_result(
         rows,
         affected_rows,
     };
-    let encoded = candid::encode_one(&result).map_err(|_| InternalError::executor_invariant())?;
     if enforce_mixed_batch_result_bound {
+        let encoded =
+            candid::encode_one(&result).map_err(|_| InternalError::executor_invariant())?;
         validate_structural_mutation_result_bytes(encoded.len())?;
     }
     Ok(result)
