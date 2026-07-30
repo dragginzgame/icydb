@@ -1771,7 +1771,7 @@ mod identity_pre_key_tests {
         testing::test_memory,
         traits::{CanisterKind, Path},
         types::{EntityTag, Timestamp},
-        value::{InputValue, Value},
+        value::{InputValue, OutputValue, Value},
     };
     use icydb_schema::{FieldSourceKey, ScalarType};
     use std::{cell::RefCell, collections::BTreeMap, time::Instant};
@@ -1993,6 +1993,25 @@ mod identity_pre_key_tests {
         )])
     }
 
+    fn expected_dynamic_row(id: u64, payload: u64) -> Vec<OutputValue> {
+        vec![OutputValue::Nat64(id), OutputValue::Nat64(payload)]
+    }
+
+    fn assert_dynamic_payload(session: &DbSession<TestCanister>, key: u64, expected_payload: u64) {
+        let unchanged = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(key),
+                patch: dynamic_payload_patch(expected_payload),
+            })
+            .expect("the expected row should remain readable through a no-op update");
+        assert_eq!(unchanged.affected_rows, 0);
+        assert_eq!(
+            unchanged.rows,
+            vec![expected_dynamic_row(key, expected_payload)],
+        );
+    }
+
     fn batch(values: &[u64]) -> Vec<AcceptedStructuralMutation> {
         values
             .iter()
@@ -2034,19 +2053,16 @@ mod identity_pre_key_tests {
     #[test]
     #[expect(
         clippy::too_many_lines,
-        reason = "one ordered conservation scenario proves mixed success, distinct patches, late failure neutrality, result order, and Identity state"
+        reason = "one holding lifecycle proves split, merge, transfer, late-failure neutrality, result order, and Identity state"
     )]
-    fn mixed_structural_batch_preserves_order_atomicity_and_identity_insert_ordinals() {
+    fn mixed_structural_batch_preserves_holding_conservation_and_failure_atomicity() {
         let session = initialize();
         let seeded = session
-            .execute_trusted_dynamic_insert_batch(
-                ENTITY_NAME,
-                vec![dynamic_payload_patch(100), dynamic_payload_patch(40)],
-            )
+            .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(100)])
             .expect("seed rows should commit");
-        assert_eq!(seeded.affected_rows, 2);
+        assert_eq!(seeded.affected_rows, 1);
 
-        let mixed = session
+        let split = session
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
@@ -2055,76 +2071,137 @@ mod identity_pre_key_tests {
                 },
                 DynamicMutation::Insert {
                     entity: ENTITY_NAME.to_string(),
-                    patch: dynamic_payload_patch(20),
-                },
-                DynamicMutation::Delete {
-                    entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(2),
-                },
-                DynamicMutation::Insert {
-                    entity: ENTITY_NAME.to_string(),
-                    patch: dynamic_payload_patch(20),
+                    patch: dynamic_payload_patch(40),
                 },
             ])
-            .expect("mixed split/merge batch should commit atomically");
-        assert_eq!(mixed.affected_rows, 4);
+            .expect("one holding should split atomically");
+        assert_eq!(split.affected_rows, 2);
         assert_eq!(
-            mixed.rows,
-            vec![
-                vec![
-                    crate::value::OutputValue::Nat64(1),
-                    crate::value::OutputValue::Nat64(60),
-                ],
-                vec![
-                    crate::value::OutputValue::Nat64(3),
-                    crate::value::OutputValue::Nat64(20),
-                ],
-                vec![
-                    crate::value::OutputValue::Nat64(2),
-                    crate::value::OutputValue::Nat64(40),
-                ],
-                vec![
-                    crate::value::OutputValue::Nat64(4),
-                    crate::value::OutputValue::Nat64(20),
-                ],
-            ],
-            "save after-images and delete before-images must retain input order",
+            split.rows,
+            vec![expected_dynamic_row(1, 60), expected_dynamic_row(2, 40),],
+            "split after-images must retain input order and exact quantity",
         );
 
-        let distinct_updates = session
+        let rejected_split = session
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
                     key: InputValue::Nat64(1),
                     patch: dynamic_payload_patch(50),
                 },
+                DynamicMutation::Insert {
+                    entity: ENTITY_NAME.to_string(),
+                    patch: DynamicStructuralPatch::new(Vec::new()),
+                },
+            ])
+            .expect_err("an invalid split output must reject the staged source update");
+        assert_eq!(rejected_split.class(), ErrorClass::Unsupported);
+        assert_eq!(rejected_split.origin(), ErrorOrigin::Executor);
+        assert_dynamic_payload(&session, 1, 60);
+        assert_dynamic_payload(&session, 2, 40);
+
+        let transfer = session
+            .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(3),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(70),
+                },
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(2),
                     patch: dynamic_payload_patch(30),
                 },
             ])
-            .expect("distinct update patches should share one atomic batch");
+            .expect("distinct transfer patches should share one atomic batch");
         assert_eq!(
-            distinct_updates.rows,
-            vec![
-                vec![
-                    crate::value::OutputValue::Nat64(1),
-                    crate::value::OutputValue::Nat64(50),
-                ],
-                vec![
-                    crate::value::OutputValue::Nat64(3),
-                    crate::value::OutputValue::Nat64(30),
-                ],
-            ],
+            transfer.rows,
+            vec![expected_dynamic_row(1, 70), expected_dynamic_row(2, 30),],
+            "the transfer must preserve the exact total quantity",
         );
+
+        let merge = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(2),
+                },
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(100),
+                },
+            ])
+            .expect("two holdings should merge atomically");
+        assert_eq!(
+            merge.rows,
+            vec![expected_dynamic_row(2, 30), expected_dynamic_row(1, 100),],
+            "delete before-images and update after-images must retain input order",
+        );
+
+        let resplit = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(60),
+                },
+                DynamicMutation::Insert {
+                    entity: ENTITY_NAME.to_string(),
+                    patch: dynamic_payload_patch(40),
+                },
+            ])
+            .expect("the merged holding should split again");
+        assert_eq!(
+            resplit.rows,
+            vec![expected_dynamic_row(1, 60), expected_dynamic_row(3, 40),],
+        );
+
+        let rejected_merge = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(3),
+                },
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(99),
+                    patch: dynamic_payload_patch(100),
+                },
+            ])
+            .expect_err("a late missing merge target must preserve the earlier staged delete");
+        assert_eq!(rejected_merge.class(), ErrorClass::NotFound);
+        assert_dynamic_payload(&session, 1, 60);
+        assert_dynamic_payload(&session, 3, 40);
+
+        SCHEMA_STORE.with(|store| {
+            let cursor = store
+                .borrow()
+                .identity_statement_cursor(
+                    database_incarnation_id().expect("database incarnation should remain readable"),
+                    ENTITY_TAG,
+                    FieldId::new(1),
+                    &AcceptedFieldKind::Nat64,
+                )
+                .expect("mixed Identity state should remain readable");
+            assert_eq!(cursor.expected_high_water(), 3);
+            assert!(!cursor.has_allocations());
+        });
+    }
+
+    #[test]
+    fn mixed_structural_batch_rejects_duplicate_holding_targets_without_mutation() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(100)])
+            .expect("the holding fixture should initialize");
 
         let duplicate = session
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
                     key: InputValue::Nat64(1),
-                    patch: dynamic_payload_patch(999),
+                    patch: dynamic_payload_patch(60),
                 },
                 DynamicMutation::Delete {
                     entity: ENTITY_NAME.to_string(),
@@ -2138,42 +2215,7 @@ mod identity_pre_key_tests {
                 boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey,
             }),
         ));
-        let late_missing_target = session
-            .execute_trusted_dynamic_mutation_batch(vec![
-                DynamicMutation::Update {
-                    entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
-                    patch: dynamic_payload_patch(777),
-                },
-                DynamicMutation::Delete {
-                    entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(99),
-                },
-            ])
-            .expect_err("a late missing target must reject every earlier staged row");
-        assert_eq!(late_missing_target.class(), ErrorClass::NotFound);
-        let unchanged = session
-            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
-                entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(1),
-                patch: dynamic_payload_patch(50),
-            })
-            .expect("the rejected first update must not have published");
-        assert_eq!(unchanged.affected_rows, 0);
-
-        SCHEMA_STORE.with(|store| {
-            let cursor = store
-                .borrow()
-                .identity_statement_cursor(
-                    database_incarnation_id().expect("database incarnation should remain readable"),
-                    ENTITY_TAG,
-                    FieldId::new(1),
-                    &AcceptedFieldKind::Nat64,
-                )
-                .expect("mixed Identity state should remain readable");
-            assert_eq!(cursor.expected_high_water(), 4);
-            assert!(!cursor.has_allocations());
-        });
+        assert_dynamic_payload(&session, 1, 100);
     }
 
     #[test]

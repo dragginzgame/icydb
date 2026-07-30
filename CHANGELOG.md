@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
 
+- `0.215.4` closes the line with exact atomic holding-conservation and SQL-free
+  facade proof, documenting the synchronous application flow without adding
+  compare-and-set or cross-entity transaction semantics.
+
 - `0.215.3` completes source-bound typed adapters for every named value shape,
   including nested and recursive values, without synthesizing collision-prone
   Rust type names.

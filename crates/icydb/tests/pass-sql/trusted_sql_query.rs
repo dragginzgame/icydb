@@ -1,7 +1,6 @@
 use icydb::{
-    db::{DbSession, StructuralMutation, StructuralPatch, WriteCell},
+    db::DbSession,
     traits::CanisterKind,
-    value::InputValue,
 };
 
 fn trusted_sql_query_compiles<C>(db: &DbSession<C>, sql: &str)
@@ -16,33 +15,6 @@ where
     C: CanisterKind,
 {
     let _ = db.execute_trusted_sql_mutation(sql);
-}
-
-fn trusted_structural_mutation_compiles<C>(db: &DbSession<C>)
-where
-    C: CanisterKind,
-{
-    let patch = StructuralPatch::new()
-        .field("name", WriteCell::Value(InputValue::Text("Ada".to_string())))
-        .field("nickname", WriteCell::Null)
-        .field("status", WriteCell::Default)
-        .field("unchanged", WriteCell::Omitted);
-    let _ = db.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "app::User".to_string(),
-        patch,
-    });
-    let _ = db.execute_trusted_structural_mutation_batch(vec![
-        StructuralMutation::Update {
-            entity: "app::User".to_string(),
-            key: InputValue::Nat64(1),
-            patch: StructuralPatch::new()
-                .field("status", WriteCell::Value(InputValue::Text("active".to_string()))),
-        },
-        StructuralMutation::Delete {
-            entity: "app::User".to_string(),
-            key: InputValue::Nat64(2),
-        },
-    ]);
 }
 
 fn trusted_sql_update_contracts_compile<C>(db: &DbSession<C>, sql: &str)

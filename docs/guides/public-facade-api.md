@@ -80,6 +80,45 @@ structural mutation authority.
 same-entity insert-batch surface. It either commits every patch or publishes
 none.
 
+For conservation-sensitive same-entity changes, submit the complete
+insert/update/replace/delete set through
+`execute_trusted_structural_mutation_batch`:
+
+```rust
+let source = StructuralPatch::new().field(
+    "quantity",
+    WriteCell::Value(InputValue::Nat64(60)),
+);
+let output = StructuralPatch::new().field(
+    "quantity",
+    WriteCell::Value(InputValue::Nat64(40)),
+);
+
+let result = db()?.execute_trusted_structural_mutation_batch(vec![
+    StructuralMutation::Update {
+        entity: "TokenHolding".to_string(),
+        key: InputValue::Ulid(source_id),
+        patch: source,
+    },
+    StructuralMutation::Insert {
+        entity: "TokenHolding".to_string(),
+        patch: output,
+    },
+])?;
+```
+
+The batch uses one accepted snapshot and operation timestamp, validates one
+complete final-row overlay, and either publishes every mutation or none.
+Split, merge, and transfer logic must not replace this call with sequential
+writes or compensation.
+
+In a canister application, authorize first and perform the final
+read/calculate/batch sequence synchronously, without an `await` or another
+logical interleaving point. If asynchronous work is required, complete it
+first, then re-read the holdings and recompute the batch. Atomic publication
+does not make a calculation from an earlier, stale read current, and IcyDB
+does not infer a hidden retry or cross-entity transaction.
+
 ## SQL Surfaces
 
 SQL entry points are explicit trusted/admin lanes:

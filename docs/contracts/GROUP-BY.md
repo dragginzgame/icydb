@@ -164,7 +164,7 @@ normal scalar/entity response surface.
 Current public surfaces include grouped pagination payloads such as
 `PagedGroupedResponse` on the facade and grouped execution payloads in core.
 
-- scalar/entity `Response<E>` surfaces MUST NOT encode grouped results
+- scalar/entity row-result surfaces MUST NOT encode grouped results
 - clients MUST branch explicitly on grouped vs scalar execution APIs
 - no implicit shape-switching is permitted
 

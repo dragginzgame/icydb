@@ -1,9 +1,13 @@
 use icydb::{
-    db::{StructuralMutation, StructuralPatch, WriteCell},
+    db::{DbSession, StructuralMutation, StructuralPatch, WriteCell},
+    traits::CanisterKind,
     value::InputValue,
 };
 
-fn main() {
+fn structural_mutation_batch_compiles_without_sql<C>(db: &DbSession<C>)
+where
+    C: CanisterKind,
+{
     let patch = StructuralPatch::new()
         .field("name", WriteCell::Value(InputValue::Text("Ada".to_string())))
         .field("score", WriteCell::Default)
@@ -22,5 +26,7 @@ fn main() {
         },
     ];
 
-    let _ = batch;
+    let _ = db.execute_trusted_structural_mutation_batch(batch);
 }
+
+fn main() {}

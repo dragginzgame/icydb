@@ -54,6 +54,23 @@ IcyDB exposes one canonical maintained batch-write lane:
 over that canonical lane. Single structural mutations use the same owner. No
 alternate generated-entity batch lane is maintained.
 
+### Application read/compute/write boundary
+
+The atomic batch closes partial-publication failure windows; it does not make a
+calculation from an earlier application read current. A canister application
+that derives a conservation-sensitive split, merge, or transfer must:
+
+1. authorize the caller;
+2. perform any asynchronous work;
+3. read the current accepted rows;
+4. calculate the complete same-entity mutation set; and
+5. submit that set synchronously, without an `await` or logical interleaving
+   point between the final read and batch admission.
+
+After any `await`, the application must re-read and recompute before submitting
+the batch. This is the maintained non-interleaved flow; IcyDB does not add a
+hidden compare-and-set, retry, or cross-entity transaction around it.
+
 ### SQL exact and prefix update
 
 Trusted exact SQL `UPDATE` first proves selector exhaustion within the caller's
