@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Generated canisters now scope native bootstrap, schema-application,
-  database-format, recovery, and marker-hint readiness to the same
-  thread-local stable-memory runtime, so ordinary multi-test libtest binaries
-  no longer inherit another test thread's initialized state.
-
 ## [0.215.x] 🧪 - 2026-07-29 - SQL Structural Verification
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
+
+- `0.215.1` fixes generated-canister native runtime isolation and freezes the
+  reproducible SQL performance baseline, closing the provisional
+  compound-range rewrite as unnecessary.
 
 - `0.215.0` replaces fixed generated SQL families with catalog-bound typed
   witnesses and adds exact structural work attribution without changing

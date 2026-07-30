@@ -205,6 +205,10 @@ fn stable_store_cell_tokens(
                         ty = #store_ty,
                         id = #memory_id,
                     )
+                    .expect(concat!(
+                        "ic-memory committed allocation unavailable: ",
+                        #stable_key
+                    ))
                 )
             );
         }
@@ -230,6 +234,10 @@ fn journaled_store_cell_tokens(
                         ty = #store_ty,
                         id = #memory_id,
                     )
+                    .expect(concat!(
+                        "ic-memory committed allocation unavailable: ",
+                        #stable_key
+                    ))
                 )
             );
         }
@@ -635,6 +643,12 @@ mod tests {
         .to_string();
 
         assert_eq!(rendered.matches("ic_memory_key").count(), 4);
+        assert_eq!(
+            rendered
+                .matches("ic-memory committed allocation unavailable:")
+                .count(),
+            4
+        );
         assert_eq!(rendered.matches("authority = \"icydb.demo\"").count(), 4);
         assert_eq!(
             rendered.matches("StoreAllocationIdentity :: new").count(),

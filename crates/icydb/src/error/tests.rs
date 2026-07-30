@@ -9,7 +9,7 @@ use candid::{
     Decode, Encode,
     types::{CandidType, Label, Type, TypeInner},
 };
-use ic_memory::RuntimeBootstrapError;
+use ic_memory::{RuntimeBootstrapError, RuntimeStateError};
 #[cfg(feature = "sql")]
 use icydb_core::db::{PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
@@ -517,12 +517,12 @@ fn public_error_candid_preserves_targeted_rule_identity_and_value_path() {
 
 #[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
-    let bootstrap = crate::db::DatabaseBootstrapError::from(
-        RuntimeBootstrapError::<std::convert::Infallible>::RuntimeLockPoisoned,
-    );
+    let cause: RuntimeBootstrapError<std::convert::Infallible> =
+        RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess);
+    let bootstrap = crate::db::DatabaseBootstrapError::from(cause);
     assert!(matches!(
         bootstrap.cause(),
-        RuntimeBootstrapError::RuntimeLockPoisoned
+        RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess)
     ));
 
     let facade = Error::from(bootstrap);

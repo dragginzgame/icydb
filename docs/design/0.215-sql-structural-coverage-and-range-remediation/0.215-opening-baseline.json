@@ -1,0 +1,433 @@
+{
+  "artifact_version": 1,
+  "approval": {
+    "approved_at": "2026-07-30T13:32:12+02:00",
+    "source_revision": "f7691b3c9fd0d7f75ae7c4235fc5028f9d6e871d",
+    "approval_commit": "the first commit containing this artifact"
+  },
+  "cohort": {
+    "identity": "initial-215-v2",
+    "performance_profile_version": 2,
+    "performance_profile_identity": "icydb-sql-performance/0.215/v2",
+    "p1_scenario_set_hash": "a6823a84aa768257b2dc27d166e79c20260c5629eb33c70f590d308c64a1f80b",
+    "p2_scenario_set_hash": "b2a8aca55626896264acc062247bdfd369e730c41f331718807cd6c1d5752de8",
+    "scale_scenario_set_hash": "afa7c342801019da5b1f36674fd7cc4997332822b39f15eac5bf4633381b9ca0",
+    "accepted_snapshot_hash": "21240ff2670586a65f499644eb21fe1c81ccb7ddbab26772c1785c2b66a9949e",
+    "fixture_profile_hash": "66ae745f871de9b7a8335e728f22182a36154b8fe4630d360ded8730105b20d5",
+    "diagnostics_attribution_schema_version": 2,
+    "diagnostics_attribution_schema_identity": "icydb-sql-attribution/0.215/v2",
+    "phase_ownership_version": 1
+  },
+  "environment": {
+    "rust_toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "wasm_target": "wasm32-unknown-unknown",
+    "cargo_profile": "wasm-release",
+    "build_target": "local",
+    "feature_set": [
+      "diagnostics",
+      "sql",
+      "sql-explain"
+    ],
+    "pocket_ic_version": "pocket-ic-server 14.0.0",
+    "pocket_ic_sha256": "f5009e61bcbff297435a67a8ef9fc02178ebb9ab3ee1ec3ac81f4fc3d49319c4",
+    "cache_mode_policy": "isolated_cold_and_typed_warm_v1",
+    "instruction_counter_policy": "ic_performance_counter1_local_delta_v1"
+  },
+  "subject": {
+    "source_revision": "f7691b3c9fd0d7f75ae7c4235fc5028f9d6e871d",
+    "source_dirty": false,
+    "lockfile_sha256": "1b5db4b922f960d2526f47971f50093e52af76e2f95cfec236b4c699e8c661f6",
+    "raw_wasm_bytes": 5282066,
+    "raw_wasm_sha256": "992d28e20a6ceb6c6f8d0cad368b87ebf07dbc4d639e04695464a137c0e4e8cf",
+    "opening_raw_wasm_bytes": 5272813,
+    "raw_wasm_delta_bytes": 9253,
+    "raw_wasm_delta_percent": 0.175
+  },
+  "review": {
+    "artifact_sha256": "1599178191c5c291c23bb76afd5d3f62687870f6ef6b8e383b23738e5c4e37f0",
+    "artifact_bytes": 35280977,
+    "p2_envelope_count": 63525,
+    "scale_total_envelope_count": 72,
+    "scale_normalized_envelope_count": 273,
+    "scale_slope_envelope_count": 48,
+    "recurring_hotspot_count": 353,
+    "already_retained_hotspot_count": 304,
+    "promotion_review_count": 49
+  },
+  "runs": [
+    {
+      "ordinal": "one",
+      "p1_matrix_sha256": "65d386ccafcab0dbfec9c1c85924fd5bdc95cbf015ee3a19e7feb772e22bd574",
+      "p2_report_sha256": "067d7950537467127df02e6b5933d8d1615f6d6a3a0f6fa29a0dcaea3084272b",
+      "scale_report_sha256": "99f937e77e067276d29f6d7b1ce6b54019cd07bdb931ca4b7de470f446f67317",
+      "instrumentation_report_sha256": "e000e93393b6aa30b9aed3374eee1a523c76945eccd0965e778ba1e2e135bac5",
+      "selected_measurements_sha256": "6529140f3ff2206234c1fd0a7b306d8161d2159572f7d5a7ecf4aeefc40f8ec9",
+      "p1_declared_scenarios": 1787,
+      "p1_successful_scenarios": 1787,
+      "p1_failed_scenarios": 0,
+      "p2_confirmations": 439,
+      "scale_observations": 72,
+      "scale_normalized_costs": 273,
+      "scale_adjacent_slopes": 48,
+      "instrumentation": {
+        "attributed_median_instructions": 738467,
+        "total_only_median_instructions": 719096,
+        "overhead_instructions": 19371,
+        "overhead_basis_points": 269
+      }
+    },
+    {
+      "ordinal": "two",
+      "p1_matrix_sha256": "65d386ccafcab0dbfec9c1c85924fd5bdc95cbf015ee3a19e7feb772e22bd574",
+      "p2_report_sha256": "4fbc8a4ea35510561aa8ce066af3f136199ef6755c30cf7b7b4752514266a036",
+      "scale_report_sha256": "99f937e77e067276d29f6d7b1ce6b54019cd07bdb931ca4b7de470f446f67317",
+      "instrumentation_report_sha256": "e000e93393b6aa30b9aed3374eee1a523c76945eccd0965e778ba1e2e135bac5",
+      "selected_measurements_sha256": "6529140f3ff2206234c1fd0a7b306d8161d2159572f7d5a7ecf4aeefc40f8ec9",
+      "p1_declared_scenarios": 1787,
+      "p1_successful_scenarios": 1787,
+      "p1_failed_scenarios": 0,
+      "p2_confirmations": 439,
+      "scale_observations": 72,
+      "scale_normalized_costs": 273,
+      "scale_adjacent_slopes": 48,
+      "instrumentation": {
+        "attributed_median_instructions": 738467,
+        "total_only_median_instructions": 719096,
+        "overhead_instructions": 19371,
+        "overhead_basis_points": 269
+      }
+    },
+    {
+      "ordinal": "three",
+      "p1_matrix_sha256": "65d386ccafcab0dbfec9c1c85924fd5bdc95cbf015ee3a19e7feb772e22bd574",
+      "p2_report_sha256": "4a40d532ad0a52de2e3bdc754a30a19d02314845c25733decdb7af5636ffde3c",
+      "scale_report_sha256": "99f937e77e067276d29f6d7b1ce6b54019cd07bdb931ca4b7de470f446f67317",
+      "instrumentation_report_sha256": "e000e93393b6aa30b9aed3374eee1a523c76945eccd0965e778ba1e2e135bac5",
+      "selected_measurements_sha256": "6529140f3ff2206234c1fd0a7b306d8161d2159572f7d5a7ecf4aeefc40f8ec9",
+      "p1_declared_scenarios": 1787,
+      "p1_successful_scenarios": 1787,
+      "p1_failed_scenarios": 0,
+      "p2_confirmations": 439,
+      "scale_observations": 72,
+      "scale_normalized_costs": 273,
+      "scale_adjacent_slopes": 48,
+      "instrumentation": {
+        "attributed_median_instructions": 738467,
+        "total_only_median_instructions": 719096,
+        "overhead_instructions": 19371,
+        "overhead_basis_points": 269
+      }
+    }
+  ],
+  "selected_measurements": [
+    {
+      "scenario_id": "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
+      "observed_identically_in_runs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "cold": {
+        "total_local_instructions": 2446792,
+        "compile_local_instructions": 666998,
+        "planner_local_instructions": 601976,
+        "index_store_range_scan_calls": 1,
+        "index_store_entry_reads": 50,
+        "range_conjunctions_examined": 1,
+        "range_lower_bounds_extracted": 1,
+        "range_upper_bounds_extracted": 1,
+        "range_physical_children_emitted": 1,
+        "residual_predicate_evaluations": 0
+      },
+      "warm": {
+        "total_local_instructions": 1247077,
+        "compile_local_instructions": 75331,
+        "planner_local_instructions": 2822,
+        "index_store_range_scan_calls": 1,
+        "index_store_entry_reads": 50,
+        "residual_predicate_evaluations": 0
+      }
+    },
+    {
+      "scenario_id": "token.collection_id.sparse_in.page_only.limit50",
+      "observed_identically_in_runs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "cold": {
+        "total_local_instructions": 15569155,
+        "compile_local_instructions": 2207605,
+        "planner_local_instructions": 7349979,
+        "index_store_range_scan_calls": 12,
+        "index_store_entry_reads": 74,
+        "membership_authored_members": 251,
+        "membership_normalized_members": 251,
+        "membership_distinct_members": 251,
+        "membership_null_members": 0,
+        "membership_canonicalization_passes": 2,
+        "membership_members_revisited": 502
+      },
+      "warm": {
+        "total_local_instructions": 6328658,
+        "compile_local_instructions": 319747,
+        "planner_local_instructions": 2791,
+        "index_store_range_scan_calls": 12,
+        "index_store_entry_reads": 74,
+        "residual_predicate_evaluations": 0
+      }
+    },
+    {
+      "scenario_id": "token.collection_id.sparse_in.count",
+      "observed_identically_in_runs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "cold": {
+        "total_local_instructions": 4002799,
+        "compile_local_instructions": 2369367,
+        "planner_local_instructions": 1237337,
+        "membership_authored_members": 251,
+        "membership_normalized_members": 0,
+        "membership_distinct_members": 0,
+        "membership_null_members": 0,
+        "membership_canonicalization_passes": 1,
+        "membership_members_revisited": 251
+      },
+      "warm": {
+        "total_local_instructions": 714690,
+        "compile_local_instructions": 318270,
+        "planner_local_instructions": 725
+      }
+    },
+    {
+      "scenario_id": "token.collection_stage_id.overcap_pruned.page_only.limit50",
+      "observed_identically_in_runs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "cold": {
+        "total_local_instructions": 6294093,
+        "compile_local_instructions": 1362137,
+        "planner_local_instructions": 2040830,
+        "index_store_range_scan_calls": 4,
+        "index_store_entry_reads": 52,
+        "membership_authored_members": 25,
+        "membership_normalized_members": 25,
+        "membership_distinct_members": 25,
+        "membership_null_members": 0,
+        "membership_canonicalization_passes": 5,
+        "membership_members_revisited": 67,
+        "prefix_branches_before_deduplication": 17,
+        "prefix_branches_after_deduplication": 17,
+        "prefix_exclusions_tested": 108,
+        "prefix_exclusions_pruned": 8,
+        "prefix_branch_cap_admissions": 1,
+        "prefix_branch_cap_rejections": 0
+      },
+      "warm": {
+        "total_local_instructions": 2980803,
+        "compile_local_instructions": 86064,
+        "planner_local_instructions": 2837,
+        "index_store_range_scan_calls": 4,
+        "index_store_entry_reads": 52,
+        "residual_predicate_evaluations": 0
+      }
+    },
+    {
+      "scenario_id": "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
+      "observed_identically_in_runs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "cold": {
+        "total_local_instructions": 5937787,
+        "compile_local_instructions": 552999,
+        "planner_local_instructions": 1469827,
+        "index_store_range_scan_calls": 4,
+        "index_store_entry_reads": 52,
+        "membership_authored_members": 9,
+        "membership_normalized_members": 9,
+        "membership_distinct_members": 9,
+        "membership_null_members": 0,
+        "membership_canonicalization_passes": 3,
+        "membership_members_revisited": 27,
+        "prefix_branches_before_deduplication": 9,
+        "prefix_branches_after_deduplication": 9,
+        "prefix_exclusions_tested": 0,
+        "prefix_exclusions_pruned": 0,
+        "prefix_branch_cap_admissions": 1,
+        "prefix_branch_cap_rejections": 0
+      },
+      "warm": {
+        "total_local_instructions": 3968931,
+        "compile_local_instructions": 77255,
+        "planner_local_instructions": 3090,
+        "index_store_range_scan_calls": 4,
+        "index_store_entry_reads": 52,
+        "residual_predicate_evaluations": 0
+      }
+    },
+    {
+      "scenario_id": "token.collection_stage_id.branch_set.wide_page_only.limit50",
+      "observed_identically_in_runs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "cold": {
+        "total_local_instructions": 4894612,
+        "compile_local_instructions": 545309,
+        "planner_local_instructions": 1459210,
+        "index_store_range_scan_calls": 4,
+        "index_store_entry_reads": 52,
+        "membership_authored_members": 9,
+        "membership_normalized_members": 9,
+        "membership_distinct_members": 9,
+        "membership_null_members": 0,
+        "membership_canonicalization_passes": 3,
+        "membership_members_revisited": 27,
+        "prefix_branches_before_deduplication": 9,
+        "prefix_branches_after_deduplication": 9,
+        "prefix_exclusions_tested": 0,
+        "prefix_exclusions_pruned": 0,
+        "prefix_branch_cap_admissions": 1,
+        "prefix_branch_cap_rejections": 0
+      },
+      "warm": {
+        "total_local_instructions": 2976475,
+        "compile_local_instructions": 77160,
+        "planner_local_instructions": 2788,
+        "index_store_range_scan_calls": 4,
+        "index_store_entry_reads": 52,
+        "residual_predicate_evaluations": 0
+      }
+    }
+  ],
+  "decisions": {
+    "compound_range": {
+      "scenario_id": "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
+      "disposition": "not_reproduced_no_production_candidate",
+      "structural_budget": {
+        "range_conjunctions_examined": 1,
+        "range_lower_bounds_extracted": 1,
+        "range_upper_bounds_extracted": 1,
+        "range_physical_children_emitted": 1,
+        "index_store_range_scan_calls": 1,
+        "residual_predicate_evaluations": 0
+      },
+      "candidate_instruction_reduction_budget": null,
+      "candidate_instruction_reduction_reason": "The current source already emits one bounded physical child, so no duplicate traversal exists to remove."
+    },
+    "membership_and_prefix": [
+      {
+        "finding": "206-010",
+        "scenario_id": "token.collection_id.sparse_in.page_only.limit50",
+        "disposition": "concrete_future_optimization",
+        "facts_proved": "Two canonicalization passes revisit all 251 members, for 502 revisits.",
+        "owner": "canonical membership handoff between SQL binding and prefix planning",
+        "eliminated_work_candidate": "One pass and 251 member revisits, subject to a separately accepted design."
+      },
+      {
+        "finding": "206-011",
+        "scenario_id": "token.collection_id.sparse_in.count",
+        "disposition": "contract_required",
+        "facts_proved": "One canonicalization pass revisits each of 251 authored members exactly once.",
+        "owner": "SQL membership binding",
+        "eliminated_work_candidate": null
+      },
+      {
+        "finding": "206-012",
+        "scenario_id": "token.collection_stage_id.overcap_pruned.page_only.limit50",
+        "disposition": "attribution_inconclusive",
+        "facts_proved": "Five passes revisit 67 members; 108 exclusion tests prune 8 of 17 branches and admit the remaining branch set.",
+        "facts_unmeasured": "The counters do not distinguish semantically necessary exclusion comparisons from avoidable reconsideration.",
+        "next_measurement_owner": "prefix exclusion pruning"
+      },
+      {
+        "finding": "206-013",
+        "scenario_id": "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
+        "disposition": "schema_dependent",
+        "facts_proved": "Three passes revisit 9 members 27 times, construct 9 distinct branches, and admit the branch set without deduplication or pruning.",
+        "owner": "prefix branch construction",
+        "eliminated_work_candidate": null
+      },
+      {
+        "finding": "206-014",
+        "scenario_id": "token.collection_stage_id.branch_set.wide_page_only.limit50",
+        "disposition": "schema_dependent",
+        "facts_proved": "Three passes revisit 9 members 27 times, construct 9 distinct branches, and admit the branch set without deduplication or pruning.",
+        "owner": "prefix branch construction",
+        "eliminated_work_candidate": null
+      }
+    ],
+    "broad_profile_promotions": {
+      "disposition": "explicitly_not_promoted_in_0.215.1",
+      "reason": "These recurring top-20 phase or normalized-cost entries are already measured in the hashed full review but do not expose a semantic gap, a new unmeasured family, or a selected 0.215 production candidate.",
+      "scenario_count": 49,
+      "scenarios": [
+        "account.select.narrow.lower_handle_prefix_active.tier_handle_asc.limit1",
+        "account.select.narrow.tier_gold_active.tier_handle_asc.limit10",
+        "account.select.narrow.tier_gold_active.tier_handle_asc.limit3",
+        "account.select.pk.lower_handle_prefix_active.lower_handle_asc.limit10",
+        "account.select.pk.lower_handle_prefix_active.lower_handle_asc.limit3",
+        "account.select.wide.active_true.tier_handle_asc.limit1",
+        "account.select.wide.active_true.tier_handle_asc.limit10",
+        "account.select.wide.active_true.tier_handle_asc.limit3",
+        "account.select.wide.handle_prefix_active.lower_handle_asc.limit1",
+        "account.select.wide.lower_handle_prefix_active.pk_asc.limit1",
+        "account.select.wide.score_range.handle_asc.limit1",
+        "account.select.wide.score_range.handle_desc.limit1",
+        "account.select.wide.score_range.tier_handle_asc.limit1",
+        "account.select.wide.score_range.tier_handle_asc.limit10",
+        "blob.select.lengths.label_prefix.bucket_asc.limit1",
+        "blob.select.lengths.label_prefix.bucket_asc.limit10",
+        "blob.select.lengths.label_prefix.bucket_asc.limit3",
+        "blob.select.payload.all.label_asc.limit3",
+        "blob.select.payload.bucket_eq.bucket_label_asc.limit10",
+        "blob.select.payload.bucket_eq.bucket_label_asc.limit3",
+        "blob.select.payload.bucket_eq.pk_asc.limit10",
+        "blob.select.payload.bucket_eq.pk_asc.limit3",
+        "blob.select.payload.bucket_range.bucket_label_asc.limit3",
+        "blob.select.payload.bucket_range.pk_asc.limit1",
+        "heap_user.select.narrow.pk_range.name_asc.limit1",
+        "heap_user.select.pk.all.name_asc.limit1",
+        "heap_user.select.pk.pk_range.name_asc.limit1",
+        "heap_user.select.pk.pk_range.name_asc.limit3",
+        "heap_user.select.wide.all.name_asc.limit10",
+        "journaled_user.select.pk.all.name_asc.limit10",
+        "journaled_user.select.pk.name_range.name_asc.limit3",
+        "journaled_user.select.wide.all.age_asc.limit1",
+        "journaled_user.select.wide.all.age_asc.limit3",
+        "journaled_user.select.wide.all.name_asc.limit1",
+        "journaled_user.select.wide.all.name_asc.limit3",
+        "journaled_user.select.wide.pk_range.name_asc.limit3",
+        "user.aggregate.count_all",
+        "user.select.narrow.age_in.pk_asc.limit1",
+        "user.select.narrow.age_in.pk_desc.limit1",
+        "user.select.numeric_expr.age_in.age_asc.limit10",
+        "user.select.numeric_expr.age_in.pk_asc.limit10",
+        "user.select.numeric_expr.age_range.lower_name_asc.limit3",
+        "user.select.text_expr.age_in.age_asc.limit10",
+        "user.select.text_expr.field_compare.lower_name_asc.limit3",
+        "user.select.wide.active_true.numeric_expr_asc.limit1",
+        "user.select.wide.age_in.pk_asc.limit10",
+        "user.select.wide.all.lower_name_asc.limit1",
+        "user.select.wide.all.numeric_expr_asc.limit10",
+        "user.select.wide.field_compare.numeric_expr_asc.limit1"
+      ]
+    }
+  },
+  "budget_policy": {
+    "candidate_range_budget": "not_applicable_no_candidate",
+    "selected_measurement_policy": "The six design-owned scenarios and their structural facts are normative; complete P2 and scale envelopes remain in the content-addressed review evidence.",
+    "unmeasured": [
+      "peak_heap_bytes",
+      "allocator_traffic_bytes",
+      "stable_memory_byte_volume"
+    ]
+  }
+}
