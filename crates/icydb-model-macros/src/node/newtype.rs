@@ -31,6 +31,9 @@ pub struct Newtype {
     pub(crate) ty: Type,
 
     #[darling(default)]
+    pub(crate) typed_adapters: bool,
+
+    #[darling(default)]
     pub(crate) traits: TraitBuilder,
 }
 
@@ -162,7 +165,12 @@ impl HasType for Newtype {
 
 impl ToTokens for Newtype {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.all_tokens());
+        let base = self.all_tokens();
+        let typed_adapter = crate::node::typed_adapter::newtype_adapter_tokens(self);
+        tokens.extend(quote! {
+            #base
+            #typed_adapter
+        });
     }
 }
 
@@ -241,6 +249,7 @@ mod tests {
             },
             default: None,
             ty: Type::default(),
+            typed_adapters: false,
             traits: TraitBuilder::default(),
         }
     }

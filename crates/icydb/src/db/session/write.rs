@@ -282,6 +282,117 @@ impl TypedEntityBinding {
     pub fn composite_field_name(&self, type_source_key: &str, source_key: &str) -> Option<&str> {
         self.inner.composite_field_name(type_source_key, source_key)
     }
+
+    /// Resolve and validate one exact source-bound record output projection.
+    #[doc(hidden)]
+    pub fn record_output_values<'value>(
+        &self,
+        type_source_key: &str,
+        member_source_keys: &[&str],
+        value: &'value OutputValue,
+    ) -> Result<Vec<&'value OutputValue>, TypedAdapterError> {
+        let mut accepted_names = Vec::with_capacity(member_source_keys.len());
+        for source_key in member_source_keys {
+            let name = self
+                .composite_field_name(type_source_key, source_key)
+                .ok_or(TypedAdapterError::FieldUnavailable)?;
+            accepted_names.push(name);
+        }
+
+        exact_record_output_values(accepted_names.as_slice(), value)
+    }
+}
+
+fn exact_record_output_values<'value>(
+    accepted_names: &[&str],
+    value: &'value OutputValue,
+) -> Result<Vec<&'value OutputValue>, TypedAdapterError> {
+    let OutputValue::Map(entries) = value else {
+        return Err(TypedAdapterError::ValueShapeMismatch);
+    };
+    if entries.len() != accepted_names.len()
+        || accepted_names
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .len()
+            != accepted_names.len()
+    {
+        return Err(TypedAdapterError::ValueShapeMismatch);
+    }
+
+    let mut values = vec![None; accepted_names.len()];
+    for (key, value) in entries {
+        let OutputValue::Text(name) = key else {
+            return Err(TypedAdapterError::ValueShapeMismatch);
+        };
+        let Some(index) = accepted_names.iter().position(|accepted| *accepted == name) else {
+            return Err(TypedAdapterError::ValueShapeMismatch);
+        };
+        if values[index].replace(value).is_some() {
+            return Err(TypedAdapterError::ValueShapeMismatch);
+        }
+    }
+
+    values
+        .into_iter()
+        .collect::<Option<Vec<_>>>()
+        .ok_or(TypedAdapterError::ValueShapeMismatch)
+}
+
+#[cfg(test)]
+mod typed_record_output_tests {
+    use super::{TypedAdapterError, exact_record_output_values};
+    use crate::value::OutputValue;
+
+    fn text(value: &str) -> OutputValue {
+        OutputValue::Text(value.to_string())
+    }
+
+    #[test]
+    fn exact_record_output_reorders_accepted_members() {
+        let value = OutputValue::Map(vec![
+            (text("count"), OutputValue::Nat64(7)),
+            (text("label"), text("Ada")),
+        ]);
+
+        let values = exact_record_output_values(&["label", "count"], &value)
+            .expect("exact accepted record output should decode");
+
+        assert!(matches!(values[0], OutputValue::Text(value) if value == "Ada"));
+        assert_eq!(values[1], &OutputValue::Nat64(7));
+    }
+
+    #[test]
+    fn exact_record_output_rejects_duplicate_missing_and_unknown_members() {
+        let malformed = [
+            OutputValue::Map(vec![
+                (text("label"), text("Ada")),
+                (text("label"), text("Grace")),
+            ]),
+            OutputValue::Map(vec![(text("label"), text("Ada"))]),
+            OutputValue::Map(vec![
+                (text("label"), text("Ada")),
+                (text("other"), OutputValue::Nat64(7)),
+            ]),
+            OutputValue::Map(vec![
+                (OutputValue::Nat64(1), text("Ada")),
+                (text("count"), OutputValue::Nat64(7)),
+            ]),
+            OutputValue::List(Vec::new()),
+        ];
+
+        for value in &malformed {
+            assert_eq!(
+                exact_record_output_values(&["label", "count"], value),
+                Err(TypedAdapterError::ValueShapeMismatch),
+            );
+        }
+        assert_eq!(
+            exact_record_output_values(&["label", "label"], &malformed[0]),
+            Err(TypedAdapterError::ValueShapeMismatch),
+        );
+    }
 }
 
 /// Generated logical field shape supplied while issuing an opaque binding.

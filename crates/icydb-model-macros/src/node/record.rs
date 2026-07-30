@@ -24,6 +24,9 @@ pub struct Record {
     pub(crate) traits: TraitBuilder,
 
     #[darling(default)]
+    pub(crate) typed_adapters: bool,
+
+    #[darling(default)]
     pub(crate) ty: Type,
 }
 
@@ -104,6 +107,11 @@ impl HasType for Record {
 
 impl ToTokens for Record {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.all_tokens());
+        let base = self.all_tokens();
+        let typed_adapter = crate::node::typed_adapter::record_adapter_tokens(self);
+        tokens.extend(quote! {
+            #base
+            #typed_adapter
+        });
     }
 }

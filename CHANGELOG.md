@@ -7,18 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Raised the generated-canister memory runtime floor to `ic-memory 0.12.3`,
-  preserving the unified thread-local runtime and stable ledger format while
-  adding fallible foreign-memory preflight plus bounded, fallible bootstrap
-  policy identities and policy-aware diagnostics.
-
 ## [0.215.x] 🧪 - 2026-07-29 - SQL Structural Verification
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
 
-- `0.215.2` adds one bounded atomic same-entity structural batch for mixed
-  inserts, updates, replacements, and deletes, including final-overlay
-  relation proof and generic interrupted-commit recovery.
+- `0.215.3` completes source-bound typed adapters for every named value shape,
+  including nested and recursive values, without synthesizing collision-prone
+  Rust type names.
+
+- `0.215.2` adds one bounded atomic same-entity structural batch and raises
+  generated canisters to `ic-memory 0.12.3`, retaining atomic recovery and
+  unified native runtime ownership without changing stable formats.
 
 - `0.215.1` fixes generated-canister native runtime isolation and freezes the
   reproducible SQL performance baseline, closing the provisional

@@ -7,8 +7,9 @@ admission, storage, or recovery inputs.
 
 ## Read Surfaces
 
-Typed reads require the `sql` feature because they share the accepted
-structural query and SQL execution spine:
+Typed reads require the engine-neutral `query` feature. The `sql` feature
+depends on `query`, but typed and dynamic reads do not depend on SQL parser or
+response types:
 
 ```rust
 let rows = db()?
@@ -23,6 +24,13 @@ let rows = db()?
 `typed_adapters`. The generated adapter binds immutable entity and field source
 keys to the current accepted snapshot. It then decodes returned public values;
 it never supplies query semantics.
+
+Every named enum, record, newtype, list, set, map, or tuple reachable from that
+entity must also select `typed_adapters`. Those macros implement the conversion
+traits directly on the authored type; they do not synthesize suffix-derived
+Rust types. Named values resolve accepted type, member, and variant names
+through the entity binding before crossing the existing `InputValue` /
+`OutputValue` boundary.
 
 `DynamicQuery` is the untyped accepted-schema equivalent. Use
 `execute_public_dynamic_query` for caller-facing bounded reads and

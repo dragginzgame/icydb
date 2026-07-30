@@ -154,6 +154,12 @@ an omitted nested entry retains its conventional name.
 Entity and store names come directly from their Rust declarations; neither
 macro accepts a second name or generated-symbol override.
 
+When an opted-in typed entity references a named enum, record, newtype, list,
+set, map, or tuple, add `typed_adapters` to that named declaration as well.
+The adapter traits are implemented directly on the authored Rust type; IcyDB
+does not create suffix-derived sibling types, so names such as `X` and
+`XEntity` can coexist.
+
 ## Generated Numeric Identities
 
 Use `Identity::next` when one entity needs a database-authored sequential

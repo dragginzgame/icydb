@@ -18,6 +18,86 @@ pub struct TypedAdapterCanister {}
 )]
 pub struct TypedAdapterStore {}
 
+#[newtype(
+    primitive = "Nat64",
+    item(prim = "Nat64"),
+    typed_adapters,
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct X {}
+
+#[newtype(
+    primitive = "Nat64",
+    item(prim = "Nat64"),
+    typed_adapters,
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct XEntity {}
+
+#[enum_(
+    typed_adapters,
+    variant(name = "Empty"),
+    variant(name = "Count", value(item(is = "X"))),
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct AdapterChoice {}
+
+#[record(
+    typed_adapters,
+    fields(
+        field(name = "label", value(item(prim = "Text", max_len = 64))),
+        field(name = "choice", value(item(is = "AdapterChoice")))
+    ),
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct AdapterRecord {}
+
+#[list(
+    typed_adapters,
+    item(is = "AdapterRecord"),
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct AdapterList {}
+
+#[set(
+    typed_adapters,
+    item(is = "X"),
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct AdapterSet {}
+
+#[map(
+    typed_adapters,
+    key(is = "X"),
+    value(item(is = "AdapterChoice")),
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct AdapterMap {}
+
+#[tuple(
+    typed_adapters,
+    value(item(is = "XEntity")),
+    value(opt, item(is = "AdapterRecord")),
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct AdapterTuple {}
+
+#[record(
+    typed_adapters,
+    fields(field(name = "next", value(opt, item(indirect, is = "RecursiveRecord")))),
+    model_crate = "model_api",
+    icydb_crate = "runtime_api"
+)]
+pub struct RecursiveRecord {}
+
 #[entity(
     store = "TypedAdapterStore",
     version = 1,
@@ -38,6 +118,30 @@ pub struct TypedAdapterStore {}
         field(
             name = "nickname",
             value(opt, item(prim = "Text", max_len = 64))
+        ),
+        field(
+            name = "profile",
+            value(item(is = "AdapterRecord"))
+        ),
+        field(
+            name = "list",
+            value(item(is = "AdapterList"))
+        ),
+        field(
+            name = "set",
+            value(item(is = "AdapterSet"))
+        ),
+        field(
+            name = "map",
+            value(item(is = "AdapterMap"))
+        ),
+        field(
+            name = "tuple",
+            value(item(is = "AdapterTuple"))
+        ),
+        field(
+            name = "recursive",
+            value(opt, item(is = "RecursiveRecord"))
         )
     )
 )]

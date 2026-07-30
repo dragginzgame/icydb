@@ -25,6 +25,7 @@ mod store;
 mod traits;
 mod tuple;
 mod r#type;
+mod typed_adapter;
 mod validator;
 mod value;
 

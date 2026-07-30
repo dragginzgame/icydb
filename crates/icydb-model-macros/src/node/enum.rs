@@ -25,6 +25,9 @@ pub struct Enum {
     pub(crate) ty: Type,
 
     #[darling(default)]
+    pub(crate) typed_adapters: bool,
+
+    #[darling(default)]
     pub(crate) traits: TraitBuilder,
 }
 
@@ -145,7 +148,12 @@ impl HasType for Enum {
 
 impl ToTokens for Enum {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.all_tokens());
+        let base = self.all_tokens();
+        let typed_adapter = crate::node::typed_adapter::enum_adapter_tokens(self);
+        tokens.extend(quote! {
+            #base
+            #typed_adapter
+        });
     }
 }
 
