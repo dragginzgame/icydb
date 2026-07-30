@@ -510,6 +510,18 @@ pub enum RuntimeBoundaryCode {
     GeneratedConstraintActivationStale,
     /// A caller explicitly authored a field owned by accepted database policy.
     MutationDatabaseOwnedFieldExplicit,
+    /// A mixed structural mutation batch contained no operations.
+    MutationBatchEmpty,
+    /// A mixed structural mutation batch exceeded its operation-count bound.
+    MutationBatchTooManyItems,
+    /// A mixed structural mutation batch exceeded its staged-byte bound.
+    MutationBatchStagedBytesExceeded,
+    /// A mixed structural mutation result exceeded its encoded response bound.
+    MutationBatchResultBytesExceeded,
+    /// A mixed structural mutation batch resolved to more than one accepted entity.
+    MutationBatchEntityMismatch,
+    /// More than one mixed structural operation targeted the same accepted key.
+    MutationBatchDuplicateKey,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -975,7 +987,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 234);
+        assert_eq!(last, 240);
     }
 
     #[test]
@@ -1007,7 +1019,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 235, u16::MAX] {
+        for raw in [0, 241, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

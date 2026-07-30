@@ -611,4 +611,16 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationManagedTimestampRegression });
     RUNTIME_BOUNDARY_MUTATION_DATABASE_OWNED_FIELD_EXPLICIT = 234 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_EMPTY = 235 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchEmpty });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS = 236 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchTooManyItems });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_STAGED_BYTES_EXCEEDED = 237 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchStagedBytesExceeded });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_RESULT_BYTES_EXCEEDED = 238 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchResultBytesExceeded });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_ENTITY_MISMATCH = 239 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchEntityMismatch });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_DUPLICATE_KEY = 240 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchDuplicateKey });
 }

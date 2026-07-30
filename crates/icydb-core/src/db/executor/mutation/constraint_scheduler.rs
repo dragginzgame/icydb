@@ -7,7 +7,6 @@
 
 use crate::{
     db::{
-        Db,
         commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{
             AcceptedFieldWriteProvenance, DecodedDataStoreKey, RawDataStoreKey, RawRow,
@@ -20,21 +19,8 @@ use crate::{
         write_context::MutationMode,
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
-    traits::CanisterKind,
 };
 use std::collections::BTreeSet;
-
-enum AcceptedMutationConstraintSchedule<'a> {
-    Save {
-        mode: MutationMode,
-        row_decode_contract: AcceptedRowDecodeContract,
-        schema_fingerprint: CommitSchemaFingerprint,
-        row_constraints: &'a CompiledAcceptedRowConstraints,
-    },
-    Delete {
-        raw_keys: BTreeSet<crate::db::data::RawDataStoreKey>,
-    },
-}
 
 #[expect(
     clippy::too_many_arguments,
@@ -91,12 +77,6 @@ fn validate_row_local_after_image(
         })
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum AcceptedMutationConstraintBatchKind {
-    Save,
-    Delete,
-}
-
 ///
 /// AcceptedMutationConstraintBatch
 ///
@@ -105,8 +85,8 @@ enum AcceptedMutationConstraintBatchKind {
 ///
 
 pub(in crate::db) struct AcceptedMutationConstraintBatch {
-    kind: AcceptedMutationConstraintBatchKind,
     rows: Vec<CommitRowOp>,
+    deleted_keys: BTreeSet<RawDataStoreKey>,
 }
 
 impl AcceptedMutationConstraintBatch {
@@ -116,20 +96,10 @@ impl AcceptedMutationConstraintBatch {
         self.rows.is_empty()
     }
 
-    pub(in crate::db::executor) fn into_save_rows(self) -> Result<Vec<CommitRowOp>, InternalError> {
-        if self.kind != AcceptedMutationConstraintBatchKind::Save {
-            return Err(InternalError::query_executor_invariant());
-        }
-        Ok(self.rows)
-    }
-
-    pub(in crate::db::executor) fn into_delete_rows(
+    pub(in crate::db::executor) fn into_parts(
         self,
-    ) -> Result<Vec<CommitRowOp>, InternalError> {
-        if self.kind != AcceptedMutationConstraintBatchKind::Delete {
-            return Err(InternalError::query_executor_invariant());
-        }
-        Ok(self.rows)
+    ) -> (Vec<CommitRowOp>, BTreeSet<RawDataStoreKey>) {
+        (self.rows, self.deleted_keys)
     }
 }
 
@@ -138,57 +108,39 @@ impl AcceptedMutationConstraintBatch {
 ///
 /// Normal-write lifecycle owner for accepted constraint scheduling.
 ///
-/// Save construction proves row-local constraints over policy-complete final
-/// after-images. Delete completion proves relation protection over the complete
-/// batch key set. The opaque output is then consumed by storage-backed
-/// unique/relation preflight before any commit marker is opened.
+/// Save scheduling proves row-local constraints over policy-complete final
+/// after-images while save and delete scheduling share one target-key set.
+/// The opaque output carries the ordered row transitions and complete delete
+/// set into final-overlay storage preflight before any commit marker is opened.
 ///
 
-pub(in crate::db) struct AcceptedMutationConstraintScheduler<'a, C: CanisterKind> {
-    db: &'a Db<C>,
+pub(in crate::db) struct AcceptedMutationConstraintScheduler<'a> {
     entity_path: &'a str,
-    schedule: AcceptedMutationConstraintSchedule<'a>,
+    row_decode_contract: AcceptedRowDecodeContract,
+    schema_fingerprint: CommitSchemaFingerprint,
+    row_constraints: &'a CompiledAcceptedRowConstraints,
+    seen_keys: BTreeSet<RawDataStoreKey>,
+    deleted_keys: BTreeSet<RawDataStoreKey>,
     rows: Vec<CommitRowOp>,
 }
 
-impl<'a, C: CanisterKind> AcceptedMutationConstraintScheduler<'a, C> {
-    /// Start one accepted save schedule that receives each after-image after
-    /// database-owned policy has resolved its write intent.
-    pub(in crate::db) fn for_save(
-        db: &'a Db<C>,
+impl<'a> AcceptedMutationConstraintScheduler<'a> {
+    /// Start one accepted mixed schedule that receives every final row intent
+    /// after database-owned policy has resolved it.
+    pub(in crate::db) fn new(
         entity_path: &'a str,
-        mode: MutationMode,
         row_decode_contract: AcceptedRowDecodeContract,
         schema_fingerprint: CommitSchemaFingerprint,
         row_constraints: &'a CompiledAcceptedRowConstraints,
         row_capacity: usize,
     ) -> Self {
         Self {
-            db,
             entity_path,
-            schedule: AcceptedMutationConstraintSchedule::Save {
-                mode,
-                row_decode_contract,
-                schema_fingerprint,
-                row_constraints,
-            },
-            rows: Vec::with_capacity(row_capacity),
-        }
-    }
-
-    /// Start one accepted delete schedule that will prove relation protection
-    /// against the complete submitted key set.
-    pub(in crate::db) fn for_delete(
-        db: &'a Db<C>,
-        entity_path: &'a str,
-        row_capacity: usize,
-    ) -> Self {
-        Self {
-            db,
-            entity_path,
-            schedule: AcceptedMutationConstraintSchedule::Delete {
-                raw_keys: BTreeSet::new(),
-            },
+            row_decode_contract,
+            schema_fingerprint,
+            row_constraints,
+            seen_keys: BTreeSet::new(),
+            deleted_keys: BTreeSet::new(),
             rows: Vec::with_capacity(row_capacity),
         }
     }
@@ -197,36 +149,29 @@ impl<'a, C: CanisterKind> AcceptedMutationConstraintScheduler<'a, C> {
     /// transition for later storage-backed preflight.
     pub(in crate::db) fn schedule_save_after_image(
         &mut self,
+        mode: MutationMode,
         data_key: &DecodedDataStoreKey,
         row: &RawRow,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
         row_op: Option<CommitRowOp>,
     ) -> Result<(), InternalError> {
-        let AcceptedMutationConstraintSchedule::Save {
-            mode,
-            row_decode_contract,
-            schema_fingerprint,
-            row_constraints,
-        } = &self.schedule
-        else {
-            return Err(InternalError::query_executor_invariant());
-        };
         let raw_key = data_key.to_raw()?;
+        self.record_target_key(data_key, &raw_key)?;
         validate_row_local_after_image(
             self.entity_path,
-            *mode,
+            mode,
             &raw_key,
             row,
             provenance,
-            row_decode_contract.clone(),
-            *schema_fingerprint,
-            row_constraints,
+            self.row_decode_contract.clone(),
+            self.schema_fingerprint,
+            self.row_constraints,
         )?;
 
         if let Some(row_op) = row_op {
             if row_op.entity_path.as_ref() != self.entity_path
                 || row_op.key != raw_key
-                || row_op.schema_fingerprint != *schema_fingerprint
+                || row_op.schema_fingerprint != self.schema_fingerprint
                 || row_op.after.as_deref() != Some(row.as_bytes())
             {
                 return Err(InternalError::query_executor_invariant());
@@ -241,26 +186,17 @@ impl<'a, C: CanisterKind> AcceptedMutationConstraintScheduler<'a, C> {
     /// chooses the largest durable prefix.
     #[cfg(feature = "query")]
     pub(in crate::db) fn pop_last_save_row(&mut self) -> Result<(), InternalError> {
-        if !matches!(
-            self.schedule,
-            AcceptedMutationConstraintSchedule::Save { .. }
-        ) || self.rows.pop().is_none()
-        {
+        let Some(row) = self.rows.pop() else {
             return Err(InternalError::query_executor_invariant());
-        }
+        };
+        self.seen_keys.remove(&row.key);
         Ok(())
     }
 
     /// Borrow staged save transitions for bounded commit-window sizing.
     #[cfg(feature = "query")]
-    pub(in crate::db) fn save_rows(&self) -> Result<&[CommitRowOp], InternalError> {
-        if !matches!(
-            self.schedule,
-            AcceptedMutationConstraintSchedule::Save { .. }
-        ) {
-            return Err(InternalError::query_executor_invariant());
-        }
-        Ok(self.rows.as_slice())
+    pub(in crate::db) const fn rows(&self) -> &[CommitRowOp] {
+        self.rows.as_slice()
     }
 
     /// Stage one delete transition. Relation protection is deferred until the
@@ -269,44 +205,41 @@ impl<'a, C: CanisterKind> AcceptedMutationConstraintScheduler<'a, C> {
         &mut self,
         row_op: CommitRowOp,
     ) -> Result<(), InternalError> {
-        let AcceptedMutationConstraintSchedule::Delete { raw_keys } = &mut self.schedule else {
-            return Err(InternalError::query_executor_invariant());
-        };
         if row_op.entity_path.as_ref() != self.entity_path
             || row_op.before.is_none()
             || row_op.after.is_some()
+            || row_op.schema_fingerprint != self.schema_fingerprint
         {
             return Err(InternalError::query_executor_invariant());
         }
-        if !raw_keys.insert(row_op.key.clone()) {
-            let data_key = DecodedDataStoreKey::try_from_raw(&row_op.key)
-                .map_err(|_| InternalError::query_executor_invariant())?;
+        let data_key = DecodedDataStoreKey::try_from_raw(&row_op.key)
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        self.record_target_key(&data_key, &row_op.key)?;
+        self.deleted_keys.insert(row_op.key.clone());
+        self.rows.push(row_op);
+        Ok(())
+    }
+
+    fn record_target_key(
+        &mut self,
+        data_key: &DecodedDataStoreKey,
+        raw_key: &RawDataStoreKey,
+    ) -> Result<(), InternalError> {
+        if !self.seen_keys.insert(raw_key.clone()) {
             return Err(InternalError::mutation_atomic_save_duplicate_key(
                 self.entity_path,
-                data_key,
+                data_key.clone(),
             ));
         }
-        self.rows.push(row_op);
         Ok(())
     }
 
     /// Complete logical scheduling and return the only batch shape accepted by
     /// normal commit-window entrypoints.
-    pub(in crate::db) fn finish(self) -> Result<AcceptedMutationConstraintBatch, InternalError> {
-        let kind = match self.schedule {
-            AcceptedMutationConstraintSchedule::Save { .. } => {
-                AcceptedMutationConstraintBatchKind::Save
-            }
-            AcceptedMutationConstraintSchedule::Delete { raw_keys } => {
-                self.db
-                    .validate_delete_relations(self.entity_path, &raw_keys)?;
-                AcceptedMutationConstraintBatchKind::Delete
-            }
-        };
-
-        Ok(AcceptedMutationConstraintBatch {
-            kind,
+    pub(in crate::db) fn finish(self) -> AcceptedMutationConstraintBatch {
+        AcceptedMutationConstraintBatch {
             rows: self.rows,
-        })
+            deleted_keys: self.deleted_keys,
+        }
     }
 }

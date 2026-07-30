@@ -38,6 +38,7 @@ use crate::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
             AcceptedStructuralMutationTarget,
         },
+        write_context::MutationMode,
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
@@ -715,7 +716,8 @@ where
         .candidates
         .iter()
         .map(|candidate| {
-            AcceptedStructuralMutation::new(
+            AcceptedStructuralMutation::save(
+                MutationMode::Update,
                 AcceptedStructuralMutationTarget::expected(candidate.key.clone()),
                 patch.clone(),
             )

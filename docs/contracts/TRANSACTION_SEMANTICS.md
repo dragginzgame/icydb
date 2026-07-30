@@ -23,6 +23,7 @@ compensates for it.
 
 Covered by this document:
 
+* `execute_trusted_structural_mutation_batch`
 * `execute_trusted_structural_insert_batch`
 * Failure behavior
 * Recovery behavior
@@ -37,18 +38,21 @@ Out of scope:
 
 ## API Lanes
 
-IcyDB exposes one maintained batch-write lane:
-`execute_trusted_structural_insert_batch`.
+IcyDB exposes one canonical maintained batch-write lane:
+`execute_trusted_structural_mutation_batch`.
 
 * Scope: one accepted entity per call.
-* Input: field-name-driven structural insert patches.
+* Input: field-name-driven structural inserts, updates, replacements, and
+  deletes in deterministic request order.
 * Contract: all-or-nothing for that batch.
 * If any item fails before commit, no row from the batch is persisted.
 * The operation uses commit-marker-bound journal batches and recovery folding
   for durable correctness.
 * It is not a multi-entity transaction.
 
-No alternate generated-entity batch lane is maintained.
+`execute_trusted_structural_insert_batch` is the insert-only convenience shape
+over that canonical lane. Single structural mutations use the same owner. No
+alternate generated-entity batch lane is maintained.
 
 ### SQL exact and prefix update
 
@@ -67,16 +71,29 @@ claim about matching rows beyond that window.
 
 ## Atomic Lane Execution Model
 
-For `*_many_atomic`, execution is split into two phases:
+For one structural mutation batch, execution is split into two phases:
 
 ### Phase 1: Pre-commit (fallible)
 
 For each item in request order:
 
 * apply the complete `docs/contracts/WRITE_ADMISSION.md` contract
-* build the logical row operation and its current journal record from accepted
-  durable state plus the new payload
-* reject duplicate keys within the same batch request
+* bind it to the exact same accepted entity and schema head
+* preserve its insert/update/replace/delete intent and materialize its save
+  after-image or delete before-image under one operation timestamp
+* reject duplicate target keys across every operation-kind combination
+* build one complete final-row overlay and logical row-operation set
+
+Constraint, unique-index, relation, and derived-index preparation observe the
+complete final overlay. An updated or deleted old row releases its previous
+membership. A relation source uses its staged final image, and relation target
+lookup sees inserted or updated targets while treating deleted targets as
+absent.
+
+Public value conversion and exact Candid response-size validation complete
+before the marker is opened. The current bounds are 4,096 operations, 16 MiB
+of cumulative encoded keys plus canonical before/after rows, 4 MiB per row,
+and 1 MiB for the encoded public result.
 
 If any step fails, execution returns an error and does not open a commit window.
 
@@ -84,7 +101,7 @@ If any step fails, execution returns an error and does not open a commit window.
 
 After all row operations are staged:
 
-* preflight commit-row preparation is performed
+* the complete mixed `CommitRowOp` set is preflighted
 * the commit marker containing current journal batches is persisted
 * marker-bound journal batches are appended
 * prepared row operations are applied mechanically in request order
@@ -115,7 +132,7 @@ This follows the same commit/recovery model documented in
 
 ## Ordering and Visibility Guarantees
 
-For one `*_many_atomic` call:
+For one structural mutation batch:
 
 * Row-ops are applied in request order within that atomic batch.
 * Rows staged during pre-commit are not visible as committed state through
@@ -146,11 +163,25 @@ For one `*_many_atomic` call:
 
 ### Relation checks and staged rows
 
-Relation validation is performed against currently persisted target
-stores during pre-commit validation.
+Relation validation reads the complete batch-final overlay before falling back
+to committed accepted storage. A staged source removal or reference update is
+therefore authoritative for delete safety, and save-side target validation can
+see a staged target creation while treating a staged target delete as absent.
 
-Rows staged inside the same atomic batch are not treated as visible relation
-targets during that validation pass.
+### Result rows
+
+* Inserts, updates, and replacements return their final after-images.
+* Deletes return their removed before-images.
+* Rows retain request order.
+* `affected_rows` covers the complete successful batch.
+
+### Identity
+
+Only actual Identity-generating inserts consume tentative allocation ordinals.
+Interleaved updates, replacements, and deletes do not create gaps. Rejection
+before marker publication consumes no value; committed mixed journal proof
+filters existing-key puts and deletes from the exact contiguous generated
+range.
 
 ---
 

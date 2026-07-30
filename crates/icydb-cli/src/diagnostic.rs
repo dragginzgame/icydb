@@ -489,6 +489,22 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit => {
             "mutation explicitly authors a database-owned field"
         }
+        RuntimeBoundaryCode::MutationBatchEmpty => "structural mutation batch is empty",
+        RuntimeBoundaryCode::MutationBatchTooManyItems => {
+            "structural mutation batch exceeds the operation-count bound"
+        }
+        RuntimeBoundaryCode::MutationBatchStagedBytesExceeded => {
+            "structural mutation batch exceeds the staged-byte bound"
+        }
+        RuntimeBoundaryCode::MutationBatchResultBytesExceeded => {
+            "structural mutation result exceeds the encoded response bound"
+        }
+        RuntimeBoundaryCode::MutationBatchEntityMismatch => {
+            "structural mutation batch targets more than one accepted entity"
+        }
+        RuntimeBoundaryCode::MutationBatchDuplicateKey => {
+            "structural mutation batch targets the same accepted key more than once"
+        }
     }
 }
 
@@ -1206,6 +1222,14 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit,
                 "E_RUNTIME_UNSUPPORTED: mutation explicitly authors a database-owned field",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::MutationBatchEmpty,
+                "E_RUNTIME_UNSUPPORTED: structural mutation batch is empty",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::MutationBatchDuplicateKey,
+                "E_RUNTIME_CONFLICT: structural mutation batch targets the same accepted key more than once",
             ),
             (
                 icydb::diagnostic::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,

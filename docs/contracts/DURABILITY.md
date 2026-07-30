@@ -156,6 +156,13 @@ index, or relation rebuild. Before guarded recovery returns, every committed
 range has converged to the exact materialized high-water and last-applied
 advance identity.
 
+A mixed batch may also update or delete rows whose Identity keys were committed
+before the batch. Durable range proof counts only row puts in
+`expected_high_water + 1 ..= new_high_water`, in record order, as generated
+allocations. Existing-key puts and deletes are permitted within the committed
+prefix; a delete inside the new range, a put above it, a gap, duplicate, or
+order mismatch is corruption. The marker and journal format are unchanged.
+
 Deep progress and retention remain outside recovered database authority. Each
 well-formed authorized integrity attempt performs one bounded progress-store
 maintenance page after the requested operation. The persisted job owns expiry

@@ -31,6 +31,18 @@ where
         entity: "app::User".to_string(),
         patch,
     });
+    let _ = db.execute_trusted_structural_mutation_batch(vec![
+        StructuralMutation::Update {
+            entity: "app::User".to_string(),
+            key: InputValue::Nat64(1),
+            patch: StructuralPatch::new()
+                .field("status", WriteCell::Value(InputValue::Text("active".to_string()))),
+        },
+        StructuralMutation::Delete {
+            entity: "app::User".to_string(),
+            key: InputValue::Nat64(2),
+        },
+    ]);
 }
 
 fn trusted_sql_update_contracts_compile<C>(db: &DbSession<C>, sql: &str)

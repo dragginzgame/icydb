@@ -780,7 +780,7 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
         {
             return Err(journal_batch_corruption());
         }
-        let mut expected = range.expected_high_water();
+        let mut expected_allocation = range.expected_high_water();
         let mut count = 0u32;
         for record in &batch.records {
             match record {
@@ -797,18 +797,34 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
                         PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => value,
                         _ => return Err(journal_batch_corruption()),
                     };
-                    expected = expected
+                    if value <= range.expected_high_water() {
+                        continue;
+                    }
+                    if value > range.new_high_water() {
+                        return Err(journal_batch_corruption());
+                    }
+                    expected_allocation = expected_allocation
                         .checked_add(1)
                         .ok_or_else(journal_batch_corruption)?;
                     count = count.checked_add(1).ok_or_else(journal_batch_corruption)?;
-                    if value != expected {
+                    if value != expected_allocation {
                         return Err(journal_batch_corruption());
                     }
                 }
                 JournalRecord::RowDelete { primary_key, .. } => {
                     let key = DecodedDataStoreKey::try_from_raw(primary_key)
                         .map_err(|_| journal_batch_corruption())?;
-                    if key.entity_tag() == range.owner().entity_tag() {
+                    if key.entity_tag() != range.owner().entity_tag() {
+                        continue;
+                    }
+                    let value = match key.primary_key_value() {
+                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) => {
+                            u128::from(value)
+                        }
+                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => value,
+                        _ => return Err(journal_batch_corruption()),
+                    };
+                    if value > range.expected_high_water() {
                         return Err(journal_batch_corruption());
                     }
                 }
@@ -819,7 +835,7 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
                 | JournalRecord::IdentityRangeAdvance { .. } => {}
             }
         }
-        if count != range.allocation_count() || expected != range.new_high_water() {
+        if count != range.allocation_count() || expected_allocation != range.new_high_water() {
             return Err(journal_batch_corruption());
         }
     }

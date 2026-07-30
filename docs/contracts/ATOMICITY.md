@@ -223,10 +223,14 @@ without reusing the reserved constraint identity.
 
 ### Batch writes (single entity)
 
-`execute_trusted_structural_insert_batch` admits one same-entity collection of
-structural insert patches against one accepted snapshot and commits it
-atomically. If any patch fails pre-commit validation, no row from the batch is
-persisted. This is not multi-entity transaction support.
+`execute_trusted_structural_mutation_batch` admits one bounded same-entity
+collection of insert, update, replacement, and delete intents against one
+accepted snapshot and commits it atomically. One operation timestamp resolves
+all database-owned fields. Constraints and physical preparation read one
+complete final-row overlay, and public result conversion completes before the
+marker. If any item fails pre-commit validation, no row or Identity range from
+the batch is persisted. `execute_trusted_structural_insert_batch` is its
+insert-only convenience shape. This is not multi-entity transaction support.
 
 Detailed batch behavior and edge cases are defined in
 `docs/contracts/TRANSACTION_SEMANTICS.md`; per-item row strictness remains

@@ -11,6 +11,7 @@ use crate::{
             StructuralRowContract,
         },
         direction::Direction,
+        index::StructuralPrimaryRowReader,
         registry::StoreHandle,
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
@@ -39,6 +40,7 @@ pub(in crate::db) fn validate_delete_relations_for_accepted_source<C>(
     source_store_path: &'static str,
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
+    source_reader: &dyn StructuralPrimaryRowReader,
 ) -> Result<(), InternalError>
 where
     C: CanisterKind,
@@ -68,8 +70,8 @@ where
         source_path,
         source_row_contract,
         relations,
-        source_store,
         deleted_target_keys,
+        source_reader,
     )
 }
 
@@ -110,8 +112,8 @@ fn validate_delete_relations_structural<C>(
     source_path: &str,
     source_row_contract: StructuralRowContract,
     relations: Vec<AcceptedRelationInfo>,
-    source_store: StoreHandle,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
+    source_reader: &dyn StructuralPrimaryRowReader,
 ) -> Result<(), InternalError>
 where
     C: CanisterKind,
@@ -166,16 +168,7 @@ where
                             let source_data_key =
                                 DecodedDataStoreKey::new(source_info.entity_tag(), &source_key);
                             let source_raw_key = source_data_key.to_raw()?;
-                            if source_is_deleted_in_same_batch(
-                                source_path,
-                                relation.target().path(),
-                                deleted_target_keys,
-                                &source_raw_key,
-                            ) {
-                                return Ok(false);
-                            }
-                            let source_raw_row =
-                                source_store.with_data(|store| store.get(&source_raw_key));
+                            let source_raw_row = source_reader.read_primary_row(&source_data_key)?;
 
                             let Some(source_raw_row) = source_raw_row else {
                                 let target = relation.target();
@@ -224,15 +217,6 @@ where
     Ok(())
 }
 
-fn source_is_deleted_in_same_batch(
-    source_path: &str,
-    target_path: &str,
-    deleted_target_keys: &BTreeSet<RawDataStoreKey>,
-    source_key: &RawDataStoreKey,
-) -> bool {
-    source_path == target_path && deleted_target_keys.contains(source_key)
-}
-
 // Build the accepted-schema row contract used by delete relation validation.
 //
 // Relation validation reads source rows directly from storage, not from commit
@@ -256,38 +240,4 @@ fn accepted_source_row_contract(
         .ok_or_else(InternalError::store_corruption)?;
     AcceptedStructuralRowAuthority::from_catalog_selection(source_path, &selection)
         .map(AcceptedStructuralRowAuthority::into_row_contract)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue};
-
-    fn raw_key(tag: EntityTag, value: u64) -> RawDataStoreKey {
-        DecodedDataStoreKey::new(
-            tag,
-            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)),
-        )
-        .to_raw()
-        .expect("test key should encode")
-    }
-
-    #[test]
-    fn self_relation_delete_batch_ignores_sources_deleted_by_same_batch() {
-        let source_key = raw_key(EntityTag::new(11), 7);
-        let deleted = BTreeSet::from([source_key.clone()]);
-
-        assert!(source_is_deleted_in_same_batch(
-            "tests::Node",
-            "tests::Node",
-            &deleted,
-            &source_key,
-        ));
-        assert!(!source_is_deleted_in_same_batch(
-            "tests::Edge",
-            "tests::Node",
-            &deleted,
-            &source_key,
-        ));
-    }
 }

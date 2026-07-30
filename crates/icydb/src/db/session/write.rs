@@ -879,9 +879,29 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: StructuralMutation,
     ) -> Result<DynamicMutationResult, Error> {
+        self.execute_trusted_structural_mutation_batch(vec![request])
+    }
+
+    /// Execute one bounded same-entity structural mutation batch atomically.
+    ///
+    /// Inserts, updates, replacements, and deletes share one accepted snapshot,
+    /// operation timestamp, final-row overlay, commit marker, and recovery
+    /// outcome. Results retain input order and expose each save after-image or
+    /// delete before-image. The batch admits at most 4,096 operations, 16 MiB
+    /// of staged canonical keys/rows, and a 1 MiB encoded result. Every
+    /// operation must resolve to the same accepted entity and target a distinct
+    /// primary key.
+    pub fn execute_trusted_structural_mutation_batch(
+        &self,
+        mutations: Vec<StructuralMutation>,
+    ) -> Result<DynamicMutationResult, Error> {
+        let mutations = mutations
+            .into_iter()
+            .map(StructuralMutation::into_core)
+            .collect();
         Ok(self
             .inner
-            .execute_trusted_dynamic_mutation(&request.into_core())?)
+            .execute_trusted_dynamic_mutation_batch(mutations)?)
     }
 
     /// Execute one same-entity structural insert batch atomically.
@@ -894,13 +914,14 @@ impl<C: CanisterKind> DbSession<C> {
         entity: &str,
         patches: Vec<StructuralPatch>,
     ) -> Result<DynamicMutationResult, Error> {
-        let patches = patches
+        let mutations = patches
             .into_iter()
-            .map(StructuralPatch::into_core)
+            .map(|patch| StructuralMutation::Insert {
+                entity: entity.to_string(),
+                patch,
+            })
             .collect();
-        Ok(self
-            .inner
-            .execute_trusted_dynamic_insert_batch(entity, patches)?)
+        self.execute_trusted_structural_mutation_batch(mutations)
     }
 
     fn typed_output_row(

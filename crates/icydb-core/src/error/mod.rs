@@ -315,13 +315,6 @@ impl InternalError {
         Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Executor)
     }
 
-    /// Construct an executor-origin conflict.
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn executor_conflict() -> Self {
-        Self::new(ErrorClass::Conflict, ErrorOrigin::Executor)
-    }
-
     /// Construct an executor-origin internal error.
     #[cold]
     #[inline(never)]
@@ -456,7 +449,52 @@ impl InternalError {
 
     /// Construct an executor-origin mutation conflict for duplicate atomic save keys.
     pub(crate) fn mutation_atomic_save_duplicate_key(_entity_path: &str, _key: impl Sized) -> Self {
-        Self::executor_conflict()
+        Self {
+            class: ErrorClass::Conflict,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::MutationBatchDuplicateKey,
+            )),
+        }
+    }
+
+    /// Construct an executor-origin empty mixed-mutation batch rejection.
+    pub(crate) fn mutation_batch_empty() -> Self {
+        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchEmpty)
+    }
+
+    /// Construct an executor-origin mixed-mutation item-bound rejection.
+    pub(crate) fn mutation_batch_too_many_items() -> Self {
+        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchTooManyItems)
+    }
+
+    /// Construct an executor-origin mixed-mutation staged-byte-bound rejection.
+    pub(crate) fn mutation_batch_staged_bytes_exceeded() -> Self {
+        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchStagedBytesExceeded)
+    }
+
+    /// Construct an executor-origin mixed-mutation result-byte-bound rejection.
+    pub(crate) fn mutation_batch_result_bytes_exceeded() -> Self {
+        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchResultBytesExceeded)
+    }
+
+    /// Construct an executor-origin mixed-entity batch rejection.
+    pub(crate) fn mutation_batch_entity_mismatch() -> Self {
+        Self {
+            class: ErrorClass::Conflict,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(
+                ExecutorErrorDetail::MutationBatchEntityMismatch,
+            )),
+        }
+    }
+
+    fn mutation_batch_unsupported(detail: ExecutorErrorDetail) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Executor,
+            detail: Some(ErrorDetail::Executor(detail)),
+        }
     }
 
     /// Construct an executor-origin mutation invariant for index-store generation drift.
@@ -1793,6 +1831,18 @@ pub enum ExecutorErrorDetail {
     MutationManagedTimestampRegression,
     /// A caller explicitly authored a field owned by accepted database policy.
     MutationDatabaseOwnedFieldExplicit,
+    /// A mixed structural mutation batch contained no operations.
+    MutationBatchEmpty,
+    /// A mixed structural mutation batch exceeded its operation-count bound.
+    MutationBatchTooManyItems,
+    /// A mixed structural mutation batch exceeded its staged-byte bound.
+    MutationBatchStagedBytesExceeded,
+    /// A mixed structural mutation result exceeded its encoded response bound.
+    MutationBatchResultBytesExceeded,
+    /// A mixed structural mutation batch resolved to more than one accepted entity.
+    MutationBatchEntityMismatch,
+    /// More than one mixed structural operation targeted the same accepted key.
+    MutationBatchDuplicateKey,
     /// A final canonical after-image violated one accepted constraint or activation gate.
     ConstraintViolation {
         diagnostic: Box<ConstraintDiagnostic>,
@@ -1815,6 +1865,12 @@ impl ExecutorErrorDetail {
             Self::MutationRequiredFieldMissing
             | Self::MutationManagedTimestampRegression
             | Self::MutationDatabaseOwnedFieldExplicit
+            | Self::MutationBatchEmpty
+            | Self::MutationBatchTooManyItems
+            | Self::MutationBatchStagedBytesExceeded
+            | Self::MutationBatchResultBytesExceeded
+            | Self::MutationBatchEntityMismatch
+            | Self::MutationBatchDuplicateKey
             | Self::AcceptedRowConstraintProgramCorrupt => None,
         }
     }
@@ -2129,8 +2185,16 @@ impl ExecutorErrorDetail {
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
-            Self::MutationRequiredFieldMissing | Self::MutationDatabaseOwnedFieldExplicit => {
+            Self::MutationRequiredFieldMissing
+            | Self::MutationDatabaseOwnedFieldExplicit
+            | Self::MutationBatchEmpty
+            | Self::MutationBatchTooManyItems
+            | Self::MutationBatchStagedBytesExceeded
+            | Self::MutationBatchResultBytesExceeded => {
                 diagnostic_code::DiagnosticCode::RuntimeUnsupported
+            }
+            Self::MutationBatchEntityMismatch | Self::MutationBatchDuplicateKey => {
+                diagnostic_code::DiagnosticCode::RuntimeConflict
             }
             Self::MutationManagedTimestampRegression => {
                 diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
@@ -2158,6 +2222,36 @@ impl ExecutorErrorDetail {
                 Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
                     boundary:
                         diagnostic_code::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit,
+                })
+            }
+            Self::MutationBatchEmpty => Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchEmpty,
+            }),
+            Self::MutationBatchTooManyItems => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyItems,
+                })
+            }
+            Self::MutationBatchStagedBytesExceeded => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::MutationBatchStagedBytesExceeded,
+                })
+            }
+            Self::MutationBatchResultBytesExceeded => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary:
+                        diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
+                })
+            }
+            Self::MutationBatchEntityMismatch => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchEntityMismatch,
+                })
+            }
+            Self::MutationBatchDuplicateKey => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey,
                 })
             }
             Self::MutationManagedTimestampRegression => {

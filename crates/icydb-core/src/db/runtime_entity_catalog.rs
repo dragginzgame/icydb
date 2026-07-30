@@ -259,6 +259,7 @@ pub(in crate::db) fn validate_delete_relations<C: CanisterKind>(
     db: &Db<C>,
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
+    source_reader: &dyn crate::db::index::StructuralPrimaryRowReader,
 ) -> Result<(), InternalError> {
     if deleted_target_keys.is_empty() {
         return Ok(());
@@ -284,6 +285,7 @@ pub(in crate::db) fn validate_delete_relations<C: CanisterKind>(
             source.store_path(),
             target_path,
             deleted_target_keys,
+            source_reader,
         )?;
     }
 

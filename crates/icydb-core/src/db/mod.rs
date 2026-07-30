@@ -305,13 +305,6 @@ impl<C: CanisterKind> Db<C> {
         diagnostics::storage_report_default(self)
     }
 
-    pub(in crate::db) fn prepare_row_commit_op(
-        &self,
-        op: &CommitRowOp,
-    ) -> Result<PreparedRowCommitOp, InternalError> {
-        runtime_entity_catalog::prepare_row_commit(self, op, commit::CommitPrepareMode::NormalWrite)
-    }
-
     // Rebuild one already-authorized marker effect without re-running current
     // accepted relation-target admission.
     pub(in crate::db) fn prepare_row_commit_op_for_replay(
@@ -339,12 +332,18 @@ impl<C: CanisterKind> Db<C> {
     }
 
     // Validate relation constraints for delete-selected target keys.
-    pub(crate) fn validate_delete_relations(
+    pub(in crate::db) fn validate_delete_relations_with_reader(
         &self,
         target_path: &str,
         deleted_target_keys: &BTreeSet<RawDataStoreKey>,
+        source_reader: &dyn index::StructuralPrimaryRowReader,
     ) -> Result<(), InternalError> {
-        runtime_entity_catalog::validate_delete_relations(self, target_path, deleted_target_keys)
+        runtime_entity_catalog::validate_delete_relations(
+            self,
+            target_path,
+            deleted_target_keys,
+            source_reader,
+        )
     }
 }
 

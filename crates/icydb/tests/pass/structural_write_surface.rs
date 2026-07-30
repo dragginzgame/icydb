@@ -14,5 +14,13 @@ fn main() {
         patch,
     };
 
-    let _ = mutation;
+    let batch = vec![
+        mutation,
+        StructuralMutation::Delete {
+            entity: "User".to_string(),
+            key: InputValue::Nat64(1),
+        },
+    ];
+
+    let _ = batch;
 }

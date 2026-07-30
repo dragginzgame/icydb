@@ -490,9 +490,11 @@ request-specific diagnostics. Update omission preserves the current value;
 Mutation ownership lives on one accepted structural write lane:
 
 - `execute_trusted_structural_mutation(...)` for entity/field-name writes;
+- `execute_trusted_structural_mutation_batch(...)` for bounded atomic
+  same-entity mixed writes;
 - `execute_trusted_typed_write(...)` for explicitly generated typed adapters;
 - `execute_trusted_structural_insert_batch(...)` for atomic same-entity
-  inserts.
+  insert convenience.
 
 Every SQL row after-image is decoded against accepted field contracts and then
 enters the same structural write-admission pipeline used by non-SQL structural

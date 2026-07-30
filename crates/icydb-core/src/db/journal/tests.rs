@@ -258,6 +258,42 @@ fn journal_batch_codec_binds_one_identity_range_to_its_exact_ordered_row_set() {
 }
 
 #[test]
+fn journal_batch_identity_range_filters_mixed_existing_row_transitions() {
+    let batch = JournalBatch::new(
+        [0x37; 16],
+        [0x47; 16],
+        JournalSequence::new(6),
+        vec![
+            row_delete_record(1),
+            row_put_record(5),
+            row_put_record(3),
+            row_put_record(6),
+            identity_range_record_from(4, 2),
+        ],
+    )
+    .expect("mixed existing rows and contiguous allocations should build");
+    let encoded = encode_journal_batch(&batch).expect("mixed Identity batch should encode");
+    assert_eq!(
+        decode_journal_batch(&encoded).expect("mixed Identity batch should decode"),
+        batch,
+    );
+
+    for records in [
+        vec![
+            row_put_record(5),
+            row_delete_record(6),
+            identity_range_record_from(4, 1),
+        ],
+        vec![row_put_record(7), identity_range_record_from(4, 1)],
+    ] {
+        let error = JournalBatch::new([0x38; 16], [0x48; 16], JournalSequence::new(7), records)
+            .expect_err("deleting an allocation or putting above the range must reject");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
+}
+
+#[test]
 fn identity_range_adds_one_fixed_65_byte_record_per_owner_batch() {
     let row_only = JournalBatch::new(
         [0x36; 16],

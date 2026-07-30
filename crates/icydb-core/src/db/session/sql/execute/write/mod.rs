@@ -317,14 +317,13 @@ impl<C: CanisterKind> DbSession<C> {
             .rows
             .into_rows()
             .into_iter()
-            .map(|(target, patch)| AcceptedStructuralMutation::new(target, patch))
+            .map(|(target, patch)| AcceptedStructuralMutation::save(execution.mode, target, patch))
             .collect();
         let columns = projection_labels_from_accepted_write_descriptor(descriptor);
         let rows = self
             .execute_accepted_structural_save_batch(
                 catalog,
                 descriptor,
-                execution.mode,
                 rows,
                 execution.context.operation_timestamp(),
                 |rows| {

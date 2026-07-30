@@ -20,8 +20,8 @@ use crate::{
             resolve_update_structural_patch_with_accepted_contract,
         },
         executor::{
-            AcceptedMutationConstraintScheduler, commit_delete_row_ops_with_window_for_path,
-            commit_structural_save_row_ops_with_window_for_path, mutation_key_exists_error,
+            AcceptedMutationConstraintScheduler, commit_structural_row_ops_with_window_for_path,
+            mutation_key_exists_error,
         },
         schema::{
             AcceptedFieldKind, AcceptedIdentityAllocation, AcceptedRowLayoutRuntimeContract,
@@ -34,10 +34,9 @@ use crate::{
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
-    value::{InputValue, OutputValue, Value},
+    value::{InputValue, Value},
 };
 use icydb_schema::{EntitySourceKey, FieldSourceKey, FieldType, TypeSourceKey};
-use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AcceptedIdentityInsertField {
@@ -59,19 +58,66 @@ impl AcceptedStructuralMutationTarget {
     }
 }
 
-/// One accepted structural mutation ready for shared batch materialization.
-pub(in crate::db::session) struct AcceptedStructuralMutation {
-    target: AcceptedStructuralMutationTarget,
-    patch: AcceptedMutationIntentPatch,
+/// One accepted structural mutation intent ready for shared batch
+/// materialization.
+pub(in crate::db::session) enum AcceptedStructuralMutation {
+    Save {
+        mode: MutationMode,
+        target: AcceptedStructuralMutationTarget,
+        patch: AcceptedMutationIntentPatch,
+    },
+    Delete {
+        key: Box<DecodedDataStoreKey>,
+    },
 }
 
 impl AcceptedStructuralMutation {
-    pub(in crate::db::session) const fn new(
+    pub(in crate::db::session) const fn save(
+        mode: MutationMode,
         target: AcceptedStructuralMutationTarget,
         patch: AcceptedMutationIntentPatch,
     ) -> Self {
-        Self { target, patch }
+        Self::Save {
+            mode,
+            target,
+            patch,
+        }
     }
+
+    pub(in crate::db::session) fn delete(key: DecodedDataStoreKey) -> Self {
+        Self::Delete { key: Box::new(key) }
+    }
+}
+
+struct OrderedAcceptedStructuralMutation {
+    input_ordinal: u32,
+    intent: AcceptedStructuralMutation,
+}
+
+const MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS: usize = 4_096;
+const MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES: usize = 1024 * 1024;
+
+fn add_structural_mutation_staged_bytes(
+    total: &mut usize,
+    lengths: impl IntoIterator<Item = usize>,
+) -> Result<(), InternalError> {
+    for length in lengths {
+        *total = total
+            .checked_add(length)
+            .ok_or_else(InternalError::mutation_batch_staged_bytes_exceeded)?;
+        if *total > MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES {
+            return Err(InternalError::mutation_batch_staged_bytes_exceeded());
+        }
+    }
+    Ok(())
+}
+
+fn validate_structural_mutation_result_bytes(encoded_bytes: usize) -> Result<(), InternalError> {
+    if encoded_bytes > MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES {
+        return Err(InternalError::mutation_batch_result_bytes_exceeded());
+    }
+    Ok(())
 }
 
 /// One canonical row produced by structural mutation materialization.
@@ -170,6 +216,46 @@ fn lower_dynamic_patch(
         };
     }
     Ok(lowered)
+}
+
+fn lower_dynamic_mutation_intent(
+    entity_tag: crate::types::EntityTag,
+    entity_path: &str,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    request: &DynamicMutation,
+) -> Result<(AcceptedStructuralMutation, Option<SaveMutationKind>), InternalError> {
+    match request {
+        DynamicMutation::Insert { patch, .. } => Ok((
+            AcceptedStructuralMutation::save(
+                MutationMode::Insert,
+                AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                lower_dynamic_patch(entity_path, descriptor, patch, MutationMode::Insert)?,
+            ),
+            Some(SaveMutationKind::Insert),
+        )),
+        DynamicMutation::Update { key, patch, .. }
+        | DynamicMutation::Replace { key, patch, .. } => {
+            let mode =
+                dynamic_mutation_mode(request).ok_or_else(InternalError::executor_invariant)?;
+            let kind = match mode {
+                MutationMode::Insert => SaveMutationKind::Insert,
+                MutationMode::Replace => SaveMutationKind::Replace,
+                MutationMode::Update => SaveMutationKind::Update,
+            };
+            Ok((
+                AcceptedStructuralMutation::save(
+                    mode,
+                    AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
+                    lower_dynamic_patch(entity_path, descriptor, patch, mode)?,
+                ),
+                Some(kind),
+            ))
+        }
+        DynamicMutation::Delete { key, .. } => Ok((
+            AcceptedStructuralMutation::delete(dynamic_key(entity_tag, key)?),
+            None,
+        )),
+    }
 }
 
 fn lower_typed_patch(
@@ -348,25 +434,42 @@ fn validated_existing_row(
     Ok(row)
 }
 
-fn project_dynamic_mutation_row(
+fn prepare_dynamic_mutation_result(
+    catalog: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    contract: &StructuralRowContract,
-    enum_catalog: &crate::db::schema::AcceptedEnumCatalog,
-    row: &RawRow,
-) -> Result<(Vec<String>, Vec<OutputValue>), InternalError> {
-    let reader =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, contract)?;
-    let mut columns = Vec::with_capacity(descriptor.fields().len());
-    let mut values = Vec::with_capacity(descriptor.fields().len());
-    for field in descriptor.fields() {
-        columns.push(field.name().to_string());
-        let value = reader.required_cached_value(usize::from(field.slot().get()))?;
-        values.push(
-            output_value_from_runtime(enum_catalog, value)
-                .map_err(|_| InternalError::store_invariant())?,
-        );
-    }
-    Ok((columns, values))
+    rows: Vec<AcceptedStructuralMutationRow>,
+) -> Result<DynamicMutationResult, InternalError> {
+    let affected_rows = rows.iter().try_fold(0_u32, |total, row| {
+        total
+            .checked_add(u32::from(row.logical_changed()))
+            .ok_or_else(InternalError::executor_invariant)
+    })?;
+    let columns = descriptor
+        .fields()
+        .iter()
+        .map(|field| field.name().to_string())
+        .collect();
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            row.values
+                .iter()
+                .map(|value| {
+                    output_value_from_runtime(catalog.enum_catalog(), value)
+                        .map_err(|_| InternalError::store_invariant())
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let result = DynamicMutationResult {
+        entity: catalog.snapshot().entity_name().to_string(),
+        columns,
+        rows,
+        affected_rows,
+    };
+    let encoded = candid::encode_one(&result).map_err(|_| InternalError::executor_invariant())?;
+    validate_structural_mutation_result_bytes(encoded.len())?;
+    Ok(result)
 }
 
 fn dynamic_typed_field_type(
@@ -576,61 +679,25 @@ impl<C: CanisterKind> DbSession<C> {
         keys: Vec<DecodedDataStoreKey>,
         precommit_validation: impl FnOnce(&[Vec<Value>]) -> Result<(), InternalError>,
     ) -> Result<Vec<Vec<Value>>, InternalError> {
-        let identity = catalog.identity();
-        let entity_path = identity.entity_path();
-        let row_decode_contract =
-            descriptor.row_decode_contract(catalog.value_catalog_handle().clone());
-        let row_contract = StructuralRowContract::from_accepted_decode_contract(
-            entity_path,
-            row_decode_contract.clone(),
-        );
-        let store = self.db.recovered_store(identity.store_path())?;
-        let mut rows = Vec::with_capacity(keys.len());
-        let mut scheduler =
-            AcceptedMutationConstraintScheduler::for_delete(&self.db, entity_path, keys.len());
-
-        for key in keys {
-            let before = validated_existing_row(store, &key, &row_contract)?
-                .ok_or_else(|| InternalError::store_not_found(&key))?;
-            let raw_key = key.to_raw()?;
-            let canonical_before = canonical_row_from_raw_row_with_accepted_decode_contract(
-                entity_path,
-                row_decode_contract.clone(),
-                &before,
-            )?;
-            scheduler.schedule_delete(CommitRowOp::new(
-                entity_path,
-                raw_key,
-                Some(canonical_before.as_raw_row().as_bytes().to_vec()),
-                None,
-                catalog.fingerprint(),
-            ))?;
-            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                canonical_before.as_raw_row(),
-                &row_contract,
-            )?;
-            let mut values = Vec::with_capacity(descriptor.fields().len());
-            for field in descriptor.fields() {
-                values.push(
-                    reader
-                        .required_cached_value(usize::from(field.slot().get()))?
-                        .clone(),
-                );
-            }
-            rows.push(values);
-        }
-
-        let batch = scheduler.finish()?;
-        precommit_validation(rows.as_slice())?;
-        if !batch.is_empty() {
-            commit_delete_row_ops_with_window_for_path(
-                &self.db,
-                entity_path,
-                batch,
-                "accepted_structural_delete_batch_apply",
-            )?;
-        }
-        Ok(rows)
+        let mutations = keys
+            .into_iter()
+            .map(AcceptedStructuralMutation::delete)
+            .collect();
+        self.execute_accepted_structural_mutation_batch_inner(
+            catalog,
+            descriptor,
+            mutations,
+            Timestamp::now(),
+            false,
+            |rows| {
+                let rows = rows
+                    .into_iter()
+                    .map(AcceptedStructuralMutationRow::into_values)
+                    .collect::<Vec<_>>();
+                precommit_validation(rows.as_slice())?;
+                Ok(rows)
+            },
+        )
     }
 
     /// Materialize one accepted structural batch, let its caller prepare and
@@ -644,17 +711,15 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        mode: MutationMode,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         precommit_preparation: impl FnOnce(
             Vec<AcceptedStructuralMutationRow>,
         ) -> Result<T, InternalError>,
     ) -> Result<T, InternalError> {
-        self.execute_accepted_structural_save_batch_inner(
+        self.execute_accepted_structural_mutation_batch_inner(
             catalog,
             descriptor,
-            mode,
             mutations,
             operation_timestamp,
             false,
@@ -671,10 +736,9 @@ impl<C: CanisterKind> DbSession<C> {
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
     ) -> Result<usize, InternalError> {
-        self.execute_accepted_structural_save_batch_inner(
+        self.execute_accepted_structural_mutation_batch_inner(
             catalog,
             descriptor,
-            MutationMode::Update,
             mutations,
             operation_timestamp,
             true,
@@ -683,15 +747,13 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[expect(
-        clippy::too_many_arguments,
         clippy::too_many_lines,
         reason = "one phased owner keeps accepted authority, mutation context, precommit preparation, output capture, and commit staging inseparable"
     )]
-    fn execute_accepted_structural_save_batch_inner<T>(
+    fn execute_accepted_structural_mutation_batch_inner<T>(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        mode: MutationMode,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         largest_journaled_prefix: bool,
@@ -715,37 +777,119 @@ impl<C: CanisterKind> DbSession<C> {
             .as_ref()
             .map(|_| database_incarnation_id())
             .transpose()?;
-        if identity_field.is_some() {
-            let _ = checked_pre_key_candidate_count(mutations.len())?;
+        if mutations.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+            return Err(InternalError::mutation_batch_too_many_items());
         }
+        let identity_candidate_count = mutations
+            .iter()
+            .filter(|mutation| {
+                matches!(
+                    mutation,
+                    AcceptedStructuralMutation::Save {
+                        mode: MutationMode::Insert,
+                        target: AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                        ..
+                    }
+                )
+            })
+            .count();
+        let _ = checked_pre_key_candidate_count(identity_candidate_count)?;
+        let mutations = mutations
+            .into_iter()
+            .enumerate()
+            .map(|(input_index, intent)| {
+                u32::try_from(input_index)
+                    .map(|input_ordinal| OrderedAcceptedStructuralMutation {
+                        input_ordinal,
+                        intent,
+                    })
+                    .map_err(|_| InternalError::mutation_batch_too_many_items())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut identity_cursor: Option<IdentityStatementCursor> = None;
-        let mut scheduler = AcceptedMutationConstraintScheduler::for_save(
-            &self.db,
+        let mut identity_insert_ordinal = 0_u32;
+        let mut scheduler = AcceptedMutationConstraintScheduler::new(
             entity_path,
-            mode,
             row_decode_contract.clone(),
             catalog.fingerprint(),
             catalog.accepted_row_constraints(),
             mutations.len(),
         );
         let mut output = Vec::with_capacity(mutations.len());
-        let mut seen_keys = BTreeSet::new();
+        let mut staged_bytes = 0_usize;
 
-        for (input_index, mutation) in mutations.into_iter().enumerate() {
-            let input_ordinal = u32::try_from(input_index)
-                .map_err(|_| InternalError::identity_candidate_count_exhausted())?;
-            let (expected_key, pre_key_insert, mut keyed_patch) = match mutation.target {
-                AcceptedStructuralMutationTarget::ResolveFromAfterImage => (
+        for mutation in mutations {
+            let batch_input_ordinal = mutation.input_ordinal;
+            let mutation = mutation.intent;
+            let AcceptedStructuralMutation::Save {
+                mode,
+                target,
+                patch: authored_patch,
+            } = mutation
+            else {
+                let AcceptedStructuralMutation::Delete { key } = mutation else {
+                    return Err(InternalError::executor_invariant());
+                };
+                let before = validated_existing_row(store, &key, &row_contract)?
+                    .ok_or_else(|| InternalError::store_not_found(&key))?;
+                let raw_key = key.to_raw()?;
+                let canonical_before = canonical_row_from_raw_row_with_accepted_decode_contract(
+                    entity_path,
+                    row_decode_contract.clone(),
+                    &before,
+                )?;
+                add_structural_mutation_staged_bytes(
+                    &mut staged_bytes,
+                    [
+                        raw_key.as_bytes().len(),
+                        canonical_before.as_raw_row().as_bytes().len(),
+                    ],
+                )?;
+                scheduler.schedule_delete(CommitRowOp::new(
+                    entity_path,
+                    raw_key,
+                    Some(canonical_before.as_raw_row().as_bytes().to_vec()),
                     None,
-                    Some(AcceptedPreKeyInsert::new(
-                        identity.entity_tag(),
-                        mutation.patch,
-                        input_ordinal,
-                    )),
-                    None,
-                ),
+                    catalog.fingerprint(),
+                ))?;
+                let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                    canonical_before.as_raw_row(),
+                    &row_contract,
+                )?;
+                let mut values = Vec::with_capacity(descriptor.fields().len());
+                for field in descriptor.fields() {
+                    values.push(
+                        reader
+                            .required_cached_value(usize::from(field.slot().get()))?
+                            .clone(),
+                    );
+                }
+                output.push(AcceptedStructuralMutationRow {
+                    values,
+                    logical_changed: true,
+                });
+                continue;
+            };
+            let (expected_key, pre_key_insert, mut keyed_patch) = match target {
+                AcceptedStructuralMutationTarget::ResolveFromAfterImage => {
+                    let candidate_ordinal =
+                        if identity_field.is_some() && matches!(mode, MutationMode::Insert) {
+                            identity_insert_ordinal
+                        } else {
+                            batch_input_ordinal
+                        };
+                    (
+                        None,
+                        Some(AcceptedPreKeyInsert::new(
+                            identity.entity_tag(),
+                            authored_patch,
+                            candidate_ordinal,
+                        )),
+                        None,
+                    )
+                }
                 AcceptedStructuralMutationTarget::Expected(key) => {
-                    (Some(*key), None, Some(mutation.patch))
+                    (Some(*key), None, Some(authored_patch))
                 }
             };
             if matches!(mode, MutationMode::Replace)
@@ -803,12 +947,14 @@ impl<C: CanisterKind> DbSession<C> {
                         )
                     })?);
                 }
-                Some(
-                    identity_cursor
-                        .as_mut()
-                        .ok_or_else(InternalError::identity_state_corruption)?
-                        .allocate(identity_field.field_slot, candidate.input_ordinal())?,
-                )
+                let allocation = identity_cursor
+                    .as_mut()
+                    .ok_or_else(InternalError::identity_state_corruption)?
+                    .allocate(identity_field.field_slot, candidate.input_ordinal())?;
+                identity_insert_ordinal = identity_insert_ordinal
+                    .checked_add(1)
+                    .ok_or_else(InternalError::identity_candidate_count_exhausted)?;
+                Some(allocation)
             } else if let Some(identity_field) = identity_field.as_ref()
                 && matches!(mode, MutationMode::Replace)
                 && before.is_none()
@@ -898,12 +1044,6 @@ impl<C: CanisterKind> DbSession<C> {
                 ));
             }
             let raw_key = data_key.to_raw()?;
-            if !seen_keys.insert(raw_key.clone()) {
-                return Err(InternalError::mutation_atomic_save_duplicate_key(
-                    entity_path,
-                    data_key,
-                ));
-            }
             let canonical_before = before
                 .as_ref()
                 .map(|before| {
@@ -920,6 +1060,16 @@ impl<C: CanisterKind> DbSession<C> {
             let physical_changed = before
                 .as_ref()
                 .is_none_or(|before| before.as_bytes() != after.as_raw_row().as_bytes());
+            add_structural_mutation_staged_bytes(
+                &mut staged_bytes,
+                [
+                    raw_key.as_bytes().len(),
+                    canonical_before
+                        .as_ref()
+                        .map_or(0, |before| before.as_raw_row().as_bytes().len()),
+                    after.as_raw_row().as_bytes().len(),
+                ],
+            )?;
             let row_op = physical_changed.then(|| {
                 CommitRowOp::new(
                     entity_path,
@@ -932,6 +1082,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             });
             scheduler.schedule_save_after_image(
+                mode,
                 &data_key,
                 after.as_raw_row(),
                 provenance.as_slice(),
@@ -940,9 +1091,7 @@ impl<C: CanisterKind> DbSession<C> {
             if physical_changed {
                 #[cfg(feature = "sql")]
                 if largest_journaled_prefix
-                    && !crate::db::commit::journaled_row_ops_fit_commit_window(
-                        scheduler.save_rows()?,
-                    )
+                    && !crate::db::commit::journaled_row_ops_fit_commit_window(scheduler.rows())
                 {
                     scheduler.pop_last_save_row()?;
                     if output.is_empty() {
@@ -971,7 +1120,7 @@ impl<C: CanisterKind> DbSession<C> {
         #[cfg(not(feature = "sql"))]
         let _ = largest_journaled_prefix;
 
-        let batch = scheduler.finish()?;
+        let batch = scheduler.finish();
         let prepared = precommit_preparation(output)?;
         let identity_ranges = identity_cursor
             .map(IdentityStatementCursor::into_range_advance)
@@ -983,7 +1132,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(InternalError::identity_corruption());
         }
         if !batch.is_empty() {
-            commit_structural_save_row_ops_with_window_for_path(
+            commit_structural_row_ops_with_window_for_path(
                 &self.db,
                 entity_path,
                 batch,
@@ -1004,15 +1153,13 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<DynamicMutationResult, InternalError> {
         let identity = catalog.identity();
         let entity_path = identity.entity_path();
-        let mut rows = self.execute_accepted_structural_save_batch(
+        let result = self.execute_accepted_structural_save_batch(
             catalog,
             descriptor,
-            mode,
-            vec![AcceptedStructuralMutation::new(target, patch)],
+            vec![AcceptedStructuralMutation::save(mode, target, patch)],
             Timestamp::now(),
-            Ok,
+            |rows| prepare_dynamic_mutation_result(catalog, descriptor, rows),
         )?;
-        let result = rows.pop().ok_or_else(InternalError::executor_invariant)?;
         record(MetricsEvent::SaveMutation {
             entity_path: entity_path.into(),
             kind: match mode {
@@ -1020,27 +1167,9 @@ impl<C: CanisterKind> DbSession<C> {
                 MutationMode::Replace => SaveMutationKind::Replace,
                 MutationMode::Update => SaveMutationKind::Update,
             },
-            rows_touched: u64::from(result.logical_changed()),
+            rows_touched: u64::from(result.affected_rows),
         });
-        let columns = descriptor
-            .fields()
-            .iter()
-            .map(|field| field.name().to_string())
-            .collect();
-        let row = result
-            .values
-            .iter()
-            .map(|value| {
-                output_value_from_runtime(catalog.enum_catalog(), value)
-                    .map_err(|_| InternalError::store_invariant())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(DynamicMutationResult {
-            entity: catalog.snapshot().entity_name().to_string(),
-            columns,
-            rows: vec![row],
-            affected_rows: u32::from(result.logical_changed()),
-        })
+        Ok(result)
     }
 
     /// Execute one trusted entity-name-driven structural mutation.
@@ -1053,84 +1182,84 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &DynamicMutation,
     ) -> Result<DynamicMutationResult, InternalError> {
-        if request.entity().is_empty() {
+        self.execute_trusted_dynamic_mutation_batch(vec![request.clone()])
+    }
+
+    /// Execute one bounded same-entity structural mutation batch atomically.
+    ///
+    /// Every item binds to the same accepted catalog identity, shares one
+    /// operation timestamp, and is projected to its public result before the
+    /// commit marker can be published.
+    pub fn execute_trusted_dynamic_mutation_batch(
+        &self,
+        requests: Vec<DynamicMutation>,
+    ) -> Result<DynamicMutationResult, InternalError> {
+        if requests.is_empty() {
+            return Err(InternalError::mutation_batch_empty());
+        }
+        if requests.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+            return Err(InternalError::mutation_batch_too_many_items());
+        }
+        let first = requests
+            .first()
+            .ok_or_else(InternalError::mutation_batch_empty)?;
+        if first.entity().is_empty() {
             return Err(InternalError::executor_unsupported());
         }
-
-        let catalog =
-            self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
-        let identity = catalog.identity();
-        let entity_path = identity.entity_path();
-        let store_path = identity.store_path();
+        let catalog = self.accepted_schema_catalog_context_for_entity_name(Some(first.entity()))?;
+        let accepted_identity = catalog.identity();
         let descriptor =
             AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-        let row_decode_contract =
-            descriptor.row_decode_contract(catalog.value_catalog_handle().clone());
-        let row_contract = StructuralRowContract::from_accepted_decode_contract(
-            entity_path,
-            row_decode_contract.clone(),
-        );
-        let store = self.db.recovered_store(store_path)?;
+        let mut mutations = Vec::with_capacity(requests.len());
+        let mut save_kinds = Vec::with_capacity(requests.len());
 
-        if let DynamicMutation::Delete { key, .. } = request {
-            let data_key = dynamic_key(identity.entity_tag(), key)?;
-            let before = validated_existing_row(store, &data_key, &row_contract)?
-                .ok_or_else(|| InternalError::store_not_found(&data_key))?;
-            let raw_key = data_key.to_raw()?;
-            let canonical_before = canonical_row_from_raw_row_with_accepted_decode_contract(
-                entity_path,
-                row_decode_contract,
-                &before,
-            )?;
-            let mut scheduler =
-                AcceptedMutationConstraintScheduler::for_delete(&self.db, entity_path, 1);
-            scheduler.schedule_delete(CommitRowOp::new(
-                entity_path,
-                raw_key,
-                Some(canonical_before.as_raw_row().as_bytes().to_vec()),
-                None,
-                catalog.fingerprint(),
-            ))?;
-            let batch = scheduler.finish()?;
-            commit_delete_row_ops_with_window_for_path(
-                &self.db,
-                entity_path,
-                batch,
-                "dynamic_delete_row_apply",
-            )?;
-            let (columns, row) = project_dynamic_mutation_row(
+        for request in &requests {
+            if request.entity().is_empty() {
+                return Err(InternalError::executor_unsupported());
+            }
+            let item_catalog =
+                self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
+            if item_catalog.identity() != accepted_identity {
+                return Err(InternalError::mutation_batch_entity_mismatch());
+            }
+            let (mutation, save_kind) = lower_dynamic_mutation_intent(
+                accepted_identity.entity_tag(),
+                accepted_identity.entity_path(),
                 &descriptor,
-                &row_contract,
-                catalog.enum_catalog(),
-                canonical_before.as_raw_row(),
+                request,
             )?;
-
-            return Ok(DynamicMutationResult {
-                entity: request.entity().to_string(),
-                columns,
-                rows: vec![row],
-                affected_rows: 1,
-            });
+            mutations.push(mutation);
+            save_kinds.push(save_kind);
         }
 
-        let mode = dynamic_mutation_mode(request).ok_or_else(InternalError::executor_invariant)?;
-        let (target, patch) = match request {
-            DynamicMutation::Insert { patch, .. } => (
-                AcceptedStructuralMutationTarget::ResolveFromAfterImage,
-                patch,
-            ),
-            DynamicMutation::Update { key, patch, .. }
-            | DynamicMutation::Replace { key, patch, .. } => (
-                AcceptedStructuralMutationTarget::expected(dynamic_key(
-                    identity.entity_tag(),
-                    key,
-                )?),
-                patch,
-            ),
-            DynamicMutation::Delete { .. } => return Err(InternalError::executor_invariant()),
-        };
-        let patch = lower_dynamic_patch(entity_path, &descriptor, patch, mode)?;
-        self.execute_one_accepted_save_mutation(&catalog, &descriptor, mode, target, patch)
+        let entity_path = accepted_identity.entity_path_handle();
+        let (result, metrics) = self.execute_accepted_structural_mutation_batch_inner(
+            &catalog,
+            &descriptor,
+            mutations,
+            Timestamp::now(),
+            false,
+            |rows| {
+                if rows.len() != save_kinds.len() {
+                    return Err(InternalError::executor_invariant());
+                }
+                let metrics = rows
+                    .iter()
+                    .zip(save_kinds)
+                    .filter_map(|(row, kind)| kind.map(|kind| (kind, row.logical_changed())))
+                    .collect::<Vec<_>>();
+                let result = prepare_dynamic_mutation_result(&catalog, &descriptor, rows)?;
+                Ok((result, metrics))
+            },
+        )?;
+        for (kind, logical_changed) in metrics {
+            record(MetricsEvent::SaveMutation {
+                entity_path: entity_path.clone(),
+                kind,
+                rows_touched: u64::from(logical_changed),
+            });
+        }
+        Ok(result)
     }
 
     /// Execute one generated typed write through immutable accepted entity and
@@ -1180,72 +1309,14 @@ impl<C: CanisterKind> DbSession<C> {
         entity: &str,
         patches: Vec<DynamicStructuralPatch>,
     ) -> Result<DynamicMutationResult, InternalError> {
-        if entity.is_empty() || patches.is_empty() {
-            return Err(InternalError::executor_unsupported());
-        }
-
-        let catalog = self.accepted_schema_catalog_context_for_entity_name(Some(entity))?;
-        let identity = catalog.identity();
-        let entity_path = identity.entity_path();
-        let descriptor =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
         let mutations = patches
-            .iter()
-            .map(|patch| {
-                lower_dynamic_patch(entity_path, &descriptor, patch, MutationMode::Insert).map(
-                    |patch| {
-                        AcceptedStructuralMutation::new(
-                            AcceptedStructuralMutationTarget::ResolveFromAfterImage,
-                            patch,
-                        )
-                    },
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let results = self.execute_accepted_structural_save_batch(
-            &catalog,
-            &descriptor,
-            MutationMode::Insert,
-            mutations,
-            Timestamp::now(),
-            Ok,
-        )?;
-        let affected_rows = results.iter().try_fold(0_u32, |total, result| {
-            total
-                .checked_add(u32::from(result.logical_changed()))
-                .ok_or_else(InternalError::executor_invariant)
-        })?;
-        record(MetricsEvent::SaveMutation {
-            entity_path: entity_path.into(),
-            kind: SaveMutationKind::Insert,
-            rows_touched: u64::from(affected_rows),
-        });
-
-        let columns = descriptor
-            .fields()
-            .iter()
-            .map(|field| field.name().to_string())
-            .collect();
-        let rows = results
             .into_iter()
-            .map(|result| {
-                result
-                    .values
-                    .iter()
-                    .map(|value| {
-                        output_value_from_runtime(catalog.enum_catalog(), value)
-                            .map_err(|_| InternalError::store_invariant())
-                    })
-                    .collect::<Result<Vec<_>, _>>()
+            .map(|patch| DynamicMutation::Insert {
+                entity: entity.to_string(),
+                patch,
             })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(DynamicMutationResult {
-            entity: entity.to_string(),
-            columns,
-            rows,
-            affected_rows,
-        })
+            .collect();
+        self.execute_trusted_dynamic_mutation_batch(mutations)
     }
 }
 
@@ -1649,14 +1720,16 @@ mod identity_pre_key_tests {
         AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
         AcceptedStructuralMutationTarget, DbSession, DynamicMutation, DynamicStructuralPatch,
         DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicTypedMutation,
-        DynamicWriteCell, FieldSlot, checked_pre_key_candidate_count,
-        insert_key_exists_after_generation,
+        DynamicWriteCell, FieldSlot, MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+        MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES, MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
+        add_structural_mutation_staged_bytes, checked_pre_key_candidate_count,
+        insert_key_exists_after_generation, validate_structural_mutation_result_bytes,
     };
     use crate::{
         db::{
             commit::{database_incarnation_id, forget_recovered_domain_for_tests},
             data::DataStore,
-            executor::{IdentityCommitInterruption, interrupt_next_identity_commit_for_tests},
+            executor::{MutationCommitInterruption, interrupt_next_mutation_commit_for_tests},
             index::IndexStore,
             integrity::{
                 PhysicalUnitCheckpoint, QuickIntegrityStatus, RowInspectionLimits,
@@ -1896,11 +1969,19 @@ mod identity_pre_key_tests {
             .set_authored(FieldSlot::from_validated_index(1), InputValue::Nat64(value))
     }
 
+    fn dynamic_payload_patch(value: u64) -> DynamicStructuralPatch {
+        DynamicStructuralPatch::new(vec![(
+            "payload".to_string(),
+            DynamicWriteCell::Value(InputValue::Nat64(value)),
+        )])
+    }
+
     fn batch(values: &[u64]) -> Vec<AcceptedStructuralMutation> {
         values
             .iter()
             .map(|value| {
-                AcceptedStructuralMutation::new(
+                AcceptedStructuralMutation::save(
+                    MutationMode::Insert,
                     AcceptedStructuralMutationTarget::ResolveFromAfterImage,
                     payload_patch(*value),
                 )
@@ -1931,6 +2012,216 @@ mod identity_pre_key_tests {
         )
         .expect_err("candidate counts beyond u32 must reject");
         assert_identity_boundary(&error);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one ordered conservation scenario proves mixed success, distinct patches, late failure neutrality, result order, and Identity state"
+    )]
+    fn mixed_structural_batch_preserves_order_atomicity_and_identity_insert_ordinals() {
+        let session = initialize();
+        let seeded = session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![dynamic_payload_patch(100), dynamic_payload_patch(40)],
+            )
+            .expect("seed rows should commit");
+        assert_eq!(seeded.affected_rows, 2);
+
+        let mixed = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(60),
+                },
+                DynamicMutation::Insert {
+                    entity: ENTITY_NAME.to_string(),
+                    patch: dynamic_payload_patch(20),
+                },
+                DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(2),
+                },
+                DynamicMutation::Insert {
+                    entity: ENTITY_NAME.to_string(),
+                    patch: dynamic_payload_patch(20),
+                },
+            ])
+            .expect("mixed split/merge batch should commit atomically");
+        assert_eq!(mixed.affected_rows, 4);
+        assert_eq!(
+            mixed.rows,
+            vec![
+                vec![
+                    crate::value::OutputValue::Nat64(1),
+                    crate::value::OutputValue::Nat64(60),
+                ],
+                vec![
+                    crate::value::OutputValue::Nat64(3),
+                    crate::value::OutputValue::Nat64(20),
+                ],
+                vec![
+                    crate::value::OutputValue::Nat64(2),
+                    crate::value::OutputValue::Nat64(40),
+                ],
+                vec![
+                    crate::value::OutputValue::Nat64(4),
+                    crate::value::OutputValue::Nat64(20),
+                ],
+            ],
+            "save after-images and delete before-images must retain input order",
+        );
+
+        let distinct_updates = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(50),
+                },
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(3),
+                    patch: dynamic_payload_patch(30),
+                },
+            ])
+            .expect("distinct update patches should share one atomic batch");
+        assert_eq!(
+            distinct_updates.rows,
+            vec![
+                vec![
+                    crate::value::OutputValue::Nat64(1),
+                    crate::value::OutputValue::Nat64(50),
+                ],
+                vec![
+                    crate::value::OutputValue::Nat64(3),
+                    crate::value::OutputValue::Nat64(30),
+                ],
+            ],
+        );
+
+        let duplicate = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(999),
+                },
+                DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                },
+            ])
+            .expect_err("duplicate targets across operation kinds must reject");
+        assert!(matches!(
+            duplicate.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey,
+            }),
+        ));
+        let late_missing_target = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(777),
+                },
+                DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(99),
+                },
+            ])
+            .expect_err("a late missing target must reject every earlier staged row");
+        assert_eq!(late_missing_target.class(), ErrorClass::NotFound);
+        let unchanged = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(1),
+                patch: dynamic_payload_patch(50),
+            })
+            .expect("the rejected first update must not have published");
+        assert_eq!(unchanged.affected_rows, 0);
+
+        SCHEMA_STORE.with(|store| {
+            let cursor = store
+                .borrow()
+                .identity_statement_cursor(
+                    database_incarnation_id().expect("database incarnation should remain readable"),
+                    ENTITY_TAG,
+                    FieldId::new(1),
+                    &AcceptedFieldKind::Nat64,
+                )
+                .expect("mixed Identity state should remain readable");
+            assert_eq!(cursor.expected_high_water(), 4);
+            assert!(!cursor.has_allocations());
+        });
+    }
+
+    #[test]
+    fn mixed_structural_batch_rejects_empty_and_over_bound_before_resolution() {
+        let session = initialize();
+        let empty = session
+            .execute_trusted_dynamic_mutation_batch(Vec::new())
+            .expect_err("an empty public batch must reject");
+        assert!(matches!(
+            empty.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchEmpty,
+            }),
+        ));
+
+        let requests = (0..=MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS)
+            .map(|_| DynamicMutation::Delete {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(1),
+            })
+            .collect();
+        let over_bound = session
+            .execute_trusted_dynamic_mutation_batch(requests)
+            .expect_err("operation cap plus one must reject before row resolution");
+        assert!(matches!(
+            over_bound.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyItems,
+            }),
+        ));
+    }
+
+    #[test]
+    fn mixed_structural_batch_staged_byte_bound_uses_checked_exact_boundary() {
+        let mut exact = 0;
+        add_structural_mutation_staged_bytes(
+            &mut exact,
+            [MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES],
+        )
+        .expect("the exact staged-byte boundary should admit");
+        assert_eq!(exact, MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES);
+
+        let error = add_structural_mutation_staged_bytes(&mut exact, [1])
+            .expect_err("one byte above the staged-byte boundary must reject");
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary:
+                    icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchStagedBytesExceeded,
+            }),
+        ));
+
+        validate_structural_mutation_result_bytes(MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES)
+            .expect("the exact result-byte boundary should admit");
+        let error = validate_structural_mutation_result_bytes(
+            MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES + 1,
+        )
+        .expect_err("one byte above the result-byte boundary must reject");
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary:
+                    icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
+            }),
+        ));
     }
 
     #[expect(
@@ -1964,7 +2255,6 @@ mod identity_pre_key_tests {
             .execute_accepted_structural_save_batch(
                 &catalog,
                 &descriptor,
-                MutationMode::Insert,
                 batch(&[1_000, 2_000]),
                 Timestamp::from_millis(6),
                 |_| Err::<(), _>(InternalError::executor_unsupported()),
@@ -1977,7 +2267,6 @@ mod identity_pre_key_tests {
             .execute_accepted_structural_save_batch(
                 &catalog,
                 &descriptor,
-                MutationMode::Insert,
                 batch(&[10, 20, 30]),
                 Timestamp::from_millis(7),
                 Ok,
@@ -2182,19 +2471,18 @@ mod identity_pre_key_tests {
             .expect("journaled identity row layout should build");
 
         for (ordinal, interruption) in [
-            IdentityCommitInterruption::MarkerPersisted,
-            IdentityCommitInterruption::JournalPublished,
-            IdentityCommitInterruption::RowsPublished,
-            IdentityCommitInterruption::StateMaterialized,
+            MutationCommitInterruption::MarkerPersisted,
+            MutationCommitInterruption::JournalPublished,
+            MutationCommitInterruption::RowsPublished,
+            MutationCommitInterruption::StateMaterialized,
         ]
         .into_iter()
         .enumerate()
         {
-            interrupt_next_identity_commit_for_tests(interruption);
+            interrupt_next_mutation_commit_for_tests(interruption);
             let interrupted = session.execute_accepted_structural_save_batch(
                 &catalog,
                 &descriptor,
-                MutationMode::Insert,
                 batch(&[u64::try_from(ordinal).expect("ordinal should fit")]),
                 Timestamp::from_millis(8),
                 Ok,
@@ -2208,7 +2496,6 @@ mod identity_pre_key_tests {
                 .execute_accepted_structural_save_batch(
                     &catalog,
                     &descriptor,
-                    MutationMode::Insert,
                     batch(&[100 + u64::try_from(ordinal).expect("ordinal should fit")]),
                     Timestamp::from_millis(9),
                     Ok,
@@ -2249,6 +2536,41 @@ mod identity_pre_key_tests {
             });
         }
 
+        interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::RowPrefixPublished);
+        let interrupted = session.execute_trusted_dynamic_mutation_batch(vec![
+            DynamicMutation::Update {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(1),
+                patch: dynamic_payload_patch(501),
+            },
+            DynamicMutation::Delete {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(2),
+            },
+        ]);
+        assert!(
+            interrupted.is_err(),
+            "a caller-key mixed batch should interrupt after its first physical row",
+        );
+        let recovered_update = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(1),
+                patch: dynamic_payload_patch(501),
+            })
+            .expect("guarded reentry should complete the marker-authorized mixed batch");
+        assert_eq!(
+            recovered_update.affected_rows, 0,
+            "the recovered update must already expose its admitted final image",
+        );
+        let recovered_delete = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Delete {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(2),
+            })
+            .expect_err("the recovered delete must already be materialized");
+        assert_eq!(recovered_delete.class(), ErrorClass::NotFound);
+
         forget_recovered_domain_for_tests(&session.db)
             .expect("the final journal tail should remain recoverable");
         session
@@ -2269,7 +2591,7 @@ mod identity_pre_key_tests {
         assert!(row_page.exhausted());
         assert!(row_page.findings().is_empty());
 
-        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 8);
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 7);
         assert!(
             JOURNALED_INDEX_STORE.with(|store| !store.borrow().is_empty()),
             "derived index rebuild should restore witnesses without allocating identities",
@@ -2300,11 +2622,10 @@ mod identity_pre_key_tests {
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
             .expect("journaled identity row layout should build");
 
-        interrupt_next_identity_commit_for_tests(IdentityCommitInterruption::RowsPublished);
+        interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::RowsPublished);
         let interrupted = session.execute_accepted_structural_save_batch(
             &catalog,
             &descriptor,
-            MutationMode::Insert,
             batch(&[1]),
             Timestamp::from_millis(10),
             Ok,
@@ -2319,7 +2640,6 @@ mod identity_pre_key_tests {
             .execute_accepted_structural_save_batch(
                 &catalog,
                 &descriptor,
-                MutationMode::Insert,
                 batch(&[2]),
                 Timestamp::from_millis(11),
                 Ok,
