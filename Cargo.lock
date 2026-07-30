@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty_metrics"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_sql_query"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_typed_query"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -284,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_typed_query"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_bounded"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -524,9 +524,9 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "1.0.11"
+version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9bb72bb94fdc1bd619f4c18cc91ecf6302aeb333d31b3c6ec0bb841cd920209"
+checksum = "2d83cb7e7a873830708d6b02a78cd36a592c6fa14bf267b68725103b85c0d77f"
 dependencies = [
  "link-section",
  "linktime-proc-macro",
@@ -1079,9 +1079,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6aea5466b4ea68aec845ea69b99edb75b8e63b275ace7880ee5156e1c0971d1"
+checksum = "0203c56778ac4f6ab2902cc63779675ec017d0770ade337fba0691161c1d9766"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "ctor",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "clap",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-config"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "icydb-model",
  "serde",
@@ -1311,7 +1311,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "derive_more",
@@ -1341,14 +1341,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "convert_case",
@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "convert_case",
@@ -1386,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "derive_more",
@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "icydb",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "icydb",
@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "icydb",
@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "icydb",
@@ -1444,7 +1444,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "icydb",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "blake3",
  "candid",
@@ -1469,14 +1469,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-schema-only"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "icydb-model",
 ]
 
 [[package]]
 name = "icydb-testing-model-typed-adapter"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1484,7 +1484,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "blake3",
  "serde",
@@ -1493,7 +1493,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "blake3",
  "icydb-testing-sql-generator",
@@ -1502,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "icydb",
@@ -1512,7 +1512,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.215.0"
+version = "0.215.1"
 dependencies = [
  "candid",
  "icydb",
@@ -1522,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.215.0"
+version = "0.215.1"
 
 [[package]]
 name = "ident_case"
@@ -1630,15 +1630,15 @@ dependencies = [
 
 [[package]]
 name = "link-section"
-version = "0.19.1"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8dc98458dfe90986c5e2f6ddcf68360c7e5c4252600153e06aa4ee8176c0f8d1"
+checksum = "5ee1a0d6e252afe82e7bc2db42fba60e02ddf3b1accaf8cb21d96e34ba61f3d4"
 
 [[package]]
 name = "linktime-proc-macro"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c7b0a3383c2a1002d11349c92c85a666a5fb679e96c79d782cf0dbe557fd6ee"
+checksum = "348d0075b1fc163b26d72a7f75fc5141daf2fd1bdf128d873cbaf6785d495bdf"
 
 [[package]]
 name = "linux-raw-sys"
