@@ -33,8 +33,6 @@ use crate::{
 use ic_stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
-#[cfg(not(test))]
-use std::sync::{Mutex, OnceLock};
 
 #[cfg(test)]
 use crate::db::commit::store::control_slot::encode_commit_control_slot;
@@ -46,14 +44,18 @@ use crate::db::database_format::initialize_current_database_control_for_tests;
 pub(in crate::db::commit) use control_slot::commit_control_slot_encoded_len_for_marker_payload;
 
 #[cfg(not(test))]
-static COMMIT_MARKER_PRESENCE_HINTS: OnceLock<Mutex<Vec<CommitMarkerPresenceHint>>> =
-    OnceLock::new();
-
-#[cfg(not(test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CommitMarkerPresenceHint {
     allocation: CommitMemoryAllocation,
     may_be_present: bool,
+}
+
+#[cfg(not(test))]
+thread_local! {
+    // Stable-memory stores are thread-local, so the observational marker hint
+    // must never suppress inspection for another runtime's memory.
+    static COMMIT_MARKER_PRESENCE_HINTS: RefCell<Vec<CommitMarkerPresenceHint>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 ///
@@ -389,23 +391,23 @@ pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(!store.marker_is_empty()?))
 }
 
-/// Return whether a process-local commit-window event requires a stable marker check.
+/// Return whether a runtime-local commit-window event requires a stable marker check.
 #[cfg(not(test))]
 pub(super) fn commit_marker_may_be_present() -> bool {
     let Ok(allocation) = current_commit_memory_allocation() else {
         return true;
     };
-    let Ok(hints) = commit_marker_presence_hints().lock() else {
-        return true;
-    };
 
-    hints
-        .iter()
-        .find(|hint| hint.allocation == allocation)
-        .is_none_or(|hint| hint.may_be_present)
+    with_commit_marker_presence_hints(|hints| {
+        hints
+            .iter()
+            .find(|hint| hint.allocation == allocation)
+            .is_none_or(|hint| hint.may_be_present)
+    })
+    .unwrap_or(true)
 }
 
-/// Return whether a process-local commit-window event requires a stable marker check.
+/// Return whether a runtime-local commit-window event requires a stable marker check.
 #[cfg(test)]
 pub(super) const fn commit_marker_may_be_present() -> bool {
     // Core unit tests intentionally exercise many synthetic commit/recovery
@@ -415,29 +417,34 @@ pub(super) const fn commit_marker_may_be_present() -> bool {
     true
 }
 
-/// Mark the process-local marker hint clean after a verified empty-marker observation.
+/// Mark the runtime-local marker hint clean after a verified empty-marker observation.
 #[cfg(not(test))]
 pub(super) fn mark_commit_marker_verified_absent() {
     set_commit_marker_presence_hint(false);
 }
 
-/// Mark the process-local marker hint clean after a verified empty-marker observation.
+/// Mark the runtime-local marker hint clean after a verified empty-marker observation.
 #[cfg(test)]
 pub(super) const fn mark_commit_marker_verified_absent() {}
 
-// Mark the process-local marker hint dirty after this process persists marker bytes.
+// Mark the runtime-local marker hint dirty after this runtime persists marker bytes.
 #[cfg(not(test))]
 fn mark_commit_marker_may_be_present() {
     set_commit_marker_presence_hint(true);
 }
 
-// Mark the process-local marker hint dirty after this process persists marker bytes.
+// Mark the runtime-local marker hint dirty after this runtime persists marker bytes.
 #[cfg(test)]
 const fn mark_commit_marker_may_be_present() {}
 
 #[cfg(not(test))]
-fn commit_marker_presence_hints() -> &'static Mutex<Vec<CommitMarkerPresenceHint>> {
-    COMMIT_MARKER_PRESENCE_HINTS.get_or_init(|| Mutex::new(Vec::new()))
+fn with_commit_marker_presence_hints<R>(
+    f: impl FnOnce(&mut Vec<CommitMarkerPresenceHint>) -> R,
+) -> Option<R> {
+    COMMIT_MARKER_PRESENCE_HINTS.with(|hints| {
+        let mut hints = hints.try_borrow_mut().ok()?;
+        Some(f(&mut hints))
+    })
 }
 
 #[cfg(not(test))]
@@ -445,10 +452,17 @@ fn set_commit_marker_presence_hint(may_be_present: bool) {
     let Ok(allocation) = current_commit_memory_allocation() else {
         return;
     };
-    let Ok(mut hints) = commit_marker_presence_hints().lock() else {
-        return;
-    };
+    let _ = with_commit_marker_presence_hints(|hints| {
+        update_commit_marker_presence_hints(hints, allocation, may_be_present);
+    });
+}
 
+#[cfg(not(test))]
+fn update_commit_marker_presence_hints(
+    hints: &mut Vec<CommitMarkerPresenceHint>,
+    allocation: CommitMemoryAllocation,
+    may_be_present: bool,
+) {
     if let Some(hint) = hints.iter_mut().find(|hint| hint.allocation == allocation) {
         hint.may_be_present = may_be_present;
         return;

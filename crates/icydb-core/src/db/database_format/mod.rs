@@ -14,10 +14,7 @@ use crate::{
 use ic_memory::open_default_memory_manager_memory;
 use ic_stable_structures::memory_manager::VirtualMemory;
 use ic_stable_structures::{DefaultMemoryImpl, Memory};
-#[cfg(test)]
 use std::cell::RefCell;
-#[cfg(not(test))]
-use std::sync::{Mutex, OnceLock};
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
 const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDB001";
@@ -337,70 +334,40 @@ fn map_gate_error(error: DatabaseFormatGateError) -> InternalError {
     }
 }
 
-#[cfg(test)]
 thread_local! {
+    #[cfg(test)]
     static TEST_STORE_ROLE_MEMORIES: RefCell<
         Vec<(StoreAllocationIdentity, VirtualMemory<DefaultMemoryImpl>)>
     > = const { RefCell::new(Vec::new()) };
-    static TEST_ADMITTED_DATABASE_FORMATS: RefCell<Vec<CommitMemoryAllocation>> =
+    // Generated stable-memory stores are thread-local. Admission authority
+    // must have the same lifetime so one runtime cannot inherit readiness for
+    // another runtime's empty memory.
+    static ADMITTED_DATABASE_FORMATS: RefCell<Vec<CommitMemoryAllocation>> =
         const { RefCell::new(Vec::new()) };
 }
 
-#[cfg(not(test))]
-static ADMITTED_DATABASE_FORMATS: OnceLock<Mutex<Vec<CommitMemoryAllocation>>> = OnceLock::new();
-
-#[cfg(test)]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "test cache keeps the fallible production cache contract"
-)]
 fn database_format_already_admitted(
     allocation: CommitMemoryAllocation,
 ) -> Result<bool, InternalError> {
-    Ok(TEST_ADMITTED_DATABASE_FORMATS
-        .with(|allocations| allocations.borrow().contains(&allocation)))
+    ADMITTED_DATABASE_FORMATS.with(|allocations| {
+        Ok(allocations
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?
+            .contains(&allocation))
+    })
 }
 
-#[cfg(not(test))]
-fn database_format_already_admitted(
-    allocation: CommitMemoryAllocation,
-) -> Result<bool, InternalError> {
-    admitted_database_formats()
-        .lock()
-        .map(|allocations| allocations.contains(&allocation))
-        .map_err(|_| InternalError::store_invariant())
-}
-
-#[cfg(test)]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "test cache keeps the fallible production cache contract"
-)]
 fn mark_database_format_admitted(allocation: CommitMemoryAllocation) -> Result<(), InternalError> {
-    TEST_ADMITTED_DATABASE_FORMATS.with(|allocations| {
-        let mut allocations = allocations.borrow_mut();
+    ADMITTED_DATABASE_FORMATS.with(|allocations| {
+        let mut allocations = allocations
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())?;
         if !allocations.contains(&allocation) {
             allocations.push(allocation);
         }
-    });
-    Ok(())
-}
 
-#[cfg(not(test))]
-fn mark_database_format_admitted(allocation: CommitMemoryAllocation) -> Result<(), InternalError> {
-    let mut allocations = admitted_database_formats()
-        .lock()
-        .map_err(|_| InternalError::store_invariant())?;
-    if !allocations.contains(&allocation) {
-        allocations.push(allocation);
-    }
-    drop(allocations);
-    Ok(())
-}
-
-#[cfg(not(test))]
-fn admitted_database_formats() -> &'static Mutex<Vec<CommitMemoryAllocation>> {
-    ADMITTED_DATABASE_FORMATS.get_or_init(|| Mutex::new(Vec::new()))
+        Ok(())
+    })
 }
 
 #[cfg(test)]

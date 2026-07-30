@@ -84,22 +84,34 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
             #((#entity_names, #store_paths)),*
         ];
 
+        fn apply_generated_schema(
+            session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
+        ) -> ::std::result::Result<(), ::icydb::Error> {
+            session
+                .apply_generated_schema_fragment(
+                    ICYDB_SCHEMA_FRAGMENT,
+                    #submission_key,
+                    ICYDB_SCHEMA_ENTITY_STORES,
+                )
+                .map(|_receipt| ())
+        }
+
+        thread_local! {
+            static SCHEMA_APPLICATION:
+                ::std::cell::OnceCell<
+                    ::std::result::Result<(), ::icydb::Error>
+                > =
+                    const { ::std::cell::OnceCell::new() };
+        }
+
         fn ensure_schema_application(
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<(), ::icydb::Error> {
-            static SCHEMA_APPLICATION:
-                ::std::sync::OnceLock<::std::result::Result<(), ::icydb::Error>> =
-                    ::std::sync::OnceLock::new();
-
-            SCHEMA_APPLICATION.get_or_init(|| {
-                session
-                    .apply_generated_schema_fragment(
-                        ICYDB_SCHEMA_FRAGMENT,
-                        #submission_key,
-                        ICYDB_SCHEMA_ENTITY_STORES,
-                    )
-                    .map(|_receipt| ())
-            }).clone()
+            SCHEMA_APPLICATION.with(|application| {
+                application
+                    .get_or_init(|| apply_generated_schema(session))
+                    .clone()
+            })
         }
     }
 }
@@ -455,20 +467,33 @@ fn store_wiring_tokens(
         );
 
         #journal_defs
+        fn bootstrap_memory_manager() ->
+            ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
+        {
+            ::icydb::__macro::bootstrap_default_memory_manager()
+                .map(|_allocations| ())
+                .map_err(::icydb::db::DatabaseBootstrapError::from)
+        }
+
+        thread_local! {
+            static MEMORY_BOOTSTRAP:
+                ::std::cell::OnceCell<
+                    ::std::result::Result<
+                        (),
+                        ::icydb::db::DatabaseBootstrapError
+                    >
+                > =
+                    const { ::std::cell::OnceCell::new() };
+        }
+
         fn ensure_memory_bootstrap() ->
             ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
         {
-            static MEMORY_BOOTSTRAP:
-                ::std::sync::OnceLock<
-                    ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
-                > =
-                    ::std::sync::OnceLock::new();
-
-            MEMORY_BOOTSTRAP.get_or_init(|| {
-                ::icydb::__macro::bootstrap_default_memory_manager()
-                    .map(|_allocations| ())
-                    .map_err(::icydb::db::DatabaseBootstrapError::from)
-            }).clone()
+            MEMORY_BOOTSTRAP.with(|bootstrap| {
+                bootstrap
+                    .get_or_init(bootstrap_memory_manager)
+                    .clone()
+            })
         }
 
         #data_defs
@@ -508,7 +533,8 @@ fn store_wiring_tokens(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::Def;
+    use crate::node::{Canister, Def, Schema};
+    use std::sync::Arc;
 
     fn compact_tokens(tokens: TokenStream) -> String {
         tokens
@@ -532,6 +558,24 @@ mod tests {
             "demo::schema::DemoCanister",
             StoreJournaledMemoryConfig::new(20, 21, 22, 23),
         )
+    }
+
+    fn actor_builder() -> ActorBuilder {
+        ActorBuilder::new(
+            Arc::new(Schema::new()),
+            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3),
+            crate::build::BuildOptions::default(),
+            icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
+                .expect("empty test fragment should admit"),
+        )
+    }
+
+    #[test]
+    fn schema_application_cache_matches_the_stable_memory_target_scope() {
+        let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
+
+        assert!(rendered.contains("::std::cell::OnceCell"));
+        assert!(rendered.contains("SCHEMA_APPLICATION.with("));
     }
 
     #[test]
@@ -659,6 +703,8 @@ mod tests {
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(rendered.contains("map_err(::icydb::db::DatabaseBootstrapError::from)"));
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
+        assert!(rendered.contains("::std::cell::OnceCell"));
+        assert!(rendered.contains("MEMORY_BOOTSTRAP.with("));
         assert!(
             rendered.contains("CoreDbSession::<__IcydbGeneratedCanister>::new(&STORE_REGISTRY)")
         );

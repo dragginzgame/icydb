@@ -54,24 +54,14 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-#[cfg(test)]
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-#[cfg(not(test))]
-use std::sync::{Mutex, OnceLock};
-
-#[cfg(not(test))]
-static RECOVERED_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
-#[cfg(not(test))]
-static RECOVERY_IN_PROGRESS_KEYS: OnceLock<Mutex<Vec<RecoveryDomainKey>>> = OnceLock::new();
 
 thread_local! {
-    // Test stores use thread-local stable memory, so their recovered authority
-    // must have the same ownership boundary.
-    #[cfg(test)]
+    // Generated stores use thread-local stable memory, so their recovered
+    // authority must have the same ownership boundary.
     static RECOVERED_KEYS: RefCell<Vec<RecoveryDomainKey>> =
         const { RefCell::new(Vec::new()) };
-    #[cfg(test)]
     static RECOVERY_IN_PROGRESS_KEYS: RefCell<Vec<RecoveryDomainKey>> =
         const { RefCell::new(Vec::new()) };
 }
@@ -1336,25 +1326,6 @@ fn recovery_domain_key<C: CanisterKind>(db: &Db<C>) -> Result<RecoveryDomainKey,
     })
 }
 
-#[cfg(not(test))]
-fn recovered_keys() -> &'static Mutex<Vec<RecoveryDomainKey>> {
-    RECOVERED_KEYS.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-#[cfg(not(test))]
-fn recovery_in_progress_keys() -> &'static Mutex<Vec<RecoveryDomainKey>> {
-    RECOVERY_IN_PROGRESS_KEYS.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-#[cfg(not(test))]
-fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalError> {
-    recovered_keys()
-        .lock()
-        .map(|keys| keys.contains(&key))
-        .map_err(|_| InternalError::store_invariant())
-}
-
-#[cfg(test)]
 fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalError> {
     RECOVERED_KEYS.with(|keys| {
         Ok(keys
@@ -1364,33 +1335,10 @@ fn recovery_domain_recovered(key: RecoveryDomainKey) -> Result<bool, InternalErr
     })
 }
 
-#[cfg(not(test))]
-fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
-    recovery_in_progress_keys()
-        .lock()
-        .map_or(true, |keys| keys.contains(&key))
-}
-
-#[cfg(test)]
 fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow().contains(&key))
 }
 
-#[cfg(not(test))]
-fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
-    {
-        let mut keys = recovered_keys()
-            .lock()
-            .map_err(|_| InternalError::store_invariant())?;
-        if !keys.contains(&key) {
-            keys.push(key);
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
 fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
     RECOVERED_KEYS.with(|keys| {
         let mut keys = keys
@@ -1404,16 +1352,6 @@ fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), Internal
     })
 }
 
-#[cfg(not(test))]
-fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) {
-    if let Ok(mut keys) = recovery_in_progress_keys().lock()
-        && !keys.contains(&key)
-    {
-        keys.push(key);
-    }
-}
-
-#[cfg(test)]
 fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| {
         let mut keys = keys.borrow_mut();
@@ -1423,14 +1361,6 @@ fn mark_recovery_domain_in_progress(key: RecoveryDomainKey) {
     });
 }
 
-#[cfg(not(test))]
-fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) {
-    if let Ok(mut keys) = recovery_in_progress_keys().lock() {
-        keys.retain(|existing| *existing != key);
-    }
-}
-
-#[cfg(test)]
 fn clear_recovery_domain_in_progress(key: RecoveryDomainKey) {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| {
         keys.borrow_mut().retain(|existing| *existing != key);

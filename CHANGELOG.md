@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Generated canisters now scope native bootstrap, schema-application,
+  database-format, recovery, and marker-hint readiness to the same
+  thread-local stable-memory runtime, so ordinary multi-test libtest binaries
+  no longer inherit another test thread's initialized state.
+
 ## [0.215.x] 🧪 - 2026-07-29 - SQL Structural Verification
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
