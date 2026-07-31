@@ -4,18 +4,24 @@
 
 use candid::CandidType;
 use ic_cdk::{query, update};
-use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
-    db::{DynamicQuery, StructuralMutation, StructuralPatch, WriteCell, query::asc},
+    db::{StructuralMutation, StructuralPatch, WriteCell},
+    value::InputValue,
+};
+#[cfg(feature = "sql")]
+use icydb::{
+    db::{DynamicQuery, query::asc},
     prelude::FieldRef,
-    value::{InputValue, OutputValue},
+    types::{Decimal, Float32, Float64},
+    value::OutputValue,
 };
 use icydb_model::base::types::web::MimeType;
 use icydb_model::{Inner as _, NormalizeAndValidate as _, normalize, validate};
 
 icydb::start!();
 
+#[cfg(feature = "sql")]
 const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
 const IDENTITY_MAX_BATCH_ROWS: u32 = 16 * 1024 - 1;
 const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
@@ -86,6 +92,7 @@ fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, 
 }
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
+#[cfg(feature = "sql")]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db()?.execute_trusted_structural_insert_batch("SqlTestUser", sql_user_patches())?;
     db()?.execute_trusted_structural_insert_batch(
@@ -97,6 +104,7 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic baseline SQL user fixture batch.
+#[cfg(feature = "sql")]
 fn sql_user_patches() -> Vec<StructuralPatch> {
     vec![
         sql_user_patch("alice", 31, 28),
@@ -105,6 +113,7 @@ fn sql_user_patches() -> Vec<StructuralPatch> {
     ]
 }
 
+#[cfg(feature = "sql")]
 fn sql_user_patch(name: &str, age: i32, rank: i32) -> StructuralPatch {
     StructuralPatch::new()
         .field("name", WriteCell::Value(InputValue::Text(name.to_string())))
@@ -114,6 +123,7 @@ fn sql_user_patch(name: &str, age: i32, rank: i32) -> StructuralPatch {
 
 /// Seed one runtime-built oversized unindexed payload for generated endpoint
 /// response-budget tests without embedding a megabyte literal in the wasm.
+#[cfg(feature = "sql")]
 #[update]
 fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
     let session = db()?;
@@ -151,6 +161,7 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic mixed numeric fixture batch for SQL type coverage.
+#[cfg(feature = "sql")]
 fn sql_numeric_type_patches() -> Vec<StructuralPatch> {
     vec![
         sql_numeric_type_patch(
@@ -162,6 +173,7 @@ fn sql_numeric_type_patches() -> Vec<StructuralPatch> {
     ]
 }
 
+#[cfg(feature = "sql")]
 #[expect(
     clippy::too_many_arguments,
     reason = "one fixture helper mirrors the maintained scalar SQL type matrix"

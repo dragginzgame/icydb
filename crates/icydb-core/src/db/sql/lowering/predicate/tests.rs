@@ -2,7 +2,7 @@ use crate::{
     db::{
         predicate::{CompareOp, Predicate},
         query::plan::expr::{
-            Expr, FieldId, Function, UnaryOp, compile_normalized_bool_expr_to_predicate,
+            BinaryOp, Expr, FieldId, Function, UnaryOp, compile_normalized_bool_expr_to_predicate,
             derive_normalized_bool_expr_predicate_subset,
         },
         sql::{
@@ -28,7 +28,7 @@ fn parse_where_expr(sql: &str) -> crate::db::sql::parser::SqlExpr {
 }
 
 #[test]
-fn lower_sql_where_bool_expr_validates_before_normalization_for_casefold_targets() {
+fn lower_sql_where_bool_expr_preserves_upper_prefix_semantics() {
     let expr = parse_where_expr(
         "SELECT * FROM users WHERE UPPER(name) LIKE 'AL%' ORDER BY id ASC LIMIT 1",
     );
@@ -46,18 +46,45 @@ fn lower_sql_where_bool_expr_validates_before_normalization_for_casefold_targets
         panic!("normalized STARTS_WITH(...) should keep two arguments");
     };
     let Expr::FunctionCall {
-        function: Function::Lower,
+        function: Function::Upper,
         args,
     } = left
     else {
-        panic!("casefold target should normalize onto LOWER(...)");
+        panic!("UPPER target must remain an UPPER expression");
     };
     let [Expr::Field(field)] = args.as_slice() else {
-        panic!("normalized LOWER(...) should keep the original field");
+        panic!("normalized UPPER(...) should keep the original field");
     };
 
     assert_eq!(field, &FieldId::new("name"));
     assert_eq!(right, &Expr::Literal(Value::Text("AL".to_string())));
+}
+
+#[test]
+fn lower_sql_where_bool_expr_preserves_upper_ordering_semantics() {
+    let expr =
+        parse_where_expr("SELECT * FROM users WHERE UPPER(name) < '[' ORDER BY id ASC LIMIT 1");
+
+    let lowered =
+        lower_sql_where_bool_expr(&expr).expect("UPPER(...) ordered comparison should be admitted");
+    let Expr::Binary {
+        op: BinaryOp::Lt,
+        left,
+        right,
+    } = lowered
+    else {
+        panic!("UPPER(...) ordered comparison should remain structural");
+    };
+    let Expr::FunctionCall {
+        function: Function::Upper,
+        args,
+    } = left.as_ref()
+    else {
+        panic!("ordered UPPER target must remain an UPPER expression");
+    };
+
+    assert_eq!(args.as_slice(), &[Expr::Field(FieldId::new("name"))]);
+    assert_eq!(right.as_ref(), &Expr::Literal(Value::Text("[".to_string())),);
 }
 
 #[test]

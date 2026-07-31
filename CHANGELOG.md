@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.216.md](docs/changelog/0.216.md)
 
+- `0.216.2` completes the closeout with scalar API hard cuts, corrected time,
+  Blob and Unicode `UPPER` semantics, allocation-free collection membership,
+  and clean minimal SQL fixture builds without changing persisted layouts.
+
 - `0.216.1` completes the closeout, hard-cuts unused low-level Rust conveniences
   and hidden generated wiring, and bounds `Date` to calendar years 0000 through
   9999 with checked construction, decoding, and arithmetic; its persisted and

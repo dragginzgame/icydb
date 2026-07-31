@@ -52,7 +52,7 @@ fn covering_projection_metrics_recorder() -> CoveringProjectionMetricsRecorder {
 #[cfg(not(feature = "diagnostics"))]
 const fn covering_projection_metrics_recorder()
 -> crate::db::executor::CoveringProjectionMetricsRecorder {
-    crate::db::executor::CoveringProjectionMetricsRecorder::new()
+    crate::db::executor::CoveringProjectionMetricsRecorder::none()
 }
 
 #[cfg(feature = "diagnostics")]
@@ -70,7 +70,7 @@ fn projection_materialization_metrics_recorder() -> ProjectionMaterializationMet
 #[cfg(not(feature = "diagnostics"))]
 const fn projection_materialization_metrics_recorder()
 -> crate::db::executor::ProjectionMaterializationMetricsRecorder {
-    crate::db::executor::ProjectionMaterializationMetricsRecorder::new()
+    crate::db::executor::ProjectionMaterializationMetricsRecorder::none()
 }
 
 #[cfg(feature = "sql")]

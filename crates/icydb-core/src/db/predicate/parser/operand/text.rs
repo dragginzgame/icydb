@@ -77,7 +77,7 @@ pub(in crate::db::predicate::parser) fn parse_prefix_text_predicate(
     };
     let prefix = prefix.to_string();
     let _ = cursor.advance();
-    let (field, coercion) = operand.into_field_and_coercion();
+    let (field, coercion) = operand.into_field_and_coercion()?;
 
     Ok(Predicate::Compare(ComparePredicate::with_coercion(
         field,
@@ -117,7 +117,7 @@ pub(in crate::db::predicate::parser) fn parse_starts_with_predicate(
     let prefix = prefix.clone();
     let _ = cursor.advance();
     cursor.expect_rparen()?;
-    let (field, coercion) = operand.into_field_and_coercion();
+    let (field, coercion) = operand.into_field_and_coercion()?;
 
     Ok(Predicate::Compare(ComparePredicate::with_coercion(
         field,

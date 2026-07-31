@@ -1,6 +1,35 @@
 //! Typed failures at the public proposal-contract boundary.
 
+use std::fmt::{self, Display, Formatter};
+
 use thiserror::Error;
+
+/// Compact scalar parsing failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypeParseError {
+    /// Date text is invalid.
+    InvalidDate,
+    /// Decimal text is invalid.
+    InvalidDecimal,
+    /// Duration text is invalid.
+    InvalidDuration,
+    /// Signed big-integer text is invalid.
+    InvalidIntBig,
+    /// Timestamp text is invalid.
+    InvalidTimestamp,
+}
+
+impl Display for TypeParseError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::InvalidDate => "invalid date",
+            Self::InvalidDecimal => "invalid decimal",
+            Self::InvalidDuration => "invalid duration",
+            Self::InvalidIntBig => "invalid signed big integer",
+            Self::InvalidTimestamp => "invalid timestamp",
+        })
+    }
+}
 
 /// Failure while constructing, validating, encoding, or decoding proposal data.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]

@@ -4,7 +4,9 @@ use crate::{
             CoercionId, CompareOp, Predicate,
             parser::{
                 lowering::{predicate_compare, predicate_compare_with_coercion},
-                operand::{PredicateFieldOperand, parse_predicate_field_operand},
+                operand::{
+                    PredicateFieldOperand, TextPredicateWrapper, parse_predicate_field_operand,
+                },
                 parse_compare_operator,
             },
         },
@@ -26,10 +28,12 @@ pub(in crate::db::predicate::parser::expression::atom) fn parse_literal_leading_
     match operand {
         PredicateFieldOperand::Plain(field) => Ok(predicate_compare(field, flipped, literal)),
         PredicateFieldOperand::Wrapped { field, wrapper } => {
-            if !matches!(
-                flipped,
-                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
-            ) || !matches!(literal, Value::Text(_))
+            if matches!(wrapper, TextPredicateWrapper::Upper)
+                || !matches!(
+                    flipped,
+                    CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+                )
+                || !matches!(literal, Value::Text(_))
             {
                 return Err(SqlParseError::unsupported_feature(
                     wrapper.unsupported_feature(),

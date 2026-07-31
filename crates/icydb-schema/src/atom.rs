@@ -10,7 +10,8 @@ use std::{
 use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 
-use crate::{MAX_PROPOSAL_LITERAL_BYTES, SchemaContractError};
+#[cfg(test)]
+mod tests;
 
 /// Failure while parsing a canonical principal.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -179,24 +180,11 @@ impl TryFrom<&[u8]> for Principal {
     }
 }
 
-/// Canonical bounded binary scalar.
+/// Engine-neutral binary scalar.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Blob(Vec<u8>);
 
 impl Blob {
-    /// Construct a bounded canonical blob.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SchemaContractError::InvalidLiteral`] when the value exceeds
-    /// the proposal scalar bound.
-    pub fn try_new(bytes: Vec<u8>) -> Result<Self, SchemaContractError> {
-        if bytes.len() > MAX_PROPOSAL_LITERAL_BYTES {
-            return Err(SchemaContractError::InvalidLiteral);
-        }
-        Ok(Self(bytes))
-    }
-
     /// Borrow the canonical bytes.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
@@ -257,8 +245,7 @@ impl<'de> Deserialize<'de> for Blob {
     where
         D: Deserializer<'de>,
     {
-        let bytes = Vec::<u8>::deserialize(deserializer)?;
-        Self::try_new(bytes).map_err(D::Error::custom)
+        Vec::<u8>::deserialize(deserializer).map(Self)
     }
 }
 
@@ -554,14 +541,6 @@ impl TryFrom<&[u8]> for Float32 {
     }
 }
 
-impl TryFrom<f32> for Float32 {
-    type Error = ();
-
-    fn try_from(value: f32) -> Result<Self, Self::Error> {
-        Self::try_new(value).ok_or(())
-    }
-}
-
 /// Failure while decoding one finite 64-bit floating-point atom.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Float64DecodeError {
@@ -683,13 +662,5 @@ impl TryFrom<&[u8]> for Float64 {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
-    }
-}
-
-impl TryFrom<f64> for Float64 {
-    type Error = ();
-
-    fn try_from(value: f64) -> Result<Self, Self::Error> {
-        Self::try_new(value).ok_or(())
     }
 }

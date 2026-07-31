@@ -30,7 +30,7 @@ impl TextPredicateWrapper {
 /// PredicateFieldOperand
 ///
 /// Tracks whether one parsed field operand is a plain field or one bounded
-/// casefold wrapper so prefix-text forms can share one lowering boundary.
+/// text wrapper so prefix-text forms can share one fail-closed lowering boundary.
 ///
 
 #[derive(Debug, Eq, PartialEq)]
@@ -44,17 +44,27 @@ pub(in crate::db::predicate::parser) enum PredicateFieldOperand {
 
 impl PredicateFieldOperand {
     // Map one bounded predicate operand to its canonical field/coercion pair.
-    pub(in crate::db::predicate::parser) fn into_field_and_coercion(self) -> (String, CoercionId) {
+    pub(in crate::db::predicate::parser) fn into_field_and_coercion(
+        self,
+    ) -> Result<(String, CoercionId), SqlParseError> {
         match self {
-            Self::Plain(field) => (field, CoercionId::Strict),
-            Self::Wrapped { field, .. } => (field, CoercionId::TextCasefold),
+            Self::Plain(field) => Ok((field, CoercionId::Strict)),
+            Self::Wrapped {
+                field,
+                wrapper: TextPredicateWrapper::Lower,
+            } => Ok((field, CoercionId::TextCasefold)),
+            Self::Wrapped {
+                wrapper: TextPredicateWrapper::Upper,
+                ..
+            } => Err(SqlParseError::unsupported_feature(
+                SqlFeatureCode::UpperFieldPredicateUnsupported,
+            )),
         }
     }
 }
 
-// Parse one predicate field operand.
-// Reduced SQL supports plain fields plus bounded `LOWER(<field>)` /
-// `UPPER(<field>)` wrappers for casefold LIKE-prefix lowering.
+// Parse one predicate field operand. Reduced SQL recognizes LOWER/UPPER so it
+// can lower LOWER exactly and reject UPPER without changing its semantics.
 pub(in crate::db::predicate::parser) fn parse_predicate_field_operand(
     cursor: &mut SqlTokenCursor,
 ) -> Result<PredicateFieldOperand, SqlParseError> {

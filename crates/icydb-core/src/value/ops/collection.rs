@@ -5,11 +5,12 @@
 //! Boundary: representation-local list/scalar membership helpers.
 
 use crate::value::{Value, ops::text};
+use std::slice;
 
-fn normalize_list_ref(value: &Value) -> Vec<&Value> {
+fn list_or_scalar(value: &Value) -> &[Value] {
     match value {
-        Value::List(values) => values.iter().collect(),
-        value => vec![value],
+        Value::List(values) => values,
+        value => slice::from_ref(value),
     }
 }
 
@@ -22,35 +23,32 @@ where
         .map(|items| items.iter().any(|item| eq(item, needle)))
 }
 
-#[expect(clippy::unnecessary_wraps)]
-fn contains_any_by<F>(value: &Value, needles: &Value, eq: F) -> Option<bool>
+fn contains_any_by<F>(value: &Value, needles: &Value, eq: F) -> bool
 where
     F: Fn(&Value, &Value) -> bool,
 {
-    let needles = normalize_list_ref(needles);
+    let needles = list_or_scalar(needles);
     match value {
-        Value::List(items) => Some(
-            needles
-                .iter()
-                .any(|needle| items.iter().any(|item| eq(item, needle))),
-        ),
-        scalar => Some(needles.iter().any(|needle| eq(scalar, needle))),
+        Value::List(items) => needles
+            .iter()
+            .any(|needle| items.iter().any(|item| eq(item, needle))),
+        scalar => needles.iter().any(|needle| eq(scalar, needle)),
     }
 }
 
-#[expect(clippy::unnecessary_wraps)]
-fn contains_all_by<F>(value: &Value, needles: &Value, eq: F) -> Option<bool>
+fn contains_all_by<F>(value: &Value, needles: &Value, eq: F) -> bool
 where
     F: Fn(&Value, &Value) -> bool,
 {
-    let needles = normalize_list_ref(needles);
+    let needles = list_or_scalar(needles);
     match value {
-        Value::List(items) => Some(
-            needles
-                .iter()
-                .all(|needle| items.iter().any(|item| eq(item, needle))),
-        ),
-        scalar => Some(needles.len() == 1 && eq(scalar, needles[0])),
+        Value::List(items) => needles
+            .iter()
+            .all(|needle| items.iter().any(|item| eq(item, needle))),
+        scalar => match needles {
+            [needle] => eq(scalar, needle),
+            _ => false,
+        },
     }
 }
 
@@ -95,13 +93,13 @@ fn contains(value: &Value, needle: &Value) -> Option<bool> {
 
 /// Returns true if any item in `needles` matches a member of `value`.
 #[must_use]
-fn contains_any(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_any(value: &Value, needles: &Value) -> bool {
     contains_any_by(value, needles, |left, right| left == right)
 }
 
 /// Returns true if every item in `needles` matches a member of `value`.
 #[must_use]
-fn contains_all(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_all(value: &Value, needles: &Value) -> bool {
     contains_all_by(value, needles, |left, right| left == right)
 }
 
@@ -122,13 +120,13 @@ fn contains_ci(value: &Value, needle: &Value) -> Option<bool> {
 
 /// Case-insensitive variant of [`contains_any`].
 #[must_use]
-fn contains_any_ci(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_any_ci(value: &Value, needles: &Value) -> bool {
     contains_any_by(value, needles, text::eq_ci)
 }
 
 /// Case-insensitive variant of [`contains_all`].
 #[must_use]
-fn contains_all_ci(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_all_ci(value: &Value, needles: &Value) -> bool {
     contains_all_by(value, needles, text::eq_ci)
 }
 
@@ -159,13 +157,13 @@ impl Value {
     /// Returns true if any item in `needles` matches a member of `self`.
     #[must_use]
     pub fn contains_any(&self, needles: &Self) -> Option<bool> {
-        contains_any(self, needles)
+        Some(contains_any(self, needles))
     }
 
     /// Returns true if every item in `needles` matches a member of `self`.
     #[must_use]
     pub fn contains_all(&self, needles: &Self) -> Option<bool> {
-        contains_all(self, needles)
+        Some(contains_all(self, needles))
     }
 
     /// Returns true if `self` exists inside the provided list.
@@ -183,13 +181,13 @@ impl Value {
     /// Case-insensitive variant of [`contains_any`](Self::contains_any).
     #[must_use]
     pub fn contains_any_ci(&self, needles: &Self) -> Option<bool> {
-        contains_any_ci(self, needles)
+        Some(contains_any_ci(self, needles))
     }
 
     /// Case-insensitive variant of [`contains_all`](Self::contains_all).
     #[must_use]
     pub fn contains_all_ci(&self, needles: &Self) -> Option<bool> {
-        contains_all_ci(self, needles)
+        Some(contains_all_ci(self, needles))
     }
 
     /// Case-insensitive variant of [`in_list`](Self::in_list).

@@ -634,7 +634,7 @@ fn exact_scalar_defaults_reject_values_outside_the_declared_contract() {
     assert_eq!(
         entity_with_default(
             FieldType::Scalar(ScalarType::Blob { max_len: Some(1) }),
-            ScalarLiteral::Blob(Blob::try_new(vec![1, 2]).expect("literal should admit")),
+            ScalarLiteral::Blob(Blob::from(vec![1, 2])),
         ),
         Err(SchemaContractError::LiteralTypeMismatch),
     );
@@ -1089,7 +1089,7 @@ fn proposal_literals_preserve_every_canonical_scalar_atom() {
     let enum_variant = source("variant/literal_status/active", TypeSourceKey::try_new);
     let literals = vec![
         ScalarLiteral::Account(Account::new(principal, None::<Subaccount>)),
-        ScalarLiteral::Blob(Blob::try_new(vec![1, 2, 3]).expect("blob should admit")),
+        ScalarLiteral::Blob(Blob::from(vec![1, 2, 3])),
         ScalarLiteral::Bool(true),
         ScalarLiteral::Date(Date::try_new(2026, 7, 24).expect("date should admit")),
         ScalarLiteral::Decimal(Decimal::try_new(125, 2).expect("decimal should admit")),

@@ -4,7 +4,7 @@
 
 use crate::{
     db::{
-        index::derive_index_expression_value,
+        index::{derive_index_expression_value, index_expression_supports_text_casefold_lookup},
         predicate::{CoercionId, CompareOp, ExecutableComparePredicate, ExecutablePredicate},
         schema::{PersistedIndexExpressionOp, SchemaInfo},
     },
@@ -200,10 +200,7 @@ pub(in crate::db) fn lower_index_compare_literal_for_target(
         IndexCompileTargetKind::Field => (coercion == CoercionId::Strict).then(|| value.clone()),
         IndexCompileTargetKind::Expression(op) => {
             if coercion != CoercionId::TextCasefold
-                || !matches!(
-                    op,
-                    PersistedIndexExpressionOp::Lower | PersistedIndexExpressionOp::Upper
-                )
+                || !index_expression_supports_text_casefold_lookup(op)
             {
                 return None;
             }
@@ -547,4 +544,45 @@ fn list_value_is_non_empty_index_literal(value: &Value) -> bool {
     };
 
     !items.is_empty() && items.iter().all(value_is_index_literal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        IndexCompileTarget, IndexCompileTargetKind, lower_index_compare_literal_for_target,
+    };
+    use crate::{
+        db::{predicate::CoercionId, schema::PersistedIndexExpressionOp},
+        value::Value,
+    };
+
+    fn expression_target(op: PersistedIndexExpressionOp) -> IndexCompileTarget {
+        IndexCompileTarget {
+            component_index: 0,
+            field_slot: 0,
+            kind: IndexCompileTargetKind::Expression(op),
+        }
+    }
+
+    #[test]
+    fn text_casefold_literals_only_lower_through_matching_expression_keys() {
+        let literal = Value::Text("ßeta".to_string());
+
+        assert_eq!(
+            lower_index_compare_literal_for_target(
+                expression_target(PersistedIndexExpressionOp::Lower),
+                &literal,
+                CoercionId::TextCasefold,
+            ),
+            Some(Value::Text("ßeta".to_string())),
+        );
+        assert_eq!(
+            lower_index_compare_literal_for_target(
+                expression_target(PersistedIndexExpressionOp::Upper),
+                &literal,
+                CoercionId::TextCasefold,
+            ),
+            None,
+        );
+    }
 }

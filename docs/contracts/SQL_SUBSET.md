@@ -794,9 +794,13 @@ Narrow casefolded predicate forms are also supported:
 
 <!-- icydb-sql-feature id="predicate.casefold_prefix" kind="semantic" status="accepted" -->
 - `LOWER(field) LIKE 'prefix%'`
-- `UPPER(field) LIKE 'PREFIX%'`
 - `STARTS_WITH(LOWER(field), 'prefix')`
-- `STARTS_WITH(UPPER(field), 'PREFIX')`
+
+`UPPER(...)` remains available as an ordinary scalar expression, including in
+full SQL boolean expressions, projections, ordering, and accepted expression
+indexes. The reduced predicate-only contract does not reinterpret `UPPER` as
+casefolding because Unicode uppercase and lowercase transforms are not
+equivalent.
 
 Field-bound range predicates are also supported on the plain-field lane:
 

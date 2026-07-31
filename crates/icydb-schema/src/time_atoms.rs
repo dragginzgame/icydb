@@ -5,42 +5,13 @@ use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 
+use crate::TypeParseError;
 use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize};
 use time::{Date as TimeDate, Month, PrimitiveDateTime, Time as TimeOfDay, UtcOffset};
 
-/// Compact scalar parsing failure.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TypeParseError {
-    /// Date text is invalid.
-    InvalidDate,
-    /// Decimal text is invalid.
-    InvalidDecimal,
-    /// Duration text is invalid.
-    InvalidDuration,
-    /// Float text is invalid.
-    InvalidFloat,
-    /// Signed big-integer text is invalid.
-    InvalidIntBig,
-    /// Timestamp text is invalid.
-    InvalidTimestamp,
-    /// ULID text is invalid.
-    InvalidUlid,
-}
-
-impl Display for TypeParseError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::InvalidDate => "invalid date",
-            Self::InvalidDecimal => "invalid decimal",
-            Self::InvalidDuration => "invalid duration",
-            Self::InvalidFloat => "invalid float",
-            Self::InvalidIntBig => "invalid signed big integer",
-            Self::InvalidTimestamp => "invalid timestamp",
-            Self::InvalidUlid => "invalid ULID",
-        })
-    }
-}
+#[cfg(test)]
+mod tests;
 
 /// Canonical millisecond duration.
 #[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -75,12 +46,6 @@ impl Duration {
         } else {
             Some(Self(millis.cast_unsigned()))
         }
-    }
-
-    /// Convert unsigned milliseconds.
-    #[must_use]
-    pub const fn try_from_u64(millis: u64) -> Option<Self> {
-        Some(Self(millis))
     }
 
     /// Construct from microseconds, truncating sub-millisecond precision.
@@ -219,7 +184,10 @@ impl Duration {
         let value = digits
             .parse::<u64>()
             .map_err(|_| TypeParseError::InvalidDuration)?;
-        Ok(Self(value.saturating_mul(multiplier)))
+        value
+            .checked_mul(multiplier)
+            .map(Self)
+            .ok_or(TypeParseError::InvalidDuration)
     }
 }
 
@@ -343,27 +311,16 @@ impl Timestamp {
         i64::try_from(millis).ok().map(Self)
     }
 
-    /// Construct from microseconds, truncating sub-millisecond precision.
+    /// Construct from microseconds, flooring to Unix milliseconds.
     #[must_use]
-    pub fn from_micros(micros: i64) -> Self {
-        if micros < 0 {
-            return Self(micros / Self::MILLIS_PER_SEC);
-        }
-        Self::from_positive_submillis(micros, 1_000)
+    pub const fn from_micros(micros: i64) -> Self {
+        Self(micros.div_euclid(Self::MILLIS_PER_SEC))
     }
 
-    /// Construct from nanoseconds, truncating sub-millisecond precision.
+    /// Construct from nanoseconds, flooring to Unix milliseconds.
     #[must_use]
-    pub fn from_nanos(nanos: i64) -> Self {
-        if nanos < 0 {
-            return Self(nanos / 1_000_000);
-        }
-        Self::from_positive_submillis(nanos, 1_000_000)
-    }
-
-    fn from_positive_submillis(value: i64, divisor: u64) -> Self {
-        let value = u64::try_from(value).unwrap_or(u64::MAX) / divisor;
-        i64::try_from(value).map_or(Self::MAX, Self)
+    pub const fn from_nanos(nanos: i64) -> Self {
+        Self(nanos.div_euclid(1_000_000))
     }
 
     /// Parse strict RFC3339 text.
@@ -419,7 +376,7 @@ impl Timestamp {
         let millis = PrimitiveDateTime::new(date, time)
             .assume_offset(offset)
             .unix_timestamp_nanos()
-            / 1_000_000;
+            .div_euclid(1_000_000);
         i64::try_from(millis)
             .map(Self)
             .map_err(|_| TypeParseError::InvalidTimestamp)
@@ -446,7 +403,15 @@ impl Timestamp {
     /// Return whole Unix seconds.
     #[must_use]
     pub const fn as_secs(self) -> i64 {
-        self.0 / Self::MILLIS_PER_SEC
+        self.0.div_euclid(Self::MILLIS_PER_SEC)
+    }
+
+    fn from_wide_millis_saturating(millis: i128) -> Self {
+        match i64::try_from(millis) {
+            Ok(millis) => Self(millis),
+            Err(_) if millis.is_negative() => Self::MIN,
+            Err(_) => Self::MAX,
+        }
     }
 }
 
@@ -454,10 +419,7 @@ impl Add<Duration> for Timestamp {
     type Output = Self;
 
     fn add(self, duration: Duration) -> Self::Output {
-        Self(
-            self.0
-                .saturating_add(i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)),
-        )
+        Self::from_wide_millis_saturating(i128::from(self.0) + i128::from(duration.as_millis()))
     }
 }
 
@@ -517,12 +479,6 @@ impl From<i64> for Timestamp {
     }
 }
 
-impl From<u64> for Timestamp {
-    fn from(value: u64) -> Self {
-        i64::try_from(value).map_or(Self::MAX, Self)
-    }
-}
-
 impl Serialize for Timestamp {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -536,10 +492,7 @@ impl Sub<Duration> for Timestamp {
     type Output = Self;
 
     fn sub(self, duration: Duration) -> Self::Output {
-        Self(
-            self.0
-                .saturating_sub(i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)),
-        )
+        Self::from_wide_millis_saturating(i128::from(self.0) - i128::from(duration.as_millis()))
     }
 }
 

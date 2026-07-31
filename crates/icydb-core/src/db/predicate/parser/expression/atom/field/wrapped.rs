@@ -12,15 +12,20 @@ use crate::{
     value::Value,
 };
 
-// Parse the intentionally narrow wrapped-field predicate family.
-// Reduced SQL only accepts ordered text bounds on LOWER/UPPER(field) wrappers,
-// and it lowers those bounds onto the same TextCasefold compare contract that
-// expression-prefix planning already uses.
+// Parse the intentionally narrow wrapped-field predicate family. Reduced SQL
+// only lowers ordered text bounds on LOWER(field) onto the TextCasefold compare
+// contract; UPPER has distinct Unicode semantics and remains unsupported here.
 pub(in crate::db::predicate::parser::expression::atom::field) fn parse_wrapped_field_predicate(
     cursor: &mut SqlTokenCursor,
     field: String,
     wrapper: TextPredicateWrapper,
 ) -> Result<Predicate, SqlParseError> {
+    if matches!(wrapper, TextPredicateWrapper::Upper) {
+        return Err(SqlParseError::unsupported_feature(
+            wrapper.unsupported_feature(),
+        ));
+    }
+
     if cursor.eat_keyword(Keyword::Is)
         || cursor.eat_keyword(Keyword::Not)
         || cursor.eat_keyword(Keyword::In)

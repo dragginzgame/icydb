@@ -15,18 +15,3 @@ impl Repr for Duration {
         Self::from_millis(inner)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Duration;
-
-    #[test]
-    fn units_and_saturating_arithmetic_remain_millisecond_native() {
-        assert_eq!(Duration::from_secs(2).as_millis(), 2_000);
-        assert_eq!(
-            (Duration::MAX + Duration::from_millis(1)).as_millis(),
-            u64::MAX,
-        );
-        assert_eq!((Duration::ZERO - Duration::from_millis(1)).as_millis(), 0,);
-    }
-}

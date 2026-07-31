@@ -291,22 +291,6 @@ fn normalize_bool_compare_expr(op: BinaryOp, left: Expr, right: Expr) -> Expr {
 
 fn normalize_bool_compare_operand(expr: Expr) -> Expr {
     match expr {
-        Expr::FunctionCall {
-            function: Function::Upper | Function::Lower,
-            args,
-        } => match args.as_slice() {
-            [Expr::Field(field)] => Expr::FunctionCall {
-                function: Function::Lower,
-                args: vec![Expr::Field(field.clone())],
-            },
-            _ => Expr::FunctionCall {
-                function: Function::Lower,
-                args: args
-                    .into_iter()
-                    .map(normalize_bool_compare_operand)
-                    .collect(),
-            },
-        },
         Expr::FunctionCall { function, args } => Expr::FunctionCall {
             function,
             args: args

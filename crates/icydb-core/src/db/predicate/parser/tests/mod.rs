@@ -163,12 +163,6 @@ fn parse_sql_predicate_like_prefix_lowering_respects_operand_text_mode() {
         CoercionId::TextCasefold,
         false,
     );
-    assert_prefix_text_predicate(
-        "UPPER(name) LIKE 'AL%'",
-        "AL",
-        CoercionId::TextCasefold,
-        false,
-    );
 }
 
 #[test]
@@ -177,12 +171,6 @@ fn parse_sql_predicate_not_like_prefix_lowering_respects_operand_text_mode() {
     assert_prefix_text_predicate(
         "LOWER(name) NOT LIKE 'Al%'",
         "Al",
-        CoercionId::TextCasefold,
-        true,
-    );
-    assert_prefix_text_predicate(
-        "UPPER(name) NOT LIKE 'AL%'",
-        "AL",
         CoercionId::TextCasefold,
         true,
     );
@@ -197,12 +185,6 @@ fn parse_sql_predicate_ilike_prefix_lowering_stays_casefolded() {
         CoercionId::TextCasefold,
         false,
     );
-    assert_prefix_text_predicate(
-        "UPPER(name) ILIKE 'AL%'",
-        "AL",
-        CoercionId::TextCasefold,
-        false,
-    );
 }
 
 #[test]
@@ -214,12 +196,27 @@ fn parse_sql_predicate_not_ilike_prefix_lowering_stays_casefolded() {
         CoercionId::TextCasefold,
         true,
     );
-    assert_prefix_text_predicate(
+}
+
+#[test]
+fn parse_sql_predicate_rejects_upper_wrappers_without_reinterpreting_them_as_casefold() {
+    for sql in [
+        "UPPER(name) LIKE 'AL%'",
+        "UPPER(name) NOT LIKE 'AL%'",
+        "UPPER(name) ILIKE 'AL%'",
         "UPPER(name) NOT ILIKE 'AL%'",
-        "AL",
-        CoercionId::TextCasefold,
-        true,
-    );
+        "UPPER(name) >= 'AL'",
+        "'AL' <= UPPER(name)",
+        "STARTS_WITH(UPPER(name), 'AL')",
+    ] {
+        assert_eq!(
+            parse_sql_predicate(sql),
+            Err(SqlParseError::UnsupportedFeature {
+                feature: SqlFeatureCode::UpperFieldPredicateUnsupported,
+            }),
+            "{sql}",
+        );
+    }
 }
 
 #[test]
@@ -314,11 +311,9 @@ fn parse_sql_predicate_field_bound_between_and_not_between_lower_to_compare_fiel
 }
 
 #[test]
-fn parse_sql_predicate_wrapped_ordered_text_compares_lower_to_text_casefold() {
+fn parse_sql_predicate_lower_ordered_text_compares_lower_to_text_casefold() {
     let lower = parse_sql_predicate("LOWER(name) >= 'Al' AND LOWER(name) < 'Am'")
         .expect("LOWER(field) ordered text range should parse");
-    let upper = parse_sql_predicate("UPPER(name) >= 'AL' AND UPPER(name) < 'AM'")
-        .expect("UPPER(field) ordered text range should parse");
 
     assert_eq!(
         lower,
@@ -333,23 +328,6 @@ fn parse_sql_predicate_wrapped_ordered_text_compares_lower_to_text_casefold() {
                 "name",
                 CompareOp::Lt,
                 Value::Text("Am".to_string()),
-                CoercionId::TextCasefold,
-            )),
-        ]),
-    );
-    assert_eq!(
-        upper,
-        Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::Gte,
-                Value::Text("AL".to_string()),
-                CoercionId::TextCasefold,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::Lt,
-                Value::Text("AM".to_string()),
                 CoercionId::TextCasefold,
             )),
         ]),
@@ -376,16 +354,10 @@ fn parse_sql_predicate_direct_starts_with_lowers_to_strict_starts_with_intent() 
 }
 
 #[test]
-fn parse_sql_predicate_direct_wrapped_starts_with_lowers_to_casefold_intent() {
+fn parse_sql_predicate_direct_lower_starts_with_lowers_to_casefold_intent() {
     assert_prefix_text_predicate(
         "STARTS_WITH(LOWER(name), 'Al')",
         "Al",
-        CoercionId::TextCasefold,
-        false,
-    );
-    assert_prefix_text_predicate(
-        "STARTS_WITH(UPPER(name), 'AL')",
-        "AL",
         CoercionId::TextCasefold,
         false,
     );

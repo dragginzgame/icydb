@@ -5,6 +5,16 @@
 
 use crate::db::schema::PersistedIndexExpressionOp;
 
+/// Return whether an accepted expression key has exactly the same transform
+/// as the current text-casefold predicate contract.
+#[must_use]
+#[cfg(any(test, feature = "query"))]
+pub(in crate::db) const fn index_expression_supports_text_casefold_lookup(
+    op: PersistedIndexExpressionOp,
+) -> bool {
+    matches!(op, PersistedIndexExpressionOp::Lower)
+}
+
 ///
 /// SemanticIndexExpression
 ///
@@ -37,10 +47,7 @@ impl SemanticIndexExpression {
     #[must_use]
     #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn supports_text_casefold_lookup(&self) -> bool {
-        matches!(
-            self.op,
-            PersistedIndexExpressionOp::Lower | PersistedIndexExpressionOp::Upper
-        )
+        index_expression_supports_text_casefold_lookup(self.op)
     }
 
     #[must_use]

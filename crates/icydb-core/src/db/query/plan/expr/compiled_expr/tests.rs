@@ -343,6 +343,21 @@ fn grouped_compiled_expr_preserves_slot_arithmetic_semantics() {
 }
 
 #[test]
+fn compiled_upper_expression_preserves_unicode_expansion() {
+    let expr = function_expr(Function::Upper, vec![slot_expr(0)]);
+    let view = TestRowView {
+        slots: vec![Some(Value::Text("ßeta".to_string()))],
+    };
+
+    assert_eq!(
+        expr.evaluate(&view)
+            .expect("UPPER expression should evaluate")
+            .into_owned(),
+        Value::Text("SSETA".to_string()),
+    );
+}
+
+#[test]
 fn compiled_expr_referenced_slot_matrix_covers_row_slot_variants() {
     for (context, expr, expected) in [
         ("slot", slot_expr(0), vec![0]),

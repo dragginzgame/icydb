@@ -2,10 +2,12 @@
 //! RPG demo canister used by local demos and fixture loading.
 //!
 
+#[cfg(feature = "sql")]
 use icydb::{
     db::{StructuralPatch, WriteCell},
     value::InputValue,
 };
+#[cfg(feature = "sql")]
 use icydb_testing_demo_rpg_fixtures::{
     fixtures,
     schema::{Character, CharacterMentor, Grid},
@@ -14,6 +16,7 @@ use icydb_testing_demo_rpg_fixtures::{
 icydb::start!();
 
 /// Load one deterministic baseline fixture dataset.
+#[cfg(feature = "sql")]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db()?.execute_trusted_structural_insert_batch(
         "Character",
@@ -30,10 +33,12 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 
+#[cfg(feature = "sql")]
 fn authored(value: impl Into<InputValue>) -> WriteCell<InputValue> {
     WriteCell::Value(value.into())
 }
 
+#[cfg(feature = "sql")]
 fn character_patch(character: Character) -> StructuralPatch {
     StructuralPatch::new()
         .field("name", authored(character.name))
@@ -85,6 +90,7 @@ fn character_patch(character: Character) -> StructuralPatch {
         .field("respawn_cooldown", authored(character.respawn_cooldown))
 }
 
+#[cfg(feature = "sql")]
 fn mentor_input(mentor: CharacterMentor) -> InputValue {
     InputValue::Map(vec![
         ("name".into(), mentor.name.into()),
@@ -93,6 +99,7 @@ fn mentor_input(mentor: CharacterMentor) -> InputValue {
     ])
 }
 
+#[cfg(feature = "sql")]
 fn grid_patch(cell: Grid) -> StructuralPatch {
     StructuralPatch::new()
         .field("x", authored(cell.x))

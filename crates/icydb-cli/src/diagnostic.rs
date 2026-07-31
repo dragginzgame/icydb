@@ -791,7 +791,7 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::OrderByUnsupportedForm => "unsupported ORDER BY expression form",
         SqlFeatureCode::Other => "unsupported SQL feature",
         SqlFeatureCode::PredicateStartsWithFirstArgument => {
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+            "STARTS_WITH first argument forms beyond plain or LOWER field wrappers"
         }
         SqlFeatureCode::QuotedIdentifiers => "quoted identifiers",
         SqlFeatureCode::ReturningUnsupportedShape => "unsupported RETURNING shape",
@@ -823,7 +823,7 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::UnsupportedFunctionNamespace => "unsupported SQL function namespace",
         SqlFeatureCode::Update => "UPDATE",
         SqlFeatureCode::UpperFieldPredicateUnsupported => {
-            "UPPER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds"
+            "UPPER(field) in reduced predicate-only contracts"
         }
         SqlFeatureCode::WindowFunction => "window functions",
         SqlFeatureCode::With => "WITH",

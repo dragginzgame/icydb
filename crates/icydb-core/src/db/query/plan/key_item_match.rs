@@ -183,3 +183,39 @@ pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item<'a>(
 
     Some(prefix)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{eq_lookup_value_for_key_item, key_item_matches_field_and_coercion};
+    use crate::{
+        db::{
+            access::{SemanticIndexExpression, SemanticIndexKeyItemRef},
+            predicate::CoercionId,
+            schema::PersistedIndexExpressionOp,
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn upper_expression_keys_do_not_claim_text_casefold_lookup_compatibility() {
+        let upper =
+            SemanticIndexExpression::new(PersistedIndexExpressionOp::Upper, "name".to_string());
+        let key_item = SemanticIndexKeyItemRef::AcceptedExpression(&upper);
+
+        assert!(!key_item_matches_field_and_coercion(
+            key_item,
+            "name",
+            CoercionId::TextCasefold,
+        ));
+        assert_eq!(
+            eq_lookup_value_for_key_item(
+                key_item,
+                "name",
+                &Value::Text("ßeta".to_string()),
+                CoercionId::TextCasefold,
+                true,
+            ),
+            None,
+        );
+    }
+}

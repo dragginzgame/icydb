@@ -15,9 +15,9 @@ use icydb_schema::{
     Account, Blob, ConstraintFragment, DEFAULT_BIG_INT_MAX_BYTES, Date, Decimal, Duration,
     EntityFragment, EntitySourceKey, EnumTypeFragment, EnumVariantFragment, FieldFragment,
     FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey, FieldType, Float32, Float64,
-    IndexFragment, IndexKeyFragment, IntBig, NamedTypeFragment, NatBig, Principal,
-    RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey,
-    ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaName,
+    IndexFragment, IndexKeyFragment, IntBig, MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, NatBig,
+    Principal, RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment,
+    RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaName,
     SourceRuleOperation as ProposalSourceRuleOperation, Subaccount, TargetedRuleFragment,
     Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
 };
@@ -1000,9 +1000,7 @@ fn lower_scalar_default(primitive: Primitive, item: &Item, default: &Arg) -> Opt
         (Primitive::Account, Arg::String(value)) => {
             Account::from_str(value).ok().map(ScalarLiteral::Account)
         }
-        (Primitive::Blob, Arg::String(value)) => Blob::try_new(value.as_bytes().to_vec())
-            .ok()
-            .map(ScalarLiteral::Blob),
+        (Primitive::Blob, Arg::String(value)) => lower_blob_default(value),
         (Primitive::Bool, Arg::Bool(value)) => Some(ScalarLiteral::Bool(*value)),
         (Primitive::Date, Arg::String(value)) => Date::parse(value).map(ScalarLiteral::Date),
         (Primitive::Date, Arg::Number(value)) => arg_i128(value)
@@ -1095,7 +1093,7 @@ fn default_constructor_is_zero(default: &Arg) -> bool {
 
 fn zero_scalar_literal(primitive: Primitive, item: &Item) -> Option<ScalarLiteral> {
     match primitive {
-        Primitive::Blob => Blob::try_new(Vec::new()).ok().map(ScalarLiteral::Blob),
+        Primitive::Blob => Some(ScalarLiteral::Blob(Blob::default())),
         Primitive::Bool => Some(ScalarLiteral::Bool(false)),
         Primitive::Date => Some(ScalarLiteral::Date(Date::EPOCH)),
         Primitive::Decimal => Decimal::try_from_i128_with_scale(0, item.scale().unwrap_or(0))
@@ -1121,6 +1119,13 @@ fn zero_scalar_literal(primitive: Primitive, item: &Item) -> Option<ScalarLitera
         Primitive::Unit => Some(ScalarLiteral::Unit(Unit)),
         Primitive::Account | Primitive::Principal | Primitive::Subaccount => None,
     }
+}
+
+fn lower_blob_default(value: &str) -> Option<ScalarLiteral> {
+    if value.len() > MAX_PROPOSAL_LITERAL_BYTES {
+        return None;
+    }
+    Some(ScalarLiteral::Blob(Blob::from(value.as_bytes())))
 }
 
 // -----------------------------------------------------------------------------
@@ -1193,20 +1198,66 @@ fn parse_subaccount(value: &str) -> Option<[u8; 32]> {
 mod tests {
     use icydb_schema::{
         ConstraintFragmentKind, ConstraintSourceKey, Decimal, FieldSourceKey, FieldType,
-        NamedTypeFragment, RuleSourceKey, ScalarLiteral, ScalarType, SourceRuleOperation,
-        TypeSourceKey,
+        MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, RuleSourceKey, ScalarLiteral, ScalarType,
+        SourceRuleOperation, TypeSourceKey,
     };
 
-    use super::{Schema, lower_field_rules};
+    use super::{Schema, lower_blob_default, lower_field_rules, lower_scalar_default};
     use crate::{
         node::{
-            Args, Canister, Def, Entity, Enum, EnumVariant, Field, FieldList, Item, ItemTarget,
-            Newtype, Normalizer, PrimaryKey, PrimaryKeySource, Record, RuleNumber, SchemaNode,
-            SourceRule, SourceRuleAuthoringOperation, Store, StoreHeapConfig, Type, TypeNormalizer,
-            TypeValidator, Validator, Value,
+            Arg, Args, Canister, Def, Entity, Enum, EnumVariant, Field, FieldList, Item,
+            ItemTarget, Newtype, Normalizer, PrimaryKey, PrimaryKeySource, Record, RuleNumber,
+            SchemaNode, SourceRule, SourceRuleAuthoringOperation, Store, StoreHeapConfig, Type,
+            TypeNormalizer, TypeValidator, Validator, Value,
         },
         types::{Cardinality, Primitive},
     };
+
+    #[test]
+    fn blob_default_lowering_enforces_the_proposal_literal_bound() {
+        let maximum = "a".repeat(MAX_PROPOSAL_LITERAL_BYTES);
+        let oversized = "a".repeat(MAX_PROPOSAL_LITERAL_BYTES + 1);
+
+        assert_eq!(
+            lower_blob_default(&maximum).and_then(|literal| match literal {
+                ScalarLiteral::Blob(value) => Some(value.len()),
+                _ => None,
+            }),
+            Some(MAX_PROPOSAL_LITERAL_BYTES),
+        );
+        assert_eq!(lower_blob_default(&oversized), None);
+    }
+
+    #[test]
+    fn duration_default_lowering_rejects_suffixed_overflow() {
+        let item = Item::new(
+            ItemTarget::Primitive(Primitive::Duration),
+            None,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+        );
+
+        assert_eq!(
+            lower_scalar_default(
+                Primitive::Duration,
+                &item,
+                &Arg::String("18446744073709551615ms"),
+            ),
+            Some(ScalarLiteral::Duration(icydb_schema::Duration::MAX)),
+        );
+        assert_eq!(
+            lower_scalar_default(
+                Primitive::Duration,
+                &item,
+                &Arg::String("18446744073709552s"),
+            ),
+            None,
+        );
+    }
 
     static EMPTY_TYPE: Type = Type::new(&[], &[], &[]);
     static APPLICATION_FIELDS: [Field; 1] = [Field::new(

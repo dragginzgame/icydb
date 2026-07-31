@@ -28,6 +28,8 @@ pub(in crate::db) use envelope::{
 };
 pub(in crate::db) use expression_contract::SemanticIndexExpression;
 #[cfg(any(test, feature = "query"))]
+pub(in crate::db) use expression_contract::index_expression_supports_text_casefold_lookup;
+#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use key::{
     EncodedValue, IndexExpressionSourceClass, encode_accepted_index_literal_component,
 };
