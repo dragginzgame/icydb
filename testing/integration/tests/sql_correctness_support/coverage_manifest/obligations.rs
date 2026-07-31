@@ -6,10 +6,13 @@
 use super::{MANIFEST, PROVIDERS, ProviderSpec, provider_specs};
 
 use icydb_testing_sql_generator::{
+    ExecutionAccess, ExecutionCovering, RequiredExecutionFacts, StructuralSignature,
     TIER_A_MUTATION_BUDGETS, TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS,
     generate_scheduled_mutation_sequence, generate_scheduled_select_case,
     generated_mutation_tier_c_declaration, generated_select_tier_c_declaration,
     scheduled_mutation_witnesses, scheduled_select_witnesses, structural_obligation_catalog_hash,
+    structural_signature_for_scheduled_mutation_witness,
+    structural_signature_for_scheduled_select_witness,
 };
 use serde::Serialize;
 use std::{
@@ -17,8 +20,8 @@ use std::{
     fs,
 };
 
-const CATALOG_FORMAT_VERSION: u32 = 1;
-const CATALOG_HASH_DOMAIN: &[u8] = b"icydb-sql-coverage-obligations/v1";
+const CATALOG_FORMAT_VERSION: u32 = 3;
+const CATALOG_HASH_DOMAIN: &[u8] = b"icydb-sql-coverage-obligations/v3";
 const CATALOG_ARTIFACT: &str = include_str!(
     "../../../../../docs/design/0.215-sql-structural-coverage-and-range-remediation/0.215-coverage-obligations.json"
 );
@@ -73,116 +76,11 @@ struct AxisValue {
     value: &'static str,
 }
 
-///
-/// ExpectedStructuralSignature
-///
-/// Lossless reviewed expectation consumed by the derived signature owner in Slice 1.
-/// These fields describe semantic structure only; seeds and literal payloads are excluded.
-///
-
-#[derive(Clone, Copy, Debug, Serialize)]
-struct ExpectedStructuralSignature {
-    declaration_kind: &'static str,
-    schema_profile: &'static str,
-    statement_family: &'static str,
-    result_shape: &'static str,
-    projection_shape: &'static str,
-    predicate_shape: &'static str,
-    grouping_shape: &'static str,
-    having_shape: &'static str,
-    order_shape: &'static str,
-    window_shape: &'static str,
-    field_roles: &'static str,
-    semantic_value_class: &'static str,
-    fixture_class: &'static str,
-    required_access: &'static str,
-    required_covering: &'static str,
-    expected_violation: &'static str,
-}
-
-impl ExpectedStructuralSignature {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the reviewed SELECT signature keeps every closed semantic dimension explicit"
-    )]
-    const fn select(
-        profile: &'static str,
-        result: &'static str,
-        projection: &'static str,
-        predicate: &'static str,
-        grouping: &'static str,
-        having: &'static str,
-        order: &'static str,
-        window: &'static str,
-        field_roles: &'static str,
-        value_class: &'static str,
-        fixture: &'static str,
-        access: &'static str,
-        covering: &'static str,
-    ) -> Self {
-        Self {
-            declaration_kind: "accepted",
-            schema_profile: profile,
-            statement_family: "select",
-            result_shape: result,
-            projection_shape: projection,
-            predicate_shape: predicate,
-            grouping_shape: grouping,
-            having_shape: having,
-            order_shape: order,
-            window_shape: window,
-            field_roles,
-            semantic_value_class: value_class,
-            fixture_class: fixture,
-            required_access: access,
-            required_covering: covering,
-            expected_violation: "none",
-        }
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the reviewed mutation signature keeps every closed semantic dimension explicit"
-    )]
-    const fn mutation(
-        profile: &'static str,
-        statement: &'static str,
-        result: &'static str,
-        projection: &'static str,
-        predicate: &'static str,
-        order: &'static str,
-        field_roles: &'static str,
-        value_class: &'static str,
-        fixture: &'static str,
-        violation: &'static str,
-    ) -> Self {
-        Self {
-            declaration_kind: if violation.is_empty() {
-                "accepted"
-            } else {
-                "singly_invalid"
-            },
-            schema_profile: profile,
-            statement_family: statement,
-            result_shape: result,
-            projection_shape: projection,
-            predicate_shape: predicate,
-            grouping_shape: "none",
-            having_shape: "none",
-            order_shape: order,
-            window_shape: "none",
-            field_roles,
-            semantic_value_class: value_class,
-            fixture_class: fixture,
-            required_access: "mutation_selection",
-            required_covering: "not_applicable",
-            expected_violation: if violation.is_empty() {
-                "none"
-            } else {
-                violation
-            },
-        }
-    }
+const fn required_execution_facts(
+    access: ExecutionAccess,
+    covering: ExecutionCovering,
+) -> RequiredExecutionFacts {
+    RequiredExecutionFacts::new(access, covering)
 }
 
 ///
@@ -221,7 +119,7 @@ impl ProviderTarget {
 #[derive(Clone, Copy, Debug)]
 struct StructuralRequirement {
     id: &'static str,
-    signature: ExpectedStructuralSignature,
+    required_execution_facts: RequiredExecutionFacts,
     fixture_properties: &'static [&'static str],
     minimum_evidence: &'static str,
     provider_eligibility: &'static str,
@@ -264,7 +162,7 @@ macro_rules! axes {
 macro_rules! requirement {
     (
         $id:literal,
-        $signature:expr,
+        $execution:expr,
         fixtures = [$($fixture:literal),* $(,)?],
         evidence = $evidence:literal,
         eligibility = $eligibility:literal,
@@ -274,7 +172,7 @@ macro_rules! requirement {
     ) => {
         StructuralRequirement {
             id: $id,
-            signature: $signature,
+            required_execution_facts: $execution,
             fixture_properties: &[$($fixture),*],
             minimum_evidence: $evidence,
             provider_eligibility: $eligibility,
@@ -353,7 +251,7 @@ const GROUPS: &[InteractionGroup] = &[
             },
             Axis {
                 name: "modifiers",
-                members: &["distinct_filter", "multiple_projection"],
+                members: &["filter", "multiple_projection"],
             },
         ],
     },
@@ -460,7 +358,7 @@ const GROUPS: &[InteractionGroup] = &[
                 members: &[
                     "computed_distinct_window",
                     "full_scalar_window",
-                    "invalid_alias_order",
+                    "unknown_alias_order",
                 ],
             },
         ],
@@ -489,20 +387,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Compiled/direct parity already has an exact deterministic product provider.",
         requirement = Some(requirement!(
             "required.cache.cold_compiled_direct",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "scalar_rows",
-                "plain_fields",
-                "strict_scalar_comparison",
-                "none",
-                "none",
-                "primary_key_ascending",
-                "limit",
-                "sole_primary_key|stored_scalar",
-                "ordinary",
-                "small_duplicate_rich",
-                "primary_exact",
-                "non_covering",
+            required_execution_facts(
+                ExecutionAccess::PrimaryExact,
+                ExecutionCovering::NonCovering
             ),
             fixtures = ["identical cold fixture"],
             evidence = "contract_assertion",
@@ -531,21 +418,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             "Slice 1 must schedule the same derived declaration through SQL and fluent adapters.",
         requirement = Some(requirement!(
             "required.cache.cold_sql_fluent",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "scalar_rows",
-                "computed_and_plain_fields",
-                "strict_scalar_comparison",
-                "none",
-                "none",
-                "projection_alias_then_primary_key",
-                "limit_offset",
-                "sole_primary_key|stored_scalar",
-                "ordinary",
-                "small_duplicate_rich",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["identical cold fixture"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -572,20 +445,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Warm-cache behavior is an IcyDB execution contract, not SQLite authority.",
         requirement = Some(requirement!(
             "required.cache.warm_sql_fluent",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "scalar_rows",
-                "plain_fields",
-                "strict_scalar_comparison",
-                "none",
-                "none",
-                "primary_key_ascending",
-                "limit",
-                "sole_primary_key|stored_scalar",
-                "ordinary",
-                "small_duplicate_rich",
-                "primary_exact",
-                "non_covering",
+            required_execution_facts(
+                ExecutionAccess::PrimaryExact,
+                ExecutionCovering::NonCovering
             ),
             fixtures = ["identical warm fixture"],
             evidence = "contract_assertion",
@@ -609,21 +471,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Nested accepted values remain outside the generated SQLite profile.",
         requirement = Some(requirement!(
             "required.field_path.selectable_select",
-            ExpectedStructuralSignature::select(
-                "deterministic_nested_field_path",
-                "scalar_rows",
-                "stored_leaf",
-                "stored_leaf_comparison",
-                "none",
-                "none",
-                "stored_leaf_then_primary_key",
-                "limit",
-                "stored_leaf|single_secondary_index",
-                "ordinary",
-                "small_duplicate_rich",
-                "secondary_range",
-                "hybrid",
-            ),
+            required_execution_facts(ExecutionAccess::SecondaryRange, ExecutionCovering::Hybrid),
             fixtures = ["nested stored leaves"],
             evidence = "contract_assertion",
             eligibility = "icydb_contract_only",
@@ -646,17 +494,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Structured RETURNING remains with its exact deterministic mutation provider.",
         requirement = Some(requirement!(
             "required.field_path.selectable_returning",
-            ExpectedStructuralSignature::mutation(
-                "deterministic_nested_field_path",
-                "update",
-                "returned_fields",
-                "stored_leaf",
-                "primary_key_exact",
-                "primary_key_ascending",
-                "sole_primary_key|stored_leaf",
-                "authored",
-                "singleton",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["one matching structured row"],
             evidence = "contract_assertion",
@@ -681,9 +521,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         requirement = None
     ),
     interaction!(
-        "interaction.global.empty_distinct_filter",
+        "interaction.global.empty_filter",
         group = "global_aggregation",
-        tuple = axes!("input" = "empty", "modifiers" = "distinct_filter"),
+        tuple = axes!("input" = "empty", "modifiers" = "filter"),
         features = [
             "projection.aggregate",
             "select.aggregate_distinct_filter",
@@ -695,37 +535,22 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["global aggregate emits one result row"],
         disposition = GeneratedRequired,
-        reason =
-            "The current fixed slots do not make this complete interaction a required witness.",
+        reason = "The empty aggregate-filter case requires an explicit witness.",
         requirement = Some(requirement!(
-            "required.global.empty_distinct_filter",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "global_aggregate",
-                "aggregate_terminals",
-                "aggregate_filter",
-                "global",
-                "none",
-                "none",
-                "none",
-                "stored_scalar",
-                "empty",
-                "empty",
-                "full_scan",
-                "non_covering",
-            ),
+            "required.global.empty_filter",
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["empty input"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
             provider = ProviderTarget::Planned("generated.select.reference_scalar"),
             routes = ["global aggregate"],
-            witness = "tier_c.global.empty_distinct_filter"
+            witness = "tier_c.global.empty_filter"
         ))
     ),
     interaction!(
-        "interaction.global.nonempty_distinct_filter",
+        "interaction.global.nonempty_filter",
         group = "global_aggregation",
-        tuple = axes!("input" = "nonempty", "modifiers" = "distinct_filter"),
+        tuple = axes!("input" = "nonempty", "modifiers" = "filter"),
         features = [
             "projection.aggregate",
             "select.aggregate_distinct_filter",
@@ -737,30 +562,16 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["global aggregate over admitted predicate"],
         disposition = GeneratedRequired,
-        reason = "Slice 1 must compose FILTER and DISTINCT under one typed declaration.",
+        reason = "Slice 1 must require aggregate FILTER over non-empty input.",
         requirement = Some(requirement!(
-            "required.global.nonempty_distinct_filter",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "global_aggregate",
-                "aggregate_distinct_filter",
-                "strict_scalar_comparison",
-                "global",
-                "none",
-                "none",
-                "none",
-                "stored_scalar",
-                "duplicate_nonempty",
-                "duplicate_rich",
-                "full_scan",
-                "non_covering",
-            ),
+            "required.global.nonempty_filter",
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["duplicate aggregate inputs"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
             provider = ProviderTarget::Planned("generated.select.reference_scalar"),
             routes = ["global aggregate"],
-            witness = "tier_c.global.nonempty_distinct_filter"
+            witness = "tier_c.global.nonempty_filter"
         ))
     ),
     interaction!(
@@ -781,21 +592,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Slice 1 must require multiple aggregate outputs and global HAVING together.",
         requirement = Some(requirement!(
             "required.global.nonempty_multiple_projection",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "global_aggregate",
-                "multiple_aggregate_terminals",
-                "strict_scalar_comparison",
-                "global",
-                "aggregate_comparison",
-                "none",
-                "none",
-                "stored_scalar",
-                "ordinary",
-                "small_duplicate_rich",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["retained and rejected HAVING cases"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -822,21 +619,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Slice 1 must require the complete hash-grouped composition.",
         requirement = Some(requirement!(
             "required.grouped.hash_bounded",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "grouped_rows",
-                "group_key_then_multiple_aggregates",
-                "strict_scalar_comparison",
-                "one_group_key",
-                "aggregate_comparison",
-                "aggregate_alias_desc_then_group_key",
-                "limit",
-                "stored_scalar|non_indexed_group_key",
-                "ordinary",
-                "multiple_groups",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["multiple groups", "HAVING retained and rejected groups"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -864,20 +647,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "The indexed nullable profile is required to own ordered grouping evidence.",
         requirement = Some(requirement!(
             "required.grouped.ordered_bounded",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "grouped_rows",
-                "group_key_then_multiple_aggregates",
-                "indexed_scalar_comparison",
-                "one_indexed_group_key",
-                "aggregate_comparison",
-                "aggregate_alias_desc_then_group_key",
-                "limit",
-                "single_secondary_index|stored_scalar",
-                "ordinary",
-                "multiple_duplicate_rich_indexed_groups",
-                "secondary_range",
-                "hybrid",
+            required_execution_facts(
+                ExecutionAccess::SecondaryRange,
+                ExecutionCovering::NonCovering,
             ),
             fixtures = [
                 "multiple indexed groups",
@@ -908,21 +680,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Opaque grouped continuation is an IcyDB transport contract.",
         requirement = Some(requirement!(
             "required.grouped.ordered_continuation",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "grouped_rows_with_cursor",
-                "group_key_then_aggregate",
-                "none",
-                "one_indexed_group_key",
-                "none",
-                "group_key_ascending",
-                "grouped_continuation",
-                "single_secondary_index|stored_scalar",
-                "ordinary",
-                "more_than_one_group_page",
-                "secondary_range",
-                "pure",
-            ),
+            required_execution_facts(ExecutionAccess::SecondaryRange, ExecutionCovering::Pure),
             fixtures = ["more than one grouped page"],
             evidence = "contract_assertion",
             eligibility = "execution_mode_equivalent",
@@ -932,11 +690,11 @@ const INTERACTIONS: &[InteractionObligation] = &[
         ))
     ),
     interaction!(
-        "interaction.indexed.composite_prefix_hybrid",
+        "interaction.indexed.composite_prefix_non_covering",
         group = "indexed_scalar_execution",
         tuple = axes!(
             "access" = "composite_prefix",
-            "covering" = "hybrid",
+            "covering" = "non_covering",
             "order" = "compatible",
         ),
         features = [
@@ -950,35 +708,24 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "icydb_contract_only",
         routes = [
             "composite prefix",
-            "hybrid covering",
+            "row-backed projection",
             "compatible suffix order"
         ],
         disposition = GeneratedRequired,
         reason =
             "The indexed nullable profile must make composite-prefix route evidence structural.",
         requirement = Some(requirement!(
-            "required.indexed.composite_prefix_hybrid",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "scalar_rows",
-                "index_and_row_fields",
-                "equality_prefix_and_membership",
-                "none",
-                "none",
-                "compatible_index_suffix_then_primary_key",
-                "limit",
-                "composite_index_prefix_1|row_backed_projection",
-                "membership_duplicate_nonnull",
-                "duplicate_rich_indexed",
-                "composite_prefix",
-                "hybrid",
+            "required.indexed.composite_prefix_non_covering",
+            required_execution_facts(
+                ExecutionAccess::CompositePrefix,
+                ExecutionCovering::NonCovering,
             ),
             fixtures = ["duplicate-rich index prefixes"],
             evidence = "contract_assertion",
             eligibility = "icydb_contract_only",
             provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
-            routes = ["composite prefix", "hybrid covering"],
-            witness = "tier_c.indexed.composite_prefix_hybrid"
+            routes = ["composite prefix", "row-backed projection"],
+            witness = "tier_c.indexed.composite_prefix_non_covering"
         ))
     ),
     interaction!(
@@ -1003,20 +750,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Expression-index semantics have no declared lossless generated SQLite mapping.",
         requirement = Some(requirement!(
             "required.indexed.expression_range_non_covering",
-            ExpectedStructuralSignature::select(
-                "deterministic_expression_index",
-                "scalar_rows",
-                "plain_fields",
-                "casefold_prefix",
-                "none",
-                "none",
-                "none",
-                "limit",
-                "accepted_expression_index|row_backed_projection",
-                "ordinary_prefix",
-                "unicode_prefix",
-                "expression_range",
-                "non_covering",
+            required_execution_facts(
+                ExecutionAccess::ExpressionRange,
+                ExecutionCovering::NonCovering
             ),
             fixtures = ["Unicode casefold prefixes"],
             evidence = "contract_assertion",
@@ -1044,20 +780,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Current exact-key value and route providers already close this interaction.",
         requirement = Some(requirement!(
             "required.indexed.primary_exact_non_covering",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "scalar_rows",
-                "plain_fields",
-                "primary_key_exact",
-                "none",
-                "none",
-                "none",
-                "none",
-                "sole_primary_key|row_backed_projection",
-                "point",
-                "singleton",
-                "primary_exact",
-                "non_covering",
+            required_execution_facts(
+                ExecutionAccess::PrimaryExact,
+                ExecutionCovering::NonCovering
             ),
             fixtures = ["present and absent exact keys"],
             evidence = "reference_oracle",
@@ -1092,20 +817,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "The current generated snapshot has no secondary index.",
         requirement = Some(requirement!(
             "required.indexed.secondary_range_non_covering_incompatible",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "scalar_rows",
-                "computed_and_row_fields",
-                "nonempty_bounded_range_and_residual",
-                "none",
-                "none",
-                "computed_alias_then_primary_key",
-                "limit_offset",
-                "single_secondary_index|row_backed_projection",
-                "bounded_nonempty",
-                "order_ties",
-                "secondary_range",
-                "non_covering",
+            required_execution_facts(
+                ExecutionAccess::SecondaryRange,
+                ExecutionCovering::NonCovering
             ),
             fixtures = ["nonempty bounded range", "order ties"],
             evidence = "reference_oracle",
@@ -1116,11 +830,11 @@ const INTERACTIONS: &[InteractionObligation] = &[
         ))
     ),
     interaction!(
-        "interaction.indexed.secondary_range_pure_compatible",
+        "interaction.indexed.secondary_range_direct_compatible",
         group = "indexed_scalar_execution",
         tuple = axes!(
             "access" = "secondary_range",
-            "covering" = "pure",
+            "covering" = "non_covering",
             "order" = "compatible",
         ),
         features = [
@@ -1129,41 +843,33 @@ const INTERACTIONS: &[InteractionObligation] = &[
             "projection.scalar",
             "select.scalar_composition",
         ],
-        schema = ["single-field nullable secondary index with index-only projection"],
+        schema = ["single-field nullable secondary index with direct projection"],
         fixtures = ["stored nulls", "duplicate-rich indexed values"],
         evidence = "reference_oracle",
         eligibility = "sqlite_reference",
         routes = [
             "one bounded secondary range",
             "compatible index order",
-            "pure covering"
+            "direct row-backed projection"
         ],
         disposition = GeneratedRequired,
         reason =
             "The indexed nullable profile is required to exercise route and null roles together.",
         requirement = Some(requirement!(
-            "required.indexed.secondary_range_pure_compatible",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "scalar_rows",
-                "index_fields_only",
-                "nonempty_bounded_range",
-                "none",
-                "none",
-                "compatible_index_order_then_primary_key",
-                "limit",
-                "nullable|single_secondary_index|index_projectable",
-                "bounded_nonempty",
-                "stored_null_duplicate_rich_indexed",
-                "secondary_range",
-                "pure",
+            "required.indexed.secondary_range_direct_compatible",
+            required_execution_facts(
+                ExecutionAccess::SecondaryRange,
+                ExecutionCovering::NonCovering,
             ),
             fixtures = ["stored nulls", "duplicate-rich indexed values"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
             provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
-            routes = ["one bounded secondary range", "pure covering"],
-            witness = "tier_c.indexed.secondary_range_pure_compatible"
+            routes = [
+                "one bounded secondary range",
+                "direct row-backed projection"
+            ],
+            witness = "tier_c.indexed.secondary_range_direct_compatible"
         ))
     ),
     interaction!(
@@ -1185,21 +891,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             "Slice 1 must require computed-null aggregate input rather than incidental generation.",
         requirement = Some(requirement!(
             "required.null.computed_aggregate",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "global_aggregate",
-                "aggregate_over_nullif",
-                "none",
-                "global",
-                "none",
-                "none",
-                "none",
-                "stored_scalar",
-                "computed_null",
-                "computed_null_and_nonnull",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["computed null and non-null inputs"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -1226,21 +918,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "The fixed families do not require computed projection and DISTINCT together.",
         requirement = Some(requirement!(
             "required.null.computed_distinct",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "scalar_rows",
-                "distinct_nullif",
-                "none",
-                "none",
-                "none",
-                "computed_alias_then_primary_key",
-                "limit",
-                "stored_scalar",
-                "computed_null",
-                "duplicate_computed_null",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["duplicate computed nulls"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -1263,21 +941,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "The indexed nullable profile must bind null membership to accepted schema roles.",
         requirement = Some(requirement!(
             "required.null.stored_comparison_membership",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "scalar_rows",
-                "plain_fields",
-                "nullable_membership_and_null_test",
-                "none",
-                "none",
-                "primary_key_ascending",
-                "limit",
-                "nullable|stored_scalar",
-                "membership_duplicate_with_null",
-                "stored_null_duplicate_rich",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["stored nulls", "membership nulls and duplicates"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -1300,21 +964,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Slice 1 must require null ordering under the accepted nullable profile.",
         requirement = Some(requirement!(
             "required.null.stored_ordering",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "scalar_rows",
-                "nullable_and_primary_key",
-                "none",
-                "none",
-                "none",
-                "nullable_ascending_then_primary_key",
-                "limit_offset",
-                "nullable|stored_scalar",
-                "stored_null",
-                "stored_null_order_ties",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["stored nulls", "order ties"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -1341,21 +991,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Computed-null ordering is a reviewed composition gap.",
         requirement = Some(requirement!(
             "required.null.computed_ordering",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "scalar_rows",
-                "nullif_alias",
-                "none",
-                "none",
-                "none",
-                "computed_nullable_alias_then_primary_key",
-                "limit_offset",
-                "stored_scalar",
-                "computed_null",
-                "computed_null_order_ties",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["computed nulls", "order ties"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -1386,21 +1022,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "The old window slots do not compose every required scalar axis in one case.",
         requirement = Some(requirement!(
             "required.scalar.reference_full_window",
-            ExpectedStructuralSignature::select(
-                "reference_scalar",
-                "scalar_rows",
-                "plain_and_computed_aliases",
-                "boolean_tree_with_comparison",
-                "none",
-                "none",
-                "projection_alias_then_primary_key",
-                "limit_offset",
-                "stored_scalar",
-                "ordinary",
-                "order_ties_more_than_window",
-                "full_scan",
-                "non_covering",
-            ),
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["order ties", "more rows than window"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
@@ -1431,20 +1053,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "This is a primary 0.215 missing interaction and requires the new profile.",
         requirement = Some(requirement!(
             "required.scalar.indexed_computed_distinct_window",
-            ExpectedStructuralSignature::select(
-                "indexed_nullable_reference",
-                "scalar_rows",
-                "distinct_computed_and_plain_aliases",
-                "indexed_comparison_and_residual",
-                "none",
-                "none",
-                "computed_alias_then_primary_key",
-                "limit_offset",
-                "nullable|single_secondary_index|row_backed_projection",
-                "bounded_nonempty",
-                "duplicate_computed_stored_null",
-                "secondary_range",
-                "non_covering",
+            required_execution_facts(
+                ExecutionAccess::SecondaryRange,
+                ExecutionCovering::NonCovering
             ),
             fixtures = ["duplicate computed values", "stored nulls", "order ties"],
             evidence = "reference_oracle",
@@ -1455,11 +1066,11 @@ const INTERACTIONS: &[InteractionObligation] = &[
         ))
     ),
     interaction!(
-        "interaction.scalar.reference_invalid_alias_order",
+        "interaction.scalar.reference_unknown_alias_order",
         group = "scalar_composition",
         tuple = axes!(
             "profile" = "reference_scalar",
-            "shape" = "invalid_alias_order"
+            "shape" = "unknown_alias_order"
         ),
         features = ["ordering.projection_alias", "projection.aliases"],
         schema = ["reference scalar fields"],
@@ -1468,33 +1079,19 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "rejection_invariant",
         routes = [],
         disposition = GeneratedRequired,
-        reason = "Slice 1 must add a singly-invalid alias-binding violation with a typed cause.",
+        reason = "Slice 1 must add a singly-invalid unknown-alias order target with a typed cause.",
         requirement = Some(requirement!(
-            "required.scalar.reference_invalid_alias_order",
-            ExpectedStructuralSignature {
-                declaration_kind: "singly_invalid",
-                schema_profile: "reference_scalar",
-                statement_family: "select",
-                result_shape: "scalar_rows",
-                projection_shape: "ambiguous_aliases",
-                predicate_shape: "none",
-                grouping_shape: "none",
-                having_shape: "none",
-                order_shape: "ambiguous_projection_alias",
-                window_shape: "limit",
-                field_roles: "stored_scalar",
-                semantic_value_class: "ordinary",
-                fixture_class: "valid_base",
-                required_access: "not_applicable",
-                required_covering: "not_applicable",
-                expected_violation: "ambiguous_alias_binding",
-            },
+            "required.scalar.reference_unknown_alias_order",
+            required_execution_facts(
+                ExecutionAccess::NotApplicable,
+                ExecutionCovering::NotApplicable,
+            ),
             fixtures = ["valid base declaration"],
             evidence = "boundary_assertion",
             eligibility = "rejection_invariant",
             provider = ProviderTarget::Planned("generated.select.reference_scalar"),
             routes = [],
-            witness = "tier_c.scalar.reference_invalid_alias_order"
+            witness = "tier_c.scalar.reference_unknown_alias_order"
         ))
     ),
     interaction!(
@@ -1516,17 +1113,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Slice 2 replaces the fixed mutation vector with an obligation-owned sequence.",
         requirement = Some(requirement!(
             "required.mutation.authored_insert",
-            ExpectedStructuralSignature::mutation(
-                "authored_scalar",
-                "insert",
-                "affected_count_and_optional_rows",
-                "none",
-                "none",
-                "none",
-                "sole_primary_key|authored_fields",
-                "authored_single_and_multi",
-                "empty_then_nonempty_state",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["single row", "multi row"],
             evidence = "state_model_reference",
@@ -1555,17 +1144,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "INSERT FROM QUERY is SQL-only but belongs in the independent state model.",
         requirement = Some(requirement!(
             "required.mutation.authored_insert_from_query",
-            ExpectedStructuralSignature::mutation(
-                "authored_scalar",
-                "insert_from_query",
-                "affected_count",
-                "none",
-                "source_query",
-                "source_primary_key_ascending",
-                "sole_primary_key|authored_fields",
-                "authored_from_query",
-                "bounded_source",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["bounded source rows"],
             evidence = "state_model_reference",
@@ -1600,17 +1181,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Slice 2 must derive update/delete windows from bounded typed operations.",
         requirement = Some(requirement!(
             "required.mutation.authored_windowed",
-            ExpectedStructuralSignature::mutation(
-                "authored_scalar",
-                "update_delete_window",
-                "affected_count_and_returning",
-                "plain_fields",
-                "exact_compound_bounded",
-                "primary_key_ascending",
-                "sole_primary_key|authored_fields",
-                "authored_patch",
-                "multiple_matching_rows",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["exact", "compound", "bounded matches"],
             evidence = "state_model_reference",
@@ -1639,17 +1212,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Slice 2 introduces the exact accepted-default profile.",
         requirement = Some(requirement!(
             "required.mutation.default_insert_authored",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "insert",
-                "affected_count_and_complete_row",
-                "all_fields",
-                "none",
-                "none",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "all_authored",
-                "empty_state",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["all fields authored"],
             evidence = "state_model_reference",
@@ -1678,17 +1243,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Omission provenance must be explicit in SQL and canonical typed create.",
         requirement = Some(requirement!(
             "required.mutation.default_insert_omitted",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "insert",
-                "affected_count_and_complete_row",
-                "all_fields",
-                "none",
-                "none",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "omitted_defaults",
-                "empty_state",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["id and name authored only"],
             evidence = "state_model_reference",
@@ -1717,17 +1274,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Explicit DEFAULT is a SQL-only provenance form with state-model authority.",
         requirement = Some(requirement!(
             "required.mutation.default_insert_explicit",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "insert",
-                "affected_count_and_complete_row",
-                "all_fields",
-                "none",
-                "none",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "explicit_defaults",
-                "empty_state",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["explicit defaults"],
             evidence = "state_model_reference",
@@ -1775,17 +1324,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Mixed provenance must remain row-specific inside one atomic batch.",
         requirement = Some(requirement!(
             "required.mutation.default_insert_mixed_batch",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "insert",
-                "affected_count_and_complete_rows",
-                "all_fields",
-                "none",
-                "none",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "mixed_authored_omitted_explicit_default",
-                "empty_state",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["three-row mixed provenance batch"],
             evidence = "state_model_reference",
@@ -1814,17 +1355,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Authored default-profile updates require SQL/typed parity.",
         requirement = Some(requirement!(
             "required.mutation.default_update_authored",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "update",
-                "affected_count_and_complete_row",
-                "returning_star",
-                "primary_key_exact",
-                "primary_key_ascending",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "authored_patch",
-                "one_matching_row",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["one matching row"],
             evidence = "state_model_reference",
@@ -1853,17 +1386,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "SET field = DEFAULT is a SQL-only state transition.",
         requirement = Some(requirement!(
             "required.mutation.default_update_default",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "update",
-                "affected_count_and_returned_fields",
-                "tier_score_note",
-                "primary_key_exact",
-                "primary_key_ascending",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "explicit_update_defaults",
-                "one_nondefault_row",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["one non-default row"],
             evidence = "state_model_reference",
@@ -1911,17 +1436,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Preservation must remain distinct from default application.",
         requirement = Some(requirement!(
             "required.mutation.default_update_preserve",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "update",
-                "affected_count_and_complete_row",
-                "all_fields",
-                "primary_key_exact",
-                "primary_key_ascending",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "absent_assignments_preserve",
-                "one_nondefault_row",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["one non-default row"],
             evidence = "state_model_reference",
@@ -1950,17 +1467,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "No-match update/delete must preserve complete state.",
         requirement = Some(requirement!(
             "required.mutation.default_no_match",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "update_delete_no_match",
-                "zero_affected",
-                "none",
-                "primary_key_exact_absent",
-                "primary_key_ascending",
-                "sole_primary_key",
-                "authored",
-                "absent_key",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["absent primary key"],
             evidence = "state_model_reference",
@@ -1989,17 +1498,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Delete RETURNING must agree with the independent complete-state oracle.",
         requirement = Some(requirement!(
             "required.mutation.default_delete_returning",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "delete",
-                "affected_count_and_old_complete_row",
-                "returning_star",
-                "primary_key_exact",
-                "primary_key_ascending",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "authored",
-                "one_matching_row",
-                "",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["one matching row"],
             evidence = "state_model_reference",
@@ -2028,17 +1529,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Required-field omission needs one typed singly-invalid mutation witness.",
         requirement = Some(requirement!(
             "required.mutation.default_reject_required",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "insert",
-                "typed_error",
-                "none",
-                "none",
-                "none",
-                "required_without_default",
-                "omitted_required",
-                "unchanged_pre_state",
-                "missing_required_field",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["unchanged pre-state"],
             evidence = "boundary_assertion",
@@ -2067,17 +1560,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "DEFAULT on a policy-free primary key must reject without state change.",
         requirement = Some(requirement!(
             "required.mutation.default_reject_pk_default",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "insert",
-                "typed_error",
-                "none",
-                "none",
-                "none",
-                "sole_primary_key|required_without_default",
-                "explicit_default",
-                "unchanged_pre_state",
-                "default_unavailable",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["unchanged pre-state"],
             evidence = "boundary_assertion",
@@ -2126,17 +1611,9 @@ const INTERACTIONS: &[InteractionObligation] = &[
         reason = "Duplicate rejection must prove batch atomicity under both ingresses.",
         requirement = Some(requirement!(
             "required.mutation.default_reject_duplicate",
-            ExpectedStructuralSignature::mutation(
-                "accepted_default",
-                "insert",
-                "typed_error",
-                "none",
-                "none",
-                "none",
-                "sole_primary_key|single_secondary_index",
-                "duplicate_primary_key_batch",
-                "unchanged_pre_state",
-                "duplicate_primary_key",
+            required_execution_facts(
+                ExecutionAccess::MutationSelection,
+                ExecutionCovering::NotApplicable,
             ),
             fixtures = ["duplicate primary-key batch"],
             evidence = "state_model_reference",
@@ -2581,7 +2058,8 @@ struct InteractionProjection {
 struct RequirementProjection {
     id: &'static str,
     interaction_obligations: Vec<&'static str>,
-    expected_structural_signature: ExpectedStructuralSignature,
+    expected_structural_signature: StructuralSignature,
+    required_execution_facts: RequiredExecutionFacts,
     fixture_properties: &'static [&'static str],
     minimum_evidence: &'static str,
     provider_eligibility: &'static str,
@@ -2611,6 +2089,159 @@ struct CatalogArtifact {
     format_version: u32,
     catalog_hash: String,
     catalog: CatalogBody,
+}
+
+#[derive(Clone, Copy)]
+struct DeterministicSignatureSpec {
+    profile: &'static str,
+    statement_family: &'static str,
+    result_shape: &'static str,
+    projection_shape: &'static str,
+    predicate_shape: &'static str,
+    grouping_shape: &'static str,
+    having_shape: &'static str,
+    order_shape: &'static str,
+    window_shape: &'static str,
+    field_roles: &'static str,
+    semantic_value_class: &'static str,
+}
+
+fn expected_structural_signature(
+    requirement: &StructuralRequirement,
+) -> Result<StructuralSignature, String> {
+    match requirement.provider {
+        ProviderTarget::Planned(provider) if provider.starts_with("generated.select.") => {
+            structural_signature_for_scheduled_select_witness(requirement.witness_id)
+                .map_err(|error| error.to_string())
+        }
+        ProviderTarget::Planned(provider) if provider.starts_with("generated.mutation.") => {
+            structural_signature_for_scheduled_mutation_witness(requirement.witness_id)
+                .map_err(|error| error.to_string())
+        }
+        ProviderTarget::Existing(_) => {
+            deterministic_structural_signature(requirement.id, requirement.witness_id)
+        }
+        ProviderTarget::Planned(provider) => Err(format!(
+            "requirement {:?} has no structural signature derivation for provider {provider:?}",
+            requirement.id,
+        )),
+    }
+}
+
+fn deterministic_structural_signature(
+    requirement_id: &str,
+    witness_id: &str,
+) -> Result<StructuralSignature, String> {
+    let spec = deterministic_signature_spec(requirement_id)?;
+    let canonical_structure = serde_json::to_string(&BTreeMap::from([
+        ("field_roles", spec.field_roles),
+        ("grouping_shape", spec.grouping_shape),
+        ("having_shape", spec.having_shape),
+        ("order_shape", spec.order_shape),
+        ("predicate_shape", spec.predicate_shape),
+        ("projection_shape", spec.projection_shape),
+        ("provider_witness", witness_id),
+        ("result_shape", spec.result_shape),
+        ("semantic_value_class", spec.semantic_value_class),
+        ("window_shape", spec.window_shape),
+    ]))
+    .map_err(|error| format!("deterministic structural signature failed to encode: {error}"))?;
+    StructuralSignature::try_new_deterministic_requirement(
+        spec.profile,
+        spec.statement_family,
+        canonical_structure,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn deterministic_signature_spec(
+    requirement_id: &str,
+) -> Result<DeterministicSignatureSpec, String> {
+    match requirement_id {
+        "required.cache.cold_compiled_direct" | "required.cache.warm_sql_fluent" => {
+            Ok(DeterministicSignatureSpec {
+                profile: "reference_scalar",
+                statement_family: "select",
+                result_shape: "scalar_rows",
+                projection_shape: "plain_fields",
+                predicate_shape: "strict_scalar_comparison",
+                grouping_shape: "none",
+                having_shape: "none",
+                order_shape: "primary_key_ascending",
+                window_shape: "limit",
+                field_roles: "sole_primary_key|stored_scalar",
+                semantic_value_class: "ordinary",
+            })
+        }
+        "required.field_path.selectable_returning" => Ok(DeterministicSignatureSpec {
+            profile: "deterministic_nested_field_path",
+            statement_family: "update",
+            result_shape: "returned_fields",
+            projection_shape: "stored_leaf",
+            predicate_shape: "primary_key_exact",
+            grouping_shape: "none",
+            having_shape: "none",
+            order_shape: "primary_key_ascending",
+            window_shape: "none",
+            field_roles: "sole_primary_key|stored_leaf",
+            semantic_value_class: "authored",
+        }),
+        "required.field_path.selectable_select" => Ok(DeterministicSignatureSpec {
+            profile: "deterministic_nested_field_path",
+            statement_family: "select",
+            result_shape: "scalar_rows",
+            projection_shape: "stored_leaf",
+            predicate_shape: "stored_leaf_comparison",
+            grouping_shape: "none",
+            having_shape: "none",
+            order_shape: "stored_leaf_then_primary_key",
+            window_shape: "limit",
+            field_roles: "stored_leaf|single_secondary_index",
+            semantic_value_class: "ordinary",
+        }),
+        "required.grouped.ordered_continuation" => Ok(DeterministicSignatureSpec {
+            profile: "indexed_nullable_reference",
+            statement_family: "select",
+            result_shape: "grouped_rows_with_cursor",
+            projection_shape: "group_key_then_aggregate",
+            predicate_shape: "none",
+            grouping_shape: "one_indexed_group_key",
+            having_shape: "none",
+            order_shape: "group_key_ascending",
+            window_shape: "grouped_continuation",
+            field_roles: "single_secondary_index|stored_scalar",
+            semantic_value_class: "ordinary",
+        }),
+        "required.indexed.expression_range_non_covering" => Ok(DeterministicSignatureSpec {
+            profile: "deterministic_expression_index",
+            statement_family: "select",
+            result_shape: "scalar_rows",
+            projection_shape: "plain_fields",
+            predicate_shape: "casefold_prefix",
+            grouping_shape: "none",
+            having_shape: "none",
+            order_shape: "none",
+            window_shape: "limit",
+            field_roles: "accepted_expression_index|row_backed_projection",
+            semantic_value_class: "ordinary_prefix",
+        }),
+        "required.indexed.primary_exact_non_covering" => Ok(DeterministicSignatureSpec {
+            profile: "reference_scalar",
+            statement_family: "select",
+            result_shape: "scalar_rows",
+            projection_shape: "plain_fields",
+            predicate_shape: "primary_key_exact",
+            grouping_shape: "none",
+            having_shape: "none",
+            order_shape: "none",
+            window_shape: "none",
+            field_roles: "sole_primary_key|row_backed_projection",
+            semantic_value_class: "point",
+        }),
+        _ => Err(format!(
+            "deterministic requirement {requirement_id:?} has no canonical structural construction",
+        )),
+    }
 }
 
 fn validate_group_tuple(interaction: &InteractionObligation) -> Result<(), String> {
@@ -2858,7 +2489,7 @@ fn validate_catalog() -> Result<(), String> {
     clippy::too_many_lines,
     reason = "one deterministic projection keeps catalog ordering and derivation visible together"
 )]
-fn catalog_body() -> CatalogBody {
+fn catalog_body() -> Result<CatalogBody, String> {
     let mut interactions = INTERACTIONS.iter().collect::<Vec<_>>();
     interactions.sort_by_key(|interaction| interaction.id);
 
@@ -2934,27 +2565,30 @@ fn catalog_body() -> CatalogBody {
     requirements.sort_by_key(|(_, requirement)| requirement.id);
     let required_structural_obligations = requirements
         .into_iter()
-        .map(|(interaction_id, requirement)| RequirementProjection {
-            id: requirement.id,
-            interaction_obligations: vec![interaction_id],
-            expected_structural_signature: requirement.signature,
-            fixture_properties: requirement.fixture_properties,
-            minimum_evidence: requirement.minimum_evidence,
-            provider_eligibility: requirement.provider_eligibility,
-            provider_id: requirement.provider.id(),
-            provider_state: requirement.provider.state(),
-            route_facts: requirement.route_facts,
-            witness_id: requirement.witness_id,
-            opening_evidence_state: match requirement.provider {
-                ProviderTarget::Existing(_) => {
-                    "existing_evidence_has_no_observed_structural_signature_receipt"
-                }
-                ProviderTarget::Planned(_) => "missing_scheduled_witness_and_receipt",
-            },
+        .map(|(interaction_id, requirement)| {
+            Ok(RequirementProjection {
+                id: requirement.id,
+                interaction_obligations: vec![interaction_id],
+                expected_structural_signature: expected_structural_signature(&requirement)?,
+                required_execution_facts: requirement.required_execution_facts,
+                fixture_properties: requirement.fixture_properties,
+                minimum_evidence: requirement.minimum_evidence,
+                provider_eligibility: requirement.provider_eligibility,
+                provider_id: requirement.provider.id(),
+                provider_state: requirement.provider.state(),
+                route_facts: requirement.route_facts,
+                witness_id: requirement.witness_id,
+                opening_evidence_state: match requirement.provider {
+                    ProviderTarget::Existing(_) => {
+                        "existing_evidence_has_no_observed_structural_signature_receipt"
+                    }
+                    ProviderTarget::Planned(_) => "missing_scheduled_witness_and_receipt",
+                },
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
 
-    CatalogBody {
+    Ok(CatalogBody {
         design_line: "0.215",
         opening_baseline: OPENING_BASELINE,
         opening_inventory: OPENING_INVENTORY,
@@ -2965,12 +2599,12 @@ fn catalog_body() -> CatalogBody {
         required_structural_obligations,
         gap_ledger: GAP_LEDGER,
         owner_map: OWNER_MAP,
-    }
+    })
 }
 
 fn catalog_artifact() -> Result<(String, String), String> {
     validate_catalog()?;
-    let catalog = catalog_body();
+    let catalog = catalog_body()?;
     let catalog_bytes = serde_json::to_vec(&catalog)
         .map_err(|error| format!("coverage obligation catalog serialization failed: {error}"))?;
     let mut hasher = blake3::Hasher::new();
@@ -3011,8 +2645,8 @@ fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
                 (
                     witness.requirement_id(),
                     witness.provider_id(),
-                    serde_json::to_value(witness.signature())
-                        .expect("observed structural signature should serialize"),
+                    witness.signature().clone(),
+                    witness.required_execution_facts(),
                 ),
             )
         })
@@ -3033,8 +2667,9 @@ fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
                 (
                     requirement.id,
                     requirement.provider.id(),
-                    serde_json::to_value(requirement.signature)
-                        .expect("expected structural signature should serialize"),
+                    expected_structural_signature(&requirement)
+                        .expect("code-owned SELECT signature should derive"),
+                    requirement.required_execution_facts,
                 ),
             )
         })
@@ -3045,7 +2680,7 @@ fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
     assert_eq!(
         structural_obligation_catalog_hash()
             .expect("generator should expose the frozen obligation catalog hash"),
-        "b4f839c170e09a2691dd8cbc6a5b14ad8c3794af0d2ea796df47bec4968e4b9f",
+        "c273d1ce46eda26a1e664ceb47794c21c444d1d5ab90a9c19cc7b6185c92d74a",
     );
 
     let manifest_features = MANIFEST.iter().map(|cell| cell.id).collect::<BTreeSet<_>>();
@@ -3083,8 +2718,8 @@ fn generated_mutation_schedule_closes_the_frozen_matrix_exactly() {
                 (
                     witness.requirement_id(),
                     witness.provider_id(),
-                    serde_json::to_value(witness.signature())
-                        .expect("observed mutation signature should serialize"),
+                    witness.signature().clone(),
+                    witness.required_execution_facts(),
                 ),
             )
         })
@@ -3105,8 +2740,9 @@ fn generated_mutation_schedule_closes_the_frozen_matrix_exactly() {
                 (
                     requirement.id,
                     requirement.provider.id(),
-                    serde_json::to_value(requirement.signature)
-                        .expect("expected mutation signature should serialize"),
+                    expected_structural_signature(&requirement)
+                        .expect("code-owned mutation signature should derive"),
+                    requirement.required_execution_facts,
                 ),
             )
         })

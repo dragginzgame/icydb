@@ -194,7 +194,17 @@ fn reviewed_generated_select_witnesses_execute_without_silent_exclusions() {
             TIER_C_ROOT_SEEDS.len()
                 * witnesses
                     .iter()
-                    .filter(|witness| !witness.signature().is_singly_invalid())
+                    .filter(|witness| {
+                        generate_scheduled_select_case(
+                            witness,
+                            TIER_C_ROOT_SEEDS[0],
+                            0,
+                            TIER_C_SELECT_BUDGETS,
+                        )
+                        .expect("reviewed SQLite witness should generate")
+                        .violation()
+                        .is_none()
+                    })
                     .count()
                 * usize::try_from(TIER_C_SELECT_REPETITIONS)
                     .expect("repetition count should fit usize"),

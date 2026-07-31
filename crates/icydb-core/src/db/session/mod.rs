@@ -16,6 +16,9 @@ mod response;
 mod sql;
 mod write;
 
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
+mod tests;
+
 #[cfg(feature = "query")]
 use crate::metrics::sink::with_metrics_sink;
 use crate::{

@@ -17,6 +17,7 @@ mod rng;
 mod scheduled;
 mod shard;
 mod shrink;
+mod structural_derivation;
 mod structure;
 
 #[cfg(test)]
@@ -44,6 +45,7 @@ pub use generator::{
     TIER_A_INVALID_REPETITIONS, TIER_A_ROOT_SEEDS, TIER_A_SELECT_REPETITIONS,
     TIER_C_INVALID_REPETITIONS, TIER_C_ROOT_SEEDS, TIER_C_SELECT_REPETITIONS,
     generate_invalid_select_case, generate_scheduled_select_case,
+    structural_signature_for_scheduled_select_witness,
 };
 pub use model::{
     ALL_SELECT_VIOLATIONS, GeneratedSelectCase, GeneratedSelectIdentity, SelectBudgets,
@@ -66,6 +68,7 @@ pub use mutation::{
     MutationUpdateIntent, MutationValue, MutationWindow, MutationWriteIntent,
     TIER_A_MUTATION_BUDGETS, TIER_A_MUTATION_REPETITIONS, TIER_C_MUTATION_BUDGETS,
     TIER_C_MUTATION_REPETITIONS, generate_scheduled_mutation_sequence, shrink_mutation_failure,
+    structural_signature_for_scheduled_mutation_witness,
 };
 pub use replay::{
     SELECT_REPLAY_FORMAT_VERSION, SelectComparisonProvider, SelectExecutionPhase,
@@ -80,6 +83,7 @@ pub use scheduled::{
 pub use shard::{SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, scheduled_sql_scenario_shard};
 pub use shrink::{SelectShrinkReport, shrink_select_failure};
 pub use structure::{
+    ExecutionAccess, ExecutionCovering, ObservedExecutionFacts, RequiredExecutionFacts,
     ScheduledMutationWitness, ScheduledSelectWitness, StructuralSignature,
     scheduled_mutation_witnesses, scheduled_select_witnesses, structural_obligation_catalog_hash,
 };

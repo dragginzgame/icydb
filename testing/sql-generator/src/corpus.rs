@@ -10,7 +10,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut checked-in regression corpus format.
-pub const REGRESSION_CORPUS_FORMAT_VERSION: u32 = 2;
+pub const REGRESSION_CORPUS_FORMAT_VERSION: u32 = 3;
 
 /// Largest current-format corpus entry admitted before JSON decoding.
 pub const REGRESSION_CORPUS_MAX_ENTRY_BYTES: usize = 1_048_576;

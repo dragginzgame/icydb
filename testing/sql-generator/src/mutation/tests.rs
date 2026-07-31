@@ -58,7 +58,12 @@ fn scheduled_mutation_witnesses_freeze_the_complete_operation_intent_ingress_mat
             sequence.ingress(),
             sequence.intent_class(),
         ));
-        assert_eq!(sequence.structural_signature(), witness.signature());
+        assert_eq!(
+            &sequence
+                .structural_signature()
+                .expect("mutation signature should derive"),
+            witness.signature(),
+        );
     }
 
     assert_eq!(
@@ -143,7 +148,11 @@ fn tier_a_mutation_sequences_are_deterministic_bounded_and_structurally_distinct
                 .expect("same witness identity should regenerate identically"),
             );
             assert!(identities.insert(sequence.identity().id().to_string()));
-            signatures.insert(sequence.structural_signature().clone());
+            signatures.insert(
+                sequence
+                    .structural_signature()
+                    .expect("mutation signature should derive"),
+            );
             for step in sequence.steps() {
                 operations.insert(match step.statement().operation() {
                     MutationOperation::Delete { .. } => "delete",
@@ -204,6 +213,18 @@ fn tier_c_mutation_profile_generates_every_witness_root_and_repetition() {
     )
     .expect_err("repetitions outside the frozen profile must reject");
     assert_eq!(error.kind(), SqlGeneratorErrorKind::InvalidCase);
+}
+
+#[test]
+fn insert_from_query_witness_has_distinct_derived_keys_and_commits() {
+    let sequence = sequence("tier_c.mutation.authored_insert_from_query");
+    assert!(
+        sequence
+            .steps()
+            .iter()
+            .all(|step| step.expected().rejection().is_none())
+    );
+    assert_eq!(sequence.final_state().len(), 6);
 }
 
 #[test]
@@ -332,18 +353,19 @@ fn mutation_identity_and_replay_use_only_the_current_witness_shape() {
         EXPECTED_MUTATION_WITNESSES[0]
     );
     assert_eq!(sequence.identity().repetition(), 0);
-    assert!(
-        sequence
-            .identity()
-            .id()
-            .starts_with("sql-mutation/v2/tier_c.mutation.authored_insert/1cdb020400000001/")
-    );
+    assert!(sequence.identity().id().starts_with(
+        format!(
+            "sql-mutation/v{MUTATION_GENERATOR_VERSION}/tier_c.mutation.authored_insert/1cdb020400000001/"
+        )
+        .as_str(),
+    ));
 
     let bytes = crate::replay::canonical_json_bytes(&sequence)
         .expect("mutation sequence should serialize canonically");
     let canonical = str::from_utf8(bytes.as_slice()).expect("canonical sequence should be UTF-8");
     assert!(canonical.contains("\"witness_id\":"));
     assert!(canonical.contains("\"repetition\":\"u64:"));
+    assert!(!canonical.contains("\"structural_signature\":"));
 }
 
 #[test]

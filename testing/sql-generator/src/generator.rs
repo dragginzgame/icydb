@@ -4,7 +4,7 @@
 //! Boundary: derives one independent stream per stable witness/repetition and validates before emission.
 
 use crate::{
-    ScheduledSelectWitness, StructuralSignature,
+    ScheduledSelectWitness,
     error::{SqlGeneratorError, SqlGeneratorErrorKind},
     fixture::{
         GeneratedFieldValue, GeneratedFixture, GeneratedFixtureRow, GeneratedValue,
@@ -19,6 +19,7 @@ use crate::{
     },
     rng::{SELECT_GENERATOR_VERSION, SplitMix64, derive_select_witness_sub_seed},
     scheduled_select_witnesses,
+    structural_derivation::derive_select_signature,
 };
 use std::{collections::BTreeSet, fmt::Write as _};
 
@@ -60,6 +61,38 @@ pub const TIER_C_SELECT_REPETITIONS: u64 = 2;
 /// Required closeout repetitions per typed invalid proposal and root.
 pub const TIER_C_INVALID_REPETITIONS: u64 = 2;
 
+/// Derive the frozen structural requirement for one reviewed SELECT witness.
+///
+/// This construction is independent of the checked catalog projection so the
+/// code-owned obligation catalog can freeze the expected signature before any
+/// scheduled observation runs.
+///
+/// # Errors
+///
+/// Returns a typed generator error for an unknown witness or invalid canonical
+/// typed construction.
+pub fn structural_signature_for_scheduled_select_witness(
+    witness_id: &str,
+) -> Result<crate::StructuralSignature, SqlGeneratorError> {
+    let recipe = SelectRecipe::from_witness_id(witness_id)?;
+    let snapshot = select_snapshot(recipe.profile())?;
+    let root_seed = TIER_A_ROOT_SEEDS[0];
+    let repetition = 0;
+    let budgets = crate::TIER_A_SELECT_BUDGETS;
+    let sub_seed = derive_select_witness_sub_seed(
+        SELECT_GENERATOR_VERSION,
+        root_seed,
+        witness_id,
+        repetition,
+    )?;
+    let mut rng = SplitMix64::new(sub_seed);
+    let fixture_recipe = recipe.fixture_recipe(budgets)?;
+    generate_fixture(&snapshot, repetition, budgets, fixture_recipe, &mut rng)?;
+    let query = query_for_recipe(&snapshot, recipe, budgets, &mut rng)?;
+    query.validate(&snapshot, budgets)?;
+    derive_select_signature(&snapshot, &query, recipe.violation())
+}
+
 /// Generate one reviewed current-contract SELECT witness.
 ///
 /// # Errors
@@ -74,13 +107,6 @@ pub fn generate_scheduled_select_case(
 ) -> Result<GeneratedSelectCase, SqlGeneratorError> {
     let recipe = SelectRecipe::from_witness_id(witness.witness_id())?;
     let profile = recipe.profile();
-    let structural_signature = recipe.structural_signature();
-    if witness.signature() != &structural_signature {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            "scheduled SELECT witness disagrees with its typed structural recipe",
-        ));
-    }
     let snapshot = select_snapshot(profile)?;
     let sub_seed = derive_select_witness_sub_seed(
         SELECT_GENERATOR_VERSION,
@@ -89,7 +115,7 @@ pub fn generate_scheduled_select_case(
         repetition,
     )?;
     let mut rng = SplitMix64::new(sub_seed);
-    let fixture_recipe = FixtureRecipe::from_signature(&structural_signature, budgets)?;
+    let fixture_recipe = recipe.fixture_recipe(budgets)?;
     let fixture = generate_fixture(&snapshot, repetition, budgets, fixture_recipe, &mut rng)?;
     let query = query_for_recipe(&snapshot, recipe, budgets, &mut rng)?;
     let violation = recipe.violation();
@@ -117,7 +143,6 @@ pub fn generate_scheduled_select_case(
     };
     let generated = GeneratedSelectCase::new(
         identity,
-        structural_signature,
         violation,
         snapshot,
         fixture,
@@ -129,6 +154,18 @@ pub fn generate_scheduled_select_case(
         budgets,
     );
     generated.validate()?;
+    let observed_signature = generated.structural_signature()?;
+    if observed_signature != *witness.signature() {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            format!(
+                "generated SELECT witness {:?} observed signature {} but requires {}",
+                witness.witness_id(),
+                observed_signature.digest()?,
+                witness.signature().digest()?,
+            ),
+        ));
+    }
 
     Ok(generated)
 }
@@ -174,7 +211,6 @@ pub fn generate_invalid_select_case(
     );
     let generated = GeneratedSelectCase::new(
         identity,
-        StructuralSignature::invalid_select(profile.id(), violation.code()),
         Some(violation),
         snapshot,
         fixture,
@@ -190,11 +226,7 @@ pub fn generate_invalid_select_case(
     Ok(generated)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one validation boundary cross-checks the complete generated-case authority"
-)]
-pub(crate) fn validate_generated_select_case(
+pub(crate) fn validate_generated_select_case_authority(
     generated: &GeneratedSelectCase,
 ) -> Result<(), SqlGeneratorError> {
     if generated.identity().generator_version() != SELECT_GENERATOR_VERSION {
@@ -206,29 +238,7 @@ pub(crate) fn validate_generated_select_case(
             ),
         ));
     }
-    generated.structural_signature().validate()?;
-    if generated.structural_signature().schema_profile() != generated.snapshot().fixture_family()
-        || generated.structural_signature().is_singly_invalid() != generated.violation().is_some()
-        || generated.violation().is_some_and(|violation| {
-            generated.structural_signature().expected_violation() != violation.code()
-        })
-    {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            "generated case structural signature disagrees with its accepted profile or violation",
-        ));
-    }
     let witness_id = generated.identity().witness_id();
-    if generated
-        .violation()
-        .is_some_and(|violation| witness_id != violation.id())
-        && !generated.structural_signature().is_singly_invalid()
-    {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            "generated case witness identity disagrees with its typed violation",
-        ));
-    }
     let derived = derive_select_witness_sub_seed(
         SELECT_GENERATOR_VERSION,
         generated.identity().root_seed(),
@@ -266,8 +276,9 @@ pub(crate) fn validate_generated_select_case(
     generated
         .fixture()
         .validate(generated.snapshot(), generated.budgets().max_fixture_rows())?;
+    let fixture_class = fixture_class_for_identity(generated.identity().witness_id());
     validate_fixture_class(
-        generated.structural_signature(),
+        fixture_class,
         generated.snapshot(),
         generated.fixture(),
         generated.query(),
@@ -275,7 +286,6 @@ pub(crate) fn validate_generated_select_case(
     generated
         .query()
         .validate(generated.snapshot(), generated.budgets())?;
-    validate_structural_query(generated)?;
     validate_witness_construction(generated)?;
     let rendered = render_generated_select_case(
         generated.snapshot(),
@@ -313,74 +323,12 @@ pub(crate) fn validate_generated_select_case(
     Ok(())
 }
 
-fn validate_structural_query(generated: &GeneratedSelectCase) -> Result<(), SqlGeneratorError> {
-    let signature = generated.structural_signature();
-    let query = generated.query();
-    let result_matches = signature.result_shape() == "typed_error"
-        || match query.shape() {
-            crate::SelectQueryShape::Scalar => signature.result_shape().starts_with("scalar_"),
-            crate::SelectQueryShape::GlobalAggregate => {
-                signature.result_shape() == "global_aggregate"
-            }
-            crate::SelectQueryShape::GroupedAggregate => {
-                signature.result_shape().starts_with("grouped_")
-            }
-        };
-    let grouping_matches = match query.shape() {
-        crate::SelectQueryShape::Scalar => signature.grouping_shape() == "none",
-        crate::SelectQueryShape::GlobalAggregate => signature.grouping_shape() == "global",
-        crate::SelectQueryShape::GroupedAggregate => signature.grouping_shape().starts_with("one_"),
-    };
-    let having_matches =
-        (signature.having_shape() == "none") == generated.query().having().is_none();
-    let window_matches = match signature.window_shape() {
-        "none" => query.limit().is_none() && query.offset().is_none(),
-        "limit" => query.limit().is_some() && query.offset().is_none(),
-        "limit_offset" => query.limit().is_some() && query.offset().is_some(),
-        _ => false,
-    };
-    let indexed_profile = signature.schema_profile() == "indexed_nullable_reference";
-    let profile_matches = if indexed_profile {
-        generated.snapshot().indexes().len() == 2
-            && generated
-                .snapshot()
-                .fields()
-                .iter()
-                .filter(|field| field.nullable())
-                .count()
-                == 2
-    } else {
-        generated.snapshot().indexes().is_empty()
-            && generated
-                .snapshot()
-                .fields()
-                .iter()
-                .all(|field| !field.nullable())
-    };
-    if !result_matches
-        || !grouping_matches
-        || !having_matches
-        || !window_matches
-        || !profile_matches
-    {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            format!(
-                "derived structural signature for {:?} disagrees with typed query/profile facts: result={result_matches}, grouping={grouping_matches}, having={having_matches}, window={window_matches}, profile={profile_matches}",
-                generated.identity().witness_id(),
-            ),
-        ));
-    }
-    Ok(())
-}
-
 fn validate_fixture_class(
-    signature: &StructuralSignature,
+    fixture_class: &str,
     snapshot: &SelectSnapshot,
     fixture: &GeneratedFixture,
     query: &SelectQuery,
 ) -> Result<(), SqlGeneratorError> {
-    let fixture_class = signature.fixture_class();
     let cardinality_matches = match fixture_class {
         "empty" => fixture.is_empty(),
         "singleton" | "valid_base" => fixture.len() == 1,
@@ -446,19 +394,14 @@ fn validate_witness_construction(generated: &GeneratedSelectCase) -> Result<(), 
         .find(|witness| witness.witness_id() == generated.identity().witness_id())
     {
         let recipe = SelectRecipe::from_witness_id(witness.witness_id())?;
-        let derived_signature = recipe.structural_signature();
-        if witness.signature() != &derived_signature
-            || generated.structural_signature() != &derived_signature
-            || generated.snapshot().fixture_family() != recipe.profile().id()
-        {
+        if generated.snapshot().fixture_family() != recipe.profile().id() {
             return Err(SqlGeneratorError::new(
                 SqlGeneratorErrorKind::InvalidCase,
                 "scheduled SELECT case signature drifted from its typed recipe or frozen catalog",
             ));
         }
         let mut rng = SplitMix64::new(generated.identity().sub_seed());
-        let fixture_recipe =
-            FixtureRecipe::from_signature(&derived_signature, generated.budgets())?;
+        let fixture_recipe = recipe.fixture_recipe(generated.budgets())?;
         let _ = generate_fixture(
             generated.snapshot(),
             generated.identity().repetition(),
@@ -521,14 +464,14 @@ fn generated_identity(
 #[derive(Clone, Copy)]
 enum SelectRecipe {
     ColdSqlFluent,
-    GlobalEmptyDistinctFilter,
-    GlobalNonemptyDistinctFilter,
+    GlobalEmptyFilter,
+    GlobalNonemptyFilter,
     GlobalNonemptyMultipleProjection,
     GroupedHashBounded,
     GroupedOrderedBounded,
-    IndexedCompositePrefixHybrid,
+    IndexedCompositePrefixNonCovering,
     IndexedSecondaryRangeNonCovering,
-    IndexedSecondaryRangePure,
+    IndexedSecondaryRangeDirect,
     NullComputedAggregate,
     NullComputedDistinct,
     NullComputedOrdering,
@@ -536,25 +479,29 @@ enum SelectRecipe {
     NullStoredOrdering,
     ScalarIndexedComputedDistinctWindow,
     ScalarReferenceFullWindow,
-    ScalarReferenceInvalidAliasOrder,
+    ScalarReferenceUnknownAliasOrder,
 }
 
 impl SelectRecipe {
     fn from_witness_id(witness_id: &str) -> Result<Self, SqlGeneratorError> {
         match witness_id {
             "tier_c.cache.cold_sql_fluent" => Ok(Self::ColdSqlFluent),
-            "tier_c.global.empty_distinct_filter" => Ok(Self::GlobalEmptyDistinctFilter),
-            "tier_c.global.nonempty_distinct_filter" => Ok(Self::GlobalNonemptyDistinctFilter),
+            "tier_c.global.empty_filter" => Ok(Self::GlobalEmptyFilter),
+            "tier_c.global.nonempty_filter" => Ok(Self::GlobalNonemptyFilter),
             "tier_c.global.nonempty_multiple_projection" => {
                 Ok(Self::GlobalNonemptyMultipleProjection)
             }
             "tier_c.grouped.hash_bounded" => Ok(Self::GroupedHashBounded),
             "tier_c.grouped.ordered_bounded" => Ok(Self::GroupedOrderedBounded),
-            "tier_c.indexed.composite_prefix_hybrid" => Ok(Self::IndexedCompositePrefixHybrid),
+            "tier_c.indexed.composite_prefix_non_covering" => {
+                Ok(Self::IndexedCompositePrefixNonCovering)
+            }
             "tier_c.indexed.secondary_range_non_covering_incompatible" => {
                 Ok(Self::IndexedSecondaryRangeNonCovering)
             }
-            "tier_c.indexed.secondary_range_pure_compatible" => Ok(Self::IndexedSecondaryRangePure),
+            "tier_c.indexed.secondary_range_direct_compatible" => {
+                Ok(Self::IndexedSecondaryRangeDirect)
+            }
             "tier_c.null.computed_aggregate" => Ok(Self::NullComputedAggregate),
             "tier_c.null.computed_distinct" => Ok(Self::NullComputedDistinct),
             "tier_c.null.computed_ordering" => Ok(Self::NullComputedOrdering),
@@ -564,8 +511,8 @@ impl SelectRecipe {
                 Ok(Self::ScalarIndexedComputedDistinctWindow)
             }
             "tier_c.scalar.reference_full_window" => Ok(Self::ScalarReferenceFullWindow),
-            "tier_c.scalar.reference_invalid_alias_order" => {
-                Ok(Self::ScalarReferenceInvalidAliasOrder)
+            "tier_c.scalar.reference_unknown_alias_order" => {
+                Ok(Self::ScalarReferenceUnknownAliasOrder)
             }
             _ => Err(SqlGeneratorError::new(
                 SqlGeneratorErrorKind::InvalidCase,
@@ -576,7 +523,7 @@ impl SelectRecipe {
 
     const fn violation(self) -> Option<SelectViolation> {
         match self {
-            Self::ScalarReferenceInvalidAliasOrder => Some(SelectViolation::AmbiguousAlias),
+            Self::ScalarReferenceUnknownAliasOrder => Some(SelectViolation::InvalidOrderTarget),
             _ => None,
         }
     }
@@ -584,325 +531,55 @@ impl SelectRecipe {
     const fn profile(self) -> SelectSchemaProfile {
         match self {
             Self::GroupedOrderedBounded
-            | Self::IndexedCompositePrefixHybrid
+            | Self::IndexedCompositePrefixNonCovering
             | Self::IndexedSecondaryRangeNonCovering
-            | Self::IndexedSecondaryRangePure
+            | Self::IndexedSecondaryRangeDirect
             | Self::NullStoredComparisonMembership
             | Self::NullStoredOrdering
             | Self::ScalarIndexedComputedDistinctWindow => {
                 SelectSchemaProfile::IndexedNullableReference
             }
             Self::ColdSqlFluent
-            | Self::GlobalEmptyDistinctFilter
-            | Self::GlobalNonemptyDistinctFilter
+            | Self::GlobalEmptyFilter
+            | Self::GlobalNonemptyFilter
             | Self::GlobalNonemptyMultipleProjection
             | Self::GroupedHashBounded
             | Self::NullComputedAggregate
             | Self::NullComputedDistinct
             | Self::NullComputedOrdering
             | Self::ScalarReferenceFullWindow
-            | Self::ScalarReferenceInvalidAliasOrder => SelectSchemaProfile::ReferenceScalar,
+            | Self::ScalarReferenceUnknownAliasOrder => SelectSchemaProfile::ReferenceScalar,
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one exhaustive typed recipe derives every lossless structural signature"
-    )]
-    fn structural_signature(self) -> StructuralSignature {
-        let profile = self.profile();
+    const fn fixture_class(self) -> &'static str {
         match self {
-            Self::ColdSqlFluent => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "computed_and_plain_fields",
-                "strict_scalar_comparison",
-                "none",
-                "none",
-                "projection_alias_then_primary_key",
-                "limit_offset",
-                "sole_primary_key|stored_scalar",
-                "ordinary",
-                "small_duplicate_rich",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::GlobalEmptyDistinctFilter => StructuralSignature::select(
-                "accepted",
-                profile,
-                "global_aggregate",
-                "aggregate_terminals",
-                "aggregate_filter",
-                "global",
-                "none",
-                "none",
-                "none",
-                "stored_scalar",
-                "empty",
-                "empty",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::GlobalNonemptyDistinctFilter => StructuralSignature::select(
-                "accepted",
-                profile,
-                "global_aggregate",
-                "aggregate_distinct_filter",
-                "strict_scalar_comparison",
-                "global",
-                "none",
-                "none",
-                "none",
-                "stored_scalar",
-                "duplicate_nonempty",
-                "duplicate_rich",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::GlobalNonemptyMultipleProjection => StructuralSignature::select(
-                "accepted",
-                profile,
-                "global_aggregate",
-                "multiple_aggregate_terminals",
-                "strict_scalar_comparison",
-                "global",
-                "aggregate_comparison",
-                "none",
-                "none",
-                "stored_scalar",
-                "ordinary",
-                "small_duplicate_rich",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::GroupedHashBounded => StructuralSignature::select(
-                "accepted",
-                profile,
-                "grouped_rows",
-                "group_key_then_multiple_aggregates",
-                "strict_scalar_comparison",
-                "one_group_key",
-                "aggregate_comparison",
-                "aggregate_alias_desc_then_group_key",
-                "limit",
-                "stored_scalar|non_indexed_group_key",
-                "ordinary",
-                "multiple_groups",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::GroupedOrderedBounded => StructuralSignature::select(
-                "accepted",
-                profile,
-                "grouped_rows",
-                "group_key_then_multiple_aggregates",
-                "indexed_scalar_comparison",
-                "one_indexed_group_key",
-                "aggregate_comparison",
-                "aggregate_alias_desc_then_group_key",
-                "limit",
-                "single_secondary_index|stored_scalar",
-                "ordinary",
-                "multiple_duplicate_rich_indexed_groups",
-                "secondary_range",
-                "hybrid",
-                "none",
-            ),
-            Self::IndexedCompositePrefixHybrid => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "index_and_row_fields",
-                "equality_prefix_and_membership",
-                "none",
-                "none",
-                "compatible_index_suffix_then_primary_key",
-                "limit",
-                "composite_index_prefix_1|row_backed_projection",
-                "membership_duplicate_nonnull",
-                "duplicate_rich_indexed",
-                "composite_prefix",
-                "hybrid",
-                "none",
-            ),
-            Self::IndexedSecondaryRangeNonCovering => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "computed_and_row_fields",
-                "nonempty_bounded_range_and_residual",
-                "none",
-                "none",
-                "computed_alias_then_primary_key",
-                "limit_offset",
-                "single_secondary_index|row_backed_projection",
-                "bounded_nonempty",
-                "order_ties",
-                "secondary_range",
-                "non_covering",
-                "none",
-            ),
-            Self::IndexedSecondaryRangePure => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "index_fields_only",
-                "nonempty_bounded_range",
-                "none",
-                "none",
-                "compatible_index_order_then_primary_key",
-                "limit",
-                "nullable|single_secondary_index|index_projectable",
-                "bounded_nonempty",
-                "stored_null_duplicate_rich_indexed",
-                "secondary_range",
-                "pure",
-                "none",
-            ),
-            Self::NullComputedAggregate => StructuralSignature::select(
-                "accepted",
-                profile,
-                "global_aggregate",
-                "aggregate_over_nullif",
-                "none",
-                "global",
-                "none",
-                "none",
-                "none",
-                "stored_scalar",
-                "computed_null",
-                "computed_null_and_nonnull",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::NullComputedDistinct => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "distinct_nullif",
-                "none",
-                "none",
-                "none",
-                "computed_alias_then_primary_key",
-                "limit",
-                "stored_scalar",
-                "computed_null",
-                "duplicate_computed_null",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::NullComputedOrdering => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "nullif_alias",
-                "none",
-                "none",
-                "none",
-                "computed_nullable_alias_then_primary_key",
-                "limit_offset",
-                "stored_scalar",
-                "computed_null",
-                "computed_null_order_ties",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::NullStoredComparisonMembership => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "plain_fields",
-                "nullable_membership_and_null_test",
-                "none",
-                "none",
-                "primary_key_ascending",
-                "limit",
-                "nullable|stored_scalar",
-                "membership_duplicate_with_null",
-                "stored_null_duplicate_rich",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::NullStoredOrdering => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "nullable_and_primary_key",
-                "none",
-                "none",
-                "none",
-                "nullable_ascending_then_primary_key",
-                "limit_offset",
-                "nullable|stored_scalar",
-                "stored_null",
-                "stored_null_order_ties",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::ScalarIndexedComputedDistinctWindow => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "distinct_computed_and_plain_aliases",
-                "indexed_comparison_and_residual",
-                "none",
-                "none",
-                "computed_alias_then_primary_key",
-                "limit_offset",
-                "nullable|single_secondary_index|row_backed_projection",
-                "bounded_nonempty",
-                "duplicate_computed_stored_null",
-                "secondary_range",
-                "non_covering",
-                "none",
-            ),
-            Self::ScalarReferenceFullWindow => StructuralSignature::select(
-                "accepted",
-                profile,
-                "scalar_rows",
-                "plain_and_computed_aliases",
-                "boolean_tree_with_comparison",
-                "none",
-                "none",
-                "projection_alias_then_primary_key",
-                "limit_offset",
-                "stored_scalar",
-                "ordinary",
-                "order_ties_more_than_window",
-                "full_scan",
-                "non_covering",
-                "none",
-            ),
-            Self::ScalarReferenceInvalidAliasOrder => StructuralSignature::select(
-                "singly_invalid",
-                profile,
-                "scalar_rows",
-                "ambiguous_aliases",
-                "none",
-                "none",
-                "none",
-                "ambiguous_projection_alias",
-                "limit",
-                "stored_scalar",
-                "ordinary",
-                "valid_base",
-                "not_applicable",
-                "not_applicable",
-                "ambiguous_alias_binding",
-            ),
+            Self::ColdSqlFluent | Self::GlobalNonemptyMultipleProjection => "small_duplicate_rich",
+            Self::GlobalEmptyFilter => "empty",
+            Self::GlobalNonemptyFilter => "duplicate_rich",
+            Self::GroupedHashBounded => "multiple_groups",
+            Self::GroupedOrderedBounded => "multiple_duplicate_rich_indexed_groups",
+            Self::IndexedCompositePrefixNonCovering => "duplicate_rich_indexed",
+            Self::IndexedSecondaryRangeNonCovering => "order_ties",
+            Self::IndexedSecondaryRangeDirect => "stored_null_duplicate_rich_indexed",
+            Self::NullComputedAggregate => "computed_null_and_nonnull",
+            Self::NullComputedDistinct => "duplicate_computed_null",
+            Self::NullComputedOrdering => "computed_null_order_ties",
+            Self::NullStoredComparisonMembership => "stored_null_duplicate_rich",
+            Self::NullStoredOrdering => "stored_null_order_ties",
+            Self::ScalarIndexedComputedDistinctWindow => "duplicate_computed_stored_null",
+            Self::ScalarReferenceFullWindow => "order_ties_more_than_window",
+            Self::ScalarReferenceUnknownAliasOrder => "valid_base",
         }
     }
+
+    fn fixture_recipe(self, budgets: SelectBudgets) -> Result<FixtureRecipe, SqlGeneratorError> {
+        FixtureRecipe::for_class(self.fixture_class(), budgets)
+    }
+}
+
+pub(crate) fn fixture_class_for_identity(witness_id: &str) -> &str {
+    SelectRecipe::from_witness_id(witness_id).map_or("valid_base", SelectRecipe::fixture_class)
 }
 
 #[derive(Clone, Copy)]
@@ -916,11 +593,7 @@ struct FixtureRecipe {
 }
 
 impl FixtureRecipe {
-    fn from_signature(
-        signature: &StructuralSignature,
-        budgets: SelectBudgets,
-    ) -> Result<Self, SqlGeneratorError> {
-        let fixture = signature.fixture_class();
+    fn for_class(fixture: &str, budgets: SelectBudgets) -> Result<Self, SqlGeneratorError> {
         let row_count = match fixture {
             "empty" => 0,
             "singleton" | "valid_base" => 1,
@@ -962,10 +635,7 @@ impl FixtureRecipe {
     }
 
     fn valid_base(budgets: SelectBudgets) -> Result<Self, SqlGeneratorError> {
-        Self::from_signature(
-            &StructuralSignature::invalid_select("reference_scalar", "valid_base"),
-            budgets,
-        )
+        Self::for_class("valid_base", budgets)
     }
 }
 
@@ -1008,16 +678,16 @@ fn query_for_recipe(
         SelectRecipe::ColdSqlFluent | SelectRecipe::ScalarReferenceFullWindow => {
             full_composition_query(snapshot)?
         }
-        SelectRecipe::GlobalEmptyDistinctFilter => global_empty_filter_query(snapshot)?,
-        SelectRecipe::GlobalNonemptyDistinctFilter => global_distinct_filter_query(snapshot)?,
+        SelectRecipe::GlobalEmptyFilter => global_empty_filter_query(snapshot)?,
+        SelectRecipe::GlobalNonemptyFilter => global_filter_query(snapshot)?,
         SelectRecipe::GlobalNonemptyMultipleProjection => {
             global_multiple_projection_query(snapshot)?
         }
         SelectRecipe::GroupedHashBounded => grouped_bounded_query(snapshot, false)?,
         SelectRecipe::GroupedOrderedBounded => grouped_bounded_query(snapshot, true)?,
-        SelectRecipe::IndexedCompositePrefixHybrid => composite_prefix_query(snapshot)?,
+        SelectRecipe::IndexedCompositePrefixNonCovering => composite_prefix_query(snapshot)?,
         SelectRecipe::IndexedSecondaryRangeNonCovering => secondary_range_query(snapshot, false)?,
-        SelectRecipe::IndexedSecondaryRangePure => secondary_range_query(snapshot, true)?,
+        SelectRecipe::IndexedSecondaryRangeDirect => secondary_range_query(snapshot, true)?,
         SelectRecipe::NullComputedAggregate => computed_null_aggregate_query(snapshot)?,
         SelectRecipe::NullComputedDistinct => computed_null_distinct_query(snapshot)?,
         SelectRecipe::NullComputedOrdering => computed_null_ordering_query(snapshot)?,
@@ -1026,7 +696,7 @@ fn query_for_recipe(
         SelectRecipe::ScalarIndexedComputedDistinctWindow => {
             indexed_computed_distinct_window_query(snapshot)?
         }
-        SelectRecipe::ScalarReferenceInvalidAliasOrder => invalid_base_query(snapshot, 0, rng)?,
+        SelectRecipe::ScalarReferenceUnknownAliasOrder => invalid_base_query(snapshot, 0, rng)?,
     };
     query.validate(snapshot, budgets)?;
     Ok(query)
@@ -1264,13 +934,11 @@ fn full_composition_query(snapshot: &SelectSnapshot) -> Result<SelectQuery, SqlG
     ))
 }
 
-fn global_distinct_filter_query(
-    snapshot: &SelectSnapshot,
-) -> Result<SelectQuery, SqlGeneratorError> {
+fn global_filter_query(snapshot: &SelectSnapshot) -> Result<SelectQuery, SqlGeneratorError> {
     let fields = required_fields(snapshot)?;
     let aggregate = SelectExpression::Count {
         argument: Some(Box::new(field(fields.first_integer))),
-        distinct: true,
+        distinct: false,
         filter: Some(Box::new(comparison(
             field(fields.boolean),
             SelectComparisonOperator::Equal,
@@ -1278,7 +946,7 @@ fn global_distinct_filter_query(
         ))),
     };
     Ok(SelectQuery::global_aggregate(
-        vec![projection(aggregate, Some("distinct_active_values"))],
+        vec![projection(aggregate, Some("active_values"))],
         Some(comparison(
             field(fields.first_integer),
             SelectComparisonOperator::GreaterOrEqual,

@@ -4,10 +4,10 @@
 //! Boundary: validates harness-owned scenario outcomes against the fixed current Tier C profile.
 
 use crate::{
-    MUTATION_GENERATOR_VERSION, REGRESSION_CORPUS_FORMAT_VERSION, SELECT_GENERATOR_VERSION,
-    SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, SqlGeneratorError, StructuralSignature,
-    TIER_C_ROOT_SEEDS, is_valid_tier_c_failure_artifact_id, replay::canonical_json_bytes,
-    scheduled_sql_scenario_shard, structural_obligation_catalog_hash,
+    MUTATION_GENERATOR_VERSION, ObservedExecutionFacts, REGRESSION_CORPUS_FORMAT_VERSION,
+    SELECT_GENERATOR_VERSION, SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, SqlGeneratorError,
+    StructuralSignature, TIER_C_ROOT_SEEDS, is_valid_tier_c_failure_artifact_id,
+    replay::canonical_json_bytes, scheduled_sql_scenario_shard, structural_obligation_catalog_hash,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,7 +17,7 @@ use std::{
 };
 
 /// Current hard-cut Tier C correctness evidence format.
-pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 2;
+pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 3;
 
 /// Semantic SQL coverage-manifest revision required by current Tier C evidence.
 ///
@@ -30,10 +30,10 @@ pub const TIER_C_SQL_COVERAGE_MANIFEST_REVISION: &str =
 pub const TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES: usize = 1_048_576;
 
 /// Domain separator for the complete Tier C correctness scenario-set identity.
-const TIER_C_SCENARIO_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-scenarios/v2";
+const TIER_C_SCENARIO_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-scenarios/v3";
 
 /// Domain separator for one Tier C correctness shard membership identity.
-const TIER_C_SHARD_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-shard-scenarios/v2";
+const TIER_C_SHARD_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-shard-scenarios/v3";
 
 ///
 /// TierCScenarioOutcome
@@ -84,6 +84,7 @@ impl TierCScenarioOutcome {
 pub struct TierCScenarioObservation {
     scenario_id: String,
     structural_signature: StructuralSignature,
+    observed_execution_facts: ObservedExecutionFacts,
     outcome: TierCScenarioOutcome,
 }
 
@@ -96,11 +97,13 @@ impl TierCScenarioObservation {
     pub fn try_new(
         scenario_id: impl Into<String>,
         structural_signature: StructuralSignature,
+        observed_execution_facts: ObservedExecutionFacts,
         outcome: TierCScenarioOutcome,
     ) -> Result<Self, TierCEvidenceError> {
         let observation = Self {
             scenario_id: scenario_id.into(),
             structural_signature,
+            observed_execution_facts,
             outcome,
         };
         observation.validate()?;
@@ -124,6 +127,12 @@ impl TierCScenarioObservation {
     #[must_use]
     pub const fn structural_signature(&self) -> &StructuralSignature {
         &self.structural_signature
+    }
+
+    /// Return access and materialization facts observed from IcyDB execution.
+    #[must_use]
+    pub const fn observed_execution_facts(&self) -> ObservedExecutionFacts {
+        self.observed_execution_facts
     }
 
     fn validate(&self) -> Result<(), TierCEvidenceError> {
@@ -1102,8 +1111,10 @@ const fn validate_artifact_size(byte_count: usize) -> Result<(), TierCEvidenceEr
 #[cfg(test)]
 mod tests {
     use crate::{
-        SQL_SCHEDULED_SHARD_COUNT, TierCEvidenceError, TierCMergedReport, TierCScenarioObservation,
-        TierCScenarioOutcome, TierCShardReport, scheduled::TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
+        ExecutionAccess, ExecutionCovering, ObservedExecutionFacts, SQL_SCHEDULED_SHARD_COUNT,
+        TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TierCEvidenceError, TierCMergedReport,
+        TierCScenarioObservation, TierCScenarioOutcome, TierCShardReport,
+        generate_scheduled_select_case, scheduled::TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
         scheduled_select_witnesses, scheduled_sql_scenario_shard,
     };
 
@@ -1170,7 +1181,7 @@ mod tests {
         assert_eq!(forward, reversed);
         assert_eq!(
             forward,
-            "af735ffb10f0b5fc354358b6598b9bc682ddd17f1c3f656e54e34a6e05e2d390",
+            "a98ba4d054eca179ea9c5d21ec305e9a91a96cc6014bc16cdbab8872c65c12ef",
         );
     }
 
@@ -1194,6 +1205,7 @@ mod tests {
             TierCScenarioObservation::try_new(
                 scenario_ids[1].clone(),
                 test_signature(),
+                test_execution_facts(),
                 TierCScenarioOutcome::Passed,
             )
             .expect("observation should construct"),
@@ -1212,6 +1224,7 @@ mod tests {
             TierCScenarioObservation::try_new(
                 scenario_ids[5].clone(),
                 test_signature(),
+                test_execution_facts(),
                 TierCScenarioOutcome::Failed("not-content-addressed".to_string()),
             ),
             Err(TierCEvidenceError::InvalidFailureArtifactId)
@@ -1340,6 +1353,7 @@ mod tests {
                 TierCScenarioObservation::try_new(
                     (*scenario_id).to_string(),
                     test_signature(),
+                    test_execution_facts(),
                     outcome.clone(),
                 )
                 .expect("test observation should construct")
@@ -1363,12 +1377,18 @@ mod tests {
     }
 
     fn test_signature() -> crate::StructuralSignature {
-        scheduled_select_witnesses()
+        let witness = scheduled_select_witnesses()
             .expect("checked-in witnesses should decode")
             .into_iter()
             .next()
-            .expect("catalog should contain a generated SELECT witness")
-            .signature()
-            .clone()
+            .expect("catalog should contain a generated SELECT witness");
+        generate_scheduled_select_case(&witness, TIER_C_ROOT_SEEDS[0], 0, TIER_C_SELECT_BUDGETS)
+            .expect("test signature should derive")
+            .structural_signature()
+            .expect("test structural signature should derive")
+    }
+
+    const fn test_execution_facts() -> ObservedExecutionFacts {
+        ObservedExecutionFacts::new(ExecutionAccess::FullScan, ExecutionCovering::NonCovering)
     }
 }

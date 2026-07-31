@@ -210,12 +210,8 @@ fn corpus_root() -> PathBuf {
 fn checked_in_regression_corpus_is_current_and_complete() {
     let entries = checked_in_regression_corpus().expect("checked-in corpus should validate");
 
-    assert_eq!(
-        entries
-            .iter()
-            .map(RegressionCorpusEntry::regression_id)
-            .collect::<Vec<_>>(),
-        vec!["select.filtered-global-count-residual-scan"],
+    assert!(
+        entries.is_empty(),
         "the checked-in inventory must name every reviewed regression exactly once",
     );
 }

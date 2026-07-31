@@ -13,7 +13,7 @@ mod tests;
 
 pub use generator::{
     MUTATION_GENERATOR_VERSION, TIER_A_MUTATION_REPETITIONS, TIER_C_MUTATION_REPETITIONS,
-    generate_scheduled_mutation_sequence,
+    generate_scheduled_mutation_sequence, structural_signature_for_scheduled_mutation_witness,
 };
 pub use model::{
     GeneratedMutationIdentity, GeneratedMutationSequence, GeneratedMutationStep,

@@ -1,12 +1,9 @@
 //! Module: sql_generator::structure
-//! Responsibility: one lossless structural signature and the frozen 0.215 SELECT obligations.
+//! Responsibility: one relationship-preserving structural signature and frozen obligations.
 //! Does not own: SQL rendering, execution verdicts, or product route selection.
 //! Boundary: reads the reviewed obligation catalog and exposes only current generated witnesses.
 
-use crate::{
-    SqlGeneratorError, SqlGeneratorErrorKind, model::SelectSchemaProfile,
-    replay::canonical_json_bytes,
-};
+use crate::{SqlGeneratorError, SqlGeneratorErrorKind, replay::canonical_json_bytes};
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -14,17 +11,143 @@ use std::collections::BTreeSet;
 const CATALOG_ARTIFACT: &str = include_str!(
     "../../../docs/design/0.215-sql-structural-coverage-and-range-remediation/0.215-coverage-obligations.json"
 );
-const CATALOG_FORMAT_VERSION: u32 = 1;
+const CATALOG_FORMAT_VERSION: u32 = 3;
 const MAX_CATALOG_BYTES: usize = 262_144;
-const MAX_SIGNATURE_BYTES: usize = 4_096;
+const MAX_SIGNATURE_BYTES: usize = 65_536;
 const GENERATED_SELECT_PROVIDER_PREFIX: &str = "generated.select.";
 const GENERATED_MUTATION_PROVIDER_PREFIX: &str = "generated.mutation.";
 
 ///
+/// ExecutionAccess
+///
+/// Closed plan-access fact compared independently from structural identity.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionAccess {
+    /// A compatible composite index supplies a constrained key prefix.
+    CompositePrefix,
+
+    /// A maintained expression-range route is required by deterministic evidence.
+    ExpressionRange,
+
+    /// The accepted entity store is scanned without a selected secondary route.
+    FullScan,
+
+    /// Mutation selection flows through the ordinary admitted mutation executor.
+    MutationSelection,
+
+    /// No product execution is expected for a typed rejection.
+    NotApplicable,
+
+    /// One exact primary-key lookup is required.
+    PrimaryExact,
+
+    /// One single-field secondary-index range is selected.
+    SecondaryRange,
+}
+
+///
+/// ExecutionCovering
+///
+/// Closed row-materialization fact compared independently from structural identity.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionCovering {
+    /// Some result cells come from an index while other cells require row materialization.
+    Hybrid,
+
+    /// The selected route requires ordinary row materialization.
+    NonCovering,
+
+    /// Covering does not apply to this scenario.
+    NotApplicable,
+
+    /// Every required result cell is supplied by the selected index route.
+    Pure,
+}
+
+///
+/// RequiredExecutionFacts
+///
+/// Reviewed planner and materialization requirement carried by one scheduled witness.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequiredExecutionFacts {
+    access: ExecutionAccess,
+    covering: ExecutionCovering,
+}
+
+impl RequiredExecutionFacts {
+    /// Build one reviewed execution requirement.
+    #[must_use]
+    pub const fn new(access: ExecutionAccess, covering: ExecutionCovering) -> Self {
+        Self { access, covering }
+    }
+
+    /// Return the required selected-access family.
+    #[must_use]
+    pub const fn access(self) -> ExecutionAccess {
+        self.access
+    }
+
+    /// Return the required materialization family.
+    #[must_use]
+    pub const fn covering(self) -> ExecutionCovering {
+        self.covering
+    }
+}
+
+///
+/// ObservedExecutionFacts
+///
+/// Product-derived access and materialization facts recorded after IcyDB execution.
+///
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedExecutionFacts {
+    access: ExecutionAccess,
+    covering: ExecutionCovering,
+}
+
+impl ObservedExecutionFacts {
+    /// Build facts observed from product compilation and execution.
+    #[must_use]
+    pub const fn new(access: ExecutionAccess, covering: ExecutionCovering) -> Self {
+        Self { access, covering }
+    }
+
+    /// Return the observed selected-access family.
+    #[must_use]
+    pub const fn access(self) -> ExecutionAccess {
+        self.access
+    }
+
+    /// Return the observed materialization family.
+    #[must_use]
+    pub const fn covering(self) -> ExecutionCovering {
+        self.covering
+    }
+}
+
+impl From<RequiredExecutionFacts> for ObservedExecutionFacts {
+    fn from(required: RequiredExecutionFacts) -> Self {
+        Self::new(required.access(), required.covering())
+    }
+}
+
+///
 /// StructuralSignature
 ///
-/// Lossless semantic identity derived for one generated statement. Literal payloads,
-/// root seeds, and repetition ordinals are deliberately excluded.
+/// Relationship-preserving identity derived from one validated typed SQL tree.
+/// Fixture policy, planner expectations, literal payloads, roots, and repetitions
+/// are excluded.
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -33,119 +156,51 @@ pub struct StructuralSignature {
     declaration_kind: String,
     schema_profile: String,
     statement_family: String,
-    result_shape: String,
-    projection_shape: String,
-    predicate_shape: String,
-    grouping_shape: String,
-    having_shape: String,
-    order_shape: String,
-    window_shape: String,
-    field_roles: String,
-    semantic_value_class: String,
-    fixture_class: String,
-    required_access: String,
-    required_covering: String,
     expected_violation: String,
+    canonical_structure: String,
 }
 
 impl StructuralSignature {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the lossless signature keeps every closed semantic dimension explicit"
-    )]
-    pub(crate) fn select(
-        declaration_kind: &str,
-        profile: SelectSchemaProfile,
-        result_shape: &str,
-        projection_shape: &str,
-        predicate_shape: &str,
-        grouping_shape: &str,
-        having_shape: &str,
-        order_shape: &str,
-        window_shape: &str,
-        field_roles: &str,
-        semantic_value_class: &str,
-        fixture_class: &str,
-        required_access: &str,
-        required_covering: &str,
-        expected_violation: &str,
-    ) -> Self {
-        Self {
-            declaration_kind: declaration_kind.to_string(),
-            schema_profile: profile.id().to_string(),
-            statement_family: "select".to_string(),
-            result_shape: result_shape.to_string(),
-            projection_shape: projection_shape.to_string(),
-            predicate_shape: predicate_shape.to_string(),
-            grouping_shape: grouping_shape.to_string(),
-            having_shape: having_shape.to_string(),
-            order_shape: order_shape.to_string(),
-            window_shape: window_shape.to_string(),
-            field_roles: field_roles.to_string(),
-            semantic_value_class: semantic_value_class.to_string(),
-            fixture_class: fixture_class.to_string(),
-            required_access: required_access.to_string(),
-            required_covering: required_covering.to_string(),
-            expected_violation: expected_violation.to_string(),
-        }
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the lossless signature keeps every closed mutation dimension explicit"
-    )]
-    pub(crate) fn mutation(
+    pub(crate) fn derived(
         declaration_kind: &str,
         profile: &str,
         statement_family: &str,
-        result_shape: &str,
-        projection_shape: &str,
-        predicate_shape: &str,
-        order_shape: &str,
-        field_roles: &str,
-        semantic_value_class: &str,
-        fixture_class: &str,
         expected_violation: &str,
+        canonical_structure: String,
     ) -> Self {
         Self {
             declaration_kind: declaration_kind.to_string(),
             schema_profile: profile.to_string(),
             statement_family: statement_family.to_string(),
-            result_shape: result_shape.to_string(),
-            projection_shape: projection_shape.to_string(),
-            predicate_shape: predicate_shape.to_string(),
-            grouping_shape: "none".to_string(),
-            having_shape: "none".to_string(),
-            order_shape: order_shape.to_string(),
-            window_shape: "none".to_string(),
-            field_roles: field_roles.to_string(),
-            semantic_value_class: semantic_value_class.to_string(),
-            fixture_class: fixture_class.to_string(),
-            required_access: "mutation_selection".to_string(),
-            required_covering: "not_applicable".to_string(),
             expected_violation: expected_violation.to_string(),
+            canonical_structure,
         }
     }
 
-    pub(crate) fn invalid_select(profile: &str, violation: &str) -> Self {
-        Self {
-            declaration_kind: "singly_invalid".to_string(),
-            schema_profile: profile.to_string(),
-            statement_family: "select".to_string(),
-            result_shape: "typed_error".to_string(),
-            projection_shape: "valid_base".to_string(),
-            predicate_shape: "none".to_string(),
-            grouping_shape: "none".to_string(),
-            having_shape: "none".to_string(),
-            order_shape: "valid_base".to_string(),
-            window_shape: "limit".to_string(),
-            field_roles: "stored_scalar".to_string(),
-            semantic_value_class: "ordinary".to_string(),
-            fixture_class: "valid_base".to_string(),
-            required_access: "not_applicable".to_string(),
-            required_covering: "not_applicable".to_string(),
-            expected_violation: violation.to_string(),
-        }
+    /// Build one code-owned deterministic-provider requirement.
+    ///
+    /// Generated SELECT and mutation signatures must use their typed-tree
+    /// derivation paths instead. This constructor exists for exact maintained
+    /// providers whose canonical declaration is outside the generated AST.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed error when any closed-vocabulary or canonical-structure
+    /// fact is invalid.
+    pub fn try_new_deterministic_requirement(
+        profile: &str,
+        statement_family: &str,
+        canonical_structure: String,
+    ) -> Result<Self, SqlGeneratorError> {
+        let signature = Self::derived(
+            "accepted",
+            profile,
+            statement_family,
+            "none",
+            canonical_structure,
+        );
+        signature.validate()?;
+        Ok(signature)
     }
 
     /// Borrow the accepted schema profile that owns field and index facts.
@@ -158,36 +213,6 @@ impl StructuralSignature {
     #[must_use]
     pub const fn statement_family(&self) -> &str {
         self.statement_family.as_str()
-    }
-
-    /// Borrow the semantic result shape.
-    #[must_use]
-    pub const fn result_shape(&self) -> &str {
-        self.result_shape.as_str()
-    }
-
-    /// Borrow the grouping shape.
-    #[must_use]
-    pub const fn grouping_shape(&self) -> &str {
-        self.grouping_shape.as_str()
-    }
-
-    /// Borrow the post-aggregate predicate shape.
-    #[must_use]
-    pub const fn having_shape(&self) -> &str {
-        self.having_shape.as_str()
-    }
-
-    /// Borrow the limit/offset shape.
-    #[must_use]
-    pub const fn window_shape(&self) -> &str {
-        self.window_shape.as_str()
-    }
-
-    /// Borrow the exact fixture-package identity.
-    #[must_use]
-    pub const fn fixture_class(&self) -> &str {
-        self.fixture_class.as_str()
     }
 
     /// Borrow the expected typed violation, or `none` for an accepted case.
@@ -265,18 +290,6 @@ impl StructuralSignature {
             self.declaration_kind.as_str(),
             self.schema_profile.as_str(),
             self.statement_family.as_str(),
-            self.result_shape.as_str(),
-            self.projection_shape.as_str(),
-            self.predicate_shape.as_str(),
-            self.grouping_shape.as_str(),
-            self.having_shape.as_str(),
-            self.order_shape.as_str(),
-            self.window_shape.as_str(),
-            self.field_roles.as_str(),
-            self.semantic_value_class.as_str(),
-            self.fixture_class.as_str(),
-            self.required_access.as_str(),
-            self.required_covering.as_str(),
             self.expected_violation.as_str(),
         ] {
             if value.is_empty()
@@ -302,6 +315,28 @@ impl StructuralSignature {
                 "structural signature acceptance and violation facts disagree",
             ));
         }
+        if self.canonical_structure.is_empty()
+            || self.canonical_structure.len() > MAX_SIGNATURE_BYTES
+        {
+            return Err(SqlGeneratorError::new(
+                SqlGeneratorErrorKind::Budget,
+                "structural signature has an empty or oversized canonical typed structure",
+            ));
+        }
+        let structure = serde_json::from_str::<serde_json::Value>(&self.canonical_structure)
+            .map_err(|source| {
+                SqlGeneratorError::with_json_source(
+                    SqlGeneratorErrorKind::Serialization,
+                    "structural signature contains malformed canonical typed structure",
+                    source,
+                )
+            })?;
+        if canonical_json_bytes(&structure)? != self.canonical_structure.as_bytes() {
+            return Err(SqlGeneratorError::new(
+                SqlGeneratorErrorKind::Serialization,
+                "structural signature typed structure is not canonical JSON",
+            ));
+        }
         Ok(())
     }
 }
@@ -318,6 +353,7 @@ pub struct ScheduledSelectWitness {
     provider_id: String,
     witness_id: String,
     signature: StructuralSignature,
+    required_execution_facts: RequiredExecutionFacts,
 }
 
 ///
@@ -332,6 +368,7 @@ pub struct ScheduledMutationWitness {
     provider_id: String,
     witness_id: String,
     signature: StructuralSignature,
+    required_execution_facts: RequiredExecutionFacts,
 }
 
 impl ScheduledMutationWitness {
@@ -353,10 +390,16 @@ impl ScheduledMutationWitness {
         self.witness_id.as_str()
     }
 
-    /// Borrow the full required structural signature.
+    /// Borrow the full frozen required structural signature.
     #[must_use]
     pub const fn signature(&self) -> &StructuralSignature {
         &self.signature
+    }
+
+    /// Return the reviewed execution requirement.
+    #[must_use]
+    pub const fn required_execution_facts(&self) -> RequiredExecutionFacts {
+        self.required_execution_facts
     }
 }
 
@@ -379,10 +422,16 @@ impl ScheduledSelectWitness {
         self.witness_id.as_str()
     }
 
-    /// Borrow the full required structural signature.
+    /// Borrow the full frozen required structural signature.
     #[must_use]
     pub const fn signature(&self) -> &StructuralSignature {
         &self.signature
+    }
+
+    /// Return the reviewed execution requirement.
+    #[must_use]
+    pub const fn required_execution_facts(&self) -> RequiredExecutionFacts {
+        self.required_execution_facts
     }
 }
 
@@ -403,6 +452,7 @@ struct CatalogBody {
 struct CatalogRequirement {
     id: String,
     expected_structural_signature: StructuralSignature,
+    required_execution_facts: RequiredExecutionFacts,
     provider_id: String,
     witness_id: String,
 }
@@ -434,23 +484,12 @@ pub fn scheduled_select_witnesses() -> Result<Vec<ScheduledSelectWitness>, SqlGe
                 .starts_with(GENERATED_SELECT_PROVIDER_PREFIX)
         })
         .map(|requirement| {
-            requirement.expected_structural_signature.validate()?;
-            if requirement.expected_structural_signature.statement_family() != "select"
-                || !matches!(
-                    requirement.expected_structural_signature.schema_profile(),
-                    "reference_scalar" | "indexed_nullable_reference"
-                )
-            {
-                return Err(SqlGeneratorError::new(
-                    SqlGeneratorErrorKind::InvalidCase,
-                    "generated SELECT obligation names an unsupported statement or schema profile",
-                ));
-            }
             Ok(ScheduledSelectWitness {
                 requirement_id: requirement.id,
                 provider_id: requirement.provider_id,
                 witness_id: requirement.witness_id,
                 signature: requirement.expected_structural_signature,
+                required_execution_facts: requirement.required_execution_facts,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -486,32 +525,12 @@ pub fn scheduled_mutation_witnesses() -> Result<Vec<ScheduledMutationWitness>, S
                 .starts_with(GENERATED_MUTATION_PROVIDER_PREFIX)
         })
         .map(|requirement| {
-            requirement.expected_structural_signature.validate()?;
-            if !matches!(
-                (
-                    requirement.expected_structural_signature.statement_family(),
-                    requirement.expected_structural_signature.schema_profile(),
-                ),
-                (
-                    "insert"
-                        | "insert_from_query"
-                        | "update"
-                        | "delete"
-                        | "update_delete_no_match"
-                        | "update_delete_window",
-                    "authored_scalar" | "accepted_default",
-                )
-            ) {
-                return Err(SqlGeneratorError::new(
-                    SqlGeneratorErrorKind::InvalidCase,
-                    "generated mutation obligation names an unsupported statement or schema profile",
-                ));
-            }
             Ok(ScheduledMutationWitness {
                 requirement_id: requirement.id,
                 provider_id: requirement.provider_id,
                 witness_id: requirement.witness_id,
                 signature: requirement.expected_structural_signature,
+                required_execution_facts: requirement.required_execution_facts,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -554,6 +573,9 @@ fn read_catalog() -> Result<CatalogArtifact, SqlGeneratorError> {
             SqlGeneratorErrorKind::InvalidCase,
             "SQL obligation catalog does not use the current reviewed identity",
         ));
+    }
+    for requirement in &artifact.catalog.required_structural_obligations {
+        requirement.expected_structural_signature.validate()?;
     }
     Ok(artifact)
 }

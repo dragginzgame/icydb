@@ -6,8 +6,8 @@
 use crate::{
     GeneratedMutationSequence, GeneratedSelectCase, MutationOperation, MutationPredicate,
     MutationSqliteEligibility, SelectExpectedOutcome, SelectFeature, SelectProvider,
-    SelectQueryShape, SelectValueKind, SqlGeneratorError, TierCEvidenceError, TierCMergedReport,
-    TierCScenarioOutcome, TierCShardReport,
+    SelectQueryShape, SelectValueKind, SqlGeneratorError, SqlGeneratorErrorKind,
+    TierCEvidenceError, TierCMergedReport, TierCScenarioOutcome, TierCShardReport,
     model::{
         SelectExpression, SelectFunction, SelectOrderTarget, SelectPredicate, SelectQuery,
         SelectViolation,
@@ -26,7 +26,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut Tier C coverage-distribution artifact format.
-pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 2;
+pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 3;
 
 // -----------------------------------------------------------------------------
 // Shared coverage taxonomy
@@ -757,6 +757,7 @@ impl TierCGeneratedProfile {
             statement_count: bounded_count(sequence.steps().len())?,
             structural_signature_digest: sequence
                 .structural_signature()
+                .map_err(TierCDistributionError::GeneratedCase)?
                 .digest()
                 .map_err(TierCDistributionError::GeneratedCase)?,
         })
@@ -772,7 +773,10 @@ impl TierCGeneratedProfile {
         Ok(Self::Select {
             executed_fixture_properties,
             fixture_row_count: bounded_count(case.fixture().len())?,
-            fixture_class: case.structural_signature().fixture_class().to_string(),
+            fixture_class: crate::generator::fixture_class_for_identity(
+                case.identity().witness_id(),
+            )
+            .to_string(),
             repetition: case.identity().repetition(),
             schema_field_count: bounded_count(case.snapshot().fields().len())?,
             schema_fixture_family: case.snapshot().fixture_family().to_string(),
@@ -793,6 +797,7 @@ impl TierCGeneratedProfile {
             )?,
             structural_signature_digest: case
                 .structural_signature()
+                .map_err(TierCDistributionError::GeneratedCase)?
                 .digest()
                 .map_err(TierCDistributionError::GeneratedCase)?,
         })
@@ -867,6 +872,7 @@ pub struct TierCScenarioDeclaration {
     labels: TierCCoverageLabels,
     generated_profile: Option<TierCGeneratedProfile>,
     structural_signature: Option<crate::StructuralSignature>,
+    required_execution_facts: Option<crate::RequiredExecutionFacts>,
 }
 
 impl TierCScenarioDeclaration {
@@ -891,9 +897,14 @@ impl TierCScenarioDeclaration {
             labels,
             None,
             None,
+            None,
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generated declarations bind independent identity, labels, structure, and execution facts"
+    )]
     fn try_new_generated(
         scenario_id: impl Into<String>,
         contract_features: BTreeSet<String>,
@@ -902,6 +913,7 @@ impl TierCScenarioDeclaration {
         labels: TierCCoverageLabels,
         generated_profile: TierCGeneratedProfile,
         structural_signature: Option<crate::StructuralSignature>,
+        required_execution_facts: crate::RequiredExecutionFacts,
     ) -> Result<Self, TierCDistributionError> {
         Self::try_new_with_generated_profile(
             scenario_id,
@@ -911,9 +923,14 @@ impl TierCScenarioDeclaration {
             labels,
             Some(generated_profile),
             structural_signature,
+            Some(required_execution_facts),
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one validation boundary receives the complete optional generated-evidence tuple"
+    )]
     fn try_new_with_generated_profile(
         scenario_id: impl Into<String>,
         contract_features: BTreeSet<String>,
@@ -922,6 +939,7 @@ impl TierCScenarioDeclaration {
         labels: TierCCoverageLabels,
         generated_profile: Option<TierCGeneratedProfile>,
         structural_signature: Option<crate::StructuralSignature>,
+        required_execution_facts: Option<crate::RequiredExecutionFacts>,
     ) -> Result<Self, TierCDistributionError> {
         let declaration = Self {
             scenario_id: scenario_id.into(),
@@ -931,6 +949,7 @@ impl TierCScenarioDeclaration {
             labels,
             generated_profile,
             structural_signature,
+            required_execution_facts,
         };
         declaration.validate()?;
 
@@ -978,6 +997,11 @@ impl TierCScenarioDeclaration {
             return Err(TierCDistributionError::InvalidStableLabel(
                 self.scenario_id.clone(),
             ));
+        }
+        if self.generated_profile.is_some()
+            != (self.structural_signature.is_some() && self.required_execution_facts.is_some())
+        {
+            return Err(TierCDistributionError::IncompleteCoverageLabels);
         }
 
         Ok(())
@@ -1621,6 +1645,9 @@ pub enum TierCDistributionError {
 
     /// A generated declaration and its exact receipt carried different structures.
     StructuralSignatureMismatch(String),
+
+    /// Reviewed execution requirements and product-observed facts disagreed.
+    ExecutionFactsMismatch(String),
 }
 
 impl Display for TierCDistributionError {
@@ -1696,6 +1723,10 @@ impl Display for TierCDistributionError {
                 formatter,
                 "Tier C scenario {scenario_id:?} receipt signature disagrees with its generated declaration",
             ),
+            Self::ExecutionFactsMismatch(scenario_id) => write!(
+                formatter,
+                "Tier C scenario {scenario_id:?} product execution facts disagree with its reviewed requirement",
+            ),
         }
     }
 }
@@ -1727,6 +1758,15 @@ pub fn generated_select_tier_c_declaration(
     case: &GeneratedSelectCase,
 ) -> Result<TierCScenarioDeclaration, TierCDistributionError> {
     let scenario_id = scenario_id.into();
+    let observed_signature = case
+        .structural_signature()
+        .map_err(TierCDistributionError::GeneratedCase)?;
+    let required_signature = required_select_structural_signature(case)?;
+    if observed_signature != required_signature {
+        return Err(TierCDistributionError::StructuralSignatureMismatch(
+            scenario_id,
+        ));
+    }
     let expected = match case.expected() {
         SelectExpectedOutcome::Accepted => TierCExpectedAcceptance::Accepted,
         SelectExpectedOutcome::Rejected(_) => TierCExpectedAcceptance::Rejected,
@@ -1789,7 +1829,8 @@ pub fn generated_select_tier_c_declaration(
         expected,
         labels,
         TierCGeneratedProfile::select(case)?,
-        Some(case.structural_signature().clone()),
+        Some(required_signature),
+        required_select_execution_facts(case)?,
     )
 }
 
@@ -1804,6 +1845,8 @@ pub fn generated_mutation_tier_c_declaration(
     sequence: &GeneratedMutationSequence,
 ) -> Result<TierCScenarioDeclaration, TierCDistributionError> {
     let scenario_id = scenario_id.into();
+    let required_signature =
+        validated_required_mutation_structural_signature(sequence, &scenario_id)?;
     let mut contract_features = BTreeSet::new();
     let mut mutations = BTreeSet::new();
     let mut predicates = BTreeSet::new();
@@ -1885,16 +1928,104 @@ pub fn generated_mutation_tier_c_declaration(
         BTreeSet::from([ValueTypeFamily::Mixed]),
         windows,
     )?;
-
     TierCScenarioDeclaration::try_new_generated(
         scenario_id,
         contract_features,
         provider_ids,
-        TierCExpectedAcceptance::Accepted,
+        mutation_expected_acceptance(sequence),
         labels,
         TierCGeneratedProfile::mutation(sequence)?,
-        Some(sequence.structural_signature().clone()),
+        Some(required_signature),
+        required_mutation_execution_facts(sequence)?,
     )
+}
+
+fn mutation_expected_acceptance(sequence: &GeneratedMutationSequence) -> TierCExpectedAcceptance {
+    if sequence
+        .steps()
+        .iter()
+        .any(|step| step.expected().rejection().is_some())
+    {
+        TierCExpectedAcceptance::Rejected
+    } else {
+        TierCExpectedAcceptance::Accepted
+    }
+}
+
+fn required_select_execution_facts(
+    case: &GeneratedSelectCase,
+) -> Result<crate::RequiredExecutionFacts, TierCDistributionError> {
+    if case.violation().is_some() {
+        return Ok(crate::RequiredExecutionFacts::new(
+            crate::ExecutionAccess::NotApplicable,
+            crate::ExecutionCovering::NotApplicable,
+        ));
+    }
+    crate::scheduled_select_witnesses()
+        .map_err(TierCDistributionError::GeneratedCase)?
+        .into_iter()
+        .find(|witness| witness.witness_id() == case.identity().witness_id())
+        .map(|witness| witness.required_execution_facts())
+        .ok_or_else(|| {
+            TierCDistributionError::GeneratedCase(SqlGeneratorError::new(
+                SqlGeneratorErrorKind::InvalidCase,
+                "generated SELECT scenario has no reviewed execution requirement",
+            ))
+        })
+}
+
+fn required_select_structural_signature(
+    case: &GeneratedSelectCase,
+) -> Result<crate::StructuralSignature, TierCDistributionError> {
+    crate::scheduled_select_witnesses()
+        .map_err(TierCDistributionError::GeneratedCase)?
+        .into_iter()
+        .find(|witness| witness.witness_id() == case.identity().witness_id())
+        .map(|witness| witness.signature().clone())
+        .ok_or_else(|| {
+            TierCDistributionError::StructuralSignatureMismatch(case.identity().id().to_string())
+        })
+}
+
+fn validated_required_mutation_structural_signature(
+    sequence: &GeneratedMutationSequence,
+    scenario_id: &str,
+) -> Result<crate::StructuralSignature, TierCDistributionError> {
+    let required = crate::scheduled_mutation_witnesses()
+        .map_err(TierCDistributionError::GeneratedCase)?
+        .into_iter()
+        .find(|witness| witness.witness_id() == sequence.identity().witness_id())
+        .map(|witness| witness.signature().clone())
+        .ok_or_else(|| {
+            TierCDistributionError::StructuralSignatureMismatch(
+                sequence.identity().id().to_string(),
+            )
+        })?;
+    let observed = sequence
+        .structural_signature()
+        .map_err(TierCDistributionError::GeneratedCase)?;
+    if observed != required {
+        return Err(TierCDistributionError::StructuralSignatureMismatch(
+            scenario_id.to_string(),
+        ));
+    }
+    Ok(required)
+}
+
+fn required_mutation_execution_facts(
+    sequence: &GeneratedMutationSequence,
+) -> Result<crate::RequiredExecutionFacts, TierCDistributionError> {
+    crate::scheduled_mutation_witnesses()
+        .map_err(TierCDistributionError::GeneratedCase)?
+        .into_iter()
+        .find(|witness| witness.witness_id() == sequence.identity().witness_id())
+        .map(|witness| witness.required_execution_facts())
+        .ok_or_else(|| {
+            TierCDistributionError::GeneratedCase(SqlGeneratorError::new(
+                SqlGeneratorErrorKind::InvalidCase,
+                "generated mutation scenario has no reviewed execution requirement",
+            ))
+        })
 }
 
 // Contract attribution is derived from the typed AST and accepted outcome.
@@ -2282,6 +2413,19 @@ fn validate_membership(
                 declaration.scenario_id.clone(),
             ));
         }
+        if let Some(required) = declaration.required_execution_facts
+            && merged
+                .shard_reports()
+                .iter()
+                .flat_map(TierCShardReport::observations)
+                .find(|observation| observation.scenario_id() == declaration.scenario_id())
+                .map(crate::TierCScenarioObservation::observed_execution_facts)
+                != Some(required.into())
+        {
+            return Err(TierCDistributionError::ExecutionFactsMismatch(
+                declaration.scenario_id.clone(),
+            ));
+        }
     }
 
     Ok(())
@@ -2381,14 +2525,15 @@ const fn validate_artifact_size(byte_count: usize) -> Result<(), TierCDistributi
 mod tests {
     use super::TierCGeneratedProfile;
     use crate::{
-        EligibleProvider, EvidenceStrength, GeneratedExpressionDepth, MutationKind,
-        NullabilityClass, PredicateFamily, QueryShape, RouteFamily, SQL_SCHEDULED_SHARD_COUNT,
-        StatementFamily, TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TierCCoverageDistributionReport,
-        TierCCoverageLabels, TierCDistributionError, TierCExpectedAcceptance, TierCMergedReport,
-        TierCScenarioDeclaration, TierCScenarioObservation, TierCScenarioOutcome, TierCShardReport,
-        ValueTypeFamily, WindowBehavior, generate_scheduled_select_case,
-        generated_select_tier_c_declaration, scheduled_select_witnesses,
-        scheduled_sql_scenario_shard,
+        EligibleProvider, EvidenceStrength, ExecutionAccess, ExecutionCovering,
+        GeneratedExpressionDepth, MutationKind, NullabilityClass, ObservedExecutionFacts,
+        PredicateFamily, QueryShape, RequiredExecutionFacts, RouteFamily,
+        SQL_SCHEDULED_SHARD_COUNT, StatementFamily, TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS,
+        TierCCoverageDistributionReport, TierCCoverageLabels, TierCDistributionError,
+        TierCExpectedAcceptance, TierCMergedReport, TierCScenarioDeclaration,
+        TierCScenarioObservation, TierCScenarioOutcome, TierCShardReport, ValueTypeFamily,
+        WindowBehavior, generate_scheduled_select_case, generated_select_tier_c_declaration,
+        scheduled_select_witnesses, scheduled_sql_scenario_shard,
     };
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -2460,7 +2605,15 @@ mod tests {
     fn unexpected_observed_signature_cannot_satisfy_a_required_declaration() {
         let witnesses = scheduled_select_witnesses().expect("catalog should decode");
         let witness = &witnesses[0];
-        let different_signature = witnesses[1].signature().clone();
+        let different_signature = generate_scheduled_select_case(
+            &witnesses[1],
+            TIER_C_ROOT_SEEDS[0],
+            0,
+            TIER_C_SELECT_BUDGETS,
+        )
+        .expect("different scheduled signature should derive")
+        .structural_signature()
+        .expect("different structural signature should derive");
         let generated =
             generate_scheduled_select_case(witness, TIER_C_ROOT_SEEDS[0], 0, TIER_C_SELECT_BUDGETS)
                 .expect("scheduled SELECT should generate");
@@ -2477,6 +2630,7 @@ mod tests {
                         TierCScenarioObservation::try_new(
                             witness.witness_id(),
                             different_signature.clone(),
+                            witness.required_execution_facts().into(),
                             TierCScenarioOutcome::Passed,
                         )
                         .expect("different full signature should remain valid discovery evidence"),
@@ -2547,7 +2701,8 @@ mod tests {
                 statement_count: 8,
                 structural_signature_digest: "test-mutation-signature".to_string(),
             },
-            None,
+            Some(test_signature()),
+            RequiredExecutionFacts::new(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
         )
         .expect("test declaration should validate")
     }
@@ -2570,6 +2725,7 @@ mod tests {
                         TierCScenarioObservation::try_new(
                             *scenario_id,
                             test_signature(),
+                            test_execution_facts(),
                             TierCScenarioOutcome::Passed,
                         )
                         .expect("test observation should validate")
@@ -2601,12 +2757,18 @@ mod tests {
     }
 
     fn test_signature() -> crate::StructuralSignature {
-        scheduled_select_witnesses()
+        let witness = scheduled_select_witnesses()
             .expect("checked-in witnesses should decode")
             .into_iter()
             .next()
-            .expect("catalog should contain a generated SELECT witness")
-            .signature()
-            .clone()
+            .expect("catalog should contain a generated SELECT witness");
+        generate_scheduled_select_case(&witness, TIER_C_ROOT_SEEDS[0], 0, TIER_C_SELECT_BUDGETS)
+            .expect("test signature should derive")
+            .structural_signature()
+            .expect("test structural signature should derive")
+    }
+
+    const fn test_execution_facts() -> ObservedExecutionFacts {
+        ObservedExecutionFacts::new(ExecutionAccess::FullScan, ExecutionCovering::NonCovering)
     }
 }

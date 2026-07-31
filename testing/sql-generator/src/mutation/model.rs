@@ -2188,7 +2188,6 @@ impl GeneratedMutationStep {
 #[serde(deny_unknown_fields)]
 pub struct GeneratedMutationSequence {
     identity: GeneratedMutationIdentity,
-    structural_signature: StructuralSignature,
     ingress: MutationIngress,
     intent_class: MutationIntentClass,
     snapshot: MutationSnapshot,
@@ -2202,15 +2201,10 @@ impl GeneratedMutationSequence {
     ///
     /// # Errors
     ///
-    /// Returns a typed error for stale identity, signature, snapshot, fixture,
+    /// Returns a typed error for stale identity, snapshot, fixture,
     /// statement, intent, or budget facts.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "scheduled mutation construction keeps every frozen authority explicit"
-    )]
     pub(crate) fn try_from_statements(
         identity: GeneratedMutationIdentity,
-        structural_signature: StructuralSignature,
         ingress: MutationIngress,
         intent_class: MutationIntentClass,
         snapshot: MutationSnapshot,
@@ -2219,7 +2213,6 @@ impl GeneratedMutationSequence {
         budgets: MutationBudgets,
     ) -> Result<Self, SqlGeneratorError> {
         identity.validate()?;
-        structural_signature.validate()?;
         snapshot.validate()?;
         budgets.validate()?;
         validate_rows(&snapshot, &initial_rows)?;
@@ -2251,7 +2244,6 @@ impl GeneratedMutationSequence {
         }
         let sequence = Self {
             identity,
-            structural_signature,
             ingress,
             intent_class,
             snapshot,
@@ -2269,10 +2261,22 @@ impl GeneratedMutationSequence {
         &self.identity
     }
 
-    /// Borrow the full observed structural signature.
-    #[must_use]
-    pub const fn structural_signature(&self) -> &StructuralSignature {
-        &self.structural_signature
+    /// Derive the full structural identity from the typed sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed generator error if the embedded declaration is invalid
+    /// or canonical derivation fails.
+    pub fn structural_signature(&self) -> Result<StructuralSignature, SqlGeneratorError> {
+        self.validate_authority()?;
+        let statements = self.statements();
+        crate::structural_derivation::derive_mutation_signature(
+            &self.snapshot,
+            self.ingress,
+            self.intent_class,
+            &statements,
+            mutation_violation_code(&self.steps)?,
+        )
     }
 
     /// Return the frozen ingress requirement.
@@ -2343,14 +2347,17 @@ impl GeneratedMutationSequence {
         counts
     }
 
-    /// Revalidate all identity, signature, rendering, state, intent, and budget facts.
+    /// Revalidate all identity, rendering, state, intent, and budget facts.
     ///
     /// # Errors
     ///
     /// Returns a typed error at the first stale embedded fact.
     pub fn validate(&self) -> Result<(), SqlGeneratorError> {
+        self.structural_signature().map(drop)
+    }
+
+    fn validate_authority(&self) -> Result<(), SqlGeneratorError> {
         self.identity.validate()?;
-        self.structural_signature.validate()?;
         self.snapshot.validate()?;
         self.budgets.validate()?;
         validate_rows(&self.snapshot, &self.initial_rows)?;
@@ -2397,7 +2404,6 @@ impl GeneratedMutationSequence {
     ) -> Result<Self, SqlGeneratorError> {
         Self::try_from_statements(
             self.identity.clone(),
-            self.structural_signature.clone(),
             self.ingress,
             self.intent_class,
             self.snapshot.clone(),
@@ -2406,6 +2412,26 @@ impl GeneratedMutationSequence {
             self.budgets,
         )
     }
+}
+
+fn mutation_violation_code(
+    steps: &[GeneratedMutationStep],
+) -> Result<Option<&'static str>, SqlGeneratorError> {
+    let mut violation = None;
+    for rejection in steps.iter().filter_map(|step| step.expected().rejection()) {
+        let code = match rejection {
+            MutationExpectedRejection::DefaultUnavailable => "primary_key_default_forbidden",
+            MutationExpectedRejection::DuplicatePrimaryKey => "unique_violation",
+            MutationExpectedRejection::MissingRequiredField => "required_field_missing",
+        };
+        if violation.replace(code).is_some() {
+            return Err(SqlGeneratorError::new(
+                SqlGeneratorErrorKind::InvalidCase,
+                "mutation sequence contains more than one typed invalid operation",
+            ));
+        }
+    }
+    Ok(violation)
 }
 
 const fn sqlite_eligibility(

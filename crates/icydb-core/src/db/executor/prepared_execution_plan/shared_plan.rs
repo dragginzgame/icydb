@@ -141,6 +141,16 @@ impl SharedPreparedExecutionPlan {
             .get_or_init_hybrid_covering_read_plan(self.authority.clone())
     }
 
+    #[cfg(all(test, feature = "query"))]
+    pub(in crate::db) fn has_projection_covering_read_plan_for_tests(&self) -> bool {
+        self.projection_covering_read_execution_plan().is_some()
+    }
+
+    #[cfg(all(test, feature = "query"))]
+    pub(in crate::db) fn has_hybrid_covering_read_plan_for_tests(&self) -> bool {
+        self.hybrid_covering_read_plan().is_some()
+    }
+
     // Projection runtime adapters consume these three shared prepared residents
     // together, so hand them off as one bundle instead of re-reading the same
     // plan shell through parallel field-level accessors.

@@ -9,17 +9,48 @@ use crate::{
     MutationOperation, MutationOrder, MutationPredicate, MutationReturning, MutationRow,
     MutationSchemaProfile, MutationStatement, MutationUpdateIntent, MutationWindow,
     MutationWriteIntent, ScheduledMutationWitness, SqlGeneratorError, SqlGeneratorErrorKind,
-    StructuralSignature, rng::derive_mutation_witness_sub_seed, scheduled_mutation_witnesses,
+    rng::derive_mutation_witness_sub_seed, scheduled_mutation_witnesses,
+    structural_derivation::derive_mutation_signature,
 };
 
 /// Current hard-cut deterministic mutation generator version.
-pub const MUTATION_GENERATOR_VERSION: u32 = 2;
+pub const MUTATION_GENERATOR_VERSION: u32 = 3;
 
 /// Required pull-request repetitions per frozen mutation witness and root.
 pub const TIER_A_MUTATION_REPETITIONS: u64 = 1;
 
 /// Required scheduled repetitions per frozen mutation witness and root.
 pub const TIER_C_MUTATION_REPETITIONS: u64 = 2;
+
+/// Derive the frozen structural requirement for one reviewed mutation witness.
+///
+/// This construction is independent of the checked catalog projection so the
+/// code-owned obligation catalog can freeze the expected signature before any
+/// scheduled observation runs.
+///
+/// # Errors
+///
+/// Returns a typed generator error for an unknown witness or invalid canonical
+/// typed construction.
+pub fn structural_signature_for_scheduled_mutation_witness(
+    witness_id: &str,
+) -> Result<crate::StructuralSignature, SqlGeneratorError> {
+    let recipe = MutationRecipe::from_witness_id(witness_id)?;
+    let snapshot = crate::MutationSnapshot::for_profile(recipe.profile())?;
+    let (_, statements) = recipe.material(derive_mutation_witness_sub_seed(
+        MUTATION_GENERATOR_VERSION,
+        crate::TIER_A_ROOT_SEEDS[0],
+        witness_id,
+        0,
+    )?)?;
+    derive_mutation_signature(
+        &snapshot,
+        recipe.ingress(),
+        recipe.intent_class(),
+        &statements,
+        recipe.violation_code(),
+    )
+}
 
 /// Generate one catalog-bound mutation witness.
 ///
@@ -40,13 +71,6 @@ pub fn generate_scheduled_mutation_sequence(
         ));
     }
     let recipe = MutationRecipe::from_witness_id(witness.witness_id())?;
-    let structural_signature = recipe.structural_signature();
-    if witness.signature() != &structural_signature {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            "scheduled mutation witness disagrees with its typed structural recipe",
-        ));
-    }
     let sub_seed = derive_mutation_witness_sub_seed(
         MUTATION_GENERATOR_VERSION,
         root_seed,
@@ -65,7 +89,6 @@ pub fn generate_scheduled_mutation_sequence(
     let (initial_rows, statements) = recipe.material(sub_seed)?;
     let sequence = GeneratedMutationSequence::try_from_statements(
         identity,
-        structural_signature,
         recipe.ingress(),
         recipe.intent_class(),
         snapshot,
@@ -74,6 +97,18 @@ pub fn generate_scheduled_mutation_sequence(
         budgets,
     )?;
     validate_generated_mutation_witness(&sequence)?;
+    let observed_signature = sequence.structural_signature()?;
+    if observed_signature != *witness.signature() {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            format!(
+                "generated mutation witness {:?} observed signature {} but requires {}",
+                witness.witness_id(),
+                observed_signature.digest()?,
+                witness.signature().digest()?,
+            ),
+        ));
+    }
     Ok(sequence)
 }
 
@@ -136,11 +171,8 @@ pub(crate) fn validate_generated_mutation_witness(
             )
         })?;
     let recipe = MutationRecipe::from_witness_id(witness.witness_id())?;
-    let derived_signature = recipe.structural_signature();
     let (expected_rows, expected_statements) = recipe.material(sequence.identity().sub_seed())?;
-    if witness.signature() != &derived_signature
-        || sequence.structural_signature() != &derived_signature
-        || sequence.snapshot().profile() != recipe.profile()
+    if sequence.snapshot().profile() != recipe.profile()
         || sequence.ingress() != recipe.ingress()
         || sequence.intent_class() != recipe.intent_class()
         || sequence.initial_rows() != expected_rows
@@ -151,6 +183,7 @@ pub(crate) fn validate_generated_mutation_witness(
             "generated mutation sequence drifted from its frozen typed witness recipe",
         ));
     }
+    sequence.structural_signature()?;
     Ok(())
 }
 
@@ -218,6 +251,15 @@ impl MutationRecipe {
         }
     }
 
+    const fn violation_code(self) -> Option<&'static str> {
+        match self {
+            Self::DefaultRejectDuplicate => Some("unique_violation"),
+            Self::DefaultRejectPkDefault => Some("primary_key_default_forbidden"),
+            Self::DefaultRejectRequired => Some("required_field_missing"),
+            _ => None,
+        }
+    }
+
     const fn ingress(self) -> MutationIngress {
         match self {
             Self::AuthoredInsertFromQuery
@@ -262,166 +304,6 @@ impl MutationRecipe {
 
     #[expect(
         clippy::too_many_lines,
-        reason = "one exhaustive recipe derives all 15 frozen mutation signatures"
-    )]
-    fn structural_signature(self) -> StructuralSignature {
-        let profile = self.profile().id();
-        match self {
-            Self::AuthoredInsert => StructuralSignature::mutation(
-                "accepted",
-                profile,
-                "insert",
-                "affected_count_and_optional_rows",
-                "none",
-                "none",
-                "none",
-                "sole_primary_key|authored_fields",
-                "authored_single_and_multi",
-                "empty_then_nonempty_state",
-                "none",
-            ),
-            Self::AuthoredInsertFromQuery => StructuralSignature::mutation(
-                "accepted",
-                profile,
-                "insert_from_query",
-                "affected_count",
-                "none",
-                "source_query",
-                "source_primary_key_ascending",
-                "sole_primary_key|authored_fields",
-                "authored_from_query",
-                "bounded_source",
-                "none",
-            ),
-            Self::AuthoredWindowed => StructuralSignature::mutation(
-                "accepted",
-                profile,
-                "update_delete_window",
-                "affected_count_and_returning",
-                "plain_fields",
-                "exact_compound_bounded",
-                "primary_key_ascending",
-                "sole_primary_key|authored_fields",
-                "authored_patch",
-                "multiple_matching_rows",
-                "none",
-            ),
-            Self::DefaultDeleteReturning => StructuralSignature::mutation(
-                "accepted",
-                profile,
-                "delete",
-                "affected_count_and_old_complete_row",
-                "returning_star",
-                "primary_key_exact",
-                "primary_key_ascending",
-                "sole_primary_key|default_fields|single_secondary_index",
-                "authored",
-                "one_matching_row",
-                "none",
-            ),
-            Self::DefaultInsertAuthored => default_insert_signature(
-                "affected_count_and_complete_row",
-                "all_authored",
-                "empty_state",
-                "accepted",
-                "none",
-            ),
-            Self::DefaultInsertExplicit => default_insert_signature(
-                "affected_count_and_complete_row",
-                "explicit_defaults",
-                "empty_state",
-                "accepted",
-                "none",
-            ),
-            Self::DefaultInsertMixedBatch => default_insert_signature(
-                "affected_count_and_complete_rows",
-                "mixed_authored_omitted_explicit_default",
-                "empty_state",
-                "accepted",
-                "none",
-            ),
-            Self::DefaultInsertOmitted => default_insert_signature(
-                "affected_count_and_complete_row",
-                "omitted_defaults",
-                "empty_state",
-                "accepted",
-                "none",
-            ),
-            Self::DefaultNoMatch => StructuralSignature::mutation(
-                "accepted",
-                profile,
-                "update_delete_no_match",
-                "zero_affected",
-                "none",
-                "primary_key_exact_absent",
-                "primary_key_ascending",
-                "sole_primary_key",
-                "authored",
-                "absent_key",
-                "none",
-            ),
-            Self::DefaultRejectDuplicate => StructuralSignature::mutation(
-                "singly_invalid",
-                profile,
-                "insert",
-                "typed_error",
-                "none",
-                "none",
-                "none",
-                "sole_primary_key|single_secondary_index",
-                "duplicate_primary_key_batch",
-                "unchanged_pre_state",
-                "duplicate_primary_key",
-            ),
-            Self::DefaultRejectPkDefault => StructuralSignature::mutation(
-                "singly_invalid",
-                profile,
-                "insert",
-                "typed_error",
-                "none",
-                "none",
-                "none",
-                "sole_primary_key|required_without_default",
-                "explicit_default",
-                "unchanged_pre_state",
-                "default_unavailable",
-            ),
-            Self::DefaultRejectRequired => StructuralSignature::mutation(
-                "singly_invalid",
-                profile,
-                "insert",
-                "typed_error",
-                "none",
-                "none",
-                "none",
-                "required_without_default",
-                "omitted_required",
-                "unchanged_pre_state",
-                "missing_required_field",
-            ),
-            Self::DefaultUpdateAuthored => default_update_signature(
-                "affected_count_and_complete_row",
-                "returning_star",
-                "authored_patch",
-                "one_matching_row",
-            ),
-            Self::DefaultUpdateDefault => default_update_signature(
-                "affected_count_and_returned_fields",
-                "tier_score_note",
-                "explicit_update_defaults",
-                "one_nondefault_row",
-            ),
-            Self::DefaultUpdatePreserve => default_update_signature(
-                "affected_count_and_complete_row",
-                "all_fields",
-                "absent_assignments_preserve",
-                "one_nondefault_row",
-            ),
-        }
-    }
-
-    #[expect(
-        clippy::too_many_lines,
         reason = "one exhaustive typed match freezes all 15 scheduled mutation recipes"
     )]
     fn material(
@@ -459,7 +341,7 @@ impl MutationRecipe {
                     MutationOperation::InsertFromQuery {
                         predicate: MutationPredicate::NumberRange {
                             min_inclusive: 20,
-                            max_exclusive: 41,
+                            max_exclusive: 40,
                         },
                         key_source: MutationInsertQueryKeySource::Number,
                     },
@@ -689,49 +571,6 @@ impl MutationRecipe {
         };
         Ok(material)
     }
-}
-
-fn default_insert_signature(
-    result: &str,
-    semantic: &str,
-    fixture: &str,
-    declaration: &str,
-    violation: &str,
-) -> StructuralSignature {
-    StructuralSignature::mutation(
-        declaration,
-        MutationSchemaProfile::AcceptedDefault.id(),
-        "insert",
-        result,
-        "all_fields",
-        "none",
-        "none",
-        "sole_primary_key|default_fields|single_secondary_index",
-        semantic,
-        fixture,
-        violation,
-    )
-}
-
-fn default_update_signature(
-    result: &str,
-    projection: &str,
-    semantic: &str,
-    fixture: &str,
-) -> StructuralSignature {
-    StructuralSignature::mutation(
-        "accepted",
-        MutationSchemaProfile::AcceptedDefault.id(),
-        "update",
-        result,
-        projection,
-        "primary_key_exact",
-        "primary_key_ascending",
-        "sole_primary_key|default_fields|single_secondary_index",
-        semantic,
-        fixture,
-        "none",
-    )
 }
 
 fn authored_rows() -> Vec<MutationRow> {

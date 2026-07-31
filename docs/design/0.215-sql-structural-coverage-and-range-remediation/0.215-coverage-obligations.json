@@ -1,6 +1,6 @@
 {
-  "format_version": 1,
-  "catalog_hash": "b4f839c170e09a2691dd8cbc6a5b14ad8c3794af0d2ea796df47bec4968e4b9f",
+  "format_version": 3,
+  "catalog_hash": "c273d1ce46eda26a1e664ceb47794c21c444d1d5ab90a9c19cc7b6185c92d74a",
   "catalog": {
     "design_line": "0.215",
     "opening_baseline": {
@@ -536,14 +536,14 @@
           {
             "name": "modifiers",
             "members": [
-              "distinct_filter",
+              "filter",
               "multiple_projection"
             ]
           }
         ],
         "interaction_obligations": [
-          "interaction.global.empty_distinct_filter",
-          "interaction.global.nonempty_distinct_filter",
+          "interaction.global.empty_filter",
+          "interaction.global.nonempty_filter",
           "interaction.global.nonempty_multiple_projection"
         ]
       },
@@ -601,11 +601,11 @@
           }
         ],
         "interaction_obligations": [
-          "interaction.indexed.composite_prefix_hybrid",
+          "interaction.indexed.composite_prefix_non_covering",
           "interaction.indexed.expression_range_non_covering",
           "interaction.indexed.primary_exact_non_covering",
-          "interaction.indexed.secondary_range_non_covering_incompatible",
-          "interaction.indexed.secondary_range_pure_compatible"
+          "interaction.indexed.secondary_range_direct_compatible",
+          "interaction.indexed.secondary_range_non_covering_incompatible"
         ]
       },
       {
@@ -716,14 +716,14 @@
             "members": [
               "computed_distinct_window",
               "full_scalar_window",
-              "invalid_alias_order"
+              "unknown_alias_order"
             ]
           }
         ],
         "interaction_obligations": [
           "interaction.scalar.indexed_computed_distinct_window",
           "interaction.scalar.reference_full_window",
-          "interaction.scalar.reference_invalid_alias_order"
+          "interaction.scalar.reference_unknown_alias_order"
         ]
       }
     ],
@@ -810,7 +810,7 @@
       {
         "feature_id": "ddl.create_index_multi_field",
         "interaction_obligations": [
-          "interaction.indexed.composite_prefix_hybrid"
+          "interaction.indexed.composite_prefix_non_covering"
         ],
         "no_structural_interaction_required": null
       },
@@ -1106,7 +1106,7 @@
       {
         "feature_id": "ordering.null_values",
         "interaction_obligations": [
-          "interaction.indexed.secondary_range_pure_compatible",
+          "interaction.indexed.secondary_range_direct_compatible",
           "interaction.null.computed_ordering",
           "interaction.null.stored_ordering"
         ],
@@ -1119,7 +1119,7 @@
           "interaction.indexed.secondary_range_non_covering_incompatible",
           "interaction.null.computed_ordering",
           "interaction.scalar.indexed_computed_distinct_window",
-          "interaction.scalar.reference_invalid_alias_order"
+          "interaction.scalar.reference_unknown_alias_order"
         ],
         "no_structural_interaction_required": null
       },
@@ -1183,7 +1183,7 @@
       {
         "feature_id": "predicate.membership",
         "interaction_obligations": [
-          "interaction.indexed.composite_prefix_hybrid",
+          "interaction.indexed.composite_prefix_non_covering",
           "interaction.null.stored_comparison_membership"
         ],
         "no_structural_interaction_required": null
@@ -1208,8 +1208,8 @@
       {
         "feature_id": "predicate.range",
         "interaction_obligations": [
-          "interaction.indexed.secondary_range_non_covering_incompatible",
-          "interaction.indexed.secondary_range_pure_compatible"
+          "interaction.indexed.secondary_range_direct_compatible",
+          "interaction.indexed.secondary_range_non_covering_incompatible"
         ],
         "no_structural_interaction_required": null
       },
@@ -1223,8 +1223,8 @@
       {
         "feature_id": "projection.aggregate",
         "interaction_obligations": [
-          "interaction.global.empty_distinct_filter",
-          "interaction.global.nonempty_distinct_filter",
+          "interaction.global.empty_filter",
+          "interaction.global.nonempty_filter",
           "interaction.global.nonempty_multiple_projection",
           "interaction.null.computed_aggregate"
         ],
@@ -1234,7 +1234,7 @@
         "feature_id": "projection.aliases",
         "interaction_obligations": [
           "interaction.scalar.reference_full_window",
-          "interaction.scalar.reference_invalid_alias_order"
+          "interaction.scalar.reference_unknown_alias_order"
         ],
         "no_structural_interaction_required": null
       },
@@ -1256,7 +1256,7 @@
         "interaction_obligations": [
           "interaction.field_path.selectable_select",
           "interaction.field_path.unselectable_select",
-          "interaction.indexed.secondary_range_pure_compatible",
+          "interaction.indexed.secondary_range_direct_compatible",
           "interaction.null.stored_ordering"
         ],
         "no_structural_interaction_required": null
@@ -1310,8 +1310,8 @@
       {
         "feature_id": "select.aggregate_distinct_filter",
         "interaction_obligations": [
-          "interaction.global.empty_distinct_filter",
-          "interaction.global.nonempty_distinct_filter",
+          "interaction.global.empty_filter",
+          "interaction.global.nonempty_filter",
           "interaction.null.computed_aggregate"
         ],
         "no_structural_interaction_required": null
@@ -1335,8 +1335,8 @@
       {
         "feature_id": "select.global_aggregate",
         "interaction_obligations": [
-          "interaction.global.empty_distinct_filter",
-          "interaction.global.nonempty_distinct_filter",
+          "interaction.global.empty_filter",
+          "interaction.global.nonempty_filter",
           "interaction.global.nonempty_multiple_projection"
         ],
         "no_structural_interaction_required": null
@@ -1367,9 +1367,9 @@
         "interaction_obligations": [
           "interaction.cache.cold_sql_fluent",
           "interaction.cache.warm_sql_fluent",
-          "interaction.indexed.composite_prefix_hybrid",
+          "interaction.indexed.composite_prefix_non_covering",
+          "interaction.indexed.secondary_range_direct_compatible",
           "interaction.indexed.secondary_range_non_covering_incompatible",
-          "interaction.indexed.secondary_range_pure_compatible",
           "interaction.scalar.indexed_computed_distinct_window",
           "interaction.scalar.reference_full_window"
         ],
@@ -1608,7 +1608,7 @@
         "required_structural_obligations": []
       },
       {
-        "id": "interaction.global.empty_distinct_filter",
+        "id": "interaction.global.empty_filter",
         "group": "global_aggregation",
         "tuple": [
           {
@@ -1617,7 +1617,7 @@
           },
           {
             "axis": "modifiers",
-            "value": "distinct_filter"
+            "value": "filter"
           }
         ],
         "contract_features": [
@@ -1637,13 +1637,13 @@
           "global aggregate emits one result row"
         ],
         "disposition": "generated_required",
-        "reason": "The current fixed slots do not make this complete interaction a required witness.",
+        "reason": "The empty aggregate-filter case requires an explicit witness.",
         "required_structural_obligations": [
-          "required.global.empty_distinct_filter"
+          "required.global.empty_filter"
         ]
       },
       {
-        "id": "interaction.global.nonempty_distinct_filter",
+        "id": "interaction.global.nonempty_filter",
         "group": "global_aggregation",
         "tuple": [
           {
@@ -1652,7 +1652,7 @@
           },
           {
             "axis": "modifiers",
-            "value": "distinct_filter"
+            "value": "filter"
           }
         ],
         "contract_features": [
@@ -1672,9 +1672,9 @@
           "global aggregate over admitted predicate"
         ],
         "disposition": "generated_required",
-        "reason": "Slice 1 must compose FILTER and DISTINCT under one typed declaration.",
+        "reason": "Slice 1 must require aggregate FILTER over non-empty input.",
         "required_structural_obligations": [
-          "required.global.nonempty_distinct_filter"
+          "required.global.nonempty_filter"
         ]
       },
       {
@@ -1823,7 +1823,7 @@
         ]
       },
       {
-        "id": "interaction.indexed.composite_prefix_hybrid",
+        "id": "interaction.indexed.composite_prefix_non_covering",
         "group": "indexed_scalar_execution",
         "tuple": [
           {
@@ -1832,7 +1832,7 @@
           },
           {
             "axis": "covering",
-            "value": "hybrid"
+            "value": "non_covering"
           },
           {
             "axis": "order",
@@ -1854,13 +1854,13 @@
         "provider_eligibility": "icydb_contract_only",
         "route_facts": [
           "composite prefix",
-          "hybrid covering",
+          "row-backed projection",
           "compatible suffix order"
         ],
         "disposition": "generated_required",
         "reason": "The indexed nullable profile must make composite-prefix route evidence structural.",
         "required_structural_obligations": [
-          "required.indexed.composite_prefix_hybrid"
+          "required.indexed.composite_prefix_non_covering"
         ]
       },
       {
@@ -1941,6 +1941,49 @@
         ]
       },
       {
+        "id": "interaction.indexed.secondary_range_direct_compatible",
+        "group": "indexed_scalar_execution",
+        "tuple": [
+          {
+            "axis": "access",
+            "value": "secondary_range"
+          },
+          {
+            "axis": "covering",
+            "value": "non_covering"
+          },
+          {
+            "axis": "order",
+            "value": "compatible"
+          }
+        ],
+        "contract_features": [
+          "ordering.null_values",
+          "predicate.range",
+          "projection.scalar",
+          "select.scalar_composition"
+        ],
+        "schema_facts": [
+          "single-field nullable secondary index with direct projection"
+        ],
+        "fixture_properties": [
+          "stored nulls",
+          "duplicate-rich indexed values"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "route_facts": [
+          "one bounded secondary range",
+          "compatible index order",
+          "direct row-backed projection"
+        ],
+        "disposition": "generated_required",
+        "reason": "The indexed nullable profile is required to exercise route and null roles together.",
+        "required_structural_obligations": [
+          "required.indexed.secondary_range_direct_compatible"
+        ]
+      },
+      {
         "id": "interaction.indexed.secondary_range_non_covering_incompatible",
         "group": "indexed_scalar_execution",
         "tuple": [
@@ -1978,49 +2021,6 @@
         "reason": "The current generated snapshot has no secondary index.",
         "required_structural_obligations": [
           "required.indexed.secondary_range_non_covering_incompatible"
-        ]
-      },
-      {
-        "id": "interaction.indexed.secondary_range_pure_compatible",
-        "group": "indexed_scalar_execution",
-        "tuple": [
-          {
-            "axis": "access",
-            "value": "secondary_range"
-          },
-          {
-            "axis": "covering",
-            "value": "pure"
-          },
-          {
-            "axis": "order",
-            "value": "compatible"
-          }
-        ],
-        "contract_features": [
-          "ordering.null_values",
-          "predicate.range",
-          "projection.scalar",
-          "select.scalar_composition"
-        ],
-        "schema_facts": [
-          "single-field nullable secondary index with index-only projection"
-        ],
-        "fixture_properties": [
-          "stored nulls",
-          "duplicate-rich indexed values"
-        ],
-        "minimum_evidence": "reference_oracle",
-        "provider_eligibility": "sqlite_reference",
-        "route_facts": [
-          "one bounded secondary range",
-          "compatible index order",
-          "pure covering"
-        ],
-        "disposition": "generated_required",
-        "reason": "The indexed nullable profile is required to exercise route and null roles together.",
-        "required_structural_obligations": [
-          "required.indexed.secondary_range_pure_compatible"
         ]
       },
       {
@@ -3014,7 +3014,7 @@
         ]
       },
       {
-        "id": "interaction.scalar.reference_invalid_alias_order",
+        "id": "interaction.scalar.reference_unknown_alias_order",
         "group": "scalar_composition",
         "tuple": [
           {
@@ -3023,7 +3023,7 @@
           },
           {
             "axis": "shape",
-            "value": "invalid_alias_order"
+            "value": "unknown_alias_order"
           }
         ],
         "contract_features": [
@@ -3040,9 +3040,9 @@
         "provider_eligibility": "rejection_invariant",
         "route_facts": [],
         "disposition": "generated_required",
-        "reason": "Slice 1 must add a singly-invalid alias-binding violation with a typed cause.",
+        "reason": "Slice 1 must add a singly-invalid unknown-alias order target with a typed cause.",
         "required_structural_obligations": [
-          "required.scalar.reference_invalid_alias_order"
+          "required.scalar.reference_unknown_alias_order"
         ]
       }
     ],
@@ -3056,19 +3056,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "plain_fields",
-          "predicate_shape": "strict_scalar_comparison",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "limit",
-          "field_roles": "sole_primary_key|stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "small_duplicate_rich",
-          "required_access": "primary_exact",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"field_roles\":\"sole_primary_key|stored_scalar\",\"grouping_shape\":\"none\",\"having_shape\":\"none\",\"order_shape\":\"primary_key_ascending\",\"predicate_shape\":\"strict_scalar_comparison\",\"projection_shape\":\"plain_fields\",\"provider_witness\":\"existing.core.query.public_read_families\",\"result_shape\":\"scalar_rows\",\"semantic_value_class\":\"ordinary\",\"window_shape\":\"limit\"}"
+        },
+        "required_execution_facts": {
+          "access": "primary_exact",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "identical cold fixture"
@@ -3092,19 +3085,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "computed_and_plain_fields",
-          "predicate_shape": "strict_scalar_comparison",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "projection_alias_then_primary_key",
-          "window_shape": "limit_offset",
-          "field_roles": "sole_primary_key|stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "small_duplicate_rich",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":\"present\",\"order\":[{\"direction\":\"descending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:1:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}}],\"predicate\":{\"left\":{\"field_id\":\"field:3\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"greater_or_equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}}},\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}},{\"alias\":\"alias:1\",\"expression\":{\"arguments\":[{\"field_id\":\"field:2\",\"node\":\"field\"}],\"function\":\"abs\",\"node\":\"function\"}}]},\"result_kinds\":[\"text\",\"decimal\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "identical cold fixture"
@@ -3128,19 +3114,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "plain_fields",
-          "predicate_shape": "strict_scalar_comparison",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "limit",
-          "field_roles": "sole_primary_key|stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "small_duplicate_rich",
-          "required_access": "primary_exact",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"field_roles\":\"sole_primary_key|stored_scalar\",\"grouping_shape\":\"none\",\"having_shape\":\"none\",\"order_shape\":\"primary_key_ascending\",\"predicate_shape\":\"strict_scalar_comparison\",\"projection_shape\":\"plain_fields\",\"provider_witness\":\"existing.core.query.scalar_matrix\",\"result_shape\":\"scalar_rows\",\"semantic_value_class\":\"ordinary\",\"window_shape\":\"limit\"}"
+        },
+        "required_execution_facts": {
+          "access": "primary_exact",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "identical warm fixture"
@@ -3164,19 +3143,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "deterministic_nested_field_path",
           "statement_family": "update",
-          "result_shape": "returned_fields",
-          "projection_shape": "stored_leaf",
-          "predicate_shape": "primary_key_exact",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|stored_leaf",
-          "semantic_value_class": "authored",
-          "fixture_class": "singleton",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"field_roles\":\"sole_primary_key|stored_leaf\",\"grouping_shape\":\"none\",\"having_shape\":\"none\",\"order_shape\":\"primary_key_ascending\",\"predicate_shape\":\"primary_key_exact\",\"projection_shape\":\"stored_leaf\",\"provider_witness\":\"existing.core.mutation.returning_fields\",\"result_shape\":\"returned_fields\",\"semantic_value_class\":\"authored\",\"window_shape\":\"none\"}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "one matching structured row"
@@ -3200,19 +3172,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "deterministic_nested_field_path",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "stored_leaf",
-          "predicate_shape": "stored_leaf_comparison",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "stored_leaf_then_primary_key",
-          "window_shape": "limit",
-          "field_roles": "stored_leaf|single_secondary_index",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "small_duplicate_rich",
-          "required_access": "secondary_range",
-          "required_covering": "hybrid",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"field_roles\":\"stored_leaf|single_secondary_index\",\"grouping_shape\":\"none\",\"having_shape\":\"none\",\"order_shape\":\"stored_leaf_then_primary_key\",\"predicate_shape\":\"stored_leaf_comparison\",\"projection_shape\":\"stored_leaf\",\"provider_witness\":\"existing.core.ddl.create_field_path\",\"result_shape\":\"scalar_rows\",\"semantic_value_class\":\"ordinary\",\"window_shape\":\"limit\"}"
+        },
+        "required_execution_facts": {
+          "access": "secondary_range",
+          "covering": "hybrid"
         },
         "fixture_properties": [
           "nested stored leaves"
@@ -3228,27 +3193,20 @@
         "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
       },
       {
-        "id": "required.global.empty_distinct_filter",
+        "id": "required.global.empty_filter",
         "interaction_obligations": [
-          "interaction.global.empty_distinct_filter"
+          "interaction.global.empty_filter"
         ],
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "global_aggregate",
-          "projection_shape": "aggregate_terminals",
-          "predicate_shape": "aggregate_filter",
-          "grouping_shape": "global",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "empty",
-          "fixture_class": "empty",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":3,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":null,\"offset\":null,\"order\":[],\"predicate\":null,\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"argument\":null,\"distinct\":false,\"filter\":{\"left\":{\"field_id\":\"field:4\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"boolean\",\"value\":true}}},\"node\":\"count\"}}]},\"result_kinds\":[\"integer\"],\"result_order\":\"unordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "empty input"
@@ -3260,31 +3218,24 @@
         "route_facts": [
           "global aggregate"
         ],
-        "witness_id": "tier_c.global.empty_distinct_filter",
+        "witness_id": "tier_c.global.empty_filter",
         "opening_evidence_state": "missing_scheduled_witness_and_receipt"
       },
       {
-        "id": "required.global.nonempty_distinct_filter",
+        "id": "required.global.nonempty_filter",
         "interaction_obligations": [
-          "interaction.global.nonempty_distinct_filter"
+          "interaction.global.nonempty_filter"
         ],
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "global_aggregate",
-          "projection_shape": "aggregate_distinct_filter",
-          "predicate_shape": "strict_scalar_comparison",
-          "grouping_shape": "global",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "duplicate_nonempty",
-          "fixture_class": "duplicate_rich",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":3,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":null,\"offset\":null,\"order\":[],\"predicate\":{\"left\":{\"field_id\":\"field:2\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"greater_or_equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}}},\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"argument\":{\"field_id\":\"field:2\",\"node\":\"field\"},\"distinct\":false,\"filter\":{\"left\":{\"field_id\":\"field:4\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"boolean\",\"value\":true}}},\"node\":\"count\"}}]},\"result_kinds\":[\"integer\"],\"result_order\":\"unordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "duplicate aggregate inputs"
@@ -3296,7 +3247,7 @@
         "route_facts": [
           "global aggregate"
         ],
-        "witness_id": "tier_c.global.nonempty_distinct_filter",
+        "witness_id": "tier_c.global.nonempty_filter",
         "opening_evidence_state": "missing_scheduled_witness_and_receipt"
       },
       {
@@ -3308,19 +3259,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "global_aggregate",
-          "projection_shape": "multiple_aggregate_terminals",
-          "predicate_shape": "strict_scalar_comparison",
-          "grouping_shape": "global",
-          "having_shape": "aggregate_comparison",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "small_duplicate_rich",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":{\"left\":{\"argument\":null,\"distinct\":false,\"filter\":null,\"node\":\"count\"},\"node\":\"comparison\",\"operator\":\"greater_or_equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}}},\"limit\":null,\"offset\":null,\"order\":[],\"predicate\":null,\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"argument\":null,\"distinct\":false,\"filter\":null,\"node\":\"count\"}},{\"alias\":\"alias:1\",\"expression\":{\"argument\":{\"field_id\":\"field:1\",\"node\":\"field\"},\"distinct\":true,\"filter\":null,\"node\":\"count\"}}]},\"result_kinds\":[\"integer\",\"integer\"],\"result_order\":\"unordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "retained and rejected HAVING cases"
@@ -3344,19 +3288,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "grouped_rows",
-          "projection_shape": "group_key_then_multiple_aggregates",
-          "predicate_shape": "strict_scalar_comparison",
-          "grouping_shape": "one_group_key",
-          "having_shape": "aggregate_comparison",
-          "order_shape": "aggregate_alias_desc_then_group_key",
-          "window_shape": "limit",
-          "field_roles": "stored_scalar|non_indexed_group_key",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "multiple_groups",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":false,\"group_by\":[{\"field_id\":\"field:1\",\"node\":\"field\"}],\"having\":{\"left\":{\"argument\":null,\"distinct\":false,\"filter\":null,\"node\":\"count\"},\"node\":\"comparison\",\"operator\":\"greater\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:1\"}}},\"limit\":\"present\",\"offset\":null,\"order\":[{\"direction\":\"descending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":{\"left\":{\"field_id\":\"field:2\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"greater_or_equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}}},\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}},{\"alias\":\"alias:1\",\"expression\":{\"argument\":null,\"distinct\":false,\"filter\":null,\"node\":\"count\"}},{\"alias\":\"alias:2\",\"expression\":{\"argument\":{\"field_id\":\"field:1\",\"node\":\"field\"},\"distinct\":true,\"filter\":null,\"node\":\"count\"}}]},\"result_kinds\":[\"text\",\"integer\",\"integer\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "multiple groups",
@@ -3381,19 +3318,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "indexed_nullable_reference",
           "statement_family": "select",
-          "result_shape": "grouped_rows",
-          "projection_shape": "group_key_then_multiple_aggregates",
-          "predicate_shape": "indexed_scalar_comparison",
-          "grouping_shape": "one_indexed_group_key",
-          "having_shape": "aggregate_comparison",
-          "order_shape": "aggregate_alias_desc_then_group_key",
-          "window_shape": "limit",
-          "field_roles": "single_secondary_index|stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "multiple_duplicate_rich_indexed_groups",
-          "required_access": "secondary_range",
-          "required_covering": "hybrid",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":false,\"group_by\":[{\"field_id\":\"field:3\",\"node\":\"field\"}],\"having\":{\"left\":{\"argument\":null,\"distinct\":false,\"filter\":null,\"node\":\"count\"},\"node\":\"comparison\",\"operator\":\"greater\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:1\"}}},\"limit\":\"present\",\"offset\":null,\"order\":[{\"direction\":\"descending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:3\",\"node\":\"field\"}}}],\"predicate\":{\"left\":{\"field_id\":\"field:3\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"greater_or_equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}}},\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"field_id\":\"field:3\",\"node\":\"field\"}},{\"alias\":\"alias:1\",\"expression\":{\"argument\":null,\"distinct\":false,\"filter\":null,\"node\":\"count\"}},{\"alias\":\"alias:2\",\"expression\":{\"argument\":{\"field_id\":\"field:1\",\"node\":\"field\"},\"distinct\":true,\"filter\":null,\"node\":\"count\"}}]},\"result_kinds\":[\"integer\",\"integer\",\"integer\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[{\"field_slots\":[\"field:3\"],\"slot\":\"index:0\"},{\"field_slots\":[\"field:1\",\"field:3\"],\"slot\":\"index:1\"}]}}"
+        },
+        "required_execution_facts": {
+          "access": "secondary_range",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "multiple indexed groups",
@@ -3418,19 +3348,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "indexed_nullable_reference",
           "statement_family": "select",
-          "result_shape": "grouped_rows_with_cursor",
-          "projection_shape": "group_key_then_aggregate",
-          "predicate_shape": "none",
-          "grouping_shape": "one_indexed_group_key",
-          "having_shape": "none",
-          "order_shape": "group_key_ascending",
-          "window_shape": "grouped_continuation",
-          "field_roles": "single_secondary_index|stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "more_than_one_group_page",
-          "required_access": "secondary_range",
-          "required_covering": "pure",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"field_roles\":\"single_secondary_index|stored_scalar\",\"grouping_shape\":\"one_indexed_group_key\",\"having_shape\":\"none\",\"order_shape\":\"group_key_ascending\",\"predicate_shape\":\"none\",\"projection_shape\":\"group_key_then_aggregate\",\"provider_witness\":\"existing.core.query.grouped_cursor\",\"result_shape\":\"grouped_rows_with_cursor\",\"semantic_value_class\":\"ordinary\",\"window_shape\":\"grouped_continuation\"}"
+        },
+        "required_execution_facts": {
+          "access": "secondary_range",
+          "covering": "pure"
         },
         "fixture_properties": [
           "more than one grouped page"
@@ -3446,27 +3369,20 @@
         "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
       },
       {
-        "id": "required.indexed.composite_prefix_hybrid",
+        "id": "required.indexed.composite_prefix_non_covering",
         "interaction_obligations": [
-          "interaction.indexed.composite_prefix_hybrid"
+          "interaction.indexed.composite_prefix_non_covering"
         ],
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "indexed_nullable_reference",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "index_and_row_fields",
-          "predicate_shape": "equality_prefix_and_membership",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "compatible_index_suffix_then_primary_key",
-          "window_shape": "limit",
-          "field_roles": "composite_index_prefix_1|row_backed_projection",
-          "semantic_value_class": "membership_duplicate_nonnull",
-          "fixture_class": "duplicate_rich_indexed",
-          "required_access": "composite_prefix",
-          "required_covering": "hybrid",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":3,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":null,\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:3\",\"node\":\"field\"}}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":{\"left\":{\"left\":{\"field_id\":\"field:1\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"text\",\"value\":\"text:0:nonempty\"}}},\"node\":\"and\",\"right\":{\"expression\":{\"field_id\":\"field:3\",\"node\":\"field\"},\"members\":[{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}},{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:1\"}},{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:1\"}}],\"negated\":false,\"node\":\"in_list\"}},\"projections\":[{\"alias\":null,\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}},{\"alias\":null,\"expression\":{\"field_id\":\"field:3\",\"node\":\"field\"}},{\"alias\":null,\"expression\":{\"field_id\":\"field:5\",\"node\":\"field\"}}]},\"result_kinds\":[\"text\",\"integer\",\"text\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[{\"field_slots\":[\"field:3\"],\"slot\":\"index:0\"},{\"field_slots\":[\"field:1\",\"field:3\"],\"slot\":\"index:1\"}]}}"
+        },
+        "required_execution_facts": {
+          "access": "composite_prefix",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "duplicate-rich index prefixes"
@@ -3477,9 +3393,9 @@
         "provider_state": "planned_generated_provider",
         "route_facts": [
           "composite prefix",
-          "hybrid covering"
+          "row-backed projection"
         ],
-        "witness_id": "tier_c.indexed.composite_prefix_hybrid",
+        "witness_id": "tier_c.indexed.composite_prefix_non_covering",
         "opening_evidence_state": "missing_scheduled_witness_and_receipt"
       },
       {
@@ -3491,19 +3407,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "deterministic_expression_index",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "plain_fields",
-          "predicate_shape": "casefold_prefix",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "limit",
-          "field_roles": "accepted_expression_index|row_backed_projection",
-          "semantic_value_class": "ordinary_prefix",
-          "fixture_class": "unicode_prefix",
-          "required_access": "expression_range",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"field_roles\":\"accepted_expression_index|row_backed_projection\",\"grouping_shape\":\"none\",\"having_shape\":\"none\",\"order_shape\":\"none\",\"predicate_shape\":\"casefold_prefix\",\"projection_shape\":\"plain_fields\",\"provider_witness\":\"existing.core.ddl.create_expression\",\"result_shape\":\"scalar_rows\",\"semantic_value_class\":\"ordinary_prefix\",\"window_shape\":\"limit\"}"
+        },
+        "required_execution_facts": {
+          "access": "expression_range",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "Unicode casefold prefixes"
@@ -3528,19 +3437,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "plain_fields",
-          "predicate_shape": "primary_key_exact",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|row_backed_projection",
-          "semantic_value_class": "point",
-          "fixture_class": "singleton",
-          "required_access": "primary_exact",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"field_roles\":\"sole_primary_key|row_backed_projection\",\"grouping_shape\":\"none\",\"having_shape\":\"none\",\"order_shape\":\"none\",\"predicate_shape\":\"primary_key_exact\",\"projection_shape\":\"plain_fields\",\"provider_witness\":\"existing.core.query.exact_key_execute\",\"result_shape\":\"scalar_rows\",\"semantic_value_class\":\"point\",\"window_shape\":\"none\"}"
+        },
+        "required_execution_facts": {
+          "access": "primary_exact",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "present and absent exact keys"
@@ -3556,6 +3458,37 @@
         "opening_evidence_state": "existing_evidence_has_no_observed_structural_signature_receipt"
       },
       {
+        "id": "required.indexed.secondary_range_direct_compatible",
+        "interaction_obligations": [
+          "interaction.indexed.secondary_range_direct_compatible"
+        ],
+        "expected_structural_signature": {
+          "declaration_kind": "accepted",
+          "schema_profile": "indexed_nullable_reference",
+          "statement_family": "select",
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":null,\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:3\",\"node\":\"field\"}}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":{\"expression\":{\"field_id\":\"field:3\",\"node\":\"field\"},\"lower\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}},\"negated\":false,\"node\":\"between\",\"upper\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:1\"}}},\"projections\":[{\"alias\":null,\"expression\":{\"field_id\":\"field:3\",\"node\":\"field\"}}]},\"result_kinds\":[\"integer\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[{\"field_slots\":[\"field:3\"],\"slot\":\"index:0\"},{\"field_slots\":[\"field:1\",\"field:3\"],\"slot\":\"index:1\"}]}}"
+        },
+        "required_execution_facts": {
+          "access": "secondary_range",
+          "covering": "non_covering"
+        },
+        "fixture_properties": [
+          "stored nulls",
+          "duplicate-rich indexed values"
+        ],
+        "minimum_evidence": "reference_oracle",
+        "provider_eligibility": "sqlite_reference",
+        "provider_id": "generated.select.indexed_nullable_reference",
+        "provider_state": "planned_generated_provider",
+        "route_facts": [
+          "one bounded secondary range",
+          "direct row-backed projection"
+        ],
+        "witness_id": "tier_c.indexed.secondary_range_direct_compatible",
+        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
+      },
+      {
         "id": "required.indexed.secondary_range_non_covering_incompatible",
         "interaction_obligations": [
           "interaction.indexed.secondary_range_non_covering_incompatible"
@@ -3564,19 +3497,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "indexed_nullable_reference",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "computed_and_row_fields",
-          "predicate_shape": "nonempty_bounded_range_and_residual",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "computed_alias_then_primary_key",
-          "window_shape": "limit_offset",
-          "field_roles": "single_secondary_index|row_backed_projection",
-          "semantic_value_class": "bounded_nonempty",
-          "fixture_class": "order_ties",
-          "required_access": "secondary_range",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":3,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":\"present\",\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":{\"left\":{\"expression\":{\"field_id\":\"field:3\",\"node\":\"field\"},\"lower\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}},\"negated\":false,\"node\":\"between\",\"upper\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:1\"}}},\"node\":\"and\",\"right\":{\"left\":{\"field_id\":\"field:4\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"boolean\",\"value\":true}}}},\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"arguments\":[{\"field_id\":\"field:2\",\"node\":\"field\"}],\"function\":\"abs\",\"node\":\"function\"}},{\"alias\":null,\"expression\":{\"field_id\":\"field:5\",\"node\":\"field\"}}]},\"result_kinds\":[\"decimal\",\"text\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[{\"field_slots\":[\"field:3\"],\"slot\":\"index:0\"},{\"field_slots\":[\"field:1\",\"field:3\"],\"slot\":\"index:1\"}]}}"
+        },
+        "required_execution_facts": {
+          "access": "secondary_range",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "nonempty bounded range",
@@ -3594,44 +3520,6 @@
         "opening_evidence_state": "missing_scheduled_witness_and_receipt"
       },
       {
-        "id": "required.indexed.secondary_range_pure_compatible",
-        "interaction_obligations": [
-          "interaction.indexed.secondary_range_pure_compatible"
-        ],
-        "expected_structural_signature": {
-          "declaration_kind": "accepted",
-          "schema_profile": "indexed_nullable_reference",
-          "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "index_fields_only",
-          "predicate_shape": "nonempty_bounded_range",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "compatible_index_order_then_primary_key",
-          "window_shape": "limit",
-          "field_roles": "nullable|single_secondary_index|index_projectable",
-          "semantic_value_class": "bounded_nonempty",
-          "fixture_class": "stored_null_duplicate_rich_indexed",
-          "required_access": "secondary_range",
-          "required_covering": "pure",
-          "expected_violation": "none"
-        },
-        "fixture_properties": [
-          "stored nulls",
-          "duplicate-rich indexed values"
-        ],
-        "minimum_evidence": "reference_oracle",
-        "provider_eligibility": "sqlite_reference",
-        "provider_id": "generated.select.indexed_nullable_reference",
-        "provider_state": "planned_generated_provider",
-        "route_facts": [
-          "one bounded secondary range",
-          "pure covering"
-        ],
-        "witness_id": "tier_c.indexed.secondary_range_pure_compatible",
-        "opening_evidence_state": "missing_scheduled_witness_and_receipt"
-      },
-      {
         "id": "required.mutation.authored_insert",
         "interaction_obligations": [
           "interaction.mutation.authored_insert"
@@ -3639,20 +3527,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "authored_scalar",
-          "statement_family": "insert",
-          "result_shape": "affected_count_and_optional_rows",
-          "projection_shape": "none",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|authored_fields",
-          "semantic_value_class": "authored_single_and_multi",
-          "fixture_class": "empty_then_nonempty_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"authored\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"text\",\"slot\":\"field:1\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"number\",\"slot\":\"field:2\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":\"number:0\",\"number\":\"number:3\",\"profile\":\"authored_scalar\",\"text\":\"text:1:nonempty\"}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}},{\"operation\":{\"rows\":[{\"key\":\"number:1\",\"number\":\"number:4\",\"profile\":\"authored_scalar\",\"text\":\"text:0:nonempty\"},{\"key\":\"number:2\",\"number\":\"number:5\",\"profile\":\"authored_scalar\",\"text\":\"text:0:nonempty\"}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"none\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "single row",
@@ -3676,20 +3557,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "authored_scalar",
-          "statement_family": "insert_from_query",
-          "result_shape": "affected_count",
-          "projection_shape": "none",
-          "predicate_shape": "source_query",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "source_primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|authored_fields",
-          "semantic_value_class": "authored_from_query",
-          "fixture_class": "bounded_source",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql\",\"intent_class\":\"authored\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"text\",\"slot\":\"field:1\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"number\",\"slot\":\"field:2\"}]},\"statements\":[{\"operation\":{\"key_source\":\"number\",\"predicate\":{\"kind\":\"number_range\",\"max_exclusive\":\"number:1\",\"min_inclusive\":\"number:0\"},\"verb\":\"insert_from_query\"},\"returning\":{\"kind\":\"none\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "bounded source rows"
@@ -3712,20 +3586,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "authored_scalar",
-          "statement_family": "update_delete_window",
-          "result_shape": "affected_count_and_returning",
-          "projection_shape": "plain_fields",
-          "predicate_shape": "exact_compound_bounded",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|authored_fields",
-          "semantic_value_class": "authored_patch",
-          "fixture_class": "multiple_matching_rows",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"authored\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"text\",\"slot\":\"field:1\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"number\",\"slot\":\"field:2\"}]},\"statements\":[{\"operation\":{\"assignment\":{\"profile\":\"authored_number\",\"value\":\"number:2\"},\"predicate\":{\"kind\":\"key_equal\",\"value\":\"number:1\"},\"verb\":\"update\",\"window\":null},\"returning\":{\"kind\":\"all_fields\"}},{\"operation\":{\"assignment\":{\"number\":\"number:5\",\"profile\":\"authored_text_and_number\",\"text\":\"text:1:nonempty\"},\"predicate\":{\"kind\":\"and\",\"left\":{\"kind\":\"text_equal\",\"value\":\"text:0:nonempty\"},\"right\":{\"kind\":\"number_range\",\"max_exclusive\":\"number:4\",\"min_inclusive\":\"number:3\"}},\"verb\":\"update\",\"window\":null},\"returning\":{\"kind\":\"none\"}},{\"operation\":{\"assignment\":{\"profile\":\"authored_number\",\"value\":\"number:6\"},\"predicate\":{\"kind\":\"number_range\",\"max_exclusive\":\"number:7\",\"min_inclusive\":\"number:0\"},\"verb\":\"update\",\"window\":{\"limit\":\"present\",\"offset\":\"present\",\"order\":\"key_ascending\"}},\"returning\":{\"kind\":\"all_fields\"}},{\"operation\":{\"predicate\":{\"kind\":\"number_range\",\"max_exclusive\":\"number:7\",\"min_inclusive\":\"number:0\"},\"verb\":\"delete\",\"window\":{\"limit\":\"present\",\"offset\":\"present\",\"order\":\"key_ascending\"}},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "exact",
@@ -3750,20 +3617,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "delete",
-          "result_shape": "affected_count_and_old_complete_row",
-          "projection_shape": "returning_star",
-          "predicate_shape": "primary_key_exact",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "authored",
-          "fixture_class": "one_matching_row",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"authored\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"predicate\":{\"kind\":\"key_equal\",\"value\":\"number:0\"},\"verb\":\"delete\",\"window\":null},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "one matching row"
@@ -3787,20 +3647,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "insert",
-          "result_shape": "affected_count_and_complete_row",
-          "projection_shape": "all_fields",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "all_authored",
-          "fixture_class": "empty_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"authored\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":{\"intent\":\"authored\",\"value\":1},\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"authored\",\"value\":42},\"tier\":{\"intent\":\"authored\",\"value\":\"text:1:nonempty\"}}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "all fields authored"
@@ -3824,20 +3677,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "insert",
-          "result_shape": "affected_count_and_complete_row",
-          "projection_shape": "all_fields",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "explicit_defaults",
-          "fixture_class": "empty_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql\",\"intent_class\":\"explicit_default\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":{\"intent\":\"authored\",\"value\":1},\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"default\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"default\"},\"tier\":{\"intent\":\"default\"}}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "explicit defaults"
@@ -3861,20 +3707,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "insert",
-          "result_shape": "affected_count_and_complete_rows",
-          "projection_shape": "all_fields",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "mixed_authored_omitted_explicit_default",
-          "fixture_class": "empty_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql\",\"intent_class\":\"mixed_batch\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":{\"intent\":\"authored\",\"value\":1},\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"authored\",\"value\":42},\"tier\":{\"intent\":\"authored\",\"value\":\"text:3:nonempty\"}},{\"key\":{\"intent\":\"authored\",\"value\":2},\"name\":{\"intent\":\"authored\",\"value\":\"text:2:nonempty\"},\"note\":{\"intent\":\"omitted\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"omitted\"},\"tier\":{\"intent\":\"omitted\"}},{\"key\":{\"intent\":\"authored\",\"value\":3},\"name\":{\"intent\":\"authored\",\"value\":\"text:1:nonempty\"},\"note\":{\"intent\":\"default\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"default\"},\"tier\":{\"intent\":\"default\"}}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "three-row mixed provenance batch"
@@ -3898,20 +3737,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "insert",
-          "result_shape": "affected_count_and_complete_row",
-          "projection_shape": "all_fields",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "omitted_defaults",
-          "fixture_class": "empty_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"omitted\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":{\"intent\":\"authored\",\"value\":1},\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"omitted\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"omitted\"},\"tier\":{\"intent\":\"omitted\"}}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "id and name authored only"
@@ -3935,20 +3767,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "update_delete_no_match",
-          "result_shape": "zero_affected",
-          "projection_shape": "none",
-          "predicate_shape": "primary_key_exact_absent",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key",
-          "semantic_value_class": "authored",
-          "fixture_class": "absent_key",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"authored\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"assignment\":{\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"preserve\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"preserve\"},\"tier\":{\"intent\":\"preserve\"}},\"predicate\":{\"kind\":\"key_equal\",\"value\":\"number:0\"},\"verb\":\"update\",\"window\":null},\"returning\":{\"kind\":\"all_fields\"}},{\"operation\":{\"predicate\":{\"kind\":\"key_equal\",\"value\":\"number:0\"},\"verb\":\"delete\",\"window\":null},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "absent primary key"
@@ -3971,20 +3796,13 @@
         "expected_structural_signature": {
           "declaration_kind": "singly_invalid",
           "schema_profile": "accepted_default",
-          "statement_family": "insert",
-          "result_shape": "typed_error",
-          "projection_shape": "none",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|single_secondary_index",
-          "semantic_value_class": "duplicate_primary_key_batch",
-          "fixture_class": "unchanged_pre_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "duplicate_primary_key"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "unique_violation",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"mixed_batch\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":{\"intent\":\"authored\",\"value\":2},\"name\":{\"intent\":\"authored\",\"value\":\"text:1:nonempty\"},\"note\":{\"intent\":\"omitted\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"omitted\"},\"tier\":{\"intent\":\"omitted\"}},{\"key\":{\"intent\":\"authored\",\"value\":1},\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"default\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"default\"},\"tier\":{\"intent\":\"default\"}}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}}],\"violation\":\"unique_violation\"}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "duplicate primary-key batch"
@@ -4008,20 +3826,13 @@
         "expected_structural_signature": {
           "declaration_kind": "singly_invalid",
           "schema_profile": "accepted_default",
-          "statement_family": "insert",
-          "result_shape": "typed_error",
-          "projection_shape": "none",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|required_without_default",
-          "semantic_value_class": "explicit_default",
-          "fixture_class": "unchanged_pre_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "default_unavailable"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "primary_key_default_forbidden",
+          "canonical_structure": "{\"ingress\":\"sql\",\"intent_class\":\"explicit_default\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":{\"intent\":\"default\"},\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"omitted\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"omitted\"},\"tier\":{\"intent\":\"omitted\"}}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}}],\"violation\":\"primary_key_default_forbidden\"}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "unchanged pre-state"
@@ -4044,20 +3855,13 @@
         "expected_structural_signature": {
           "declaration_kind": "singly_invalid",
           "schema_profile": "accepted_default",
-          "statement_family": "insert",
-          "result_shape": "typed_error",
-          "projection_shape": "none",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "required_without_default",
-          "semantic_value_class": "omitted_required",
-          "fixture_class": "unchanged_pre_state",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "missing_required_field"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "required_field_missing",
+          "canonical_structure": "{\"ingress\":\"sql\",\"intent_class\":\"omitted\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"rows\":[{\"key\":{\"intent\":\"authored\",\"value\":2},\"name\":{\"intent\":\"omitted\"},\"note\":{\"intent\":\"omitted\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"omitted\"},\"tier\":{\"intent\":\"omitted\"}}],\"verb\":\"insert\"},\"returning\":{\"kind\":\"all_fields\"}}],\"violation\":\"required_field_missing\"}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "unchanged pre-state"
@@ -4080,20 +3884,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "update",
-          "result_shape": "affected_count_and_complete_row",
-          "projection_shape": "returning_star",
-          "predicate_shape": "primary_key_exact",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "authored_patch",
-          "fixture_class": "one_matching_row",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"authored\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"assignment\":{\"name\":{\"intent\":\"preserve\"},\"note\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"authored\",\"value\":99},\"tier\":{\"intent\":\"authored\",\"value\":\"text:1:nonempty\"}},\"predicate\":{\"kind\":\"key_equal\",\"value\":\"number:0\"},\"verb\":\"update\",\"window\":null},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "one matching row"
@@ -4117,20 +3914,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "update",
-          "result_shape": "affected_count_and_returned_fields",
-          "projection_shape": "tier_score_note",
-          "predicate_shape": "primary_key_exact",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "explicit_update_defaults",
-          "fixture_class": "one_nondefault_row",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql\",\"intent_class\":\"explicit_default\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"assignment\":{\"name\":{\"intent\":\"preserve\"},\"note\":{\"intent\":\"default\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"default\"},\"tier\":{\"intent\":\"default\"}},\"predicate\":{\"kind\":\"key_equal\",\"value\":\"number:0\"},\"verb\":\"update\",\"window\":null},\"returning\":{\"fields\":[\"tier\",\"score\",\"note\"],\"kind\":\"fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "one non-default row"
@@ -4154,20 +3944,13 @@
         "expected_structural_signature": {
           "declaration_kind": "accepted",
           "schema_profile": "accepted_default",
-          "statement_family": "update",
-          "result_shape": "affected_count_and_complete_row",
-          "projection_shape": "all_fields",
-          "predicate_shape": "primary_key_exact",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "none",
-          "field_roles": "sole_primary_key|default_fields|single_secondary_index",
-          "semantic_value_class": "absent_assignments_preserve",
-          "fixture_class": "one_nondefault_row",
-          "required_access": "mutation_selection",
-          "required_covering": "not_applicable",
-          "expected_violation": "none"
+          "statement_family": "mutation_sequence",
+          "expected_violation": "none",
+          "canonical_structure": "{\"ingress\":\"sql_and_typed\",\"intent_class\":\"preserve\",\"schema\":{\"fields\":[{\"default_kind\":null,\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":true,\"role\":\"key\",\"slot\":\"field:0\"},{\"default_kind\":null,\"indexed\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"name\",\"slot\":\"field:1\"},{\"default_kind\":\"text\",\"indexed\":true,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"role\":\"tier\",\"slot\":\"field:2\"},{\"default_kind\":\"unsigned_integer\",\"indexed\":false,\"kind\":\"unsigned_integer\",\"nullable\":false,\"primary_key\":false,\"role\":\"score\",\"slot\":\"field:3\"},{\"default_kind\":\"null\",\"indexed\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"role\":\"note\",\"slot\":\"field:4\"}]},\"statements\":[{\"operation\":{\"assignment\":{\"name\":{\"intent\":\"authored\",\"value\":\"text:0:nonempty\"},\"note\":{\"intent\":\"preserve\"},\"profile\":\"accepted_default\",\"score\":{\"intent\":\"preserve\"},\"tier\":{\"intent\":\"preserve\"}},\"predicate\":{\"kind\":\"key_equal\",\"value\":\"number:0\"},\"verb\":\"update\",\"window\":null},\"returning\":{\"kind\":\"all_fields\"}}]}"
+        },
+        "required_execution_facts": {
+          "access": "mutation_selection",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "one non-default row"
@@ -4191,19 +3974,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "global_aggregate",
-          "projection_shape": "aggregate_over_nullif",
-          "predicate_shape": "none",
-          "grouping_shape": "global",
-          "having_shape": "none",
-          "order_shape": "none",
-          "window_shape": "none",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "computed_null",
-          "fixture_class": "computed_null_and_nonnull",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":3,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":null,\"offset\":null,\"order\":[],\"predicate\":null,\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"argument\":{\"arguments\":[{\"field_id\":\"field:2\",\"node\":\"field\"},{\"field_id\":\"field:3\",\"node\":\"field\"}],\"function\":\"null_if\",\"node\":\"function\"},\"distinct\":false,\"filter\":null,\"node\":\"count\"}}]},\"result_kinds\":[\"integer\"],\"result_order\":\"unordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "computed null and non-null inputs"
@@ -4227,19 +4003,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "distinct_nullif",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "computed_alias_then_primary_key",
-          "window_shape": "limit",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "computed_null",
-          "fixture_class": "duplicate_computed_null",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":true,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":null,\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}}],\"predicate\":null,\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"arguments\":[{\"field_id\":\"field:2\",\"node\":\"field\"},{\"field_id\":\"field:3\",\"node\":\"field\"}],\"function\":\"null_if\",\"node\":\"function\"}}]},\"result_kinds\":[\"integer\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "duplicate computed nulls"
@@ -4263,19 +4032,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "nullif_alias",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "computed_nullable_alias_then_primary_key",
-          "window_shape": "limit_offset",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "computed_null",
-          "fixture_class": "computed_null_order_ties",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":\"present\",\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":null,\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"arguments\":[{\"field_id\":\"field:2\",\"node\":\"field\"},{\"field_id\":\"field:3\",\"node\":\"field\"}],\"function\":\"null_if\",\"node\":\"function\"}},{\"alias\":null,\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}}]},\"result_kinds\":[\"integer\",\"text\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "computed nulls",
@@ -4300,19 +4062,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "indexed_nullable_reference",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "plain_fields",
-          "predicate_shape": "nullable_membership_and_null_test",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "primary_key_ascending",
-          "window_shape": "limit",
-          "field_roles": "nullable|stored_scalar",
-          "semantic_value_class": "membership_duplicate_with_null",
-          "fixture_class": "stored_null_duplicate_rich",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":3,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":null,\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":{\"left\":{\"expression\":{\"field_id\":\"field:5\",\"node\":\"field\"},\"members\":[{\"node\":\"literal\",\"value\":{\"kind\":\"text\",\"value\":\"text:0:nonempty\"}},{\"node\":\"literal\",\"value\":{\"kind\":\"text\",\"value\":\"text:0:nonempty\"}}],\"negated\":false,\"node\":\"in_list\"},\"node\":\"or\",\"right\":{\"expression\":{\"field_id\":\"field:5\",\"node\":\"field\"},\"negated\":false,\"node\":\"is_null\"}},\"projections\":[{\"alias\":null,\"expression\":{\"field_id\":\"field:5\",\"node\":\"field\"}},{\"alias\":null,\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}}]},\"result_kinds\":[\"text\",\"text\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[{\"field_slots\":[\"field:3\"],\"slot\":\"index:0\"},{\"field_slots\":[\"field:1\",\"field:3\"],\"slot\":\"index:1\"}]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "stored nulls",
@@ -4337,19 +4092,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "indexed_nullable_reference",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "nullable_and_primary_key",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "nullable_ascending_then_primary_key",
-          "window_shape": "limit_offset",
-          "field_roles": "nullable|stored_scalar",
-          "semantic_value_class": "stored_null",
-          "fixture_class": "stored_null_order_ties",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":1,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":\"present\",\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":null,\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"field_id\":\"field:5\",\"node\":\"field\"}},{\"alias\":null,\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}}]},\"result_kinds\":[\"text\",\"text\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[{\"field_slots\":[\"field:3\"],\"slot\":\"index:0\"},{\"field_slots\":[\"field:1\",\"field:3\"],\"slot\":\"index:1\"}]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "stored nulls",
@@ -4374,19 +4122,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "indexed_nullable_reference",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "distinct_computed_and_plain_aliases",
-          "predicate_shape": "indexed_comparison_and_residual",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "computed_alias_then_primary_key",
-          "window_shape": "limit_offset",
-          "field_roles": "nullable|single_secondary_index|row_backed_projection",
-          "semantic_value_class": "bounded_nonempty",
-          "fixture_class": "duplicate_computed_stored_null",
-          "required_access": "secondary_range",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":3,\"query\":{\"distinct\":true,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":\"present\",\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:2:nonempty\"}}],\"predicate\":{\"left\":{\"expression\":{\"field_id\":\"field:3\",\"node\":\"field\"},\"lower\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}},\"negated\":false,\"node\":\"between\",\"upper\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:1\"}}},\"node\":\"and\",\"right\":{\"left\":{\"field_id\":\"field:4\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"boolean\",\"value\":true}}}},\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"arguments\":[{\"field_id\":\"field:5\",\"node\":\"field\"},{\"node\":\"literal\",\"value\":{\"kind\":\"text\",\"value\":\"text:1:nonempty\"}}],\"function\":\"coalesce\",\"node\":\"function\"}},{\"alias\":\"alias:1\",\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}}]},\"result_kinds\":[\"text\",\"text\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":true,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[{\"field_slots\":[\"field:3\"],\"slot\":\"index:0\"},{\"field_slots\":[\"field:1\",\"field:3\"],\"slot\":\"index:1\"}]}}"
+        },
+        "required_execution_facts": {
+          "access": "secondary_range",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "duplicate computed values",
@@ -4413,19 +4154,12 @@
           "declaration_kind": "accepted",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "plain_and_computed_aliases",
-          "predicate_shape": "boolean_tree_with_comparison",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "projection_alias_then_primary_key",
-          "window_shape": "limit_offset",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "order_ties_more_than_window",
-          "required_access": "full_scan",
-          "required_covering": "non_covering",
-          "expected_violation": "none"
+          "expected_violation": "none",
+          "canonical_structure": "{\"max_expression_depth\":2,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":\"present\",\"order\":[{\"direction\":\"descending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:1:nonempty\"}},{\"direction\":\"ascending\",\"target\":{\"kind\":\"alias\",\"value\":\"text:0:nonempty\"}}],\"predicate\":{\"left\":{\"field_id\":\"field:3\",\"node\":\"field\"},\"node\":\"comparison\",\"operator\":\"greater_or_equal\",\"right\":{\"node\":\"literal\",\"value\":{\"kind\":\"integer\",\"value\":\"number:0\"}}},\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}},{\"alias\":\"alias:1\",\"expression\":{\"arguments\":[{\"field_id\":\"field:2\",\"node\":\"field\"}],\"function\":\"abs\",\"node\":\"function\"}}]},\"result_kinds\":[\"text\",\"decimal\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]}}"
+        },
+        "required_execution_facts": {
+          "access": "full_scan",
+          "covering": "non_covering"
         },
         "fixture_properties": [
           "order ties",
@@ -4444,27 +4178,20 @@
         "opening_evidence_state": "missing_scheduled_witness_and_receipt"
       },
       {
-        "id": "required.scalar.reference_invalid_alias_order",
+        "id": "required.scalar.reference_unknown_alias_order",
         "interaction_obligations": [
-          "interaction.scalar.reference_invalid_alias_order"
+          "interaction.scalar.reference_unknown_alias_order"
         ],
         "expected_structural_signature": {
           "declaration_kind": "singly_invalid",
           "schema_profile": "reference_scalar",
           "statement_family": "select",
-          "result_shape": "scalar_rows",
-          "projection_shape": "ambiguous_aliases",
-          "predicate_shape": "none",
-          "grouping_shape": "none",
-          "having_shape": "none",
-          "order_shape": "ambiguous_projection_alias",
-          "window_shape": "limit",
-          "field_roles": "stored_scalar",
-          "semantic_value_class": "ordinary",
-          "fixture_class": "valid_base",
-          "required_access": "not_applicable",
-          "required_covering": "not_applicable",
-          "expected_violation": "ambiguous_alias_binding"
+          "expected_violation": "invalid_order_target",
+          "canonical_structure": "{\"max_expression_depth\":1,\"query\":{\"distinct\":false,\"group_by\":[],\"having\":null,\"limit\":\"present\",\"offset\":null,\"order\":[{\"direction\":\"ascending\",\"target\":{\"kind\":\"expression\",\"value\":{\"field_id\":\"field:1\",\"node\":\"field\"}}}],\"predicate\":null,\"projections\":[{\"alias\":\"alias:0\",\"expression\":{\"field_id\":\"field:1\",\"node\":\"field\"}}]},\"result_kinds\":[\"text\"],\"result_order\":\"ordered\",\"schema\":{\"fields\":[{\"generated\":true,\"kind\":\"ulid\",\"nullable\":false,\"primary_key\":true,\"slot\":\"field:0\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:1\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:2\"},{\"generated\":false,\"kind\":\"integer\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:3\"},{\"generated\":false,\"kind\":\"boolean\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:4\"},{\"generated\":false,\"kind\":\"text\",\"nullable\":false,\"primary_key\":false,\"slot\":\"field:5\"}],\"indexes\":[]},\"violation\":\"invalid_order_target\"}"
+        },
+        "required_execution_facts": {
+          "access": "not_applicable",
+          "covering": "not_applicable"
         },
         "fixture_properties": [
           "valid base declaration"
@@ -4474,7 +4201,7 @@
         "provider_id": "generated.select.reference_scalar",
         "provider_state": "planned_generated_provider",
         "route_facts": [],
-        "witness_id": "tier_c.scalar.reference_invalid_alias_order",
+        "witness_id": "tier_c.scalar.reference_unknown_alias_order",
         "opening_evidence_state": "missing_scheduled_witness_and_receipt"
       }
     ],

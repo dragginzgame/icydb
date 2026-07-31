@@ -98,6 +98,17 @@ fn cache_compiled_select_prepared_plan(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    #[cfg(test)]
+    pub(in crate::db) fn sql_select_prepared_plan_for_tests(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+    ) -> Result<SharedPreparedExecutionPlan, QueryError> {
+        self.sql_select_prepared_plan_for_accepted_authority(query, authority, accepted_schema)
+            .map(|(plan, _, _)| plan)
+    }
+
     // Resolve one SQL SELECT through a caller-selected accepted authority and
     // accepted schema snapshot. Typed SQL entrypoints use this to avoid passing
     // generated authority through the runtime cache boundary.

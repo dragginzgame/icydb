@@ -76,7 +76,7 @@ fn frozen_catalog_exposes_exact_select_witnesses_and_hash() {
     assert_eq!(witnesses.len(), 17);
     assert_eq!(
         structural_obligation_catalog_hash().expect("catalog hash should decode"),
-        "b4f839c170e09a2691dd8cbc6a5b14ad8c3794af0d2ea796df47bec4968e4b9f",
+        "c273d1ce46eda26a1e664ceb47794c21c444d1d5ab90a9c19cc7b6185c92d74a",
     );
     assert_eq!(
         witnesses
@@ -98,7 +98,12 @@ fn structural_signature_round_trip_equality_and_order_are_lossless() {
     let mut signatures = scheduled_select_witnesses()
         .expect("catalog should decode")
         .into_iter()
-        .map(|witness| witness.signature().clone())
+        .map(|witness| {
+            generate_scheduled_select_case(&witness, TIER_C_ROOT_SEEDS[0], 0, TIER_C_SELECT_BUDGETS)
+                .expect("scheduled signature should derive")
+                .structural_signature()
+                .expect("structural signature should derive")
+        })
         .collect::<Vec<_>>();
     for signature in &signatures {
         let encoded = signature
@@ -143,21 +148,26 @@ fn every_required_select_structure_generates_deterministically() {
                 )
                 .expect("same witness repetition should reproduce");
                 assert_eq!(first, second);
-                assert_eq!(first.structural_signature(), witness.signature());
                 assert!(identities.insert(first.identity().id().to_string()));
                 first.validate().expect("generated case should revalidate");
+                let structural_signature = first
+                    .structural_signature()
+                    .expect("structural signature should derive");
+                assert_eq!(&structural_signature, witness.signature());
                 *signature_counts
                     .entry(
-                        first
-                            .structural_signature()
+                        structural_signature
                             .digest()
                             .expect("signature digest should derive"),
                     )
                     .or_insert(0_u32) += 1;
                 *profile_counts
-                    .entry(first.structural_signature().schema_profile().to_string())
+                    .entry(structural_signature.schema_profile().to_string())
                     .or_insert(0_u32) += 1;
-                fixture_classes.insert(first.structural_signature().fixture_class().to_string());
+                fixture_classes.insert(
+                    crate::generator::fixture_class_for_identity(first.identity().witness_id())
+                        .to_string(),
+                );
                 expression_depths.insert(first.query().max_expression_depth());
             }
         }
@@ -169,8 +179,20 @@ fn every_required_select_structure_generates_deterministically() {
             * witnesses.len()
             * usize::try_from(TIER_C_SELECT_REPETITIONS).expect("repetitions fit usize"),
     );
-    assert_eq!(signature_counts.len(), witnesses.len());
-    assert!(signature_counts.values().all(|count| *count == 16));
+    assert_eq!(signature_counts.len(), witnesses.len() - 1);
+    assert_eq!(
+        signature_counts
+            .values()
+            .filter(|count| **count == 32)
+            .count(),
+        1,
+        "two separately scheduled entry-path obligations share one typed SELECT structure",
+    );
+    assert!(
+        signature_counts
+            .values()
+            .all(|count| matches!(*count, 16 | 32))
+    );
     assert_eq!(
         profile_counts,
         BTreeMap::from([
@@ -218,9 +240,17 @@ fn every_invalid_kind_is_singly_invalid_and_deterministic() {
                 .expect("typed invalid proposal should generate");
                 assert_eq!(generated.violation(), Some(*violation));
                 assert_eq!(generated.provider(), SelectProvider::RejectionInvariant);
-                assert!(generated.structural_signature().is_singly_invalid());
+                assert!(
+                    generated
+                        .structural_signature()
+                        .expect("invalid structural signature should derive")
+                        .is_singly_invalid()
+                );
                 assert_eq!(
-                    generated.structural_signature().expected_violation(),
+                    generated
+                        .structural_signature()
+                        .expect("invalid structural signature should derive")
+                        .expected_violation(),
                     violation.code(),
                 );
                 assert!(identities.insert(generated.identity().id().to_string()));
@@ -240,6 +270,10 @@ fn every_invalid_kind_is_singly_invalid_and_deterministic() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one end-to-end receipt test keeps declaration, shard, merge, and distribution proof together"
+)]
 fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
     let witnesses = scheduled_select_witnesses().expect("catalog should decode");
     let cases = TIER_C_ROOT_SEEDS
@@ -286,7 +320,24 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
                     };
                     TierCScenarioObservation::try_new(
                         case.identity().id(),
-                        case.structural_signature().clone(),
+                        case.structural_signature()
+                            .expect("structural signature should derive"),
+                        if case.violation().is_some() {
+                            crate::ObservedExecutionFacts::new(
+                                crate::ExecutionAccess::NotApplicable,
+                                crate::ExecutionCovering::NotApplicable,
+                            )
+                        } else {
+                            scheduled_select_witnesses()
+                                .expect("catalog should decode")
+                                .into_iter()
+                                .find(|witness| {
+                                    witness.witness_id() == case.identity().witness_id()
+                                })
+                                .expect("accepted case should have a reviewed witness")
+                                .required_execution_facts()
+                                .into()
+                        },
                         outcome,
                     )
                     .expect("observed signature should validate")
@@ -310,7 +361,8 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
             .expect("exact generated receipts should project");
     assert_eq!(
         distribution.generated_select_structural_signature_count(),
-        witnesses.len(),
+        witnesses.len().saturating_sub(1),
+        "cold-cache and scalar full-window obligations intentionally share one typed query structure while retaining distinct execution obligations",
     );
     assert_eq!(
         distribution.generated_select_fixture_class_count("empty"),
@@ -387,10 +439,30 @@ fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
                         == shard_index
                 })
                 .map(|sequence| {
+                    let outcome = if sequence
+                        .steps()
+                        .iter()
+                        .any(|step| step.expected().rejection().is_some())
+                    {
+                        TierCScenarioOutcome::ExpectedRejection
+                    } else {
+                        TierCScenarioOutcome::Passed
+                    };
                     TierCScenarioObservation::try_new(
                         sequence.identity().id(),
-                        sequence.structural_signature().clone(),
-                        TierCScenarioOutcome::Passed,
+                        sequence
+                            .structural_signature()
+                            .expect("mutation signature should derive"),
+                        scheduled_mutation_witnesses()
+                            .expect("catalog should decode")
+                            .into_iter()
+                            .find(|witness| {
+                                witness.witness_id() == sequence.identity().witness_id()
+                            })
+                            .expect("mutation case should have a reviewed witness")
+                            .required_execution_facts()
+                            .into(),
+                        outcome,
                     )
                     .expect("observed mutation signature should validate")
                 })
@@ -402,6 +474,8 @@ fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
     let merged =
         TierCMergedReport::try_merge(&declared, reports).expect("mutation receipts should merge");
     assert!(merged.is_clean());
+    assert_eq!(merged.expected_rejection_count(), 48);
+    assert_eq!(merged.passed_scenario_count(), 192);
     let distribution =
         TierCCoverageDistributionReport::try_from_clean_evidence(&declarations, &merged)
             .expect("exact mutation receipts should project");
@@ -447,10 +521,18 @@ fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
         );
     }
     for witness in &witnesses {
+        let signature = generate_scheduled_mutation_sequence(
+            witness,
+            TIER_A_ROOT_SEEDS[0],
+            0,
+            TIER_C_MUTATION_BUDGETS,
+        )
+        .expect("mutation signature should derive");
         assert_eq!(
             distribution.generated_mutation_structural_signature_count(
-                witness
-                    .signature()
+                signature
+                    .structural_signature()
+                    .expect("mutation signature should derive")
                     .digest()
                     .expect("mutation signature digest should derive")
                     .as_str(),
@@ -483,6 +565,8 @@ fn mismatch_shrinks_and_round_trips_in_current_formats() {
     let bytes = replay
         .to_canonical_json()
         .expect("replay should fit its artifact budget");
+    let canonical = str::from_utf8(bytes.as_slice()).expect("canonical replay should be UTF-8");
+    assert!(!canonical.contains("\"structural_signature\":"));
     let decoded = crate::SelectReplayRecord::from_canonical_json(&bytes)
         .expect("canonical current replay should decode");
     assert_eq!(decoded, replay);

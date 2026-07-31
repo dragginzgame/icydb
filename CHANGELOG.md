@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
 
+- `0.215.6` hardens the SQL structural closeout with independently frozen
+  signatures and a fail-closed 512-scenario execution gate, correcting its
+  mutation witness and rejection evidence without changing production SQL or
+  persisted formats.
+
 - `0.215.5` fixes same-batch relation release and completes final-overlay and
   caller-key recovery proof for atomic mixed structural mutations.
 

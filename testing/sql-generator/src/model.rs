@@ -1437,7 +1437,6 @@ impl SelectQuery {
 #[serde(deny_unknown_fields)]
 pub struct GeneratedSelectCase {
     identity: GeneratedSelectIdentity,
-    structural_signature: crate::StructuralSignature,
     violation: Option<SelectViolation>,
     snapshot: SelectSnapshot,
     fixture: GeneratedFixture,
@@ -1456,7 +1455,6 @@ impl GeneratedSelectCase {
     )]
     pub(crate) const fn new(
         identity: GeneratedSelectIdentity,
-        structural_signature: crate::StructuralSignature,
         violation: Option<SelectViolation>,
         snapshot: SelectSnapshot,
         fixture: GeneratedFixture,
@@ -1469,7 +1467,6 @@ impl GeneratedSelectCase {
     ) -> Self {
         Self {
             identity,
-            structural_signature,
             violation,
             snapshot,
             fixture,
@@ -1488,10 +1485,19 @@ impl GeneratedSelectCase {
         &self.identity
     }
 
-    /// Borrow the full derived structural identity.
-    #[must_use]
-    pub const fn structural_signature(&self) -> &crate::StructuralSignature {
-        &self.structural_signature
+    /// Derive the full structural identity from the typed declaration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed generator error if the embedded declaration is invalid
+    /// or canonical derivation fails.
+    pub fn structural_signature(&self) -> Result<crate::StructuralSignature, SqlGeneratorError> {
+        crate::generator::validate_generated_select_case_authority(self)?;
+        crate::structural_derivation::derive_select_signature(
+            &self.snapshot,
+            &self.query,
+            self.violation,
+        )
     }
 
     /// Return the classified invalid mutation, when present.
@@ -1555,7 +1561,7 @@ impl GeneratedSelectCase {
     /// Returns a typed generator error if any embedded replay fact is stale or
     /// inconsistent with the current hard-cut generator version.
     pub fn validate(&self) -> Result<(), SqlGeneratorError> {
-        crate::generator::validate_generated_select_case(self)
+        self.structural_signature().map(drop)
     }
 
     pub(crate) fn with_fixture(&self, fixture: GeneratedFixture) -> Self {

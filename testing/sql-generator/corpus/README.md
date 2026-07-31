@@ -3,13 +3,8 @@
 This directory owns reviewed, minimized SQL regression inputs for the sole
 current generator and corpus formats.
 
-The current inventory contains
-`select.filtered-global-count-residual-scan.json`, minimized deterministically
-from the native/SQLite mismatch now represented by the stable scheduled
-`tier_c.global.nonempty_distinct_filter` witness.
-It locks the corrected scan-time residual-filter contract for filtered global
-`COUNT(DISTINCT ...) FILTER (...)` over the smallest duplicate fixture that
-preserves the historical value mismatch.
+The current inventory is empty. Current scheduled witnesses own the maintained
+aggregate `DISTINCT` and aggregate `FILTER` contracts independently.
 
 Each future entry is one RFC 8785 canonical JSON file named
 `<regression-id>.json`. The filename stem must equal the entry's `regression_id`,

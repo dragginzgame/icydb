@@ -262,25 +262,30 @@ test-sql-canister-matrix:
 
 test-sql-tier-c-shard:
 	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	@mkdir -p "$(TIER_C_ARTIFACT_DIR)"
+	@rm -f "$(TIER_C_ARTIFACT_DIR)/tier-c-shard-$(TIER_C_SHARD).json"
 	ICYDB_SQL_TIER_C_SHARD_INDEX="$(TIER_C_SHARD)" \
 	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
 	$(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-core --features sql \
+	cargo test --locked -p icydb-core --lib --features sql,diagnostics \
 		db::session::tests::tier_c_reference::tier_c_native_shard_emits_exact_receipt \
 		-- --ignored --exact --nocapture --test-threads=1
+	@test -s "$(TIER_C_ARTIFACT_DIR)/tier-c-shard-$(TIER_C_SHARD).json" || { echo "Tier C shard produced no current receipt" >&2; exit 1; }
 
 test-sql-tier-c-merge:
+	@rm -f "$(TIER_C_ARTIFACT_DIR)/tier-c-merged.json"
 	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
 	$(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-core --features sql \
+	cargo test --locked -p icydb-core --lib --features sql,diagnostics \
 		db::session::tests::tier_c_reference::tier_c_native_receipts_merge_exactly_and_require_clean_evidence \
 		-- --ignored --exact --nocapture --test-threads=1
+	@test -s "$(TIER_C_ARTIFACT_DIR)/tier-c-merged.json" || { echo "Tier C merge produced no current receipt" >&2; exit 1; }
 
 test-sql-tier-c-replay:
 	@test -n "$(TIER_C_FAILURE_ARTIFACT)" || { echo "TIER_C_FAILURE_ARTIFACT must name one failure.<blake3>.json artifact" >&2; exit 1; }
 	ICYDB_SQL_TIER_C_FAILURE_ARTIFACT="$(TIER_C_FAILURE_ARTIFACT)" \
 	$(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-core --features sql \
+	cargo test --locked -p icydb-core --lib --features sql,diagnostics \
 		db::session::tests::tier_c_reference::tier_c_failure_artifact_replays_exact_minimized_failure \
 		-- --ignored --exact --nocapture --test-threads=1
 

@@ -5,14 +5,14 @@
 
 use crate::{SqlGeneratorError, SqlGeneratorErrorKind};
 
-const SELECT_WITNESS_SUB_SEED_DOMAIN: &[u8] = b"icydb-sql-0.215/select-witness-subseed/v2";
-const MUTATION_WITNESS_SUB_SEED_DOMAIN: &[u8] = b"icydb-sql-0.215/mutation-witness-subseed/v2";
+const SELECT_WITNESS_SUB_SEED_DOMAIN: &[u8] = b"icydb-sql-0.215/select-witness-subseed/v3";
+const MUTATION_WITNESS_SUB_SEED_DOMAIN: &[u8] = b"icydb-sql-0.215/mutation-witness-subseed/v3";
 const SPLITMIX64_INCREMENT: u64 = 0x9e37_79b9_7f4a_7c15;
 const SPLITMIX64_MIX_ONE: u64 = 0xbf58_476d_1ce4_e5b9;
 const SPLITMIX64_MIX_TWO: u64 = 0x94d0_49bb_1331_11eb;
 
 /// Current hard-cut SELECT generator format and semantic version.
-pub const SELECT_GENERATOR_VERSION: u32 = 2;
+pub const SELECT_GENERATOR_VERSION: u32 = 3;
 
 ///
 /// SplitMix64
