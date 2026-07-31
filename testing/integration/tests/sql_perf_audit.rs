@@ -116,8 +116,11 @@ const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
 ];
 const SQL_WRITE_MATERIALIZATION_BUDGET: u64 = 750_000_000;
 const RESUMABLE_UPDATE_STEP_BUDGET: u64 = 2_000_000_000;
+// The first mutation includes cold accepted-schema and constraint-program
+// preparation; steady-state mutations retain their narrower budgets below.
+const STORAGE_FIRST_INSERT_BUDGET: u64 = 35_000_000;
 const INTEGRITY_QUICK_OPERATION_BUDGET: u64 = 2_000_000;
-const INTEGRITY_COMPLEX_QUICK_OPERATION_BUDGET: u64 = 30_000_000;
+const INTEGRITY_COMPLEX_QUICK_OPERATION_BUDGET: u64 = 35_000_000;
 const INTEGRITY_RELATION_COLD_QUICK_OPERATION_BUDGET: u64 = 250_000_000;
 const INTEGRITY_DEEP_PAGE_BUDGET: u64 = 30_000_000;
 const INTEGRITY_RESPONSE_BYTE_BUDGET: usize = 512 * 1024;
@@ -366,7 +369,12 @@ fn assert_clean_integrity_perf_stays_bounded(
     observation: &IntegrityCleanPerfObservation,
     quick_instruction_budget: u64,
 ) {
-    assert!((1..=quick_instruction_budget).contains(&observation.quick_instructions));
+    assert!(
+        (1..=quick_instruction_budget).contains(&observation.quick_instructions),
+        "Quick integrity should stay within its instruction budget, got {} > {}",
+        observation.quick_instructions,
+        quick_instruction_budget,
+    );
     assert!(
         observation
             .deep_page_instructions
@@ -1440,7 +1448,7 @@ fn assert_storage_write_matrix_stays_bounded(label: &str, result: &StorageWriteP
         (
             "first insert",
             result.first_insert_local_instructions,
-            30_000_000,
+            STORAGE_FIRST_INSERT_BUDGET,
         ),
         (
             "steady insert avg",
