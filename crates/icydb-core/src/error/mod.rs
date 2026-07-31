@@ -1111,12 +1111,6 @@ impl InternalError {
         Self::index_corruption()
     }
 
-    /// Construct the canonical missing persisted-field decode error.
-    #[must_use]
-    pub fn missing_persisted_slot(field_name: &'static str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
     /// Construct an identity-origin corruption error.
     pub(crate) fn identity_corruption() -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Identity)
@@ -1337,11 +1331,6 @@ impl InternalError {
     /// Construct a standardized unsupported-entity-path error.
     pub fn unsupported_entity_path(_path: impl Sized) -> Self {
         Self::store_unsupported()
-    }
-
-    #[must_use]
-    pub const fn is_not_found(&self) -> bool {
-        matches!(self.detail, Some(ErrorDetail::Store(StoreError::NotFound)))
     }
 
     /// Construct an index-plan corruption error with a canonical prefix.

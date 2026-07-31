@@ -2,10 +2,7 @@
 
 pub use icydb_schema::Duration;
 
-use crate::{
-    traits::Repr,
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-};
+use crate::traits::Repr;
 
 impl Repr for Duration {
     type Inner = u64;
@@ -16,27 +13,6 @@ impl Repr for Duration {
 
     fn from_repr(inner: Self::Inner) -> Self {
         Self::from_millis(inner)
-    }
-}
-
-impl RuntimeValueMeta for Duration {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Duration {
-    fn to_value(&self) -> Value {
-        Value::Duration(*self)
-    }
-}
-
-impl RuntimeValueDecode for Duration {
-    fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Duration(value) => Some(*value),
-            _ => None,
-        }
     }
 }
 

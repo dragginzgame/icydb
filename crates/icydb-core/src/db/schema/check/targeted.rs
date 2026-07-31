@@ -4,7 +4,7 @@ use super::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1Error,
     compile::{
         AcceptedCheckTruth, AcceptedValueLengthKind, accepted_value_length, compare_values,
-        decode_literal,
+        decode_literal, exact_numeric_is_multiple,
     },
 };
 use crate::{
@@ -141,6 +141,12 @@ enum CompiledAcceptedRuleOperation {
         min: u64,
         max: u64,
     },
+    MultipleOf {
+        divisor: Value,
+    },
+    NumericMaximum {
+        value: Value,
+    },
     NumericMinimum {
         value: Value,
     },
@@ -164,6 +170,13 @@ impl CompiledAcceptedRuleOperation {
                 let length = accepted_value_length(value, *length_kind)
                     .map_err(|_| AcceptedTargetedRuleEvaluationError::RuntimeValueMismatch)?;
                 Ok((*min..=*max).contains(&length))
+            }
+            Self::MultipleOf { divisor } => exact_numeric_is_multiple(value, divisor)
+                .ok_or(AcceptedTargetedRuleEvaluationError::RuntimeValueMismatch),
+            Self::NumericMaximum { value: maximum } => {
+                compare_values(value, AcceptedCheckCompareOpV1::Lte, maximum)
+                    .map(|truth| truth == AcceptedCheckTruth::True)
+                    .map_err(|_| AcceptedTargetedRuleEvaluationError::RuntimeValueMismatch)
             }
             Self::NumericMinimum { value: minimum } => {
                 compare_values(value, AcceptedCheckCompareOpV1::Gte, minimum)
@@ -985,6 +998,15 @@ fn compile_operation(
                     .map_err(|_| AcceptedTargetedRuleEvaluationError::LiteralCorrupt)?,
             })
         }
+        AcceptedRuleOperation::NumericMaximumInclusive { value } => {
+            if value.kind() != &resolved_kind {
+                return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
+            }
+            Ok(CompiledAcceptedRuleOperation::NumericMaximum {
+                value: decode_literal(value, value_catalog)
+                    .map_err(|_| AcceptedTargetedRuleEvaluationError::LiteralCorrupt)?,
+            })
+        }
         AcceptedRuleOperation::NumericRangeInclusive { min, max } => {
             if min.kind() != &resolved_kind || max.kind() != &resolved_kind {
                 return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
@@ -1000,6 +1022,17 @@ fn compile_operation(
                 return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
             }
             Ok(CompiledAcceptedRuleOperation::NumericRange { min, max })
+        }
+        AcceptedRuleOperation::MultipleOf { divisor } => {
+            if divisor.kind() != &resolved_kind {
+                return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
+            }
+            let divisor = decode_literal(divisor, value_catalog)
+                .map_err(|_| AcceptedTargetedRuleEvaluationError::LiteralCorrupt)?;
+            if !matches!(super::compile::exact_numeric_is_zero(&divisor), Some(false)) {
+                return Err(AcceptedTargetedRuleEvaluationError::LiteralCorrupt);
+            }
+            Ok(CompiledAcceptedRuleOperation::MultipleOf { divisor })
         }
     }
 }

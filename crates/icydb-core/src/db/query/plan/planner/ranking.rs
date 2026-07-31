@@ -222,8 +222,8 @@ pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_or
     )
 }
 
-/// Build one planner candidate score from the reduced semantic index contract
-/// when candidate eligibility still carries a temporary generated bridge.
+/// Build one planner candidate score from the accepted reduced semantic index
+/// contract after candidate eligibility has been established.
 #[must_use]
 pub(in crate::db::query::plan) fn access_candidate_score_from_index_contract(
     schema: &SchemaInfo,

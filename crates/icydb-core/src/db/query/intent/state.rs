@@ -61,7 +61,13 @@ impl FilterPredicateCoverage {
 #[derive(Clone, Debug)]
 enum FilterSemanticAuthority {
     ExpressionBacked(Expr),
-    #[cfg_attr(not(any(test, feature = "query")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(test, feature = "query")),
+        expect(
+            dead_code,
+            reason = "predicate-only filters are constructed by query frontends"
+        )
+    )]
     PredicateOnly,
 }
 

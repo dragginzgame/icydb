@@ -5,7 +5,7 @@
 use crate::{
     db::{EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec},
     types::{GenerateKey, Subaccount},
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+    value::Value,
 };
 use candid::CandidType;
 use serde::{Deserialize, de::Deserializer};
@@ -227,37 +227,6 @@ where
 {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
-    }
-}
-
-impl<E> RuntimeValueMeta for Id<E>
-where
-    E: EntityKey,
-    E::Key: KeyValueCodec,
-{
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl<E> RuntimeValueEncode for Id<E>
-where
-    E: EntityKey,
-    E::Key: KeyValueCodec,
-{
-    fn to_value(&self) -> Value {
-        self.key().to_key_value()
-    }
-}
-
-impl<E> RuntimeValueDecode for Id<E>
-where
-    E: EntityKey,
-    E::Key: KeyValueCodec,
-{
-    fn from_value(value: &Value) -> Option<Self> {
-        let key = <E::Key as KeyValueCodec>::from_key_value(value)?;
-        Some(Self::from_key(key))
     }
 }
 

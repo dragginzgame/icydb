@@ -206,8 +206,11 @@ Promotion is a separate marker-bound operation. It may publish a validated
 constraint only after the exact Forward/Verify job proves a stable participating
 revision and the required candidate derived state is complete. Promotion
 installs the validated catalog state and removes the activation/job atomically.
-Abort removes the activation, job, and reachability of candidate generations
-without reusing the reserved constraint identity.
+Abort removes the activation, job, and reachability of candidate generations.
+For a new constraint, its reserved identity remains retired and is not reused.
+For a same-identity targeted-rule semantic edit, abort retains the prior
+accepted operation and its existing source binding; promotion replaces that
+operation under the same stable identity.
 
 ---
 

@@ -9,7 +9,6 @@ pub use icydb_schema::{Ulid, UlidDecodeError, UlidParseError};
 use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     types::GenerateKey,
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
 };
 
 impl EntityKeyBytes for Ulid {
@@ -19,27 +18,6 @@ impl EntityKeyBytes for Ulid {
         validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out.copy_from_slice(&self.to_bytes());
         Ok(())
-    }
-}
-
-impl RuntimeValueMeta for Ulid {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Ulid {
-    fn to_value(&self) -> Value {
-        Value::Ulid(*self)
-    }
-}
-
-impl RuntimeValueDecode for Ulid {
-    fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Ulid(value) => Some(*value),
-            _ => None,
-        }
     }
 }
 

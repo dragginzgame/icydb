@@ -10,8 +10,7 @@ use crate::{
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-            lowered_index_prefix_liveness_at_generation, record_row_check_index_entry_scanned,
-            record_row_check_index_key_owned_entry, record_row_check_index_row_identity_decoded,
+            lowered_index_prefix_liveness_at_generation,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
@@ -566,8 +565,6 @@ impl IndexScan {
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
-        record_row_check_index_entry_scanned();
-
         // Phase 1: decode only the primary-key suffix for ordinary row-identity
         // scans. Predicate scans still need the fully decoded index key.
         let (primary_key_value, primary_key_bytes) = if let Some(execution) =
@@ -598,8 +595,6 @@ impl IndexScan {
         let row_witness = value
             .decode_row_witness_from_primary_key_value(&primary_key_value)
             .map_err(|_| InternalError::index_entry_decode_failed())?;
-        record_row_check_index_key_owned_entry();
-        record_row_check_index_row_identity_decoded();
         out.push(Self::data_key_from_row_witness_with_primary_key_bytes(
             entity,
             &row_witness,
@@ -627,8 +622,6 @@ impl IndexScan {
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
-        record_row_check_index_entry_scanned();
-
         // Phase 1: decode the raw key once, extract requested components, and
         // evaluate any optional index-only predicate against that decoded view.
         let decoded_key = IndexKey::try_from_raw(raw_key)
@@ -656,8 +649,6 @@ impl IndexScan {
         let row_witness = value
             .decode_row_witness_from_index_key(&decoded_key)
             .map_err(|_| InternalError::index_entry_decode_failed())?;
-        record_row_check_index_key_owned_entry();
-        record_row_check_index_row_identity_decoded();
         out.push((
             Self::data_key_from_row_witness(entity, &row_witness, &decoded_key),
             row_witness.existence_witness(),

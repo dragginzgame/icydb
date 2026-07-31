@@ -7,10 +7,7 @@ use super::{KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE};
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        index::{
-            IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexStoreKey,
-            primary_key_matches_value,
-        },
+        index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
     },
     types::{Decimal, EntityTag, Float32, Float64, IntBig, Principal},
@@ -76,32 +73,6 @@ fn make_pk(byte: u8) -> Vec<u8> {
 fn compact_pk(key: PrimaryKeyComponent) -> Vec<u8> {
     IndexKey::compact_primary_key_value_bytes(&PrimaryKeyValue::from(key))
         .expect("test primary key should encode")
-}
-
-fn raw_bound_bytes(bound: RangeBound<RawIndexStoreKey>) -> RangeBound<Vec<u8>> {
-    match bound {
-        RangeBound::Unbounded => RangeBound::Unbounded,
-        RangeBound::Included(raw) => RangeBound::Included(raw.as_bytes().to_vec()),
-        RangeBound::Excluded(raw) => RangeBound::Excluded(raw.as_bytes().to_vec()),
-    }
-}
-
-fn raw_bound_bytes_from_index_key_bound(bound: RangeBound<IndexKey>) -> RangeBound<Vec<u8>> {
-    match bound {
-        RangeBound::Unbounded => RangeBound::Unbounded,
-        RangeBound::Included(key) => RangeBound::Included(
-            key.to_raw()
-                .expect("test index key bound should encode")
-                .as_bytes()
-                .to_vec(),
-        ),
-        RangeBound::Excluded(key) => RangeBound::Excluded(
-            key.to_raw()
-                .expect("test index key bound should encode")
-                .as_bytes()
-                .to_vec(),
-        ),
-    }
 }
 
 fn next_random_u64(state: &mut u64) -> u64 {
@@ -191,7 +162,7 @@ fn index_key_rejects_oversized_bytes() {
 
 #[test]
 fn index_key_rejects_unknown_kind_tag() {
-    let key = IndexKey::empty(&index_id());
+    let key = IndexKey::empty_with_kind(&index_id(), IndexKeyKind::User);
     let mut bytes = key
         .to_raw()
         .expect("test index key should encode")
@@ -226,7 +197,10 @@ fn index_key_rejects_len_over_max() {
 
 #[test]
 fn index_key_accepts_max_width_index_id() {
-    let key = IndexKey::empty(&IndexId::new(EntityTag::new(u64::MAX), u16::MAX));
+    let key = IndexKey::empty_with_kind(
+        &IndexId::new(EntityTag::new(u64::MAX), u16::MAX),
+        IndexKeyKind::User,
+    );
     let raw = key.to_raw().expect("test index key should encode");
     let decoded = IndexKey::try_from_raw(&raw).expect("fixed-width index id should decode");
 
@@ -298,80 +272,15 @@ fn index_key_rejects_trailing_bytes() {
 }
 
 #[test]
-fn raw_index_store_key_validated_component_reads_requested_segment() {
-    let first = encode_component(&Value::Text("alpha".to_string()));
-    let second = encode_component(&Value::Nat64(7));
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![first.clone(), second.clone()],
-        make_pk(9),
-    );
-
-    let raw = key.to_raw().expect("test index key should encode");
-    assert_eq!(
-        raw.validated_component(0)
-            .expect("first component should validate"),
-        Some(first.as_slice()),
-    );
-    assert_eq!(
-        raw.validated_component(1)
-            .expect("second component should validate"),
-        Some(second.as_slice()),
-    );
-}
-
-#[test]
-fn raw_index_store_key_validated_component_returns_none_for_out_of_range_slot() {
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![encode_component(&Value::Text("alpha".to_string()))],
-        make_pk(9),
-    );
-
-    assert_eq!(
-        key.to_raw()
-            .expect("test index key should encode")
-            .validated_component(1)
-            .expect("out-of-range component should still validate the key"),
-        None,
-    );
-}
-
-#[test]
-fn raw_index_store_key_validated_component_rejects_trailing_bytes() {
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![encode_component(&Value::Text("alpha".to_string()))],
-        make_pk(9),
-    );
-    let mut bytes = key
-        .to_raw()
-        .expect("test index key should encode")
-        .as_bytes()
-        .to_vec();
-    bytes.push(42);
-
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    raw.validated_component(0)
-        .expect_err("component extraction should reject trailing bytes");
-}
-
-#[test]
 fn index_key_prefix_bounds_are_isolated_between_user_and_system_kinds() {
     let prefix = vec![vec![0x33u8, 0x44, 0x55]];
 
-    let (user_start, user_end) =
-        IndexKey::bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::User, 2, &prefix);
-    let (system_start, system_end) =
-        IndexKey::bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::System, 2, &prefix);
-
-    let user_start_raw = user_start.to_raw().expect("test index key should encode");
-    let user_end_raw = user_end.to_raw().expect("test index key should encode");
-    let system_start_raw = system_start.to_raw().expect("test index key should encode");
-    let system_end_raw = system_end.to_raw().expect("test index key should encode");
+    let (user_start_raw, user_end_raw) =
+        IndexKey::raw_bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::User, 2, &prefix)
+            .expect("user prefix bounds should encode");
+    let (system_start_raw, system_end_raw) =
+        IndexKey::raw_bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::System, 2, &prefix)
+            .expect("system prefix bounds should encode");
 
     assert!(user_start_raw <= user_end_raw);
     assert!(system_start_raw <= system_end_raw);
@@ -412,109 +321,25 @@ fn raw_bounds_for_all_components_match_canonical_wildcard_primary_key_bounds() {
 }
 
 #[test]
-fn raw_prefix_bounds_direct_encoder_matches_canonical_builder() {
-    let prefix_cases = [
-        Vec::<Vec<u8>>::new(),
-        vec![make_component(0x11)],
-        vec![make_component(0x11), make_component(0x22)],
-    ];
-
-    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
-        for index_len in 1..=3 {
-            for prefix in prefix_cases
-                .iter()
-                .filter(|prefix| prefix.len() <= index_len)
-            {
-                let (expected_lower, expected_upper) =
-                    IndexKey::bounds_for_prefix_with_kind(&index_id(), kind, index_len, prefix);
-                let expected_lower = expected_lower
-                    .to_raw()
-                    .expect("canonical prefix lower bound should encode");
-                let expected_upper = expected_upper
-                    .to_raw()
-                    .expect("canonical prefix upper bound should encode");
-                let (actual_lower, actual_upper) =
-                    IndexKey::raw_bounds_for_prefix_with_kind(&index_id(), kind, index_len, prefix)
-                        .expect("direct prefix bounds should encode");
-
-                assert_eq!(actual_lower.as_bytes(), expected_lower.as_bytes());
-                assert_eq!(actual_upper.as_bytes(), expected_upper.as_bytes());
-            }
-        }
-    }
-}
-
-#[test]
-fn raw_component_range_bounds_direct_encoder_matches_canonical_builder() {
-    let prefix_cases = [Vec::<Vec<u8>>::new(), vec![make_component(0x11)]];
-    let lower_cases = [
-        RangeBound::Unbounded,
-        RangeBound::Included(make_component(0x22)),
-        RangeBound::Excluded(make_component(0x33)),
-    ];
-    let upper_cases = [
-        RangeBound::Unbounded,
-        RangeBound::Included(make_component(0x44)),
-        RangeBound::Excluded(make_component(0x55)),
-    ];
-
-    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
-        for index_len in 1..=3 {
-            for prefix in prefix_cases
-                .iter()
-                .filter(|prefix| prefix.len() < index_len)
-            {
-                for lower in &lower_cases {
-                    for upper in &upper_cases {
-                        let (expected_lower, expected_upper) =
-                            IndexKey::bounds_for_prefix_component_range_with_kind(
-                                &index_id(),
-                                kind,
-                                index_len,
-                                prefix,
-                                lower,
-                                upper,
-                            );
-                        let (actual_lower, actual_upper) =
-                            IndexKey::raw_bounds_for_prefix_component_range_with_kind(
-                                &index_id(),
-                                kind,
-                                index_len,
-                                prefix,
-                                lower,
-                                upper,
-                            )
-                            .expect("direct component-range bounds should encode");
-
-                        assert_eq!(
-                            raw_bound_bytes_from_index_key_bound(expected_lower),
-                            raw_bound_bytes(actual_lower),
-                        );
-                        assert_eq!(
-                            raw_bound_bytes_from_index_key_bound(expected_upper),
-                            raw_bound_bytes(actual_upper),
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[test]
 fn index_key_ordering_is_stable_across_cardinality_transitions() {
     let first = vec![7u8, 7u8, 7u8];
 
-    let (len_one_key, _) =
-        IndexKey::bounds_for_prefix(&index_id(), 1, std::slice::from_ref(&first));
-    let (len_two_key, _) =
-        IndexKey::bounds_for_prefix(&index_id(), 2, &[first, vec![0u8, 0u8, 0u8]]);
+    let (len_one_key, _) = IndexKey::raw_bounds_for_prefix_with_kind(
+        &index_id(),
+        IndexKeyKind::User,
+        1,
+        std::slice::from_ref(&first),
+    )
+    .expect("single-component bounds should encode");
+    let (len_two_key, _) = IndexKey::raw_bounds_for_prefix_with_kind(
+        &index_id(),
+        IndexKeyKind::User,
+        2,
+        &[first, vec![0u8, 0u8, 0u8]],
+    )
+    .expect("two-component bounds should encode");
 
     assert!(len_one_key < len_two_key);
-    assert!(
-        len_one_key.to_raw().expect("test index key should encode")
-            < len_two_key.to_raw().expect("test index key should encode")
-    );
 }
 
 #[test]
@@ -526,11 +351,15 @@ fn index_key_roundtrip_supports_max_cardinality() {
         prefix.push(vec![byte, byte.wrapping_add(1), byte.wrapping_add(2)]);
     }
 
-    let (key, _) = IndexKey::bounds_for_prefix(&index_id(), MAX_INDEX_FIELDS, &prefix);
-    let raw = key.to_raw().expect("test index key should encode");
+    let (raw, _) = IndexKey::raw_bounds_for_prefix_with_kind(
+        &index_id(),
+        IndexKeyKind::User,
+        MAX_INDEX_FIELDS,
+        &prefix,
+    )
+    .expect("max-cardinality bounds should encode");
     let decoded = IndexKey::try_from_raw(&raw).expect("max-cardinality key should decode");
 
-    assert_eq!(decoded, key);
     assert_eq!(
         decoded
             .to_raw()
@@ -1069,11 +898,13 @@ fn index_key_prefix_scan_simulation_matches_expected_and_is_isolated() {
         .map(|key| key.to_raw().expect("test index key should encode"))
         .collect::<Vec<_>>();
 
-    let (start, end) = IndexKey::bounds_for_prefix(&index_id(), 2, &[first_component]);
-    let (start_raw, end_raw) = (
-        start.to_raw().expect("test index key should encode"),
-        end.to_raw().expect("test index key should encode"),
-    );
+    let (start_raw, end_raw) = IndexKey::raw_bounds_for_prefix_with_kind(
+        &index_id(),
+        IndexKeyKind::User,
+        2,
+        &[first_component],
+    )
+    .expect("prefix bounds should encode");
     let mut matched = all_raw
         .iter()
         .filter(|raw| **raw >= start_raw && **raw <= end_raw)
@@ -1128,9 +959,9 @@ fn index_key_pk_terminal_tie_break_and_prefix_visibility() {
         encode_component(&Value::Text("dup".to_string())),
         encode_component(&Value::Int64(9)),
     ];
-    let (start, end) = IndexKey::bounds_for_prefix(&index_id(), 2, &prefix);
-    let start_raw = start.to_raw().expect("test index key should encode");
-    let end_raw = end.to_raw().expect("test index key should encode");
+    let (start_raw, end_raw) =
+        IndexKey::raw_bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::User, 2, &prefix)
+            .expect("prefix bounds should encode");
 
     let mut hits = vec![
         lower_pk.to_raw().expect("test index key should encode"),
@@ -1149,8 +980,15 @@ fn index_key_pk_terminal_tie_break_and_prefix_visibility() {
 fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
     // Phase 1: build one canonical prefix envelope and freeze bound shape.
     let prefix_component = encode_component(&Value::Text("alpha".to_string()));
-    let (start, end) =
-        IndexKey::bounds_for_prefix(&index_id(), 2, std::slice::from_ref(&prefix_component));
+    let (start_raw, end_raw) = IndexKey::raw_bounds_for_prefix_with_kind(
+        &index_id(),
+        IndexKeyKind::User,
+        2,
+        std::slice::from_ref(&prefix_component),
+    )
+    .expect("prefix bounds should encode");
+    let start = IndexKey::try_from_raw(&start_raw).expect("prefix start should decode");
+    let end = IndexKey::try_from_raw(&end_raw).expect("prefix end should decode");
     let Some(start_second_component) = start.component(1) else {
         panic!("prefix envelope start key should contain wildcard suffix component");
     };
@@ -1172,8 +1010,6 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
         "prefix envelope upper wildcard component must stay 0xFF-filled sentinel",
     );
 
-    let start_raw = start.to_raw().expect("test index key should encode");
-    let end_raw = end.to_raw().expect("test index key should encode");
     assert!(start_raw < end_raw, "prefix envelope must remain non-empty");
 
     // Phase 2: every key sharing the prefix must stay inside `[start, end)` under raw ordering.
@@ -1234,60 +1070,6 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
         after_prefix >= end_raw,
         "non-matching higher prefix key must sort at-or-after prefix end sentinel",
     );
-}
-
-#[test]
-fn index_key_primary_key_equivalence_accepts_matching_and_rejects_mismatched_boundaries() {
-    let encoded_pk = compact_pk(PrimaryKeyComponent::Int64(-7));
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![encode_component(&Value::Int64(9))],
-        encoded_pk,
-    );
-
-    let matches = primary_key_matches_value(&key, &Value::Int64(-7))
-        .expect("row-identity equivalence check should decode valid primary key");
-    let mismatches = primary_key_matches_value(&key, &Value::Int64(-8))
-        .expect("row-identity equivalence check should decode valid primary key");
-
-    assert!(matches);
-    assert!(!mismatches);
-}
-
-#[test]
-fn index_key_primary_key_equivalence_fails_closed_on_corrupted_anchor_payload() {
-    let corrupted_pk = vec![0xFF];
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![encode_component(&Value::Int64(9))],
-        corrupted_pk,
-    );
-
-    let err = primary_key_matches_value(&key, &Value::Int64(9))
-        .expect_err("corrupted index-key primary-key payload should fail closed");
-    std::assert_matches!(
-        err,
-        PrimaryKeyEquivalenceError::AnchorDecode {
-            source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError::UnknownKind { .. }
-        }
-    );
-}
-
-#[test]
-fn index_key_primary_key_equivalence_rejects_non_primary_key_component_boundary_values() {
-    let encoded_pk = compact_pk(PrimaryKeyComponent::Nat64(11));
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![encode_component(&Value::Int64(9))],
-        encoded_pk,
-    );
-
-    let err = primary_key_matches_value(&key, &Value::Text("not-keyable".to_string()))
-        .expect_err("non-storage-key boundary values must fail closed");
-    std::assert_matches!(err, PrimaryKeyEquivalenceError::BoundaryDecode { .. });
 }
 
 #[test]
@@ -1371,23 +1153,7 @@ fn index_key_primary_suffix_decodes_composite_primary_key_value() {
 
 #[test]
 fn index_key_partial_truncation_cases_fail_closed() {
-    // Phase 1: freeze row-identity equivalence behavior for missing PK bytes.
-    let key_with_truncated_pk = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![encode_component(&Value::Int64(9))],
-        vec![0x01, 0x02, 0x03],
-    );
-    let missing_pk_err = primary_key_matches_value(&key_with_truncated_pk, &Value::Int64(9))
-        .expect_err("missing PK bytes must fail closed in primary-key equivalence");
-    std::assert_matches!(
-        missing_pk_err,
-        PrimaryKeyEquivalenceError::AnchorDecode {
-            source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError::InvalidLength { .. }
-        }
-    );
-
-    // Phase 2: freeze decode behavior when one namespace-prefix byte is missing.
+    // Phase 1: freeze decode behavior when one namespace-prefix byte is missing.
     let baseline = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -1405,7 +1171,7 @@ fn index_key_partial_truncation_cases_fail_closed() {
         "missing namespace-prefix byte must fail closed",
     );
 
-    // Phase 3: freeze decode behavior for generic truncated index-key frames.
+    // Phase 2: freeze decode behavior for generic truncated index-key frames.
     let mut truncated_key = baseline;
     truncated_key.pop();
     decode_must_fail_corrupted(truncated_key, "truncated index key must fail closed");
@@ -1440,10 +1206,13 @@ fn index_key_prefix_lowering_matches_direct_prefix_membership_property() {
             .iter()
             .map(encode_component)
             .collect::<Vec<_>>();
-        let (lower, upper) =
-            IndexKey::bounds_for_prefix(&index_id(), index_len, &prefix_components);
-        let lower_raw = lower.to_raw().expect("test index key should encode");
-        let upper_raw = upper.to_raw().expect("test index key should encode");
+        let (lower_raw, upper_raw) = IndexKey::raw_bounds_for_prefix_with_kind(
+            &index_id(),
+            IndexKeyKind::User,
+            index_len,
+            &prefix_components,
+        )
+        .expect("prefix bounds should encode");
 
         let pk_lo = u8::try_from(next_random_u64(&mut seed) & 0xFF).unwrap_or(0);
         let pk_hi = u8::try_from((next_random_u64(&mut seed) >> 8) & 0xFF).unwrap_or(0);
@@ -1586,13 +1355,15 @@ fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
         vec![0x99],
     );
 
-    let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+    let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
         &index_id(),
+        IndexKeyKind::User,
         3,
         &[encode_component(&Value::Nat64(7))],
         &RangeBound::Included(encode_component(&Value::Nat64(10))),
         &RangeBound::Excluded(encode_component(&Value::Nat64(20))),
-    );
+    )
+    .expect("component-range bounds should encode");
 
     let keys = [
         k_b10_lo.to_raw().expect("test index key should encode"),
@@ -1602,13 +1373,7 @@ fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
     ];
     let hits = keys
         .iter()
-        .filter(|raw| {
-            in_range(
-                raw,
-                &raw_index_store_key_bound(lower.clone()),
-                &raw_index_store_key_bound(upper.clone()),
-            )
-        })
+        .filter(|raw| in_range(raw, &lower, &upper))
         .count();
 
     assert_eq!(
@@ -1654,13 +1419,15 @@ fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
         vec![0x03],
     );
 
-    let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+    let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
         &index_id(),
+        IndexKeyKind::User,
         3,
         &[encode_component(&Value::Nat64(7))],
         &RangeBound::Excluded(encode_component(&Value::Nat64(10))),
         &RangeBound::Included(encode_component(&Value::Nat64(20))),
-    );
+    )
+    .expect("component-range bounds should encode");
 
     let keys = [
         k_b10.to_raw().expect("test index key should encode"),
@@ -1669,13 +1436,7 @@ fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
     ];
     let hits = keys
         .iter()
-        .filter(|raw| {
-            in_range(
-                raw,
-                &raw_index_store_key_bound(lower.clone()),
-                &raw_index_store_key_bound(upper.clone()),
-            )
-        })
+        .filter(|raw| in_range(raw, &lower, &upper))
         .count();
 
     assert_eq!(
@@ -1720,13 +1481,15 @@ fn index_key_component_range_inclusive_extremes_cover_min_and_max_groups() {
         vec![0x14],
     );
 
-    let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+    let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
         &index_id(),
+        IndexKeyKind::User,
         3,
         &[prefix_7],
         &RangeBound::Included(encode_component(&Value::Nat64(0))),
         &RangeBound::Included(encode_component(&Value::Nat64(u64::from(u32::MAX)))),
-    );
+    )
+    .expect("component-range bounds should encode");
 
     let keys = [
         k_b0.to_raw().expect("test index key should encode"),
@@ -1738,13 +1501,7 @@ fn index_key_component_range_inclusive_extremes_cover_min_and_max_groups() {
     ];
     let hits = keys
         .iter()
-        .filter(|raw| {
-            in_range(
-                raw,
-                &raw_index_store_key_bound(lower.clone()),
-                &raw_index_store_key_bound(upper.clone()),
-            )
-        })
+        .filter(|raw| in_range(raw, &lower, &upper))
         .count();
 
     assert_eq!(
@@ -1790,13 +1547,15 @@ fn index_key_component_range_exclusive_extremes_skip_min_and_max_groups() {
         vec![0x24],
     );
 
-    let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+    let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
         &index_id(),
+        IndexKeyKind::User,
         3,
         &[encode_component(&Value::Nat64(7))],
         &RangeBound::Excluded(encode_component(&Value::Nat64(0))),
         &RangeBound::Excluded(encode_component(&Value::Nat64(u64::from(u32::MAX)))),
-    );
+    )
+    .expect("component-range bounds should encode");
 
     let keys = [
         k_b0.to_raw().expect("test index key should encode"),
@@ -1808,31 +1567,13 @@ fn index_key_component_range_exclusive_extremes_skip_min_and_max_groups() {
     ];
     let hits = keys
         .iter()
-        .filter(|raw| {
-            in_range(
-                raw,
-                &raw_index_store_key_bound(lower.clone()),
-                &raw_index_store_key_bound(upper.clone()),
-            )
-        })
+        .filter(|raw| in_range(raw, &lower, &upper))
         .count();
 
     assert_eq!(
         hits, 2,
         "exclusive (0, u32::MAX) range should skip both edge groups"
     );
-}
-
-fn raw_index_store_key_bound(bound: RangeBound<IndexKey>) -> RangeBound<RawIndexStoreKey> {
-    match bound {
-        RangeBound::Unbounded => RangeBound::Unbounded,
-        RangeBound::Included(key) => {
-            RangeBound::Included(key.to_raw().expect("test index key should encode"))
-        }
-        RangeBound::Excluded(key) => {
-            RangeBound::Excluded(key.to_raw().expect("test index key should encode"))
-        }
-    }
 }
 
 #[test]
@@ -1942,15 +1683,13 @@ fn index_key_cross_index_isolation_keeps_ranges_separate() {
         assert!(b_bytes.iter().all(|b| a_bytes.iter().all(|a| b < a)));
     }
 
-    let (start, end) = IndexKey::bounds_for_prefix(
+    let (start_raw, end_raw) = IndexKey::raw_bounds_for_prefix_with_kind(
         &idx_a,
+        IndexKeyKind::User,
         1,
         &[encode_component(&Value::Text("same".to_string()))],
-    );
-    let (start_raw, end_raw) = (
-        start.to_raw().expect("test index key should encode"),
-        end.to_raw().expect("test index key should encode"),
-    );
+    )
+    .expect("prefix bounds should encode");
     let matched = raws
         .into_iter()
         .filter(|raw| *raw >= start_raw && *raw <= end_raw)

@@ -45,7 +45,7 @@ use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
 const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
-const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYT");
+const SCHEMA_SNAPSHOT_CONTRACT_PROFILE: u32 = u32::from_be_bytes(*b"ICYU");
 /// Maximum canonical bytes for one persisted entity-schema snapshot.
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 
@@ -164,14 +164,16 @@ enum AcceptedNamedTypeIdentityWire {
 }
 
 #[derive(CandidType, Deserialize)]
-#[expect(
-    clippy::enum_variant_names,
-    reason = "wire variants mirror the accepted operation vocabulary exactly"
-)]
 enum AcceptedRuleOperationWire {
     LengthRangeInclusive {
         min: u64,
         max: u64,
+    },
+    MultipleOf {
+        divisor: AcceptedCheckLiteralV1Wire,
+    },
+    NumericMaximumInclusive {
+        value: AcceptedCheckLiteralV1Wire,
     },
     NumericMinimumInclusive {
         value: AcceptedCheckLiteralV1Wire,
@@ -879,6 +881,14 @@ impl AcceptedRuleOperationWire {
                     max: *max,
                 }
             }
+            AcceptedRuleOperation::MultipleOf { divisor } => Self::MultipleOf {
+                divisor: AcceptedCheckLiteralV1Wire::from_literal(divisor),
+            },
+            AcceptedRuleOperation::NumericMaximumInclusive { value } => {
+                Self::NumericMaximumInclusive {
+                    value: AcceptedCheckLiteralV1Wire::from_literal(value),
+                }
+            }
             AcceptedRuleOperation::NumericMinimumInclusive { value } => {
                 Self::NumericMinimumInclusive {
                     value: AcceptedCheckLiteralV1Wire::from_literal(value),
@@ -897,6 +907,14 @@ impl AcceptedRuleOperationWire {
         match self {
             Self::LengthRangeInclusive { min, max } => {
                 Ok(AcceptedRuleOperation::LengthRangeInclusive { min, max })
+            }
+            Self::MultipleOf { divisor } => Ok(AcceptedRuleOperation::MultipleOf {
+                divisor: divisor.into_literal()?,
+            }),
+            Self::NumericMaximumInclusive { value } => {
+                Ok(AcceptedRuleOperation::NumericMaximumInclusive {
+                    value: value.into_literal()?,
+                })
             }
             Self::NumericMinimumInclusive { value } => {
                 Ok(AcceptedRuleOperation::NumericMinimumInclusive {

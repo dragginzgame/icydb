@@ -55,8 +55,6 @@ pub use sql::{
     TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
     sql_statement_shell_surface, sql_statement_surface,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
 #[cfg(feature = "sql")]
 pub(in crate::db::session) use write::{
     AcceptedStructuralMutation, AcceptedStructuralMutationTarget,

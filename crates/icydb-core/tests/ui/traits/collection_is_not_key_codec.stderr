@@ -1,5 +1,5 @@
 error[E0277]: the trait bound `Vec<u64>: KeyValueCodec` is not satisfied
- --> tests/ui/traits/runtime_collection_is_not_key_codec.rs:6:24
+ --> tests/ui/traits/collection_is_not_key_codec.rs:6:24
   |
 6 |     assert_key_codec::<Vec<u64>>();
   |                        ^^^^^^^^ the trait `KeyValueCodec` is not implemented for `Vec<u64>`
@@ -15,7 +15,7 @@ error[E0277]: the trait bound `Vec<u64>: KeyValueCodec` is not satisfied
             icydb_core::types::Account
           and $N others
 note: required by a bound in `assert_key_codec`
- --> tests/ui/traits/runtime_collection_is_not_key_codec.rs:3:24
+ --> tests/ui/traits/collection_is_not_key_codec.rs:3:24
   |
 3 | fn assert_key_codec<T: KeyValueCodec>() {}
   |                        ^^^^^^^^^^^^^ required by this bound in `assert_key_codec`

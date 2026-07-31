@@ -1,6 +1,6 @@
 //! Module: value
 //!
-//! Responsibility: canonical dynamic values plus typed runtime conversion.
+//! Responsibility: canonical dynamic values and public boundary conversion.
 //! Does not own: planner semantics, primary-key encoding, or persisted decode policy.
 //! Boundary: shared value/domain surface used by query, executor, and storage layers.
 //!
@@ -19,13 +19,10 @@ mod map;
 pub(crate) mod ops;
 mod output;
 mod rank;
-mod runtime;
 mod semantics;
 mod tag;
 mod wire;
 
-#[cfg(test)]
-mod runtime_tests;
 #[cfg(test)]
 mod tests;
 
@@ -44,16 +41,6 @@ pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value
 pub use input::{InputValue, InputValueEnum};
 pub use map::{MapValueError, SchemaInvariantError};
 pub use output::{OutputValue, OutputValueEnum, render_output_value_text};
-pub use runtime::{
-    Collection, MapCollection, RuntimeEnumContext, RuntimeEnumSelection, RuntimeValueDecode,
-    RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
-    runtime_value_btree_set_from_value, runtime_value_collection_to_value,
-    runtime_value_from_value, runtime_value_from_value_with_enum_context,
-    runtime_value_from_value_with_optional_enum_context, runtime_value_from_vec_into,
-    runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
-    runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
-    runtime_value_vec_from_value,
-};
 pub use tag::ValueTag;
 
 //

@@ -7,10 +7,7 @@
 //! through these contracts.
 
 use super::{CompositePrimaryKeyValueError, PrimaryKeyComponent, PrimaryKeyValue};
-use crate::{
-    error::InternalError,
-    value::{RuntimeValueDecode, RuntimeValueEncode, Value},
-};
+use crate::{error::InternalError, value::Value};
 use std::fmt::Debug;
 
 /// Associates an entity with the primitive or composite type used as its
@@ -108,31 +105,47 @@ pub trait ScalarRelationTargetKey {}
 macro_rules! maintained_scalar_key_types {
     ($consumer:ident) => {
         $consumer!(
-            i8,
-            i16,
-            i32,
-            i64,
-            i128,
-            u8,
-            u16,
-            u32,
-            u64,
-            u128,
-            crate::types::Account,
-            crate::types::Principal,
-            crate::types::Subaccount,
-            crate::types::Timestamp,
-            crate::types::Ulid,
-            crate::types::Unit,
-            (),
+            widening {
+                i8 => Int64,
+                i16 => Int64,
+                i32 => Int64,
+                i64 => Int64,
+                i128 => Int128,
+                u8 => Nat64,
+                u16 => Nat64,
+                u32 => Nat64,
+                u64 => Nat64,
+                u128 => Nat128,
+            }
+            exact {
+                crate::types::Account => Account,
+                crate::types::Principal => Principal,
+                crate::types::Subaccount => Subaccount,
+                crate::types::Timestamp => Timestamp,
+                crate::types::Ulid => Ulid,
+            }
+            unit {
+                crate::types::Unit => crate::types::Unit,
+                () => (),
+            }
         );
     };
 }
 
 macro_rules! impl_scalar_relation_target_key {
-    ($($ty:ty),* $(,)?) => {
+    (
+        widening { $($widening_type:ty => $widening_variant:ident,)* }
+        exact { $($exact_type:ty => $exact_variant:ident,)* }
+        unit { $($unit_type:ty => $unit_value:expr,)* }
+    ) => {
         $(
-            impl ScalarRelationTargetKey for $ty {}
+            impl ScalarRelationTargetKey for $widening_type {}
+        )*
+        $(
+            impl ScalarRelationTargetKey for $exact_type {}
+        )*
+        $(
+            impl ScalarRelationTargetKey for $unit_type {}
         )*
     };
 }
@@ -254,23 +267,56 @@ macro_rules! impl_primary_key_encode_unsigned {
     };
 }
 
-macro_rules! impl_key_value_codec {
-    ($($ty:ty),* $(,)?) => {
+macro_rules! impl_key_value_codecs {
+    (
+        widening { $($widening_type:ty => $widening_variant:ident,)* }
+        exact { $($exact_type:ty => $exact_variant:ident,)* }
+        unit { $($unit_type:ty => $unit_value:expr,)* }
+    ) => {
         $(
-            impl KeyValueCodec for $ty {
+            impl KeyValueCodec for $widening_type {
                 fn to_key_value(&self) -> Value {
-                    RuntimeValueEncode::to_value(self)
+                    Value::$widening_variant((*self).into())
                 }
 
                 fn from_key_value(value: &Value) -> Option<Self> {
-                    RuntimeValueDecode::from_value(value)
+                    let Value::$widening_variant(value) = value else {
+                        return None;
+                    };
+
+                    (*value).try_into().ok()
+                }
+            }
+        )*
+        $(
+            impl KeyValueCodec for $exact_type {
+                fn to_key_value(&self) -> Value {
+                    Value::$exact_variant(*self)
+                }
+
+                fn from_key_value(value: &Value) -> Option<Self> {
+                    match value {
+                        Value::$exact_variant(value) => Some(*value),
+                        _ => None,
+                    }
+                }
+            }
+        )*
+        $(
+            impl KeyValueCodec for $unit_type {
+                fn to_key_value(&self) -> Value {
+                    Value::Unit
+                }
+
+                fn from_key_value(value: &Value) -> Option<Self> {
+                    matches!(value, Value::Unit).then_some($unit_value)
                 }
             }
         )*
     };
 }
 
-maintained_scalar_key_types!(impl_key_value_codec);
+maintained_scalar_key_types!(impl_key_value_codecs);
 
 // Planner access paths use `Value` only after a typed key has been lowered.
 // Keep that canonical carrier explicit and separate from typed-key eligibility.

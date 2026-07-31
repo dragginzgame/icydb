@@ -20,11 +20,9 @@ diagnostics = []
 
 [dependencies]
 candid = { workspace = true }
-derive_more = { workspace = true }
 ic-cdk = { workspace = true }
 ic-memory = { workspace = true }
 ic-stable-structures = { workspace = true }
-icrc-ledger-types = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
 num-bigint = { workspace = true }
@@ -45,7 +43,6 @@ getrandom = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 proptest = { workspace = true }
-serde_json = { workspace = true }
 trybuild = { workspace = true }
 
 [[test]]

@@ -311,6 +311,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
+ "icydb-model",
  "icydb-testing-test-sql-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -1315,12 +1316,10 @@ name = "icydb-core"
 version = "0.215.7"
 dependencies = [
  "candid",
- "derive_more",
  "getrandom 0.4.3",
  "ic-cdk",
  "ic-memory",
  "ic-stable-structures",
- "icrc-ledger-types",
  "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-testing-sql-generator",
@@ -1331,7 +1330,6 @@ dependencies = [
  "remain",
  "serde",
  "serde_bytes",
- "serde_json",
  "sha2",
  "thiserror 2.0.19",
  "time",
@@ -1365,13 +1363,13 @@ dependencies = [
  "sha2",
  "syn 3.0.3",
  "thiserror 2.0.19",
+ "trybuild",
 ]
 
 [[package]]
 name = "icydb-model-macros"
 version = "0.215.7"
 dependencies = [
- "candid",
  "convert_case",
  "darling",
  "derive_more",
@@ -1382,7 +1380,6 @@ dependencies = [
  "remain",
  "serde",
  "syn 2.0.119",
- "trybuild",
 ]
 
 [[package]]
@@ -1396,7 +1393,6 @@ dependencies = [
  "proptest",
  "serde",
  "serde_bytes",
- "serde_json",
  "sha2",
  "thiserror 2.0.19",
  "time",

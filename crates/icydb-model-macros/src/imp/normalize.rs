@@ -113,25 +113,48 @@ fn generate_normalizers(
         .iter()
         .map(|normalizer| {
             let ctor = normalizer.quote_constructor();
+            let callback_type = &normalizer.path;
             match &seg {
-                None => quote! {
+                None => quote! {{
+                    let mut __callback_ctx = ::icydb_model::visitor::CallbackContext::new(
+                        ctx,
+                        ::icydb_model::visitor::CallbackIdentity::new(
+                            ::icydb_model::visitor::CallbackKind::Normalizer,
+                            ::core::any::type_name::<#callback_type>(),
+                        ),
+                    );
                     if let Err(msg) = ::icydb_model::visitor::Normalizer::normalize_with_context(
                         &(#ctor),
                         &mut #target,
-                        ctx,
+                        &mut __callback_ctx,
                     ) {
-                        ctx.issue(msg);
+                        ::icydb_model::visitor::VisitorContext::add_issue(
+                            &mut __callback_ctx,
+                            ::icydb_model::visitor::Issue::from(msg),
+                        );
                     }
-                },
-                Some(seg) => quote! {
+                }},
+                Some(seg) => quote! {{
+                    let mut __field_ctx =
+                        ::icydb_model::visitor::ScopedContext::new(ctx, #seg);
+                    let mut __callback_ctx = ::icydb_model::visitor::CallbackContext::new(
+                        &mut __field_ctx,
+                        ::icydb_model::visitor::CallbackIdentity::new(
+                            ::icydb_model::visitor::CallbackKind::Normalizer,
+                            ::core::any::type_name::<#callback_type>(),
+                        ),
+                    );
                     if let Err(msg) = ::icydb_model::visitor::Normalizer::normalize_with_context(
                         &(#ctor),
                         &mut #target,
-                        ctx,
+                        &mut __callback_ctx,
                     ) {
-                        ctx.issue_at(#seg, msg);
+                        ::icydb_model::visitor::VisitorContext::add_issue(
+                            &mut __callback_ctx,
+                            ::icydb_model::visitor::Issue::from(msg),
+                        );
                     }
-                },
+                }},
             }
         })
         .collect()

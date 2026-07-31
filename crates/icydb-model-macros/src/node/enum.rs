@@ -47,7 +47,7 @@ impl HasDef for Enum {
 impl ValidateNode for Enum {
     fn validate(&self) -> Result<(), DarlingError> {
         // Phase 1: validate trait configuration and variant shapes.
-        self.traits.with_type_traits().validate()?;
+        self.traits.validate_for_type()?;
 
         for variant in &self.variants {
             variant.validate()?;
@@ -109,7 +109,7 @@ impl HasSchemaPart for Enum {
 
 impl HasTraits for Enum {
     fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.with_type_traits().build();
+        let mut traits = self.traits.build_for_type();
         // extra traits
         if self.is_unit_enum() {
             traits.extend([TraitKind::Copy, TraitKind::Hash, TraitKind::PartialOrd]);

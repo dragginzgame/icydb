@@ -247,9 +247,7 @@ pub(in crate::db) fn describe_accepted_identity(
     identity: &AcceptedIdentityInspection,
     high_water: u128,
 ) -> Result<EntityIdentityDescription, InternalError> {
-    let accepted_kind = identity
-        .accepted_kind()
-        .describe_kind_name()
+    let accepted_kind = describe_kind_name(identity.accepted_kind())
         .ok_or_else(InternalError::identity_state_corruption)?;
     let maximum = identity_kind_maximum(identity.accepted_kind())
         .ok_or_else(InternalError::identity_state_corruption)?;
@@ -882,7 +880,12 @@ fn describe_entity_constraints_with_persisted_schema(
     }) {
         return Err(InternalError::store_invariant());
     }
-    descriptions.sort_by_key(EntityConstraintDescription::id);
+    descriptions.sort_by_key(|description| {
+        (
+            description.id(),
+            description.validation_state() != "validated",
+        )
+    });
     Ok(descriptions)
 }
 
@@ -963,6 +966,12 @@ fn describe_accepted_constraint(
             description.semantics = match operation.as_ref() {
                 crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => {
                     "targeted_length_range_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::MultipleOf { .. } => {
+                    "targeted_multiple_of_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::NumericMaximumInclusive { .. } => {
+                    "targeted_numeric_maximum_v1"
                 }
                 crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { .. } => {
                     "targeted_numeric_minimum_v1"
@@ -1061,6 +1070,12 @@ fn describe_constraint_activation(
             description.semantics = match operation.as_ref() {
                 crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => {
                     "targeted_length_range_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::MultipleOf { .. } => {
+                    "targeted_multiple_of_v1"
+                }
+                crate::db::schema::AcceptedRuleOperation::NumericMaximumInclusive { .. } => {
+                    "targeted_numeric_maximum_v1"
                 }
                 crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { .. } => {
                     "targeted_numeric_minimum_v1"
@@ -1198,9 +1213,7 @@ fn describe_entity_fields_with_runtime_contract(
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(field.kind(), value_catalog)?,
             field.nullable(),
-            field_type_from_persisted_kind(field.kind())
-                .value_kind()
-                .is_queryable(),
+            field_type_from_persisted_kind(field.kind()).is_queryable(),
             field_origin_label(field.generated()),
         );
         let temporal = accepted_field_temporal_facts(runtime_field, value_catalog)?;
@@ -1299,9 +1312,7 @@ fn describe_persisted_nested_leaves(
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(leaf.kind(), value_catalog)?,
             leaf.nullable(),
-            field_type_from_persisted_kind(leaf.kind())
-                .value_kind()
-                .is_queryable(),
+            field_type_from_persisted_kind(leaf.kind()).is_queryable(),
             origin.clone(),
         );
 
@@ -1454,10 +1465,6 @@ fn write_composite_nullability_summary(out: &mut String, nullable: bool) {
     if nullable {
         out.push('?');
     }
-}
-
-trait DescribeKindName {
-    fn describe_kind_name(&self) -> Option<&'static str>;
 }
 
 // Write the common text/blob describe label. Both generated and accepted schema
@@ -1646,7 +1653,7 @@ fn write_persisted_field_kind_summary(
     kind: &AcceptedFieldKind,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<(), InternalError> {
-    if let Some(name) = kind.describe_kind_name() {
+    if let Some(name) = describe_kind_name(kind) {
         out.push_str(name);
         return Ok(());
     }
@@ -1743,43 +1750,41 @@ fn write_persisted_field_kind_summary(
     Ok(())
 }
 
-impl DescribeKindName for AcceptedFieldKind {
-    fn describe_kind_name(&self) -> Option<&'static str> {
-        Some(match self {
-            Self::Account => "account",
-            Self::Bool => "bool",
-            Self::Date => "date",
-            Self::Duration => "duration",
-            Self::Float32 => "float32",
-            Self::Float64 => "float64",
-            Self::Int8 => "int8",
-            Self::Int16 => "int16",
-            Self::Int32 => "int32",
-            Self::Int64 => "int64",
-            Self::Int128 => "int128",
-            Self::Principal => "principal",
-            Self::Subaccount => "subaccount",
-            Self::Timestamp => "timestamp",
-            Self::Nat8 => "nat8",
-            Self::Nat16 => "nat16",
-            Self::Nat32 => "nat32",
-            Self::Nat64 => "nat64",
-            Self::Nat128 => "nat128",
-            Self::Ulid => "ulid",
-            Self::Unit => "unit",
-            Self::Blob { .. }
-            | Self::Decimal { .. }
-            | Self::Enum { .. }
-            | Self::IntBig { .. }
-            | Self::NatBig { .. }
-            | Self::Text { .. }
-            | Self::Relation { .. }
-            | Self::List(_)
-            | Self::Set(_)
-            | Self::Map { .. }
-            | Self::Composite { .. } => return None,
-        })
-    }
+const fn describe_kind_name(kind: &AcceptedFieldKind) -> Option<&'static str> {
+    Some(match kind {
+        AcceptedFieldKind::Account => "account",
+        AcceptedFieldKind::Bool => "bool",
+        AcceptedFieldKind::Date => "date",
+        AcceptedFieldKind::Duration => "duration",
+        AcceptedFieldKind::Float32 => "float32",
+        AcceptedFieldKind::Float64 => "float64",
+        AcceptedFieldKind::Int8 => "int8",
+        AcceptedFieldKind::Int16 => "int16",
+        AcceptedFieldKind::Int32 => "int32",
+        AcceptedFieldKind::Int64 => "int64",
+        AcceptedFieldKind::Int128 => "int128",
+        AcceptedFieldKind::Principal => "principal",
+        AcceptedFieldKind::Subaccount => "subaccount",
+        AcceptedFieldKind::Timestamp => "timestamp",
+        AcceptedFieldKind::Nat8 => "nat8",
+        AcceptedFieldKind::Nat16 => "nat16",
+        AcceptedFieldKind::Nat32 => "nat32",
+        AcceptedFieldKind::Nat64 => "nat64",
+        AcceptedFieldKind::Nat128 => "nat128",
+        AcceptedFieldKind::Ulid => "ulid",
+        AcceptedFieldKind::Unit => "unit",
+        AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Relation { .. }
+        | AcceptedFieldKind::List(_)
+        | AcceptedFieldKind::Set(_)
+        | AcceptedFieldKind::Map { .. }
+        | AcceptedFieldKind::Composite { .. } => return None,
+    })
 }
 
 //

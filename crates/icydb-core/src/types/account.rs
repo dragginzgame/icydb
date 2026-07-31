@@ -8,7 +8,6 @@ pub use icydb_schema::Account;
 use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     types::{Principal, PrincipalEncodeError, Subaccount},
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
 };
 
 /// Failure while encoding the fixed account storage representation.
@@ -160,27 +159,6 @@ const fn account_key_bytes_error(error: AccountEncodeError) -> EntityKeyBytesErr
         AccountEncodeError::OwnerEncode(PrincipalEncodeError::TooLarge { len, max })
         | AccountEncodeError::OwnerTooLarge { len, max } => {
             EntityKeyBytesError::ValueTooLong { len, max }
-        }
-    }
-}
-
-impl RuntimeValueMeta for Account {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Account {
-    fn to_value(&self) -> Value {
-        Value::Account(*self)
-    }
-}
-
-impl RuntimeValueDecode for Account {
-    fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Account(value) => Some(*value),
-            _ => None,
         }
     }
 }

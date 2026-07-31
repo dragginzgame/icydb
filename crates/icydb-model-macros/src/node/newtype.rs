@@ -41,7 +41,7 @@ impl HasDef for Newtype {
 
 impl ValidateNode for Newtype {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.with_type_traits().validate()?;
+        self.traits.validate_for_type()?;
         self.item.validate()?;
 
         if self.traits.explicitly_adds(TraitKind::Default) && self.default.is_none() {
@@ -81,7 +81,7 @@ impl HasSchemaPart for Newtype {
 
 impl HasTraits for Newtype {
     fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.with_type_traits().build();
+        let mut traits = self.traits.build_for_type();
 
         // all newtypes
         traits.add(TraitKind::Inner);

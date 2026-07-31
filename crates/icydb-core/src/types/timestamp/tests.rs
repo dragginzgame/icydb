@@ -176,10 +176,3 @@ fn test_numeric_value_roundtrip() {
     let t2: Timestamp = i.into();
     assert_eq!(t2, t);
 }
-
-#[test]
-fn test_runtime_value() {
-    let t = Timestamp::from_secs(77);
-    let v = t.to_value();
-    assert_eq!(v, Value::Timestamp(t));
-}

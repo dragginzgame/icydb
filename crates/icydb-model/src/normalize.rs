@@ -5,8 +5,8 @@
 //! Boundary: convenient crate-level normalize surface that delegates to visitor traversal.
 
 use crate::visitor::{
-    PathSegment, Visitable, VisitorError, VisitorMutAdapter, normalize::NormalizeVisitor,
-    perform_visit_mut,
+    ApplicationOperation, PathSegment, Visitable, VisitorError, VisitorMutAdapter,
+    normalize::NormalizeVisitor, perform_visit_mut,
 };
 
 ///
@@ -27,5 +27,7 @@ pub fn normalize(node: &mut dyn Visitable) -> Result<(), VisitorError> {
 
     perform_visit_mut(&mut adapter, node, PathSegment::Empty);
 
-    adapter.result().map_err(VisitorError::from)
+    adapter
+        .result()
+        .map_err(|issues| VisitorError::new(ApplicationOperation::Normalize, issues))
 }

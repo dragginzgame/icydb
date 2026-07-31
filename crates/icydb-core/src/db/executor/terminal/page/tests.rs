@@ -1,13 +1,8 @@
 use super::*;
 use crate::db::{
     cursor::{CursorBoundary, CursorBoundarySlot},
-    executor::terminal::page::{
-        metrics::{
-            record_direct_data_row_path_hit, record_direct_filtered_data_row_path_hit,
-            record_kernel_data_row_path_hit, record_kernel_full_row_retained_path_hit,
-            record_kernel_retained_slot_layout, record_kernel_slots_only_path_hit,
-        },
-        post_access::{apply_load_cursor_and_pagination_window, compact_kernel_rows_in_place},
+    executor::terminal::page::post_access::{
+        apply_load_cursor_and_pagination_window, compact_kernel_rows_in_place,
     },
     query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource},
 };
@@ -78,53 +73,6 @@ fn retained_slot_row_indexed_layout_uses_shared_slot_lookup() {
     assert_eq!(row.slot_ref(1), None);
     assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
     assert_eq!(row.take_slot(5), Some(Value::Nat64(7)));
-}
-
-#[test]
-fn scalar_materialization_lane_metrics_capture_direct_and_kernel_paths() {
-    let layout = RetainedSlotLayout::compile(8, vec![1, 3, 5]);
-
-    let ((), metrics) = with_scalar_materialization_lane_metrics(|| {
-        record_direct_data_row_path_hit();
-        record_direct_filtered_data_row_path_hit();
-        record_kernel_data_row_path_hit();
-        record_kernel_full_row_retained_path_hit();
-        record_kernel_slots_only_path_hit();
-        record_kernel_retained_slot_layout(&layout);
-    });
-
-    assert_eq!(
-        metrics.direct_data_row_path_hits, 1,
-        "direct data-row lane should increment once",
-    );
-    assert_eq!(
-        metrics.direct_filtered_data_row_path_hits, 1,
-        "direct filtered data-row lane should increment once",
-    );
-    assert_eq!(
-        metrics.kernel_data_row_path_hits, 1,
-        "kernel data-row lane should increment once",
-    );
-    assert_eq!(
-        metrics.kernel_full_row_retained_path_hits, 1,
-        "kernel retained full-row lane should increment once",
-    );
-    assert_eq!(
-        metrics.kernel_slots_only_path_hits, 1,
-        "kernel slot-only lane should increment once",
-    );
-    assert_eq!(
-        metrics.kernel_retained_layout_hits, 1,
-        "retained-slot layout metrics should increment once",
-    );
-    assert_eq!(
-        metrics.kernel_retained_slot_values, 3,
-        "retained-slot layout metrics should report the retained value count",
-    );
-    assert_eq!(
-        metrics.kernel_retained_octet_length_values, 0,
-        "plain retained-slot layouts should not report byte-length-only values",
-    );
 }
 
 #[test]

@@ -16,7 +16,7 @@ use std::fmt;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ContinuationSignature([u8; 32]);
+pub(in crate::db) struct ContinuationSignature([u8; 32]);
 
 impl ContinuationSignature {
     pub(in crate::db) const fn from_bytes(bytes: [u8; 32]) -> Self {
@@ -29,7 +29,7 @@ impl ContinuationSignature {
 
     /// Encode this signature as lowercase hexadecimal text.
     #[must_use]
-    pub fn as_hex(&self) -> String {
+    fn as_hex(&self) -> String {
         encode_hex_lower(&self.0)
     }
 }

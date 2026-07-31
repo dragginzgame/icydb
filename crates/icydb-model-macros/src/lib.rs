@@ -3,6 +3,8 @@
 //! Does not own: runtime schema semantics.
 //! Boundary: macro input to generated tokens.
 
+#![doc = include_str!("../README.md")]
+
 extern crate syn_darling as syn;
 
 mod authoring_types;

@@ -34,8 +34,7 @@ pub(crate) use error::CursorPlanError;
 #[cfg(test)]
 pub(crate) use error::CursorSignaturePrefix;
 pub(in crate::db) use runtime::{ContinuationKeyRef, ContinuationRuntime};
-#[expect(unreachable_pub)]
-pub use signature::ContinuationSignature;
+pub(in crate::db) use signature::ContinuationSignature;
 pub(crate) use string::CursorDecodeError;
 use string::decode_cursor;
 #[cfg(any(test, feature = "query"))]

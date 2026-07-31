@@ -25,7 +25,8 @@ mod tests {
         time::{Milliseconds, Minutes, Seconds},
         web::{MimeType, Url},
     };
-    use model_api::visitor::Visitable;
+    use model_api::visitor::{ApplicationOperation, CallbackKind, Visitable};
+    use model_api::{Inner as _, NormalizeAndValidate as _, normalize, validate};
     use runtime_api::db::{TypedRowAdapter, TypedWriteAdapter, WriteCell};
 
     use super::schema::{
@@ -123,5 +124,56 @@ mod tests {
         assert_named_adapter::<MimeType>();
         assert_named_adapter::<Url>();
         assert_model_behavior::<runtime_api::types::Ulid>();
+    }
+
+    #[test]
+    fn generated_application_behavior_is_explicit_and_composable() {
+        let normalized = MimeType::from("  Text/HTML  ")
+            .normalize_and_validate()
+            .expect("normalized MIME type should validate");
+        assert_eq!(normalized.inner(), "text/html");
+
+        let authored = MimeType::from("  Text/HTML  ");
+        let error = validate(&authored).expect_err("direct validation must not normalize");
+        assert_eq!(error.operation(), ApplicationOperation::Validate);
+        assert_eq!(authored.inner(), "  Text/HTML  ");
+
+        let mut unsupported_url = Url::from("ftp://example.com");
+        let error = normalize(&mut unsupported_url)
+            .expect_err("unsupported URL scheme should fail normalization");
+        assert_eq!(error.operation(), ApplicationOperation::Normalize);
+        let issue = error
+            .issues()
+            .get("")
+            .and_then(|issues| issues.first())
+            .expect("normalizer error should retain its root path");
+        let callback = issue
+            .callback()
+            .expect("normalizer error should retain callback identity");
+        assert_eq!(callback.kind(), CallbackKind::Normalizer);
+        assert!(callback.type_path().ends_with("base::normalizer::web::Url"));
+    }
+
+    #[test]
+    fn composed_validation_error_retains_declared_validator_identity() {
+        let error = MimeType::from("not a mime type")
+            .normalize_and_validate()
+            .expect_err("invalid normalized MIME type should fail validation");
+
+        assert_eq!(error.operation(), ApplicationOperation::Validate);
+        let issue = error
+            .issues()
+            .get("")
+            .and_then(|issues| issues.first())
+            .expect("validator error should retain its root path");
+        let callback = issue
+            .callback()
+            .expect("validator error should retain callback identity");
+        assert_eq!(callback.kind(), CallbackKind::Validator);
+        assert!(
+            callback
+                .type_path()
+                .ends_with("base::validator::web::MimeType")
+        );
     }
 }

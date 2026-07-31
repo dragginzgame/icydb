@@ -278,38 +278,6 @@ impl MutationObservedOutcome {
         }
     }
 
-    /// Build accepted replay evidence directly from normalized typed rows.
-    ///
-    /// # Errors
-    ///
-    /// Returns a typed serialization error when canonical row fingerprinting fails.
-    pub fn try_accepted_with_rows(
-        affected_rows: u32,
-        returned_rows: &[crate::MutationRow],
-        state_after: &[crate::MutationRow],
-    ) -> Result<Self, SqlGeneratorError> {
-        Ok(Self::accepted(
-            affected_rows,
-            mutation_rows_fingerprint(b"returning", returned_rows)?,
-            mutation_rows_fingerprint(b"state", state_after)?,
-        ))
-    }
-
-    /// Build rejected replay evidence from one typed error class and normalized state.
-    ///
-    /// # Errors
-    ///
-    /// Returns a typed serialization error when canonical state fingerprinting fails.
-    pub fn try_rejected_with_state(
-        error_class_id: impl Into<String>,
-        state_after: &[crate::MutationRow],
-    ) -> Result<Self, SqlGeneratorError> {
-        Ok(Self::rejected(
-            error_class_id,
-            mutation_rows_fingerprint(b"state", state_after)?,
-        ))
-    }
-
     /// Build one provider-infrastructure failure.
     #[must_use]
     pub fn infrastructure_failure(

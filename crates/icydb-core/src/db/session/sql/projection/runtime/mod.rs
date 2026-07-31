@@ -8,7 +8,7 @@
 
 mod materialize;
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::{
     CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
 };
@@ -35,20 +35,12 @@ type SqlProjectionRowsWithDirectAttribution = (
     Option<KernelRowAttribution>,
 );
 
-#[cfg(all(test, not(feature = "diagnostics")))]
-#[expect(
-    unused_imports,
-    reason = "test instrumentation is consumed only by diagnostics-shaped tests"
-)]
-pub(crate) use crate::db::session::sql::projection::runtime::materialize::{
-    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
-};
 #[cfg(feature = "diagnostics")]
-pub use crate::db::session::sql::projection::runtime::materialize::{
+pub(in crate::db::session::sql) use crate::db::session::sql::projection::runtime::materialize::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 fn covering_projection_metrics_recorder() -> CoveringProjectionMetricsRecorder {
     CoveringProjectionMetricsRecorder::new(
         materialize::record_sql_projection_hybrid_covering_path_hit,
@@ -57,13 +49,13 @@ fn covering_projection_metrics_recorder() -> CoveringProjectionMetricsRecorder {
     )
 }
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(not(feature = "diagnostics"))]
 const fn covering_projection_metrics_recorder()
 -> crate::db::executor::CoveringProjectionMetricsRecorder {
     crate::db::executor::CoveringProjectionMetricsRecorder::new()
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 fn projection_materialization_metrics_recorder() -> ProjectionMaterializationMetricsRecorder {
     ProjectionMaterializationMetricsRecorder::new(
         materialize::record_sql_projection_slot_rows_path_hit,
@@ -75,7 +67,7 @@ fn projection_materialization_metrics_recorder() -> ProjectionMaterializationMet
     )
 }
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(not(feature = "diagnostics"))]
 const fn projection_materialization_metrics_recorder()
 -> crate::db::executor::ProjectionMaterializationMetricsRecorder {
     crate::db::executor::ProjectionMaterializationMetricsRecorder::new()

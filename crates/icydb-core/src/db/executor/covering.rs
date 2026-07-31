@@ -17,8 +17,7 @@ use crate::{
             active_lowered_index_prefix_specs, apply_data_key_ordered_dedup_window,
             apply_index_scan_chunk_progress, branch_stream_chunk_entries,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
-            index_stream_output_limit_for_chunk, record_row_check_covering_candidate_seen,
-            record_row_check_row_emitted, record_row_presence_probe,
+            index_stream_output_limit_for_chunk,
         },
         index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
@@ -47,7 +46,6 @@ fn read_row_presence_with_consistency_from_data_store(
 ) -> Result<bool, InternalError> {
     let raw = key.to_raw()?;
     let row_exists = data.contains(&raw);
-    record_row_presence_probe(row_exists);
 
     match consistency {
         MissingRowPolicy::Error if !row_exists => Err(ExecutorError::missing_row(key).into()),
@@ -869,7 +867,6 @@ where
         }
 
         if existing_row_mode.requires_row_presence_check() {
-            record_row_check_covering_candidate_seen();
             let row_present = store.with_data(|data| {
                 read_row_presence_with_consistency_from_data_store(data, &data_key, consistency)
             })?;
@@ -880,16 +877,10 @@ where
 
         if present_rows < window.offset {
             present_rows = present_rows.saturating_add(1);
-            if existing_row_mode.requires_row_presence_check() {
-                record_row_check_row_emitted();
-            }
             continue;
         }
         if window.limit.is_some_and(|limit| emitted_rows >= limit) {
             present_rows = present_rows.saturating_add(1);
-            if existing_row_mode.requires_row_presence_check() {
-                record_row_check_row_emitted();
-            }
             continue;
         }
 
@@ -899,9 +890,6 @@ where
         accumulator = next_accumulator;
         present_rows = present_rows.saturating_add(1);
         emitted_rows = emitted_rows.saturating_add(1);
-        if existing_row_mode.requires_row_presence_check() {
-            record_row_check_row_emitted();
-        }
     }
 
     Ok(Some(accumulator))

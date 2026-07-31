@@ -6,21 +6,37 @@
 
 extern crate self as icydb_model;
 
+pub mod application;
 pub mod base;
 pub mod build;
 pub mod error;
 pub mod fragment;
 // Declarations remain available on Wasm, while their whole-graph validation
 // helpers are deliberately host-only work.
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[cfg_attr(
+    target_arch = "wasm32",
+    expect(
+        dead_code,
+        reason = "Wasm retains declaration nodes while host code owns whole-graph traversal"
+    )
+)]
 pub mod node;
 pub mod normalize;
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[cfg_attr(
+    target_arch = "wasm32",
+    expect(dead_code, reason = "whole-graph schema validation is host-owned")
+)]
 mod schema_validate;
 mod typed_adapter;
 pub mod types;
 pub mod validate;
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[cfg_attr(
+    target_arch = "wasm32",
+    expect(
+        dead_code,
+        reason = "Wasm retains declarations while host code owns graph visitation"
+    )
+)]
 mod visit;
 pub mod visitor;
 
@@ -44,8 +60,8 @@ use thiserror::Error as ThisError;
 pub mod prelude {
     pub(crate) use crate::build::schema_read;
     pub use crate::{
-        Collection as _, Inner as _, MapCollection as _, Path as _, base, canister, entity, enum_,
-        err,
+        Collection as _, Inner as _, MapCollection as _, NormalizeAndValidate as _, Path as _,
+        base, canister, entity, enum_, err,
         error::ErrorTree,
         list, map, newtype,
         node::*,
@@ -67,6 +83,7 @@ pub mod prelude {
     pub use serde::{Deserialize, Serialize};
 }
 
+pub use application::NormalizeAndValidate;
 pub use icydb_model_macros::{
     Add, AddAssign, Deref, DerefMut, Display, Div, DivAssign, Inner, Mul, MulAssign, Rem, Sub,
     SubAssign, Sum, canister, entity, enum_, list, map, newtype, normalizer, record, set, store,

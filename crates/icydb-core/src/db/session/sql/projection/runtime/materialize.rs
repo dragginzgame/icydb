@@ -1,51 +1,50 @@
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 use std::cell::RefCell;
 
 ///
 /// SqlProjectionMaterializationMetrics
 ///
-/// SqlProjectionMaterializationMetrics aggregates one test-scoped view of the
+/// SqlProjectionMaterializationMetrics aggregates one query-scoped view of the
 /// row-backed SQL projection path selection and fallback slot access behavior.
 /// It lets perf probes distinguish retained projected rows, retained slot
 /// rows, and `data_rows` fallback execution without changing runtime policy.
 ///
 
-#[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
+#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SqlProjectionMaterializationMetrics {
-    pub hybrid_covering_path_hits: u64,
-    pub hybrid_covering_index_field_accesses: u64,
-    pub hybrid_covering_row_field_accesses: u64,
-    pub projected_rows_path_hits: u64,
-    pub slot_rows_path_hits: u64,
-    pub data_rows_path_hits: u64,
-    pub data_rows_scalar_fallback_hits: u64,
-    pub data_rows_generic_fallback_hits: u64,
-    pub data_rows_projected_slot_accesses: u64,
-    pub data_rows_non_projected_slot_accesses: u64,
-    pub full_row_decode_materializations: u64,
-    pub distinct_candidate_rows: u64,
-    pub distinct_bounded_stop_hits: u64,
+pub(in crate::db::session::sql) struct SqlProjectionMaterializationMetrics {
+    pub(in crate::db::session::sql) hybrid_covering_path_hits: u64,
+    pub(in crate::db::session::sql) hybrid_covering_index_field_accesses: u64,
+    pub(in crate::db::session::sql) hybrid_covering_row_field_accesses: u64,
+    pub(in crate::db::session::sql) projected_rows_path_hits: u64,
+    pub(in crate::db::session::sql) slot_rows_path_hits: u64,
+    pub(in crate::db::session::sql) data_rows_path_hits: u64,
+    pub(in crate::db::session::sql) data_rows_scalar_fallback_hits: u64,
+    pub(in crate::db::session::sql) data_rows_generic_fallback_hits: u64,
+    pub(in crate::db::session::sql) data_rows_projected_slot_accesses: u64,
+    pub(in crate::db::session::sql) data_rows_non_projected_slot_accesses: u64,
+    pub(in crate::db::session::sql) full_row_decode_materializations: u64,
+    pub(in crate::db::session::sql) distinct_candidate_rows: u64,
+    pub(in crate::db::session::sql) distinct_bounded_stop_hits: u64,
 }
 
 #[cfg(feature = "diagnostics")]
 impl SqlProjectionMaterializationMetrics {
-    pub(crate) const fn has_hybrid_covering_work(self) -> bool {
+    pub(in crate::db::session::sql) const fn has_hybrid_covering_work(self) -> bool {
         self.hybrid_covering_path_hits != 0
             || self.hybrid_covering_index_field_accesses != 0
             || self.hybrid_covering_row_field_accesses != 0
     }
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 std::thread_local! {
     static SQL_PROJECTION_MATERIALIZATION_METRICS: RefCell<Option<SqlProjectionMaterializationMetrics>> = const {
         RefCell::new(None)
     };
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 fn update_sql_projection_materialization_metrics(
     update: impl FnOnce(&mut SqlProjectionMaterializationMetrics),
 ) {
@@ -59,21 +58,21 @@ fn update_sql_projection_materialization_metrics(
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_sql_projection_slot_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.slot_rows_path_hits = metrics.slot_rows_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_sql_projection_data_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_path_hits = metrics.data_rows_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::session::sql::projection::runtime) fn record_sql_projection_hybrid_covering_path_hit()
  {
     update_sql_projection_materialization_metrics(|metrics| {
@@ -81,7 +80,7 @@ pub(in crate::db::session::sql::projection::runtime) fn record_sql_projection_hy
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::session::sql::projection::runtime) fn record_sql_projection_hybrid_covering_index_field_access()
  {
     update_sql_projection_materialization_metrics(|metrics| {
@@ -91,7 +90,7 @@ pub(in crate::db::session::sql::projection::runtime) fn record_sql_projection_hy
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::session::sql::projection::runtime) fn record_sql_projection_hybrid_covering_row_field_access()
  {
     update_sql_projection_materialization_metrics(|metrics| {
@@ -100,7 +99,7 @@ pub(in crate::db::session::sql::projection::runtime) fn record_sql_projection_hy
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_sql_projection_data_rows_scalar_fallback_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_scalar_fallback_hits =
@@ -108,7 +107,7 @@ pub(super) fn record_sql_projection_data_rows_scalar_fallback_hit() {
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_sql_projection_data_rows_slot_access(projected_slot: bool) {
     update_sql_projection_materialization_metrics(|metrics| {
         if projected_slot {
@@ -122,14 +121,14 @@ pub(super) fn record_sql_projection_data_rows_slot_access(projected_slot: bool) 
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_sql_projection_distinct_candidate_row() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.distinct_candidate_rows = metrics.distinct_candidate_rows.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_sql_projection_distinct_bounded_stop() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.distinct_bounded_stop_hits = metrics.distinct_bounded_stop_hits.saturating_add(1);
@@ -144,16 +143,8 @@ pub(super) fn record_sql_projection_distinct_bounded_stop() {
 /// snapshot.
 ///
 
-#[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(
-    all(test, not(feature = "diagnostics")),
-    expect(
-        dead_code,
-        unreachable_pub,
-        reason = "capture helper is consumed only by diagnostics-shaped tests"
-    )
-)]
-pub fn with_sql_projection_materialization_metrics<T>(
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::session::sql) fn with_sql_projection_materialization_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, SqlProjectionMaterializationMetrics) {
     SQL_PROJECTION_MATERIALIZATION_METRICS.with(|metrics| {

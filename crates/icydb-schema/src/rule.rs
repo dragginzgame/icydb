@@ -18,6 +18,16 @@ pub enum SourceRuleOperation {
         /// Inclusive maximum length.
         max: u64,
     },
+    /// Exact nonzero integer or fixed-scale decimal divisor.
+    MultipleOf {
+        /// Exact divisor admitted against the target kind.
+        divisor: ScalarLiteral,
+    },
+    /// Inclusive upper bound for one exact numeric kind.
+    NumericMaximumInclusive {
+        /// Exact upper-bound literal.
+        value: ScalarLiteral,
+    },
     /// Inclusive lower bound for one exact numeric kind.
     NumericMinimumInclusive {
         /// Exact lower-bound literal.
@@ -37,7 +47,16 @@ impl SourceRuleOperation {
     pub(crate) fn validate(&self) -> Result<(), SchemaContractError> {
         match self {
             Self::LengthRangeInclusive { min, max } if min <= max => Ok(()),
-            Self::NumericMinimumInclusive { value } if numeric_literal(value) => value.validate(),
+            Self::MultipleOf { divisor }
+                if exact_multiple_literal(divisor) && !scalar_literal_is_zero(divisor) =>
+            {
+                divisor.validate()
+            }
+            Self::NumericMaximumInclusive { value } | Self::NumericMinimumInclusive { value }
+                if numeric_literal(value) =>
+            {
+                value.validate()
+            }
             Self::NumericRangeInclusive { min, max }
                 if numeric_literal(min)
                     && min.kind() == max.kind()
@@ -47,10 +66,23 @@ impl SourceRuleOperation {
                 max.validate()
             }
             Self::LengthRangeInclusive { .. }
+            | Self::MultipleOf { .. }
+            | Self::NumericMaximumInclusive { .. }
             | Self::NumericMinimumInclusive { .. }
             | Self::NumericRangeInclusive { .. } => Err(SchemaContractError::InvalidRuleOperation),
         }
     }
+}
+
+pub(crate) const fn exact_multiple_literal(literal: &ScalarLiteral) -> bool {
+    matches!(
+        literal.kind(),
+        ScalarKind::Decimal
+            | ScalarKind::Int128
+            | ScalarKind::IntBig
+            | ScalarKind::Nat128
+            | ScalarKind::NatBig
+    )
 }
 
 const fn numeric_literal(literal: &ScalarLiteral) -> bool {
@@ -76,6 +108,30 @@ fn scalar_literal_le(left: &ScalarLiteral, right: &ScalarLiteral) -> bool {
         (ScalarLiteral::Nat(left), ScalarLiteral::Nat(right)) => left <= right,
         (ScalarLiteral::NatBig(left), ScalarLiteral::NatBig(right)) => left <= right,
         _ => false,
+    }
+}
+
+fn scalar_literal_is_zero(literal: &ScalarLiteral) -> bool {
+    match literal {
+        ScalarLiteral::Decimal(value) => value.is_zero(),
+        ScalarLiteral::Int(value) => *value == 0,
+        ScalarLiteral::IntBig(value) => value == &crate::IntBig::default(),
+        ScalarLiteral::Nat(value) => *value == 0,
+        ScalarLiteral::NatBig(value) => value == &crate::NatBig::default(),
+        ScalarLiteral::Account(_)
+        | ScalarLiteral::Blob(_)
+        | ScalarLiteral::Bool(_)
+        | ScalarLiteral::Date(_)
+        | ScalarLiteral::Duration(_)
+        | ScalarLiteral::EnumUnit { .. }
+        | ScalarLiteral::Float32(_)
+        | ScalarLiteral::Float64(_)
+        | ScalarLiteral::Principal(_)
+        | ScalarLiteral::Subaccount(_)
+        | ScalarLiteral::Text(_)
+        | ScalarLiteral::Timestamp(_)
+        | ScalarLiteral::Ulid(_)
+        | ScalarLiteral::Unit(_) => false,
     }
 }
 
@@ -123,5 +179,36 @@ mod tests {
             .validate()
             .is_ok()
         );
+    }
+
+    #[test]
+    fn source_rule_operation_accepts_exact_nonzero_multiple_and_maximum() {
+        assert!(
+            SourceRuleOperation::NumericMaximumInclusive {
+                value: ScalarLiteral::Nat(10),
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            SourceRuleOperation::MultipleOf {
+                divisor: ScalarLiteral::Int(-5),
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn source_rule_operation_rejects_zero_and_float_multiple() {
+        for divisor in [
+            ScalarLiteral::Nat(0),
+            ScalarLiteral::Float64(crate::Float64::try_new(1.0).expect("finite float")),
+        ] {
+            assert_eq!(
+                SourceRuleOperation::MultipleOf { divisor }.validate(),
+                Err(SchemaContractError::InvalidRuleOperation),
+            );
+        }
     }
 }

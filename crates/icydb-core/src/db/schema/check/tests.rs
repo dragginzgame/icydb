@@ -26,10 +26,88 @@ use crate::{
     error::{ConstraintDiagnosticKind, ConstraintValuePathComponent},
     value::{InputValue, Value},
 };
-use icydb_schema::{Decimal, ScalarLiteral};
+use icydb_schema::{Decimal, IntBig, NatBig, ScalarLiteral};
 use std::collections::BTreeMap;
 
 const FINGERPRINT: CommitSchemaFingerprint = [7; 16];
+
+#[test]
+fn exact_multiple_of_covers_every_runtime_integer_width_and_decimal() {
+    let exact_cases = vec![
+        (Value::Int64(-10), Value::Int64(5), Value::Int64(-11)),
+        (Value::Int128(10), Value::Int128(5), Value::Int128(11)),
+        (
+            Value::IntBig(IntBig::from(-10_i64)),
+            Value::IntBig(IntBig::from(5_i64)),
+            Value::IntBig(IntBig::from(-11_i64)),
+        ),
+        (Value::Nat64(10), Value::Nat64(5), Value::Nat64(11)),
+        (Value::Nat128(10), Value::Nat128(5), Value::Nat128(11)),
+        (
+            Value::NatBig(NatBig::from(10_u64)),
+            Value::NatBig(NatBig::from(5_u64)),
+            Value::NatBig(NatBig::from(11_u64)),
+        ),
+        (
+            Value::Decimal(Decimal::new(100, 2)),
+            Value::Decimal(Decimal::new(25, 2)),
+            Value::Decimal(Decimal::new(101, 2)),
+        ),
+    ];
+    for (multiple, divisor, remainder) in exact_cases {
+        assert_eq!(
+            super::compile::exact_numeric_is_multiple(&multiple, &divisor),
+            Some(true),
+        );
+        assert_eq!(
+            super::compile::exact_numeric_is_multiple(&remainder, &divisor),
+            Some(false),
+        );
+    }
+    assert_eq!(
+        super::compile::exact_numeric_is_multiple(&Value::Nat64(10), &Value::Nat64(0)),
+        None,
+    );
+    assert_eq!(
+        super::compile::exact_numeric_is_multiple(&Value::Int64(i64::MIN), &Value::Int64(-1)),
+        Some(true),
+    );
+    assert_eq!(
+        super::compile::exact_numeric_is_multiple(&Value::Int128(i128::MIN), &Value::Int128(-1)),
+        Some(true),
+    );
+    assert_eq!(
+        super::compile::exact_numeric_is_multiple(
+            &Value::Float64(crate::types::Float64::try_new(10.0).expect("finite float")),
+            &Value::Float64(crate::types::Float64::try_new(5.0).expect("finite float")),
+        ),
+        None,
+    );
+}
+
+#[test]
+fn exact_multiple_of_kind_set_excludes_only_numeric_floats() {
+    for kind in [
+        AcceptedFieldKind::Decimal { scale: 2 },
+        AcceptedFieldKind::Int8,
+        AcceptedFieldKind::Int16,
+        AcceptedFieldKind::Int32,
+        AcceptedFieldKind::Int64,
+        AcceptedFieldKind::Int128,
+        AcceptedFieldKind::IntBig { max_bytes: 32 },
+        AcceptedFieldKind::Nat8,
+        AcceptedFieldKind::Nat16,
+        AcceptedFieldKind::Nat32,
+        AcceptedFieldKind::Nat64,
+        AcceptedFieldKind::Nat128,
+        AcceptedFieldKind::NatBig { max_bytes: 32 },
+    ] {
+        assert!(crate::db::schema::accepted_rule_exact_numeric_kind_is_supported(&kind));
+    }
+    for kind in [AcceptedFieldKind::Float32, AcceptedFieldKind::Float64] {
+        assert!(!crate::db::schema::accepted_rule_exact_numeric_kind_is_supported(&kind));
+    }
+}
 
 fn field(
     id: u32,
@@ -463,23 +541,19 @@ fn targeted_rule_fixture() -> TargetedRuleFixture {
         BTreeMap::new(),
         BTreeMap::new(),
     );
+    let numeric_literal = |value| {
+        bind_source_rule_literal(
+            &ScalarLiteral::Nat(value),
+            AcceptedFieldKind::Nat8,
+            &bindings,
+            &enum_catalog,
+            &composite_catalog,
+        )
+        .expect("numeric targeted-rule literal should bind")
+    };
     let numeric_operation = || AcceptedRuleOperation::NumericRangeInclusive {
-        min: bind_source_rule_literal(
-            &ScalarLiteral::Nat(0),
-            AcceptedFieldKind::Nat8,
-            &bindings,
-            &enum_catalog,
-            &composite_catalog,
-        )
-        .expect("numeric lower bound should bind"),
-        max: bind_source_rule_literal(
-            &ScalarLiteral::Nat(10),
-            AcceptedFieldKind::Nat8,
-            &bindings,
-            &enum_catalog,
-            &composite_catalog,
-        )
-        .expect("numeric upper bound should bind"),
+        min: numeric_literal(0),
+        max: numeric_literal(10),
     };
     let mut catalog = snapshot.constraint_catalog().clone();
     for root_field_id in 2..=7 {
@@ -503,9 +577,11 @@ fn targeted_rule_fixture() -> TargetedRuleFixture {
                 FieldId::new(11),
                 AcceptedNamedTypeIdentity::Composite(degree_type),
             ),
-            numeric_operation(),
+            AcceptedRuleOperation::NumericMaximumInclusive {
+                value: numeric_literal(10),
+            },
         )
-        .expect("wrapped numeric targeted rule should allocate");
+        .expect("wrapped numeric maximum should allocate");
     catalog = catalog
         .with_added_targeted_rule(
             "wrapped_degree_minimum".to_string(),
@@ -515,17 +591,23 @@ fn targeted_rule_fixture() -> TargetedRuleFixture {
                 AcceptedNamedTypeIdentity::Composite(degree_type),
             ),
             AcceptedRuleOperation::NumericMinimumInclusive {
-                value: bind_source_rule_literal(
-                    &ScalarLiteral::Nat(3),
-                    AcceptedFieldKind::Nat8,
-                    &bindings,
-                    &enum_catalog,
-                    &composite_catalog,
-                )
-                .expect("numeric minimum should bind"),
+                value: numeric_literal(3),
             },
         )
         .expect("wrapped numeric minimum should allocate");
+    catalog = catalog
+        .with_added_targeted_rule(
+            "wrapped_degree_multiple".to_string(),
+            ConstraintOrigin::Generated,
+            AcceptedRuleTarget::new(
+                FieldId::new(11),
+                AcceptedNamedTypeIdentity::Composite(degree_type),
+            ),
+            AcceptedRuleOperation::MultipleOf {
+                divisor: numeric_literal(5),
+            },
+        )
+        .expect("wrapped exact multiple should allocate");
     for (root_field_id, target_type, operation, name) in [
         (
             8,
@@ -898,6 +980,40 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
                 .program
                 .evaluate(FINGERPRINT, &minimum)
                 .expect_err("inclusive numeric minimum should reject a smaller value"),
+        ),
+        vec![
+            AcceptedTargetPathComponent::RootField(FieldId::new(11)),
+            AcceptedTargetPathComponent::Newtype {
+                composite_type_id: fixture.wrapper_type,
+            },
+        ],
+    );
+
+    let mut maximum = fixture.values.clone();
+    maximum[10] = Some(Value::Nat64(11));
+    assert_eq!(
+        targeted_path(
+            fixture
+                .program
+                .evaluate(FINGERPRINT, &maximum)
+                .expect_err("inclusive numeric maximum should reject a larger value"),
+        ),
+        vec![
+            AcceptedTargetPathComponent::RootField(FieldId::new(11)),
+            AcceptedTargetPathComponent::Newtype {
+                composite_type_id: fixture.wrapper_type,
+            },
+        ],
+    );
+
+    let mut multiple = fixture.values.clone();
+    multiple[10] = Some(Value::Nat64(7));
+    assert_eq!(
+        targeted_path(
+            fixture
+                .program
+                .evaluate(FINGERPRINT, &multiple)
+                .expect_err("exact multiple-of should reject a remainder"),
         ),
         vec![
             AcceptedTargetPathComponent::RootField(FieldId::new(11)),

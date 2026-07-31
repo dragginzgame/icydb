@@ -6,7 +6,7 @@
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use derive_more::IntoIterator;
-use std::{collections::HashSet, hash::Hash, str::FromStr, sync::LazyLock};
+use std::{collections::HashSet, hash::Hash, str::FromStr};
 
 //
 // TraitKind
@@ -107,23 +107,26 @@ impl FromStr for TraitKind {
     }
 }
 
-static DEFAULT_TRAITS: LazyLock<Vec<TraitKind>> =
-    LazyLock::new(|| vec![TraitKind::Clone, TraitKind::Debug, TraitKind::Path]);
+const DEFAULT_TRAITS: &[TraitKind] = &[TraitKind::Clone, TraitKind::Debug, TraitKind::Path];
 
-static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
-    vec![
-        TraitKind::CandidType,
-        TraitKind::Deserialize,
-        TraitKind::Eq,
-        TraitKind::From,
-        TraitKind::PartialEq,
-        TraitKind::NormalizeAuto,
-        TraitKind::NormalizeCustom,
-        TraitKind::ValidateAuto,
-        TraitKind::ValidateCustom,
-        TraitKind::Visitable,
-    ]
-});
+const DEFAULT_CONFIGURABLE_TYPE_TRAITS: &[TraitKind] = &[
+    TraitKind::From,
+    TraitKind::NormalizeCustom,
+    TraitKind::ValidateCustom,
+];
+
+const REQUIRED_TYPE_TRAITS: &[TraitKind] = &[
+    TraitKind::CandidType,
+    TraitKind::Clone,
+    TraitKind::Debug,
+    TraitKind::Deserialize,
+    TraitKind::Eq,
+    TraitKind::PartialEq,
+    TraitKind::Path,
+    TraitKind::NormalizeAuto,
+    TraitKind::ValidateAuto,
+    TraitKind::Visitable,
+];
 
 // path_to_string
 #[must_use]
@@ -272,10 +275,6 @@ impl ToTokens for TraitKind {
 pub struct TraitSet(pub HashSet<TraitKind>);
 
 impl TraitSet {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
     pub(crate) fn add(&mut self, tr: TraitKind) {
         self.insert(tr);
     }
@@ -342,17 +341,32 @@ impl TraitBuilder {
         self.add.iter().any(|candidate| *candidate == tr)
     }
 
-    pub(crate) fn with_type_traits(&self) -> Self {
-        let mut clone = self.clone();
-        clone.add.extend(TYPE_TRAITS.iter().copied());
+    /// Validate author directives for a generated application value type.
+    ///
+    /// Required traits are compiler-owned output rather than configurable
+    /// defaults. Optional and override traits continue through the maintained
+    /// generic add/remove validation.
+    pub(crate) fn validate_for_type(&self) -> Result<(), DarlingError> {
+        for tr in self.add.iter() {
+            if REQUIRED_TYPE_TRAITS.contains(tr) {
+                return Err(DarlingError::custom(format!(
+                    "required trait '{tr:?}' is generated automatically and cannot be added explicitly"
+                )));
+            }
+        }
 
-        clone
+        for tr in self.remove.iter() {
+            if REQUIRED_TYPE_TRAITS.contains(tr) {
+                return Err(DarlingError::custom(format!(
+                    "required trait '{tr:?}' is generated automatically and cannot be removed"
+                )));
+            }
+        }
+
+        self.resolve(type_trait_set()).map(|_| ())
     }
 
-    pub(crate) fn validate(&self) -> Result<(), DarlingError> {
-        let mut set = TraitSet::new();
-        set.extend(DEFAULT_TRAITS.iter().copied());
-
+    fn resolve(&self, mut set: TraitSet) -> Result<TraitSet, DarlingError> {
         for tr in self.add.iter() {
             if !set.insert(*tr) {
                 return Err(DarlingError::custom(format!(
@@ -369,29 +383,35 @@ impl TraitBuilder {
             }
         }
 
-        Ok(())
+        Ok(set)
     }
 
-    // build
-    // generates the TraitList based on the defaults plus traits that have been added or removed
+    /// Resolve the required and default traits for an application value type.
+    ///
+    /// This is called only after [`Self::validate_for_type`] succeeds.
+    pub(crate) fn build_for_type(&self) -> TraitSet {
+        self.resolve(type_trait_set())
+            .unwrap_or_else(|_| panic!("validated application type traits must resolve"))
+    }
+
+    // Generates the TraitList based on the defaults plus traits that have been
+    // added or removed. This is called only after validation succeeds.
     pub(crate) fn build(&self) -> TraitSet {
-        let mut set = TraitSet::new();
-
-        // always set defaults
-        set.extend(DEFAULT_TRAITS.iter().copied());
-
-        // self.add
-        for tr in self.add.iter() {
-            assert!(set.insert(*tr), "adding duplicate trait '{tr:?}'");
-        }
-
-        // self.remove
-        for tr in self.remove.iter() {
-            assert!(set.remove(*tr), "cannot remove trait {tr:?} from {set:?}");
-        }
-
-        set
+        self.resolve(default_trait_set())
+            .unwrap_or_else(|_| panic!("validated generated traits must resolve"))
     }
+}
+
+fn default_trait_set() -> TraitSet {
+    DEFAULT_TRAITS.iter().copied().collect()
+}
+
+fn type_trait_set() -> TraitSet {
+    REQUIRED_TYPE_TRAITS
+        .iter()
+        .chain(DEFAULT_CONFIGURABLE_TYPE_TRAITS.iter())
+        .copied()
+        .collect()
 }
 
 //
@@ -405,10 +425,6 @@ pub struct TraitListMeta(pub Vec<TraitKind>);
 impl TraitListMeta {
     pub(crate) fn push(&mut self, tr: TraitKind) {
         self.0.push(tr);
-    }
-
-    pub(crate) fn extend<I: IntoIterator<Item = TraitKind>>(&mut self, traits: I) {
-        self.0.extend(traits);
     }
 
     pub(crate) fn iter(&self) -> std::slice::Iter<'_, TraitKind> {
@@ -426,5 +442,59 @@ impl FromMeta for TraitListMeta {
         }
 
         Ok(traits)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn required_type_traits_are_emitted_without_author_directives() {
+        let traits = TraitBuilder::default().build_for_type();
+
+        for required in REQUIRED_TYPE_TRAITS {
+            assert!(traits.0.contains(required));
+        }
+    }
+
+    #[test]
+    fn required_type_traits_reject_explicit_addition_and_removal() {
+        for required in REQUIRED_TYPE_TRAITS.iter().copied() {
+            let adds_required = TraitBuilder {
+                add: TraitListMeta(vec![required]),
+                remove: TraitListMeta::default(),
+            };
+            assert!(adds_required.validate_for_type().is_err());
+
+            let removes_required = TraitBuilder {
+                add: TraitListMeta::default(),
+                remove: TraitListMeta(vec![required]),
+            };
+            assert!(removes_required.validate_for_type().is_err());
+        }
+    }
+
+    #[test]
+    fn optional_and_override_type_traits_remain_configurable() {
+        for configurable in [
+            TraitKind::From,
+            TraitKind::NormalizeCustom,
+            TraitKind::ValidateCustom,
+        ] {
+            let builder = TraitBuilder {
+                add: TraitListMeta::default(),
+                remove: TraitListMeta(vec![configurable]),
+            };
+            assert!(builder.validate_for_type().is_ok());
+            assert!(!builder.build_for_type().0.contains(&configurable));
+        }
+
+        let default = TraitBuilder {
+            add: TraitListMeta(vec![TraitKind::Default]),
+            remove: TraitListMeta::default(),
+        };
+        assert!(default.validate_for_type().is_ok());
+        assert!(default.build_for_type().0.contains(&TraitKind::Default));
     }
 }

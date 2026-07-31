@@ -1417,12 +1417,6 @@ impl TierCCoverageDistributionReport {
             .unwrap_or_default()
     }
 
-    /// Return how many generated SELECT scenarios use one exact fixture size.
-    #[must_use]
-    pub fn generated_select_fixture_row_count(&self, row_count: u32) -> u32 {
-        numeric_count(&self.generated.select_fixture_rows, row_count)
-    }
-
     /// Return how many generated SELECT repetitions use one exact fixture package.
     #[must_use]
     pub fn generated_select_fixture_class_count(&self, fixture_class: &str) -> u32 {
@@ -1460,30 +1454,6 @@ impl TierCCoverageDistributionReport {
             .get(property.code())
             .copied()
             .unwrap_or_default()
-    }
-
-    /// Return how many generated SELECTs observe one accepted field count.
-    #[must_use]
-    pub fn generated_select_schema_field_count(&self, field_count: u32) -> u32 {
-        numeric_count(&self.generated.select_schema_fields, field_count)
-    }
-
-    /// Return how many generated SELECTs observe one generated-field count.
-    #[must_use]
-    pub fn generated_select_schema_generated_field_count(&self, field_count: u32) -> u32 {
-        numeric_count(&self.generated.select_schema_generated_fields, field_count)
-    }
-
-    /// Return how many generated SELECT scenarios observe one secondary-index count.
-    #[must_use]
-    pub fn generated_select_schema_index_count(&self, index_count: u32) -> u32 {
-        numeric_count(&self.generated.select_schema_indexes, index_count)
-    }
-
-    /// Return how many generated SELECT scenarios observe one nullable-field count.
-    #[must_use]
-    pub fn generated_select_schema_nullable_field_count(&self, field_count: u32) -> u32 {
-        numeric_count(&self.generated.select_schema_nullable_fields, field_count)
     }
 
     /// Borrow counts keyed by stable provider identity.

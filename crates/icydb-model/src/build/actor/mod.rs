@@ -350,35 +350,6 @@ pub enum BuildSqlUpdatePolicy {
     PublicBoundedDeterministic,
 }
 
-/// Build-script helper that emits generated actor code with host-provided
-/// generation options.
-///
-/// # Panics
-///
-/// Panics if Cargo does not provide `OUT_DIR`, the registered graph cannot be
-/// generated, or the consuming package's `icydb` dependency path cannot be
-/// resolved.
-#[macro_export]
-macro_rules! build_with_options {
-    ($actor:expr, $options:expr) => {
-        use std::{env::var, fs::File, io::Write, path::PathBuf};
-
-        // Register the build inputs and generated-code cfg knobs expected by
-        // the emitted actor glue.
-        println!("cargo:rerun-if-changed=build.rs");
-        println!("cargo:rustc-check-cfg=cfg(icydb)");
-        println!("cargo:rustc-check-cfg=cfg(feature, values(\"sql\"))");
-        println!("cargo:rustc-cfg=icydb");
-
-        // Render the actor module into Cargo's output directory.
-        let out_dir = var("OUT_DIR").expect("OUT_DIR not set");
-        let output = $crate::build::generate_with_options($actor, $options);
-        let actor_file = PathBuf::from(out_dir.clone()).join("actor.rs");
-        let mut file = File::create(actor_file)?;
-        file.write_all(output.as_bytes())?;
-    };
-}
-
 ///
 /// ActorBuilder
 ///

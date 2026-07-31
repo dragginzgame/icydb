@@ -9,7 +9,13 @@
 // The no-default test target intentionally type-checks shared test/helper
 // surfaces whose consuming tests live behind SQL, SQL-explain, or diagnostics
 // features. Keep production and all-features dead-code linting strict.
-#![cfg_attr(all(test, not(feature = "sql")), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    all(test, not(feature = "sql")),
+    expect(
+        dead_code,
+        reason = "shared test helpers have SQL, SQL-explain, and diagnostics consumers"
+    )
+)]
 // The query-only build owns the complete engine-neutral planner/executor
 // substrate. SQL is an optional frontend over that substrate and is currently
 // the only consumer of some grouped, aggregate, cursor, and diagnostic

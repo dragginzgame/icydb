@@ -37,8 +37,6 @@ pub(in crate::db) mod projection;
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db) use planning::route;
 #[cfg(any(test, feature = "query"))]
-mod runtime_context;
-#[cfg(any(test, feature = "query"))]
 mod scan;
 #[cfg(any(test, feature = "query"))]
 mod stream;
@@ -187,16 +185,6 @@ pub(in crate::db) use projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
-#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
-pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(test, not(feature = "diagnostics")))]
-pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(any(test, feature = "query"))]
-pub(in crate::db::executor) use runtime_context::{
-    record_row_check_covering_candidate_seen, record_row_check_index_entry_scanned,
-    record_row_check_index_key_owned_entry, record_row_check_index_row_identity_decoded,
-    record_row_check_row_emitted, record_row_presence_probe,
-};
 #[cfg(feature = "query")]
 pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
 #[cfg(feature = "query")]
@@ -222,12 +210,6 @@ pub(in crate::db::executor) use stream::{
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
 pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};
-#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
-pub use terminal::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
-#[cfg(all(test, not(feature = "diagnostics")))]
-pub(crate) use terminal::{
-    ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
-};
 #[cfg(all(feature = "query", feature = "diagnostics"))]
 pub(in crate::db) use terminal::{
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,

@@ -102,21 +102,6 @@ impl GeneratedFixtureRow {
             .map(|value| &value.value)
     }
 
-    /// Borrow the value assigned to one accepted field name.
-    #[must_use]
-    pub fn value_by_field_name<'a>(
-        &'a self,
-        snapshot: &SelectSnapshot,
-        field_name: &str,
-    ) -> Option<&'a GeneratedValue> {
-        let field_id = snapshot
-            .fields()
-            .iter()
-            .find(|field| field.name() == field_name)?
-            .id();
-        self.value_by_field_id(field_id)
-    }
-
     pub(crate) const fn values(&self) -> &[GeneratedFieldValue] {
         self.values.as_slice()
     }

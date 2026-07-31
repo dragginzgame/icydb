@@ -6,7 +6,6 @@ use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
     runtime::now_millis,
     traits::Repr,
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
 };
 
 /// Runtime clock access for the engine-neutral timestamp atom.
@@ -41,27 +40,6 @@ impl EntityKeyBytes for Timestamp {
         validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out.copy_from_slice(&self.as_millis().to_be_bytes());
         Ok(())
-    }
-}
-
-impl RuntimeValueMeta for Timestamp {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Timestamp {
-    fn to_value(&self) -> Value {
-        Value::Timestamp(*self)
-    }
-}
-
-impl RuntimeValueDecode for Timestamp {
-    fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Timestamp(value) => Some(*value),
-            _ => None,
-        }
     }
 }
 

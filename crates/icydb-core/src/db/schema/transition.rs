@@ -971,9 +971,10 @@ fn field_snapshot_storage_mismatch_detail(
 mod tests {
     use super::*;
     use crate::db::schema::{
-        AcceptedFieldKind, FieldInsertGeneration, FieldStorageDecode, LeafCodec, ScalarCodec,
-        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout,
-        SchemaVersion,
+        AcceptedFieldKind, AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
+        AcceptedSchemaFingerprint, ConstraintOrigin, FieldInsertGeneration, FieldStorageDecode,
+        LeafCodec, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault,
+        SchemaRowLayout, SchemaVersion, composite_catalog::CompositeTypeId,
     };
 
     fn snapshot(generation: Option<FieldInsertGeneration>) -> PersistedSchemaSnapshot {
@@ -1015,5 +1016,50 @@ mod tests {
                 SchemaTransitionRejectionDetailCode::FieldWritePolicy { field_index: 0 },
             );
         }
+    }
+
+    #[test]
+    fn generated_transition_accepts_exact_stable_identity_targeted_replacement() {
+        let actual = snapshot(None);
+        let target = AcceptedRuleTarget::new(
+            FieldId::new(1),
+            AcceptedNamedTypeIdentity::Composite(
+                CompositeTypeId::new(1).expect("test composite identity should be non-zero"),
+            ),
+        );
+        let catalog = actual
+            .constraint_catalog()
+            .clone()
+            .with_added_targeted_rule(
+                "limit".to_string(),
+                ConstraintOrigin::Generated,
+                target,
+                AcceptedRuleOperation::LengthRangeInclusive { min: 1, max: 8 },
+            )
+            .expect("accepted targeted rule should allocate");
+        let actual = actual.with_constraint_catalog(catalog);
+        let id = actual
+            .constraints()
+            .last()
+            .expect("targeted rule should exist")
+            .id();
+        let candidate_catalog = actual
+            .constraint_catalog()
+            .clone()
+            .with_replaced_targeted_rule_activation(
+                id,
+                target,
+                AcceptedRuleOperation::LengthRangeInclusive { min: 2, max: 7 },
+                AcceptedSchemaFingerprint::new([0x91; 32]),
+                2,
+            )
+            .expect("stable-identity semantic replacement should stage");
+        let expected = actual.clone().with_constraint_catalog(candidate_catalog);
+
+        let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&actual, &expected)
+        else {
+            panic!("stable-identity semantic replacement should use constraint activation");
+        };
+        assert_eq!(plan.kind(), SchemaTransitionPlanKind::ConstraintActivation);
     }
 }

@@ -310,7 +310,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
         .get(&entity_tag)
         .ok_or_else(InternalError::store_corruption)?;
 
-    if snapshot
+    let accepted = snapshot
         .constraint_catalog()
         .constraints()
         .iter()
@@ -322,8 +322,9 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
                     crate::db::schema::AcceptedConstraintKind::Check { .. }
                         | crate::db::schema::AcceptedConstraintKind::TargetedRule { .. }
                 )
-        })
-    {
+        });
+    let pending = snapshot.constraint_catalog().activation(constraint_id);
+    if accepted && pending.is_none() {
         return finalize_schema_application(
             db,
             &record,
@@ -331,11 +332,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
             SchemaChangeProgressStatus::Applied,
         );
     }
-
-    let pending = snapshot
-        .constraint_catalog()
-        .activation(constraint_id)
-        .ok_or_else(InternalError::store_corruption)?;
+    let pending = pending.ok_or_else(InternalError::store_corruption)?;
     if pending.origin() != ConstraintOrigin::Generated
         || !matches!(
             pending.kind(),
@@ -554,10 +551,16 @@ fn aborted_generated_row_local_candidate(
         .clone()
         .with_aborted_activation(constraint_id)
         .map_err(|_| InternalError::store_invariant())?;
+    let accepted_identity_remains = catalog
+        .constraints()
+        .iter()
+        .any(|constraint| constraint.id() == constraint_id);
     let mut snapshots = current.entity_snapshots().clone();
     snapshots.insert(entity_tag, snapshot.with_constraint_catalog(catalog));
     let mut source_bindings = current.source_bindings().clone();
-    source_bindings.remove_constraint_identity(entity_tag, constraint_id)?;
+    if !accepted_identity_remains {
+        source_bindings.remove_constraint_identity(entity_tag, constraint_id)?;
+    }
     let revision = current
         .revision()
         .checked_next()
@@ -1189,10 +1192,6 @@ fn added_generated_row_local_activations(
                         | ConstraintActivationKind::TargetedRule { .. }
                 )
                 && !before
-                    .constraints()
-                    .iter()
-                    .any(|accepted| accepted.id() == candidate.id())
-                && !before
                     .constraint_activations()
                     .iter()
                     .any(|accepted| accepted.id() == candidate.id())
@@ -1540,11 +1539,14 @@ fn write_allocation_identity(
 #[cfg(test)]
 mod tests {
     use super::{
-        AcceptedSchemaPublication, AcceptedStoreHead, abort_schema_application,
-        aborted_generated_row_local_candidate, apply_schema, continue_schema_application,
-        derive_accepted_head, derive_schema_change_job_id, ensure_recovered,
-        include_identity_state_count, lower_existing_schema_proposal,
-        lower_initial_schema_proposal, publish_accepted_schema_candidates_with_application_record,
+        AcceptedSchemaPublication, AcceptedStoreHead, DirectGeneratedRowLocalProof,
+        PendingGeneratedRowLocalConstraint, abort_schema_application,
+        aborted_generated_row_local_candidate, accepted_head_after_candidates,
+        application_authorities, apply_schema, continue_schema_application, derive_accepted_head,
+        derive_schema_change_job_id, ensure_recovered,
+        final_candidates_for_pending_row_local_constraint, include_identity_state_count,
+        lower_existing_schema_proposal, lower_initial_schema_proposal,
+        publish_accepted_schema_candidates_with_application_record,
         require_exact_empty_entity_count, schema_application_target,
     };
     use crate::{
@@ -1559,9 +1561,11 @@ mod tests {
                 StoreRuntimeStorageCapabilities,
             },
             schema::{
-                ConstraintOrigin, ExistingProposalStore, ProposalStoreTarget,
-                SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
-                SchemaChangeJob, SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
+                AcceptedConstraintKind, AcceptedRuleOperation, AcceptedSchemaRevisionBundle,
+                CandidateSchemaRevision, ConstraintOrigin, ConstraintValidationJob,
+                ExistingProposalStore, ProposalStoreTarget, SchemaApplicationRecord,
+                SchemaApplicationRecordOp, SchemaChangeActivation, SchemaChangeJob,
+                SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
             },
         },
         error::{ErrorClass, ErrorOrigin},
@@ -1571,13 +1575,15 @@ mod tests {
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
         EntityStoreAssignment, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment,
-        FieldInsertPolicy, FieldSourceKey, FieldType, ScalarLiteral, ScalarType, SchemaCapability,
-        SchemaFragment, SchemaName, SchemaProposal, SchemaSubmissionKey, SourceCheckExpr,
-        SourceCheckInstruction, TargetDatabaseIdentity, TargetStoreIdentity,
+        FieldInsertPolicy, FieldSourceKey, FieldType, NamedTypeFragment, RuleSourceKey,
+        ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment, SchemaName, SchemaProposal,
+        SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation,
+        TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey,
     };
     use std::cell::RefCell;
 
     const ABORT_STORE_PATH: &str = "schema_application_tests::AbortStore";
+    const EVOLUTION_STORE_PATH: &str = "schema_application_tests::EvolutionStore";
 
     #[test]
     fn database_identity_state_capacity_combines_store_inventories_exactly() {
@@ -1634,6 +1640,35 @@ mod tests {
         };
     }
 
+    thread_local! {
+        static EVOLUTION_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(186)));
+        static EVOLUTION_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(187)));
+        static EVOLUTION_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(188)));
+        static EVOLUTION_JOURNAL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(189)));
+        static EVOLUTION_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                EVOLUTION_STORE_PATH,
+                &EVOLUTION_DATA,
+                &EVOLUTION_INDEX,
+                &EVOLUTION_SCHEMA,
+                &EVOLUTION_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(186, "icydb.test.rule-evolution.data.v1"),
+                    StoreAllocationIdentity::new(187, "icydb.test.rule-evolution.index.v1"),
+                    StoreAllocationIdentity::new(188, "icydb.test.rule-evolution.schema.v1"),
+                    StoreAllocationIdentity::new(189, "icydb.test.rule-evolution.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("rule-evolution journaled store should register");
+            registry
+        };
+    }
+
     struct AbortCanister;
 
     impl Path for AbortCanister {
@@ -1646,6 +1681,20 @@ mod tests {
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 185;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.application-abort.integrity.v1";
+    }
+
+    struct EvolutionCanister;
+
+    impl Path for EvolutionCanister {
+        const PATH: &'static str = "schema_application_tests::EvolutionCanister";
+    }
+
+    impl CanisterKind for EvolutionCanister {
+        const COMMIT_MEMORY_ID: u8 = 190;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.rule-evolution.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 191;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.rule-evolution.integrity.v1";
     }
 
     fn name(value: &str) -> SchemaName {
@@ -1712,6 +1761,69 @@ mod tests {
         )
         .expect("schema proposal should compose");
         (proposal, entity_source, check_source)
+    }
+
+    fn targeted_rule_proposal(
+        expected_head: ExpectedAcceptedHead,
+        submission_key: &str,
+        operation: SourceRuleOperation,
+        database: TargetDatabaseIdentity,
+        store: TargetStoreIdentity,
+    ) -> (SchemaProposal, EntitySourceKey, ConstraintSourceKey) {
+        let entity_source =
+            EntitySourceKey::try_new("Measured").expect("entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("id source should admit");
+        let value_source = FieldSourceKey::try_new("value").expect("value source should admit");
+        let value_type = TypeSourceKey::try_new("Measure").expect("type source should admit");
+        let rule_source = RuleSourceKey::try_new("limit").expect("rule source should admit");
+        let constraint_source =
+            ConstraintSourceKey::for_targeted_field_rule(&value_source, &value_type, &rule_source);
+        let entity = EntityFragment::try_new(
+            name("Measured"),
+            vec![
+                FieldFragment::new(
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    name("value"),
+                    FieldType::Named(value_type.clone()),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            Vec::new(),
+            Vec::new(),
+            vec![ConstraintFragment::targeted_rule(
+                TargetedRuleFragment::new(value_source, value_type, name("limit"), operation),
+            )],
+        )
+        .expect("targeted entity should admit");
+        let proposal = SchemaProposal::try_compose(
+            vec![SchemaCapability::ACCEPTED_CHECKS],
+            database,
+            SchemaSubmissionKey::try_new(submission_key).expect("submission key should admit"),
+            expected_head,
+            vec![
+                SchemaFragment::try_new(
+                    vec![entity],
+                    vec![NamedTypeFragment::newtype(
+                        name("Measure"),
+                        FieldType::Scalar(ScalarType::Nat8),
+                    )],
+                )
+                .expect("schema fragment should admit"),
+            ],
+            vec![EntityStoreAssignment::new(entity_source.clone(), store)],
+            Vec::new(),
+        )
+        .expect("schema proposal should compose");
+        (proposal, entity_source, constraint_source)
     }
 
     #[test]
@@ -1882,6 +1994,387 @@ mod tests {
             replacement_id > constraint_id,
             "aborted accepted IDs must remain retired",
         );
+    }
+
+    #[test]
+    fn targeted_rule_edit_abort_keeps_prior_accepted_semantics_and_source_identity() {
+        let database = TargetDatabaseIdentity::from_bytes([0x81; 32]);
+        let store = TargetStoreIdentity::from_bytes([0x82; 32]);
+        let (initial, entity_source, constraint_source) = targeted_rule_proposal(
+            ExpectedAcceptedHead::Empty,
+            "targeted-abort-initial",
+            SourceRuleOperation::NumericRangeInclusive {
+                min: ScalarLiteral::Nat(0),
+                max: ScalarLiteral::Nat(10),
+            },
+            database,
+            store,
+        );
+        let initial_candidate = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "abort::TargetedStore",
+                identity: store,
+            }],
+        )
+        .expect("initial targeted proposal should lower")
+        .pop()
+        .expect("initial targeted proposal should produce one candidate");
+        let initial_bundle = initial_candidate.bundle();
+        let entity_tag = initial_bundle
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should bind");
+        let constraint_id = initial_bundle
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &constraint_source)
+            .expect("targeted source should bind");
+        let high_water = initial_bundle.entity_snapshots()[&entity_tag]
+            .constraint_id_allocator()
+            .high_water();
+        let (edited, _, _) = targeted_rule_proposal(
+            ExpectedAcceptedHead::Exact {
+                revision: initial_bundle.revision().get(),
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x83; 32]),
+            },
+            "targeted-abort-edit",
+            SourceRuleOperation::NumericMaximumInclusive {
+                value: ScalarLiteral::Nat(8),
+            },
+            database,
+            store,
+        );
+        let staged = lower_existing_schema_proposal(
+            &edited,
+            &[ExistingProposalStore {
+                path: "abort::TargetedStore",
+                identity: store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("targeted semantic edit should stage")
+        .pop()
+        .expect("targeted semantic edit should produce one candidate");
+        let aborted =
+            aborted_generated_row_local_candidate(staged.bundle(), entity_tag, constraint_id)
+                .expect("targeted semantic edit should abort through catalog authority");
+        let snapshot = &aborted.bundle().entity_snapshots()[&entity_tag];
+
+        assert!(
+            snapshot
+                .constraint_catalog()
+                .activation(constraint_id)
+                .is_none()
+        );
+        assert_eq!(snapshot.constraint_id_allocator().high_water(), high_water);
+        assert_eq!(
+            aborted
+                .bundle()
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &constraint_source),
+            Some(constraint_id),
+        );
+        assert!(snapshot.constraints().iter().any(|constraint| {
+            constraint.id() == constraint_id
+                && matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::TargetedRule { operation, .. }
+                        if matches!(
+                            operation.as_ref(),
+                            AcceptedRuleOperation::NumericRangeInclusive { .. }
+                        )
+                )
+        }));
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the staged publication, recovery, and promotion assertions form one lifecycle"
+    )]
+    fn targeted_rule_edit_activation_recovers_and_promotes_without_source_model() {
+        let db = Db::<EvolutionCanister>::new(&EVOLUTION_REGISTRY);
+        let empty_target =
+            schema_application_target(&db).expect("empty evolution target should issue");
+        let store_identity = empty_target
+            .stores()
+            .first()
+            .expect("evolution store should register")
+            .identity();
+        let (initial, entity_source, constraint_source) = targeted_rule_proposal(
+            empty_target.accepted_head().clone(),
+            "targeted-recovery-initial",
+            SourceRuleOperation::NumericRangeInclusive {
+                min: ScalarLiteral::Nat(0),
+                max: ScalarLiteral::Nat(10),
+            },
+            empty_target.database_identity(),
+            store_identity,
+        );
+        assert!(matches!(
+            apply_schema(&db, &initial)
+                .expect("initial targeted proposal should publish")
+                .outcome(),
+            SchemaChangeOutcome::Applied { .. },
+        ));
+
+        let direct_target =
+            schema_application_target(&db).expect("direct evolution target should issue");
+        let (direct_edit, _, _) = targeted_rule_proposal(
+            direct_target.accepted_head().clone(),
+            "targeted-direct-edit",
+            SourceRuleOperation::NumericMaximumInclusive {
+                value: ScalarLiteral::Nat(8),
+            },
+            direct_target.database_identity(),
+            store_identity,
+        );
+        assert!(matches!(
+            apply_schema(&db, &direct_edit)
+                .expect("empty-domain semantic edit should publish directly")
+                .outcome(),
+            SchemaChangeOutcome::Applied { .. },
+        ));
+        let store = db
+            .store_handle(EVOLUTION_STORE_PATH)
+            .expect("evolution store should resolve");
+        let direct = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("directly edited bundle should remain readable")
+            .expect("directly edited bundle should exist");
+        let entity_tag = direct
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("entity source should remain bound");
+        let constraint_id = direct
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &constraint_source)
+            .expect("direct edit should preserve constraint identity");
+        assert!(
+            direct.entity_snapshots()[&entity_tag]
+                .constraint_catalog()
+                .activation(constraint_id)
+                .is_none()
+        );
+        assert!(
+            direct.entity_snapshots()[&entity_tag]
+                .constraints()
+                .iter()
+                .any(|constraint| {
+                    constraint.id() == constraint_id
+                        && matches!(
+                            constraint.kind(),
+                            AcceptedConstraintKind::TargetedRule { operation, .. }
+                                if matches!(
+                                    operation.as_ref(),
+                                    AcceptedRuleOperation::NumericMaximumInclusive { .. }
+                                )
+                        )
+                })
+        );
+
+        let target = schema_application_target(&db).expect("staged evolution target should issue");
+        let (edited, _, _) = targeted_rule_proposal(
+            target.accepted_head().clone(),
+            "targeted-recovery-edit",
+            SourceRuleOperation::MultipleOf {
+                divisor: ScalarLiteral::Nat(2),
+            },
+            target.database_identity(),
+            store_identity,
+        );
+        let current = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("accepted evolution bundle should remain readable")
+            .expect("directly edited evolution bundle should exist");
+        let staged = lower_existing_schema_proposal(
+            &edited,
+            &[ExistingProposalStore {
+                path: EVOLUTION_STORE_PATH,
+                identity: store_identity,
+                bundle: &current,
+            }],
+        )
+        .expect("targeted edit should stage")
+        .pop()
+        .expect("targeted edit should produce one candidate");
+        assert_eq!(
+            staged
+                .bundle()
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &constraint_source),
+            Some(constraint_id),
+        );
+        let proof = DirectGeneratedRowLocalProof {
+            candidate_index: 0,
+            store,
+            store_path: EVOLUTION_STORE_PATH,
+            entity_tag,
+            entity_path: staged.bundle().entity_snapshots()[&entity_tag]
+                .entity_path()
+                .to_string(),
+            constraint_id,
+            historical_rows: 0,
+        };
+        let final_candidates = final_candidates_for_pending_row_local_constraint(
+            std::slice::from_ref(&staged),
+            &PendingGeneratedRowLocalConstraint { proof },
+        )
+        .expect("final semantic replacement should derive without source input");
+        let authorities = application_authorities(&db);
+        let candidate_head =
+            accepted_head_after_candidates(authorities.as_slice(), &final_candidates)
+                .expect("final candidate head should derive");
+        let digest = edited.digest().expect("proposal digest should derive");
+        let job_id = derive_schema_change_job_id(
+            target.database_identity(),
+            edited.submission_key(),
+            digest,
+            target.accepted_head(),
+        )
+        .expect("job identity should derive");
+        let receipt = crate::db::schema::SchemaChangeReceipt::new(
+            target.database_identity(),
+            edited.submission_key().clone(),
+            digest,
+            target.accepted_head().clone(),
+            SchemaChangeOutcome::Pending {
+                job: SchemaChangeJob::new(job_id),
+                candidate_head,
+            },
+        )
+        .expect("pending replacement receipt should admit");
+        let record = SchemaApplicationRecord::new(
+            receipt,
+            vec![
+                SchemaChangeActivation::new(
+                    store_identity,
+                    entity_tag.value(),
+                    constraint_id.get(),
+                )
+                .expect("replacement activation should admit"),
+            ],
+        )
+        .expect("pending replacement record should admit");
+        let operation =
+            SchemaApplicationRecordOp::insert(&record).expect("pending insert should prepare");
+        publish_accepted_schema_candidates_with_application_record(
+            vec![AcceptedSchemaPublication::new(
+                EVOLUTION_STORE_PATH,
+                store,
+                current.revision(),
+                &staged,
+            )],
+            operation,
+        )
+        .expect("staged replacement and record should publish atomically");
+
+        forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
+        ensure_recovered(&db).expect("recovery should restore the staged accepted activation");
+
+        let recovered = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("recovered staged bundle should decode")
+            .expect("recovered staged bundle should exist");
+        let recovered_snapshot = recovered.entity_snapshots()[&entity_tag].clone();
+        let validating_catalog = recovered_snapshot
+            .constraint_catalog()
+            .clone()
+            .with_validation_started(constraint_id)
+            .expect("recovered replacement should enter validation");
+        let mut validating_snapshots = recovered.entity_snapshots().clone();
+        validating_snapshots.insert(
+            entity_tag,
+            recovered_snapshot.with_constraint_catalog(validating_catalog),
+        );
+        let validating_bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+            recovered
+                .revision()
+                .checked_next()
+                .expect("validation revision should remain available"),
+            recovered.store_path(),
+            recovered.enum_catalog().clone(),
+            recovered.composite_catalog().clone(),
+            recovered.source_bindings_for_tests().clone(),
+            validating_snapshots,
+        )
+        .expect("validating replacement bundle should close");
+        let validating_candidate = CandidateSchemaRevision::new(validating_bundle)
+            .expect("validating replacement candidate should encode");
+        let validating_activation = validating_candidate.bundle().entity_snapshots()[&entity_tag]
+            .constraint_catalog()
+            .activation(constraint_id)
+            .expect("validating replacement activation should remain present");
+        let validation_job = ConstraintValidationJob::start(
+            entity_tag,
+            validating_candidate.bundle().entity_snapshots()[&entity_tag]
+                .entity_path()
+                .to_string(),
+            validating_activation,
+            None,
+        )
+        .expect("validating replacement job should derive from accepted state");
+        store
+            .with_schema(|schema| {
+                schema.validate_live_activation_transition(validating_candidate.bundle())?;
+                schema.validate_constraint_validation_job_closure_with_change(
+                    validating_candidate.bundle(),
+                    Some(&validation_job),
+                    None,
+                )
+            })
+            .expect("validating replacement transition and job should close");
+
+        let started = continue_schema_application(&db, job_id, None).unwrap_or_else(|error| {
+            panic!(
+                "recovered replacement should begin validation: {:?}/{:?}",
+                error.class(),
+                error.origin(),
+            )
+        });
+        assert_eq!(started.status(), &SchemaChangeProgressStatus::Started);
+        let mut applied = None;
+        for _ in 0..8 {
+            let progress = continue_schema_application(&db, job_id, None)
+                .expect("replacement validation should advance from durable authority");
+            if progress.status() == &SchemaChangeProgressStatus::Applied {
+                applied = Some(progress);
+                break;
+            }
+        }
+        let applied = applied.expect("empty historical domain should promote within bounded steps");
+        assert!(matches!(
+            applied.receipt().outcome(),
+            SchemaChangeOutcome::Applied { .. }
+        ));
+        let promoted = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("promoted bundle should remain readable")
+            .expect("promoted bundle should exist");
+        let snapshot = &promoted.entity_snapshots()[&entity_tag];
+        assert!(
+            snapshot
+                .constraint_catalog()
+                .activation(constraint_id)
+                .is_none()
+        );
+        assert_eq!(
+            promoted
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &constraint_source),
+            Some(constraint_id),
+        );
+        assert!(snapshot.constraints().iter().any(|constraint| {
+            constraint.id() == constraint_id
+                && matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::TargetedRule { operation, .. }
+                        if matches!(
+                            operation.as_ref(),
+                            AcceptedRuleOperation::MultipleOf { .. }
+                        )
+                )
+        }));
     }
 
     #[test]

@@ -42,10 +42,6 @@ impl FieldList {
         self.fields.iter_mut()
     }
 
-    pub fn has_default(&self) -> bool {
-        self.fields.iter().any(|f| f.default.is_some())
-    }
-
     pub fn push(&mut self, field: Field) {
         self.fields.push(field);
     }
@@ -55,17 +51,6 @@ impl FieldList {
             field.validate()?;
         }
         Ok(())
-    }
-
-    /// Generate default assignments for struct initialization.
-    pub fn default_assignments(&self) -> Vec<(Ident, TokenStream)> {
-        self.iter()
-            .filter_map(|field| {
-                field
-                    .rust_default_expr()
-                    .map(|expr| (field.name.clone(), expr))
-            })
-            .collect()
     }
 }
 
@@ -310,11 +295,6 @@ impl Field {
 
     pub fn has_rust_default(&self) -> bool {
         self.rust_default_expr().is_some()
-    }
-
-    pub fn const_ident(&self) -> Ident {
-        let constant = self.name.to_string().to_case(Case::Constant);
-        format_ident!("{constant}")
     }
 
     pub(crate) fn managed_timestamp(name: Ident, write_management: FieldWriteManagement) -> Self {

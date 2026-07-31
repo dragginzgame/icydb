@@ -1026,22 +1026,10 @@ impl SelectQuery {
         self.order.len()
     }
 
-    /// Return the number of projected result cells.
-    #[must_use]
-    pub const fn projection_count(&self) -> usize {
-        self.projections.len()
-    }
-
     /// Return whether query-level duplicate elimination is enabled.
     #[must_use]
     pub const fn is_distinct(&self) -> bool {
         self.distinct
-    }
-
-    /// Return the number of explicit grouping keys.
-    #[must_use]
-    pub const fn group_key_count(&self) -> usize {
-        self.group_by.len()
     }
 
     /// Return whether a post-aggregate predicate is present.

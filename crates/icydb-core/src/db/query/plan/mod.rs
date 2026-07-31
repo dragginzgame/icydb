@@ -516,7 +516,7 @@ impl VisibleIndexes {
     }
 
     /// Return whether accepted field-path planner contracts are internally
-    /// consistent with their temporary generated index bridge.
+    /// consistent with their reduced semantic access facts.
     #[must_use]
     pub(in crate::db) fn accepted_field_path_contracts_are_consistent(&self) -> bool {
         self.accepted_field_path_indexes()

@@ -1563,18 +1563,6 @@ impl MutationOperation {
         }
     }
 
-    /// Return whether this operation is INSERT.
-    #[must_use]
-    pub const fn is_insert(&self) -> bool {
-        matches!(self, Self::Insert { .. } | Self::InsertFromQuery { .. })
-    }
-
-    /// Return whether this operation is UPDATE.
-    #[must_use]
-    pub const fn is_update(&self) -> bool {
-        matches!(self, Self::Update { .. })
-    }
-
     /// Return whether this operation is DELETE.
     #[must_use]
     pub const fn is_delete(&self) -> bool {

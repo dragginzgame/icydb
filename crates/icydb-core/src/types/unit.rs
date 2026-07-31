@@ -2,12 +2,9 @@
 
 pub use icydb_schema::Unit;
 
-use crate::{
-    db::{
-        EntityKeyBytes, EntityKeyBytesError, PrimaryKeyComponent, PrimaryKeyDecode,
-        PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue, validate_entity_key_bytes_buffer,
-    },
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
+use crate::db::{
+    EntityKeyBytes, EntityKeyBytesError, PrimaryKeyComponent, PrimaryKeyDecode, PrimaryKeyEncode,
+    PrimaryKeyEncodeError, PrimaryKeyValue, validate_entity_key_bytes_buffer,
 };
 
 impl EntityKeyBytes for Unit {
@@ -15,42 +12,6 @@ impl EntityKeyBytes for Unit {
 
     fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
         validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)
-    }
-}
-
-impl RuntimeValueMeta for () {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for () {
-    fn to_value(&self) -> Value {
-        Value::Unit
-    }
-}
-
-impl RuntimeValueDecode for () {
-    fn from_value(value: &Value) -> Option<Self> {
-        matches!(value, Value::Unit).then_some(())
-    }
-}
-
-impl RuntimeValueMeta for Unit {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Unit {
-    fn to_value(&self) -> Value {
-        Value::Unit
-    }
-}
-
-impl RuntimeValueDecode for Unit {
-    fn from_value(value: &Value) -> Option<Self> {
-        matches!(value, Value::Unit).then_some(Self)
     }
 }
 

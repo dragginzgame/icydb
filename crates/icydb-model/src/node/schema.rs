@@ -319,6 +319,13 @@ enum SchemaState {
 }
 
 impl SchemaState {
+    #[cfg_attr(
+        target_arch = "wasm32",
+        expect(
+            clippy::unused_self,
+            reason = "Wasm retains only the collecting state while callers share the host state-machine method"
+        )
+    )]
     const fn is_sealed(self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         {

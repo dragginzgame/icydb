@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use icydb_schema::{
     ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldInsertPolicy, FieldManagementPolicy,
     FieldSourceKey, FieldType, IndexKeyFragment, IndexSourceKey, NamedTypeFragment,
-    RelationSourceKey, ScalarType, SchemaProposal, SchemaRemoval, SourceRuleOperation,
-    TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey,
+    RelationSourceKey, ScalarLiteral, ScalarType, SchemaProposal, SchemaRemoval,
+    SourceRuleOperation, TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey,
 };
 
 use crate::{
@@ -30,8 +30,9 @@ use crate::{
             PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
             SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
             SchemaInsertDefault, SchemaRowLayout, SchemaVersion, ValueAdmissionBudget,
-            accepted_rule_length_kind_is_supported, accepted_rule_numeric_kind_is_supported,
-            accepted_rule_target_is_reachable, bind_source_check_expr, bind_source_rule_literal,
+            accepted_rule_exact_numeric_kind_is_supported, accepted_rule_length_kind_is_supported,
+            accepted_rule_numeric_kind_is_supported, accepted_rule_target_is_reachable,
+            bind_source_check_expr, bind_source_rule_literal,
             composite_catalog::{
                 AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
                 AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
@@ -2064,6 +2065,10 @@ fn bind_targeted_rule(
     let resolved_kind = composite_catalog
         .resolve_newtype_value_kind(&target_kind)
         .ok_or_else(InternalError::store_unsupported)?;
+    let bind_literal = |literal: &ScalarLiteral, kind: AcceptedFieldKind| {
+        bind_source_rule_literal(literal, kind, bindings, enum_catalog, composite_catalog)
+            .map_err(|_| InternalError::store_unsupported())
+    };
     let operation = match proposed.operation() {
         SourceRuleOperation::LengthRangeInclusive { min, max }
             if accepted_rule_length_kind_is_supported(&resolved_kind) =>
@@ -2074,42 +2079,42 @@ fn bind_targeted_rule(
             }
         }
         SourceRuleOperation::NumericMinimumInclusive { value }
-            if accepted_rule_numeric_kind_is_supported(&resolved_kind) =>
+            if accepted_rule_numeric_kind_is_supported(&resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(value, &resolved_kind) =>
         {
             AcceptedRuleOperation::NumericMinimumInclusive {
-                value: bind_source_rule_literal(
-                    value,
-                    resolved_kind,
-                    bindings,
-                    enum_catalog,
-                    composite_catalog,
-                )
-                .map_err(|_| InternalError::store_unsupported())?,
+                value: bind_literal(value, resolved_kind)?,
+            }
+        }
+        SourceRuleOperation::NumericMaximumInclusive { value }
+            if accepted_rule_numeric_kind_is_supported(&resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(value, &resolved_kind) =>
+        {
+            AcceptedRuleOperation::NumericMaximumInclusive {
+                value: bind_literal(value, resolved_kind)?,
             }
         }
         SourceRuleOperation::NumericRangeInclusive { min, max }
-            if accepted_rule_numeric_kind_is_supported(&resolved_kind) =>
+            if accepted_rule_numeric_kind_is_supported(&resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(min, &resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(max, &resolved_kind) =>
         {
             AcceptedRuleOperation::NumericRangeInclusive {
-                min: bind_source_rule_literal(
-                    min,
-                    resolved_kind.clone(),
-                    bindings,
-                    enum_catalog,
-                    composite_catalog,
-                )
-                .map_err(|_| InternalError::store_unsupported())?,
-                max: bind_source_rule_literal(
-                    max,
-                    resolved_kind,
-                    bindings,
-                    enum_catalog,
-                    composite_catalog,
-                )
-                .map_err(|_| InternalError::store_unsupported())?,
+                min: bind_literal(min, resolved_kind.clone())?,
+                max: bind_literal(max, resolved_kind)?,
+            }
+        }
+        SourceRuleOperation::MultipleOf { divisor }
+            if accepted_rule_exact_numeric_kind_is_supported(&resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(divisor, &resolved_kind) =>
+        {
+            AcceptedRuleOperation::MultipleOf {
+                divisor: bind_literal(divisor, resolved_kind)?,
             }
         }
         SourceRuleOperation::LengthRangeInclusive { .. }
+        | SourceRuleOperation::MultipleOf { .. }
+        | SourceRuleOperation::NumericMaximumInclusive { .. }
         | SourceRuleOperation::NumericMinimumInclusive { .. }
         | SourceRuleOperation::NumericRangeInclusive { .. } => {
             return Err(InternalError::store_unsupported());
@@ -2119,6 +2124,17 @@ fn bind_targeted_rule(
         AcceptedRuleTarget::new(root_field_id, target_type),
         operation,
     ))
+}
+
+fn source_rule_literal_is_exact_for_accepted_kind(
+    literal: &ScalarLiteral,
+    kind: &AcceptedFieldKind,
+) -> bool {
+    if let (ScalarLiteral::Decimal(value), AcceptedFieldKind::Decimal { scale }) = (literal, kind) {
+        let value = value.normalize();
+        return value.scale() <= *scale && value.scale_to_integer(*scale).is_some();
+    }
+    true
 }
 
 fn lower_existing_constraints(
@@ -2245,23 +2261,11 @@ impl ExistingConstraintLowering<'_> {
             .bindings
             .constraint(self.entity_tag, proposed.source_key())
         {
-            let accepted_matches = self
+            let accepted = self
                 .accepted_snapshot
                 .constraints()
                 .iter()
-                .find(|constraint| constraint.id() == constraint_id)
-                .is_some_and(|accepted| {
-                    accepted.origin() == ConstraintOrigin::Generated
-                        && accepted.name() == proposed.name().as_str()
-                        && matches!(
-                            accepted.kind(),
-                            AcceptedConstraintKind::TargetedRule {
-                                target: accepted_target,
-                                operation: accepted_operation,
-                            } if *accepted_target == target
-                                && accepted_operation.as_ref() == &operation
-                        )
-                });
+                .find(|constraint| constraint.id() == constraint_id);
             let activation_matches = self
                 .accepted_snapshot
                 .constraint_activations()
@@ -2279,9 +2283,37 @@ impl ExistingConstraintLowering<'_> {
                                 && accepted_operation.as_ref() == &operation
                         )
                 });
-            if !accepted_matches && !activation_matches {
+            if activation_matches {
+                return Ok((catalog, constraint_id));
+            }
+            let Some(accepted) = accepted else {
+                return Err(InternalError::store_unsupported());
+            };
+            let AcceptedConstraintKind::TargetedRule {
+                target: accepted_target,
+                operation: accepted_operation,
+            } = accepted.kind()
+            else {
+                return Err(InternalError::store_unsupported());
+            };
+            if accepted.origin() != ConstraintOrigin::Generated
+                || accepted.name() != proposed.name().as_str()
+                || *accepted_target != target
+            {
                 return Err(InternalError::store_unsupported());
             }
+            if accepted_operation.as_ref() == &operation {
+                return Ok((catalog, constraint_id));
+            }
+            let catalog = catalog
+                .with_replaced_targeted_rule_activation(
+                    constraint_id,
+                    target,
+                    operation,
+                    self.bundle.semantic_fingerprint()?,
+                    self.activation_epoch()?,
+                )
+                .map_err(|_| InternalError::store_unsupported())?;
             return Ok((catalog, constraint_id));
         }
 
@@ -3111,6 +3143,29 @@ mod tests {
         include_rule: bool,
         removals: Vec<SchemaRemoval>,
     ) -> TargetedRuleProposalFixture {
+        targeted_rule_proposal_fixture_with_operation(
+            expected_head,
+            submission_key,
+            value_type_name,
+            other_type_name,
+            "range",
+            include_rule.then_some(SourceRuleOperation::NumericRangeInclusive {
+                min: ScalarLiteral::Nat(0),
+                max: ScalarLiteral::Nat(10),
+            }),
+            removals,
+        )
+    }
+
+    fn targeted_rule_proposal_fixture_with_operation(
+        expected_head: ExpectedAcceptedHead,
+        submission_key: &str,
+        value_type_name: &str,
+        other_type_name: &str,
+        rule_name: &str,
+        operation: Option<SourceRuleOperation>,
+        removals: Vec<SchemaRemoval>,
+    ) -> TargetedRuleProposalFixture {
         let entity_source =
             EntitySourceKey::try_new("Targeted").expect("entity source should admit");
         let id_source = FieldSourceKey::try_new("id").expect("field source should admit");
@@ -3118,19 +3173,16 @@ mod tests {
         let value_type = TypeSourceKey::try_new(value_type_name).expect("type source should admit");
         let other_type = TypeSourceKey::try_new(other_type_name).expect("type source should admit");
         let rule_source =
-            icydb_schema::RuleSourceKey::try_new("range").expect("rule source should admit");
+            icydb_schema::RuleSourceKey::try_new(rule_name).expect("rule source should admit");
         let constraint_source =
             ConstraintSourceKey::for_targeted_field_rule(&value_source, &value_type, &rule_source);
-        let constraints = include_rule
-            .then(|| {
+        let constraints = operation
+            .map(|operation| {
                 ConstraintFragment::targeted_rule(TargetedRuleFragment::new(
                     value_source.clone(),
                     value_type.clone(),
-                    name("range"),
-                    SourceRuleOperation::NumericRangeInclusive {
-                        min: ScalarLiteral::Nat(0),
-                        max: ScalarLiteral::Nat(10),
-                    },
+                    name(rule_name),
+                    operation,
                 ))
             })
             .into_iter()
@@ -3776,6 +3828,240 @@ mod tests {
                 Some(ConstraintActivationKind::TargetedRule { .. })
             ),
             "targeted addition must remain pending until historical proof",
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the stable identity, write gate, and direct promotion assertions form one lifecycle"
+    )]
+    fn targeted_rule_semantic_edit_stages_and_promotes_under_stable_accepted_identity() {
+        let initial = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Empty,
+            "targeted-edit-initial",
+            "Value",
+            "Other",
+            true,
+            Vec::new(),
+        );
+        let initial_candidate = lower_initial_schema_proposal(
+            &initial.proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: initial.store,
+            }],
+        )
+        .expect("initial targeted rule should lower")
+        .pop()
+        .expect("initial targeted rule should produce one candidate");
+        let initial_bundle = initial_candidate.bundle();
+        let entity_tag = initial_bundle
+            .source_bindings_for_tests()
+            .entity(&initial.entity_source)
+            .expect("entity source should bind");
+        let constraint_id = initial_bundle
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &initial.constraint_source)
+            .expect("targeted source should bind");
+        let initial_snapshot = &initial_bundle.entity_snapshots()[&entity_tag];
+        let initial_high_water = initial_snapshot.constraint_id_allocator().high_water();
+
+        let edited = targeted_rule_proposal_fixture_with_operation(
+            ExpectedAcceptedHead::Exact {
+                revision: initial_bundle.revision().get(),
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x34; 32]),
+            },
+            "targeted-edit-candidate",
+            "Value",
+            "Other",
+            "range",
+            Some(SourceRuleOperation::NumericMaximumInclusive {
+                value: ScalarLiteral::Nat(8),
+            }),
+            Vec::new(),
+        );
+        let candidate = lower_existing_schema_proposal(
+            &edited.proposal,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: initial.store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("same-identity semantic edit should stage through accepted activation")
+        .pop()
+        .expect("semantic edit should produce one candidate");
+        let staged = &candidate.bundle().entity_snapshots()[&entity_tag];
+
+        assert_eq!(
+            candidate
+                .bundle()
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &edited.constraint_source),
+            Some(constraint_id),
+        );
+        assert_eq!(
+            staged.constraint_id_allocator().high_water(),
+            initial_high_water,
+            "semantic edits must not allocate a replacement identity",
+        );
+        assert!(staged.constraints().iter().any(|constraint| {
+            constraint.id() == constraint_id
+                && matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::TargetedRule { operation, .. }
+                        if matches!(
+                            operation.as_ref(),
+                            AcceptedRuleOperation::NumericRangeInclusive { .. }
+                        )
+                )
+        }));
+        assert!(matches!(
+            staged
+                .constraint_catalog()
+                .activation(constraint_id)
+                .map(crate::db::schema::ConstraintActivationSnapshot::kind),
+            Some(ConstraintActivationKind::TargetedRule { operation, .. })
+                if matches!(
+                    operation.as_ref(),
+                    AcceptedRuleOperation::NumericMaximumInclusive { .. }
+                )
+        ));
+
+        let accepted_schema = AcceptedSchemaSnapshot::try_new(staged.clone())
+            .expect("staged replacement should remain accepted row authority");
+        let value_catalog = AcceptedValueCatalogHandle::new(
+            candidate.bundle().enum_catalog().clone(),
+            candidate.bundle().composite_catalog().clone(),
+            AcceptedStoreCatalogScope::new(),
+            candidate.revision(),
+            candidate.root().fingerprint(),
+        );
+        let program =
+            CompiledAcceptedRowConstraints::compile(&accepted_schema, &value_catalog, [0xA4; 16])
+                .expect("old accepted rule and candidate write gate should compile together");
+        let target_field = match staged
+            .constraint_catalog()
+            .activation(constraint_id)
+            .expect("replacement activation should remain staged")
+            .kind()
+        {
+            ConstraintActivationKind::TargetedRule { target, .. } => target.root_field_id(),
+            _ => panic!("replacement activation should remain targeted"),
+        };
+        let target_slot = staged
+            .row_layout()
+            .slot_for_field(target_field)
+            .expect("target root should retain a row slot");
+        let mut values = vec![Some(Value::Nat64(0)); staged.row_layout().allocated_slot_count()];
+        values[usize::from(target_slot.get())] = Some(Value::Nat64(9));
+        assert!(
+            program.evaluate([0xA4; 16], &values).is_err(),
+            "a row admitted by the old range must still be rejected by the staged maximum",
+        );
+
+        let promoted_catalog = staged
+            .constraint_catalog()
+            .clone()
+            .with_directly_validated_activation(constraint_id)
+            .expect("bounded proof should promote the replacement");
+        assert!(promoted_catalog.activation(constraint_id).is_none());
+        assert!(promoted_catalog.constraints().iter().any(|constraint| {
+            constraint.id() == constraint_id
+                && matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::TargetedRule { operation, .. }
+                        if matches!(
+                            operation.as_ref(),
+                            AcceptedRuleOperation::NumericMaximumInclusive { .. }
+                        )
+                )
+        }));
+    }
+
+    #[test]
+    fn targeted_rule_local_name_replacement_is_explicit_remove_and_fresh_add() {
+        let initial = targeted_rule_proposal_fixture(
+            ExpectedAcceptedHead::Empty,
+            "targeted-rename-initial",
+            "Value",
+            "Other",
+            true,
+            Vec::new(),
+        );
+        let initial_candidate = lower_initial_schema_proposal(
+            &initial.proposal,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: initial.store,
+            }],
+        )
+        .expect("initial targeted rule should lower")
+        .pop()
+        .expect("initial targeted rule should produce one candidate");
+        let initial_bundle = initial_candidate.bundle();
+        let entity_tag = initial_bundle
+            .source_bindings_for_tests()
+            .entity(&initial.entity_source)
+            .expect("entity source should bind");
+        let old_id = initial_bundle
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &initial.constraint_source)
+            .expect("old targeted source should bind");
+        let replacement = targeted_rule_proposal_fixture_with_operation(
+            ExpectedAcceptedHead::Exact {
+                revision: initial_bundle.revision().get(),
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0x35; 32]),
+            },
+            "targeted-rename-replacement",
+            "Value",
+            "Other",
+            "cap",
+            Some(SourceRuleOperation::NumericMaximumInclusive {
+                value: ScalarLiteral::Nat(8),
+            }),
+            vec![SchemaRemoval::Constraint {
+                entity: initial.entity_source.clone(),
+                constraint: initial.constraint_source.clone(),
+            }],
+        );
+        let candidate = lower_existing_schema_proposal(
+            &replacement.proposal,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: initial.store,
+                bundle: initial_bundle,
+            }],
+        )
+        .expect("explicit remove/add should lower")
+        .pop()
+        .expect("explicit remove/add should produce one candidate");
+        let new_id = candidate
+            .bundle()
+            .source_bindings_for_tests()
+            .constraint(entity_tag, &replacement.constraint_source)
+            .expect("replacement source should bind");
+
+        assert!(new_id > old_id);
+        assert_eq!(
+            candidate
+                .bundle()
+                .source_bindings_for_tests()
+                .constraint(entity_tag, &initial.constraint_source),
+            None,
+        );
+        assert!(
+            candidate.bundle().entity_snapshots()[&entity_tag]
+                .constraint_catalog()
+                .activation(new_id)
+                .is_some(),
+        );
+        assert!(
+            !candidate.bundle().entity_snapshots()[&entity_tag]
+                .constraints()
+                .iter()
+                .any(|constraint| constraint.id() == old_id)
         );
     }
 

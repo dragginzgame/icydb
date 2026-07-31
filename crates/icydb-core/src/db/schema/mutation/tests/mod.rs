@@ -81,6 +81,18 @@ fn nullable_text_field(name: &str, id: u32, slot: u16) -> PersistedFieldSnapshot
     )
 }
 
+fn non_unique_name_index() -> PersistedIndexSnapshot {
+    PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "by_name".to_string(),
+        "test::mutation::by_name".to_string(),
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        Some("name IS NOT NULL".to_string()),
+    )
+}
+
 fn name_key_path() -> PersistedIndexFieldPathSnapshot {
     PersistedIndexFieldPathSnapshot::new(
         FieldId::new(2),
@@ -88,6 +100,26 @@ fn name_key_path() -> PersistedIndexFieldPathSnapshot {
         vec!["name".to_string()],
         AcceptedFieldKind::Text { max_len: None },
         false,
+    )
+}
+
+fn expression_name_index() -> PersistedIndexSnapshot {
+    PersistedIndexSnapshot::new(
+        SchemaIndexId::new(2).expect("test index identity should be non-zero"),
+        2,
+        "by_lower_name".to_string(),
+        "test::mutation::by_lower_name".to_string(),
+        false,
+        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+            Box::new(PersistedIndexExpressionSnapshot::new(
+                PersistedIndexExpressionOp::Lower,
+                name_key_path(),
+                AcceptedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
+                "expr:v1:LOWER(name)".to_string(),
+            )),
+        )]),
+        Some("LOWER(name) IS NOT NULL".to_string()),
     )
 }
 
@@ -205,4 +237,5 @@ fn snapshot_with_indexes(
     .with_relations(snapshot.relations().to_vec())
 }
 
+mod planning;
 mod user_index_domain;

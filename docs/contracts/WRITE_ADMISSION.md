@@ -27,6 +27,14 @@ nominal accepted type, visits every finite direct or nested occurrence, and
 reports the first bounded typed path. Generated declarations and SQL text do
 not remain as parallel enforcement authority.
 
+A semantic edit to one generated targeted rule keeps its accepted constraint
+ID. Until historical proof completes, the prior accepted operation remains
+authoritative and a same-ID activation evaluates the candidate operation as an
+additional new-write gate. Promotion atomically replaces the old operation;
+abort removes only the candidate and leaves the prior accepted operation and
+source binding unchanged. Recovery resumes this lifecycle from accepted
+catalog and validation-job state without consulting the generated model.
+
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
 

@@ -23,9 +23,5 @@ remain = { workspace = true }
 serde = { workspace = true }
 syn-darling = { workspace = true }
 
-[dev-dependencies]
-candid = { workspace = true }
-trybuild = { workspace = true }
-
 [lints]
 workspace = true

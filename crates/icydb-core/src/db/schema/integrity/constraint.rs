@@ -3,7 +3,7 @@
 use crate::db::schema::{
     AcceptedConstraintCatalog, AcceptedConstraintKind, ConstraintActivationKind, ConstraintOrigin,
     FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
-    constraint::accepted_constraint_name_is_valid,
+    constraint::{accepted_constraint_name_is_valid, targeted_rule_activation_replaces_constraint},
 };
 
 // Prove exact one-to-one closure without repeating the structural owners'
@@ -104,7 +104,8 @@ fn constraint_headers_are_invalid(catalog: &AcceptedConstraintCatalog) -> bool {
             || id > catalog.allocator().high_water()
             || !accepted_constraint_name_is_valid(activation.name())
             || constraints.iter().any(|constraint| {
-                constraint.id() == activation.id() || constraint.name() == activation.name()
+                (constraint.id() == activation.id() || constraint.name() == activation.name())
+                    && !targeted_rule_activation_replaces_constraint(constraint, activation)
             })
             || activations[..position]
                 .iter()

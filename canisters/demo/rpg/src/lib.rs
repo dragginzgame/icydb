@@ -14,10 +14,6 @@ use icydb_testing_demo_rpg_fixtures::{
 icydb::start!();
 
 /// Load one deterministic baseline fixture dataset.
-#[allow(
-    dead_code,
-    reason = "fixture load hook is invoked by generated canister endpoint glue"
-)]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db()?.execute_trusted_structural_insert_batch(
         "Character",

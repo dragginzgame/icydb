@@ -1,8 +1,6 @@
 #[cfg(any(test, feature = "query"))]
 use crate::db::{
-    data::{StructuralRowFieldBytes, persisted_row::reader::metrics::StructuralReadProbe},
-    key_taxonomy::PrimaryKeyValue,
-    schema::AcceptedFieldKind,
+    data::StructuralRowFieldBytes, key_taxonomy::PrimaryKeyValue, schema::AcceptedFieldKind,
 };
 use crate::{
     db::schema::LeafCodec,
@@ -159,14 +157,7 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
 pub(super) fn materialize_primary_key_slot_value_from_expected_component_with_accepted_field(
     field: AcceptedFieldDecodeContract<'_>,
     expected_key: PrimaryKeyComponent,
-    probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
-    probe.record_validated_slot();
-    if matches!(field.leaf_codec(), LeafCodec::Structural) {
-        probe.record_validated_non_scalar();
-        probe.record_materialized_non_scalar();
-    }
-
     materialize_primary_key_value_from_persisted_kind(field.kind(), expected_key)
 }
 

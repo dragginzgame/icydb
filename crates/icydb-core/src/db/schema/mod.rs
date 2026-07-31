@@ -120,8 +120,9 @@ pub(in crate::db) use constraint::{
     ConstraintActivationState, ConstraintOrigin,
 };
 pub(in crate::db::schema) use constraint::{
-    accepted_rule_length_kind_is_supported, accepted_rule_numeric_kind_is_supported,
-    accepted_rule_target_is_reachable, validate_accepted_targeted_rules,
+    accepted_rule_exact_numeric_kind_is_supported, accepted_rule_length_kind_is_supported,
+    accepted_rule_numeric_kind_is_supported, accepted_rule_target_is_reachable,
+    validate_accepted_targeted_rules,
 };
 pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress;
 #[cfg(feature = "sql")]

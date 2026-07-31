@@ -47,12 +47,6 @@ pub(in crate::db) use metrics::{
     DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
-#[cfg(feature = "diagnostics")]
-pub use metrics::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
-#[cfg(all(test, not(feature = "diagnostics")))]
-pub(crate) use metrics::{
-    ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
-};
 pub(in crate::db::executor) use plan::{
     KernelRowOrderWindow, KernelRowScanStrategy, resolve_cursorless_short_path_plan,
 };

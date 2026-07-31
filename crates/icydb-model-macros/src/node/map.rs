@@ -35,7 +35,7 @@ impl HasDef for Map {
 
 impl ValidateNode for Map {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.with_type_traits().validate()?;
+        self.traits.validate_for_type()?;
         self.key.validate()?;
         self.value.validate()?;
 
@@ -106,7 +106,7 @@ impl HasSchemaPart for Map {
 
 impl HasTraits for Map {
     fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.with_type_traits().build();
+        let mut traits = self.traits.build_for_type();
         traits.add(TraitKind::Default);
         traits.add(TraitKind::MapCollection);
         traits.add(TraitKind::Deref);

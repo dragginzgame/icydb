@@ -2,10 +2,7 @@
 
 pub use icydb_schema::Subaccount;
 
-use crate::{
-    db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-};
+use crate::db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer};
 
 impl EntityKeyBytes for Subaccount {
     const BYTE_LEN: usize = 32;
@@ -14,26 +11,5 @@ impl EntityKeyBytes for Subaccount {
         validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
         out.copy_from_slice(&self.to_bytes());
         Ok(())
-    }
-}
-
-impl RuntimeValueMeta for Subaccount {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Subaccount {
-    fn to_value(&self) -> Value {
-        Value::Subaccount(*self)
-    }
-}
-
-impl RuntimeValueDecode for Subaccount {
-    fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Subaccount(value) => Some(*value),
-            _ => None,
-        }
     }
 }

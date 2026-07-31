@@ -7,6 +7,7 @@ use crate::{
             AcceptedFieldDecodeContract, ConstraintActivationKind, ConstraintOrigin,
             PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
             SchemaHistoricalFill, SchemaMutationRequest,
+            constraint::targeted_rule_activation_replaces_constraint,
         },
     },
     value::Value,
@@ -37,8 +38,6 @@ pub(super) fn generated_constraint_activations_only_changed(
             .starts_with(actual.candidate_indexes())
         || actual.constraints() != expected.constraints()
         || actual.constraint_activations().len() >= expected.constraint_activations().len()
-        || actual.constraint_id_allocator().high_water()
-            >= expected.constraint_id_allocator().high_water()
         || !expected
             .constraint_activations()
             .starts_with(actual.constraint_activations())
@@ -51,6 +50,9 @@ pub(super) fn generated_constraint_activations_only_changed(
     let added_index_candidates = &expected.candidate_indexes()[actual.candidate_indexes().len()..];
     let added_relation_candidates =
         &expected.candidate_relations()[actual.candidate_relations().len()..];
+    if !generated_activation_allocator_transition_is_exact(actual, expected, added_activations) {
+        return false;
+    }
     let mut index_candidate_count = 0usize;
     let mut relation_candidate_count = 0usize;
     let supported = added_activations.iter().all(|activation| {
@@ -86,6 +88,34 @@ pub(super) fn generated_constraint_activations_only_changed(
     supported
         && index_candidate_count == added_index_candidates.len()
         && relation_candidate_count == added_relation_candidates.len()
+}
+
+fn generated_activation_allocator_transition_is_exact(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+    added: &[crate::db::schema::ConstraintActivationSnapshot],
+) -> bool {
+    let mut next_new_id = actual.constraint_id_allocator().high_water();
+    for activation in added {
+        if let Some(accepted) = actual
+            .constraints()
+            .iter()
+            .find(|constraint| constraint.id() == activation.id())
+        {
+            if !targeted_rule_activation_replaces_constraint(accepted, activation) {
+                return false;
+            }
+            continue;
+        }
+        let Some(next) = next_new_id.checked_add(1) else {
+            return false;
+        };
+        if activation.id().get() != next {
+            return false;
+        }
+        next_new_id = next;
+    }
+    expected.constraint_id_allocator().high_water() == next_new_id
 }
 
 fn generated_relation_activation_with_appended_fields_only_changed(

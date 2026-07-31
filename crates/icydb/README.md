@@ -13,6 +13,11 @@ live in `icydb-schema`.
 Runtime canister crates normally depend on `icydb`; schema-authoring crates
 normally depend on `icydb-model`.
 
+Database writes use only the accepted schema snapshot for admission. They do
+not invoke `icydb-model` application validators or normalizers. Applications
+that want those Rust behaviors must call `normalize`, `validate`, or
+`normalize_and_validate` explicitly before constructing a write.
+
 For full setup, examples, and release notes:
 
 - Workspace README: `../../README.md`

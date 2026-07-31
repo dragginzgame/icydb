@@ -3,7 +3,7 @@
 //! Does not own: production SQL semantics or shared scenario and verdict contracts.
 //! Boundary: renders declared scenarios, executes audit surfaces, and emits typed evidence reports.
 
-#[allow(
+#[expect(
     dead_code,
     reason = "this performance target consumes only the rejection subset of the shared verdict"
 )]

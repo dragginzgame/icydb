@@ -67,12 +67,6 @@ pub use catalog::{
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
 pub use data::DataStore;
-#[cfg(feature = "diagnostics")]
-#[doc(hidden)]
-pub use data::{StructuralReadMetrics, with_structural_read_metrics};
-#[cfg(all(test, not(feature = "diagnostics")))]
-#[expect(unused_imports)]
-pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use diagnostics::SqlStructuralWorkAttribution;
 pub use diagnostics::{
@@ -95,20 +89,6 @@ pub use dynamic_write::{
 };
 #[cfg(any(test, feature = "query"))]
 pub use executor::{ExecutionFamily, RouteExecutionMode};
-#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
-#[doc(hidden)]
-pub use executor::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(test, not(feature = "diagnostics")))]
-#[expect(unused_imports)]
-pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
-#[doc(hidden)]
-pub use executor::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
-#[cfg(all(test, not(feature = "diagnostics")))]
-#[expect(unused_imports)]
-pub(crate) use executor::{
-    ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
-};
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
 pub use integrity::{
@@ -209,11 +189,6 @@ pub use session::{
     TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
     TrustedResumableUpdateRestartReason, sql_statement_dispatch, sql_statement_entity_name,
     sql_statement_shell_surface, sql_statement_surface,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[doc(hidden)]
-pub use session::{
-    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
 #[cfg(feature = "sql")]
 pub use sql::identifier::{

@@ -349,9 +349,50 @@ One rule is bound by persisted root field and nominal type, then enforced over
 every finite direct or nested occurrence—including recursive named values—by
 the same mutation, activation, integrity, and recovery authority.
 
+Rules use a closed typed grammar with named operands:
+
+```rust
+use icydb_model::prelude::*;
+
+#[newtype(
+    item(prim = "Nat16"),
+    ty(
+        rule(name = "range", numeric_range_inclusive(min = 0, max = 360)),
+        rule(name = "step", multiple_of(divisor = 5)),
+    )
+)]
+pub struct Bearing {}
+```
+
+The available operations are `length_range_inclusive`,
+`numeric_minimum_inclusive`, `numeric_maximum_inclusive`,
+`numeric_range_inclusive`, and exact integer/decimal `multiple_of`. The old
+string `kind` and positional rule `args(...)` spelling is removed. Accepted
+snapshots written with the retired `ICYT` profile are incompatible development
+state and must be recreated; the current profile is `ICYU`.
+
 Application validators and normalizers are explicit typed authoring behavior.
 Database writes never invoke them, and they do not become database constraints
 or recovery-time policy.
+
+```rust
+use icydb_model::{NormalizeAndValidate as _, normalize, validate};
+use icydb_model::{base::types::web::MimeType, visitor::VisitorError};
+
+fn prepare_explicitly(mut value: MimeType) -> Result<MimeType, VisitorError> {
+    normalize(&mut value)?;
+    validate(&value)?;
+    Ok(value)
+}
+
+fn prepare_conveniently(value: MimeType) -> Result<MimeType, VisitorError> {
+    value.normalize_and_validate()
+}
+```
+
+Direct validation checks the value as supplied. The consuming convenience
+normalizes first and validates second. Generated typed adapters perform
+neither operation implicitly.
 
 IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
 single-entity IcyDB operations, and returning `Err` from a canister update

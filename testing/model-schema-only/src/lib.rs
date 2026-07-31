@@ -70,6 +70,27 @@ pub struct ClaimCostTiers {}
 ))]
 pub struct CollectionPolicy {}
 
+#[newtype(
+    item(prim = "Text", unbounded),
+    ty(
+        normalizer(path = "base::normalizer::text::Trim"),
+        validator(path = "base::validator::len::Max", args(40)),
+        rule(name = "length", length_range_inclusive(min = 1, max = 40)),
+    )
+)]
+pub struct RuleText {}
+
+#[newtype(
+    item(prim = "Decimal", scale = 2),
+    ty(
+        rule(name = "minimum", numeric_minimum_inclusive(value = 0)),
+        rule(name = "maximum", numeric_maximum_inclusive(value = 100)),
+        rule(name = "range", numeric_range_inclusive(min = 0, max = 100)),
+        rule(name = "step", multiple_of(divisor = 0.25)),
+    )
+)]
+pub struct RuleNumber {}
+
 #[entity(
     store = "SchemaOnlyStore",
     version = 1,
@@ -95,6 +116,14 @@ pub struct CollectionPolicy {}
         field(
             name = "policy",
             value(item(is = "CollectionPolicy"))
+        ),
+        field(
+            name = "rule_text",
+            value(item(is = "RuleText"))
+        ),
+        field(
+            name = "rule_number",
+            value(item(is = "RuleNumber"))
         )
     )
 )]
@@ -138,6 +167,50 @@ mod tests {
         }
     }
 
+    fn targeted_operation<'a>(
+        fragment: &'a SchemaFragment,
+        root: &str,
+        target: &str,
+        rule: &str,
+    ) -> &'a SourceRuleOperation {
+        let field = FieldSourceKey::try_new(root).expect("fixture field source should admit");
+        let target = TypeSourceKey::try_new(target).expect("fixture type source should admit");
+        let rule = RuleSourceKey::try_new(rule).expect("fixture rule source should admit");
+        let source = ConstraintSourceKey::for_targeted_field_rule(&field, &target, &rule);
+        let constraint = fragment.entities()[0]
+            .constraints()
+            .iter()
+            .find(|constraint| constraint.source_key() == &source)
+            .expect("current typed rule should lower into the schema-only proposal");
+        let ConstraintFragmentKind::TargetedRule(rule) = constraint.kind() else {
+            panic!("durable source rule should lower only as a targeted rule")
+        };
+        rule.operation()
+    }
+
+    fn assert_current_typed_rule_vocabulary(fragment: &SchemaFragment) {
+        assert!(matches!(
+            targeted_operation(fragment, "rule_text", "RuleText", "length"),
+            SourceRuleOperation::LengthRangeInclusive { min: 1, max: 40 }
+        ));
+        assert!(matches!(
+            targeted_operation(fragment, "rule_number", "RuleNumber", "minimum"),
+            SourceRuleOperation::NumericMinimumInclusive { .. }
+        ));
+        assert!(matches!(
+            targeted_operation(fragment, "rule_number", "RuleNumber", "maximum"),
+            SourceRuleOperation::NumericMaximumInclusive { .. }
+        ));
+        assert!(matches!(
+            targeted_operation(fragment, "rule_number", "RuleNumber", "range"),
+            SourceRuleOperation::NumericRangeInclusive { .. }
+        ));
+        assert!(matches!(
+            targeted_operation(fragment, "rule_number", "RuleNumber", "step"),
+            SourceRuleOperation::MultipleOf { .. }
+        ));
+    }
+
     #[test]
     fn renamed_schema_only_dependency_emits_fragment_and_actor_tokens() {
         let canister_path = SchemaOnlyCanister::PATH;
@@ -156,6 +229,7 @@ mod tests {
             FieldInsertPolicy::Generated,
         ));
         assert_targeted_degrees_rules(&fragment);
+        assert_current_typed_rule_vocabulary(&fragment);
         let named_type = |source_key: &str| {
             fragment
                 .types()
@@ -224,5 +298,8 @@ mod tests {
         );
         assert!(actor.contains("runtime_api"));
         assert!(!actor.contains(":: icydb ::"));
+        assert!(!actor.contains("normalize_and_validate"));
+        assert!(!actor.contains("base :: normalizer"));
+        assert!(!actor.contains("base :: validator"));
     }
 }

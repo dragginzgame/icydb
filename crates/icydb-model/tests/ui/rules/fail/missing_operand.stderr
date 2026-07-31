@@ -1,0 +1,5 @@
+error: Missing field `max`
+ --> tests/ui/rules/fail/missing_operand.rs:5:29
+  |
+5 |     ty(rule(name = "range", numeric_range_inclusive(min = 0)))
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^

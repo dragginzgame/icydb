@@ -64,9 +64,9 @@ pub use icydb_core::types;
 
 pub mod value {
     pub use icydb_core::value::{
-        Collection, InputValue, InputValueEnum, MapCollection, OutputValue, OutputValueEnum,
-        ValueTag,
+        InputValue, InputValueEnum, OutputValue, OutputValueEnum, ValueTag,
     };
+    pub use icydb_model::{Collection, MapCollection};
 }
 
 #[doc(hidden)]
@@ -229,15 +229,35 @@ macro_rules! db {
 mod tests {
     use crate::build;
 
+    struct ModelWrapper(u64);
+
+    impl icydb_model::Inner<u64> for ModelWrapper {
+        fn inner(&self) -> &u64 {
+            &self.0
+        }
+
+        fn into_inner(self) -> u64 {
+            self.0
+        }
+    }
+
     #[test]
     fn build_facade_exports_configured_entrypoint_metadata() {
+        fn assert_model_inner<T: crate::traits::Inner<u64>>() {}
+
         assert_eq!(
             build::GeneratedBuildTarget::default(),
             build::GeneratedBuildTarget::Unknown
         );
+        assert_model_inner::<ModelWrapper>();
+        let wrapper = ModelWrapper(7);
+        assert_eq!(*crate::traits::Inner::inner(&wrapper), 7);
+        assert_eq!(crate::traits::Inner::into_inner(wrapper), 7);
+
+        let _build_facade_macros_resolve: fn() -> Result<(), Box<dyn std::error::Error>> =
+            build_facade_macros_resolve;
     }
 
-    #[allow(dead_code)]
     fn build_facade_macros_resolve() -> Result<(), Box<dyn std::error::Error>> {
         build::build_configured_canister!((), "crate::Canister", "canister");
 

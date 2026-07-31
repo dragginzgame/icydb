@@ -1,0 +1,7 @@
+error: required trait 'CandidType' is generated automatically and cannot be added explicitly
+ --> tests/ui/required_traits/add_required.rs:3:1
+  |
+3 | #[newtype(item(prim = "Nat64"), traits(add(CandidType)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)

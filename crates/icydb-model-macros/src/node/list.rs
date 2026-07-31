@@ -34,7 +34,7 @@ impl HasDef for List {
 
 impl ValidateNode for List {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.with_type_traits().validate()?;
+        self.traits.validate_for_type()?;
         self.item.validate()?;
 
         Ok(())
@@ -63,7 +63,7 @@ impl HasSchemaPart for List {
 
 impl HasTraits for List {
     fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.with_type_traits().build();
+        let mut traits = self.traits.build_for_type();
         traits.extend([
             TraitKind::Collection,
             TraitKind::Default,

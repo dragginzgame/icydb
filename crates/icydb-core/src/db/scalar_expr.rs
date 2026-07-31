@@ -34,54 +34,28 @@ pub(in crate::db) enum ScalarIndexExpressionOp {
 ///
 /// ScalarExprValue
 ///
-/// ScalarExprValue is the shared scalar result container for compiled scalar
-/// expressions.
+/// ScalarExprValue is the result container for the accepted index-expression
+/// transforms supported by this module.
 /// It preserves borrowed field payloads where possible and only allocates for
 /// derived text transforms.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[expect(
-    dead_code,
-    reason = "scalar expression results intentionally cover every scalar value kind even when a build uses only a subset"
-)]
 pub(in crate::db) enum ScalarExprValue<'a> {
-    Null,
-    Blob(Cow<'a, [u8]>),
-    Bool(bool),
     Date(crate::types::Date),
-    Duration(crate::types::Duration),
-    Float32(crate::types::Float32),
-    Float64(crate::types::Float64),
     Int(i64),
-    Principal(crate::types::Principal),
-    Subaccount(crate::types::Subaccount),
     Text(Cow<'a, str>),
     Timestamp(crate::types::Timestamp),
-    Nat(u64),
-    Ulid(crate::types::Ulid),
-    Unit,
 }
 
 /// Convert one shared scalar expression value into the runtime `Value` enum.
 #[must_use]
 pub(in crate::db) fn scalar_expr_value_into_value(value: ScalarExprValue<'_>) -> Value {
     match value {
-        ScalarExprValue::Null => Value::Null,
-        ScalarExprValue::Blob(value) => Value::Blob(value.into_owned()),
-        ScalarExprValue::Bool(value) => Value::Bool(value),
         ScalarExprValue::Date(value) => Value::Date(value),
-        ScalarExprValue::Duration(value) => Value::Duration(value),
-        ScalarExprValue::Float32(value) => Value::Float32(value),
-        ScalarExprValue::Float64(value) => Value::Float64(value),
         ScalarExprValue::Int(value) => Value::Int64(value),
-        ScalarExprValue::Principal(value) => Value::Principal(value),
-        ScalarExprValue::Subaccount(value) => Value::Subaccount(value),
         ScalarExprValue::Text(value) => Value::Text(value.into_owned()),
         ScalarExprValue::Timestamp(value) => Value::Timestamp(value),
-        ScalarExprValue::Nat(value) => Value::Nat64(value),
-        ScalarExprValue::Ulid(value) => Value::Ulid(value),
-        ScalarExprValue::Unit => Value::Unit,
     }
 }
 

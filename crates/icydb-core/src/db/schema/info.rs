@@ -521,7 +521,7 @@ impl SchemaInfo {
     #[must_use]
     #[cfg_attr(
         target_arch = "wasm32",
-        allow(
+        expect(
             dead_code,
             reason = "schema DDL binding is host-owned even when SQL query support is built for wasm"
         )

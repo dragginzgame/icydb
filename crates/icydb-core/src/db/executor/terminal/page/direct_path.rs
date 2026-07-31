@@ -27,8 +27,6 @@ use super::metrics::{
     record_direct_data_row_page_window_local_instructions,
     record_direct_data_row_scan_local_instructions,
 };
-#[cfg(any(test, feature = "diagnostics"))]
-use super::metrics::{record_direct_data_row_path_hit, record_direct_filtered_data_row_path_hit};
 
 // Execute one already-resolved direct `DataRow` strategy through the shared
 // direct-lane scan and page-window shell.
@@ -46,21 +44,7 @@ pub(super) fn execute_direct_data_row_path(
 ) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
     continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
-    // Phase 1: record the chosen direct-lane family once before scan.
-    #[cfg(any(test, feature = "diagnostics"))]
-    match direct_data_row_path {
-        DirectDataRowPath::Plain { .. } => record_direct_data_row_path_hit(),
-        DirectDataRowPath::Filtered { .. } => record_direct_filtered_data_row_path_hit(),
-        DirectDataRowPath::MaterializedOrder { filter_program, .. } => {
-            if filter_program.is_some() {
-                record_direct_filtered_data_row_path_hit();
-            } else {
-                record_direct_data_row_path_hit();
-            }
-        }
-    }
-
-    // Phase 2: run the direct scan through the shared residual-policy helper.
+    // Phase 1: run the direct scan through the shared residual-policy helper.
     let row_skip_count = direct_data_row_page_skip_count(plan);
     #[cfg(feature = "diagnostics")]
     let (scan_local_instructions, scan_result) =

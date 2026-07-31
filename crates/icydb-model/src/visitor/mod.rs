@@ -12,12 +12,14 @@ pub(crate) mod context;
 pub(crate) mod normalize;
 pub(crate) mod validate;
 
-use serde::Deserialize;
 use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
 
 // re-exports
-pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
+pub use context::{
+    ApplicationOperation, CallbackContext, CallbackIdentity, CallbackKind, Issue, PathSegment,
+    ScopedContext, VisitorContext,
+};
 pub use traits::{
     Normalize, NormalizeAuto, NormalizeCustom, Normalizer, Validate, ValidateAuto, ValidateCustom,
     Validator, Visitable,
@@ -29,27 +31,26 @@ pub use traits::{
 //
 
 #[derive(Debug, ThisError)]
-#[error("{issues}")]
+#[error("{operation} failed: {issues}")]
 pub struct VisitorError {
+    operation: ApplicationOperation,
     issues: VisitorIssues,
 }
 
 impl VisitorError {
+    pub(crate) const fn new(operation: ApplicationOperation, issues: VisitorIssues) -> Self {
+        Self { operation, issues }
+    }
+
+    /// Return whether normalization or validation produced this error.
+    #[must_use]
+    pub const fn operation(&self) -> ApplicationOperation {
+        self.operation
+    }
+
     #[must_use]
     pub const fn issues(&self) -> &VisitorIssues {
         &self.issues
-    }
-}
-
-impl From<VisitorIssues> for VisitorError {
-    fn from(issues: VisitorIssues) -> Self {
-        Self { issues }
-    }
-}
-
-impl From<VisitorError> for VisitorIssues {
-    fn from(err: VisitorError) -> Self {
-        err.issues
     }
 }
 
@@ -62,7 +63,7 @@ impl From<VisitorError> for VisitorIssues {
 // may be lifted into an `InternalError` as needed.
 //
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct VisitorIssues(BTreeMap<String, Vec<Issue>>);
 
 impl VisitorIssues {

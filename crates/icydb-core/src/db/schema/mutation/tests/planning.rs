@@ -1,282 +1,9 @@
 use super::*;
-
-#[test]
-fn sql_owned_check_activation_is_not_relowered_as_generated_authority() {
-    let generated = base_snapshot();
-    let catalog = generated
-        .constraint_catalog()
-        .clone()
-        .with_added_check_activation(
-            "ddl_check".to_string(),
-            ConstraintOrigin::SqlDdl,
-            AcceptedCheckExprV1::True,
-            AcceptedSchemaFingerprint::new([0xA5; 32]),
-            2,
-        )
-        .expect("SQL-owned test activation should build");
-    let accepted = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        SchemaVersion::new(2),
-        generated.entity_path().to_string(),
-        generated.entity_name().to_string(),
-        generated.primary_key_field_ids().to_vec(),
-        generated.row_layout().clone(),
-        generated.fields().to_vec(),
-        generated.indexes().to_vec(),
-    )
-    .with_constraint_catalog(catalog)
-    .with_relations(generated.relations().to_vec());
-
-    assert_eq!(
-        derive_generated_accepted_candidate(
-            &accepted,
-            &generated,
-            Some(GeneratedConstraintActivationContext::new(
-                AcceptedSchemaFingerprint::new([0x5A; 32]),
-                3,
-            )),
-        ),
-        Ok(None),
-        "SQL DDL activation must remain accepted-only authority",
-    );
-}
-
-#[test]
-fn generated_check_activation_preserves_unrelated_ddl_owned_state() {
-    let generated_base = base_snapshot();
-    let generated_catalog = generated_base
-        .constraint_catalog()
-        .clone()
-        .with_added_check(
-            "generated_name_check".to_string(),
-            ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::True,
-        )
-        .expect("generated check proposal should build");
-    let generated = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        SchemaVersion::new(2),
-        generated_base.entity_path().to_string(),
-        generated_base.entity_name().to_string(),
-        generated_base.primary_key_field_ids().to_vec(),
-        generated_base.row_layout().clone(),
-        generated_base.fields().to_vec(),
-        generated_base.indexes().to_vec(),
-    )
-    .with_constraint_catalog(generated_catalog);
-
-    let ddl_field = PersistedFieldSnapshot::new_with_write_policy_and_origin(
-        FieldId::new(3),
-        "nickname".to_string(),
-        SchemaFieldSlot::new(2),
-        AcceptedFieldKind::Text { max_len: None },
-        Vec::new(),
-        true,
-        RowLayoutVersion::new(2).expect("DDL field layout should be valid"),
-        SchemaInsertDefault::None,
-        SchemaHistoricalFill::Null,
-        SchemaFieldWritePolicy::none(),
-        PersistedFieldOrigin::SqlDdl,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Text),
-    );
-    let ddl_index = PersistedIndexSnapshot::new_sql_ddl(
-        SchemaIndexId::new(1).expect("DDL index identity should be non-zero"),
-        1,
-        "ddl_name_idx".to_string(),
-        "test::mutation::ddl_name_idx".to_string(),
-        true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
-        None,
-    );
-    let accepted_catalog = generated_base
-        .constraint_catalog()
-        .clone()
-        .with_added_unique(&ddl_index)
-        .expect("DDL unique constraint should build");
-    let accepted = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        SchemaVersion::new(2),
-        generated_base.entity_path().to_string(),
-        generated_base.entity_name().to_string(),
-        generated_base.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
-            RowLayoutVersion::new(2).expect("DDL row layout should be valid"),
-            RowLayoutVersion::INITIAL,
-            [
-                generated_base.row_layout().field_to_slot(),
-                &[(ddl_field.id(), ddl_field.slot())],
-            ]
-            .concat(),
-        ),
-        [generated_base.fields(), std::slice::from_ref(&ddl_field)].concat(),
-        vec![ddl_index.clone()],
-    )
-    .with_constraint_catalog(accepted_catalog);
-
-    let candidate = derive_generated_accepted_candidate(
-        &accepted,
-        &generated,
-        Some(GeneratedConstraintActivationContext::new(
-            AcceptedSchemaFingerprint::new([0xA5; 32]),
-            3,
-        )),
-    )
-    .expect("generated CHECK derivation should remain valid")
-    .expect("generated CHECK should start one activation");
-
-    assert_eq!(candidate.fields(), accepted.fields());
-    assert_eq!(candidate.indexes(), [ddl_index]);
-    assert_eq!(candidate.relations(), accepted.relations());
-    assert!(candidate.constraints().iter().any(|constraint| {
-        constraint.origin() == ConstraintOrigin::SqlDdl
-            && matches!(
-                constraint.kind(),
-                AcceptedConstraintKind::Unique { index_id }
-                    if *index_id == SchemaIndexId::new(1)
-                        .expect("DDL index identity should be non-zero")
-            )
-    }));
-    let [activation] = candidate.constraint_activations() else {
-        panic!("generated CHECK should reserve one activation");
-    };
-    assert_eq!(activation.name(), "generated_name_check");
-    assert!(matches!(
-        activation.kind(),
-        ConstraintActivationKind::Check {
-            expression
-        } if expression.as_ref() == &AcceptedCheckExprV1::True
-    ));
-}
-
-#[test]
-fn live_generated_unique_activation_resumes_exact_and_rejects_drift() {
-    let fingerprint = AcceptedSchemaFingerprint::new([0x5A; 32]);
-    let activation = Some(GeneratedConstraintActivationContext::new(fingerprint, 7));
-    let unique_proposal = PersistedIndexSnapshot::new(
-        SchemaIndexId::new(1).expect("generated index identity should be non-zero"),
-        1,
-        "unique_name".to_string(),
-        "test::mutation::unique_name".to_string(),
-        true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
-        None,
-    );
-    let generated_unique = PersistedSchemaSnapshot::new_with_indexes(
-        SchemaVersion::new(2),
-        base_snapshot().entity_path().to_string(),
-        base_snapshot().entity_name().to_string(),
-        base_snapshot().primary_key_field_ids().to_vec(),
-        base_snapshot().row_layout().clone(),
-        base_snapshot().fields().to_vec(),
-        vec![unique_proposal.clone()],
-    );
-    let accepted_unique = base_snapshot()
-        .with_added_unique_activation(
-            unique_proposal.clone_with_schema_identity(
-                unique_proposal.schema_id(),
-                unique_proposal.ordinal(),
-                7,
-            ),
-            fingerprint,
-            7,
-        )
-        .expect("generated unique activation should build");
-    assert_eq!(
-        derive_generated_accepted_candidate(&accepted_unique, &generated_unique, activation),
-        Ok(Some(accepted_unique.clone())),
-        "the exact generated unique proposal should resume",
-    );
-    assert_eq!(
-        derive_generated_accepted_candidate(&accepted_unique, &base_snapshot(), activation),
-        Err(GeneratedAcceptedCandidateError::StaleConstraintActivation),
-        "removing the generated unique proposal should be a stable conflict",
-    );
-}
-
-#[test]
-fn live_generated_relation_activation_resumes_exact_and_rejects_drift() {
-    let fingerprint = AcceptedSchemaFingerprint::new([0x5A; 32]);
-    let activation = Some(GeneratedConstraintActivationContext::new(fingerprint, 7));
-    let relation_proposal = PersistedRelationEdgeSnapshot::new(
-        RelationId::new(1).expect("generated relation identity should be non-zero"),
-        "target".to_string(),
-        "test::Target".to_string(),
-        vec![FieldId::new(2)],
-    );
-    let generated_relation_base = base_snapshot();
-    let generated_relation_catalog = AcceptedConstraintCatalog::initial(
-        generated_relation_base.fields(),
-        generated_relation_base.indexes(),
-        std::slice::from_ref(&relation_proposal),
-    )
-    .expect("generated relation catalog should build");
-    let generated_relation = generated_relation_base
-        .with_constraint_catalog(generated_relation_catalog)
-        .with_relations(vec![relation_proposal.clone()]);
-    let accepted_relation = base_snapshot()
-        .with_added_relation_activation(
-            relation_proposal.clone_with_physical_generation(7),
-            fingerprint,
-            7,
-        )
-        .expect("generated relation activation should build");
-    assert_eq!(
-        derive_generated_accepted_candidate(&accepted_relation, &generated_relation, activation),
-        Ok(Some(accepted_relation.clone())),
-        "the exact generated relation proposal should resume",
-    );
-    assert_eq!(
-        derive_generated_accepted_candidate(&accepted_relation, &base_snapshot(), activation),
-        Err(GeneratedAcceptedCandidateError::StaleConstraintActivation),
-        "removing the generated relation proposal should be a stable conflict",
-    );
-}
-
-#[test]
-fn live_generated_not_null_activation_resumes_exact_and_rejects_drift() {
-    let fingerprint = AcceptedSchemaFingerprint::new([0x5A; 32]);
-    let activation = Some(GeneratedConstraintActivationContext::new(fingerprint, 7));
-    let nullable_name = nullable_text_field("name", 2, 1);
-    let accepted_not_null_base = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        "test::MutationEntity".to_string(),
-        "MutationEntity".to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(vec![
-            (FieldId::new(1), SchemaFieldSlot::new(0)),
-            (FieldId::new(2), SchemaFieldSlot::new(1)),
-        ]),
-        vec![base_snapshot().fields()[0].clone(), nullable_name],
-    );
-    let accepted_not_null_catalog = accepted_not_null_base
-        .constraint_catalog()
-        .clone()
-        .with_added_not_null_activation(&accepted_not_null_base.fields()[1], fingerprint, 7)
-        .expect("generated not-null activation should build");
-    let accepted_not_null =
-        accepted_not_null_base.with_constraint_catalog(accepted_not_null_catalog);
-    let generated_not_null = base_snapshot().with_schema_version(SchemaVersion::new(2));
-    assert!(
-        derive_generated_accepted_candidate(&accepted_not_null, &generated_not_null, activation)
-            .expect("exact generated not-null proposal should derive")
-            .is_some(),
-        "the exact generated not-null proposal should resume",
-    );
-    assert_eq!(
-        derive_generated_accepted_candidate(
-            &accepted_not_null,
-            &PersistedSchemaSnapshot::new(
-                SchemaVersion::new(2),
-                accepted_not_null.entity_path().to_string(),
-                accepted_not_null.entity_name().to_string(),
-                accepted_not_null.primary_key_field_ids().to_vec(),
-                accepted_not_null.row_layout().clone(),
-                accepted_not_null.fields().to_vec(),
-            ),
-            activation,
-        ),
-        Err(GeneratedAcceptedCandidateError::StaleConstraintActivation),
-        "removing the generated not-null proposal should be a stable conflict",
-    );
-}
+use crate::db::schema::{
+    AcceptedConstraintCatalog, AcceptedConstraintKind, ConstraintIdAllocator, ConstraintOrigin,
+    PersistedRelationEdgeSnapshot, RelationId,
+    mutation::delta::{SchemaMutationDelta, classify_schema_mutation_delta},
+};
 
 #[test]
 fn metadata_mutation_plan_is_immediately_publishable() {
@@ -309,17 +36,17 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
         .field_path_index_target()
         .expect("field-path plan should expose its runner target");
     assert_eq!(field_path_target.name(), "by_name");
-    assert_eq!(field_path_target.store(), "test::mutation::by_name");
-    assert_eq!(field_path_target.predicate_sql(), Some("name IS NOT NULL"));
     let [field_path_key] = field_path_target.key_paths() else {
         panic!("test field-path index should retain one accepted key");
     };
-    assert_eq!(field_path_key.field_id(), FieldId::new(2));
+    assert_eq!(field_path_key.field_id, FieldId::new(2));
     assert_eq!(
-        field_path_key.kind(),
+        &field_path_key.kind,
         &AcceptedFieldKind::Text { max_len: None },
     );
-    assert!(!field_path_key.nullable());
+    assert!(!field_path_key.nullable);
+    assert_eq!(field_path_key.slot(), SchemaFieldSlot::new(1));
+    assert_eq!(field_path_key.path(), &["name".to_string()]);
     assert!(field_path.expression_index_target().is_none());
 
     assert_eq!(
@@ -330,25 +57,15 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
         .expression_index_target()
         .expect("expression plan should expose its runner target");
     assert_eq!(expression_target.name(), "by_lower_name");
-    assert_eq!(expression_target.store(), "test::mutation::by_lower_name");
-    assert_eq!(
-        expression_target.predicate_sql(),
-        Some("LOWER(name) IS NOT NULL"),
-    );
     let [super::SchemaExpressionIndexRebuildKey::Expression(expression_key)] =
         expression_target.key_items()
     else {
         panic!("test expression index should retain one expression key");
     };
-    assert_eq!(
-        expression_key.input_kind(),
-        &AcceptedFieldKind::Text { max_len: None },
-    );
-    assert_eq!(
-        expression_key.output_kind(),
-        &AcceptedFieldKind::Text { max_len: None },
-    );
-    assert_eq!(expression_key.canonical_text(), "expr:v1:LOWER(name)");
+    assert_eq!(expression_key.op(), PersistedIndexExpressionOp::Lower);
+    assert_eq!(expression_key.source().field_id, FieldId::new(2));
+    assert_eq!(expression_key.source().slot(), SchemaFieldSlot::new(1));
+    assert_eq!(expression_key.source().path(), &["name".to_string()]);
     assert!(expression.field_path_index_target().is_none());
 }
 
@@ -390,7 +107,7 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
     else {
         panic!("unique field-path index should preserve its target");
     };
-    assert!(target.unique());
+    assert!(target.unique);
     assert_eq!(
         SchemaMutationRequest::from_accepted_field_path_index(&explicit_items),
         Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape),
@@ -566,25 +283,6 @@ fn physical_field_changes_preserve_row_layout_exhaustion_causes() {
         derive_sql_ddl_field_drop_accepted_after(&accepted, "name"),
         Err(SchemaDdlMutationAdmissionError::RowLayoutVersionExhausted),
         "DROP COLUMN must not collapse layout exhaustion into a missing runner",
-    );
-
-    let added = nullable_text_field("nickname", 3, 2);
-    let generated = PersistedSchemaSnapshot::new(
-        SchemaVersion::new(2),
-        base.entity_path().to_string(),
-        base.entity_name().to_string(),
-        base.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::initial(vec![
-            (FieldId::new(1), SchemaFieldSlot::new(0)),
-            (FieldId::new(2), SchemaFieldSlot::new(1)),
-            (FieldId::new(3), SchemaFieldSlot::new(2)),
-        ]),
-        [base.fields(), std::slice::from_ref(&added)].concat(),
-    );
-    assert_eq!(
-        derive_generated_accepted_candidate(&max_layout_snapshot, &generated, None),
-        Err(GeneratedAcceptedCandidateError::RowLayoutVersionExhausted),
-        "generated additive reconciliation must preserve the same typed cause",
     );
 }
 

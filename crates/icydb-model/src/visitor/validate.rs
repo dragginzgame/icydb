@@ -3,7 +3,9 @@
 //! Does not own: top-level validation entrypoints or issue aggregation policy.
 //! Boundary: read-only visitor used by the crate-level validate surface.
 
-use crate::visitor::{Visitable, Visitor, VisitorContext};
+use crate::visitor::{
+    CallbackContext, CallbackIdentity, CallbackKind, Visitable, Visitor, VisitorContext,
+};
 
 ///
 /// ValidateVisitor
@@ -23,8 +25,18 @@ impl ValidateVisitor {
 
 impl Visitor for ValidateVisitor {
     fn enter(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext) {
-        node.validate_self(ctx);
-        node.validate_custom(ctx);
+        let type_identity = node.type_identity();
+        let mut auto_context = CallbackContext::new(
+            ctx,
+            CallbackIdentity::new(CallbackKind::ValidateAuto, type_identity),
+        );
+        node.validate_self(&mut auto_context);
+
+        let mut custom_context = CallbackContext::new(
+            ctx,
+            CallbackIdentity::new(CallbackKind::ValidateCustom, type_identity),
+        );
+        node.validate_custom(&mut custom_context);
     }
 
     fn exit(&mut self, _: &dyn Visitable, _: &mut dyn VisitorContext) {}

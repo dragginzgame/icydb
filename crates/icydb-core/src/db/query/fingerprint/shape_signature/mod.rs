@@ -7,11 +7,10 @@
 
 use crate::db::{
     cursor::ContinuationSignature,
-    query::plan::AccessPlannedQuery,
-    query::{
-        explain::ExplainPlan,
-        fingerprint::{finalize_sha256_digest, hash_sections, new_continuation_signature_hasher},
+    query::fingerprint::{
+        finalize_sha256_digest, hash_sections, new_continuation_signature_hasher,
     },
+    query::plan::AccessPlannedQuery,
 };
 
 impl AccessPlannedQuery {
@@ -40,33 +39,4 @@ fn continuation_signature_for_plan_with_projection(
         projection,
     );
     ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
-}
-
-impl ExplainPlan {
-    /// Compute the continuation signature for this explain plan.
-    ///
-    /// Included fields:
-    /// - entity path
-    /// - mode (load/delete)
-    /// - access path
-    /// - canonical scalar semantic filter (`filter_expr` when present, otherwise predicate)
-    /// - canonical order-by (including implicit PK tie-break)
-    /// - distinct flag
-    /// - grouped shape (group keys, aggregate terminals, grouped limits)
-    /// - projection identity section (semantic projection hash when available)
-    ///
-    /// Excluded fields:
-    /// - pagination window (`limit`, `offset`)
-    /// - delete limits
-    /// - cursor boundary/token state
-    #[must_use]
-    pub fn continuation_signature(&self, entity_path: &str) -> ContinuationSignature {
-        let mut hasher = new_continuation_signature_hasher();
-        hash_sections::hash_explain_plan_profile(
-            &mut hasher,
-            self,
-            hash_sections::ExplainHashProfile::Continuation { entity_path },
-        );
-        ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
-    }
 }

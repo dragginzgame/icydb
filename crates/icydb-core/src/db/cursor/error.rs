@@ -24,7 +24,7 @@ impl CursorSignaturePrefix {
     #[cfg(test)]
     pub(crate) const UNKNOWN: Self = Self(0);
 
-    pub(crate) const fn from_signature(signature: &ContinuationSignature) -> Self {
+    const fn from_signature(signature: &ContinuationSignature) -> Self {
         let bytes = (*signature).into_bytes();
         Self(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }

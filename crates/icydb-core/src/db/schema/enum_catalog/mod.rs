@@ -17,7 +17,6 @@ use crate::{
         composite_catalog::AcceptedCompositeCatalog,
     },
     value::{CanonicalEnumBody, CanonicalEnumValue},
-    value::{RuntimeEnumContext, RuntimeEnumSelection},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -374,21 +373,6 @@ impl AcceptedEnumCatalog {
                     true
                 }
             })
-        })
-    }
-}
-
-impl RuntimeEnumContext for AcceptedEnumCatalog {
-    fn resolve_enum<'a>(
-        &'a self,
-        value: &'a crate::value::ValueEnum,
-    ) -> Option<RuntimeEnumSelection<'a>> {
-        let definition = self.enum_type(value.type_id())?;
-        let variant = definition.variant(value.variant_id())?;
-        Some(RuntimeEnumSelection {
-            path: definition.path.as_str(),
-            variant: variant.name.as_str(),
-            payload: value.payload(),
         })
     }
 }

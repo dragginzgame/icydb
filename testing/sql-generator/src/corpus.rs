@@ -37,15 +37,6 @@ pub enum RegressionCorpusCase {
 }
 
 impl RegressionCorpusCase {
-    /// Borrow the stable generated scenario or sequence identity.
-    #[must_use]
-    pub const fn generated_id(&self) -> &str {
-        match self {
-            Self::Mutation(sequence) => sequence.identity().id(),
-            Self::Select(case) => case.identity().id(),
-        }
-    }
-
     const fn artifact_byte_limit(&self) -> u32 {
         match self {
             Self::Mutation(sequence) => sequence.budgets().max_artifact_bytes(),

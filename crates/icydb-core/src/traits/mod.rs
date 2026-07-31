@@ -1,6 +1,6 @@
 //! Module: traits
 //!
-//! Responsibility: foundational kind, field metadata, projection, and wrapper
+//! Responsibility: foundational kind, field metadata, and projection
 //! contracts awaiting narrower domain ownership.
 //! Does not own: entity composition, key taxonomy, runtime value conversion,
 //! visitor traversal, executor policy, or public facade DTO behavior.
@@ -57,21 +57,6 @@ pub trait CanisterKind: Kind {
 
 pub trait StoreKind: Kind {
     type Canister: CanisterKind;
-}
-
-/// ============================================================================
-/// MISC HELPERS
-/// ============================================================================
-
-///
-/// Inner
-///
-/// For newtypes to expose their innermost value.
-///
-
-pub trait Inner<T> {
-    fn inner(&self) -> &T;
-    fn into_inner(self) -> T;
 }
 
 ///

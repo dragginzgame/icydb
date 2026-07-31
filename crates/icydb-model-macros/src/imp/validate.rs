@@ -262,16 +262,7 @@ fn generate_validators_inner(
 
     let exprs: Vec<TokenStream> = validators
         .iter()
-        .map(|validator| {
-            let ctor = validator.quote_constructor(); // yields "...::new(args...)"
-            quote! {
-                ::icydb_model::visitor::Validator::validate(
-                    &(#ctor),
-                    #var_expr,
-                    #ctx_expr,
-                );
-            }
-        })
+        .map(|validator| validator_call(validator, var_expr.clone(), ctx_expr.clone()))
         .collect();
 
     Some(quote!(#(#exprs)*))
@@ -342,12 +333,7 @@ fn generate_value_validation_inner(
         .item
         .validators
         .iter()
-        .map(|validator| {
-            let ctor = validator.quote_constructor(); // "...::new(args...)"
-            quote! {
-                ::icydb_model::visitor::Validator::validate(&(#ctor), v, #ctx_expr);
-            }
-        })
+        .map(|validator| validator_call(validator, quote!(v), ctx_expr.clone()))
         .collect();
 
     cardinality_wrapper(value.cardinality(), rules, var_expr)
@@ -363,16 +349,7 @@ fn generate_field_value_validation_inner(
         .item
         .validators
         .iter()
-        .map(|validator| {
-            let ctor = validator.quote_constructor(); // "...::new(args...)"
-            quote! {
-                ::icydb_model::visitor::Validator::validate(
-                    &(#ctor),
-                    v,
-                    &mut __field_ctx,
-                );
-            }
-        })
+        .map(|validator| validator_call(validator, quote!(v), quote!(&mut __field_ctx)))
         .collect();
 
     let body = cardinality_wrapper(value.cardinality(), rules, var_expr)?;
@@ -382,4 +359,28 @@ fn generate_field_value_validation_inner(
             ::icydb_model::visitor::ScopedContext::new(ctx, #seg);
         #body
     }})
+}
+
+fn validator_call(
+    validator: &TypeValidator,
+    value: TokenStream,
+    context: TokenStream,
+) -> TokenStream {
+    let ctor = validator.quote_constructor();
+    let callback_type = &validator.path;
+
+    quote! {{
+        let mut __callback_ctx = ::icydb_model::visitor::CallbackContext::new(
+            #context,
+            ::icydb_model::visitor::CallbackIdentity::new(
+                ::icydb_model::visitor::CallbackKind::Validator,
+                ::core::any::type_name::<#callback_type>(),
+            ),
+        );
+        ::icydb_model::visitor::Validator::validate(
+            &(#ctor),
+            #value,
+            &mut __callback_ctx,
+        );
+    }}
 }

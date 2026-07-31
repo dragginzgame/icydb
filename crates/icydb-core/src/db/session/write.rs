@@ -3315,7 +3315,7 @@ mod targeted_rule_mutation_tests {
     const DEGREE_MEMBER_SOURCE: &str =
         "session::write::targeted_rule_mutation_tests::Profile::degree";
     const DEGREE_RULE_SOURCE: &str =
-        "session::write::targeted_rule_mutation_tests::Profile::degree_range";
+        "session::write::targeted_rule_mutation_tests::Profile::degree_multiple";
 
     struct TestCanister;
 
@@ -3536,15 +3536,14 @@ mod targeted_rule_mutation_tests {
             .constraint_catalog()
             .clone()
             .with_added_targeted_rule(
-                "profile_degree_range".to_string(),
+                "profile_degree_multiple".to_string(),
                 ConstraintOrigin::Generated,
                 AcceptedRuleTarget::new(
                     FieldId::new(2),
                     AcceptedNamedTypeIdentity::Composite(degree_type),
                 ),
-                AcceptedRuleOperation::NumericRangeInclusive {
-                    min: nat64_literal(&enum_catalog, &composite_catalog, 0),
-                    max: nat64_literal(&enum_catalog, &composite_catalog, 10),
+                AcceptedRuleOperation::MultipleOf {
+                    divisor: nat64_literal(&enum_catalog, &composite_catalog, 5),
                 },
             )
             .expect("targeted mutation rule should allocate");
@@ -3708,7 +3707,7 @@ mod targeted_rule_mutation_tests {
                 },
                 DynamicMutation::Insert {
                     entity: "TargetedMutation".to_string(),
-                    patch: structural_patch(7, 8),
+                    patch: structural_patch(7, 10),
                 },
             ])
             .expect("compliant targeted values should share one accepted batch");

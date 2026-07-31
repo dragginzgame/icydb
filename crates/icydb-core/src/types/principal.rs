@@ -2,10 +2,7 @@
 
 pub use icydb_schema::{Principal, PrincipalDecodeError, PrincipalEncodeError, PrincipalError};
 
-use crate::{
-    db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
-    value::{RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, Value},
-};
+use crate::db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer};
 
 impl EntityKeyBytes for Principal {
     const BYTE_LEN: usize = 1 + Self::MAX_LENGTH_IN_BYTES as usize;
@@ -37,26 +34,5 @@ impl EntityKeyBytes for Principal {
         payload.copy_from_slice(principal);
 
         Ok(())
-    }
-}
-
-impl RuntimeValueMeta for Principal {
-    fn kind() -> RuntimeValueKind {
-        RuntimeValueKind::Atomic
-    }
-}
-
-impl RuntimeValueEncode for Principal {
-    fn to_value(&self) -> Value {
-        Value::Principal(*self)
-    }
-}
-
-impl RuntimeValueDecode for Principal {
-    fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Principal(value) => Some(*value),
-            _ => None,
-        }
     }
 }

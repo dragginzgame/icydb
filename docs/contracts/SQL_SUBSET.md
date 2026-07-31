@@ -275,6 +275,12 @@ phase/counters, and canonical accepted check SQL. The check text is rendered
 from the field-ID-bound accepted expression through current accepted names; it
 never falls back to proposal or source SQL.
 
+While a targeted-rule semantic edit is pending, the projection emits two
+adjacent lifecycle entries with the same stable constraint ID: the currently
+validated operation first, then the candidate activation and its validation
+state. Promotion returns the projection to one validated entry; abort removes
+only the candidate entry. The response shape is unchanged.
+
 <!-- icydb-sql-feature id="introspection.unsupported_modifiers" kind="syntax" status="rejected" -->
 Introspection modifiers not listed above are outside the current subset. In
 particular, filtering clauses and extra entity operands fail closed instead of

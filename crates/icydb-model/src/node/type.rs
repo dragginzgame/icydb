@@ -77,15 +77,14 @@ impl VisitableNode for Type {
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceRule {
     name: &'static str,
-    kind: SourceRuleKind,
-    args: Args,
+    operation: SourceRuleAuthoringOperation,
 }
 
 impl SourceRule {
     /// Construct one explicit reusable rule template.
     #[must_use]
-    pub const fn new(name: &'static str, kind: SourceRuleKind, args: Args) -> Self {
-        Self { name, kind, args }
+    pub const fn new(name: &'static str, operation: SourceRuleAuthoringOperation) -> Self {
+        Self { name, operation }
     }
 
     /// Return the current declared rule name.
@@ -94,16 +93,10 @@ impl SourceRule {
         self.name
     }
 
-    /// Return the frozen rule operation.
+    /// Borrow the frozen rule operation and its named operands.
     #[must_use]
-    pub const fn kind(&self) -> SourceRuleKind {
-        self.kind
-    }
-
-    /// Borrow rule operands.
-    #[must_use]
-    pub const fn args(&self) -> &Args {
-        &self.args
+    pub const fn operation(&self) -> &SourceRuleAuthoringOperation {
+        &self.operation
     }
 }
 
@@ -116,22 +109,8 @@ impl ValidateNode for SourceRule {
             self.name(),
             icydb_schema::RuleSourceKey::try_new,
         );
-        let expected_args = match self.kind() {
-            SourceRuleKind::NumericMinimum => 1,
-            SourceRuleKind::LengthRange | SourceRuleKind::NumericRange => 2,
-        };
-        if self.args().0.len() != expected_args
-            || self
-                .args()
-                .0
-                .iter()
-                .any(|arg| !matches!(arg, Arg::Number(_)))
-        {
-            err!(
-                errs,
-                "rule '{}' requires {expected_args} numeric argument(s)",
-                self.name(),
-            );
+        if let Err(message) = self.operation().validate_shape() {
+            err!(errs, "rule '{}': {message}", self.name());
         }
         errs.result()
     }
@@ -140,21 +119,129 @@ impl ValidateNode for SourceRule {
 impl VisitableNode for SourceRule {}
 
 ///
-/// SourceRuleKind
+/// SourceRuleAuthoringOperation
 ///
-/// Closed durable-rule vocabulary translated into accepted constraints.
-/// This enum describes authoring metadata only; accepted schema owns runtime
-/// evaluation after fragment lowering.
+/// Closed authoring vocabulary with operation-specific named operands.
+/// Accepted schema owns runtime evaluation after fragment lowering.
 ///
 
-#[derive(Clone, Copy, Debug, Serialize)]
-pub enum SourceRuleKind {
+#[derive(Clone, Debug, Serialize)]
+pub enum SourceRuleAuthoringOperation {
     /// Inclusive character/octet/collection length range.
-    LengthRange,
+    LengthRangeInclusive {
+        /// Inclusive minimum logical length.
+        min: RuleNumber,
+        /// Inclusive maximum logical length.
+        max: RuleNumber,
+    },
+    /// Exact integer or decimal multiple-of divisor.
+    MultipleOf {
+        /// Nonzero exact divisor admitted against the target kind during lowering.
+        divisor: RuleNumber,
+    },
+    /// Inclusive numeric maximum.
+    NumericMaximumInclusive {
+        /// Exact upper-bound literal admitted against the target kind during lowering.
+        value: RuleNumber,
+    },
     /// Inclusive numeric minimum.
-    NumericMinimum,
+    NumericMinimumInclusive {
+        /// Exact lower-bound literal admitted against the target kind during lowering.
+        value: RuleNumber,
+    },
     /// Inclusive numeric range.
-    NumericRange,
+    NumericRangeInclusive {
+        /// Exact lower-bound literal admitted against the target kind during lowering.
+        min: RuleNumber,
+        /// Exact upper-bound literal admitted against the target kind during lowering.
+        max: RuleNumber,
+    },
+}
+
+impl SourceRuleAuthoringOperation {
+    fn validate_shape(&self) -> Result<(), &'static str> {
+        match self {
+            Self::LengthRangeInclusive { min, max } => {
+                let min = rule_length_bound(min).ok_or(
+                    "length_range_inclusive operands must be nonnegative integers within u64",
+                )?;
+                let max = rule_length_bound(max).ok_or(
+                    "length_range_inclusive operands must be nonnegative integers within u64",
+                )?;
+                if min > max {
+                    return Err("length_range_inclusive requires min <= max");
+                }
+            }
+            Self::MultipleOf { divisor } => {
+                if !rule_number_is_valid(divisor) {
+                    return Err("multiple_of divisor must be a valid numeric literal");
+                }
+                if rule_number_is_zero(divisor) {
+                    return Err("multiple_of divisor must be nonzero");
+                }
+            }
+            Self::NumericMaximumInclusive { value } | Self::NumericMinimumInclusive { value } => {
+                if !rule_number_is_valid(value) {
+                    return Err("numeric rule value must be a valid numeric literal");
+                }
+            }
+            Self::NumericRangeInclusive { min, max } => {
+                if !rule_number_is_valid(min) || !rule_number_is_valid(max) {
+                    return Err("numeric range operands must be valid numeric literals");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One exact, operation-owned numeric literal emitted by the derive parser.
+///
+/// Unsuffixed decimal text stays textual until it is bound to the declared
+/// primitive. This prevents decimal rules from passing through binary float
+/// conversion before accepted-schema admission.
+#[derive(Clone, Debug, Serialize)]
+pub enum RuleNumber {
+    /// Canonical signed or unsigned integer text.
+    Integer(&'static str),
+    /// Exact unsuffixed base-10 decimal text.
+    Decimal(&'static str),
+    /// Explicit `f32` literal.
+    Float32(f32),
+    /// Explicit `f64` literal.
+    Float64(f64),
+}
+
+fn rule_length_bound(value: &RuleNumber) -> Option<u64> {
+    match value {
+        RuleNumber::Integer(value) => value.parse().ok(),
+        RuleNumber::Decimal(_) | RuleNumber::Float32(_) | RuleNumber::Float64(_) => None,
+    }
+}
+
+fn rule_number_is_zero(value: &RuleNumber) -> bool {
+    match value {
+        RuleNumber::Integer(value) => {
+            value.parse::<i128>().is_ok_and(|value| value == 0)
+                || value.parse::<u128>().is_ok_and(|value| value == 0)
+        }
+        RuleNumber::Decimal(value) => value
+            .parse::<icydb_schema::Decimal>()
+            .is_ok_and(|value| value.is_zero()),
+        RuleNumber::Float32(value) => *value == 0.0,
+        RuleNumber::Float64(value) => *value == 0.0,
+    }
+}
+
+fn rule_number_is_valid(value: &RuleNumber) -> bool {
+    match value {
+        RuleNumber::Integer(value) => {
+            value.parse::<i128>().is_ok() || value.parse::<u128>().is_ok()
+        }
+        RuleNumber::Decimal(value) => value.parse::<icydb_schema::Decimal>().is_ok(),
+        RuleNumber::Float32(value) => value.is_finite(),
+        RuleNumber::Float64(value) => value.is_finite(),
+    }
 }
 
 ///
@@ -246,3 +333,26 @@ impl ValidateNode for TypeValidator {
 }
 
 impl VisitableNode for TypeValidator {}
+
+#[cfg(test)]
+mod tests {
+    use super::{RuleNumber, SourceRuleAuthoringOperation};
+
+    #[test]
+    fn directly_constructed_rule_numbers_validate_before_lowering() {
+        assert_eq!(
+            SourceRuleAuthoringOperation::MultipleOf {
+                divisor: RuleNumber::Decimal("not-a-decimal"),
+            }
+            .validate_shape(),
+            Err("multiple_of divisor must be a valid numeric literal"),
+        );
+        assert_eq!(
+            SourceRuleAuthoringOperation::NumericMaximumInclusive {
+                value: RuleNumber::Float64(f64::NAN),
+            }
+            .validate_shape(),
+            Err("numeric rule value must be a valid numeric literal"),
+        );
+    }
+}

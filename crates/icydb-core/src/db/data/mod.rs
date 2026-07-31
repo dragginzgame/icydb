@@ -69,8 +69,3 @@ pub(in crate::db) use structural_field::{
 pub(in crate::db::data) use structural_row::SparseRequiredRowFieldBytes;
 pub(in crate::db::data) use structural_row::StructuralRowFieldBytes;
 pub(in crate::db) use structural_row::{AcceptedStructuralRowAuthority, StructuralRowContract};
-
-#[cfg(feature = "diagnostics")]
-pub use persisted_row::{StructuralReadMetrics, with_structural_read_metrics};
-#[cfg(all(test, not(feature = "diagnostics")))]
-pub(crate) use persisted_row::{StructuralReadMetrics, with_structural_read_metrics};

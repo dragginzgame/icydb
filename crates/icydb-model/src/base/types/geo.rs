@@ -18,7 +18,7 @@ use crate::prelude::*;
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
-        rule(name = "length", kind = "length_range_inclusive", args(1, 100)),
+        rule(name = "length", length_range_inclusive(min = 1, max = 100)),
     )
 )]
 pub struct AddressLine {}
@@ -37,7 +37,7 @@ pub struct AddressLine {}
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Title"),
-        rule(name = "length", kind = "length_range_inclusive", args(1, 100)),
+        rule(name = "length", length_range_inclusive(min = 1, max = 100)),
     )
 )]
 pub struct CityName {}
@@ -56,7 +56,7 @@ pub struct CityName {}
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Upper"),
-        rule(name = "length", kind = "length_range_inclusive", args(3, 12)),
+        rule(name = "length", length_range_inclusive(min = 3, max = 12)),
     )
 )]
 pub struct PostalCode {}
@@ -76,7 +76,7 @@ pub struct PostalCode {}
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
         normalizer(path = "base::normalizer::text::case::Upper"),
-        rule(name = "length", kind = "length_range_inclusive", args(2, 50)),
+        rule(name = "length", length_range_inclusive(min = 2, max = 50)),
     )
 )]
 pub struct RegionName {}

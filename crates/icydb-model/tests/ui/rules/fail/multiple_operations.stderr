@@ -1,0 +1,5 @@
+error: rule(...) accepts exactly one typed operation
+ --> tests/ui/rules/fail/multiple_operations.rs:6:16
+  |
+6 |         name = "range",
+  |                ^^^^^^^

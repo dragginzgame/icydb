@@ -12,7 +12,6 @@ use crate::db::schema::{
 use crate::types::{Account, Decimal, Float32, Float64, Principal};
 #[cfg(any(test, feature = "query"))]
 use crate::types::{IntBig, NatBig, Ulid};
-use crate::value::RuntimeValueKind;
 #[cfg(any(test, feature = "query"))]
 use crate::value::{CoercionFamily, Value};
 #[cfg(any(test, feature = "query"))]
@@ -176,12 +175,8 @@ pub(crate) enum FieldType {
 
 impl FieldType {
     #[must_use]
-    pub(crate) const fn value_kind(&self) -> RuntimeValueKind {
-        match self {
-            Self::Scalar(_) => RuntimeValueKind::Atomic,
-            Self::List(_) | Self::Set(_) => RuntimeValueKind::Structured { queryable: true },
-            Self::Map { .. } | Self::Composite => RuntimeValueKind::Structured { queryable: false },
-        }
+    pub(crate) const fn is_queryable(&self) -> bool {
+        matches!(self, Self::Scalar(_) | Self::List(_) | Self::Set(_))
     }
 
     #[cfg(any(test, feature = "query"))]

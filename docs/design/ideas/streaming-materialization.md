@@ -31,6 +31,22 @@ query plan
 
 The goal is to prevent accidental full materialization, enable index intersection, prepare for future joins, and keep IcyDB performant as query complexity grows.
 
+## Current Carry-Forward Finding
+
+The July 2026 repository cleanup found two intentional allocation points in
+`db/data/structural_field/value_storage/decode/value.rs`: recursive list and
+map decoding validate the bounded wire input and then allocate the final owned
+`Value` collection. They are live decoding behavior, not obsolete codecs or a
+second schema authority, so they must not be removed as ordinary cleanup.
+
+A future implementation of this design should determine whether a borrowed
+visitor or streaming collection view can carry those values through filtering
+and projection until an owned result is semantically required. Any such change
+must retain accepted-kind validation, recursive-depth and collection bounds,
+typed corruption failures, and deterministic map semantics. If every consumer
+requires an owned public `Value`, the current final allocation is justified and
+should remain rather than being hidden behind another adapter.
+
 ---
 
 # Summary

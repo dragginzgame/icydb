@@ -24,14 +24,9 @@ use super::metrics::{
 };
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
-    measure_kernel_row_phase, record_kernel_row_key_stream_local_instructions,
-    record_kernel_row_peak_retained_candidates, record_kernel_row_row_read_local_instructions,
-    record_kernel_row_scan_local_instructions,
-};
-#[cfg(any(test, feature = "diagnostics"))]
-use super::metrics::{
-    record_kernel_data_row_path_hit, record_kernel_full_row_retained_path_hit,
-    record_kernel_retained_slot_layout, record_kernel_slots_only_path_hit,
+    measure_kernel_row_phase, record_kernel_retained_slot_layout,
+    record_kernel_row_key_stream_local_instructions, record_kernel_row_peak_retained_candidates,
+    record_kernel_row_row_read_local_instructions, record_kernel_row_scan_local_instructions,
 };
 
 ///
@@ -158,17 +153,11 @@ fn execute_kernel_row_scan_inner(
     // loop does not branch on payload shape or predicate mode per row.
     match scan_strategy {
         KernelRowScanStrategy::DataRows => {
-            #[cfg(any(test, feature = "diagnostics"))]
-            record_kernel_data_row_path_hit();
-
             execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
                 scan_data_rows_only_into_kernel(key_stream, consistency, scan_bounds, row_runtime)
             })
         }
         KernelRowScanStrategy::DataRowsFiltered { filter_program } => {
-            #[cfg(any(test, feature = "diagnostics"))]
-            record_kernel_data_row_path_hit();
-
             execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
                 scan_data_rows_only_into_kernel_with_filter_program(
                     key_stream,
@@ -182,11 +171,8 @@ fn execute_kernel_row_scan_inner(
         KernelRowScanStrategy::RetainedFullRows {
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "diagnostics"))]
-            {
-                record_kernel_full_row_retained_path_hit();
-                record_kernel_retained_slot_layout(retained_slot_layout);
-            }
+            #[cfg(feature = "diagnostics")]
+            record_kernel_retained_slot_layout(retained_slot_layout);
 
             execute_retained_kernel_scan(
                 key_stream,
@@ -207,11 +193,8 @@ fn execute_kernel_row_scan_inner(
             filter_program,
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "diagnostics"))]
-            {
-                record_kernel_full_row_retained_path_hit();
-                record_kernel_retained_slot_layout(retained_slot_layout);
-            }
+            #[cfg(feature = "diagnostics")]
+            record_kernel_retained_slot_layout(retained_slot_layout);
 
             execute_retained_kernel_scan(
                 key_stream,
@@ -232,11 +215,8 @@ fn execute_kernel_row_scan_inner(
         KernelRowScanStrategy::SlotOnlyRows {
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "diagnostics"))]
-            {
-                record_kernel_slots_only_path_hit();
-                record_kernel_retained_slot_layout(retained_slot_layout);
-            }
+            #[cfg(feature = "diagnostics")]
+            record_kernel_retained_slot_layout(retained_slot_layout);
 
             execute_retained_kernel_scan(
                 key_stream,
@@ -257,11 +237,8 @@ fn execute_kernel_row_scan_inner(
             filter_program,
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "diagnostics"))]
-            {
-                record_kernel_slots_only_path_hit();
-                record_kernel_retained_slot_layout(retained_slot_layout);
-            }
+            #[cfg(feature = "diagnostics")]
+            record_kernel_retained_slot_layout(retained_slot_layout);
 
             execute_retained_kernel_scan(
                 key_stream,

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.216.0] ⚠️ - 2026-07-31 - Explicit Application Behavior And Durable Rules
+
+Detailed notes: [docs/changelog/0.216.md](docs/changelog/0.216.md)
+
+- `0.216.0` hard-cuts durable rules to typed operations and separates explicit
+  Rust normalization and validation from accepted database enforcement;
+  incompatible `ICYT` development stores and removed APIs must be recreated or
+  updated without compatibility aliases.
+
 ## [0.215.x] 🧪 - 2026-07-29 - SQL Structural Verification
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)

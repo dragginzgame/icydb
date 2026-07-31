@@ -3,7 +3,7 @@
 //!
 
 use candid::CandidType;
-use ic_cdk::update;
+use ic_cdk::{query, update};
 use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
@@ -11,11 +11,14 @@ use icydb::{
     prelude::FieldRef,
     value::{InputValue, OutputValue},
 };
+use icydb_model::base::types::web::MimeType;
+use icydb_model::{Inner as _, NormalizeAndValidate as _, normalize, validate};
 
 icydb::start!();
 
 const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
 const IDENTITY_MAX_BATCH_ROWS: u32 = 16 * 1024 - 1;
+const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 struct IdentityCloseoutPerfResult {
@@ -27,11 +30,62 @@ struct IdentityCloseoutPerfResult {
     maximum_batch_rows: u32,
 }
 
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+struct ApplicationBehaviorPerfResult {
+    normalize_instructions: u64,
+    validate_instructions: u64,
+    normalize_and_validate_instructions: u64,
+    normalized_bytes: u64,
+    validated_bytes: u64,
+    composed_bytes: u64,
+    iterations: u32,
+}
+
+/// Measure the three explicit application-behavior surfaces without database
+/// access or generated write adapters.
+#[query]
+fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, String> {
+    let mut normalized_bytes = 0_u64;
+    let start = ic_cdk::api::performance_counter(1);
+    for _ in 0..APPLICATION_BEHAVIOR_PERF_ITERATIONS {
+        let mut value = MimeType::from("  Text/HTML  ");
+        normalize(&mut value).map_err(|error| error.to_string())?;
+        normalized_bytes = normalized_bytes.saturating_add(value.inner().len() as u64);
+    }
+    let normalize_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let mut validated_bytes = 0_u64;
+    let start = ic_cdk::api::performance_counter(1);
+    for _ in 0..APPLICATION_BEHAVIOR_PERF_ITERATIONS {
+        let value = MimeType::from("text/html");
+        validate(&value).map_err(|error| error.to_string())?;
+        validated_bytes = validated_bytes.saturating_add(value.inner().len() as u64);
+    }
+    let validate_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let mut composed_bytes = 0_u64;
+    let start = ic_cdk::api::performance_counter(1);
+    for _ in 0..APPLICATION_BEHAVIOR_PERF_ITERATIONS {
+        let value = MimeType::from("  Text/HTML  ")
+            .normalize_and_validate()
+            .map_err(|error| error.to_string())?;
+        composed_bytes = composed_bytes.saturating_add(value.inner().len() as u64);
+    }
+    let normalize_and_validate_instructions =
+        ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    Ok(ApplicationBehaviorPerfResult {
+        normalize_instructions,
+        validate_instructions,
+        normalize_and_validate_instructions,
+        normalized_bytes,
+        validated_bytes,
+        composed_bytes,
+        iterations: APPLICATION_BEHAVIOR_PERF_ITERATIONS,
+    })
+}
+
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
-#[allow(
-    dead_code,
-    reason = "fixture load hook is invoked by generated canister endpoint glue"
-)]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db()?.execute_trusted_structural_insert_batch("SqlTestUser", sql_user_patches())?;
     db()?.execute_trusted_structural_insert_batch(
@@ -43,10 +97,6 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic baseline SQL user fixture batch.
-#[allow(
-    dead_code,
-    reason = "fixture rows are consumed through the generated fixture load hook"
-)]
 fn sql_user_patches() -> Vec<StructuralPatch> {
     vec![
         sql_user_patch("alice", 31, 28),
@@ -101,10 +151,6 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic mixed numeric fixture batch for SQL type coverage.
-#[allow(
-    dead_code,
-    reason = "fixture rows are consumed through the generated fixture load hook"
-)]
 fn sql_numeric_type_patches() -> Vec<StructuralPatch> {
     vec![
         sql_numeric_type_patch(

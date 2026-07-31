@@ -97,18 +97,6 @@ fn sort_map_entries_in_place(entries: &mut [(Value, Value)]) {
     entries.sort_by(compare_map_entry_keys);
 }
 
-// Return `true` when map entries are already in strict canonical order and
-// therefore contain no duplicate canonical keys.
-fn map_entries_are_strictly_canonical(entries: &[(Value, Value)]) -> bool {
-    entries.windows(2).all(|pair| {
-        let [left, right] = pair else {
-            return true;
-        };
-
-        compare_map_entry_keys(left, right) == Ordering::Less
-    })
-}
-
 /// Normalize map entries into canonical deterministic order.
 pub(super) fn normalize_map_entries(
     mut entries: Vec<(Value, Value)>,
@@ -134,17 +122,6 @@ impl Value {
     /// Validate map entry invariants without changing order.
     pub fn validate_map_entries(entries: &[(Self, Self)]) -> Result<(), MapValueError> {
         validate_map_entries(entries)
-    }
-
-    // Sort map entries in canonical key order without changing ownership.
-    pub(crate) fn sort_map_entries_in_place(entries: &mut [(Self, Self)]) {
-        sort_map_entries_in_place(entries);
-    }
-
-    // Return `true` when map entries are already in strict canonical order and
-    // therefore contain no duplicate canonical keys.
-    pub(crate) fn map_entries_are_strictly_canonical(entries: &[(Self, Self)]) -> bool {
-        map_entries_are_strictly_canonical(entries)
     }
 
     /// Normalize map entries into canonical deterministic order.

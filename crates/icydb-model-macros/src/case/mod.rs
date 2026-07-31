@@ -3,7 +3,6 @@
 //! Does not own: identifier authority, schema naming policy, or external crate behavior.
 //! Boundary: wraps local and external case conversion behind one workspace API.
 
-mod constant;
 mod snake;
 
 use std::fmt::{self, Display};
@@ -19,7 +18,6 @@ use convert_case as cc;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Case {
-    Constant,
     Snake,
     UpperCamel,
     UpperSnake,
@@ -28,7 +26,6 @@ pub enum Case {
 impl Display for Case {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
-            Self::Constant => "Constant",
             Self::Snake => "Snake",
             Self::UpperCamel => "UpperCamel",
             Self::UpperSnake => "UpperSnake",
@@ -63,7 +60,6 @@ where
         match case {
             Case::Snake => snake::to_snake_case(s),
             Case::UpperSnake => snake::to_snake_case(s).to_uppercase(),
-            Case::Constant => constant::to_constant_case(s),
             Case::UpperCamel => cc::Casing::to_case(s, cc::Case::UpperCamel),
         }
     }

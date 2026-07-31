@@ -653,15 +653,51 @@ fn operation_matches_target(operation: &SourceRuleOperation, shape: RuleTargetSh
             | RuleTargetShape::Scalar(ScalarType::Blob { .. } | ScalarType::Text { .. }),
         ) => true,
         (
-            SourceRuleOperation::NumericMinimumInclusive { value },
+            SourceRuleOperation::NumericMaximumInclusive { value }
+            | SourceRuleOperation::NumericMinimumInclusive { value },
             RuleTargetShape::Scalar(scalar),
-        ) => numeric_scalar(scalar) && scalar.accepts_literal(value),
+        ) => numeric_scalar(scalar) && numeric_rule_literal_matches(scalar, value),
         (
             SourceRuleOperation::NumericRangeInclusive { min, max },
             RuleTargetShape::Scalar(scalar),
-        ) => numeric_scalar(scalar) && scalar.accepts_literal(min) && scalar.accepts_literal(max),
+        ) => {
+            numeric_scalar(scalar)
+                && numeric_rule_literal_matches(scalar, min)
+                && numeric_rule_literal_matches(scalar, max)
+        }
+        (SourceRuleOperation::MultipleOf { divisor }, RuleTargetShape::Scalar(scalar)) => {
+            exact_numeric_scalar(scalar) && numeric_rule_literal_matches(scalar, divisor)
+        }
         _ => false,
     }
+}
+
+fn numeric_rule_literal_matches(scalar: ScalarType, literal: &crate::ScalarLiteral) -> bool {
+    if let (ScalarType::Decimal { scale }, crate::ScalarLiteral::Decimal(value)) = (scalar, literal)
+    {
+        let value = value.normalize();
+        return value.scale() <= scale && value.scale_to_integer(scale).is_some();
+    }
+    scalar.accepts_literal(literal)
+}
+
+const fn exact_numeric_scalar(scalar: ScalarType) -> bool {
+    matches!(
+        scalar,
+        ScalarType::Decimal { .. }
+            | ScalarType::Int8
+            | ScalarType::Int16
+            | ScalarType::Int32
+            | ScalarType::Int64
+            | ScalarType::Int128
+            | ScalarType::IntBig { .. }
+            | ScalarType::Nat8
+            | ScalarType::Nat16
+            | ScalarType::Nat32
+            | ScalarType::Nat64
+            | ScalarType::Nat128
+            | ScalarType::NatBig { .. }
+    )
 }
 
 const fn numeric_scalar(scalar: ScalarType) -> bool {
@@ -843,6 +879,7 @@ where
 mod tests {
     use super::*;
     use crate::decode_schema_proposal;
+    use std::str::FromStr;
 
     fn empty_proposal() -> SchemaProposal {
         SchemaProposal::try_compose(
@@ -883,5 +920,42 @@ mod tests {
             decode_schema_proposal(&bytes),
             Err(SchemaContractError::UnsupportedCapability),
         );
+    }
+
+    #[test]
+    fn targeted_numeric_operations_require_exact_target_literal_admission() {
+        let decimal = |value| {
+            crate::ScalarLiteral::Decimal(
+                crate::Decimal::from_str(value).expect("decimal fixture should parse"),
+            )
+        };
+        assert!(operation_matches_target(
+            &SourceRuleOperation::MultipleOf {
+                divisor: decimal("0.25"),
+            },
+            RuleTargetShape::Scalar(ScalarType::Decimal { scale: 2 }),
+        ));
+        assert!(!operation_matches_target(
+            &SourceRuleOperation::MultipleOf {
+                divisor: decimal("0.251"),
+            },
+            RuleTargetShape::Scalar(ScalarType::Decimal { scale: 2 }),
+        ));
+        assert!(!operation_matches_target(
+            &SourceRuleOperation::MultipleOf {
+                divisor: crate::ScalarLiteral::Float64(
+                    crate::Float64::try_new(2.0).expect("finite float"),
+                ),
+            },
+            RuleTargetShape::Scalar(ScalarType::Float64),
+        ));
+        assert!(operation_matches_target(
+            &SourceRuleOperation::NumericMaximumInclusive {
+                value: crate::ScalarLiteral::Float64(
+                    crate::Float64::try_new(2.0).expect("finite float"),
+                ),
+            },
+            RuleTargetShape::Scalar(ScalarType::Float64),
+        ));
     }
 }

@@ -13,7 +13,7 @@ use crate::prelude::*;
 #[newtype(
     item(prim = "Text", unbounded),
     ty(
-        rule(name = "length", kind = "length_range_inclusive", args(1, 40)),
+        rule(name = "length", length_range_inclusive(min = 1, max = 40)),
         validator(path = "base::validator::text::case::UpperSnake"),
     )
 )]
@@ -26,7 +26,7 @@ pub struct Constant {}
 #[newtype(
     item(prim = "Text", unbounded),
     ty(
-        rule(name = "length", kind = "length_range_inclusive", args(2, 40)),
+        rule(name = "length", length_range_inclusive(min = 2, max = 40)),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -41,7 +41,7 @@ pub struct Field {}
 #[newtype(
     item(prim = "Text", unbounded),
     ty(
-        rule(name = "length", kind = "length_range_inclusive", args(2, 64)),
+        rule(name = "length", length_range_inclusive(min = 2, max = 64)),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -54,7 +54,7 @@ pub struct Function {}
 #[newtype(
     item(prim = "Text", unbounded),
     ty(
-        rule(name = "length", kind = "length_range_inclusive", args(2, 40)),
+        rule(name = "length", length_range_inclusive(min = 2, max = 40)),
         validator(path = "base::validator::text::case::Snake"),
     )
 )]
@@ -67,7 +67,7 @@ pub struct Variable {}
 #[newtype(
     item(prim = "Text", unbounded),
     ty(
-        rule(name = "length", kind = "length_range_inclusive", args(1, 40)),
+        rule(name = "length", length_range_inclusive(min = 1, max = 40)),
         validator(path = "base::validator::text::case::UpperCamel"),
     )
 )]

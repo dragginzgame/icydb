@@ -200,22 +200,23 @@ impl FilterExpr {
     #[must_use]
     #[cfg(feature = "query")]
     pub(in crate::db::query) fn lower_bool_expr_for_schema(&self, schema: &SchemaInfo) -> Expr {
-        self.lower_bool_expr_with(&SchemaFilterLiteralResolver(schema))
+        self.lower_bool_expr_with_schema(schema)
     }
 
+    #[cfg(feature = "query")]
     #[expect(clippy::too_many_lines)]
-    fn lower_bool_expr_with(&self, resolver: &impl FilterLiteralResolver) -> Expr {
+    fn lower_bool_expr_with_schema(&self, schema: &SchemaInfo) -> Expr {
         match self {
             Self::True => Expr::Literal(Value::Bool(true)),
             Self::False => Expr::Literal(Value::Bool(false)),
-            Self::And(xs) => fold_filter_bool_chain(BinaryOp::And, xs, resolver),
-            Self::Or(xs) => fold_filter_bool_chain(BinaryOp::Or, xs, resolver),
+            Self::And(xs) => fold_filter_bool_chain(BinaryOp::And, xs, schema),
+            Self::Or(xs) => fold_filter_bool_chain(BinaryOp::Or, xs, schema),
             Self::Not(x) => Expr::Unary {
                 op: UnaryOp::Not,
-                expr: Box::new(x.lower_bool_expr_with(resolver)),
+                expr: Box::new(x.lower_bool_expr_with_schema(schema)),
             },
             Self::Eq { field, value } => {
-                field_compare_expr(BinaryOp::Eq, field, resolver.lower_compare(field, value))
+                field_compare_expr(BinaryOp::Eq, field, lower_compare(schema, field, value))
             }
             Self::EqCi { field, value } => Expr::Binary {
                 op: BinaryOp::Eq,
@@ -223,19 +224,19 @@ impl FilterExpr {
                 right: Box::new(Expr::Literal(value.lower_value())),
             },
             Self::Ne { field, value } => {
-                field_compare_expr(BinaryOp::Ne, field, resolver.lower_compare(field, value))
+                field_compare_expr(BinaryOp::Ne, field, lower_compare(schema, field, value))
             }
             Self::Lt { field, value } => {
-                field_compare_expr(BinaryOp::Lt, field, resolver.lower_compare(field, value))
+                field_compare_expr(BinaryOp::Lt, field, lower_compare(schema, field, value))
             }
             Self::Lte { field, value } => {
-                field_compare_expr(BinaryOp::Lte, field, resolver.lower_compare(field, value))
+                field_compare_expr(BinaryOp::Lte, field, lower_compare(schema, field, value))
             }
             Self::Gt { field, value } => {
-                field_compare_expr(BinaryOp::Gt, field, resolver.lower_compare(field, value))
+                field_compare_expr(BinaryOp::Gt, field, lower_compare(schema, field, value))
             }
             Self::Gte { field, value } => {
-                field_compare_expr(BinaryOp::Gte, field, resolver.lower_compare(field, value))
+                field_compare_expr(BinaryOp::Gte, field, lower_compare(schema, field, value))
             }
             Self::EqField {
                 left_field,
@@ -263,19 +264,19 @@ impl FilterExpr {
             } => field_compare_field_expr(BinaryOp::Gte, left_field, right_field),
             Self::In { field, values } => membership_expr(
                 field,
-                resolver.lower_membership(field, values).as_slice(),
+                lower_membership(schema, field, values).as_slice(),
                 false,
             ),
             Self::NotIn { field, values } => membership_expr(
                 field,
-                resolver.lower_membership(field, values).as_slice(),
+                lower_membership(schema, field, values).as_slice(),
                 true,
             ),
             Self::Contains { field, value } => Expr::FunctionCall {
                 function: Function::CollectionContains,
                 args: vec![
                     Expr::Field(FieldId::new(field.clone())),
-                    Expr::Literal(resolver.lower_contains(field, value)),
+                    Expr::Literal(value.lower_value()),
                 ],
             },
             Self::TextContains { field, value } => text_function_expr(
@@ -580,52 +581,35 @@ impl FilterExpr {
     }
 }
 
-trait FilterLiteralResolver {
-    fn lower_compare(&self, field: &str, value: &FilterValue) -> Value;
-
-    fn lower_contains(&self, field: &str, value: &FilterValue) -> Value;
-
-    fn lower_membership(&self, field: &str, values: &[FilterValue]) -> Vec<Value> {
-        values
-            .iter()
-            .map(|value| self.lower_compare(field, value))
-            .collect()
-    }
+#[cfg(feature = "query")]
+fn lower_compare(schema: &SchemaInfo, field: &str, value: &FilterValue) -> Value {
+    let raw = value.lower_value();
+    schema
+        .canonicalize_filter_literal(field, &raw)
+        .unwrap_or(raw)
 }
 
 #[cfg(feature = "query")]
-struct SchemaFilterLiteralResolver<'a>(&'a SchemaInfo);
-
-#[cfg(feature = "query")]
-impl FilterLiteralResolver for SchemaFilterLiteralResolver<'_> {
-    fn lower_compare(&self, field: &str, value: &FilterValue) -> Value {
-        let raw = value.lower_value();
-        self.0
-            .canonicalize_filter_literal(field, &raw)
-            .unwrap_or(raw)
-    }
-
-    fn lower_contains(&self, _field: &str, value: &FilterValue) -> Value {
-        value.lower_value()
-    }
+fn lower_membership(schema: &SchemaInfo, field: &str, values: &[FilterValue]) -> Vec<Value> {
+    values
+        .iter()
+        .map(|value| lower_compare(schema, field, value))
+        .collect()
 }
 
-fn fold_filter_bool_chain(
-    op: BinaryOp,
-    exprs: &[FilterExpr],
-    resolver: &impl FilterLiteralResolver,
-) -> Expr {
+#[cfg(feature = "query")]
+fn fold_filter_bool_chain(op: BinaryOp, exprs: &[FilterExpr], schema: &SchemaInfo) -> Expr {
     let mut exprs = exprs.iter();
     let Some(first) = exprs.next() else {
         return Expr::Literal(Value::Bool(matches!(op, BinaryOp::And)));
     };
 
-    let first = first.lower_bool_expr_with(resolver);
+    let first = first.lower_bool_expr_with_schema(schema);
 
     exprs.fold(first, |left, expr| Expr::Binary {
         op,
         left: Box::new(left),
-        right: Box::new(expr.lower_bool_expr_with(resolver)),
+        right: Box::new(expr.lower_bool_expr_with_schema(schema)),
     })
 }
 

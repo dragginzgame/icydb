@@ -89,18 +89,10 @@ pub use icydb_core::db::{
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
-pub use icydb_core::db::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[doc(hidden)]
 pub use icydb_core::db::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlOutputBlobAttribution,
     SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
     SqlStructuralWorkAttribution,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[doc(hidden)]
-pub use icydb_core::db::{
-    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]
@@ -108,6 +100,3 @@ pub use icydb_core::db::{
     SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
 };
-#[cfg(feature = "diagnostics")]
-#[doc(hidden)]
-pub use icydb_core::db::{StructuralReadMetrics, with_structural_read_metrics};

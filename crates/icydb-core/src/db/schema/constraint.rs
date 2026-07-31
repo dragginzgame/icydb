@@ -101,13 +101,13 @@ impl AcceptedRuleTarget {
 /// checks. Length bounds are already exact Nat64 values and need no second
 /// encoded literal representation.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[expect(
-    clippy::enum_variant_names,
-    reason = "the inclusive suffix is part of each closed operation's precise semantics"
-)]
 pub(in crate::db) enum AcceptedRuleOperation {
     /// Inclusive Unicode-scalar, octet, or collection-cardinality range.
     LengthRangeInclusive { min: u64, max: u64 },
+    /// Exact nonzero integer or fixed-scale decimal divisor.
+    MultipleOf { divisor: AcceptedCheckLiteralV1 },
+    /// Inclusive exact numeric maximum.
+    NumericMaximumInclusive { value: AcceptedCheckLiteralV1 },
     /// Inclusive exact numeric minimum.
     NumericMinimumInclusive { value: AcceptedCheckLiteralV1 },
     /// Inclusive exact numeric range.
@@ -124,7 +124,10 @@ impl AcceptedRuleOperation {
     pub(in crate::db::schema) fn has_valid_local_shape(&self) -> bool {
         match self {
             Self::LengthRangeInclusive { min, max } => min <= max,
-            Self::NumericMinimumInclusive { value } => {
+            Self::MultipleOf { divisor } => {
+                accepted_rule_exact_numeric_kind_is_supported(divisor.kind())
+            }
+            Self::NumericMaximumInclusive { value } | Self::NumericMinimumInclusive { value } => {
                 accepted_rule_numeric_kind_is_supported(value.kind())
             }
             Self::NumericRangeInclusive { min, max } => {
@@ -277,7 +280,11 @@ pub(in crate::db::schema) fn validate_accepted_targeted_rules(
             AcceptedRuleOperation::LengthRangeInclusive { .. } => {
                 accepted_rule_length_kind_is_supported(&resolved_kind)
             }
-            AcceptedRuleOperation::NumericMinimumInclusive { .. }
+            AcceptedRuleOperation::MultipleOf { .. } => {
+                accepted_rule_exact_numeric_kind_is_supported(&resolved_kind)
+            }
+            AcceptedRuleOperation::NumericMaximumInclusive { .. }
+            | AcceptedRuleOperation::NumericMinimumInclusive { .. }
             | AcceptedRuleOperation::NumericRangeInclusive { .. } => {
                 accepted_rule_numeric_kind_is_supported(&resolved_kind)
             }
@@ -291,6 +298,27 @@ pub(in crate::db::schema) fn validate_accepted_targeted_rules(
             )
             .is_ok()
     })
+}
+
+pub(in crate::db::schema) const fn accepted_rule_exact_numeric_kind_is_supported(
+    kind: &AcceptedFieldKind,
+) -> bool {
+    matches!(
+        kind,
+        AcceptedFieldKind::Decimal { .. }
+            | AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64
+            | AcceptedFieldKind::Int128
+            | AcceptedFieldKind::IntBig { .. }
+            | AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64
+            | AcceptedFieldKind::Nat128
+            | AcceptedFieldKind::NatBig { .. }
+    )
 }
 
 pub(in crate::db::schema) const fn accepted_rule_numeric_kind_is_supported(
@@ -897,6 +925,62 @@ impl AcceptedConstraintCatalog {
         )
     }
 
+    /// Stage changed targeted-rule semantics under their existing accepted identity.
+    ///
+    /// The current accepted rule remains authoritative while the paired
+    /// activation gates new writes and proves historical rows. Promotion
+    /// replaces the accepted semantics without allocating a new identity;
+    /// abort removes only the candidate.
+    pub(in crate::db) fn with_replaced_targeted_rule_activation(
+        mut self,
+        id: ConstraintId,
+        target: AcceptedRuleTarget,
+        operation: AcceptedRuleOperation,
+        base_schema_fingerprint: AcceptedSchemaFingerprint,
+        activation_epoch: u64,
+    ) -> Result<Self, AcceptedConstraintCatalogError> {
+        if activation_epoch == 0 {
+            return Err(AcceptedConstraintCatalogError::InvalidActivationEpoch);
+        }
+        let accepted = self
+            .constraints
+            .iter()
+            .find(|constraint| constraint.id() == id)
+            .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
+        let AcceptedConstraintKind::TargetedRule {
+            target: accepted_target,
+            operation: accepted_operation,
+        } = accepted.kind()
+        else {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        };
+        if accepted.origin() != ConstraintOrigin::Generated
+            || *accepted_target != target
+            || accepted_operation.as_ref() == &operation
+            || self
+                .activations
+                .iter()
+                .any(|activation| activation.id() == id || activation.name() == accepted.name())
+        {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
+        self.activations.push(ConstraintActivationSnapshot::new(
+            id,
+            accepted.name().to_string(),
+            accepted.origin(),
+            ConstraintActivationKind::TargetedRule {
+                target,
+                operation: Box::new(operation),
+            },
+            ConstraintActivationState::EnforcingNewWrites,
+            base_schema_fingerprint,
+            activation_epoch,
+        ));
+        self.activations
+            .sort_by_key(ConstraintActivationSnapshot::id);
+        Ok(self)
+    }
+
     /// Reserve one not-null activation while the accepted field remains nullable.
     #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn with_added_not_null_activation(
@@ -1023,6 +1107,20 @@ impl AcceptedConstraintCatalog {
             .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
         if activation.state() != required_state {
             return Err(AcceptedConstraintCatalogError::InvalidActivationState);
+        }
+        if let Some(position) = self
+            .constraints
+            .iter()
+            .position(|constraint| constraint.id() == activation.id())
+        {
+            let accepted = self
+                .constraints
+                .get(position)
+                .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
+            if !targeted_rule_activation_replaces_constraint(accepted, &activation) {
+                return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+            }
+            self.constraints.remove(position);
         }
         let kind = match activation.kind {
             ConstraintActivationKind::NotNull { field_id } => {
@@ -1285,6 +1383,32 @@ impl AcceptedConstraintCatalog {
     }
 }
 
+pub(in crate::db::schema) fn targeted_rule_activation_replaces_constraint(
+    accepted: &AcceptedConstraintSnapshot,
+    activation: &ConstraintActivationSnapshot,
+) -> bool {
+    if accepted.id() != activation.id()
+        || accepted.name() != activation.name()
+        || accepted.origin() != ConstraintOrigin::Generated
+        || activation.origin() != ConstraintOrigin::Generated
+    {
+        return false;
+    }
+    matches!(
+        (accepted.kind(), activation.kind()),
+        (
+            AcceptedConstraintKind::TargetedRule {
+                target: accepted_target,
+                operation: accepted_operation,
+            },
+            ConstraintActivationKind::TargetedRule {
+                target: candidate_target,
+                operation: candidate_operation,
+            },
+        ) if accepted_target == candidate_target && accepted_operation != candidate_operation
+    )
+}
+
 fn constraint_activation_fingerprint(
     id: ConstraintId,
     name: &str,
@@ -1371,6 +1495,22 @@ fn update_targeted_rule_operation_fingerprint(
                 hasher.update(value);
             }
         }
+        AcceptedRuleOperation::NumericMaximumInclusive { value } => {
+            hasher.update([4]);
+            let value = value.canonical_key();
+            hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+            hasher.update(value);
+        }
+        AcceptedRuleOperation::MultipleOf { divisor } => {
+            hasher.update([5]);
+            let divisor = divisor.canonical_key();
+            hasher.update(
+                u64::try_from(divisor.len())
+                    .unwrap_or(u64::MAX)
+                    .to_be_bytes(),
+            );
+            hasher.update(divisor);
+        }
     }
 }
 
@@ -1409,9 +1549,50 @@ pub(in crate::db) fn validate_constraint_name(
 mod tests {
     use super::{
         AcceptedConstraintCatalog, AcceptedConstraintCatalogError, AcceptedConstraintKind,
-        ConstraintActivationState, ConstraintOrigin,
+        AcceptedRuleOperation, ConstraintActivationState, ConstraintOrigin,
     };
-    use crate::db::schema::{AcceptedCheckExprV1, AcceptedSchemaFingerprint};
+    use crate::db::{
+        codec::{finalize_hash_sha256, new_hash_sha256},
+        schema::{
+            AcceptedCheckExprV1, AcceptedCheckLiteralV1, AcceptedFieldKind,
+            AcceptedSchemaFingerprint, FieldStorageDecode, LeafCodec, ScalarCodec,
+        },
+    };
+    use sha2::Digest;
+
+    #[test]
+    fn appended_targeted_rule_fingerprint_tags_are_four_and_five() {
+        let literal = AcceptedCheckLiteralV1::from_accepted_parts(
+            AcceptedFieldKind::Nat64,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+            vec![5],
+        );
+        for (operation, tag) in [
+            (
+                AcceptedRuleOperation::NumericMaximumInclusive {
+                    value: literal.clone(),
+                },
+                4,
+            ),
+            (
+                AcceptedRuleOperation::MultipleOf {
+                    divisor: literal.clone(),
+                },
+                5,
+            ),
+        ] {
+            let mut actual = new_hash_sha256();
+            super::update_targeted_rule_operation_fingerprint(&mut actual, &operation);
+
+            let mut expected = new_hash_sha256();
+            expected.update([tag]);
+            let key = literal.canonical_key();
+            expected.update(u64::try_from(key.len()).unwrap_or(u64::MAX).to_be_bytes());
+            expected.update(key);
+            assert_eq!(finalize_hash_sha256(actual), finalize_hash_sha256(expected));
+        }
+    }
 
     #[test]
     fn accepted_constraint_catalog_rejects_noncanonical_or_unbounded_names() {

@@ -35,7 +35,7 @@ impl HasDef for Record {
 
 impl ValidateNode for Record {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.with_type_traits().validate()?;
+        self.traits.validate_for_type()?;
         self.fields.validate()?;
         if self.traits.explicitly_adds(TraitKind::Default) {
             validate_struct_default_request("record", self.def(), &self.fields)?;
@@ -67,7 +67,7 @@ impl HasSchemaPart for Record {
 
 impl HasTraits for Record {
     fn traits(&self) -> Vec<TraitKind> {
-        let traits = self.traits.with_type_traits().build();
+        let traits = self.traits.build_for_type();
         traits.into_vec()
     }
 

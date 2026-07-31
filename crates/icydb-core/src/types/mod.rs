@@ -8,14 +8,8 @@
 //! behavior retained by the engine.
 
 mod account;
-mod blob;
-mod date;
-mod decimal;
 mod duration;
-mod float;
 mod identity;
-mod int_big;
-mod nat_big;
 mod principal;
 #[cfg(any(test, not(target_arch = "wasm32")))]
 mod random;
@@ -25,16 +19,12 @@ mod ulid;
 mod unit;
 
 pub use account::*;
-pub use blob::*;
-pub use date::*;
-pub use decimal::*;
 pub use duration::*;
-pub use float::*;
-pub use icydb_schema::NumericValue;
-pub use icydb_schema::TypeParseError;
+pub use icydb_schema::{
+    Blob, Date, Decimal, DecimalParts, Float32, Float32DecodeError, Float64, Float64DecodeError,
+    IntBig, NatBig, NumericValue, ParseDecimalError, ParseDecimalErrorReason, TypeParseError,
+};
 pub use identity::*;
-pub use int_big::*;
-pub use nat_big::*;
 pub use principal::*;
 pub use subaccount::*;
 pub use timestamp::*;

@@ -1,4 +1,4 @@
-#[allow(
+#[expect(
     dead_code,
     unused_imports,
     reason = "this boundary target consumes only the verdict subset of the shared test harness"
@@ -58,6 +58,17 @@ struct IdentityCloseoutPerfResult {
     maximum_batch_rows: u32,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct ApplicationBehaviorPerfResult {
+    normalize_instructions: u64,
+    validate_instructions: u64,
+    normalize_and_validate_instructions: u64,
+    normalized_bytes: u64,
+    validated_bytes: u64,
+    composed_bytes: u64,
+    iterations: u32,
+}
+
 fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
     // Build the dedicated SQL smoke canister once, then install that wasm into
     // a fresh standalone IC testkit instance with empty init args.
@@ -106,6 +117,33 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
         result.one_row_batch_instructions,
         result.maximum_batch_instructions,
         result.maximum_batch_rows,
+    );
+}
+
+#[test]
+#[ignore = "release evidence for explicit application-behavior instruction costs"]
+fn application_behavior_reports_separate_and_composed_instruction_costs() {
+    let fixture = install_sql_canister_fixture();
+    let result: Result<ApplicationBehaviorPerfResult, String> = fixture
+        .query_call("measure_application_behavior_perf", ())
+        .expect("application behavior perf result should decode");
+    let result = result.expect("application behavior perf endpoint should succeed");
+
+    assert!(result.normalize_instructions > 0);
+    assert!(result.validate_instructions > 0);
+    assert!(result.normalize_and_validate_instructions > 0);
+    assert_eq!(result.iterations, 256);
+    let expected_bytes = u64::from(result.iterations) * 9;
+    assert_eq!(result.normalized_bytes, expected_bytes);
+    assert_eq!(result.validated_bytes, expected_bytes);
+    assert_eq!(result.composed_bytes, expected_bytes);
+
+    println!(
+        "application behavior instructions over {} calls: normalize={} validate={} normalize_and_validate={}",
+        result.iterations,
+        result.normalize_instructions,
+        result.validate_instructions,
+        result.normalize_and_validate_instructions,
     );
 }
 

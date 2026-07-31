@@ -328,7 +328,7 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
         });
     }
 
-    if !field_type.value_kind().is_queryable() {
+    if !field_type.is_queryable() {
         return Err(ValidateError::NonQueryableFieldType {
             field: field.to_string(),
         });

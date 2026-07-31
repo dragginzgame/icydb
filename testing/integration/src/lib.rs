@@ -448,64 +448,6 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
     )
 }
 
-/// Build one supported fixture canister and install it into a fresh standalone
-/// fixture while printing install-stage progress to stderr.
-///
-/// This is intended for expensive ignored audits where a hung PocketIC startup
-/// or install needs a precise stage marker in test logs.
-///
-/// # Panics
-///
-/// Panics if the canister cannot be built, the built WASM cannot be read, empty
-/// init args cannot be encoded, or installation fails.
-#[must_use]
-pub fn install_fixture_canister_with_progress(
-    canister_name: &str,
-    progress_label: &str,
-) -> StandaloneCanisterFixture {
-    install_fixture_canister_with_options_and_optional_progress(
-        canister_name,
-        local_canister_build_options(),
-        Some(progress_label),
-    )
-}
-
-/// Build one supported fixture canister with explicit options and install it
-/// into a fresh standalone fixture with empty init args.
-///
-/// # Panics
-///
-/// Panics if the canister cannot be built, the built WASM cannot be read, empty
-/// init args cannot be encoded, or installation fails.
-#[must_use]
-pub fn install_fixture_canister_with_options(
-    canister_name: &str,
-    options: CanisterBuildOptions,
-) -> StandaloneCanisterFixture {
-    install_fixture_canister_with_options_and_optional_progress(canister_name, options, None)
-}
-
-/// Build one supported fixture canister with explicit options and install it
-/// into a fresh standalone fixture while printing install-stage progress to
-/// stderr.
-///
-/// # Panics
-///
-/// Panics if the canister cannot be built, the built WASM cannot be read, empty
-/// init args cannot be encoded, or installation fails.
-#[must_use]
-pub fn install_fixture_canister_with_options_and_progress(
-    canister_name: &str,
-    options: CanisterBuildOptions,
-    progress_label: &str,
-) -> StandaloneCanisterFixture {
-    install_fixture_canister_with_options_and_optional_progress(
-        canister_name,
-        options,
-        Some(progress_label),
-    )
-}
-
 fn install_fixture_canister_with_options_and_optional_progress(
     canister_name: &str,
     options: CanisterBuildOptions,

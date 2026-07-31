@@ -207,6 +207,16 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         !tokens.contains("pub created_at : :: icydb :: db :: WriteCell"),
         "managed fields must be absent from authored write inputs: {tokens}",
     );
+    for forbidden in [
+        "icydb_model :: normalize",
+        "icydb_model :: validate",
+        "normalize_and_validate",
+    ] {
+        assert!(
+            !tokens.contains(forbidden),
+            "generated write adapters must not invoke application callback `{forbidden}`: {tokens}",
+        );
+    }
 }
 
 #[test]

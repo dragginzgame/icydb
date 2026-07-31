@@ -366,6 +366,27 @@ fn persisted_schema_snapshot_round_trips_current_targeted_rule() {
     assert_structural_constraint_wire_rejects(reversed_range);
 }
 
+#[test]
+fn current_targeted_rule_wire_round_trips_maximum_and_multiple_of() {
+    let literal = crate::db::schema::AcceptedCheckLiteralV1::from_accepted_parts(
+        AcceptedFieldKind::Nat64,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Nat64),
+        vec![5],
+    );
+    for operation in [
+        AcceptedRuleOperation::NumericMaximumInclusive {
+            value: literal.clone(),
+        },
+        AcceptedRuleOperation::MultipleOf { divisor: literal },
+    ] {
+        let decoded = super::AcceptedRuleOperationWire::from_operation(&operation)
+            .into_operation()
+            .expect("current targeted operation wire should decode");
+        assert_eq!(decoded, operation);
+    }
+}
+
 fn snapshot_with_check_activation() -> PersistedSchemaSnapshot {
     let snapshot = temporal_schema_snapshot();
     let catalog = snapshot
@@ -426,6 +447,53 @@ fn persisted_schema_snapshot_round_trips_current_targeted_activation() {
         decoded.constraint_activations()[0].kind(),
         ConstraintActivationKind::TargetedRule { .. }
     ));
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_targeted_semantic_replacement() {
+    let snapshot = snapshot_with_targeted_rule();
+    let accepted = snapshot
+        .constraints()
+        .iter()
+        .find(|constraint| {
+            matches!(
+                constraint.kind(),
+                AcceptedConstraintKind::TargetedRule { .. }
+            )
+        })
+        .expect("accepted targeted rule should exist");
+    let AcceptedConstraintKind::TargetedRule { target, .. } = accepted.kind() else {
+        panic!("accepted targeted rule should retain its kind");
+    };
+    let accepted_id = accepted.id();
+    let target = *target;
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_replaced_targeted_rule_activation(
+            accepted_id,
+            target,
+            AcceptedRuleOperation::LengthRangeInclusive { min: 2, max: 7 },
+            AcceptedSchemaFingerprint::new([0xA7; 32]),
+            9,
+        )
+        .expect("targeted semantic replacement should stage");
+    let snapshot = snapshot.with_constraint_catalog(catalog);
+
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("targeted semantic replacement should encode");
+    let decoded = decode_persisted_schema_snapshot(&encoded)
+        .expect("targeted semantic replacement should decode");
+
+    assert_eq!(decoded, snapshot);
+    assert_eq!(decoded.constraint_activations()[0].id(), accepted_id);
+    assert_eq!(
+        decoded
+            .constraints()
+            .last()
+            .map(AcceptedConstraintSnapshot::id),
+        Some(accepted_id),
+    );
 }
 
 #[test]

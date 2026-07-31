@@ -18,8 +18,8 @@ use icydb_schema::{
     IndexFragment, IndexKeyFragment, IntBig, NamedTypeFragment, NatBig, Principal,
     RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey,
     ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaName,
-    SourceRuleOperation, Subaccount, TargetedRuleFragment, Timestamp, TupleElementFragment,
-    TypeSourceKey, Ulid, Unit,
+    SourceRuleOperation as ProposalSourceRuleOperation, Subaccount, TargetedRuleFragment,
+    Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
 };
 use thiserror::Error;
 
@@ -27,8 +27,8 @@ use crate::{
     node::{
         Arg, ArgNumber, Canister, CheckConstraint, Entity, Enum, Field, FieldWriteManagement,
         Index, IndexExpression, IndexKeyItem, IndexKeyItemsRef, Item, ItemTarget, List, Map,
-        Record, RelationEdge, Schema, SchemaNode, Set, SourceRule, SourceRuleKind, Store, Tuple,
-        Value,
+        Record, RelationEdge, RuleNumber, Schema, SchemaNode, Set, SourceRule,
+        SourceRuleAuthoringOperation, Store, Tuple, Value,
     },
     types::{Cardinality, Primitive},
 };
@@ -472,14 +472,9 @@ fn lower_source_rule_operation(
     schema: &Schema,
     target: &SchemaNode,
     rule: &SourceRule,
-) -> Result<SourceRuleOperation, FragmentLoweringError> {
-    let args = rule.args().0;
-    let length_bound = |index: usize| {
-        args.get(index)
-            .and_then(|arg| match arg {
-                Arg::Number(value) => arg_u128(value),
-                _ => None,
-            })
+) -> Result<ProposalSourceRuleOperation, FragmentLoweringError> {
+    let length_bound = |value: &RuleNumber| {
+        rule_integer_u128(value)
             .and_then(|value| u64::try_from(value).ok())
             .ok_or_else(|| {
                 FragmentLoweringError::InvalidReference(format!(
@@ -489,34 +484,40 @@ fn lower_source_rule_operation(
             })
     };
 
-    let operation = match rule.kind() {
-        SourceRuleKind::NumericMinimum => {
+    let operation = match rule.operation() {
+        SourceRuleAuthoringOperation::NumericMinimumInclusive { value } => {
             let RuleValueShape::Scalar(primitive, item) = resolve_rule_value_shape(schema, target)?
             else {
                 return Err(invalid_rule_target(rule));
             };
-            let value = args
-                .first()
-                .and_then(|arg| lower_scalar_default(primitive, item, arg))
+            let value = lower_rule_numeric_literal(primitive, item, value)
                 .ok_or_else(|| invalid_rule_target(rule))?;
-            SourceRuleOperation::NumericMinimumInclusive { value }
+            ProposalSourceRuleOperation::NumericMinimumInclusive { value }
         }
-        SourceRuleKind::NumericRange => {
+        SourceRuleAuthoringOperation::NumericMaximumInclusive { value } => {
             let RuleValueShape::Scalar(primitive, item) = resolve_rule_value_shape(schema, target)?
             else {
                 return Err(invalid_rule_target(rule));
             };
-            let literal = |index: usize| {
-                args.get(index)
-                    .and_then(|arg| lower_scalar_default(primitive, item, arg))
+            let value = lower_rule_numeric_literal(primitive, item, value)
+                .ok_or_else(|| invalid_rule_target(rule))?;
+            ProposalSourceRuleOperation::NumericMaximumInclusive { value }
+        }
+        SourceRuleAuthoringOperation::NumericRangeInclusive { min, max } => {
+            let RuleValueShape::Scalar(primitive, item) = resolve_rule_value_shape(schema, target)?
+            else {
+                return Err(invalid_rule_target(rule));
+            };
+            let literal = |value: &RuleNumber| {
+                lower_rule_numeric_literal(primitive, item, value)
                     .ok_or_else(|| invalid_rule_target(rule))
             };
-            SourceRuleOperation::NumericRangeInclusive {
-                min: literal(0)?,
-                max: literal(1)?,
+            ProposalSourceRuleOperation::NumericRangeInclusive {
+                min: literal(min)?,
+                max: literal(max)?,
             }
         }
-        SourceRuleKind::LengthRange => {
+        SourceRuleAuthoringOperation::LengthRangeInclusive { min, max } => {
             let shape = resolve_rule_value_shape(schema, target)?;
             if !matches!(
                 shape,
@@ -525,13 +526,103 @@ fn lower_source_rule_operation(
             ) {
                 return Err(invalid_rule_target(rule));
             }
-            SourceRuleOperation::LengthRangeInclusive {
-                min: length_bound(0)?,
-                max: length_bound(1)?,
+            ProposalSourceRuleOperation::LengthRangeInclusive {
+                min: length_bound(min)?,
+                max: length_bound(max)?,
             }
+        }
+        SourceRuleAuthoringOperation::MultipleOf { divisor } => {
+            let RuleValueShape::Scalar(primitive, item) = resolve_rule_value_shape(schema, target)?
+            else {
+                return Err(invalid_rule_target(rule));
+            };
+            let divisor = lower_rule_numeric_literal(primitive, item, divisor)
+                .ok_or_else(|| invalid_rule_target(rule))?;
+            ProposalSourceRuleOperation::MultipleOf { divisor }
         }
     };
     Ok(operation)
+}
+
+fn lower_rule_numeric_literal(
+    primitive: Primitive,
+    item: &Item,
+    value: &RuleNumber,
+) -> Option<ScalarLiteral> {
+    match primitive {
+        Primitive::Decimal => rule_decimal(value)
+            .and_then(|value| exact_decimal_at_scale(value, item.scale().unwrap_or(0)))
+            .map(ScalarLiteral::Decimal),
+        Primitive::Float32 => match value {
+            RuleNumber::Float32(value) => Float32::try_new(*value).map(ScalarLiteral::Float32),
+            RuleNumber::Integer(_) | RuleNumber::Decimal(_) | RuleNumber::Float64(_) => None,
+        },
+        Primitive::Float64 => match value {
+            RuleNumber::Decimal(value) => value
+                .parse::<f64>()
+                .ok()
+                .and_then(Float64::try_new)
+                .map(ScalarLiteral::Float64),
+            RuleNumber::Float64(value) => Float64::try_new(*value).map(ScalarLiteral::Float64),
+            RuleNumber::Integer(_) | RuleNumber::Float32(_) => None,
+        },
+        Primitive::Int8
+        | Primitive::Int16
+        | Primitive::Int32
+        | Primitive::Int64
+        | Primitive::Int128 => rule_integer_i128(value).map(ScalarLiteral::Int),
+        Primitive::IntBig => rule_integer_text(value)
+            .and_then(|value| IntBig::from_str(value).ok())
+            .map(ScalarLiteral::IntBig),
+        Primitive::Nat8
+        | Primitive::Nat16
+        | Primitive::Nat32
+        | Primitive::Nat64
+        | Primitive::Nat128 => rule_integer_u128(value).map(ScalarLiteral::Nat),
+        Primitive::NatBig => rule_integer_text(value)
+            .and_then(|value| NatBig::from_str(value).ok())
+            .map(ScalarLiteral::NatBig),
+        Primitive::Account
+        | Primitive::Blob
+        | Primitive::Bool
+        | Primitive::Date
+        | Primitive::Duration
+        | Primitive::Principal
+        | Primitive::Subaccount
+        | Primitive::Text
+        | Primitive::Timestamp
+        | Primitive::Ulid
+        | Primitive::Unit => None,
+    }
+}
+
+const fn rule_integer_text(value: &RuleNumber) -> Option<&str> {
+    let RuleNumber::Integer(value) = value else {
+        return None;
+    };
+    Some(value)
+}
+
+fn rule_integer_i128(value: &RuleNumber) -> Option<i128> {
+    rule_integer_text(value)?.parse().ok()
+}
+
+fn rule_integer_u128(value: &RuleNumber) -> Option<u128> {
+    rule_integer_text(value)?.parse().ok()
+}
+
+fn rule_decimal(value: &RuleNumber) -> Option<Decimal> {
+    match value {
+        RuleNumber::Integer(value) | RuleNumber::Decimal(value) => Decimal::from_str(value).ok(),
+        RuleNumber::Float32(_) | RuleNumber::Float64(_) => None,
+    }
+}
+
+fn exact_decimal_at_scale(value: Decimal, scale: u32) -> Option<Decimal> {
+    let value = value.normalize();
+    value
+        .scale_to_integer(scale)
+        .and_then(|mantissa| Decimal::try_from_i128_with_scale(mantissa, scale))
 }
 
 #[derive(Clone, Copy)]
@@ -1101,41 +1192,95 @@ fn parse_subaccount(value: &str) -> Option<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use icydb_schema::{
-        ConstraintFragmentKind, ConstraintSourceKey, FieldSourceKey, FieldType, NamedTypeFragment,
-        RuleSourceKey, ScalarType, SourceRuleOperation, TypeSourceKey,
+        ConstraintFragmentKind, ConstraintSourceKey, Decimal, FieldSourceKey, FieldType,
+        NamedTypeFragment, RuleSourceKey, ScalarLiteral, ScalarType, SourceRuleOperation,
+        TypeSourceKey,
     };
 
     use super::{Schema, lower_field_rules};
     use crate::{
         node::{
-            Arg, ArgNumber, Args, Canister, Def, Entity, Enum, EnumVariant, Field, FieldList, Item,
-            ItemTarget, Newtype, PrimaryKey, PrimaryKeySource, Record, SchemaNode, SourceRule,
-            SourceRuleKind, Store, StoreHeapConfig, Type, Value,
+            Args, Canister, Def, Entity, Enum, EnumVariant, Field, FieldList, Item, ItemTarget,
+            Newtype, Normalizer, PrimaryKey, PrimaryKeySource, Record, RuleNumber, SchemaNode,
+            SourceRule, SourceRuleAuthoringOperation, Store, StoreHeapConfig, Type, TypeNormalizer,
+            TypeValidator, Validator, Value,
         },
         types::{Cardinality, Primitive},
     };
 
     static EMPTY_TYPE: Type = Type::new(&[], &[], &[]);
-    static NUMERIC_RULE_ARGS: [Arg; 2] = [
-        Arg::Number(ArgNumber::Int32(0)),
-        Arg::Number(ArgNumber::Int32(360)),
-    ];
+    static APPLICATION_FIELDS: [Field; 1] = [Field::new(
+        "id",
+        Value::new(
+            Cardinality::One,
+            Item::new(
+                ItemTarget::Primitive(Primitive::Nat64),
+                None,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+                false,
+            ),
+        ),
+        None,
+        None,
+        None,
+    )];
+    static APPLICATION_NORMALIZERS_A: [TypeNormalizer; 1] =
+        [TypeNormalizer::new("test::NormalizeA", Args(&[]))];
+    static APPLICATION_NORMALIZERS_B: [TypeNormalizer; 1] =
+        [TypeNormalizer::new("test::NormalizeB", Args(&[]))];
+    static APPLICATION_VALIDATORS_A: [TypeValidator; 1] =
+        [TypeValidator::new("test::ValidateA", Args(&[]))];
+    static APPLICATION_VALIDATORS_B: [TypeValidator; 1] =
+        [TypeValidator::new("test::ValidateB", Args(&[]))];
     static NUMERIC_RULES: [SourceRule; 1] = [SourceRule::new(
         "range",
-        SourceRuleKind::NumericRange,
-        Args(&NUMERIC_RULE_ARGS),
+        SourceRuleAuthoringOperation::NumericRangeInclusive {
+            min: RuleNumber::Integer("0"),
+            max: RuleNumber::Integer("360"),
+        },
     )];
     static NUMERIC_RULE_TYPE: Type = Type::new(&[], &[], &NUMERIC_RULES);
-    static LENGTH_RULE_ARGS: [Arg; 2] = [
-        Arg::Number(ArgNumber::Int32(2)),
-        Arg::Number(ArgNumber::Int32(40)),
-    ];
     static LENGTH_RULES: [SourceRule; 1] = [SourceRule::new(
         "length",
-        SourceRuleKind::LengthRange,
-        Args(&LENGTH_RULE_ARGS),
+        SourceRuleAuthoringOperation::LengthRangeInclusive {
+            min: RuleNumber::Integer("2"),
+            max: RuleNumber::Integer("40"),
+        },
     )];
     static LENGTH_RULE_TYPE: Type = Type::new(&[], &[], &LENGTH_RULES);
+    static NAT_EXACT_RULES: [SourceRule; 2] = [
+        SourceRule::new(
+            "maximum",
+            SourceRuleAuthoringOperation::NumericMaximumInclusive {
+                value: RuleNumber::Integer("100"),
+            },
+        ),
+        SourceRule::new(
+            "step",
+            SourceRuleAuthoringOperation::MultipleOf {
+                divisor: RuleNumber::Integer("5"),
+            },
+        ),
+    ];
+    static NAT_EXACT_RULE_TYPE: Type = Type::new(&[], &[], &NAT_EXACT_RULES);
+    static DECIMAL_EXACT_RULES: [SourceRule; 1] = [SourceRule::new(
+        "step",
+        SourceRuleAuthoringOperation::MultipleOf {
+            divisor: RuleNumber::Decimal("0.25"),
+        },
+    )];
+    static DECIMAL_EXACT_RULE_TYPE: Type = Type::new(&[], &[], &DECIMAL_EXACT_RULES);
+    static INEXACT_DECIMAL_RULES: [SourceRule; 1] = [SourceRule::new(
+        "step",
+        SourceRuleAuthoringOperation::MultipleOf {
+            divisor: RuleNumber::Decimal("0.251"),
+        },
+    )];
+    static INEXACT_DECIMAL_RULE_TYPE: Type = Type::new(&[], &[], &INEXACT_DECIMAL_RULES);
     static NESTED_RULE_FIELDS: [Field; 1] = [Field::new(
         "degrees",
         Value::new(
@@ -1174,6 +1319,69 @@ mod tests {
             )),
         ),
     ];
+
+    fn application_behavior_fragment(
+        normalizers: &'static [TypeNormalizer],
+        validators: &'static [TypeValidator],
+        normalizer_name: &'static str,
+        validator_name: &'static str,
+    ) -> icydb_schema::SchemaFragment {
+        let mut schema = Schema::new();
+        schema.insert_node(SchemaNode::Canister(Canister::new(
+            Def::new("test", "Canister"),
+            "test",
+            0,
+            10,
+            9,
+            8,
+        )));
+        schema.insert_node(SchemaNode::Store(Store::new_heap(
+            Def::new("test", "Store"),
+            "test::Canister",
+            StoreHeapConfig::new(),
+        )));
+        schema.insert_node(SchemaNode::Normalizer(Normalizer::new(Def::new(
+            "test",
+            normalizer_name,
+        ))));
+        schema.insert_node(SchemaNode::Validator(Validator::new(Def::new(
+            "test",
+            validator_name,
+        ))));
+        schema.insert_node(SchemaNode::Entity(Entity::new(
+            Def::new("test", "ApplicationOnly"),
+            "test::Store",
+            1,
+            PrimaryKey::new(&["id"], PrimaryKeySource::External),
+            &[],
+            &[],
+            &[],
+            FieldList::new(&APPLICATION_FIELDS),
+            Type::new(normalizers, validators, &[]),
+        )));
+        schema.seal().expect("application-only fixture should seal");
+        schema
+            .schema_fragment_for_canister("test::Canister")
+            .expect("application-only fixture should lower")
+    }
+
+    #[test]
+    fn validator_and_normalizer_edits_do_not_change_database_fragment() {
+        let before = application_behavior_fragment(
+            &APPLICATION_NORMALIZERS_A,
+            &APPLICATION_VALIDATORS_A,
+            "NormalizeA",
+            "ValidateA",
+        );
+        let after = application_behavior_fragment(
+            &APPLICATION_NORMALIZERS_B,
+            &APPLICATION_VALIDATORS_B,
+            "NormalizeB",
+            "ValidateB",
+        );
+
+        assert_eq!(before, after);
+    }
 
     #[test]
     fn durable_rules_nested_below_structural_fields_lower_to_nominal_targets() {
@@ -1232,6 +1440,144 @@ mod tests {
             rule.operation(),
             SourceRuleOperation::NumericRangeInclusive { .. }
         ));
+    }
+
+    #[test]
+    fn exact_maximum_and_multiple_of_lower_without_float_reconstruction() {
+        let mut schema = Schema::new();
+        for (name, primitive, scale, rules) in [
+            (
+                "Counter",
+                Primitive::Nat64,
+                None,
+                NAT_EXACT_RULE_TYPE.clone(),
+            ),
+            (
+                "PriceStep",
+                Primitive::Decimal,
+                Some(2),
+                DECIMAL_EXACT_RULE_TYPE.clone(),
+            ),
+        ] {
+            schema.insert_node(SchemaNode::Newtype(Newtype::new(
+                Def::new("test", name),
+                name,
+                Item::new(
+                    ItemTarget::Primitive(primitive),
+                    None,
+                    scale,
+                    None,
+                    None,
+                    &[],
+                    &[],
+                    false,
+                ),
+                None,
+                rules,
+            )));
+        }
+
+        let field = |name| {
+            Field::new(
+                name,
+                Value::new(
+                    Cardinality::One,
+                    Item::new(
+                        ItemTarget::Is(if name == "counter" {
+                            "test::Counter"
+                        } else {
+                            "test::PriceStep"
+                        }),
+                        None,
+                        None,
+                        None,
+                        None,
+                        &[],
+                        &[],
+                        false,
+                    ),
+                ),
+                None,
+                None,
+                None,
+            )
+        };
+        let counter = lower_field_rules(&schema, &field("counter"))
+            .expect("exact integer rules should lower");
+        assert!(matches!(
+            counter[0].kind(),
+            ConstraintFragmentKind::TargetedRule(rule)
+                if matches!(
+                    rule.operation(),
+                    SourceRuleOperation::NumericMaximumInclusive {
+                        value: ScalarLiteral::Nat(100)
+                    }
+                )
+        ));
+        assert!(matches!(
+            counter[1].kind(),
+            ConstraintFragmentKind::TargetedRule(rule)
+                if matches!(
+                    rule.operation(),
+                    SourceRuleOperation::MultipleOf {
+                        divisor: ScalarLiteral::Nat(5)
+                    }
+                )
+        ));
+
+        let decimal = lower_field_rules(&schema, &field("price"))
+            .expect("exact decimal multiple should lower");
+        assert!(matches!(
+            decimal[0].kind(),
+            ConstraintFragmentKind::TargetedRule(rule)
+                if matches!(
+                    rule.operation(),
+                    SourceRuleOperation::MultipleOf {
+                        divisor: ScalarLiteral::Decimal(value)
+                    } if *value == Decimal::new(25, 2)
+                )
+        ));
+    }
+
+    #[test]
+    fn inexact_decimal_rule_operand_rejects_before_proposal_composition() {
+        let mut schema = Schema::new();
+        schema.insert_node(SchemaNode::Newtype(Newtype::new(
+            Def::new("test", "InexactStep"),
+            "InexactStep",
+            Item::new(
+                ItemTarget::Primitive(Primitive::Decimal),
+                None,
+                Some(2),
+                None,
+                None,
+                &[],
+                &[],
+                false,
+            ),
+            None,
+            INEXACT_DECIMAL_RULE_TYPE.clone(),
+        )));
+        let field = Field::new(
+            "price",
+            Value::new(
+                Cardinality::One,
+                Item::new(
+                    ItemTarget::Is("test::InexactStep"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    &[],
+                    &[],
+                    false,
+                ),
+            ),
+            None,
+            None,
+            None,
+        );
+        assert!(lower_field_rules(&schema, &field).is_err());
     }
 
     static ENTITY_FIELDS: [Field; 5] = [

@@ -1264,7 +1264,15 @@ pub(in crate::db::schema) fn validate_accepted_rule_operation_literals(
     };
     match operation {
         crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => Ok(()),
-        crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { value } => {
+        crate::db::schema::AcceptedRuleOperation::MultipleOf { divisor } => {
+            let divisor = decode(divisor)?;
+            if !matches!(exact_numeric_is_zero(&divisor), Some(false)) {
+                return Err(AcceptedRowConstraintEvaluationError::LiteralCorrupt);
+            }
+            Ok(())
+        }
+        crate::db::schema::AcceptedRuleOperation::NumericMaximumInclusive { value }
+        | crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { value } => {
             let _ = decode(value)?;
             Ok(())
         }
@@ -1278,6 +1286,69 @@ pub(in crate::db::schema) fn validate_accepted_rule_operation_literals(
             }
             Ok(())
         }
+    }
+}
+
+pub(super) fn exact_numeric_is_zero(value: &Value) -> Option<bool> {
+    match value {
+        Value::Decimal(value) => Some(value.is_zero()),
+        Value::Int64(value) => Some(*value == 0),
+        Value::Int128(value) => Some(*value == 0),
+        Value::IntBig(value) => Some(value == &crate::types::IntBig::default()),
+        Value::Nat64(value) => Some(*value == 0),
+        Value::Nat128(value) => Some(*value == 0),
+        Value::NatBig(value) => Some(value == &crate::types::NatBig::default()),
+        Value::Account(_)
+        | Value::Blob(_)
+        | Value::Bool(_)
+        | Value::Date(_)
+        | Value::Duration(_)
+        | Value::Enum(_)
+        | Value::Float32(_)
+        | Value::Float64(_)
+        | Value::List(_)
+        | Value::Map(_)
+        | Value::Null
+        | Value::Principal(_)
+        | Value::Subaccount(_)
+        | Value::Text(_)
+        | Value::Timestamp(_)
+        | Value::Ulid(_)
+        | Value::Unit => None,
+    }
+}
+
+pub(super) fn exact_numeric_is_multiple(value: &Value, divisor: &Value) -> Option<bool> {
+    if exact_numeric_is_zero(divisor) != Some(false) {
+        return None;
+    }
+    match (value, divisor) {
+        (Value::Decimal(value), Value::Decimal(divisor)) => value
+            .checked_rem(*divisor)
+            .map(|remainder| remainder.is_zero()),
+        (Value::Int64(value), Value::Int64(divisor)) => {
+            if *divisor == -1 {
+                return Some(true);
+            }
+            value.checked_rem(*divisor).map(|remainder| remainder == 0)
+        }
+        (Value::Int128(value), Value::Int128(divisor)) => {
+            if *divisor == -1 {
+                return Some(true);
+            }
+            value.checked_rem(*divisor).map(|remainder| remainder == 0)
+        }
+        (Value::IntBig(value), Value::IntBig(divisor)) => {
+            let quotient = value.clone() / divisor.clone();
+            Some(&(quotient * divisor.clone()) == value)
+        }
+        (Value::Nat64(value), Value::Nat64(divisor)) => Some(value % divisor == 0),
+        (Value::Nat128(value), Value::Nat128(divisor)) => Some(value % divisor == 0),
+        (Value::NatBig(value), Value::NatBig(divisor)) => {
+            let quotient = value.clone() / divisor.clone();
+            Some(&(quotient * divisor.clone()) == value)
+        }
+        _ => None,
     }
 }
 

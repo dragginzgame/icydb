@@ -4,8 +4,6 @@
 //! persisted row bytes. It is the slot-reader boundary, not a generic row
 //! reader core.
 
-#[cfg(any(test, feature = "diagnostics"))]
-use crate::db::data::persisted_row::reader::metrics;
 use crate::{
     db::schema::{FieldStorageDecode, LeafCodec},
     db::{
@@ -63,8 +61,6 @@ pub(in crate::db) struct StructuralSlotReader<'a> {
     contract: Cow<'a, StructuralRowContract>,
     field_bytes: StructuralRowFieldBytes<'a>,
     pub(in crate::db::data::persisted_row) cached_values: Vec<CachedSlotValue>,
-    #[cfg(any(test, feature = "diagnostics"))]
-    pub(in crate::db::data::persisted_row::reader) metrics: metrics::StructuralReadProbe,
 }
 
 impl<'a> StructuralSlotReader<'a> {
@@ -93,14 +89,10 @@ impl<'a> StructuralSlotReader<'a> {
         let field_bytes =
             StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.as_ref())?;
         let cached_values = build_initial_slot_cache(contract.as_ref())?;
-        #[cfg(any(test, feature = "diagnostics"))]
-        let metrics = metrics::StructuralReadProbe::begin(contract.field_count());
         let reader = Self {
             contract,
             field_bytes,
             cached_values,
-            #[cfg(any(test, feature = "diagnostics"))]
-            metrics,
         };
 
         Ok(reader)
@@ -259,8 +251,6 @@ impl<'a> StructuralSlotReader<'a> {
 
         let field_name = self.contract.field_name(slot)?;
         let raw_value = self.required_field_bytes(slot, field_name)?;
-        #[cfg(any(test, feature = "diagnostics"))]
-        self.metrics.record_validated_slot();
         let validated_value = validated_scalar_slot_value(
             decode_scalar_slot_value_from_row_contract(&self.contract, slot, raw_value)?,
         );
@@ -334,12 +324,6 @@ impl<'a> StructuralSlotReader<'a> {
                 let field_name = self.contract.field_name(slot)?;
                 let raw_value = self.required_field_bytes(slot, field_name)?;
                 if materialized.get().is_none() {
-                    #[cfg(any(test, feature = "diagnostics"))]
-                    {
-                        self.metrics.record_validated_slot();
-                        self.metrics.record_validated_non_scalar();
-                        self.metrics.record_materialized_non_scalar();
-                    }
                     self.validate_non_scalar_slot_for_contract(slot, raw_value)?;
                     let value =
                         decode_runtime_value_from_row_contract(&self.contract, slot, raw_value)?;
@@ -365,11 +349,6 @@ impl<'a> StructuralSlotReader<'a> {
         // full catalog-backed materialization and validation behavior.
         let accepted_field = self.required_accepted_field_decode_contract(slot)?;
         if let Some(value) = self.required_accepted_value_storage_scalar(slot, accepted_field)? {
-            #[cfg(any(test, feature = "diagnostics"))]
-            {
-                self.metrics.record_materialized_non_scalar();
-            }
-
             return Ok(scalar_slot_value_ref_into_value(value));
         }
 
@@ -488,14 +467,6 @@ impl<'a> StructuralSlotReader<'a> {
             Self::try_value_storage_non_null_accepted_scalar_slot_value(field, &view)?
         };
 
-        if value.is_some() {
-            #[cfg(any(test, feature = "diagnostics"))]
-            {
-                self.metrics.record_validated_slot();
-                self.metrics.record_validated_non_scalar();
-            }
-        }
-
         Ok(value)
     }
 
@@ -529,16 +500,9 @@ impl<'a> StructuralSlotReader<'a> {
 
             match self.contract.field_leaf_codec(slot)? {
                 LeafCodec::Scalar(_) => {
-                    #[cfg(any(test, feature = "diagnostics"))]
-                    self.metrics.record_validated_slot();
                     self.decode_scalar_slot_value_for_slot(slot, raw_value)?;
                 }
                 LeafCodec::Structural => {
-                    #[cfg(any(test, feature = "diagnostics"))]
-                    {
-                        self.metrics.record_validated_slot();
-                        self.metrics.record_validated_non_scalar();
-                    }
                     self.validate_non_scalar_slot_for_contract(slot, raw_value)?;
                 }
             }

@@ -5,7 +5,8 @@
 //! Boundary: convenient crate-level validation surface that delegates to visitor traversal.
 
 use crate::visitor::{
-    PathSegment, Visitable, VisitorAdapter, VisitorError, perform_visit, validate::ValidateVisitor,
+    ApplicationOperation, PathSegment, Visitable, VisitorAdapter, VisitorError, perform_visit,
+    validate::ValidateVisitor,
 };
 
 ///
@@ -27,5 +28,7 @@ pub fn validate(node: &dyn Visitable) -> Result<(), VisitorError> {
 
     perform_visit(&mut adapter, node, PathSegment::Empty);
 
-    adapter.result().map_err(VisitorError::from)
+    adapter
+        .result()
+        .map_err(|issues| VisitorError::new(ApplicationOperation::Validate, issues))
 }

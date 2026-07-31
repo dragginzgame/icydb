@@ -7,6 +7,8 @@ mod bounds;
 mod envelope;
 mod error;
 mod scalar;
+#[cfg(test)]
+mod tests;
 mod tuple;
 
 use crate::{
