@@ -21,7 +21,6 @@ use icydb::{
         SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
         StructuralMutation, StructuralPatch, WriteCell, sql::SqlQueryResult,
     },
-    prelude::*,
     value::InputValue,
 };
 #[cfg(feature = "sql")]
