@@ -174,7 +174,8 @@ pub fn characters() -> Vec<Character> {
             let resistances = build_resistances(class_name.as_str(), background.as_str(), seed);
             let inventory_weights = build_inventory_weights(class_name.as_str(), level, seed);
             let portrait = portrait_for(seed);
-            let last_rest_at = last_rest_at_for(level, background.as_str(), seed);
+            let last_rest_at =
+                Timestamp::from_millis(last_rest_at_for(level, background.as_str(), seed));
             let respawn_cooldown = respawn_cooldown_for(level, is_npc, seed);
             let gold_pieces = gold_pieces_for(background.as_str(), level, renown, seed);
 
@@ -214,7 +215,7 @@ pub fn characters() -> Vec<Character> {
                 resistances,
                 inventory_weights,
                 portrait: portrait.into(),
-                last_rest_at: last_rest_at.into(),
+                last_rest_at,
                 respawn_cooldown: respawn_cooldown.into(),
                 created_at: Timestamp::default(),
                 updated_at: Timestamp::default(),
@@ -816,16 +817,16 @@ fn portrait_for(seed: u64) -> Vec<u8> {
 }
 
 // Rest times now vary by days and hours, not one-minute increments.
-fn last_rest_at_for(level: u16, background: &str, seed: u64) -> u64 {
-    let base_ms = 1_714_000_000_000u64;
+fn last_rest_at_for(level: u16, background: &str, seed: u64) -> i64 {
+    let base_ms = 1_714_000_000_000i64;
     let day_span = match background {
         "Soldier" | "Outlander" => 28,
         "Hermit" => 60,
         _ => 40,
     };
-    let days_ago = seed_range_u64(seed, 60, 0, day_span);
-    let hours_ago = seed_range_u64(seed, 61, 0, 23);
-    let level_adjustment = u64::from(level / 3) * 3_600_000;
+    let days_ago = i64::try_from(seed_range_u64(seed, 60, 0, day_span)).unwrap_or_default();
+    let hours_ago = i64::try_from(seed_range_u64(seed, 61, 0, 23)).unwrap_or_default();
+    let level_adjustment = i64::from(level / 3) * 3_600_000;
 
     base_ms
         .saturating_sub(days_ago * 86_400_000)
