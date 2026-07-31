@@ -1642,13 +1642,13 @@ mod tests {
 
     thread_local! {
         static EVOLUTION_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(186)));
+            RefCell::new(DataStore::init_journaled(test_memory(192)));
         static EVOLUTION_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(187)));
+            RefCell::new(IndexStore::init_journaled(test_memory(193)));
         static EVOLUTION_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(188)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(194)));
         static EVOLUTION_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(189)));
+            RefCell::new(JournalTailStore::init(test_memory(195)));
         static EVOLUTION_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(
@@ -1658,10 +1658,10 @@ mod tests {
                 &EVOLUTION_SCHEMA,
                 &EVOLUTION_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(186, "icydb.test.rule-evolution.data.v1"),
-                    StoreAllocationIdentity::new(187, "icydb.test.rule-evolution.index.v1"),
-                    StoreAllocationIdentity::new(188, "icydb.test.rule-evolution.schema.v1"),
-                    StoreAllocationIdentity::new(189, "icydb.test.rule-evolution.journal.v1"),
+                    StoreAllocationIdentity::new(192, "icydb.test.rule-evolution.data.v1"),
+                    StoreAllocationIdentity::new(193, "icydb.test.rule-evolution.index.v1"),
+                    StoreAllocationIdentity::new(194, "icydb.test.rule-evolution.schema.v1"),
+                    StoreAllocationIdentity::new(195, "icydb.test.rule-evolution.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("rule-evolution journaled store should register");
@@ -1690,9 +1690,9 @@ mod tests {
     }
 
     impl CanisterKind for EvolutionCanister {
-        const COMMIT_MEMORY_ID: u8 = 190;
+        const COMMIT_MEMORY_ID: u8 = 196;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.rule-evolution.commit.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 191;
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 197;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.rule-evolution.integrity.v1";
     }

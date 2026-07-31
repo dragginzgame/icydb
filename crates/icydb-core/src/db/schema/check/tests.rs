@@ -697,7 +697,7 @@ fn targeted_path(error: AcceptedRowConstraintEvaluationError) -> Vec<AcceptedTar
 fn integrity_uses_the_same_targeted_artifact_and_first_occurrence() {
     let fixture = targeted_rule_fixture();
     let mut values = fixture.values.clone();
-    values[10] = Some(Value::Nat64(11));
+    values[10] = Some(Value::Nat64(15));
     let mutation_path = targeted_path(
         fixture
             .program
@@ -713,7 +713,7 @@ fn integrity_uses_the_same_targeted_artifact_and_first_occurrence() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(fixture.program.integrity_constraint_count(), 11);
+    assert_eq!(fixture.program.integrity_constraint_count(), 12);
     assert_eq!(integrity_violations.len(), 1);
     assert_eq!(
         targeted_path(
