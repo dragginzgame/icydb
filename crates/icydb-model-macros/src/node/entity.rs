@@ -86,8 +86,8 @@ pub struct Entity {
     #[darling(rename = "pk")]
     pub(crate) primary_key: PrimaryKey,
 
-    #[darling(default)]
-    pub(crate) typed_adapters: bool,
+    #[darling(default, skip)]
+    pub(crate) emit_runtime_adapters: bool,
 
     #[darling(multiple, rename = "index")]
     pub(crate) indexes: Vec<Index>,
@@ -914,7 +914,7 @@ fn typed_item_field_type_tokens(item: &Item) -> TokenStream {
         ItemTarget::Is(path) => {
             return quote! {
                 ::icydb::__macro::TypedFieldType::Named(
-                    <#path as ::icydb::__macro::TypedNamedType>::SOURCE_KEY,
+                    <#path as ::icydb_model::TypedNamedType>::SOURCE_KEY,
                 )
             };
         }
@@ -1002,7 +1002,7 @@ fn typed_write_cell_input_expr(field: &Field, access: TokenStream) -> TokenStrea
             ::icydb::db::WriteCell::Null => ::icydb::db::WriteCell::Null,
             ::icydb::db::WriteCell::Value(value) => {
                 ::icydb::db::WriteCell::Value(
-                    <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+                    <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
                         value,
                         binding,
                     )?
@@ -1072,7 +1072,7 @@ fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
             .expect("validated scalar primary-key field must exist");
         let ty = field.value.type_expr();
         return quote!(
-            <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
                 self.#primary_key_field,
                 binding,
             )?
@@ -1087,7 +1087,7 @@ fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
             .expect("validated composite primary-key field must exist");
         let ty = field.value.type_expr();
         quote!(
-            <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
                 self.#field_ident,
                 binding,
             )?
@@ -1146,7 +1146,10 @@ fn typed_write_adapter_impl_tokens(
                 self,
                 binding: &::icydb::db::TypedEntityBinding,
             ) -> Result<::icydb::db::TypedWrite, ::icydb::db::TypedAdapterError> {
-                let mut fields = ::std::vec::Vec::with_capacity(#field_count);
+                let mut fields: ::std::vec::Vec<(
+                    &'static str,
+                    ::icydb::db::WriteCell<::icydb::value::InputValue>,
+                )> = ::std::vec::Vec::with_capacity(#field_count);
                 #(#fields)*
 
                 #build
@@ -1156,7 +1159,7 @@ fn typed_write_adapter_impl_tokens(
 }
 
 fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
-    if !entity.typed_adapters {
+    if !entity.emit_runtime_adapters {
         return TokenStream::new();
     }
 
@@ -1183,7 +1186,7 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         let ty = field.value.type_expr();
 
         quote! {
-            #ident: <#ty as ::icydb::__macro::TypedOutputValue>::decode_typed_output(
+            #ident: <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
                 binding,
                 binding.row_value(#name, &row)?
             )?
@@ -1250,7 +1253,7 @@ impl ToTokens for Entity {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
         let schema = self.schema_tokens();
-        let key_part = if self.typed_adapters {
+        let key_part = if self.emit_runtime_adapters {
             composite_primary_key_type_part(self)
         } else {
             TokenStream::new()
@@ -1269,7 +1272,7 @@ impl ToTokens for Entity {
             #derive
             #type_part
 
-            // OPTED-IN TYPED ADAPTERS
+            // AUTOMATIC RUNTIME TYPED ADAPTERS
             #typed_adapter_part
 
             // IMPLEMENTATIONS

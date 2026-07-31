@@ -60,7 +60,7 @@ fn redundant_default_entity() -> Entity {
             fields: vec![format_ident!("id")],
             source: PrimaryKeySource::Internal,
         },
-        typed_adapters: false,
+        emit_runtime_adapters: false,
         indexes: vec![],
         relations: vec![],
         constraints: vec![],
@@ -166,7 +166,6 @@ fn records_follow_the_same_redundant_default_rule() {
         name: None,
         fields,
         traits: TraitBuilder::default(),
-        typed_adapters: false,
         ty: Type::default(),
     };
 
@@ -191,7 +190,6 @@ fn record_default_request_rejects_required_fields_without_construction_values() 
         name: None,
         fields,
         traits: TraitBuilder::default(),
-        typed_adapters: false,
         ty: Type::default(),
     };
 

@@ -85,7 +85,6 @@ macro_rules! define_simple_audit_entities {
             #[doc = "Repeated simple audit entity used to measure base per-entity wasm cost."]
             #[doc = ""]
             #[entity(
-                typed_adapters,
                 store = $store,
                 version = 1,
                 pk(fields = ["id"]),

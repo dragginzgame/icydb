@@ -234,7 +234,6 @@ impl Index {
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Lower"))
 )]

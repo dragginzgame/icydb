@@ -4,95 +4,95 @@ use icydb_model::prelude::*;
 /// Primitive Newtypes
 /// --------------------
 
-#[newtype(primitive = "Account", item(prim = "Account"))]
+#[newtype(item(prim = "Account"))]
 pub struct AccountN {}
 
-#[newtype(primitive = "Bool", item(prim = "Bool"))]
+#[newtype(item(prim = "Bool"))]
 pub struct BoolN {}
 
-#[newtype(primitive = "Date", item(prim = "Date"))]
+#[newtype(item(prim = "Date"))]
 pub struct DateN {}
 
-#[newtype(item(prim = "Decimal", scale = 18), primitive = "Decimal")]
+#[newtype(item(prim = "Decimal", scale = 18))]
 pub struct DecimalN {}
 
-#[newtype(item(prim = "Duration"), primitive = "Duration")]
+#[newtype(item(prim = "Duration"))]
 pub struct DurationN {}
 
-#[newtype(primitive = "Float32", item(prim = "Float32"))]
+#[newtype(item(prim = "Float32"))]
 pub struct Float32N {}
 
-#[newtype(primitive = "Float64", item(prim = "Float64"))]
+#[newtype(item(prim = "Float64"))]
 pub struct Float64N {}
 
-#[newtype(primitive = "IntBig", item(prim = "IntBig"))]
+#[newtype(item(prim = "IntBig"))]
 pub struct IntN {}
 
-#[newtype(primitive = "Int8", item(prim = "Int8"))]
+#[newtype(item(prim = "Int8"))]
 pub struct Int8N {}
 
-#[newtype(primitive = "Int16", item(prim = "Int16"))]
+#[newtype(item(prim = "Int16"))]
 pub struct Int16N {}
 
-#[newtype(primitive = "Int32", item(prim = "Int32"))]
+#[newtype(item(prim = "Int32"))]
 pub struct Int32N {}
 
-#[newtype(primitive = "Int64", item(prim = "Int64"))]
+#[newtype(item(prim = "Int64"))]
 pub struct Int64N {}
 
-#[newtype(primitive = "Int128", item(prim = "Int128"))]
+#[newtype(item(prim = "Int128"))]
 pub struct Int128N {}
 
-#[newtype(primitive = "NatBig", item(prim = "NatBig"))]
+#[newtype(item(prim = "NatBig"))]
 pub struct NatN {}
 
-#[newtype(primitive = "Nat8", item(prim = "Nat8"))]
+#[newtype(item(prim = "Nat8"))]
 pub struct Nat8N {}
 
-#[newtype(primitive = "Nat16", item(prim = "Nat16"))]
+#[newtype(item(prim = "Nat16"))]
 pub struct Nat16N {}
 
-#[newtype(primitive = "Nat32", item(prim = "Nat32"))]
+#[newtype(item(prim = "Nat32"))]
 pub struct Nat32N {}
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(item(prim = "Nat64"))]
 pub struct Nat64N {}
 
-#[newtype(primitive = "Nat128", item(prim = "Nat128"))]
+#[newtype(item(prim = "Nat128"))]
 pub struct Nat128N {}
 
-#[newtype(primitive = "Principal", item(prim = "Principal"))]
+#[newtype(item(prim = "Principal"))]
 pub struct PrincipalN {}
 
-#[newtype(primitive = "Subaccount", item(prim = "Subaccount"))]
+#[newtype(item(prim = "Subaccount"))]
 pub struct SubaccountN {}
 
-#[newtype(primitive = "Text", item(prim = "Text", unbounded))]
+#[newtype(item(prim = "Text", unbounded))]
 pub struct TextN {}
 
-#[newtype(primitive = "Timestamp", item(prim = "Timestamp"))]
+#[newtype(item(prim = "Timestamp"))]
 pub struct TimestampN {}
 
-#[newtype(primitive = "Ulid", item(prim = "Ulid"))]
+#[newtype(item(prim = "Ulid"))]
 pub struct UlidN {}
 
-#[newtype(primitive = "Unit", item(prim = "Unit"))]
+#[newtype(item(prim = "Unit"))]
 pub struct UnitN {}
 
 ///
 /// Wrapped
 ///
 
-#[newtype(primitive = "Float32", item(is = "Float32N"))]
+#[newtype(item(is = "Float32N"))]
 pub struct Float32W {}
 
-#[newtype(primitive = "Float32", item(is = "Float32W"))]
+#[newtype(item(is = "Float32W"))]
 pub struct Float32WW {}
 
-#[newtype(primitive = "Nat32", item(is = "Nat32N"))]
+#[newtype(item(is = "Nat32N"))]
 pub struct Nat32W {}
 
-#[newtype(primitive = "Nat32", item(is = "Nat32W"))]
+#[newtype(item(is = "Nat32W"))]
 pub struct Nat32WW {}
 
 /// --------------------
@@ -102,71 +102,63 @@ pub struct Nat32WW {}
 /// These all have a default value suitable for quick initialization.
 /// Each mirrors its non-default counterpart above.
 
-#[newtype(primitive = "Account", item(prim = "Account"))]
+#[newtype(item(prim = "Account"))]
 pub struct AccountD {}
 
-#[newtype(
-    primitive = "Bool",
-    item(prim = "Bool"),
-    default = true,
-    traits(add(Default))
-)]
+#[newtype(item(prim = "Bool"), default = true, traits(add(Default)))]
 pub struct BoolD {}
 
 #[newtype(
-    primitive = "Date",
     item(prim = "Date"),
     default = "icydb::types::Date::EPOCH",
     traits(add(Default))
 )]
 pub struct DateD {}
 
-#[newtype(primitive = "Decimal", item(prim = "Decimal", scale = 18))]
+#[newtype(item(prim = "Decimal", scale = 18))]
 pub struct DecimalD {}
 
-#[newtype(primitive = "Duration", item(prim = "Duration"))]
+#[newtype(item(prim = "Duration"))]
 pub struct DurationD {}
 
-#[newtype(primitive = "Float32", item(prim = "Float32"))]
+#[newtype(item(prim = "Float32"))]
 pub struct Float32D {}
 
-#[newtype(primitive = "Float64", item(prim = "Float64"))]
+#[newtype(item(prim = "Float64"))]
 pub struct Float64D {}
 
-#[newtype(primitive = "IntBig", item(prim = "IntBig"))]
+#[newtype(item(prim = "IntBig"))]
 pub struct IntD {}
 
-#[newtype(primitive = "Int128", item(prim = "Int128"))]
+#[newtype(item(prim = "Int128"))]
 pub struct Int128D {}
 
-#[newtype(primitive = "NatBig", item(prim = "NatBig"))]
+#[newtype(item(prim = "NatBig"))]
 pub struct NatD {}
 
-#[newtype(primitive = "Nat32", item(prim = "Nat32"))]
+#[newtype(item(prim = "Nat32"))]
 pub struct Nat32D {}
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(item(prim = "Nat64"))]
 pub struct Nat64D;
 
-#[newtype(primitive = "Nat128", item(prim = "Nat128"))]
+#[newtype(item(prim = "Nat128"))]
 pub struct Nat128D;
 
 #[newtype(
-    primitive = "Principal",
     item(prim = "Principal"),
     default = "icydb::types::Principal::anonymous",
     traits(add(Default))
 )]
 pub struct PrincipalD;
 
-#[newtype(primitive = "Subaccount", item(prim = "Subaccount"))]
+#[newtype(item(prim = "Subaccount"))]
 pub struct SubaccountD;
 
-#[newtype(primitive = "Text", item(prim = "Text", unbounded))]
+#[newtype(item(prim = "Text", unbounded))]
 pub struct TextD;
 
 #[newtype(
-    primitive = "Timestamp",
     item(prim = "Timestamp"),
     default = "icydb::types::Timestamp::EPOCH",
     traits(add(Default))
@@ -174,7 +166,6 @@ pub struct TextD;
 pub struct TimestampD;
 
 #[newtype(
-    primitive = "Ulid",
     item(prim = "Ulid"),
     default = "icydb::types::Ulid::nil",
     traits(add(Default))

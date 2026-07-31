@@ -5,7 +5,6 @@ use icydb_model::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Lower"))
 )]
@@ -16,7 +15,6 @@ pub struct LowerCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Upper"))
 )]
@@ -27,7 +25,6 @@ pub struct UpperCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::UpperSnake"))
 )]
@@ -38,7 +35,6 @@ pub struct UpperSnakeText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Snake"))
 )]
@@ -49,7 +45,6 @@ pub struct SnakeCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Kebab"))
 )]
@@ -60,7 +55,6 @@ pub struct KebabCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Title"))
 )]
@@ -71,7 +65,6 @@ pub struct TitleCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::UpperCamel"))
 )]

@@ -34,7 +34,6 @@ pub struct ClampListDecimal {}
 ///
 
 #[newtype(
-    primitive = "Int32",
     item(prim = "Int32"),
     ty(normalizer(path = "base::normalizer::num::Clamp", args(10, 20)))
 )]
@@ -45,7 +44,6 @@ pub struct ClampInt32 {}
 ///
 
 #[newtype(
-    primitive = "Decimal",
     item(prim = "Decimal", scale = 1),
     ty(normalizer(path = "base::normalizer::num::Clamp", args(0.5, 5.5)))
 )]

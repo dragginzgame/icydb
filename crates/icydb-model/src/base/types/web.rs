@@ -13,7 +13,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::web::MimeType"),
@@ -29,7 +28,6 @@ pub struct MimeType {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::web::Url"),

@@ -106,7 +106,6 @@ pub struct AppStore {}
 #[entity(
     store = "AppStore",
     version = 1,
-    typed_adapters,
     pk(field = "id"),
     index(field = "name"),
     index(fields = ["active", "score"]),
@@ -154,11 +153,17 @@ an omitted nested entry retains its conventional name.
 Entity and store names come directly from their Rust declarations; neither
 macro accepts a second name or generated-symbol override.
 
-When an opted-in typed entity references a named enum, record, newtype, list,
-set, map, or tuple, add `typed_adapters` to that named declaration as well.
-The adapter traits are implemented directly on the authored Rust type; IcyDB
-does not create suffix-derived sibling types, so names such as `X` and
-`XEntity` can coexist.
+Typed adapters are automatic when the schema crate depends on the `icydb`
+runtime facade. Named enums, records, newtypes, lists, sets, maps, and tuples
+implement the model-owned adapter traits directly, including the built-in
+types under `icydb_model::base::types`. A schema-only crate can omit `icydb`
+and remains independent of runtime and persistence. No suffix-derived sibling
+types are created, so names such as `X` and `XEntity` can coexist.
+
+For macro-development diagnostics, place `#[debug]` on the public struct
+immediately below an IcyDB model attribute. The macro intentionally emits its
+generated Rust as a compiler error so it can be inspected during testing;
+remove `#[debug]` for normal compilation.
 
 ## Generated Numeric Identities
 

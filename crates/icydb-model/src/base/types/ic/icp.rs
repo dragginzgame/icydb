@@ -24,5 +24,5 @@ pub struct Payment {}
 /// always denominated in e8s
 ///
 
-#[newtype(name = "IcpTokens", primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(name = "IcpTokens", item(prim = "Nat64"))]
 pub struct Tokens {}

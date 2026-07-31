@@ -1,7 +1,7 @@
 //! Module: node::typed_adapter
-//! Responsibility: source-bound public-value adapters for opted-in named types.
+//! Responsibility: source-bound model-value adapters for all named types.
 //! Does not own: accepted schema admission, persistence, or physical codecs.
-//! Boundary: authored Rust named values to IcyDB `InputValue` / `OutputValue`.
+//! Boundary: authored Rust named values to a runtime-supplied adapter context.
 
 use crate::{
     node::{Enum, List, Map, Newtype, Record, Set, Tuple},
@@ -15,24 +15,30 @@ fn named_adapter_impl_tokens(
     decode_body: TokenStream,
 ) -> TokenStream {
     quote! {
-        impl ::icydb::__macro::TypedNamedType for #ident {
+        impl ::icydb_model::TypedNamedType for #ident {
             const SOURCE_KEY: &'static str = #source;
         }
 
-        impl ::icydb::__macro::TypedInputValue for #ident {
-            fn encode_typed_input(
+        impl ::icydb_model::TypedInputValue for #ident {
+            fn encode_typed_input<C>(
                 self,
-                binding: &::icydb::db::TypedEntityBinding,
-            ) -> Result<::icydb::value::InputValue, ::icydb::db::TypedAdapterError> {
+                context: &C,
+            ) -> Result<C::InputValue, ::icydb_model::TypedValueError>
+            where
+                C: ::icydb_model::TypedAdapterContext,
+            {
                 #encode_body
             }
         }
 
-        impl ::icydb::__macro::TypedOutputValue for #ident {
-            fn decode_typed_output(
-                binding: &::icydb::db::TypedEntityBinding,
-                value: &::icydb::value::OutputValue,
-            ) -> Result<Self, ::icydb::db::TypedAdapterError> {
+        impl ::icydb_model::TypedOutputValue for #ident {
+            fn decode_typed_output<C>(
+                context: &C,
+                value: &C::OutputValue,
+            ) -> Result<Self, ::icydb_model::TypedValueError>
+            where
+                C: ::icydb_model::TypedAdapterContext,
+            {
                 #decode_body
             }
         }
@@ -41,10 +47,10 @@ fn named_adapter_impl_tokens(
 
 fn transparent_adapter_tokens(ident: &Ident, source: &LitStr, inner: TokenStream) -> TokenStream {
     let encode = quote! {
-        <#inner as ::icydb::__macro::TypedInputValue>::encode_typed_input(self.0, binding)
+        <#inner as ::icydb_model::TypedInputValue>::encode_typed_input(self.0, context)
     };
     let decode = quote! {
-        <#inner as ::icydb::__macro::TypedOutputValue>::decode_typed_output(binding, value)
+        <#inner as ::icydb_model::TypedOutputValue>::decode_typed_output(context, value)
             .map(Self)
     };
 
@@ -52,10 +58,6 @@ fn transparent_adapter_tokens(ident: &Ident, source: &LitStr, inner: TokenStream
 }
 
 pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
-    if !node.typed_adapters {
-        return TokenStream::new();
-    }
-
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let input_arms = node.variants.iter().map(|variant| {
@@ -64,27 +66,22 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
         if let Some(value) = &variant.value {
             let ty = value.type_expr();
             quote! {
-                Self::#variant_ident(value) => {
-                    let variant_name = binding
-                        .enum_variant_name(#source, #variant_source)
-                        .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
-                    let payload =
-                        <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
-                            value,
-                            binding,
-                        )?;
-                    ::icydb::value::InputValueEnum::new(variant_name, Some(type_name))
-                        .with_payload(payload)
-                }
+                Self::#variant_ident(value) => context.input_enum(
+                    #source,
+                    #variant_source,
+                    Some(<#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+                        value,
+                        context,
+                    )?),
+                )
             }
         } else {
             quote! {
-                Self::#variant_ident => {
-                    let variant_name = binding
-                        .enum_variant_name(#source, #variant_source)
-                        .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
-                    ::icydb::value::InputValueEnum::new(variant_name, Some(type_name))
-                }
+                Self::#variant_ident => context.input_enum(
+                    #source,
+                    #variant_source,
+                    None,
+                )
             }
         }
     });
@@ -94,16 +91,17 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
         if let Some(payload) = &variant.value {
             let ty = payload.type_expr();
             quote! {
-                let variant_name = binding
-                    .enum_variant_name(#source, #variant_source)
-                    .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
-                if value.variant() == variant_name {
-                    let payload = value
-                        .payload()
-                        .ok_or(::icydb::db::TypedAdapterError::ValueShapeMismatch)?;
+                if let Some(selected) = context.output_enum_variant(
+                    #source,
+                    #variant_source,
+                    value,
+                )? {
+                    let ::icydb_model::TypedEnumOutput::Payload(payload) = selected else {
+                        return Err(::icydb_model::TypedValueError::ShapeMismatch);
+                    };
                     return Ok(Self::#variant_ident(
-                        <#ty as ::icydb::__macro::TypedOutputValue>::decode_typed_output(
-                            binding,
+                        <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
+                            context,
                             payload,
                         )?
                     ));
@@ -111,49 +109,33 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
             }
         } else {
             quote! {
-                let variant_name = binding
-                    .enum_variant_name(#source, #variant_source)
-                    .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
-                if value.variant() == variant_name {
-                    if value.payload().is_some() {
-                        return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
-                    }
+                if let Some(selected) = context.output_enum_variant(
+                    #source,
+                    #variant_source,
+                    value,
+                )? {
+                    let ::icydb_model::TypedEnumOutput::Unit = selected else {
+                        return Err(::icydb_model::TypedValueError::ShapeMismatch);
+                    };
                     return Ok(Self::#variant_ident);
                 }
             }
         }
     });
     let encode = quote! {
-        let type_name = binding
-            .named_type_name(#source)
-            .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
-        let value = match self {
+        match self {
             #(#input_arms),*
-        };
-        Ok(::icydb::value::InputValue::Enum(value))
+        }
     };
     let decode = quote! {
-        let ::icydb::value::OutputValue::Enum(value) = value else {
-            return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
-        };
-        let type_name = binding
-            .named_type_name(#source)
-            .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
-        if value.path() != Some(type_name) {
-            return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
-        }
         #(#output_variants)*
-        Err(::icydb::db::TypedAdapterError::ValueShapeMismatch)
+        Err(::icydb_model::TypedValueError::ShapeMismatch)
     };
 
     named_adapter_impl_tokens(&ident, &source, encode, decode)
 }
 
 pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
-    if !node.typed_adapters {
-        return TokenStream::new();
-    }
-
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let field_sources = node
@@ -166,14 +148,11 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
         let field_source = quote_one(&field.name, to_str_lit);
         let ty = field.value.type_expr();
         quote! {
-            let field_name = binding
-                .composite_field_name(#source, #field_source)
-                .ok_or(::icydb::db::TypedAdapterError::FieldUnavailable)?;
             fields.push((
-                ::icydb::value::InputValue::Text(field_name.to_string()),
-                <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+                #field_source,
+                <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
                     self.#field_ident,
-                    binding,
+                    context,
                 )?,
             ));
         }
@@ -184,8 +163,8 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
         let index = syn::Index::from(index);
         quote! {
             #field_ident:
-                <#ty as ::icydb::__macro::TypedOutputValue>::decode_typed_output(
-                    binding,
+                <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
+                    context,
                     values[#index],
                 )?
         }
@@ -194,10 +173,10 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
     let encode = quote! {
         let mut fields = ::std::vec::Vec::with_capacity(#field_count);
         #(#input_fields)*
-        Ok(::icydb::value::InputValue::Map(fields))
+        context.input_record(#source, fields)
     };
     let decode = quote! {
-        let values = binding.record_output_values(
+        let values = context.output_record(
             #source,
             &[#(#field_sources),*],
             value,
@@ -211,20 +190,12 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
 }
 
 pub(crate) fn newtype_adapter_tokens(node: &Newtype) -> TokenStream {
-    if !node.typed_adapters {
-        return TokenStream::new();
-    }
-
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     transparent_adapter_tokens(&ident, &source, node.item.type_expr())
 }
 
 pub(crate) fn list_adapter_tokens(node: &List) -> TokenStream {
-    if !node.typed_adapters {
-        return TokenStream::new();
-    }
-
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let item = node.item.type_expr();
@@ -232,10 +203,6 @@ pub(crate) fn list_adapter_tokens(node: &List) -> TokenStream {
 }
 
 pub(crate) fn set_adapter_tokens(node: &Set) -> TokenStream {
-    if !node.typed_adapters {
-        return TokenStream::new();
-    }
-
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let item = node.item.type_expr();
@@ -243,10 +210,6 @@ pub(crate) fn set_adapter_tokens(node: &Set) -> TokenStream {
 }
 
 pub(crate) fn map_adapter_tokens(node: &Map) -> TokenStream {
-    if !node.typed_adapters {
-        return TokenStream::new();
-    }
-
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let key = node.key.type_expr();
@@ -259,19 +222,15 @@ pub(crate) fn map_adapter_tokens(node: &Map) -> TokenStream {
 }
 
 pub(crate) fn tuple_adapter_tokens(node: &Tuple) -> TokenStream {
-    if !node.typed_adapters {
-        return TokenStream::new();
-    }
-
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let input_values = node.values.iter().enumerate().map(|(index, value)| {
         let index = syn::Index::from(index);
         let ty = value.type_expr();
         quote! {
-            <#ty as ::icydb::__macro::TypedInputValue>::encode_typed_input(
+            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
                 self.#index,
-                binding,
+                context,
             )?
         }
     });
@@ -279,24 +238,24 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple) -> TokenStream {
         let index = syn::Index::from(index);
         let ty = value.type_expr();
         quote! {
-            <#ty as ::icydb::__macro::TypedOutputValue>::decode_typed_output(
-                binding,
+            <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
+                context,
                 &values[#index],
             )?
         }
     });
     let value_count = node.values.len();
     let encode = quote! {
-        Ok(::icydb::value::InputValue::List(::std::vec![
+        Ok(context.input_list(::std::vec![
             #(#input_values),*
         ]))
     };
     let decode = quote! {
-        let ::icydb::value::OutputValue::List(values) = value else {
-            return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
-        };
+        let values = context
+            .output_list(value)
+            .ok_or(::icydb_model::TypedValueError::ShapeMismatch)?;
         if values.len() != #value_count {
-            return Err(::icydb::db::TypedAdapterError::ValueShapeMismatch);
+            return Err(::icydb_model::TypedValueError::ShapeMismatch);
         }
         Ok(Self(#(#output_values),*))
     };
@@ -312,10 +271,9 @@ mod tests {
     use quote::quote;
 
     #[test]
-    fn enum_adapter_uses_source_bound_type_and_variant_names() {
+    fn enum_adapter_uses_model_owned_source_bound_context() {
         let args = NestedMeta::parse_meta_list(quote!(
             name = "ChoiceSource",
-            typed_adapters,
             variant(name = "Empty"),
             variant(name = "Count", value(item(prim = "Nat64")))
         ))
@@ -328,11 +286,12 @@ mod tests {
         let tokens = enum_adapter_tokens(&node).to_string();
 
         for expected in [
-            "impl :: icydb :: __macro :: TypedNamedType for Choice",
+            "impl :: icydb_model :: TypedNamedType for Choice",
             "const SOURCE_KEY : & 'static str = \"ChoiceSource\"",
-            "named_type_name (\"ChoiceSource\")",
-            "enum_variant_name (\"ChoiceSource\" , \"Empty\")",
-            "enum_variant_name (\"ChoiceSource\" , \"Count\")",
+            "input_enum (\"ChoiceSource\" , \"Empty\"",
+            "input_enum (\"ChoiceSource\" , \"Count\"",
+            "output_enum_variant (\"ChoiceSource\" , \"Empty\"",
+            "output_enum_variant (\"ChoiceSource\" , \"Count\"",
             "TypedInputValue for Choice",
             "TypedOutputValue for Choice",
         ] {
@@ -341,13 +300,13 @@ mod tests {
                 "expected generated enum adapter contract `{expected}` in: {tokens}",
             );
         }
+        assert!(!tokens.contains(":: icydb ::"));
     }
 
     #[test]
-    fn record_adapter_uses_source_bound_members_and_exact_output_helper() {
+    fn record_adapter_uses_source_bound_members_and_context() {
         let args = NestedMeta::parse_meta_list(quote!(
             name = "ProfileSource",
-            typed_adapters,
             fields(
                 field(name = "label", value(item(prim = "Text", unbounded))),
                 field(name = "count", value(item(prim = "Nat64")))
@@ -362,10 +321,9 @@ mod tests {
         let tokens = record_adapter_tokens(&node).to_string();
 
         for expected in [
-            "impl :: icydb :: __macro :: TypedNamedType for Profile",
-            "composite_field_name (\"ProfileSource\" , \"label\")",
-            "composite_field_name (\"ProfileSource\" , \"count\")",
-            "record_output_values (\"ProfileSource\"",
+            "impl :: icydb_model :: TypedNamedType for Profile",
+            "input_record (\"ProfileSource\"",
+            "output_record (\"ProfileSource\"",
             "TypedInputValue for Profile",
             "TypedOutputValue for Profile",
         ] {
@@ -374,5 +332,6 @@ mod tests {
                 "expected generated record adapter contract `{expected}` in: {tokens}",
             );
         }
+        assert!(!tokens.contains(":: icydb ::"));
     }
 }

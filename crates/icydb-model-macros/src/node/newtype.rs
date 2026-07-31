@@ -21,7 +21,6 @@ pub struct Newtype {
     #[darling(default)]
     pub(crate) name: Option<LitStr>,
 
-    pub(crate) primitive: Option<Primitive>,
     pub(crate) item: Item,
 
     #[darling(default)]
@@ -29,9 +28,6 @@ pub struct Newtype {
 
     #[darling(default)]
     pub(crate) ty: Type,
-
-    #[darling(default)]
-    pub(crate) typed_adapters: bool,
 
     #[darling(default)]
     pub(crate) traits: TraitBuilder,
@@ -56,15 +52,7 @@ impl ValidateNode for Newtype {
             .with_span(&self.def.ident()));
         }
 
-        match (self.primitive, self.item.primitive) {
-            (Some(a), Some(b)) if a != b => Err(DarlingError::custom(format!(
-                "invalid #[newtype] config: conflicting primitive ({a:?}) and item({b:?})"
-            ))),
-            (None, Some(_)) => Err(DarlingError::custom(
-                "invalid #[newtype] config: item has a primitive but outer 'primitive' is not set",
-            )),
-            _ => Ok(()),
-        }
+        Ok(())
     }
 }
 
@@ -99,7 +87,7 @@ impl HasTraits for Newtype {
         traits.add(TraitKind::Inner);
 
         // primitive traits
-        if let Some(primitive) = self.primitive {
+        if let Some(primitive) = self.item.primitive {
             if primitive.supports_arithmetic() {
                 traits.extend([
                     TraitKind::Add,
@@ -228,13 +216,11 @@ mod tests {
 
     #[test]
     fn from_list_parses_nested_item_primitive() {
-        let args =
-            NestedMeta::parse_meta_list(quote!(primitive = "Decimal", item(prim = "Decimal")))
-                .expect("newtype args should parse");
+        let args = NestedMeta::parse_meta_list(quote!(item(prim = "Decimal")))
+            .expect("newtype args should parse");
 
         let node = Newtype::from_list(&args).expect("newtype meta should lower");
 
-        assert_eq!(node.primitive, Some(Primitive::Decimal));
         assert_eq!(node.item.primitive, Some(Primitive::Decimal));
     }
 
@@ -242,14 +228,12 @@ mod tests {
         Newtype {
             def: Def::default(),
             name: None,
-            primitive: Some(primitive),
             item: Item {
                 primitive: Some(primitive),
                 ..Default::default()
             },
             default: None,
             ty: Type::default(),
-            typed_adapters: false,
             traits: TraitBuilder::default(),
         }
     }

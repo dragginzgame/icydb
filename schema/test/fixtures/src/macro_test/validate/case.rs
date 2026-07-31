@@ -5,7 +5,6 @@ use icydb_model::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Camel"))
 )]
@@ -16,7 +15,6 @@ pub struct CamelCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Lower"))
 )]
@@ -27,7 +25,6 @@ pub struct LowerCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::LowerUscore"))
 )]
@@ -38,7 +35,6 @@ pub struct LowerUnderscoreText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Upper"))
 )]
@@ -49,7 +45,6 @@ pub struct UpperCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::UpperKebab"))
 )]
@@ -60,7 +55,6 @@ pub struct UpperKebabText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::UpperSnake"))
 )]
@@ -71,7 +65,6 @@ pub struct UpperSnakeText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Sentence"))
 )]
@@ -82,7 +75,6 @@ pub struct SentenceCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Snake"))
 )]
@@ -93,7 +85,6 @@ pub struct SnakeCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Kebab"))
 )]
@@ -104,7 +95,6 @@ pub struct KebabCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Title"))
 )]
@@ -115,7 +105,6 @@ pub struct TitleCaseText {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::UpperCamel"))
 )]

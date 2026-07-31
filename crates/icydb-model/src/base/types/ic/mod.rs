@@ -16,5 +16,5 @@ use crate::prelude::*;
 /// Opaque blob memo payload used by Internet Computer transfer flows.
 ///
 
-#[newtype(primitive = "Blob", item(prim = "Blob", unbounded))]
+#[newtype(item(prim = "Blob", unbounded))]
 pub struct Memo {}

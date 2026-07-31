@@ -97,7 +97,7 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
             fields: vec![format_ident!("id")],
             source: PrimaryKeySource::Internal,
         },
-        typed_adapters: false,
+        emit_runtime_adapters: false,
         indexes,
         relations: Vec::new(),
         constraints: Vec::new(),
@@ -163,7 +163,7 @@ fn composite_primary_key_struct_implements_key_contracts() {
 }
 
 #[test]
-fn typed_adapter_generation_is_explicitly_opted_in() {
+fn runtime_entity_adapters_are_omitted_without_runtime_capability() {
     let entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
 
     assert!(entity_typed_adapter_tokens(&entity).is_empty());
@@ -181,7 +181,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         ],
         vec![],
     );
-    entity.typed_adapters = true;
+    entity.emit_runtime_adapters = true;
 
     let tokens = entity_typed_adapter_tokens(&entity).to_string();
     for expected in [
@@ -196,6 +196,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "TypedFieldBindingRequest :: new",
         "TypedFieldType :: Scalar",
         "ScalarType :: Timestamp",
+        "Vec < (& 'static str , :: icydb :: db :: WriteCell < :: icydb :: value :: InputValue > ,) >",
     ] {
         assert!(
             tokens.contains(expected),
@@ -217,7 +218,7 @@ fn typed_identity_insert_omits_the_database_owned_primary_key() {
         ],
         vec![],
     );
-    entity.typed_adapters = true;
+    entity.emit_runtime_adapters = true;
 
     let tokens = entity_typed_adapter_tokens(&entity).to_string();
 
@@ -226,7 +227,7 @@ fn typed_identity_insert_omits_the_database_owned_primary_key() {
         "identity must be absent from typed insert intent: {tokens}",
     );
     assert!(
-        tokens.contains("id : < u64 as :: icydb :: __macro :: TypedOutputValue"),
+        tokens.contains("id : < u64 as :: icydb_model :: TypedOutputValue"),
         "decoded rows must retain the concrete identity: {tokens}",
     );
 }

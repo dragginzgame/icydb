@@ -17,7 +17,7 @@ pub struct PartialOrdTrait {}
 
 impl Imp<Newtype> for PartialOrdTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let primitive = node.primitive.as_ref()?; // bail early if no primitive
+        let primitive = node.item.primitive.as_ref()?; // bail early if no primitive
         let ident = &node.def.ident();
         let prim = &crate::types::primitive_type_tokens(*primitive);
         Some(TraitStrategy::from_impl(newtype_partial_ord_tokens(

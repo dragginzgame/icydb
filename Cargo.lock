@@ -1280,6 +1280,7 @@ dependencies = [
  "icydb-config",
  "icydb-core",
  "icydb-diagnostic-code",
+ "icydb-model",
  "icydb-schema",
  "remain",
  "serde",

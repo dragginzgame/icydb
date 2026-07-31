@@ -4,107 +4,50 @@ use model_api::prelude::*;
     memory_namespace = "model_typed_adapter",
     memory_min = 100,
     memory_max = 110,
-    commit_memory_id = 110,
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
+    commit_memory_id = 110
 )]
 pub struct TypedAdapterCanister {}
 
-#[store(
-    canister = "TypedAdapterCanister",
-    storage(heap()),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[store(canister = "TypedAdapterCanister", storage(heap()))]
 pub struct TypedAdapterStore {}
 
-#[newtype(
-    primitive = "Nat64",
-    item(prim = "Nat64"),
-    typed_adapters,
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[newtype(item(prim = "Nat64"))]
 pub struct X {}
 
-#[newtype(
-    primitive = "Nat64",
-    item(prim = "Nat64"),
-    typed_adapters,
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[newtype(item(prim = "Nat64"))]
 pub struct XEntity {}
 
 #[enum_(
-    typed_adapters,
     variant(name = "Empty"),
-    variant(name = "Count", value(item(is = "X"))),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
+    variant(name = "Count", value(item(is = "X")))
 )]
 pub struct AdapterChoice {}
 
-#[record(
-    typed_adapters,
-    fields(
-        field(name = "label", value(item(prim = "Text", max_len = 64))),
-        field(name = "choice", value(item(is = "AdapterChoice")))
-    ),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[record(fields(
+    field(name = "label", value(item(prim = "Text", max_len = 64))),
+    field(name = "choice", value(item(is = "AdapterChoice")))
+))]
 pub struct AdapterRecord {}
 
-#[list(
-    typed_adapters,
-    item(is = "AdapterRecord"),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[list(item(is = "AdapterRecord"))]
 pub struct AdapterList {}
 
-#[set(
-    typed_adapters,
-    item(is = "X"),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[set(item(is = "X"))]
 pub struct AdapterSet {}
 
-#[map(
-    typed_adapters,
-    key(is = "X"),
-    value(item(is = "AdapterChoice")),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[map(key(is = "X"), value(item(is = "AdapterChoice")))]
 pub struct AdapterMap {}
 
-#[tuple(
-    typed_adapters,
-    value(item(is = "XEntity")),
-    value(opt, item(is = "AdapterRecord")),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[tuple(value(item(is = "XEntity")), value(opt, item(is = "AdapterRecord")))]
 pub struct AdapterTuple {}
 
-#[record(
-    typed_adapters,
-    fields(field(name = "next", value(opt, item(indirect, is = "RecursiveRecord")))),
-    model_crate = "model_api",
-    icydb_crate = "runtime_api"
-)]
+#[record(fields(field(name = "next", value(opt, item(indirect, is = "RecursiveRecord")))))]
 pub struct RecursiveRecord {}
 
 #[entity(
     store = "TypedAdapterStore",
     version = 1,
     pk(fields = ["id"]),
-    typed_adapters,
-    model_crate = "model_api",
-    icydb_crate = "runtime_api",
     fields(
         field(
             name = "id",

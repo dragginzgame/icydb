@@ -215,7 +215,7 @@ pub struct Set {}
 /// Newtype
 ///
 
-#[newtype(primitive = "Text", item(prim = "Text", unbounded))]
+#[newtype(item(prim = "Text", unbounded))]
 pub struct Newtype {}
 
 ///

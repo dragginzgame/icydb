@@ -24,9 +24,6 @@ pub struct Record {
     pub(crate) traits: TraitBuilder,
 
     #[darling(default)]
-    pub(crate) typed_adapters: bool,
-
-    #[darling(default)]
     pub(crate) ty: Type,
 }
 

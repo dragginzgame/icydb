@@ -12,7 +12,7 @@ use crate::prelude::*;
 /// Duration wrapper expressed in milliseconds.
 ///
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(item(prim = "Nat64"))]
 pub struct Milliseconds {}
 
 ///
@@ -21,7 +21,7 @@ pub struct Milliseconds {}
 /// Duration wrapper expressed in seconds.
 ///
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(item(prim = "Nat64"))]
 pub struct Seconds {}
 
 ///
@@ -30,5 +30,5 @@ pub struct Seconds {}
 /// Duration wrapper expressed in minutes.
 ///
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(item(prim = "Nat64"))]
 pub struct Minutes {}

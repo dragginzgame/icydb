@@ -45,7 +45,7 @@ policy controls.
 
 ## Which API should I use?
 
-- Known generated row type: `query::<E>()`, with `typed_adapters` enabled.
+- Known generated row type: `query::<E>()`; runtime adapters are automatic.
 - Runtime entity/field names: `DynamicQuery` plus
   `execute_public_dynamic_query`.
 - Controller/admin maintenance: `execute_trusted_dynamic_query`.

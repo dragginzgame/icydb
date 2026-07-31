@@ -11,7 +11,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         rule(name = "length", kind = "length_range_inclusive", args(1, 40)),
@@ -25,7 +24,6 @@ pub struct Constant {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         rule(name = "length", kind = "length_range_inclusive", args(2, 40)),
@@ -41,7 +39,6 @@ pub struct Field {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         rule(name = "length", kind = "length_range_inclusive", args(2, 64)),
@@ -55,7 +52,6 @@ pub struct Function {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         rule(name = "length", kind = "length_range_inclusive", args(2, 40)),
@@ -69,7 +65,6 @@ pub struct Variable {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         rule(name = "length", kind = "length_range_inclusive", args(1, 40)),

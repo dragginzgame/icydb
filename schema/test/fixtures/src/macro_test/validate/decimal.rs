@@ -30,7 +30,6 @@ pub struct ValidateTest {}
 ///
 
 #[newtype(
-    primitive = "Int32",
     item(prim = "Int32"),
     ty(validator(path = "base::validator::num::MultipleOf", args(10)))
 )]
@@ -41,7 +40,6 @@ pub struct MultipleTenType {}
 ///
 
 #[newtype(
-    primitive = "Decimal",
     item(prim = "Decimal", scale = 3),
     ty(validator(path = "base::validator::decimal::MaxDecimalPlaces", args(3)))
 )]

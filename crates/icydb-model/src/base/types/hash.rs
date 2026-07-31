@@ -13,7 +13,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::hash::Sha256"))
 )]

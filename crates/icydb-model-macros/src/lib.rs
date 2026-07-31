@@ -75,7 +75,7 @@ mod prelude {
 ///
 
 macro_rules! macro_node {
-    ($fn_name:ident, $node_type:ty, $gen_type:path) => {
+    ($fn_name:ident, $node_type:ty, $gen_type:path $(, $configure:expr)?) => {
         #[proc_macro_attribute]
         pub fn $fn_name(
             args: proc_macro::TokenStream,
@@ -103,6 +103,7 @@ macro_rules! macro_node {
                         Err(err) => return proc_macro::TokenStream::from(err.write_errors()),
                     };
                     node.def = Def::new(item);
+                    $(($configure)(&mut node, CratePathOverrides::has_icydb_runtime());)?
                     if let Err(err) = node.validate() {
                         return proc_macro::TokenStream::from(err.write_errors());
                     }
@@ -139,7 +140,12 @@ macro_rules! macro_node {
 }
 
 macro_node!(canister, node::Canister, r#gen::CanisterGen);
-macro_node!(entity, node::Entity, r#gen::EntityGen);
+macro_node!(
+    entity,
+    node::Entity,
+    r#gen::EntityGen,
+    |entity: &mut node::Entity, has_runtime| entity.emit_runtime_adapters = has_runtime
+);
 macro_node!(enum_, node::Enum, r#gen::EnumGen);
 macro_node!(list, node::List, r#gen::ListGen);
 macro_node!(map, node::Map, r#gen::MapGen);

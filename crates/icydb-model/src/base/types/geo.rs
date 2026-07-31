@@ -15,7 +15,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
@@ -34,7 +33,6 @@ pub struct AddressLine {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
@@ -54,7 +52,6 @@ pub struct CityName {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),
@@ -75,7 +72,6 @@ pub struct PostalCode {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::text::Trim"),

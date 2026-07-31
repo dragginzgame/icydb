@@ -12,21 +12,13 @@ use crate::{
     db::{DynamicMutationResult, session::DbSession},
     error::Error,
     traits::CanisterKind,
-    types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
-        Subaccount, Timestamp, Ulid, Unit,
-    },
-    value::{InputValue, OutputValue},
+    value::{InputValue, InputValueEnum, OutputValue},
 };
 use candid::CandidType;
 use icydb_core as core;
 use icydb_schema::ScalarType;
 use serde::Deserialize;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    error::Error as StdError,
-    fmt,
-};
+use std::{collections::BTreeSet, error::Error as StdError, fmt};
 
 ///
 /// WriteCell
@@ -63,7 +55,7 @@ impl<T> WriteCell<T> {
     }
 }
 
-/// One complete accepted row supplied to an opted-in generated adapter.
+/// One complete accepted row supplied to an automatic generated adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OutputRow {
     binding: core::db::DynamicTypedEntityBinding,
@@ -149,6 +141,15 @@ impl fmt::Display for TypedAdapterError {
 
 impl StdError for TypedAdapterError {}
 
+impl From<icydb_model::TypedValueError> for TypedAdapterError {
+    fn from(error: icydb_model::TypedValueError) -> Self {
+        match error {
+            icydb_model::TypedValueError::SourceUnavailable => Self::FieldUnavailable,
+            icydb_model::TypedValueError::ShapeMismatch => Self::ValueShapeMismatch,
+        }
+    }
+}
+
 /// Failure while issuing one opaque typed binding.
 #[derive(Debug)]
 pub enum TypedBindingError {
@@ -215,7 +216,7 @@ impl From<Error> for TypedWriteError {
     }
 }
 
-/// Opaque accepted-schema binding for one opted-in generated adapter.
+/// Opaque accepted-schema binding for one automatic generated adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedEntityBinding {
     inner: core::db::DynamicTypedEntityBinding,
@@ -300,6 +301,183 @@ impl TypedEntityBinding {
         }
 
         exact_record_output_values(accepted_names.as_slice(), value)
+    }
+}
+
+impl icydb_model::TypedAdapterContext for TypedEntityBinding {
+    type InputValue = InputValue;
+    type OutputValue = OutputValue;
+
+    fn input_scalar(&self, value: icydb_model::TypedScalarValue) -> Self::InputValue {
+        match value {
+            icydb_model::TypedScalarValue::Account(value) => InputValue::Account(value),
+            icydb_model::TypedScalarValue::Blob(value) => InputValue::Blob(value.to_vec()),
+            icydb_model::TypedScalarValue::Bool(value) => InputValue::Bool(value),
+            icydb_model::TypedScalarValue::Date(value) => InputValue::Date(value),
+            icydb_model::TypedScalarValue::Decimal(value) => InputValue::Decimal(value),
+            icydb_model::TypedScalarValue::Duration(value) => InputValue::Duration(value),
+            icydb_model::TypedScalarValue::Float32(value) => InputValue::Float32(value),
+            icydb_model::TypedScalarValue::Float64(value) => InputValue::Float64(value),
+            icydb_model::TypedScalarValue::Int64(value) => InputValue::Int64(value),
+            icydb_model::TypedScalarValue::Int128(value) => InputValue::Int128(value),
+            icydb_model::TypedScalarValue::IntBig(value) => InputValue::IntBig(value),
+            icydb_model::TypedScalarValue::Nat64(value) => InputValue::Nat64(value),
+            icydb_model::TypedScalarValue::Nat128(value) => InputValue::Nat128(value),
+            icydb_model::TypedScalarValue::NatBig(value) => InputValue::NatBig(value),
+            icydb_model::TypedScalarValue::Principal(value) => InputValue::Principal(value),
+            icydb_model::TypedScalarValue::Subaccount(value) => InputValue::Subaccount(value),
+            icydb_model::TypedScalarValue::Text(value) => InputValue::Text(value),
+            icydb_model::TypedScalarValue::Timestamp(value) => InputValue::Timestamp(value),
+            icydb_model::TypedScalarValue::Ulid(value) => InputValue::Ulid(value),
+            icydb_model::TypedScalarValue::Unit => InputValue::Unit,
+        }
+    }
+
+    fn input_list(&self, values: Vec<Self::InputValue>) -> Self::InputValue {
+        InputValue::List(values)
+    }
+
+    fn input_map(&self, entries: Vec<(Self::InputValue, Self::InputValue)>) -> Self::InputValue {
+        InputValue::Map(entries)
+    }
+
+    fn input_null(&self) -> Self::InputValue {
+        InputValue::Null
+    }
+
+    fn input_enum(
+        &self,
+        type_source_key: &'static str,
+        variant_source_key: &'static str,
+        payload: Option<Self::InputValue>,
+    ) -> Result<Self::InputValue, icydb_model::TypedValueError> {
+        let type_name = self
+            .named_type_name(type_source_key)
+            .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
+        let variant_name = self
+            .enum_variant_name(type_source_key, variant_source_key)
+            .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
+        let value = InputValueEnum::new(variant_name, Some(type_name));
+        Ok(InputValue::Enum(match payload {
+            Some(payload) => value.with_payload(payload),
+            None => value,
+        }))
+    }
+
+    fn input_record(
+        &self,
+        type_source_key: &'static str,
+        fields: Vec<(&'static str, Self::InputValue)>,
+    ) -> Result<Self::InputValue, icydb_model::TypedValueError> {
+        fields
+            .into_iter()
+            .map(|(source_key, value)| {
+                let name = self
+                    .composite_field_name(type_source_key, source_key)
+                    .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
+                Ok((InputValue::Text(name.to_string()), value))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(InputValue::Map)
+    }
+
+    fn output_scalar(&self, value: &Self::OutputValue) -> Option<icydb_model::TypedScalarValue> {
+        Some(match value {
+            OutputValue::Account(value) => icydb_model::TypedScalarValue::Account(*value),
+            OutputValue::Blob(value) => {
+                icydb_model::TypedScalarValue::Blob(icydb_schema::Blob::from(value.as_slice()))
+            }
+            OutputValue::Bool(value) => icydb_model::TypedScalarValue::Bool(*value),
+            OutputValue::Date(value) => icydb_model::TypedScalarValue::Date(*value),
+            OutputValue::Decimal(value) => icydb_model::TypedScalarValue::Decimal(*value),
+            OutputValue::Duration(value) => icydb_model::TypedScalarValue::Duration(*value),
+            OutputValue::Float32(value) => icydb_model::TypedScalarValue::Float32(*value),
+            OutputValue::Float64(value) => icydb_model::TypedScalarValue::Float64(*value),
+            OutputValue::Int64(value) => icydb_model::TypedScalarValue::Int64(*value),
+            OutputValue::Int128(value) => icydb_model::TypedScalarValue::Int128(*value),
+            OutputValue::IntBig(value) => icydb_model::TypedScalarValue::IntBig(value.clone()),
+            OutputValue::Nat64(value) => icydb_model::TypedScalarValue::Nat64(*value),
+            OutputValue::Nat128(value) => icydb_model::TypedScalarValue::Nat128(*value),
+            OutputValue::NatBig(value) => icydb_model::TypedScalarValue::NatBig(value.clone()),
+            OutputValue::Principal(value) => icydb_model::TypedScalarValue::Principal(*value),
+            OutputValue::Subaccount(value) => icydb_model::TypedScalarValue::Subaccount(*value),
+            OutputValue::Text(value) => icydb_model::TypedScalarValue::Text(value.clone()),
+            OutputValue::Timestamp(value) => icydb_model::TypedScalarValue::Timestamp(*value),
+            OutputValue::Ulid(value) => icydb_model::TypedScalarValue::Ulid(*value),
+            OutputValue::Unit => icydb_model::TypedScalarValue::Unit,
+            OutputValue::Enum(_)
+            | OutputValue::List(_)
+            | OutputValue::Map(_)
+            | OutputValue::Null => {
+                return None;
+            }
+        })
+    }
+
+    fn output_list<'a>(&self, value: &'a Self::OutputValue) -> Option<&'a [Self::OutputValue]> {
+        match value {
+            OutputValue::List(values) => Some(values.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn output_map<'a>(
+        &self,
+        value: &'a Self::OutputValue,
+    ) -> Option<&'a [(Self::OutputValue, Self::OutputValue)]> {
+        match value {
+            OutputValue::Map(entries) => Some(entries.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn output_is_null(&self, value: &Self::OutputValue) -> bool {
+        matches!(value, OutputValue::Null)
+    }
+
+    fn output_enum_variant<'a>(
+        &self,
+        type_source_key: &'static str,
+        variant_source_key: &'static str,
+        value: &'a Self::OutputValue,
+    ) -> Result<
+        Option<icydb_model::TypedEnumOutput<'a, Self::OutputValue>>,
+        icydb_model::TypedValueError,
+    > {
+        let OutputValue::Enum(value) = value else {
+            return Err(icydb_model::TypedValueError::ShapeMismatch);
+        };
+        let type_name = self
+            .named_type_name(type_source_key)
+            .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
+        if value.path() != Some(type_name) {
+            return Err(icydb_model::TypedValueError::ShapeMismatch);
+        }
+        let variant_name = self
+            .enum_variant_name(type_source_key, variant_source_key)
+            .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
+        if value.variant() != variant_name {
+            return Ok(None);
+        }
+        Ok(Some(value.payload().map_or(
+            icydb_model::TypedEnumOutput::Unit,
+            icydb_model::TypedEnumOutput::Payload,
+        )))
+    }
+
+    fn output_record<'a>(
+        &self,
+        type_source_key: &'static str,
+        member_source_keys: &[&'static str],
+        value: &'a Self::OutputValue,
+    ) -> Result<Vec<&'a Self::OutputValue>, icydb_model::TypedValueError> {
+        self.record_output_values(type_source_key, member_source_keys, value)
+            .map_err(|error| match error {
+                TypedAdapterError::FieldUnavailable => {
+                    icydb_model::TypedValueError::SourceUnavailable
+                }
+                _ => icydb_model::TypedValueError::ShapeMismatch,
+            })
     }
 }
 
@@ -448,7 +626,7 @@ impl TypedFieldBindingRequest {
     }
 }
 
-/// IcyDB-owned decode adapter implemented only by opted-in generated code.
+/// IcyDB-owned decode adapter implemented by runtime-enabled generated code.
 pub trait TypedRowAdapter {
     /// Complete application row produced by decoding.
     type Row;
@@ -460,7 +638,7 @@ pub trait TypedRowAdapter {
     ) -> Result<Self::Row, TypedAdapterError>;
 }
 
-/// IcyDB-owned binding adapter implemented only by opted-in generated entities.
+/// IcyDB-owned binding adapter implemented by runtime-enabled generated entities.
 pub trait TypedEntityAdapter: TypedRowAdapter {
     /// Bind generated source identities to current accepted schema authority.
     fn typed_binding<C>(session: &DbSession<C>) -> Result<TypedEntityBinding, TypedBindingError>
@@ -468,329 +646,10 @@ pub trait TypedEntityAdapter: TypedRowAdapter {
         C: CanisterKind;
 }
 
-/// IcyDB-owned write adapter implemented only by opted-in generated inputs.
+/// IcyDB-owned write adapter implemented by runtime-enabled generated inputs.
 pub trait TypedWriteAdapter {
     /// Lower explicit application write intent without resolving database policy.
     fn encode_write(self, binding: &TypedEntityBinding) -> Result<TypedWrite, TypedAdapterError>;
-}
-
-///
-/// TypedInputValue
-///
-/// Generated-code conversion seam from one application field type into a
-/// public IcyDB input value through current accepted editable names.
-///
-
-#[doc(hidden)]
-pub trait TypedInputValue: Sized {
-    /// Encode one application value through an opaque current binding.
-    fn encode_typed_input(
-        self,
-        binding: &TypedEntityBinding,
-    ) -> Result<InputValue, TypedAdapterError>;
-}
-
-/// Immutable source identity emitted for one generated named type.
-#[doc(hidden)]
-pub trait TypedNamedType {
-    /// Authored source key used to resolve the accepted named type.
-    const SOURCE_KEY: &'static str;
-}
-
-macro_rules! impl_typed_input_value {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl TypedInputValue for $ty {
-                fn encode_typed_input(
-                    self,
-                    _binding: &TypedEntityBinding,
-                ) -> Result<InputValue, TypedAdapterError> {
-                    Ok(InputValue::from(self))
-                }
-            }
-        )*
-    };
-}
-
-impl_typed_input_value!(
-    Account, Blob, bool, Date, Decimal, Duration, Float32, Float64, i8, i16, i32, i64, i128,
-    IntBig, NatBig, Principal, String, Subaccount, Timestamp, u8, u16, u32, u64, u128, Ulid, Unit,
-);
-
-impl<T> TypedInputValue for Box<T>
-where
-    T: TypedInputValue,
-{
-    fn encode_typed_input(
-        self,
-        binding: &TypedEntityBinding,
-    ) -> Result<InputValue, TypedAdapterError> {
-        (*self).encode_typed_input(binding)
-    }
-}
-
-impl<T> TypedInputValue for Option<T>
-where
-    T: TypedInputValue,
-{
-    fn encode_typed_input(
-        self,
-        binding: &TypedEntityBinding,
-    ) -> Result<InputValue, TypedAdapterError> {
-        self.map_or(Ok(InputValue::Null), |value| {
-            value.encode_typed_input(binding)
-        })
-    }
-}
-
-impl<T> TypedInputValue for Vec<T>
-where
-    T: TypedInputValue,
-{
-    fn encode_typed_input(
-        self,
-        binding: &TypedEntityBinding,
-    ) -> Result<InputValue, TypedAdapterError> {
-        self.into_iter()
-            .map(|value| value.encode_typed_input(binding))
-            .collect::<Result<Vec<_>, _>>()
-            .map(InputValue::List)
-    }
-}
-
-impl<K, V> TypedInputValue for BTreeMap<K, V>
-where
-    K: TypedInputValue,
-    V: TypedInputValue,
-{
-    fn encode_typed_input(
-        self,
-        binding: &TypedEntityBinding,
-    ) -> Result<InputValue, TypedAdapterError> {
-        self.into_iter()
-            .map(|(key, value)| {
-                Ok((
-                    key.encode_typed_input(binding)?,
-                    value.encode_typed_input(binding)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(InputValue::Map)
-    }
-}
-
-impl<T> TypedInputValue for BTreeSet<T>
-where
-    T: TypedInputValue,
-{
-    fn encode_typed_input(
-        self,
-        binding: &TypedEntityBinding,
-    ) -> Result<InputValue, TypedAdapterError> {
-        self.into_iter()
-            .map(|value| value.encode_typed_input(binding))
-            .collect::<Result<Vec<_>, _>>()
-            .map(InputValue::List)
-    }
-}
-
-///
-/// TypedOutputValue
-///
-/// Generated-code conversion seam from public IcyDB output values into one
-/// application field type. This is macro wiring rather than accepted authority.
-///
-
-#[doc(hidden)]
-pub trait TypedOutputValue: Sized {
-    /// Decode one public output value without consulting generated schema state.
-    fn decode_typed_output(
-        binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError>;
-}
-
-macro_rules! impl_typed_output_value_clone {
-    ($($ty:ty => $variant:ident),* $(,)?) => {
-        $(
-            impl TypedOutputValue for $ty {
-                fn decode_typed_output(
-                    _binding: &TypedEntityBinding,
-                    value: &OutputValue,
-                ) -> Result<Self, TypedAdapterError> {
-                    match value {
-                        OutputValue::$variant(value) => Ok(value.clone()),
-                        _ => Err(TypedAdapterError::ValueShapeMismatch),
-                    }
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! impl_typed_output_value_narrow {
-    ($($ty:ty => $variant:ident),* $(,)?) => {
-        $(
-            impl TypedOutputValue for $ty {
-                fn decode_typed_output(
-                    _binding: &TypedEntityBinding,
-                    value: &OutputValue,
-                ) -> Result<Self, TypedAdapterError> {
-                    let OutputValue::$variant(value) = value else {
-                        return Err(TypedAdapterError::ValueShapeMismatch);
-                    };
-
-                    Self::try_from(*value).map_err(|_| TypedAdapterError::ValueShapeMismatch)
-                }
-            }
-        )*
-    };
-}
-
-impl_typed_output_value_clone!(
-    Account => Account,
-    bool => Bool,
-    Date => Date,
-    Decimal => Decimal,
-    Duration => Duration,
-    Float32 => Float32,
-    Float64 => Float64,
-    i64 => Int64,
-    i128 => Int128,
-    IntBig => IntBig,
-    NatBig => NatBig,
-    Principal => Principal,
-    String => Text,
-    Subaccount => Subaccount,
-    Timestamp => Timestamp,
-    u64 => Nat64,
-    u128 => Nat128,
-    Ulid => Ulid,
-);
-impl_typed_output_value_narrow!(
-    i8 => Int64,
-    i16 => Int64,
-    i32 => Int64,
-    u8 => Nat64,
-    u16 => Nat64,
-    u32 => Nat64,
-);
-
-impl TypedOutputValue for Blob {
-    fn decode_typed_output(
-        _binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError> {
-        match value {
-            OutputValue::Blob(value) => Ok(Self::from(value.as_slice())),
-            _ => Err(TypedAdapterError::ValueShapeMismatch),
-        }
-    }
-}
-
-impl TypedOutputValue for Unit {
-    fn decode_typed_output(
-        _binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError> {
-        match value {
-            OutputValue::Unit => Ok(Self),
-            _ => Err(TypedAdapterError::ValueShapeMismatch),
-        }
-    }
-}
-
-impl<T> TypedOutputValue for Box<T>
-where
-    T: TypedOutputValue,
-{
-    fn decode_typed_output(
-        binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError> {
-        T::decode_typed_output(binding, value).map(Self::new)
-    }
-}
-
-impl<T> TypedOutputValue for Option<T>
-where
-    T: TypedOutputValue,
-{
-    fn decode_typed_output(
-        binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError> {
-        match value {
-            OutputValue::Null => Ok(None),
-            _ => T::decode_typed_output(binding, value).map(Some),
-        }
-    }
-}
-
-impl<T> TypedOutputValue for Vec<T>
-where
-    T: TypedOutputValue,
-{
-    fn decode_typed_output(
-        binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError> {
-        let OutputValue::List(values) = value else {
-            return Err(TypedAdapterError::ValueShapeMismatch);
-        };
-
-        values
-            .iter()
-            .map(|value| T::decode_typed_output(binding, value))
-            .collect()
-    }
-}
-
-impl<K, V> TypedOutputValue for BTreeMap<K, V>
-where
-    K: Ord + TypedOutputValue,
-    V: TypedOutputValue,
-{
-    fn decode_typed_output(
-        binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError> {
-        let OutputValue::Map(entries) = value else {
-            return Err(TypedAdapterError::ValueShapeMismatch);
-        };
-
-        let mut decoded = Self::new();
-        for (key, value) in entries {
-            let key = K::decode_typed_output(binding, key)?;
-            let value = V::decode_typed_output(binding, value)?;
-            if decoded.insert(key, value).is_some() {
-                return Err(TypedAdapterError::ValueShapeMismatch);
-            }
-        }
-        Ok(decoded)
-    }
-}
-
-impl<T> TypedOutputValue for BTreeSet<T>
-where
-    T: Ord + TypedOutputValue,
-{
-    fn decode_typed_output(
-        binding: &TypedEntityBinding,
-        value: &OutputValue,
-    ) -> Result<Self, TypedAdapterError> {
-        let OutputValue::List(values) = value else {
-            return Err(TypedAdapterError::ValueShapeMismatch);
-        };
-
-        let mut decoded = Self::new();
-        for value in values {
-            if !decoded.insert(T::decode_typed_output(binding, value)?) {
-                return Err(TypedAdapterError::ValueShapeMismatch);
-            }
-        }
-        Ok(decoded)
-    }
 }
 
 /// One generated write lowered through immutable source keys.

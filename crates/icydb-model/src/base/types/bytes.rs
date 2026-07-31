@@ -10,11 +10,7 @@ use crate::prelude::*;
 /// Utf8
 ///
 
-#[newtype(
-    primitive = "Blob",
-    item(prim = "Blob", unbounded),
-    traits(remove(ValidateCustom))
-)]
+#[newtype(item(prim = "Blob", unbounded), traits(remove(ValidateCustom)))]
 pub struct Utf8;
 
 impl ValidateCustom for Utf8 {

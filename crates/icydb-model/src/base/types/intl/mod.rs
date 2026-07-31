@@ -14,7 +14,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::intl::iso::Iso3166_1A2"),
@@ -31,7 +30,6 @@ pub struct CountryCode {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::intl::iso::Iso639_1"),
@@ -48,7 +46,6 @@ pub struct LanguageCode {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(
         normalizer(path = "base::normalizer::intl::phone::E164PhoneNumber"),

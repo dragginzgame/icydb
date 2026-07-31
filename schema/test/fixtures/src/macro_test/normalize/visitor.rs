@@ -5,7 +5,6 @@ use icydb_model::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     default = "String::new",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Lower"))
@@ -65,7 +64,6 @@ impl icydb_model::visitor::Normalizer<String> for Reject {
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(normalizer(path = "crate::macro_test::normalize::visitor::Reject"))
 )]

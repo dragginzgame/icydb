@@ -17,7 +17,7 @@ pub struct PartialEqTrait {}
 
 impl Imp<Newtype> for PartialEqTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let primitive = node.primitive.as_ref()?; // bail early if no primitive
+        let primitive = node.item.primitive.as_ref()?; // bail early if no primitive
 
         let ident = &node.def.ident();
         let prim = &crate::types::primitive_type_tokens(*primitive);

@@ -17,6 +17,7 @@ pub mod node;
 pub mod normalize;
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 mod schema_validate;
+mod typed_adapter;
 pub mod types;
 pub mod validate;
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -72,6 +73,11 @@ pub use icydb_model_macros::{
     tuple, validator,
 };
 pub use normalize::normalize;
+#[doc(hidden)]
+pub use typed_adapter::{
+    TypedAdapterContext, TypedEnumOutput, TypedInputValue, TypedNamedType, TypedOutputValue,
+    TypedScalarValue, TypedValueError,
+};
 pub use validate::validate;
 
 /// Fully-qualified path identity for generated application declarations.

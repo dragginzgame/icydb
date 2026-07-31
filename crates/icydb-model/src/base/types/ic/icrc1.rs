@@ -43,7 +43,7 @@ impl TokenAmount {
 /// just the raw number of tokens
 ///
 
-#[newtype(name = "Icrc1Tokens", primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(name = "Icrc1Tokens", item(prim = "Nat64"))]
 pub struct Tokens {}
 
 impl Tokens {

@@ -11,7 +11,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Nat16",
     item(prim = "Nat16"),
     ty(rule(name = "range", kind = "numeric_range_inclusive", args(0, 360)))
 )]
@@ -24,7 +23,6 @@ pub struct Degrees {}
 ///
 
 #[newtype(
-    primitive = "Nat8",
     item(prim = "Nat8"),
     ty(rule(name = "range", kind = "numeric_range_inclusive", args(0, 100)))
 )]
@@ -35,7 +33,6 @@ pub struct Percent {}
 ///
 
 #[newtype(
-    primitive = "Nat16",
     item(prim = "Nat16"),
     ty(rule(name = "range", kind = "numeric_range_inclusive", args(0, 10_000)))
 )]

@@ -20,17 +20,16 @@ let rows = db()?
     .execute_rows()?;
 ```
 
-`query::<E>()` is available only when `E` was declared with
-`typed_adapters`. The generated adapter binds immutable entity and field source
-keys to the current accepted snapshot. It then decodes returned public values;
-it never supplies query semantics.
+`query::<E>()` is generated automatically for entities declared in a crate
+that depends on the `icydb` runtime facade. The generated adapter binds
+immutable entity and field source keys to the current accepted snapshot. It
+then decodes returned public values; it never supplies query semantics.
 
-Every named enum, record, newtype, list, set, map, or tuple reachable from that
-entity must also select `typed_adapters`. Those macros implement the conversion
-traits directly on the authored type; they do not synthesize suffix-derived
-Rust types. Named values resolve accepted type, member, and variant names
-through the entity binding before crossing the existing `InputValue` /
-`OutputValue` boundary.
+Every named enum, record, newtype, list, set, map, or tuple implements the
+model-owned conversion traits automatically, including IcyDB's built-in model
+types. The macros do not synthesize suffix-derived Rust types. Named values
+resolve accepted type, member, and variant names through the entity binding
+before crossing the existing `InputValue` / `OutputValue` boundary.
 
 `DynamicQuery` is the untyped accepted-schema equivalent. Use
 `execute_public_dynamic_query` for caller-facing bounded reads and
@@ -71,8 +70,8 @@ The four mutation variants are `Insert`, `Update`, `Replace`, and `Delete`.
 values distinct until accepted write admission.
 
 Generated `Insert`, `Patch`, and `Replace` input types implement
-`TypedWriteAdapter` only when `typed_adapters` is selected. Bind the generated
-entity to the current session, encode the input, then call
+`TypedWriteAdapter` whenever the declaring crate includes the runtime facade.
+Bind the generated entity to the current session, encode the input, then call
 `execute_trusted_typed_write`. This is an ergonomic projection over the same
 structural mutation authority.
 

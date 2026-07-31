@@ -23,9 +23,6 @@ pub struct List {
     pub(crate) ty: Type,
 
     #[darling(default)]
-    pub(crate) typed_adapters: bool,
-
-    #[darling(default)]
     pub(crate) traits: TraitBuilder,
 }
 

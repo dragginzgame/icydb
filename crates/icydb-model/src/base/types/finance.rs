@@ -15,7 +15,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Decimal",
     item(prim = "Decimal", scale = 2),
     ty(
         normalizer(path = "base::normalizer::num::RoundDecimalPlaces", args(2)),
@@ -31,7 +30,6 @@ pub struct Usd {}
 ///
 
 #[newtype(
-    primitive = "Decimal",
     item(prim = "Decimal", scale = 8),
     ty(rule(name = "nonnegative", kind = "numeric_minimum_inclusive", args(0)))
 )]
@@ -44,7 +42,6 @@ pub struct E8s {}
 ///
 
 #[newtype(
-    primitive = "Decimal",
     item(prim = "Decimal", scale = 18),
     ty(rule(name = "nonnegative", kind = "numeric_minimum_inclusive", args(0)))
 )]

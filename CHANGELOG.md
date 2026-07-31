@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.215.md](docs/changelog/0.215.md)
 
+- `0.215.7` makes typed adapters an automatic package capability while
+  preserving schema-only independence, and hard-cuts redundant adapter,
+  crate-path, and newtype primitive declarations.
+
 - `0.215.6` hardens the SQL structural closeout with independently frozen
   signatures and a fail-closed 512-scenario execution gate, correcting its
   mutation witness and rejection evidence without changing production SQL or

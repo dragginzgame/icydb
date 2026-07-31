@@ -24,9 +24,6 @@ pub struct Map {
     pub(crate) ty: Type,
 
     #[darling(default)]
-    pub(crate) typed_adapters: bool,
-
-    #[darling(default)]
     pub(crate) traits: TraitBuilder,
 }
 
@@ -177,7 +174,6 @@ mod tests {
                 ..Default::default()
             },
             ty: Type::default(),
-            typed_adapters: false,
             traits: TraitBuilder::default(),
         }
     }

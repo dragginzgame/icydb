@@ -46,7 +46,7 @@ pub struct EnumSorted {}
 /// (just to check on the rust-analyzer error)
 ///
 
-#[newtype(primitive = "Int8",
+#[newtype(
     item(prim = "Int8"),
     ty(validator(path = "base::validator::num::Range", args(-1, 3)))
 )]
@@ -57,7 +57,6 @@ pub struct Negative {}
 ///
 
 #[newtype(
-    primitive = "Decimal",
     item(prim = "Decimal", scale = 18),
     ty(validator(path = "base::validator::num::Lte", args(5.0)))
 )]

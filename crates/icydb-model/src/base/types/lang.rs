@@ -12,7 +12,6 @@ use crate::prelude::*;
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::intl::iso::Iso639_1"))
 )]

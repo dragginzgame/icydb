@@ -4,6 +4,27 @@ mod schema;
 
 #[cfg(test)]
 mod tests {
+    use model_api::base::types::{
+        bytes::Utf8,
+        color::{Rgb, RgbHex, Rgba, RgbaHex},
+        finance::{E8s, E18s, Usd},
+        geo::{AddressLine, CityName, PostalCode, RegionName},
+        hash::Sha256,
+        ic::{
+            Memo,
+            icp::{Payment as IcpPayment, Tokens as IcpTokens},
+            icrc1::{Payment as Icrc1Payment, TokenAmount, Tokens as Icrc1Tokens},
+            icrc3::Value as Icrc3Value,
+        },
+        ident::{Constant, Field, Function, Variable, Variant},
+        intl::{CountryCode, LanguageCode, PhoneNumber},
+        lang::Code,
+        num::{
+            DecimalRange, Degrees, DurationRange, Int32Range, Nat32Range, Percent, PercentModifier,
+        },
+        time::{Milliseconds, Minutes, Seconds},
+        web::{MimeType, Url},
+    };
     use model_api::visitor::Visitable;
     use runtime_api::db::{TypedRowAdapter, TypedWriteAdapter, WriteCell};
 
@@ -28,7 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn renamed_dependencies_compile_typed_adapters() {
+    fn renamed_dependencies_compile_default_adapters() {
         let insert_without_database_owned_id = TypedAdapterEntityInsert {
             name: WriteCell::Omitted,
             nickname: WriteCell::Omitted,
@@ -60,6 +81,47 @@ mod tests {
         assert_named_adapter::<AdapterMap>();
         assert_named_adapter::<AdapterTuple>();
         assert_named_adapter::<RecursiveRecord>();
+        assert_named_adapter::<Utf8>();
+        assert_named_adapter::<Rgb>();
+        assert_named_adapter::<RgbHex>();
+        assert_named_adapter::<Rgba>();
+        assert_named_adapter::<RgbaHex>();
+        assert_named_adapter::<E8s>();
+        assert_named_adapter::<E18s>();
+        assert_named_adapter::<Usd>();
+        assert_named_adapter::<AddressLine>();
+        assert_named_adapter::<CityName>();
+        assert_named_adapter::<PostalCode>();
+        assert_named_adapter::<RegionName>();
+        assert_named_adapter::<Sha256>();
+        assert_named_adapter::<Memo>();
+        assert_named_adapter::<IcpPayment>();
+        assert_named_adapter::<IcpTokens>();
+        assert_named_adapter::<Icrc1Payment>();
+        assert_named_adapter::<TokenAmount>();
+        assert_named_adapter::<Icrc1Tokens>();
+        assert_named_adapter::<Icrc3Value>();
+        assert_named_adapter::<Constant>();
+        assert_named_adapter::<Field>();
+        assert_named_adapter::<Function>();
+        assert_named_adapter::<Variable>();
+        assert_named_adapter::<Variant>();
+        assert_named_adapter::<CountryCode>();
+        assert_named_adapter::<LanguageCode>();
+        assert_named_adapter::<PhoneNumber>();
+        assert_named_adapter::<Code>();
+        assert_named_adapter::<DecimalRange>();
+        assert_named_adapter::<Degrees>();
+        assert_named_adapter::<DurationRange>();
+        assert_named_adapter::<Int32Range>();
+        assert_named_adapter::<Nat32Range>();
+        assert_named_adapter::<Percent>();
+        assert_named_adapter::<PercentModifier>();
+        assert_named_adapter::<Milliseconds>();
+        assert_named_adapter::<Minutes>();
+        assert_named_adapter::<Seconds>();
+        assert_named_adapter::<MimeType>();
+        assert_named_adapter::<Url>();
         assert_model_behavior::<runtime_api::types::Ulid>();
     }
 }

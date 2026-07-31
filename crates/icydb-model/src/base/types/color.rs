@@ -34,7 +34,6 @@ pub struct Rgba {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     default = "FFFFFF",
     ty(
@@ -50,7 +49,6 @@ pub struct RgbHex {}
 ///
 
 #[newtype(
-    primitive = "Text",
     item(prim = "Text", unbounded),
     default = "FFFFFFFF",
     ty(

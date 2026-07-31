@@ -1,8 +1,8 @@
 //! Generated crate-path resolution.
 //!
 //! Macro output names package owners rather than assuming the dependency key
-//! used by the consuming crate. Attribute macros may override either path
-//! explicitly; helper derives use Cargo's package-name resolution.
+//! used by the consuming crate. Attribute macros may override the model path
+//! explicitly; runtime paths and helper derives use Cargo package resolution.
 
 use darling::ast::NestedMeta;
 use proc_macro_crate::{FoundCrate, crate_name};
@@ -16,7 +16,6 @@ const MODEL_PACKAGE: &str = "icydb-model";
 /// Optional dependency paths consumed before node-specific argument parsing.
 #[derive(Default)]
 pub(crate) struct CratePathOverrides {
-    icydb: Option<Path>,
     model: Option<Path>,
 }
 
@@ -34,8 +33,6 @@ impl CratePathOverrides {
 
             let target = if name_value.path.is_ident("model_crate") {
                 &mut overrides.model
-            } else if name_value.path.is_ident("icydb_crate") {
-                &mut overrides.icydb
             } else {
                 retained.push(arg);
                 continue;
@@ -69,6 +66,15 @@ impl CratePathOverrides {
         *args = retained;
         Ok(overrides)
     }
+
+    /// Return whether this invocation can emit runtime-owned entity adapters.
+    ///
+    /// Schema-only packages deliberately have no `icydb` dependency and keep
+    /// producing model declarations without runtime code. Adding the runtime
+    /// facade makes entity adapters automatic; it is not a schema option.
+    pub(crate) fn has_icydb_runtime() -> bool {
+        crate_name(ICYDB_PACKAGE).is_ok()
+    }
 }
 
 /// Rewrite package-owner sentinels in generated output.
@@ -77,23 +83,30 @@ pub(crate) fn rewrite_generated_paths(
     overrides: &CratePathOverrides,
 ) -> Result<TokenStream, darling::Error> {
     let model = contains_ident(&tokens, "icydb_model")
-        .then(|| resolve_path(MODEL_PACKAGE, overrides.model.as_ref()))
+        .then(|| resolve_path(MODEL_PACKAGE, overrides.model.as_ref(), Some("model_crate")))
         .transpose()?;
     let icydb = contains_ident(&tokens, "icydb")
-        .then(|| resolve_path(ICYDB_PACKAGE, overrides.icydb.as_ref()))
+        .then(|| resolve_path(ICYDB_PACKAGE, None, None))
         .transpose()?;
 
     Ok(rewrite_stream(tokens, model.as_ref(), icydb.as_ref()))
 }
 
-fn resolve_path(package: &str, explicit: Option<&Path>) -> Result<TokenStream, darling::Error> {
+fn resolve_path(
+    package: &str,
+    explicit: Option<&Path>,
+    override_name: Option<&str>,
+) -> Result<TokenStream, darling::Error> {
     if let Some(path) = explicit {
         return Ok(quote!(#path));
     }
 
     match crate_name(package).map_err(|error| {
+        let override_hint = override_name.map_or_else(String::new, |name| {
+            format!(" or an explicit `{name} = \"...\"` override")
+        });
         darling::Error::custom(format!(
-            "generated output requires a direct `{package}` dependency or an explicit crate-path override: {error}"
+            "generated output requires a direct `{package}` dependency{override_hint}: {error}"
         ))
     })? {
         FoundCrate::Itself => Ok(quote!(crate)),
@@ -218,17 +231,12 @@ mod tests {
     }
 
     #[test]
-    fn explicit_paths_are_removed_from_node_arguments_and_rewrite_output() {
-        let mut input = args(quote!(
-            model_crate = "model_api",
-            icydb_crate = "runtime_api",
-            name = "fixture"
-        ));
+    fn explicit_model_path_is_removed_from_node_arguments_and_rewrites_output() {
+        let mut input = args(quote!(model_crate = "model_api", name = "fixture"));
         let overrides = CratePathOverrides::extract(&mut input).expect("overrides should validate");
         let rewritten = rewrite_generated_paths(
             quote!(
                 ::icydb_model::Path::PATH;
-                ::icydb::__macro::TypedRowAdapter;
                 #[candid_path("::icydb_model::__reexports::candid")]
                 struct Value;
             ),
@@ -239,13 +247,11 @@ mod tests {
 
         assert_eq!(input.len(), 1);
         assert!(rewritten.contains("model_api :: Path"));
-        assert!(rewritten.contains("runtime_api :: __macro :: TypedRowAdapter"));
         assert!(
             rewritten.contains("\"model_api::__reexports::candid\""),
             "unexpected rewritten attributes: {rewritten}",
         );
         assert!(!rewritten.contains("icydb_model"));
-        assert!(!rewritten.contains(":: icydb ::"));
     }
 
     #[test]

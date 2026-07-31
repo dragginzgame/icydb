@@ -24,7 +24,7 @@ pub struct SchemaOnlyProfile {}
 #[enum_(variant(name = "Active"), variant(name = "Disabled"))]
 pub struct SchemaOnlyState {}
 
-#[newtype(primitive = "Text", item(prim = "Text", max_len = 64))]
+#[newtype(item(prim = "Text", max_len = 64))]
 pub struct FieldKey {}
 
 #[map(key(is = "FieldKey"), value(item(is = "FieldValue")))]
@@ -44,17 +44,13 @@ pub struct FieldValue {}
 )]
 pub struct Value {}
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+#[newtype(item(prim = "Nat64"))]
 pub struct Tokens {}
 
-#[newtype(
-    name = "SchemaOnlyTokenAmount",
-    primitive = "Nat64",
-    item(prim = "Nat64")
-)]
+#[newtype(name = "SchemaOnlyTokenAmount", item(prim = "Nat64"))]
 pub struct TokenAmount {}
 
-#[newtype(primitive = "Text", item(prim = "Text", max_len = 32))]
+#[newtype(item(prim = "Text", max_len = 32))]
 pub struct Tier {}
 
 #[enum_(
