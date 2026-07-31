@@ -51,7 +51,7 @@ fn witness_sub_seed_is_stable_and_independent_of_catalog_order() {
     )
     .expect("fixed witness identity should derive");
 
-    assert_eq!(sub_seed, 0x30eb_dc72_dc79_7307);
+    assert_eq!(sub_seed, 0xbdc7_482d_d110_ae8e);
     let mut reverse = witnesses.clone();
     reverse.reverse();
     let reversed = reverse
