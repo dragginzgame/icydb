@@ -20,6 +20,7 @@ diagnostics = ["icydb/diagnostics"]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-model = { path = "../../../crates/icydb-model" }
 
 [build-dependencies]
 icydb = { path = "../../../crates/icydb", default-features = false }

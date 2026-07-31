@@ -323,6 +323,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
+ "icydb-model",
  "icydb-testing-test-sql-fixtures",
  "icydb-testing-wasm-helpers",
 ]
