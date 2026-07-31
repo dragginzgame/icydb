@@ -254,8 +254,9 @@ mod tests {
         assert_eq!(*crate::traits::Inner::inner(&wrapper), 7);
         assert_eq!(crate::traits::Inner::into_inner(wrapper), 7);
 
-        let _build_facade_macros_resolve: fn() -> Result<(), Box<dyn std::error::Error>> =
-            build_facade_macros_resolve;
+        std::hint::black_box(
+            build_facade_macros_resolve as fn() -> Result<(), Box<dyn std::error::Error>>,
+        );
     }
 
     fn build_facade_macros_resolve() -> Result<(), Box<dyn std::error::Error>> {

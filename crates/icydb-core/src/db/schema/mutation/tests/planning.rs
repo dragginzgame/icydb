@@ -276,7 +276,7 @@ fn physical_field_changes_preserve_row_layout_exhaustion_causes() {
         ),
         base.fields().to_vec(),
     );
-    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(max_layout_snapshot.clone())
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(max_layout_snapshot)
         .expect("maximum-version snapshot should remain internally valid");
 
     assert_eq!(
