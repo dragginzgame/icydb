@@ -1007,7 +1007,7 @@ fn lower_scalar_default(primitive: Primitive, item: &Item, default: &Arg) -> Opt
         (Primitive::Date, Arg::String(value)) => Date::parse(value).map(ScalarLiteral::Date),
         (Primitive::Date, Arg::Number(value)) => arg_i128(value)
             .and_then(|value| i32::try_from(value).ok())
-            .map(Date::from_days_since_epoch)
+            .and_then(Date::try_from_days_since_epoch)
             .map(ScalarLiteral::Date),
         (Primitive::Decimal, Arg::String(value)) => Decimal::from_str(value)
             .ok()

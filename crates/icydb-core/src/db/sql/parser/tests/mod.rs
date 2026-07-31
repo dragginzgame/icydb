@@ -978,7 +978,12 @@ fn parse_select_statement_with_field_to_field_predicate() {
                     "rank",
                     CoercionId::NumericWiden,
                 )),
-                Predicate::eq_fields("name".to_string(), "label".to_string()),
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "name",
+                    CompareOp::Eq,
+                    "label",
+                    CoercionId::Strict,
+                )),
             ])),
             distinct: false,
             group_by: vec![],

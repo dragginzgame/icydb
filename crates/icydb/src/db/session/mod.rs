@@ -16,8 +16,6 @@ use crate::{metrics::MetricsSink, traits::CanisterKind};
 use icydb_core as core;
 
 // re-exports
-#[doc(hidden)]
-pub use icydb_model::{TypedInputValue, TypedNamedType, TypedOutputValue};
 pub use integrity::IntegrityCheckError;
 #[cfg(feature = "sql")]
 pub use integrity::SqlIntegrityError;

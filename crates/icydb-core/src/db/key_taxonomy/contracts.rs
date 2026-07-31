@@ -152,12 +152,6 @@ macro_rules! impl_scalar_relation_target_key {
 
 maintained_scalar_key_types!(impl_scalar_relation_target_key);
 
-/// Proves that a scalar relation target key matches the field's declared
-/// primitive key type.
-pub trait ScalarRelationTargetKeyMatchesDeclaredPrimitive<Declared> {}
-
-impl<T> ScalarRelationTargetKeyMatchesDeclaredPrimitive<T> for T where T: ScalarRelationTargetKey {}
-
 /// Narrow runtime [`Value`] codec for typed primary keys and key-only access
 /// surfaces.
 ///

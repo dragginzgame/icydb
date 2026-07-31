@@ -37,9 +37,7 @@ pub use session::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
 #[doc(hidden)]
-pub use session::{
-    TypedFieldBindingRequest, TypedFieldType, TypedInputValue, TypedNamedType, TypedOutputValue,
-};
+pub use session::{TypedFieldBindingRequest, TypedFieldType};
 
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{

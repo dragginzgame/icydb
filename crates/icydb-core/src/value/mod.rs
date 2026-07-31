@@ -276,12 +276,6 @@ impl Value {
         matches!(self, Self::Text(_))
     }
 
-    /// Returns true if the value is Unit (used for presence/null comparators).
-    #[must_use]
-    pub const fn is_unit(&self) -> bool {
-        matches!(self, Self::Unit)
-    }
-
     #[must_use]
     pub const fn is_scalar(&self) -> bool {
         match self {

@@ -4,9 +4,11 @@
 //! Boundary: converts serialized filter input into planner-owned boolean expressions.
 
 #[cfg(feature = "query")]
+use crate::db::query::plan::expr::UnaryOp;
+#[cfg(feature = "query")]
 use crate::db::schema::SchemaInfo;
 use crate::{
-    db::query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
+    db::query::plan::expr::{BinaryOp, Expr, FieldId, Function},
     value::{InputValue, Value},
 };
 use candid::CandidType;

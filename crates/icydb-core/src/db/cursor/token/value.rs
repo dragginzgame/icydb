@@ -294,9 +294,8 @@ fn read_principal(cursor: &mut ByteCursor<'_>) -> Result<Principal, TokenWireErr
 }
 
 fn read_date(cursor: &mut ByteCursor<'_>) -> Result<Date, TokenWireError> {
-    Ok(Date::from_days_since_epoch(i32::from_be_bytes(
-        cursor.read_array()?,
-    )))
+    Date::try_from_days_since_epoch(i32::from_be_bytes(cursor.read_array()?))
+        .ok_or_else(TokenWireError::decode)
 }
 
 fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> {
@@ -343,4 +342,17 @@ fn read_map_value(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> 
     }
 
     Value::from_map(entries).map_err(|_| TokenWireError::decode())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_value_decode_rejects_days_outside_bounded_calendar() {
+        let mut encoded = vec![VALUE_DATE];
+        encoded.extend_from_slice(&(Date::MIN.as_days_since_epoch() - 1).to_be_bytes());
+
+        assert!(read_value(&mut ByteCursor::new(encoded.as_slice())).is_err());
+    }
 }

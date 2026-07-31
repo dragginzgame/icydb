@@ -418,7 +418,12 @@ fn parse_sql_predicate_parses_field_to_field_compare_leaves() {
                 "rank",
                 CoercionId::NumericWiden,
             )),
-            Predicate::eq_fields("name".to_string(), "label".to_string()),
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                "name",
+                CompareOp::Eq,
+                "label",
+                CoercionId::Strict,
+            )),
         ]),
     );
 }

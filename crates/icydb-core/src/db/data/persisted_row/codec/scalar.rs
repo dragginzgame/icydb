@@ -269,7 +269,11 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
         ScalarCodec::Bool => ScalarValueRef::Bool(decode_bool_scalar_payload(payload, field_name)?),
         ScalarCodec::Date => {
             let days = decode_i32_payload(payload, field_name)?;
-            ScalarValueRef::Date(Date::from_days_since_epoch(days))
+            ScalarValueRef::Date(
+                Date::try_from_days_since_epoch(days).ok_or_else(|| {
+                    InternalError::persisted_row_field_decode_corruption(field_name)
+                })?,
+            )
         }
         ScalarCodec::Duration => {
             let millis = decode_u64_payload(payload, field_name)?;
@@ -318,4 +322,27 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
     };
 
     Ok(ScalarSlotValueRef::Value(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encoded_date_slot(days: i32) -> Vec<u8> {
+        let mut encoded = vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE];
+        encoded.extend_from_slice(&days.to_le_bytes());
+        encoded
+    }
+
+    #[test]
+    fn date_slot_decode_rejects_days_outside_bounded_calendar() {
+        let valid = encoded_date_slot(Date::MAX.as_days_since_epoch());
+        let invalid = encoded_date_slot(Date::MAX.as_days_since_epoch() + 1);
+
+        assert!(matches!(
+            decode_scalar_slot_value(&valid, ScalarCodec::Date, "created_on"),
+            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Date(Date::MAX))),
+        ));
+        assert!(decode_scalar_slot_value(&invalid, ScalarCodec::Date, "created_on").is_err());
+    }
 }

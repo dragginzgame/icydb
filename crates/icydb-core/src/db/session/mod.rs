@@ -25,7 +25,6 @@ use crate::{
     db::{Db, StoreRegistry},
     metrics::sink::MetricsSink,
     traits::CanisterKind,
-    value::Value,
 };
 use std::thread::LocalKey;
 
@@ -105,13 +104,5 @@ impl<C: CanisterKind> DbSession<C> {
         } else {
             f()
         }
-    }
-
-    /// Return one constant scalar row equivalent to SQL `SELECT 1`.
-    ///
-    /// This terminal bypasses query planning and access routing entirely.
-    #[must_use]
-    pub const fn select_one(&self) -> Value {
-        Value::Int64(1)
     }
 }

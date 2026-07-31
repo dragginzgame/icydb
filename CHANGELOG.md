@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-## [0.216.0] ⚠️ - 2026-07-31 - Explicit Application Behavior And Durable Rules
+## [0.216.x] ⚠️ - 2026-07-31 - Explicit Application Behavior And Durable Rules
 
 Detailed notes: [docs/changelog/0.216.md](docs/changelog/0.216.md)
+
+- `0.216.1` completes the closeout, hard-cuts unused low-level Rust conveniences
+  and hidden generated wiring, and bounds `Date` to calendar years 0000 through
+  9999 with checked construction, decoding, and arithmetic; its persisted and
+  Candid wire layouts remain unchanged.
 
 - `0.216.0` hard-cuts durable rules to typed operations and separates explicit
   Rust normalization and validation from accepted database enforcement;

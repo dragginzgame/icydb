@@ -9,6 +9,7 @@ use std::borrow::Cow;
 const MILLIS_PER_DAY: i64 = 86_400_000;
 const EXPECTED_TEXT: &str = "Text";
 const EXPECTED_DATE_OR_TIMESTAMP: &str = "Date/Timestamp";
+const DATE_OR_TIMESTAMP_OUT_OF_RANGE: &str = "Date/Timestamp within 0000-01-01..=9999-12-31";
 
 ///
 /// ScalarIndexExpressionOp
@@ -108,15 +109,16 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
         },
         ScalarIndexExpressionOp::Date => match source {
             ScalarExprValue::Date(value) => Ok(ScalarExprValue::Date(value)),
-            ScalarExprValue::Timestamp(value) => Ok(ScalarExprValue::Date(
-                timestamp_to_bucket_date(value.as_millis()),
-            )),
+            ScalarExprValue::Timestamp(value) => timestamp_to_bucket_date(value.as_millis())
+                .map(ScalarExprValue::Date)
+                .ok_or(DATE_OR_TIMESTAMP_OUT_OF_RANGE),
             _ => Err(EXPECTED_DATE_OR_TIMESTAMP),
         },
         ScalarIndexExpressionOp::Year => match source {
             ScalarExprValue::Date(value) => Ok(ScalarExprValue::Int(i64::from(value.year()))),
             ScalarExprValue::Timestamp(value) => {
-                let bucket = timestamp_to_bucket_date(value.as_millis());
+                let bucket = timestamp_to_bucket_date(value.as_millis())
+                    .ok_or(DATE_OR_TIMESTAMP_OUT_OF_RANGE)?;
                 Ok(ScalarExprValue::Int(i64::from(bucket.year())))
             }
             _ => Err(EXPECTED_DATE_OR_TIMESTAMP),
@@ -124,7 +126,8 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
         ScalarIndexExpressionOp::Month => match source {
             ScalarExprValue::Date(value) => Ok(ScalarExprValue::Int(i64::from(value.month()))),
             ScalarExprValue::Timestamp(value) => {
-                let bucket = timestamp_to_bucket_date(value.as_millis());
+                let bucket = timestamp_to_bucket_date(value.as_millis())
+                    .ok_or(DATE_OR_TIMESTAMP_OUT_OF_RANGE)?;
                 Ok(ScalarExprValue::Int(i64::from(bucket.month())))
             }
             _ => Err(EXPECTED_DATE_OR_TIMESTAMP),
@@ -132,7 +135,8 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
         ScalarIndexExpressionOp::Day => match source {
             ScalarExprValue::Date(value) => Ok(ScalarExprValue::Int(i64::from(value.day()))),
             ScalarExprValue::Timestamp(value) => {
-                let bucket = timestamp_to_bucket_date(value.as_millis());
+                let bucket = timestamp_to_bucket_date(value.as_millis())
+                    .ok_or(DATE_OR_TIMESTAMP_OUT_OF_RANGE)?;
                 Ok(ScalarExprValue::Int(i64::from(bucket.day())))
             }
             _ => Err(EXPECTED_DATE_OR_TIMESTAMP),
@@ -156,15 +160,34 @@ fn normalize_text_upper(input: &str) -> String {
     }
 }
 
-fn timestamp_to_bucket_date(timestamp_millis: i64) -> Date {
+fn timestamp_to_bucket_date(timestamp_millis: i64) -> Option<Date> {
     let days = timestamp_millis.div_euclid(MILLIS_PER_DAY);
-    let days = if let Ok(days) = i32::try_from(days) {
-        days
-    } else if days < 0 {
-        i32::MIN
-    } else {
-        i32::MAX
-    };
+    Date::try_from_i64(days)
+}
 
-    Date::from_days_since_epoch(days)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Timestamp;
+
+    #[test]
+    fn timestamp_date_expression_rejects_values_outside_bounded_calendar() {
+        let minimum_millis = i64::from(Date::MIN.as_days_since_epoch()) * MILLIS_PER_DAY;
+        let before_minimum = minimum_millis - MILLIS_PER_DAY;
+
+        assert_eq!(
+            derive_non_null_scalar_expression_value(
+                ScalarIndexExpressionOp::Date,
+                ScalarExprValue::Timestamp(Timestamp::from_millis(minimum_millis)),
+            ),
+            Ok(ScalarExprValue::Date(Date::MIN)),
+        );
+        assert_eq!(
+            derive_non_null_scalar_expression_value(
+                ScalarIndexExpressionOp::Date,
+                ScalarExprValue::Timestamp(Timestamp::from_millis(before_minimum)),
+            ),
+            Err(DATE_OR_TIMESTAMP_OUT_OF_RANGE),
+        );
+    }
 }

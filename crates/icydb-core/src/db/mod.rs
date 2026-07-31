@@ -107,7 +107,7 @@ pub use key_taxonomy::{
     CompositePrimaryKeyValue, CompositePrimaryKeyValueError, EntityKey, EntityKeyBytes,
     EntityKeyBytesError, KeyValueCodec, PrimaryKeyComponent, PrimaryKeyDecode, PrimaryKeyEncode,
     PrimaryKeyEncodeError, PrimaryKeyValue, ScalarRelationTargetKey,
-    ScalarRelationTargetKeyMatchesDeclaredPrimitive, validate_entity_key_bytes_buffer,
+    validate_entity_key_bytes_buffer,
 };
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,

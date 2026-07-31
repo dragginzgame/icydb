@@ -5,13 +5,13 @@
 
 use crate::{Decimal, NumericValue, TypeParseError};
 use candid::CandidType;
-use derive_more::{Add, AddAssign, Sub, SubAssign};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::{self, Debug, Display};
 use time::{Date as TimeDate, Duration as TimeDuration, Month};
 
 // Invariant:
-// Date is internally represented as days since Unix epoch (`i32`).
+// Date is internally represented as days since Unix epoch (`i32`) and is
+// bounded to the proleptic Gregorian calendar range 0000-01-01..=9999-12-31.
 // API/JSON deserialization accepts ISO-8601 text (`YYYY-MM-DD`).
 // Ordering and arithmetic remain numeric and deterministic over day counts.
 
@@ -22,31 +22,17 @@ use time::{Date as TimeDate, Duration as TimeDuration, Month};
 // API/JSON decode expects ISO-8601 text (`YYYY-MM-DD`).
 //
 
-#[derive(
-    Add,
-    AddAssign,
-    CandidType,
-    Clone,
-    Copy,
-    Default,
-    Eq,
-    PartialEq,
-    Hash,
-    Ord,
-    PartialOrd,
-    Sub,
-    SubAssign,
-)]
+#[derive(CandidType, Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Date(i32);
 
 impl Date {
     /// The Unix epoch date, 1970-01-01.
     pub const EPOCH: Self = Self(0);
-    /// The earliest representable epoch-day value.
-    pub const MIN: Self = Self(i32::MIN);
-    /// The latest representable epoch-day value.
-    pub const MAX: Self = Self(i32::MAX);
+    /// The earliest supported calendar date, 0000-01-01.
+    pub const MIN: Self = Self(-719_528);
+    /// The latest supported calendar date, 9999-12-31.
+    pub const MAX: Self = Self(2_932_896);
 
     const fn epoch_date() -> TimeDate {
         // Safe: constant valid date
@@ -61,15 +47,22 @@ impl Date {
     /// Returns `None` when any component is out of range.
     #[must_use]
     pub fn try_new(y: i32, m: u8, d: u8) -> Option<Self> {
+        if !(0..=9_999).contains(&y) {
+            return None;
+        }
         let month = Month::try_from(m).ok()?;
         let date = TimeDate::from_calendar_date(y, month, d).ok()?;
-        Some(Self::from_time_date(date))
+        Self::from_time_date(date)
     }
 
-    /// Construct directly from internal day-count representation.
+    /// Construct from the bounded internal day-count representation.
     #[must_use]
-    pub const fn from_days_since_epoch(days: i32) -> Self {
-        Self(days)
+    pub const fn try_from_days_since_epoch(days: i32) -> Option<Self> {
+        if days < Self::MIN.0 || days > Self::MAX.0 {
+            None
+        } else {
+            Some(Self(days))
+        }
     }
 
     /// Return the internal day-count representation.
@@ -81,13 +74,39 @@ impl Date {
     /// Fallible conversion from `i64` day-count representation.
     #[must_use]
     pub fn try_from_i64(days: i64) -> Option<Self> {
-        i32::try_from(days).ok().map(Self)
+        i32::try_from(days)
+            .ok()
+            .and_then(Self::try_from_days_since_epoch)
     }
 
     /// Fallible conversion from `u64` day-count representation.
     #[must_use]
     pub fn try_from_u64(days: u64) -> Option<Self> {
-        i32::try_from(days).ok().map(Self)
+        i32::try_from(days)
+            .ok()
+            .and_then(Self::try_from_days_since_epoch)
+    }
+
+    /// Add a signed number of days without leaving the supported calendar.
+    #[must_use]
+    pub fn checked_add_days(self, days: i64) -> Option<Self> {
+        i64::from(self.0)
+            .checked_add(days)
+            .and_then(Self::try_from_i64)
+    }
+
+    /// Subtract a signed number of days without leaving the supported calendar.
+    #[must_use]
+    pub fn checked_sub_days(self, days: i64) -> Option<Self> {
+        i64::from(self.0)
+            .checked_sub(days)
+            .and_then(Self::try_from_i64)
+    }
+
+    /// Return the signed number of days from `earlier` to this date.
+    #[must_use]
+    pub fn days_since(self, earlier: Self) -> i64 {
+        i64::from(self.0) - i64::from(earlier.0)
     }
 
     /// Returns the year component (e.g. 2025).
@@ -125,25 +144,21 @@ impl Date {
         Self::try_new(year, month, day)
     }
 
-    // `time::Date` arithmetic returns `i64` day deltas; this type is fixed to `i32`.
-    #[expect(clippy::cast_possible_truncation)]
-    fn from_time_date(date: TimeDate) -> Self {
+    fn from_time_date(date: TimeDate) -> Option<Self> {
         let epoch = Self::epoch_date();
         let days = (date - epoch).whole_days();
-        Self(days as i32)
+        Self::try_from_i64(days)
     }
 
-    // Rebuild calendar components from internal epoch-day storage for display/helpers.
+    // Safe public construction and persisted decoding enforce the bounded Date
+    // invariant before this private calendar conversion is reachable.
     fn to_time_date(self) -> TimeDate {
         let epoch = Self::epoch_date();
         let delta = TimeDuration::days(self.0.into());
-        epoch.checked_add(delta).unwrap_or({
-            if self.0 >= 0 {
-                TimeDate::MAX
-            } else {
-                TimeDate::MIN
-            }
-        })
+        match epoch.checked_add(delta) {
+            Some(date) => date,
+            None => unreachable!("bounded Date invariant must produce a supported calendar date"),
+        }
     }
 }
 
@@ -167,7 +182,7 @@ impl NumericValue for Date {
     }
 
     fn try_from_decimal(value: Decimal) -> Option<Self> {
-        value.to_i32().map(Self)
+        value.to_i32().and_then(Self::try_from_days_since_epoch)
     }
 }
 
@@ -185,8 +200,12 @@ impl<'de> Deserialize<'de> for Date {
                 formatter.write_str("ISO date text or canonical epoch-day integer")
             }
 
-            fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E> {
-                Ok(Date::from_days_since_epoch(value))
+            fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Date::try_from_days_since_epoch(value)
+                    .ok_or_else(|| E::custom(TypeParseError::InvalidDate))
             }
 
             fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
@@ -194,6 +213,13 @@ impl<'de> Deserialize<'de> for Date {
                 E: serde::de::Error,
             {
                 Date::try_from_i64(value).ok_or_else(|| E::custom(TypeParseError::InvalidDate))
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Date::try_from_u64(value).ok_or_else(|| E::custom(TypeParseError::InvalidDate))
             }
 
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -264,6 +290,8 @@ mod tests {
 
     #[test]
     fn try_new_rejects_out_of_range_year() {
+        assert!(Date::try_new(-1, 1, 1).is_none());
+        assert!(Date::try_new(10_000, 1, 1).is_none());
         assert!(Date::try_new(i32::MAX, 1, 1).is_none());
     }
 
@@ -287,9 +315,36 @@ mod tests {
     #[test]
     fn internal_day_count_helpers_round_trip() {
         let days = -365;
-        let date = Date::from_days_since_epoch(days);
+        let date = Date::try_from_days_since_epoch(days).expect("bounded day should construct");
         assert_eq!(date.as_days_since_epoch(), days);
-        assert_eq!(date.as_days_since_epoch(), days);
+    }
+
+    #[test]
+    fn raw_day_construction_rejects_values_outside_calendar_bounds() {
+        assert_eq!(
+            Date::try_from_days_since_epoch(Date::MIN.as_days_since_epoch()),
+            Some(Date::MIN),
+        );
+        assert_eq!(
+            Date::try_from_days_since_epoch(Date::MAX.as_days_since_epoch()),
+            Some(Date::MAX),
+        );
+        assert!(Date::try_from_days_since_epoch(Date::MIN.as_days_since_epoch() - 1).is_none(),);
+        assert!(Date::try_from_days_since_epoch(Date::MAX.as_days_since_epoch() + 1).is_none(),);
+    }
+
+    #[test]
+    fn checked_day_arithmetic_obeys_calendar_bounds() {
+        let leap_day = Date::try_new(2024, 2, 29).expect("leap day should construct");
+        let march_first = Date::try_new(2024, 3, 1).expect("next day should construct");
+
+        assert_eq!(leap_day.checked_add_days(1), Some(march_first));
+        assert_eq!(march_first.checked_sub_days(1), Some(leap_day));
+        assert_eq!(march_first.days_since(leap_day), 1);
+        assert!(Date::MAX.checked_add_days(1).is_none());
+        assert!(Date::MIN.checked_sub_days(1).is_none());
+        assert!(Date::EPOCH.checked_add_days(i64::MAX).is_none());
+        assert!(Date::EPOCH.checked_sub_days(i64::MIN).is_none());
     }
 
     #[test]
@@ -330,11 +385,33 @@ mod tests {
     }
 
     #[test]
-    fn extreme_internal_day_values_format_without_panicking() {
-        let min_rendered = Date::MIN.to_string();
-        let max_rendered = Date::MAX.to_string();
+    fn calendar_boundaries_format_and_parse_exactly() {
+        assert_eq!(Date::MIN.to_string(), "0000-01-01");
+        assert_eq!(Date::MAX.to_string(), "9999-12-31");
+        assert_eq!(Date::parse(Date::MIN.to_string().as_str()), Some(Date::MIN));
+        assert_eq!(Date::parse(Date::MAX.to_string().as_str()), Some(Date::MAX));
+    }
 
-        assert!(!min_rendered.is_empty());
-        assert!(!max_rendered.is_empty());
+    #[test]
+    fn candid_decode_rejects_out_of_range_epoch_days() {
+        let min =
+            candid::encode_one(Date::MIN.as_days_since_epoch()).expect("minimum day should encode");
+        let max =
+            candid::encode_one(Date::MAX.as_days_since_epoch()).expect("maximum day should encode");
+        let below = candid::encode_one(Date::MIN.as_days_since_epoch() - 1)
+            .expect("out-of-range day should encode as raw i32");
+        let above = candid::encode_one(Date::MAX.as_days_since_epoch() + 1)
+            .expect("out-of-range day should encode as raw i32");
+
+        assert_eq!(
+            candid::decode_one::<Date>(&min).expect("minimum day should decode"),
+            Date::MIN,
+        );
+        assert_eq!(
+            candid::decode_one::<Date>(&max).expect("maximum day should decode"),
+            Date::MAX,
+        );
+        assert!(candid::decode_one::<Date>(&below).is_err());
+        assert!(candid::decode_one::<Date>(&above).is_err());
     }
 }

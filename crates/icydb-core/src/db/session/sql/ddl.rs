@@ -28,8 +28,7 @@ use crate::{
             AcceptedSchemaCatalogContext,
             sql::{
                 SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
-                SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlPreparationReport,
-                SqlStatementResult,
+                SqlConstraintValidationState, SqlDdlExecutionStatus, SqlStatementResult,
             },
         },
         sql::{
@@ -175,18 +174,6 @@ const fn validation_phase_status(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Prepare one SQL DDL statement against the accepted schema catalog.
-    ///
-    /// This is a non-executing surface: it proves the statement can bind,
-    /// derive an accepted-after snapshot, and pass schema mutation admission,
-    /// then returns a prepared-only report without mutating schema or index
-    /// storage.
-    pub fn prepare_sql_ddl(&self, sql: &str) -> Result<SqlDdlPreparationReport, QueryError> {
-        let (_, prepared) = self.prepare_sql_ddl_command(sql)?;
-
-        Ok(prepared.report().clone())
-    }
-
     fn prepare_sql_ddl_command(
         &self,
         sql: &str,

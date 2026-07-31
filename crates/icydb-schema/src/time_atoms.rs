@@ -30,7 +30,15 @@ pub enum TypeParseError {
 
 impl Display for TypeParseError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str("type parse")
+        formatter.write_str(match self {
+            Self::InvalidDate => "invalid date",
+            Self::InvalidDecimal => "invalid decimal",
+            Self::InvalidDuration => "invalid duration",
+            Self::InvalidFloat => "invalid float",
+            Self::InvalidIntBig => "invalid signed big integer",
+            Self::InvalidTimestamp => "invalid timestamp",
+            Self::InvalidUlid => "invalid ULID",
+        })
     }
 }
 

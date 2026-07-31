@@ -123,32 +123,25 @@ pub use icydb_diagnostic_code::ErrorCode;
 // This is intentionally narrow and not semver-stable.
 #[doc(hidden)]
 pub mod __macro {
-    pub use crate::db::execute_generated_storage_report;
     pub use crate::db::{
-        TypedEntityAdapter, TypedFieldBindingRequest, TypedFieldType, TypedInputValue,
-        TypedNamedType, TypedOutputValue, TypedRowAdapter,
+        TypedFieldBindingRequest, TypedFieldType, execute_generated_storage_report,
     };
     pub use ic_memory::{
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };
     pub use icydb_core::db::{
-        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
-        DbSession as CoreDbSession, EntityKeyBytes, EntityKeyBytesError, IndexStore,
-        JournalTailStore, KeyValueCodec, PrimaryKeyDecode, PrimaryKeyEncode, PrimaryKeyEncodeError,
-        PrimaryKeyValue, SchemaStore, StoreAllocationIdentities, StoreAllocationIdentity,
-        StoreRegistry, StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
+        CompositePrimaryKeyValue, DataStore, DbSession as CoreDbSession, EntityKeyBytes,
+        EntityKeyBytesError, IndexStore, JournalTailStore, KeyValueCodec, PrimaryKeyDecode,
+        PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue, SchemaStore,
+        StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+        StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
     };
     #[cfg(feature = "sql")]
-    pub use icydb_core::db::{
-        LoweredSqlCommand, sql_statement_dispatch, sql_statement_entity_name,
-    };
+    pub use icydb_core::db::{sql_statement_dispatch, sql_statement_entity_name};
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{CanisterKind, Path};
     pub use icydb_core::value::Value;
-    pub use icydb_schema::{
-        DEFAULT_BIG_INT_MAX_BYTES, Decimal as SchemaDecimal, FieldSourceKey, ScalarLiteral,
-        ScalarType, SchemaContractError, SourceCheckExpr, SourceCheckInstruction,
-    };
+    pub use icydb_schema::{DEFAULT_BIG_INT_MAX_BYTES, ScalarType};
 }
 
 // Dependencies used by generated actor glue. Application-model macro
@@ -156,12 +149,7 @@ pub mod __macro {
 #[doc(hidden)]
 pub mod __reexports {
     pub use candid;
-    pub use ctor;
-    pub use derive_more;
     pub use ic_cdk;
-    pub use ic_memory;
-    pub use remain;
-    pub use serde;
 }
 
 //

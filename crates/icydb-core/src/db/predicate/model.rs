@@ -84,62 +84,6 @@ impl Predicate {
         Self::Compare(ComparePredicate::gte(field, value))
     }
 
-    /// Compare `left_field == right_field`.
-    #[must_use]
-    pub fn eq_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::eq(left_field, right_field))
-    }
-
-    /// Compare `left_field != right_field`.
-    #[must_use]
-    pub fn ne_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::ne(left_field, right_field))
-    }
-
-    /// Compare `left_field < right_field`.
-    #[must_use]
-    pub fn lt_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::with_coercion(
-            left_field,
-            CompareOp::Lt,
-            right_field,
-            CoercionId::NumericWiden,
-        ))
-    }
-
-    /// Compare `left_field <= right_field`.
-    #[must_use]
-    pub fn lte_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::with_coercion(
-            left_field,
-            CompareOp::Lte,
-            right_field,
-            CoercionId::NumericWiden,
-        ))
-    }
-
-    /// Compare `left_field > right_field`.
-    #[must_use]
-    pub fn gt_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::with_coercion(
-            left_field,
-            CompareOp::Gt,
-            right_field,
-            CoercionId::NumericWiden,
-        ))
-    }
-
-    /// Compare `left_field >= right_field`.
-    #[must_use]
-    pub fn gte_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::with_coercion(
-            left_field,
-            CompareOp::Gte,
-            right_field,
-            CoercionId::NumericWiden,
-        ))
-    }
-
     /// Compare `field IN values`.
     #[must_use]
     pub fn in_(field: String, values: Vec<Value>) -> Self {
@@ -466,18 +410,6 @@ impl CompareFieldsPredicate {
         }
     }
 
-    fn new(left_field: String, op: CompareOp, right_field: String) -> Self {
-        let (left_field, right_field) =
-            Self::canonicalize_symmetric_fields(op, left_field, right_field);
-
-        Self {
-            left_field,
-            op,
-            right_field,
-            coercion: CoercionSpec::default(),
-        }
-    }
-
     /// Construct a field-to-field comparison predicate with an explicit
     /// coercion policy.
     ///
@@ -501,42 +433,6 @@ impl CompareFieldsPredicate {
             right_field,
             coercion: CoercionSpec::new(coercion),
         }
-    }
-
-    /// Build `Eq` field-to-field comparison.
-    #[must_use]
-    pub fn eq(left_field: String, right_field: String) -> Self {
-        Self::new(left_field, CompareOp::Eq, right_field)
-    }
-
-    /// Build `Ne` field-to-field comparison.
-    #[must_use]
-    pub fn ne(left_field: String, right_field: String) -> Self {
-        Self::new(left_field, CompareOp::Ne, right_field)
-    }
-
-    /// Build `Lt` field-to-field comparison.
-    #[must_use]
-    pub fn lt(left_field: String, right_field: String) -> Self {
-        Self::new(left_field, CompareOp::Lt, right_field)
-    }
-
-    /// Build `Lte` field-to-field comparison.
-    #[must_use]
-    pub fn lte(left_field: String, right_field: String) -> Self {
-        Self::new(left_field, CompareOp::Lte, right_field)
-    }
-
-    /// Build `Gt` field-to-field comparison.
-    #[must_use]
-    pub fn gt(left_field: String, right_field: String) -> Self {
-        Self::new(left_field, CompareOp::Gt, right_field)
-    }
-
-    /// Build `Gte` field-to-field comparison.
-    #[must_use]
-    pub fn gte(left_field: String, right_field: String) -> Self {
-        Self::new(left_field, CompareOp::Gte, right_field)
     }
 
     /// Borrow the left compared field name.

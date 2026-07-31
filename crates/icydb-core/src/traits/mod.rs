@@ -24,19 +24,11 @@ pub trait Path {
 }
 
 ///
-/// Kind
-/// Marker for all schema/runtime nodes.
-///
-
-pub trait Kind: Path + 'static {}
-impl<T> Kind for T where T: Path + 'static {}
-
-///
 /// CanisterKind
 /// Marker for canister namespaces
 ///
 
-pub trait CanisterKind: Kind {
+pub trait CanisterKind: Path + 'static {
     /// Stable memory slot used for commit marker storage.
     const COMMIT_MEMORY_ID: u8;
 
@@ -48,15 +40,6 @@ pub trait CanisterKind: Kind {
 
     /// Durable stable-memory allocation key for integrity-inspection progress.
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str;
-}
-
-///
-/// StoreKind
-/// Marker for data stores bound to a canister
-///
-
-pub trait StoreKind: Kind {
-    type Canister: CanisterKind;
 }
 
 ///

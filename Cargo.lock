@@ -1275,8 +1275,6 @@ name = "icydb"
 version = "0.216.0"
 dependencies = [
  "candid",
- "ctor",
- "derive_more",
  "ic-cdk",
  "ic-memory",
  "icydb-config",
@@ -1284,7 +1282,6 @@ dependencies = [
  "icydb-diagnostic-code",
  "icydb-model",
  "icydb-schema",
- "remain",
  "serde",
  "trybuild",
 ]

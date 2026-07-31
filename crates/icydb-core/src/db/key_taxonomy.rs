@@ -25,7 +25,7 @@ use std::{cmp::Ordering, fmt};
 pub use contracts::{
     EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec, PrimaryKeyDecode,
     PrimaryKeyEncode, PrimaryKeyEncodeError, ScalarRelationTargetKey,
-    ScalarRelationTargetKeyMatchesDeclaredPrimitive, validate_entity_key_bytes_buffer,
+    validate_entity_key_bytes_buffer,
 };
 
 const TAG_SIZE: usize = 1;

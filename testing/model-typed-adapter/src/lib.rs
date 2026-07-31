@@ -43,9 +43,7 @@ mod tests {
 
     fn assert_named_adapter<T>()
     where
-        T: runtime_api::__macro::TypedInputValue
-            + runtime_api::__macro::TypedNamedType
-            + runtime_api::__macro::TypedOutputValue,
+        T: model_api::TypedInputValue + model_api::TypedNamedType + model_api::TypedOutputValue,
     {
     }
 
