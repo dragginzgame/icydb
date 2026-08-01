@@ -18,6 +18,7 @@ icydb::start!();
 icydb::endpoints! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
+    #[cfg(feature = "sql")]
     icydb_ddl;
     icydb_metrics(authorization = public);
     #[cfg(feature = "local-extended-metrics")]

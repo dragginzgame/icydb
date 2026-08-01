@@ -25,12 +25,13 @@ icydb::start!();
 icydb::endpoints! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
+    #[cfg(feature = "sql")]
     icydb_ddl;
-    #[cfg(not(icydb_bounded_update))]
+    #[cfg(all(feature = "sql", not(icydb_bounded_update)))]
     icydb_update(admission = primary_key_only);
-    #[cfg(icydb_bounded_update)]
+    #[cfg(all(feature = "sql", icydb_bounded_update))]
     icydb_update(admission = bounded_deterministic);
-    #[cfg(not(icydb_bounded_update))]
+    #[cfg(all(feature = "sql", not(icydb_bounded_update)))]
     icydb_integrity;
     icydb_metrics(authorization = public);
     icydb_metrics_reset;
