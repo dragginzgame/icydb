@@ -216,6 +216,24 @@ pub fn derive_rem(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     finish_helper_derive(helper_ops::derive_rem(input.into()))
 }
 
+/// Derive remainder assignment for one-field application wrappers.
+#[proc_macro_derive(RemAssign)]
+pub fn derive_rem_assign(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    finish_helper_derive(helper_ops::derive_rem_assign(input.into()))
+}
+
+/// Derive negation for one-field application wrappers.
+#[proc_macro_derive(Neg)]
+pub fn derive_neg(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    finish_helper_derive(helper_ops::derive_neg(input.into()))
+}
+
+/// Derive iterator multiplication for one-field application wrappers.
+#[proc_macro_derive(Product)]
+pub fn derive_product(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    finish_helper_derive(helper_ops::derive_product(input.into()))
+}
+
 /// Derive iterator summation for one-field application wrappers.
 #[proc_macro_derive(Sum)]
 pub fn derive_sum(input: proc_macro::TokenStream) -> proc_macro::TokenStream {

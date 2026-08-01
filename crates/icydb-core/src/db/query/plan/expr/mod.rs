@@ -85,7 +85,7 @@ mod type_inference;
 pub(in crate::db) use aggregate_input::{
     aggregate_count_input_expr_is_non_null_literal, canonicalize_aggregate_input_expr,
 };
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use ast::Alias;
 #[cfg(feature = "sql")]
 pub(in crate::db) use ast::collect_scalar_expr_field_roots;
@@ -114,7 +114,7 @@ pub(in crate::db::query::plan::expr) use function_semantics::{
 };
 pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
 pub(in crate::db) use path::CompiledPath;
-#[cfg(all(test, feature = "query"))]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use predicate::compile_normalized_bool_expr_to_predicate;
 pub(in crate::db) use predicate::derive_normalized_bool_expr_predicate_subset;
 #[cfg(feature = "sql")]

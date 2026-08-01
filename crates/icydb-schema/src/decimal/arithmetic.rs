@@ -1,8 +1,8 @@
 use crate::decimal::{DEFAULT_DIVISION_SCALE, Decimal, MAX_SUPPORTED_SCALE};
 use std::{
     cmp::Ordering,
-    iter::Sum,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign},
+    iter::{Product, Sum},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
 };
 
 impl Decimal {
@@ -415,6 +415,23 @@ impl MulAssign for Decimal {
     }
 }
 
+impl Neg for Decimal {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            mantissa: self.mantissa.saturating_neg(),
+            scale: self.scale,
+        }
+    }
+}
+
+impl Product for Decimal {
+    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self::new_unchecked(1, 0), |acc, value| acc * value)
+    }
+}
+
 impl Div for Decimal {
     type Output = Self;
 
@@ -441,6 +458,12 @@ impl Rem for Decimal {
 
     fn rem(self, rhs: Self) -> Self::Output {
         self.checked_rem_impl(rhs).unwrap_or(Self::ZERO)
+    }
+}
+
+impl RemAssign for Decimal {
+    fn rem_assign(&mut self, rhs: Self) {
+        *self = *self % rhs;
     }
 }
 

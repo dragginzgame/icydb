@@ -122,7 +122,12 @@ impl HasTraits for Enum {
     fn trait_baseline(&self) -> TraitSet {
         let mut traits = application_type_trait_set();
         if self.is_unit_enum() {
-            traits.extend([TraitKind::Copy, TraitKind::Hash, TraitKind::PartialOrd]);
+            traits.extend([
+                TraitKind::Copy,
+                TraitKind::Hash,
+                TraitKind::Ord,
+                TraitKind::PartialOrd,
+            ]);
         }
 
         traits
@@ -267,5 +272,28 @@ mod tests {
 
         assert!(node.sorted);
         assert!(node.type_part().to_string().contains("remain :: sorted"));
+    }
+
+    #[test]
+    fn unit_enum_baseline_includes_total_rust_ordering() {
+        let args = NestedMeta::parse_meta_list(quote!(variant(name = "A"), variant(name = "B")))
+            .expect("enum args should parse");
+        let mut node = Enum::from_list(&args).expect("enum should lower");
+        node.def = Def::new(
+            syn::parse2(quote!(
+                pub struct OrderedUnitEnum {}
+            ))
+            .expect("enum input should parse as a struct"),
+        );
+
+        let traits = node.traits();
+        for trait_kind in [
+            TraitKind::Copy,
+            TraitKind::Hash,
+            TraitKind::Ord,
+            TraitKind::PartialOrd,
+        ] {
+            assert!(traits.contains(&trait_kind));
+        }
     }
 }

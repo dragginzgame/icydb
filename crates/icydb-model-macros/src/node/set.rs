@@ -77,6 +77,8 @@ impl HasTraits for Set {
             TraitKind::Deref,
             TraitKind::DerefMut,
             TraitKind::From,
+            TraitKind::FromIterator,
+            TraitKind::IntoIterator,
         ]);
 
         traits
@@ -85,6 +87,8 @@ impl HasTraits for Set {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::From => FromTrait::strategy(self),
+            TraitKind::FromIterator => FromIteratorTrait::strategy(self),
+            TraitKind::IntoIterator => IntoIteratorTrait::strategy(self),
             TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),

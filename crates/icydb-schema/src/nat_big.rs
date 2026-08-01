@@ -7,7 +7,7 @@ use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
-    iter::Sum,
+    iter::{Product, Sum},
     ops::{Div, DivAssign, Mul, MulAssign},
     str::FromStr,
 };
@@ -164,6 +164,12 @@ impl NumericValue for NatBig {
 
     fn try_from_decimal(value: Decimal) -> Option<Self> {
         value.to_u128().map(WrappedNat::from).map(Self::from_candid)
+    }
+}
+
+impl Product for NatBig {
+    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self::from(1_u32), |acc, value| acc * value)
     }
 }
 

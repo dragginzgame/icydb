@@ -58,6 +58,26 @@ fn decimal_div_by_zero_returns_zero() {
 }
 
 #[test]
+fn decimal_operator_completion_preserves_saturating_semantics() {
+    let mut remainder = Decimal::new(17, 0);
+    remainder %= Decimal::new(5, 0);
+    assert_eq!(remainder, Decimal::new(2, 0));
+
+    let product: Decimal = [Decimal::new(2, 0), Decimal::new(3, 0)]
+        .into_iter()
+        .product();
+    assert_eq!(product, Decimal::new(6, 0));
+    assert_eq!(
+        std::iter::empty::<Decimal>().product::<Decimal>(),
+        Decimal::new(1, 0)
+    );
+    assert_eq!(-Decimal::new(25, 1), Decimal::new(-25, 1));
+
+    let minimum = Decimal::from_i128_with_scale(i128::MIN, 0);
+    assert_eq!((-minimum).mantissa(), i128::MAX);
+}
+
+#[test]
 fn decimal_parse_rejects_mantissa_overflow_without_float_fallback() {
     let too_large = "340282366920938463463374607431768211456";
     assert_decimal_parse_reason(too_large, ParseDecimalErrorReason::MantissaOverflow);

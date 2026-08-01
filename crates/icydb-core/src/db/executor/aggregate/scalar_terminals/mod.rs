@@ -36,6 +36,7 @@ use crate::db::executor::aggregate::terminal_attribution::{
     ScalarAggregateTerminalAttribution, measure_phase, record_scalar_aggregate_terminal_attribution,
 };
 pub(in crate::db) use request::StructuralAggregateRequest;
+#[cfg(feature = "sql")]
 pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregateTerminalKind};
 
 /// Execute one structural global aggregate request over a shared prepared scalar plan.

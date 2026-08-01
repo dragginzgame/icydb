@@ -54,8 +54,9 @@ impl ToTokens for Cardinality {
 // Primitive
 //
 // Scalar primitive catalog used by schema macros and generated runtime wiring.
-// This enum is the canonical source for primitive capability checks
-// (ordering, arithmetic, casting, key-encoding, and hashing support).
+// This enum owns database/query and representation capabilities. Generated
+// Rust wrapper traits are selected separately by the newtype emitter from the
+// operations supported by each concrete wrapped Rust type.
 //
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -152,41 +153,13 @@ const fn primitive_scalar_kind(primitive: Primitive) -> ScalarKind {
 
 impl Primitive {
     #[must_use]
-    pub const fn supports_arithmetic(self) -> bool {
-        primitive_scalar_kind(self).supports_arithmetic()
-    }
-
-    #[must_use]
     pub const fn is_primary_key_encodable(self) -> bool {
         primitive_scalar_kind(self).is_primary_key_component_encodable()
     }
 
     #[must_use]
-    pub const fn supports_remainder(self) -> bool {
-        matches!(
-            self,
-            Self::Decimal
-                | Self::Int8
-                | Self::Int16
-                | Self::Int32
-                | Self::Int64
-                | Self::Int128
-                | Self::Nat8
-                | Self::Nat16
-                | Self::Nat32
-                | Self::Nat64
-                | Self::Nat128
-        )
-    }
-
-    #[must_use]
     pub const fn supports_copy(self) -> bool {
         !matches!(self, Self::Blob | Self::IntBig | Self::NatBig | Self::Text)
-    }
-
-    #[must_use]
-    pub const fn supports_hash(self) -> bool {
-        !matches!(self, Self::Blob | Self::Unit)
     }
 
     // NumericValue can fallibly route all numeric-like primitives through Decimal.

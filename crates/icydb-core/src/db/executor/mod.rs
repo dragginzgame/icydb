@@ -64,15 +64,15 @@ pub(in crate::db) use aggregate::runtime::RuntimeGroupedRow;
 pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
-#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use aggregate::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
 };
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use aggregate::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
 };
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use aggregate::{
     execute_direct_count_index_prefix_cardinality_for_canister,
     execute_structural_aggregate_rows_for_canister,
@@ -100,9 +100,9 @@ pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
     freeze_load_execution_route_facts_for_authority,
 };
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use index_prefix_cardinality::exact_count_cardinality_prefixes_for_plan;
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use index_prefix_cardinality::user_index_prefix_cardinality_keys_from_plan;
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db::executor) use index_prefix_cardinality::{
@@ -131,11 +131,11 @@ pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
 pub(in crate::db::executor) use pipeline::contracts::{
     AccessScanContinuationInput, AccessStreamBindings,
 };
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister;
-#[cfg(all(feature = "query", feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister_with_phase_attribution;
-#[cfg(all(feature = "query", feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use pipeline::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
 };
@@ -177,10 +177,13 @@ pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 #[cfg(feature = "query")]
 pub(in crate::db) use projection::{
-    StructuralProjectionRequest, StructuralProjectionScanBudget,
-    eval_compiled_filter_expr_with_required_slot_reader, execute_structural_projection_rows,
+    StructuralProjectionRequest, execute_structural_projection_rows,
 };
-#[cfg(all(feature = "query", feature = "diagnostics"))]
+#[cfg(feature = "sql")]
+pub(in crate::db) use projection::{
+    StructuralProjectionScanBudget, eval_compiled_filter_expr_with_required_slot_reader,
+};
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
@@ -208,9 +211,9 @@ pub(in crate::db::executor) use stream::{
 };
 #[cfg(feature = "query")]
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
-#[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};
-#[cfg(all(feature = "query", feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use terminal::{
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };

@@ -5,7 +5,6 @@
 
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
-use derive_more::IntoIterator;
 use std::{collections::BTreeSet, str::FromStr};
 
 //
@@ -37,14 +36,19 @@ pub enum TraitKind {
     DivAssign,
     Mul,
     MulAssign,
+    Neg,
+    Product,
     Rem,
+    RemAssign,
     Sub,
     SubAssign,
     Sum,
 
     // application model
     From,
+    FromIterator,
     Inner,
+    IntoIterator,
     NumericValue,
     Path,
     NormalizeAuto,
@@ -114,7 +118,10 @@ impl ApplicationTypeKind {
             | TraitKind::DivAssign
             | TraitKind::Mul
             | TraitKind::MulAssign
+            | TraitKind::Neg
+            | TraitKind::Product
             | TraitKind::Rem
+            | TraitKind::RemAssign
             | TraitKind::Sub
             | TraitKind::SubAssign
             | TraitKind::Sum => Some(if matches!(self, Self::Newtype) {
@@ -129,6 +136,13 @@ impl ApplicationTypeKind {
                     ConfigurableTraitPolicy::Unsupported
                 },
             ),
+            TraitKind::FromIterator | TraitKind::IntoIterator => {
+                Some(if matches!(self, Self::List | Self::Map | Self::Set) {
+                    ConfigurableTraitPolicy::GeneratedOverrideable
+                } else {
+                    ConfigurableTraitPolicy::Unsupported
+                })
+            }
             TraitKind::Inner => Some(if matches!(self, Self::Newtype) {
                 ConfigurableTraitPolicy::GeneratedOverrideable
             } else {
@@ -191,12 +205,17 @@ impl FromStr for TraitKind {
             "DivAssign" => Ok(Self::DivAssign),
             "Mul" => Ok(Self::Mul),
             "MulAssign" => Ok(Self::MulAssign),
+            "Neg" => Ok(Self::Neg),
+            "Product" => Ok(Self::Product),
             "Rem" => Ok(Self::Rem),
+            "RemAssign" => Ok(Self::RemAssign),
             "Sub" => Ok(Self::Sub),
             "SubAssign" => Ok(Self::SubAssign),
             "Sum" => Ok(Self::Sum),
             "From" => Ok(Self::From),
+            "FromIterator" => Ok(Self::FromIterator),
             "Inner" => Ok(Self::Inner),
+            "IntoIterator" => Ok(Self::IntoIterator),
             "NumericValue" => Ok(Self::NumericValue),
             "Path" => Ok(Self::Path),
             "NormalizeAuto" => Ok(Self::NormalizeAuto),
@@ -242,12 +261,17 @@ const CONFIGURABLE_TYPE_TRAITS: &[TraitKind] = &[
     TraitKind::DivAssign,
     TraitKind::Mul,
     TraitKind::MulAssign,
+    TraitKind::Neg,
+    TraitKind::Product,
     TraitKind::Rem,
+    TraitKind::RemAssign,
     TraitKind::Sub,
     TraitKind::SubAssign,
     TraitKind::Sum,
     TraitKind::From,
+    TraitKind::FromIterator,
     TraitKind::Inner,
+    TraitKind::IntoIterator,
     TraitKind::NumericValue,
     TraitKind::NormalizeCustom,
     TraitKind::ValidateCustom,
@@ -303,10 +327,17 @@ impl TraitKind {
             Self::MulAssign => Some(quote!(
                 ::icydb_model::__reexports::icydb_model_macros::MulAssign
             )),
+            Self::Neg => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Neg)),
             Self::Ord => Some(quote!(Ord)),
             Self::PartialEq => Some(quote!(PartialEq)),
             Self::PartialOrd => Some(quote!(PartialOrd)),
+            Self::Product => Some(quote!(
+                ::icydb_model::__reexports::icydb_model_macros::Product
+            )),
             Self::Rem => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Rem)),
+            Self::RemAssign => Some(quote!(
+                ::icydb_model::__reexports::icydb_model_macros::RemAssign
+            )),
             Self::Sub => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Sub)),
             Self::SubAssign => Some(quote!(
                 ::icydb_model::__reexports::icydb_model_macros::SubAssign
@@ -356,7 +387,9 @@ impl ToTokens for TraitKind {
             | Self::DivAssign
             | Self::Mul
             | Self::MulAssign
+            | Self::Neg
             | Self::Rem
+            | Self::RemAssign
             | Self::Sub
             | Self::SubAssign => {
                 let trait_name = format_ident!("{self:?}");
@@ -364,14 +397,17 @@ impl ToTokens for TraitKind {
             }
             Self::Display => quote!(::std::fmt::Display).to_tokens(tokens),
             Self::From => quote!(::std::convert::From).to_tokens(tokens),
+            Self::FromIterator => quote!(::std::iter::FromIterator).to_tokens(tokens),
             Self::Hash => quote!(::std::hash::Hash).to_tokens(tokens),
             Self::Inner | Self::Path => {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb_model::#trait_name).to_tokens(tokens);
             }
+            Self::IntoIterator => quote!(::std::iter::IntoIterator).to_tokens(tokens),
             Self::NumericValue => {
                 quote!(::icydb_model::schema::NumericValue).to_tokens(tokens);
             }
+            Self::Product => quote!(::std::iter::Product).to_tokens(tokens),
             Self::Sum => quote!(::std::iter::Sum).to_tokens(tokens),
             Self::CandidType => {
                 quote!(::icydb_model::__reexports::candid::CandidType).to_tokens(tokens);
@@ -621,7 +657,7 @@ pub fn application_type_trait_set() -> TraitSet {
 // Used only for parsing trait lists from schema attributes via darling.
 //
 
-#[derive(Clone, Debug, Default, IntoIterator)]
+#[derive(Clone, Debug, Default)]
 pub struct TraitListMeta(Vec<TraitKind>);
 
 impl TraitListMeta {
@@ -730,6 +766,8 @@ mod tests {
             TraitKind::Deref,
             TraitKind::DerefMut,
             TraitKind::From,
+            TraitKind::FromIterator,
+            TraitKind::IntoIterator,
         ]);
 
         let remove_deref = TraitBuilder {
@@ -847,8 +885,8 @@ mod tests {
             .copied()
             .collect();
         assert_eq!(REQUIRED_TYPE_TRAITS.len(), 10);
-        assert_eq!(CONFIGURABLE_TYPE_TRAITS.len(), 23);
-        assert_eq!(complete_inventory.len(), 33);
+        assert_eq!(CONFIGURABLE_TYPE_TRAITS.len(), 28);
+        assert_eq!(complete_inventory.len(), 38);
 
         for node_kind in application_nodes {
             for trait_kind in CONFIGURABLE_TYPE_TRAITS {
@@ -954,7 +992,10 @@ mod tests {
             TraitKind::DivAssign,
             TraitKind::Mul,
             TraitKind::MulAssign,
+            TraitKind::Neg,
+            TraitKind::Product,
             TraitKind::Rem,
+            TraitKind::RemAssign,
             TraitKind::Sub,
             TraitKind::SubAssign,
             TraitKind::Sum,
@@ -973,6 +1014,42 @@ mod tests {
                 ApplicationTypeKind::Tuple.configurable_trait_policy(arithmetic, &base),
                 Some(ConfigurableTraitPolicy::Unsupported),
             );
+        }
+    }
+
+    #[test]
+    fn collection_protocols_are_generated_only_for_collection_nodes() {
+        let base = application_type_trait_set();
+        let protocols = [TraitKind::FromIterator, TraitKind::IntoIterator];
+
+        for collection in [
+            ApplicationTypeKind::List,
+            ApplicationTypeKind::Map,
+            ApplicationTypeKind::Set,
+        ] {
+            let mut baseline = base.clone();
+            baseline.extend(protocols);
+            for protocol in protocols {
+                assert_eq!(
+                    collection.configurable_trait_policy(protocol, &baseline),
+                    Some(ConfigurableTraitPolicy::GeneratedOverrideable),
+                );
+            }
+        }
+
+        for other in [
+            ApplicationTypeKind::Entity,
+            ApplicationTypeKind::Enum,
+            ApplicationTypeKind::Newtype,
+            ApplicationTypeKind::Record,
+            ApplicationTypeKind::Tuple,
+        ] {
+            for protocol in protocols {
+                assert_eq!(
+                    other.configurable_trait_policy(protocol, &base),
+                    Some(ConfigurableTraitPolicy::Unsupported),
+                );
+            }
         }
     }
 

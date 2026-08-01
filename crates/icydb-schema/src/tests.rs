@@ -1119,6 +1119,28 @@ fn proposal_literals_preserve_every_canonical_scalar_atom() {
 }
 
 #[test]
+fn big_integer_operator_completion_uses_exact_values() {
+    let signed_product: IntBig = [IntBig::from(-2_i64), IntBig::from(3_i64)]
+        .into_iter()
+        .product();
+    assert_eq!(signed_product, IntBig::from(-6_i64));
+    assert_eq!(
+        std::iter::empty::<IntBig>().product::<IntBig>(),
+        IntBig::from(1_i64)
+    );
+    assert_eq!(-IntBig::from(-7_i64), IntBig::from(7_i64));
+
+    let unsigned_product: NatBig = [NatBig::from(4_u64), NatBig::from(5_u64)]
+        .into_iter()
+        .product();
+    assert_eq!(unsigned_product, NatBig::from(20_u64));
+    assert_eq!(
+        std::iter::empty::<NatBig>().product::<NatBig>(),
+        NatBig::from(1_u64)
+    );
+}
+
+#[test]
 fn proposal_digest_has_a_fixed_current_form_vector() {
     assert_eq!(
         proposal("users", false)

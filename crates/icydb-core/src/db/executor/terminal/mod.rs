@@ -11,7 +11,7 @@ mod tests;
 #[cfg(feature = "query")]
 pub(in crate::db) use page::KernelRow;
 pub(in crate::db) use page::RetainedSlotRow;
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use page::{
     DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,

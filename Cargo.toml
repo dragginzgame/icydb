@@ -60,10 +60,6 @@ darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = [
     "add",
     "add_assign",
-    "deref",
-    "deref_mut",
-    "into_iterator",
-    "sum",
 ] }
 getrandom = "0.4"
 ic-cdk = "0.20.1"

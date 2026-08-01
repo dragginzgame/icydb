@@ -7,8 +7,8 @@ use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
-    iter::Sum,
-    ops::{Div, DivAssign, Mul, MulAssign},
+    iter::{Product, Sum},
+    ops::{Div, DivAssign, Mul, MulAssign, Neg},
     str::FromStr,
 };
 
@@ -153,6 +153,14 @@ impl MulAssign for IntBig {
     }
 }
 
+impl Neg for IntBig {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::from_bigint(-self.0.0)
+    }
+}
+
 impl NumericValue for IntBig {
     fn try_to_decimal(&self) -> Option<Decimal> {
         self.to_i128().and_then(Decimal::from_i128)
@@ -160,6 +168,12 @@ impl NumericValue for IntBig {
 
     fn try_from_decimal(value: Decimal) -> Option<Self> {
         value.to_i128().map(WrappedInt::from).map(Self::from_candid)
+    }
+}
+
+impl Product for IntBig {
+    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self::from(1), |acc, value| acc * value)
     }
 }
 

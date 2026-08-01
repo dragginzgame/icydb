@@ -3,6 +3,7 @@
 //! Does not own: node parsing or schema validation.
 //! Boundary: re-exports focused impl generators.
 
+mod collection_protocols;
 mod default;
 mod field_walk;
 mod from;
@@ -13,6 +14,7 @@ mod partial_ord;
 mod validate;
 mod visitable;
 
+pub use collection_protocols::*;
 pub use default::*;
 pub use from::*;
 pub use normalize::*;

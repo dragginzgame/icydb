@@ -171,3 +171,26 @@ pub struct TimestampD;
     traits(add(Default))
 )]
 pub struct UlidD;
+
+#[cfg(test)]
+mod tests {
+    use super::{Int64N, Nat64N};
+    use icydb_model::Inner as _;
+
+    #[test]
+    fn generated_exact_operators_delegate_to_the_wrapped_type() {
+        let mut remainder = Nat64N::from(17_u64);
+        remainder %= Nat64N::from(5_u64);
+        assert_eq!(*remainder.inner(), 2);
+        remainder %= 2_u64;
+        assert_eq!(*remainder.inner(), 0);
+
+        let product: Nat64N = [2_u64, 3, 4].into_iter().map(Nat64N::from).product();
+        assert_eq!(*product.inner(), 24);
+        let inner_product: Nat64N = [2_u64, 3, 4].into_iter().product();
+        assert_eq!(*inner_product.inner(), 24);
+
+        let negative = -Int64N::from(7_i64);
+        assert_eq!(*negative.inner(), -7);
+    }
+}

@@ -25,7 +25,6 @@
     all(not(test), feature = "query", not(feature = "sql")),
     expect(
         dead_code,
-        unused_imports,
         reason = "SQL is an optional frontend and currently consumes engine-neutral grouped, aggregate, cursor, and diagnostic capabilities not exposed by the query-only facade"
     )
 )]

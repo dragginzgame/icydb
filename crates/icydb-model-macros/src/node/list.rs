@@ -77,6 +77,8 @@ impl HasTraits for List {
             TraitKind::Deref,
             TraitKind::DerefMut,
             TraitKind::From,
+            TraitKind::FromIterator,
+            TraitKind::IntoIterator,
         ]);
 
         traits
@@ -85,6 +87,8 @@ impl HasTraits for List {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::From => FromTrait::strategy(self),
+            TraitKind::FromIterator => FromIteratorTrait::strategy(self),
+            TraitKind::IntoIterator => IntoIteratorTrait::strategy(self),
             TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
@@ -141,5 +145,7 @@ mod tests {
         assert!(!traits.contains(&TraitKind::Deref));
         assert!(traits.contains(&TraitKind::DerefMut));
         assert!(traits.contains(&TraitKind::From));
+        assert!(traits.contains(&TraitKind::FromIterator));
+        assert!(traits.contains(&TraitKind::IntoIterator));
     }
 }

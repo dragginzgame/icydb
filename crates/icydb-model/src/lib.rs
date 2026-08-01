@@ -84,9 +84,9 @@ pub mod prelude {
 
 pub use application::NormalizeAndValidate;
 pub use icydb_model_macros::{
-    Add, AddAssign, Deref, DerefMut, Display, Div, DivAssign, Inner, Mul, MulAssign, Rem, Sub,
-    SubAssign, Sum, canister, entity, enum_, list, map, newtype, normalizer, record, set, store,
-    tuple, validator,
+    Add, AddAssign, Deref, DerefMut, Display, Div, DivAssign, Inner, Mul, MulAssign, Neg, Product,
+    Rem, RemAssign, Sub, SubAssign, Sum, canister, entity, enum_, list, map, newtype, normalizer,
+    record, set, store, tuple, validator,
 };
 pub use normalize::normalize;
 #[doc(hidden)]

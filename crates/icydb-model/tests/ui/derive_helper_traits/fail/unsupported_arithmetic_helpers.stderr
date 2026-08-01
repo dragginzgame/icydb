@@ -77,3 +77,27 @@ error: trait 'Sum' is not supported by record application values
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Neg' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:33:1
+   |
+33 | #[record(fields(field(name = "value", value(item(prim = "Int64")))), traits(add(Neg)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Product' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:36:1
+   |
+36 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Product)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'RemAssign' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:39:1
+   |
+39 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(RemAssign)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)

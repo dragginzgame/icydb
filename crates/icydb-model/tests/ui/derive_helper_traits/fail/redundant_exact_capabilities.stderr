@@ -1,0 +1,59 @@
+error: trait 'Add' is generated automatically for newtype application values and cannot be added explicitly
+ --> tests/ui/derive_helper_traits/fail/redundant_exact_capabilities.rs:3:1
+  |
+3 | #[newtype(item(prim = "Duration"), traits(add(Add)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Hash' is generated automatically for newtype application values and cannot be added explicitly
+ --> tests/ui/derive_helper_traits/fail/redundant_exact_capabilities.rs:6:1
+  |
+6 | #[newtype(item(prim = "Blob", unbounded), traits(add(Hash)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Ord' is generated automatically for newtype application values and cannot be added explicitly
+ --> tests/ui/derive_helper_traits/fail/redundant_exact_capabilities.rs:9:1
+  |
+9 | #[newtype(item(prim = "Unit"), traits(add(Ord)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Ord' is generated automatically for enum application values and cannot be added explicitly
+  --> tests/ui/derive_helper_traits/fail/redundant_exact_capabilities.rs:12:1
+   |
+12 | / #[enum_(
+13 | |     variant(name = "First"),
+14 | |     variant(name = "Second"),
+15 | |     traits(add(Ord))
+16 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `enum_` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Neg' is generated automatically for newtype application values and cannot be added explicitly
+  --> tests/ui/derive_helper_traits/fail/redundant_exact_capabilities.rs:19:1
+   |
+19 | #[newtype(item(prim = "Int64"), traits(add(Neg)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Product' is generated automatically for newtype application values and cannot be added explicitly
+  --> tests/ui/derive_helper_traits/fail/redundant_exact_capabilities.rs:22:1
+   |
+22 | #[newtype(item(prim = "Nat64"), traits(add(Product)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'RemAssign' is generated automatically for newtype application values and cannot be added explicitly
+  --> tests/ui/derive_helper_traits/fail/redundant_exact_capabilities.rs:25:1
+   |
+25 | #[newtype(item(prim = "Nat64"), traits(add(RemAssign)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -15,7 +15,7 @@ mod projection;
 use crate::db::{QueryError, executor::ExecutorPlanError};
 
 pub(in crate::db) use cache::QueryPlanCacheAttribution;
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
 #[cfg(feature = "sql-explain")]
 pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
@@ -24,7 +24,9 @@ pub use diagnostics::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
 };
+#[cfg(feature = "sql")]
 pub(in crate::db) use projection::StructuralProjectionContract;
+#[cfg(feature = "sql")]
 pub(in crate::db::session) use projection::StructuralProjectionPayload;
 #[cfg(feature = "sql-explain")]
 pub(in crate::db::session) use projection::projection_labels_from_projection_spec;

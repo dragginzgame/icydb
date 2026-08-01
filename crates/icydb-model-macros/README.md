@@ -60,12 +60,14 @@ has no derive or generated implementation strategy.
 value and may be removed for a manual implementation. `Inner` is newtype-only.
 `NumericValue` is generated or explicitly opt-in only for newtypes.
 
-Collection wrappers generate `Default`, `Deref`, and `DerefMut`; other
-application values opt into `Default`, while only newtypes may opt into
-dereference and display. `Copy`, `Hash`, `Ord`, and `PartialOrd` are available
-as standard derives when the node shape does not already generate them.
-Arithmetic and assignment helpers are newtype-only and follow the wrapped
-primitive capability baseline.
+Collection wrappers generate `Default`, `Deref`, `DerefMut`, `FromIterator`,
+and `IntoIterator`; other application values opt into `Default`, while only
+newtypes may opt into dereference and display. `Copy`, `Hash`, `Ord`, and
+`PartialOrd` are available as standard derives when the node shape does not
+already generate them. Arithmetic, assignment, `Sum`, `Product`, and signed
+`Neg` helpers are newtype-only and follow the wrapped primitive capability
+baseline. Finite floats do not generate `Neg`, because negating canonical
+positive zero would recreate negative zero.
 
 Enum declaration-order checking is an enum option rather than a trait:
 
@@ -80,7 +82,12 @@ pub struct Ordered {}
 
 Generated list, set, and map wrappers implement `Deref` and `DerefMut` to
 their standard containers. Methods such as `iter`, `len`, and `is_empty` are
-therefore available directly without an IcyDB-specific collection trait.
+therefore available directly without an IcyDB-specific collection trait. They
+also support standard owned and shared-reference iteration and exact
+`FromIterator` collection. Lists and maps support mutable-reference iteration;
+sets preserve the standard `BTreeSet` rule that elements cannot be mutated in
+place. Either iterator protocol may be removed when an application supplies a
+manual implementation.
 
 References:
 

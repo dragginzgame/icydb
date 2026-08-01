@@ -42,7 +42,7 @@ use plan::resolve_scalar_materialization_plan;
 use post_access::apply_post_access_to_kernel_rows_dyn;
 use scan::execute_scalar_page_kernel_dyn;
 
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use metrics::{
     DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,

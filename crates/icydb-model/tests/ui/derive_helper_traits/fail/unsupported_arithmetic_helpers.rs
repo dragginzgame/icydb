@@ -30,4 +30,13 @@ pub struct UnsupportedSubAssign {}
 #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Sum)))]
 pub struct UnsupportedSum {}
 
+#[record(fields(field(name = "value", value(item(prim = "Int64")))), traits(add(Neg)))]
+pub struct UnsupportedNeg {}
+
+#[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Product)))]
+pub struct UnsupportedProduct {}
+
+#[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(RemAssign)))]
+pub struct UnsupportedRemAssign {}
+
 fn main() {}

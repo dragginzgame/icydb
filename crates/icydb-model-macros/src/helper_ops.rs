@@ -90,8 +90,54 @@ pub(crate) fn derive_rem(input: TokenStream) -> TokenStream {
     )
 }
 
+pub(crate) fn derive_rem_assign(input: TokenStream) -> TokenStream {
+    derive_op(
+        input,
+        OpSpec::assign(
+            "RemAssign",
+            quote!(::std::ops::RemAssign),
+            "rem_assign",
+            quote!(%=),
+        ),
+    )
+}
+
+pub(crate) fn derive_neg(input: TokenStream) -> TokenStream {
+    let newtype = match helper_newtype::parse_newtype(input, "Neg") {
+        Ok(newtype) => newtype,
+        Err(err) => return err.to_compile_error(),
+    };
+
+    let ident = newtype.ident;
+    let (impl_generics, ty_generics, where_clause) = newtype.generics.split_for_impl();
+    let self_ty = quote!(#ident #ty_generics);
+
+    quote! {
+        impl #impl_generics ::std::ops::Neg for #self_ty #where_clause {
+            type Output = Self;
+
+            fn neg(self) -> Self::Output {
+                Self(-self.0)
+            }
+        }
+    }
+}
+
+pub(crate) fn derive_product(input: TokenStream) -> TokenStream {
+    derive_iterator_op(input, "Product", quote!(::std::iter::Product), "product")
+}
+
 pub(crate) fn derive_sum(input: TokenStream) -> TokenStream {
-    let newtype = match helper_newtype::parse_newtype(input, "Sum") {
+    derive_iterator_op(input, "Sum", quote!(::std::iter::Sum), "sum")
+}
+
+fn derive_iterator_op(
+    input: TokenStream,
+    label: &'static str,
+    trait_path: TokenStream,
+    method: &'static str,
+) -> TokenStream {
+    let newtype = match helper_newtype::parse_newtype(input, label) {
         Ok(newtype) => newtype,
         Err(err) => return err.to_compile_error(),
     };
@@ -100,17 +146,18 @@ pub(crate) fn derive_sum(input: TokenStream) -> TokenStream {
     let inner = newtype.inner;
     let (impl_generics, ty_generics, where_clause) = newtype.generics.split_for_impl();
     let self_ty = quote!(#ident #ty_generics);
+    let method = format_ident!("{method}");
 
     quote! {
-        impl #impl_generics ::std::iter::Sum for #self_ty #where_clause {
-            fn sum<I: ::std::iter::Iterator<Item = Self>>(iter: I) -> Self {
-                Self(iter.map(|v| v.0).sum())
+        impl #impl_generics #trait_path for #self_ty #where_clause {
+            fn #method<I: ::std::iter::Iterator<Item = Self>>(iter: I) -> Self {
+                Self(iter.map(|v| v.0).#method())
             }
         }
 
-        impl #impl_generics ::std::iter::Sum<#inner> for #self_ty #where_clause {
-            fn sum<I: ::std::iter::Iterator<Item = #inner>>(iter: I) -> Self {
-                Self(iter.sum())
+        impl #impl_generics #trait_path<#inner> for #self_ty #where_clause {
+            fn #method<I: ::std::iter::Iterator<Item = #inner>>(iter: I) -> Self {
+                Self(iter.#method())
             }
         }
     }

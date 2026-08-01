@@ -33,6 +33,27 @@ pub struct Newtype {
     pub(crate) traits: TraitBuilder,
 }
 
+const PRIMITIVE_NEWTYPE_TRAITS: [TraitKind; 18] = [
+    TraitKind::Add,
+    TraitKind::AddAssign,
+    TraitKind::Div,
+    TraitKind::DivAssign,
+    TraitKind::Mul,
+    TraitKind::MulAssign,
+    TraitKind::Neg,
+    TraitKind::Product,
+    TraitKind::Rem,
+    TraitKind::RemAssign,
+    TraitKind::Sub,
+    TraitKind::SubAssign,
+    TraitKind::Sum,
+    TraitKind::Copy,
+    TraitKind::Hash,
+    TraitKind::NumericValue,
+    TraitKind::Ord,
+    TraitKind::PartialOrd,
+];
+
 impl HasDef for Newtype {
     fn def(&self) -> &Def {
         &self.def
@@ -95,37 +116,14 @@ impl HasTraits for Newtype {
         traits.add(TraitKind::From);
         traits.add(TraitKind::Inner);
 
-        // primitive traits
+        // Rust wrapper capabilities are independent of database scalar
+        // arithmetic, ordering, and index eligibility.
         if let Some(primitive) = self.item.primitive {
-            if primitive.supports_arithmetic() {
-                traits.extend([
-                    TraitKind::Add,
-                    TraitKind::AddAssign,
-                    TraitKind::Div,
-                    TraitKind::DivAssign,
-                    TraitKind::Mul,
-                    TraitKind::MulAssign,
-                    TraitKind::Sub,
-                    TraitKind::SubAssign,
-                    TraitKind::Sum,
-                ]);
-            }
-            if primitive.supports_remainder() {
-                traits.add(TraitKind::Rem);
-            }
-            if primitive.supports_copy() {
-                traits.add(TraitKind::Copy);
-            }
-            if primitive.supports_hash() {
-                traits.add(TraitKind::Hash);
-            }
-            if primitive.supports_numeric_value() {
-                traits.add(TraitKind::NumericValue);
-            }
-            if primitive.supports_ord() {
-                traits.add(TraitKind::Ord);
-                traits.add(TraitKind::PartialOrd);
-            }
+            traits.extend(
+                PRIMITIVE_NEWTYPE_TRAITS.into_iter().filter(|trait_kind| {
+                    primitive_supports_generated_trait(primitive, *trait_kind)
+                }),
+            );
         }
 
         traits
@@ -146,6 +144,91 @@ impl HasTraits for Newtype {
             _ => None,
         }
     }
+}
+
+const fn primitive_supports_generated_trait(primitive: Primitive, trait_kind: TraitKind) -> bool {
+    match trait_kind {
+        TraitKind::Add | TraitKind::AddAssign | TraitKind::Sub | TraitKind::SubAssign => {
+            primitive_supports_full_arithmetic(primitive)
+                || matches!(primitive, Primitive::Duration)
+        }
+        TraitKind::Div
+        | TraitKind::DivAssign
+        | TraitKind::Mul
+        | TraitKind::MulAssign
+        | TraitKind::Product
+        | TraitKind::Sum => primitive_supports_full_arithmetic(primitive),
+        TraitKind::Neg => primitive_supports_neg(primitive),
+        TraitKind::Rem | TraitKind::RemAssign => matches!(
+            primitive,
+            Primitive::Decimal
+                | Primitive::Int8
+                | Primitive::Int16
+                | Primitive::Int32
+                | Primitive::Int64
+                | Primitive::Int128
+                | Primitive::Nat8
+                | Primitive::Nat16
+                | Primitive::Nat32
+                | Primitive::Nat64
+                | Primitive::Nat128
+        ),
+        TraitKind::Copy => primitive.supports_copy(),
+        TraitKind::Hash | TraitKind::Ord | TraitKind::PartialOrd => true,
+        TraitKind::NumericValue => primitive.supports_numeric_value(),
+        TraitKind::CandidType
+        | TraitKind::Clone
+        | TraitKind::Debug
+        | TraitKind::Default
+        | TraitKind::Deserialize
+        | TraitKind::Deref
+        | TraitKind::DerefMut
+        | TraitKind::Display
+        | TraitKind::Eq
+        | TraitKind::From
+        | TraitKind::FromIterator
+        | TraitKind::Inner
+        | TraitKind::IntoIterator
+        | TraitKind::NormalizeAuto
+        | TraitKind::NormalizeCustom
+        | TraitKind::PartialEq
+        | TraitKind::Path
+        | TraitKind::ValidateAuto
+        | TraitKind::ValidateCustom
+        | TraitKind::Visitable => false,
+    }
+}
+
+const fn primitive_supports_neg(primitive: Primitive) -> bool {
+    matches!(
+        primitive,
+        Primitive::Decimal
+            | Primitive::Int8
+            | Primitive::Int16
+            | Primitive::Int32
+            | Primitive::Int64
+            | Primitive::Int128
+            | Primitive::IntBig
+    )
+}
+
+const fn primitive_supports_full_arithmetic(primitive: Primitive) -> bool {
+    matches!(
+        primitive,
+        Primitive::Decimal
+            | Primitive::Int8
+            | Primitive::Int16
+            | Primitive::Int32
+            | Primitive::Int64
+            | Primitive::Int128
+            | Primitive::IntBig
+            | Primitive::Nat8
+            | Primitive::Nat16
+            | Primitive::Nat32
+            | Primitive::Nat64
+            | Primitive::Nat128
+            | Primitive::NatBig
+    )
 }
 
 impl HasType for Newtype {
@@ -177,7 +260,7 @@ impl ToTokens for Newtype {
 
 #[cfg(test)]
 mod tests {
-    use super::Newtype;
+    use super::{Newtype, primitive_supports_full_arithmetic, primitive_supports_neg};
     use crate::prelude::*;
     use darling::{FromMeta, ast::NestedMeta};
     use quote::quote;
@@ -211,15 +294,19 @@ mod tests {
         Primitive::Unit,
     ];
 
-    const ARITHMETIC_TRAITS: [TraitKind; 9] = [
+    const ADDITIVE_TRAITS: [TraitKind; 4] = [
         TraitKind::Add,
         TraitKind::AddAssign,
+        TraitKind::Sub,
+        TraitKind::SubAssign,
+    ];
+
+    const MULTIPLICATIVE_AND_FOLD_TRAITS: [TraitKind; 6] = [
         TraitKind::Div,
         TraitKind::DivAssign,
         TraitKind::Mul,
         TraitKind::MulAssign,
-        TraitKind::Sub,
-        TraitKind::SubAssign,
+        TraitKind::Product,
         TraitKind::Sum,
     ];
 
@@ -247,20 +334,69 @@ mod tests {
         }
     }
 
-    fn has_all_arithmetic_traits(traits: &[TraitKind]) -> bool {
-        ARITHMETIC_TRAITS
-            .iter()
-            .all(|trait_kind| traits.contains(trait_kind))
-    }
-
     #[test]
-    fn arithmetic_traits_match_supports_arithmetic() {
+    fn primitive_newtypes_use_rust_hash_and_order_capabilities() {
         for primitive in ALL_PRIMITIVES {
             let newtype = newtype_with_primitive(primitive);
             let traits = newtype.traits();
-            let has_arithmetic = has_all_arithmetic_traits(&traits);
 
-            assert_eq!(has_arithmetic, primitive.supports_arithmetic());
+            for trait_kind in [TraitKind::Hash, TraitKind::Ord, TraitKind::PartialOrd] {
+                assert!(
+                    traits.contains(&trait_kind),
+                    "{primitive:?} should generate {trait_kind:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn duration_newtype_generates_only_its_supported_additive_operators() {
+        let traits = newtype_with_primitive(Primitive::Duration).traits();
+
+        for trait_kind in ADDITIVE_TRAITS {
+            assert!(traits.contains(&trait_kind));
+        }
+        for trait_kind in MULTIPLICATIVE_AND_FOLD_TRAITS {
+            assert!(!traits.contains(&trait_kind));
+        }
+        assert!(!traits.contains(&TraitKind::Rem));
+        assert!(!traits.contains(&TraitKind::RemAssign));
+        assert!(!traits.contains(&TraitKind::Neg));
+    }
+
+    #[test]
+    fn remainder_assignment_matches_remainder_capabilities() {
+        for primitive in ALL_PRIMITIVES {
+            let traits = newtype_with_primitive(primitive).traits();
+            assert_eq!(
+                traits.contains(&TraitKind::Rem),
+                traits.contains(&TraitKind::RemAssign),
+                "{primitive:?} remainder capability should be internally consistent"
+            );
+        }
+    }
+
+    #[test]
+    fn product_matches_full_arithmetic_capabilities() {
+        for primitive in ALL_PRIMITIVES {
+            let traits = newtype_with_primitive(primitive).traits();
+            assert_eq!(
+                primitive_supports_full_arithmetic(primitive),
+                traits.contains(&TraitKind::Product),
+                "{primitive:?} product capability should match its arithmetic domain"
+            );
+        }
+    }
+
+    #[test]
+    fn neg_is_generated_only_for_signed_exact_numeric_primitives() {
+        for primitive in ALL_PRIMITIVES {
+            let traits = newtype_with_primitive(primitive).traits();
+            assert_eq!(
+                primitive_supports_neg(primitive),
+                traits.contains(&TraitKind::Neg),
+                "{primitive:?} signed-negation capability should be exact"
+            );
         }
     }
 }

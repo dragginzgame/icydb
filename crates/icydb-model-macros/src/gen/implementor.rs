@@ -29,6 +29,7 @@ pub struct Implementor<'a> {
     trait_generics: Vec<TokenStream>,
     extra_generics: Vec<GenericParam>,
     extra_where: Vec<WherePredicate>,
+    trait_self_type: Option<TokenStream>,
     tokens: TokenStream,
 }
 
@@ -48,6 +49,7 @@ impl<'a> Implementor<'a> {
             trait_generics: Vec::new(),
             extra_generics: Vec::new(),
             extra_where: Vec::new(),
+            trait_self_type: None,
             tokens: quote!(),
         }
     }
@@ -66,6 +68,11 @@ impl<'a> Implementor<'a> {
 
     pub fn add_trait_generic(mut self, tokens: TokenStream) -> Self {
         self.trait_generics.push(tokens);
+        self
+    }
+
+    pub fn set_trait_self_type(mut self, tokens: TokenStream) -> Self {
+        self.trait_self_type = Some(tokens);
         self
     }
 
@@ -130,8 +137,13 @@ impl<'a> Implementor<'a> {
                     quote!( #trait_kind::< #(#trait_generics),* > )
                 };
 
+                let self_type = self
+                    .trait_self_type
+                    .clone()
+                    .unwrap_or_else(|| quote!(#ident #ty_generics));
+
                 quote! {
-                    impl #impl_generics_ts #trait_path for #ident #ty_generics #where_tokens
+                    impl #impl_generics_ts #trait_path for #self_type #where_tokens
                 }
             }
         }
