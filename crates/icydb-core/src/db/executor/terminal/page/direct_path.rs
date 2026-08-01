@@ -2,7 +2,8 @@ use crate::{
     db::{
         executor::{
             ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
-            apply_structural_order_window_to_data_rows, pipeline::contracts::StructuralCursorPage,
+            apply_structural_order_window_to_data_rows,
+            pipeline::contracts::{ScalarPageMaterialization, StructuralCursorPage},
             route::LoadOrderRouteMode,
         },
         predicate::MissingRowPolicy,
@@ -41,7 +42,7 @@ pub(super) fn execute_direct_data_row_path(
     continuation: ScalarContinuationContext,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     direct_data_row_path: DirectDataRowPath<'_>,
-) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
+) -> Result<ScalarPageMaterialization, InternalError> {
     continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
     // Phase 1: run the direct scan through the shared residual-policy helper.
@@ -180,11 +181,11 @@ pub(super) fn execute_direct_data_row_path(
     #[cfg(feature = "diagnostics")]
     record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
-    Ok((
-        StructuralCursorPage::new(data_rows),
+    Ok(ScalarPageMaterialization {
+        payload: StructuralCursorPage::new(data_rows),
         rows_scanned,
         post_access_rows,
-    ))
+    })
 }
 
 // Return the cursorless scalar page offset that route-satisfied direct raw-row

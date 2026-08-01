@@ -9,19 +9,12 @@ use crate::db::{
     query::plan::AccessPlannedQuery,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct PageWindow {
-    fetch_count: usize,
-}
-
-fn compute_page_window(offset: u32, limit: u32) -> PageWindow {
+fn compute_page_fetch_count(offset: u32, limit: u32) -> usize {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let keep_count = offset.saturating_add(limit);
 
-    PageWindow {
-        fetch_count: keep_count.saturating_add(1),
-    }
+    keep_count.saturating_add(1)
 }
 
 impl ExecutionKernel {
@@ -51,6 +44,6 @@ impl ExecutionKernel {
             return None;
         }
 
-        Some(compute_page_window(page.offset, limit).fetch_count)
+        Some(compute_page_fetch_count(page.offset, limit))
     }
 }

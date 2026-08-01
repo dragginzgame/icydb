@@ -363,70 +363,42 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "build.sql.trusted_entrypoints",
         "crates/icydb-model/src/build/actor/db/sql.rs",
-        "generated_readonly_sql_surface_uses_trusted_query_and_admin_ddl",
+        "generated_sql_capability_uses_trusted_query_and_admin_ddl",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.introspection_guard",
         "crates/icydb-model/src/build/actor/db/sql.rs",
-        "generated_sql_query_surface_can_reject_introspection",
+        "generated_sql_query_capability_keeps_introspection_gate",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
-        "config.sql.introspection_target_policy",
-        "crates/icydb-config/src/tests.rs",
-        "sql_introspection_policy_defaults_local_on_ic_off",
-        BoundaryAssertion,
-        [Boundary]
-    ),
-    provider!(
-        "config.sql.update_disabled_default",
-        "crates/icydb-config/src/tests.rs",
-        "absent_config_defaults_minimal_metrics_on",
-        BoundaryAssertion,
-        [Boundary]
-    ),
-    provider!(
-        "config.sql.update_primary_key_boolean",
-        "crates/icydb-config/src/tests.rs",
-        "boolean_sql_update_policy_enables_primary_key_default",
-        BoundaryAssertion,
-        [Boundary]
-    ),
-    provider!(
-        "config.sql.update_primary_key_named",
-        "crates/icydb-config/src/tests.rs",
-        "named_primary_key_sql_update_policy_enables_primary_key_policy",
-        BoundaryAssertion,
-        [Boundary]
-    ),
-    provider!(
-        "config.sql.update_bounded_named",
-        "crates/icydb-config/src/tests.rs",
-        "named_bounded_sql_update_policy_enables_bounded_policy",
+        "source.sql.feature_profiles",
+        "testing/integration/tests/canister_artifact_contract.rs",
+        "production_and_local_source_declarations_match_the_frozen_endpoint_policy",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_disabled_by_default",
-        "crates/icydb-model/src/build/actor/db/sql.rs",
-        "generated_sql_surface_exports_only_query_ddl_and_fixture_endpoints",
+        "crates/icydb-model/src/build/actor/mod.rs",
+        "complete_generated_actor_cannot_create_a_public_endpoint",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_primary_key_policy",
-        "crates/icydb-model/src/build/actor/db/sql.rs",
-        "generated_sql_update_surface_requires_explicit_primary_key_policy",
+        "crates/icydb-model/src/build/actor/endpoint.rs",
+        "alternative_closed_options_select_only_their_exact_handlers",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_bounded_policy",
-        "crates/icydb-model/src/build/actor/db/sql.rs",
-        "generated_sql_update_surface_can_select_bounded_policy_without_broad_update",
+        "crates/icydb-model/src/build/actor/endpoint.rs",
+        "alternative_closed_options_select_only_their_exact_handlers",
         BoundaryAssertion,
         [Boundary]
     ),
@@ -1509,7 +1481,7 @@ const MANIFEST: &[CoverageCell] = &[
         ELIGIBLE_ICYDB,
         [
             "build.sql.introspection_guard",
-            "config.sql.introspection_target_policy",
+            "source.sql.feature_profiles",
         ],
         NO_EXTERNAL_POLICY
     ),
@@ -1913,7 +1885,7 @@ const MANIFEST: &[CoverageCell] = &[
         ELIGIBLE_ICYDB,
         [
             "build.sql.update_disabled_by_default",
-            "config.sql.update_disabled_default"
+            "source.sql.feature_profiles"
         ],
         NO_EXTERNAL_POLICY
     ),
@@ -1929,8 +1901,7 @@ const MANIFEST: &[CoverageCell] = &[
         [
             "build.sql.update_primary_key_policy",
             "canister.mutation.primary_key_policy",
-            "config.sql.update_primary_key_boolean",
-            "config.sql.update_primary_key_named"
+            "source.sql.feature_profiles"
         ],
         NO_EXTERNAL_POLICY
     ),
@@ -1946,7 +1917,7 @@ const MANIFEST: &[CoverageCell] = &[
         [
             "build.sql.update_bounded_policy",
             "canister.mutation.bounded_policy",
-            "config.sql.update_bounded_named"
+            "source.sql.feature_profiles"
         ],
         NO_EXTERNAL_POLICY
     ),

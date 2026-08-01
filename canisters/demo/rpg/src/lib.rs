@@ -2,12 +2,12 @@
 //! RPG demo canister used by local demos and fixture loading.
 //!
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 use icydb::{
     db::{StructuralPatch, WriteCell},
     value::InputValue,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 use icydb_testing_demo_rpg_fixtures::{
     fixtures,
     schema::{Character, CharacterMentor, Grid},
@@ -15,8 +15,24 @@ use icydb_testing_demo_rpg_fixtures::{
 
 icydb::start!();
 
+icydb::endpoints! {
+    #[cfg(feature = "local-sql-query")]
+    icydb_sql_query(introspection = true);
+    icydb_ddl;
+    icydb_metrics(authorization = public);
+    #[cfg(feature = "local-extended-metrics")]
+    icydb_metrics_extended(authorization = public);
+    icydb_metrics_reset;
+    icydb_snapshot;
+    icydb_schema(authorization = controller);
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_reset;
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_load(handler = icydb_fixtures_load);
+}
+
 /// Load one deterministic baseline fixture dataset.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db()?.execute_trusted_structural_insert_batch(
         "Character",
@@ -33,12 +49,12 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn authored(value: impl Into<InputValue>) -> WriteCell<InputValue> {
     WriteCell::Value(value.into())
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn character_patch(character: Character) -> StructuralPatch {
     StructuralPatch::new()
         .field("name", authored(character.name))
@@ -90,7 +106,7 @@ fn character_patch(character: Character) -> StructuralPatch {
         .field("respawn_cooldown", authored(character.respawn_cooldown))
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn mentor_input(mentor: CharacterMentor) -> InputValue {
     InputValue::Map(vec![
         ("name".into(), mentor.name.into()),
@@ -99,7 +115,7 @@ fn mentor_input(mentor: CharacterMentor) -> InputValue {
     ])
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn grid_patch(cell: Grid) -> StructuralPatch {
     StructuralPatch::new()
         .field("x", authored(cell.x))

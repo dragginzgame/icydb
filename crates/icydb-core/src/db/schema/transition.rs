@@ -12,7 +12,7 @@ use crate::db::schema::{
     SchemaMutationRequest, schema_mutation_request_for_snapshots,
 };
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 use crate::db::schema::SchemaExpressionIndexRebuildTarget;
 
 #[cfg(test)]
@@ -127,7 +127,7 @@ impl SchemaTransitionPlan {
         self.mutation_plan.field_path_index_target()
     }
 
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) const fn expression_index_target(
         &self,
     ) -> Option<&SchemaExpressionIndexRebuildTarget> {

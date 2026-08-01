@@ -267,7 +267,6 @@ dependencies = [
  "ic-cdk",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -278,7 +277,6 @@ dependencies = [
  "ic-cdk",
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
- "icydb-testing-wasm-helpers",
  "serde",
 ]
 
@@ -290,7 +288,6 @@ dependencies = [
  "ic-cdk",
  "icydb",
  "icydb-testing-audit-ten-simple-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -301,7 +298,6 @@ dependencies = [
  "ic-cdk",
  "icydb",
  "icydb-testing-demo-rpg-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -313,7 +309,6 @@ dependencies = [
  "icydb",
  "icydb-model",
  "icydb-testing-test-sql-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -325,7 +320,6 @@ dependencies = [
  "icydb",
  "icydb-model",
  "icydb-testing-test-sql-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1277,7 +1271,6 @@ dependencies = [
  "candid",
  "ic-cdk",
  "ic-memory",
- "icydb-config",
  "icydb-core",
  "icydb-diagnostic-code",
  "icydb-model",
@@ -1293,20 +1286,9 @@ dependencies = [
  "candid",
  "clap",
  "icydb",
- "icydb-config",
  "rustyline",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "icydb-config"
-version = "0.216.5"
-dependencies = [
- "icydb-model",
- "serde",
- "thiserror 2.0.19",
- "toml",
 ]
 
 [[package]]
@@ -1447,6 +1429,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "icydb-testing-endpoint-installation"
+version = "0.216.5"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-default-empty-fixtures",
+]
+
+[[package]]
 name = "icydb-testing-integration"
 version = "0.216.5"
 dependencies = [
@@ -1465,6 +1457,7 @@ dependencies = [
 name = "icydb-testing-model-schema-only"
 version = "0.216.5"
 dependencies = [
+ "icydb",
  "icydb-model",
 ]
 

@@ -1,6 +1,6 @@
 //! Module: ICP project discovery.
 //! Responsibility: resolve known canisters and enforce local canister creation preconditions.
-//! Does not own: canister lifecycle commands, generic process execution, or endpoint config.
+//! Does not own: canister lifecycle commands, generic process execution, or endpoint publication.
 //! Boundary: exposes project-local canister discovery and setup checks to CLI command surfaces.
 
 use std::process::{Command, Output, Stdio};

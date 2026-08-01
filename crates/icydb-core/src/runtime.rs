@@ -8,7 +8,10 @@ use std::time::SystemTime;
 
 /// Read the current IC local performance counter when diagnostics run on wasm.
 #[must_use]
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(feature = "diagnostics", feature = "query")
+))]
 pub(crate) fn performance_counter(counter_type: u32) -> u64 {
     ic_cdk::api::performance_counter(counter_type)
 }

@@ -17,6 +17,7 @@ query = []
 sql = ["query"]
 sql-explain = ["sql"]
 diagnostics = []
+metrics-extended = []
 
 [dependencies]
 candid = { workspace = true }

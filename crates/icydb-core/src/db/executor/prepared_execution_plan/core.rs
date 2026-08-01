@@ -524,24 +524,9 @@ impl PreparedExecutionPlanCore {
         cursor: &ValidatedGroupedCursor,
     ) -> Result<GroupedPaginationWindow, InternalError> {
         let contract = self.continuation_contract()?;
-        let window = contract
+        contract
             .project_grouped_paging_window(cursor)
-            .map_err(CursorPlanError::into_internal_error)?;
-        let (
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ) = window.into_pagination_window_fields();
-
-        Ok(GroupedPaginationWindow::new(
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ))
+            .map_err(CursorPlanError::into_internal_error)
     }
 
     // Borrow immutable continuation contract for load-mode plans.

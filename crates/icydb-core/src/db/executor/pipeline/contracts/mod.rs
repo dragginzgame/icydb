@@ -25,6 +25,7 @@ pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
     MaterializedExecutionAttempt, PreparedExecutionInputContext, PreparedExecutionProjection,
     ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
+    ScalarPageMaterialization,
 };
 pub(in crate::db::executor) use fast_stream::{FastStreamRouteKind, FastStreamRouteRequest};
 pub(in crate::db::executor) use grouped::{

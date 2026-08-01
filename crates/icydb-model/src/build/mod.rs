@@ -9,7 +9,7 @@ use crate::{
 use std::sync::{LazyLock, RwLock, RwLockReadGuard};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use actor::{BuildOptions, BuildSqlUpdatePolicy, generate_with_options};
+pub use actor::generate;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{Error, node::SchemaNode, schema_validate::validate_schema};

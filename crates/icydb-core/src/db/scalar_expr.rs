@@ -3,7 +3,11 @@
 //! Does not own: predicate boolean trees or index key framing.
 //! Boundary: predicate and index runtimes use this to avoid `Value` fallback for scalar work.
 
-use crate::{db::schema::PersistedIndexExpressionOp, types::Date, value::Value};
+use crate::{
+    db::schema::PersistedIndexExpressionOp,
+    types::Date,
+    value::{Value, lower_text, upper_text},
+};
 use std::borrow::Cow;
 
 const MILLIS_PER_DAY: i64 = 86_400_000;
@@ -84,15 +88,15 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
 ) -> Result<ScalarExprValue<'_>, &'static str> {
     match op {
         ScalarIndexExpressionOp::Lower => match source {
-            ScalarExprValue::Text(text) => Ok(ScalarExprValue::Text(Cow::Owned(
-                normalize_text_casefold(text.as_ref()),
-            ))),
+            ScalarExprValue::Text(text) => {
+                Ok(ScalarExprValue::Text(Cow::Owned(lower_text(text.as_ref()))))
+            }
             _ => Err(EXPECTED_TEXT),
         },
         ScalarIndexExpressionOp::Upper => match source {
-            ScalarExprValue::Text(text) => Ok(ScalarExprValue::Text(Cow::Owned(
-                normalize_text_upper(text.as_ref()),
-            ))),
+            ScalarExprValue::Text(text) => {
+                Ok(ScalarExprValue::Text(Cow::Owned(upper_text(text.as_ref()))))
+            }
             _ => Err(EXPECTED_TEXT),
         },
         ScalarIndexExpressionOp::Trim => match source {
@@ -102,9 +106,9 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
             _ => Err(EXPECTED_TEXT),
         },
         ScalarIndexExpressionOp::LowerTrim => match source {
-            ScalarExprValue::Text(text) => Ok(ScalarExprValue::Text(Cow::Owned(
-                normalize_text_casefold(text.trim()),
-            ))),
+            ScalarExprValue::Text(text) => {
+                Ok(ScalarExprValue::Text(Cow::Owned(lower_text(text.trim()))))
+            }
             _ => Err(EXPECTED_TEXT),
         },
         ScalarIndexExpressionOp::Date => match source {
@@ -144,22 +148,6 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
     }
 }
 
-fn normalize_text_casefold(input: &str) -> String {
-    if input.is_ascii() {
-        input.to_ascii_lowercase()
-    } else {
-        input.to_lowercase()
-    }
-}
-
-fn normalize_text_upper(input: &str) -> String {
-    if input.is_ascii() {
-        input.to_ascii_uppercase()
-    } else {
-        input.to_uppercase()
-    }
-}
-
 fn timestamp_to_bucket_date(timestamp_millis: i64) -> Option<Date> {
     let days = timestamp_millis.div_euclid(MILLIS_PER_DAY);
     Date::try_from_i64(days)
@@ -169,6 +157,31 @@ fn timestamp_to_bucket_date(timestamp_millis: i64) -> Option<Date> {
 mod tests {
     use super::*;
     use crate::types::Timestamp;
+
+    #[test]
+    fn index_text_expressions_preserve_canonical_unicode_transforms() {
+        assert_eq!(
+            derive_non_null_scalar_expression_value(
+                ScalarIndexExpressionOp::Lower,
+                ScalarExprValue::Text(Cow::Borrowed("Straße")),
+            ),
+            Ok(ScalarExprValue::Text(Cow::Owned("straße".to_string()))),
+        );
+        assert_eq!(
+            derive_non_null_scalar_expression_value(
+                ScalarIndexExpressionOp::Upper,
+                ScalarExprValue::Text(Cow::Borrowed("ßeta")),
+            ),
+            Ok(ScalarExprValue::Text(Cow::Owned("SSETA".to_string()))),
+        );
+        assert_eq!(
+            derive_non_null_scalar_expression_value(
+                ScalarIndexExpressionOp::LowerTrim,
+                ScalarExprValue::Text(Cow::Borrowed("  Straße  ")),
+            ),
+            Ok(ScalarExprValue::Text(Cow::Owned("straße".to_string()))),
+        );
+    }
 
     #[test]
     fn timestamp_date_expression_rejects_values_outside_bounded_calendar() {

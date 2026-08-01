@@ -1,6 +1,6 @@
 //! Module: CLI metrics command arguments.
 //! Responsibility: define generated metrics endpoint clap surfaces.
-//! Does not own: metrics endpoint execution, config gating, or rendering.
+//! Does not own: metrics endpoint execution, endpoint publication, or rendering.
 //! Boundary: exposes parsed metrics command values to the observability owner.
 
 use clap::Args;

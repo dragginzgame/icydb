@@ -73,15 +73,15 @@ pub(in crate::db) struct PlannedContinuationContract {
 }
 
 ///
-/// GroupedContinuationWindow
+/// GroupedPaginationWindow
 ///
-/// Planner-contract grouped continuation paging window.
+/// Planner-owned grouped continuation paging window.
 /// Carries grouped page limit/offset/window progression semantics derived once
 /// from immutable continuation contract state plus validated grouped cursor state.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct GroupedContinuationWindow {
+pub(in crate::db) struct GroupedPaginationWindow {
     limit: Option<usize>,
     initial_offset_for_page: usize,
     selection_bound: Option<usize>,
@@ -89,7 +89,25 @@ pub(in crate::db) struct GroupedContinuationWindow {
     resume_boundary: Option<Value>,
 }
 
-impl GroupedContinuationWindow {
+impl GroupedPaginationWindow {
+    /// Build one grouped pagination window from already-validated primitives.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        limit: Option<usize>,
+        initial_offset_for_page: usize,
+        selection_bound: Option<usize>,
+        resume_initial_offset: u32,
+        resume_boundary: Option<Value>,
+    ) -> Self {
+        Self {
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        }
+    }
+
     // Project grouped window arithmetic from planner-owned continuation state.
     fn from_contract_and_cursor(
         contract: &PlannedContinuationContract,
@@ -114,27 +132,43 @@ impl GroupedContinuationWindow {
             .last_group_key()
             .map(|last_group_key| Value::List(last_group_key.to_vec()));
 
-        Self {
-            limit: contract.page_limit(),
+        Self::new(
+            contract.page_limit(),
             initial_offset_for_page,
             selection_bound,
             resume_initial_offset,
             resume_boundary,
-        }
+        )
     }
 
-    /// Consume grouped continuation window fields in pagination handoff order.
+    /// Return grouped page limit for this execution window.
     #[must_use]
-    pub(in crate::db) fn into_pagination_window_fields(
-        self,
-    ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
-        (
-            self.limit,
-            self.initial_offset_for_page,
-            self.selection_bound,
-            self.resume_initial_offset,
-            self.resume_boundary,
-        )
+    pub(in crate::db) const fn limit(&self) -> Option<usize> {
+        self.limit
+    }
+
+    /// Return grouped page-initial offset for this execution window.
+    #[must_use]
+    pub(in crate::db) const fn initial_offset_for_page(&self) -> usize {
+        self.initial_offset_for_page
+    }
+
+    /// Return bounded grouped candidate selection cap (`offset + limit + 1`) when active.
+    #[must_use]
+    pub(in crate::db) const fn selection_bound(&self) -> Option<usize> {
+        self.selection_bound
+    }
+
+    /// Return resume offset encoded into grouped continuation tokens.
+    #[must_use]
+    pub(in crate::db) const fn resume_initial_offset(&self) -> u32 {
+        self.resume_initial_offset
+    }
+
+    /// Borrow optional grouped resume boundary value for continuation filtering.
+    #[must_use]
+    pub(in crate::db) const fn resume_boundary(&self) -> Option<&Value> {
+        self.resume_boundary.as_ref()
     }
 }
 
@@ -329,10 +363,10 @@ impl PlannedContinuationContract {
     pub(in crate::db) fn project_grouped_paging_window(
         &self,
         cursor: &ValidatedGroupedCursor,
-    ) -> Result<GroupedContinuationWindow, CursorPlanError> {
+    ) -> Result<GroupedPaginationWindow, CursorPlanError> {
         self.validate_grouped_cursor_contract(!cursor.is_empty())?;
 
-        Ok(GroupedContinuationWindow::from_contract_and_cursor(
+        Ok(GroupedPaginationWindow::from_contract_and_cursor(
             self, cursor,
         ))
     }

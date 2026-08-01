@@ -24,10 +24,10 @@ use crate::{
             },
         },
         executor::{
-            CoveringProjectionComponentRows, EntityAuthority, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, OrderedKeyStreamBox, PrimaryRangeKeyStream,
-            decode_covering_projection_pairs, decode_single_covering_projection_pairs,
-            map_covering_projection_pairs, reorder_covering_projection_pairs,
+            EntityAuthority, IndexComponentRows, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            OrderedKeyStreamBox, PrimaryRangeKeyStream, decode_covering_projection_pairs,
+            decode_single_covering_projection_pairs, map_covering_projection_pairs,
+            reorder_covering_projection_pairs,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -523,9 +523,9 @@ where
 }
 
 fn drop_scan_time_covering_offset(
-    mut raw_pairs: CoveringProjectionComponentRows,
+    mut raw_pairs: IndexComponentRows,
     skip_count: usize,
-) -> CoveringProjectionComponentRows {
+) -> IndexComponentRows {
     let skip_count = skip_count.min(raw_pairs.len());
     if skip_count != 0 {
         raw_pairs.drain(..skip_count);

@@ -82,6 +82,7 @@ pub(crate) fn record(event: MetricsEvent) {
 ///
 /// `window_start_ms` filters by window start (`EventState::window_start_ms`),
 /// not by per-event timestamps.
+#[cfg(any(test, feature = "metrics-extended"))]
 #[must_use]
 pub fn metrics_report(window_start_ms: Option<u64>) -> metrics::EventReport {
     metrics::report_window_start(window_start_ms)

@@ -4,7 +4,7 @@
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
 use crate::db::schema::AcceptedFieldKind;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 use crate::db::schema::{
     AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind,
 };
@@ -14,7 +14,7 @@ use crate::types::{Account, Decimal, Float32, Float64, Principal};
 use crate::types::{IntBig, NatBig, Ulid};
 #[cfg(any(test, feature = "query"))]
 use crate::value::{CoercionFamily, Value};
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 use crate::value::{InputValue, InputValueEnum};
 use std::fmt;
 #[cfg(any(test, feature = "query"))]
@@ -270,7 +270,7 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
 
 /// Canonicalize one strict SQL literal against accepted persisted field metadata.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -587,7 +587,7 @@ fn canonicalize_filter_nat(value: &Value, max: u64) -> Option<Value> {
 /// Enum labels remain unresolved authored input until catalog admission. Other
 /// field kinds retain the existing strict SQL canonicalization rules.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn input_value_from_strict_sql_literal_for_persisted_kind(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -608,7 +608,7 @@ pub(in crate::db) fn input_value_from_strict_sql_literal_for_persisted_kind(
         .flatten()
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_signed64_persisted_literal(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -628,7 +628,7 @@ fn canonicalize_signed64_persisted_literal(
     }
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_unsigned64_persisted_literal(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -686,7 +686,7 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
     }
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => *inner,
@@ -697,7 +697,7 @@ fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Opti
     (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u64::try_from(*inner).ok()?,
@@ -708,7 +708,7 @@ fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> 
     (value <= max).then_some(Value::Nat64(value))
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => i128::from(*inner),
@@ -724,7 +724,7 @@ fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     Some(Value::Int128(value))
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u128::try_from(*inner).ok()?,

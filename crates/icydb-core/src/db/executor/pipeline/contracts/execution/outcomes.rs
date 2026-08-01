@@ -8,6 +8,20 @@ use crate::db::executor::terminal::KernelRow;
 use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
 
 ///
+/// ScalarPageMaterialization
+///
+/// Route-independent scalar page materialization result.
+/// Keeps terminal scan accounting named until route-owned metrics complete the
+/// full execution attempt.
+///
+
+pub(in crate::db::executor) struct ScalarPageMaterialization {
+    pub(in crate::db::executor) payload: StructuralCursorPage,
+    pub(in crate::db::executor) rows_scanned: usize,
+    pub(in crate::db::executor) post_access_rows: usize,
+}
+
+///
 /// MaterializedExecutionAttempt
 ///
 /// Canonical materialization attempt output for load execution.

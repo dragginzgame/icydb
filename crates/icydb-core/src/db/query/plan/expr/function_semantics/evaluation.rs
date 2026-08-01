@@ -15,7 +15,7 @@ use crate::{
         },
     },
     types::Decimal,
-    value::Value,
+    value::{Value, lower_text, upper_text},
 };
 
 impl UnaryTextFunctionKind {
@@ -26,8 +26,8 @@ impl UnaryTextFunctionKind {
             Self::Trim => Value::Text(text.trim().to_string()),
             Self::Ltrim => Value::Text(text.trim_start().to_string()),
             Self::Rtrim => Value::Text(text.trim_end().to_string()),
-            Self::Lower => Value::Text(text.to_lowercase()),
-            Self::Upper => Value::Text(text.to_uppercase()),
+            Self::Lower => Value::Text(lower_text(text)),
+            Self::Upper => Value::Text(upper_text(text)),
             Self::Length => Value::Nat64(u64::try_from(text.chars().count()).unwrap_or(u64::MAX)),
         }
     }

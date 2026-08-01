@@ -63,6 +63,5 @@ pub(in crate::db) use runtime::PredicateProgram;
 pub(in crate::db) use semantics::canonical_cmp;
 pub(in crate::db) use semantics::{TextOp, compare_eq, compare_order, compare_text};
 pub(in crate::db::predicate) use semantics::{
-    casefold_text, eval_equality_compare_result, eval_list_membership_compare_result,
-    eval_ordered_compare_result,
+    eval_equality_compare_result, eval_list_membership_compare_result, eval_ordered_compare_result,
 };

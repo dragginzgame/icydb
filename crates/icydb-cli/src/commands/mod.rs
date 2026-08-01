@@ -4,11 +4,7 @@
 //! Boundary: exposes the top-level parsed-command runner used by `main`.
 
 use crate::{
-    cli::{
-        CanisterCommand, CanisterTarget, CliArgs, CliCommand, ConfigCommand, DiagnosticArgs,
-        SchemaCommand,
-    },
-    config::{check_config, init_config, show_config},
+    cli::{CanisterCommand, CanisterTarget, CliArgs, CliCommand, DiagnosticArgs, SchemaCommand},
     diagnostic::render_error_code_report,
     icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
     observability::{run_metrics_command, run_schema_show_command, run_snapshot_command},
@@ -23,7 +19,6 @@ pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
         CliCommand::Metrics(args) => run_metrics_command(args),
         CliCommand::Diagnostic(args) => run_diagnostic_command(args),
         CliCommand::Schema(args) => run_schema_command(args),
-        CliCommand::Config(args) => run_config_command(args),
         CliCommand::Canister(args) => run_canister_command(args),
     }
 }
@@ -36,14 +31,6 @@ fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String> {
 fn run_schema_command(command: SchemaCommand) -> Result<(), String> {
     match command {
         SchemaCommand::Show(target) => run_schema_show_command(target),
-    }
-}
-
-fn run_config_command(command: ConfigCommand) -> Result<(), String> {
-    match command {
-        ConfigCommand::Init(args) => init_config(args),
-        ConfigCommand::Show(args) => show_config(args),
-        ConfigCommand::Check(args) => check_config(args),
     }
 }
 

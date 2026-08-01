@@ -8,7 +8,7 @@ use std::time::Instant;
 use icydb::db::{
     RowProjectionOutput,
     sql::{
-        SqlGroupedRowsOutput, SqlQueryResult, render_grouped_lines,
+        SqlGroupedRowsOutput, SqlQueryPerfResult, SqlQueryResult, render_grouped_lines,
         render_projection_display_rows_lines,
     },
 };
@@ -19,36 +19,21 @@ use crate::shell::perf::{
     render_shell_render_suffix,
 };
 
-#[derive(candid::CandidType, Clone, Debug, serde::Deserialize)]
-pub(super) struct ShellSqlQueryPerfResult {
-    result: SqlQueryResult,
-    instructions: u64,
-    planner_instructions: u64,
-    store_instructions: u64,
-    executor_instructions: u64,
-    pure_covering_decode_instructions: u64,
-    pure_covering_row_assembly_instructions: u64,
-    decode_instructions: u64,
-    compiler_instructions: u64,
+const fn sql_perf_attribution(result: &SqlQueryPerfResult) -> ShellPerfAttribution {
+    ShellPerfAttribution::new(ShellPerfAttributionInput {
+        total: result.instructions,
+        planner: result.planner_instructions,
+        store: result.store_instructions,
+        executor: result.executor_instructions,
+        pure_covering_decode: result.pure_covering_decode_instructions,
+        pure_covering_row_assembly: result.pure_covering_row_assembly_instructions,
+        decode: result.decode_instructions,
+        compiler: result.compiler_instructions,
+    })
 }
 
-impl ShellSqlQueryPerfResult {
-    const fn attribution(&self) -> ShellPerfAttribution {
-        ShellPerfAttribution::new(ShellPerfAttributionInput {
-            total: self.instructions,
-            planner: self.planner_instructions,
-            store: self.store_instructions,
-            executor: self.executor_instructions,
-            pure_covering_decode: self.pure_covering_decode_instructions,
-            pure_covering_row_assembly: self.pure_covering_row_assembly_instructions,
-            decode: self.decode_instructions,
-            compiler: self.compiler_instructions,
-        })
-    }
-}
-
-pub(super) fn render_shell_text_from_perf_result(input: ShellSqlQueryPerfResult) -> String {
-    let attribution = input.attribution();
+pub(super) fn render_shell_text_from_perf_result(input: SqlQueryPerfResult) -> String {
+    let attribution = sql_perf_attribution(&input);
     let render_start = Instant::now();
     let rendered = render_shell_text(input.result, Some(attribution), None);
     let render_attribution = ShellLocalRenderAttribution::new(render_start.elapsed().as_micros());

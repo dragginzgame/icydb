@@ -68,9 +68,9 @@ that construct schema proposals or inspect canonical scalar metadata may
 depend on `icydb-schema` directly.
 
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
-build dependency using the same tag, and use
-`icydb::build::build_configured_canister!()` in `build.rs` so generated actor
-glue follows the active `icydb.toml`.
+build dependency using the same tag, and call
+`icydb::build::build_canister!(SchemaCanister)` in `build.rs`. Public IcyDB
+methods are declared explicitly beside `start!()` with `icydb::endpoints!`.
 
 ```toml
 [build-dependencies]
@@ -405,13 +405,12 @@ serialized canister state rather than a shared database transaction.
 
 Generated canister SQL endpoints are deliberately narrower than the
 session/library SQL APIs. The exported methods are `icydb_query`, `icydb_ddl`,
-and, when `icydb.toml` selects an explicit primary-key or bounded update
-policy, `icydb_update`. Generated Rust wrappers use the hidden
-`__icydb_query`, `__icydb_ddl`, and `__icydb_update` names only to avoid
-collisions with non-exported application hooks. `icydb_query` admits
-operational introspection (`EXPLAIN`, `DESCRIBE`, and `SHOW`) by build target:
-local builds default on, IC builds default off. The default generated canister
-surface does not expose SQL `UPDATE`.
+and `icydb_update` only when their exact declarations appear in the canister
+source. Generated Rust wrappers use hidden `__icydb_*` names only to avoid
+collisions with non-exported application hooks. Cargo features compile private
+capabilities; source declarations alone ask IcyDB to export maintained public
+wrappers. Local-only methods use ordinary canister-owned `#[cfg(feature =
+"...")]` declarations.
 Generated SQL endpoints are controller-gated admin surfaces, not public read
 endpoint templates. Caller-facing list/count/complete reads should be
 hand-written typed endpoints using the read-intent guidance and
@@ -426,7 +425,7 @@ Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.
 
 ## Local Development
 
-Repository setup, local SQL demo commands, generated endpoint config, CLI
+Repository setup, local SQL demo commands, explicit endpoint declarations, CLI
 usage, IC test prerequisites, and wasm report commands live in
 [INSTALLING.md](INSTALLING.md).
 
@@ -436,8 +435,6 @@ usage, IC test prerequisites, and wasm report commands live in
   generated actor-wiring/build surfaces.
 - `crates/icydb-core` - runtime, planner, executor, persisted rows, stores,
   SQL, schema catalog, and metrics internals.
-- `crates/icydb-config` - host-side `icydb.toml` parsing behind
-  `icydb::build` and CLI checks.
 - `crates/icydb-diagnostic-code` - compact diagnostic code registry and
   public diagnostic metadata.
 - `crates/icydb-schema` - bounded public schema-proposal contract and canonical
@@ -447,7 +444,7 @@ usage, IC test prerequisites, and wasm report commands live in
   glue.
 - `crates/icydb-model-macros` - current application-model declaration and
   application helper macros consumed through `icydb-model`.
-- `crates/icydb-cli` - developer CLI for local SQL, config checks, canister
+- `crates/icydb-cli` - developer CLI for local SQL, canister
   lifecycle helpers, and observability reports.
 - `schema/*` - demo, audit, and test schemas.
 - `canisters/*` - demo, audit, and integration canisters.

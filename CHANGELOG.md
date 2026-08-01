@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Narrow SQL-only schema transition, capability, literal-conversion, and
+  projection helpers out of query-only builds without changing query behavior,
+  persisted formats, or public response formats.
+
+## [0.217.x] 🔌 - 2026-08-01 - Explicit Canister Endpoint Exports
+
+Detailed notes: [docs/changelog/0.217.md](docs/changelog/0.217.md)
+
+- `0.217.0` makes maintained IcyDB endpoints explicit source declarations and
+  removes TOML and CLI configuration authority in a breaking pre-1.0 hard cut.
+
 ## [0.216.x] ⚠️ - 2026-07-31 - Explicit Application Behavior And Durable Rules
 
 Detailed notes: [docs/changelog/0.216.md](docs/changelog/0.216.md)

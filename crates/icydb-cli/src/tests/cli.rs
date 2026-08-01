@@ -8,9 +8,7 @@ use std::path::Path;
 use clap::Parser;
 
 use crate::{
-    cli::{
-        CanisterCommand, CliArgs, CliCommand, ConfigCommand, DEFAULT_ENVIRONMENT, SchemaCommand,
-    },
+    cli::{CanisterCommand, CliArgs, CliCommand, DEFAULT_ENVIRONMENT, SchemaCommand},
     shell::test_support::sql_shell_config_inputs,
 };
 
@@ -40,27 +38,13 @@ fn clap_help_exposes_target_environment_flags() {
 }
 
 #[test]
-fn clap_help_exposes_available_short_flags_on_config_commands() {
+fn clap_help_exposes_available_short_flags_on_sql_command() {
     let sql_help = clap_help_text(["icydb", "sql", "--help"].as_slice());
     assert!(sql_help.contains("-c, --canister"));
     assert!(sql_help.contains("including supported DDL"));
     assert!(sql_help.contains("icydb sql -c demo_rpg"));
     assert!(sql_help.contains("CREATE INDEX character_renown_idx ON character (renown)"));
     assert!(sql_help.contains("DROP INDEX character_renown_idx ON character"));
-
-    let init_help = clap_help_text(["icydb", "config", "init", "--help"].as_slice());
-    assert!(init_help.contains("-c, --canister"));
-
-    for args in [
-        ["icydb", "config", "show", "--help"].as_slice(),
-        ["icydb", "config", "check", "--help"].as_slice(),
-    ] {
-        let help = clap_help_text(args);
-        assert!(
-            help.contains("-e, --environment"),
-            "help should expose -e shorthand: {help}"
-        );
-    }
 }
 
 #[test]
@@ -265,187 +249,6 @@ fn cli_args_group_schema_under_top_level_keyword() {
 
     assert_eq!(target.canister_name(), "demo_rpg");
     assert_eq!(target.environment(), "test");
-}
-
-#[test]
-fn cli_args_group_config_show_under_config_keyword() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "show",
-        "--environment",
-        "demo",
-        "--start-dir",
-        "canisters/demo/rpg",
-    ])
-    .expect("config show should parse");
-    let CliCommand::Config(ConfigCommand::Show(args)) = args.into_command() else {
-        panic!("expected config show command");
-    };
-
-    assert_eq!(args.environment(), Some("demo"));
-    assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
-}
-
-#[test]
-fn cli_args_group_config_check_under_config_keyword() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "check",
-        "--environment",
-        "demo",
-        "--start-dir",
-        "canisters/demo/rpg",
-    ])
-    .expect("config check should parse");
-    let CliCommand::Config(ConfigCommand::Check(args)) = args.into_command() else {
-        panic!("expected config check command");
-    };
-
-    assert_eq!(args.environment(), Some("demo"));
-    assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
-}
-
-#[test]
-fn cli_args_group_config_init_under_config_keyword() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "init",
-        "--canister",
-        "demo_rpg",
-        "--ddl",
-        "--fixtures",
-        "--update",
-        "--metrics",
-        "--metrics-extended",
-        "--snapshot",
-        "--schema",
-        "--start-dir",
-        "canisters/demo/rpg",
-    ])
-    .expect("config init should parse");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
-        panic!("expected config init command");
-    };
-
-    assert_eq!(args.canister_name(), "demo_rpg");
-    assert!(args.readonly());
-    assert!(args.ddl());
-    assert!(args.fixtures());
-    assert_eq!(args.update_config_value(), "true");
-    assert!(args.metrics());
-    assert!(args.metrics_extended_local());
-    assert!(!args.metrics_extended_ic());
-    assert!(args.snapshot());
-    assert!(args.schema());
-    assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
-}
-
-#[test]
-fn cli_args_config_init_update_policy_enables_primary_key_update() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "init",
-        "--canister",
-        "demo_rpg",
-        "--update-policy",
-        "primary-key",
-    ])
-    .expect("config init should parse primary-key update policy");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
-        panic!("expected config init command");
-    };
-
-    assert_eq!(args.update_config_value(), "\"primary_key\"");
-}
-
-#[test]
-fn cli_args_config_init_update_policy_enables_bounded_update() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "init",
-        "--canister",
-        "demo_rpg",
-        "--update-policy",
-        "bounded",
-    ])
-    .expect("config init should parse bounded update policy");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
-        panic!("expected config init command");
-    };
-
-    assert_eq!(args.update_config_value(), "\"bounded\"");
-}
-
-#[test]
-fn cli_args_config_init_no_readonly_overrides_all() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "init",
-        "--canister",
-        "demo_rpg",
-        "--all",
-        "--no-readonly",
-    ])
-    .expect("config init should parse all without readonly");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
-        panic!("expected config init command");
-    };
-
-    assert!(!args.readonly());
-    assert!(args.ddl());
-    assert!(args.fixtures());
-    assert_eq!(args.update_config_value(), "true");
-    assert!(args.metrics());
-    assert!(args.metrics_extended_local());
-    assert!(!args.metrics_extended_ic());
-    assert!(args.snapshot());
-    assert!(args.schema());
-}
-
-#[test]
-fn cli_args_config_init_metrics_extended_implies_metrics_surface() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "init",
-        "--canister",
-        "demo_rpg",
-        "--metrics-extended",
-    ])
-    .expect("extended metrics config init should parse");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
-        panic!("expected config init command");
-    };
-
-    assert!(args.metrics());
-    assert!(args.metrics_extended_local());
-    assert!(!args.metrics_extended_ic());
-}
-
-#[test]
-fn cli_args_config_init_metrics_extended_ic_is_separate_target() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "config",
-        "init",
-        "--canister",
-        "demo_rpg",
-        "--metrics-extended-ic",
-    ])
-    .expect("IC extended metrics config init should parse");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
-        panic!("expected config init command");
-    };
-
-    assert!(args.metrics());
-    assert!(!args.metrics_extended_local());
-    assert!(args.metrics_extended_ic());
 }
 
 #[test]

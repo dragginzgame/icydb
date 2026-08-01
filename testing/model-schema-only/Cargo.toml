@@ -11,6 +11,7 @@ authors = { workspace = true }
 
 [dependencies]
 model_api = { package = "icydb-model", path = "../../crates/icydb-model" }
+runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
 
 [lints]
 workspace = true

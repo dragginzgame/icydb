@@ -9,11 +9,13 @@ publish = false
 crate-type = ["cdylib"]
 
 [features]
-default = ["sql", "sql-explain", "diagnostics"]
+default = []
 candid-export = []
 sql = ["icydb/sql"]
-sql-explain = ["icydb/sql-explain"]
+sql-explain = ["sql", "icydb/sql-explain"]
 diagnostics = ["icydb/diagnostics"]
+local-sql-query = ["sql-explain"]
+test-admin-api = ["sql"]
 
 [dependencies]
 candid = { workspace = true }
@@ -24,7 +26,6 @@ icydb-model = { path = "../../../crates/icydb-model" }
 [build-dependencies]
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-test-sql-fixtures = { workspace = true }
-icydb-testing-wasm-helpers = { workspace = true }
 
 [lints]
 workspace = true

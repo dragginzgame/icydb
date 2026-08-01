@@ -436,6 +436,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::SchemaSurfaceControllerRequired => {
             "schema endpoint requires controller access"
         }
+        RuntimeBoundaryCode::OperationalSurfaceControllerRequired => {
+            "operational endpoint requires controller access"
+        }
         RuntimeBoundaryCode::SqlQueryNoConfiguredEntities => {
             "SQL query endpoint has no configured entities"
         }
@@ -1207,6 +1210,10 @@ mod tests {
     #[test]
     fn renders_runtime_boundary_details() {
         let cases = [
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::OperationalSurfaceControllerRequired,
+                "E_RUNTIME_UNSUPPORTED: operational endpoint requires controller access",
+            ),
             (
                 icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
                 "E_RUNTIME_UNSUPPORTED: SQL DDL requires one target entity",

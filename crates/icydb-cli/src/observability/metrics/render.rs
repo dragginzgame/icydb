@@ -1,6 +1,6 @@
 //! Module: metrics report rendering.
 //! Responsibility: render generated event metrics reports into CLI text and tables.
-//! Does not own: endpoint calls, candid decoding, or config surface gating.
+//! Does not own: endpoint calls, Candid decoding, or endpoint publication.
 //! Boundary: receives decoded metrics reports and returns user-facing text.
 
 use icydb::metrics::{

@@ -9,23 +9,23 @@ publish = false
 crate-type = ["cdylib"]
 
 [features]
-default = ["sql", "sql-explain", "diagnostics"]
+default = []
 candid-export = []
 sql = ["icydb/sql"]
-sql-explain = ["icydb/sql-explain"]
+sql-explain = ["sql", "icydb/sql-explain"]
 diagnostics = ["icydb/diagnostics"]
+test-admin-api = ["sql"]
 
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false, features = ["sql", "sql-explain", "diagnostics"] }
+icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [build-dependencies]
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
-icydb-testing-wasm-helpers = { workspace = true }
 
 [lints]
 workspace = true

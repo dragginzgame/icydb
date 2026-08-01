@@ -13,16 +13,14 @@ fi
 
 CAN="$1"
 PKG="${2:-$CAN}"
-WASM_SOURCE="$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/$PKG.wasm"
 ICP_DIR="$ROOT/.icp/local/canisters/$CAN"
 WASM_TARGET="$ICP_DIR/$CAN.wasm"
 
-cargo build --manifest-path "$ROOT/Cargo.toml" --target wasm32-unknown-unknown -p "$PKG" --features candid-export
-mkdir -p "$ICP_DIR"
-cp -f "$WASM_SOURCE" "$WASM_TARGET"
+cargo run --manifest-path "$ROOT/Cargo.toml" \
+    --package icydb-testing-integration \
+    --bin build_fixture_canister \
+    -- "$CAN" --build-profile local --profile debug --candid-export on
 if [ -n "${ICP_WASM_OUTPUT_PATH:-}" ]; then
     mkdir -p "$(dirname "$ICP_WASM_OUTPUT_PATH")"
     cp -f "$WASM_TARGET" "$ICP_WASM_OUTPUT_PATH"
 fi
-
-candid-extractor "$WASM_TARGET" > "$ICP_DIR/$CAN.did"

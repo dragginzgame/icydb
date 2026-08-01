@@ -19,7 +19,7 @@ DIAGNOSTICS="crates/icydb-diagnostic-code/src/lib.rs"
 TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
 FACADE_SQL="crates/icydb/src/db/session/sql.rs"
 GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql.rs"
-CONFIG_PARSE="crates/icydb-config/src/parse.rs"
+GENERATED_ENDPOINT="crates/icydb-model/src/build/actor/endpoint.rs"
 
 extract_enum_variants() {
   local enum_name="$1"
@@ -106,9 +106,9 @@ require_literal \
   "trusted SQL caller-control warning" \
   'caller-controlled SQL public-safe'
 require_literal \
-  "$GENERATED_SQL" \
+  "$GENERATED_ENDPOINT" \
   "generated query controller gate" \
-  'icydb_sql_surface_require_controller("query")'
+  'require_sql_controller'
 require_literal \
   "$GENERATED_SQL" \
   "generated query trusted dispatch" \
@@ -117,11 +117,6 @@ require_literal \
   "$GUIDE" \
   "typed public endpoint guidance" \
   '.query::<User>()?'
-
-if rg -F --quiet "public_read" "$CONFIG_PARSE"; then
-  echo "[ERROR] icydb.toml must not expose generated public SQL-read policy." >&2
-  status=1
-fi
 
 if [[ $status -ne 0 ]]; then
   echo "[FAIL] Read-admission invariants failed." >&2

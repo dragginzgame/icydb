@@ -31,6 +31,15 @@ use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
 
 icydb::start!();
 
+icydb::endpoints! {
+    icydb_metrics(authorization = public);
+    icydb_metrics_reset;
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_reset;
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_load(handler = load_perf_fixtures);
+}
+
 // SqlQueryPerfResult
 //
 // Dedicated audit envelope that preserves the SQL result payload while
@@ -876,8 +885,7 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
 }
 /// Clear all dedicated perf fixture rows from this canister.
 #[cfg(feature = "sql")]
-#[update(name = "icydb_fixtures_reset")]
-fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
+fn reset_perf_fixtures() -> Result<(), icydb::Error> {
     let session = db()?;
     for entity in [
         "PerfAuditRelationSource",
@@ -896,10 +904,8 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
 }
 
 /// Load one deterministic fixture batch tuned for SQL perf audit queries.
-#[cfg(feature = "sql")]
-#[update(name = "icydb_fixtures_load")]
-fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
-    __icydb_fixtures_reset()?;
+#[cfg(feature = "test-admin-api")]
+fn load_perf_fixtures() -> Result<(), icydb::Error> {
     insert_fixture_rows(perf_audit_users())?;
     insert_fixture_rows(perf_audit_heap_users())?;
     insert_fixture_rows(perf_audit_journaled_users())?;
@@ -927,7 +933,7 @@ fn load_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
             .count(),
         ScalePayloadProfile::NotApplicable,
     )?;
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(rows)?;
 
     Ok(facts)
@@ -952,7 +958,7 @@ fn load_account_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb
             .count(),
         ScalePayloadProfile::NotApplicable,
     )?;
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(rows)?;
 
     Ok(facts)
@@ -975,7 +981,7 @@ fn load_blob_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
         rows.iter().filter(|row| row.bucket == 10).count(),
         ScalePayloadProfile::BlobCycleV1,
     )?;
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(rows)?;
 
     Ok(facts)
@@ -988,7 +994,7 @@ fn load_heap_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icy
     let validated_rows = validate_scale_fixture_rows(row_count)?;
     let rows = perf_scale_heap_users(validated_rows);
     let facts = scale_user_mirror_fixture_facts("heap_user", row_count, &rows)?;
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(rows)?;
 
     Ok(facts)
@@ -1001,7 +1007,7 @@ fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts
     let validated_rows = validate_scale_fixture_rows(row_count)?;
     let rows = perf_scale_journaled_users(validated_rows);
     let facts = scale_journaled_user_fixture_facts(row_count, &rows)?;
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(rows)?;
 
     Ok(facts)
@@ -1027,7 +1033,7 @@ fn load_token_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::
             .count(),
         ScalePayloadProfile::NotApplicable,
     )?;
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(rows)?;
 
     Ok(facts)
@@ -1057,7 +1063,7 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
 #[cfg(feature = "sql")]
 #[update]
 fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(perf_audit_journaled_reentry_probe_users())?;
 
     Ok(())
@@ -1068,7 +1074,7 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
 #[cfg(feature = "sql")]
 #[update]
 fn load_journal_tail_integrity_fixture() -> Result<(), icydb::Error> {
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     for id in 1..=INTEGRITY_JOURNAL_TAIL_BATCHES {
         insert_fixture_rows(vec![build_perf_audit_journaled_user(
             id,
@@ -1084,7 +1090,7 @@ fn load_journal_tail_integrity_fixture() -> Result<(), icydb::Error> {
 #[cfg(feature = "sql")]
 #[update]
 fn load_relation_integrity_fixture() -> Result<(), icydb::Error> {
-    __icydb_fixtures_reset()?;
+    reset_perf_fixtures()?;
     insert_fixture_rows(perf_audit_relation_targets())?;
     insert_fixture_rows(perf_audit_relation_sources())?;
 
@@ -2094,7 +2100,7 @@ fn perf_scale_tokens(row_count: i32) -> Vec<PerfAuditToken> {
 }
 
 /// Build the deterministic user fixture batch used by the perf audit.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn perf_audit_users() -> Vec<PerfAuditUser> {
     vec![
         PerfAuditUser {
@@ -2173,7 +2179,7 @@ fn build_perf_audit_heap_user(id: i32, name: &str, age: i32) -> PerfAuditHeapUse
 
 /// Build a larger deterministic heap fixture window used by the bounded-query
 /// instruction regression guard.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn perf_audit_heap_users() -> Vec<PerfAuditHeapUser> {
     (1..=512)
         .map(|id| build_perf_audit_heap_user(id, &format!("heap-user-{id:04}"), 18 + (id % 47)))
@@ -2193,7 +2199,7 @@ fn build_perf_audit_journaled_user(id: i32, name: &str, age: i32) -> PerfAuditJo
 
 /// Build a larger deterministic journaled fixture window used by the
 /// bounded-query instruction regression guard.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn perf_audit_journaled_users() -> Vec<PerfAuditJournaledUser> {
     (1..=512)
         .map(|id| {
@@ -2251,7 +2257,7 @@ fn perf_blob(seed: u8, len: usize) -> Blob {
 }
 
 /// Build the deterministic blob fixture batch used by SQL perf audit queries.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
     vec![
         PerfAuditBlob {
@@ -2312,7 +2318,7 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
 }
 
 /// Build the deterministic account fixture batch used by the perf audit.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
     vec![
         PerfAuditAccount {
@@ -2386,7 +2392,7 @@ fn perf_audit_token(id: u128, collection_id: &str, stage: &str, title: &str) -> 
 
 /// Build the deterministic token fixture batch used by the branch-set perf
 /// audit query.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn perf_audit_tokens() -> Vec<PerfAuditToken> {
     let mut tokens = vec![
         perf_audit_token(9_090, TOKEN_TARGET_COLLECTION, "Draft", "draft-090"),

@@ -2,7 +2,7 @@
         release-patch release-minor release-major release \
         test test-bump test-sql-canister-matrix test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
-        build-sql-perf-wasm \
+        build-sql-perf-wasm build-canister-local build-canister-production \
         test-sql-perf-p1-shard test-sql-perf-p1-merge \
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
         test-sql-perf-instrumentation test-sql-perf-calibration-review test-sql-perf-baseline \
@@ -109,6 +109,10 @@ help:
 	@echo "                  Reproduce one minimized Tier C failure exactly"
 	@echo "  build-sql-perf-wasm"
 	@echo "                  Build the one wasm-release subject shared by every performance shard"
+	@echo "  build-canister-local CANISTER=demo_rpg"
+	@echo "                  Build and stage the exact local/test feature profile"
+	@echo "  build-canister-production CANISTER=demo_rpg"
+	@echo "                  Build and stage the exact production feature profile"
 	@echo "  test-sql-perf-p1-shard P1_SHARD=0"
 	@echo "                  Run one deterministic P1 performance shard (0 through 7)"
 	@echo "  test-sql-perf-p1-merge P1_BASELINE_PATH=..."
@@ -295,6 +299,18 @@ build-sql-perf-wasm:
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_builds_shared_wasm_subject -- --ignored --exact --nocapture
 
+build-canister-local:
+	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
+	$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+		--bin build_fixture_canister -- "$(CANISTER)" --build-profile local \
+		--profile debug --candid-export on
+
+build-canister-production:
+	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
+	$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
+		--profile wasm-release --candid-export on
+
 test-sql-perf-p1-shard:
 	@test -n "$(P1_SHARD)" || { echo "P1_SHARD must be an index from 0 through 7" >&2; exit 1; }
 	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
@@ -444,7 +460,7 @@ check-versioning: security-check
 check-invariants:
 	bash scripts/ci/check-dependency-graph-invariants.sh
 	bash scripts/ci/check-executor-no-production-panics.sh
-	bash scripts/ci/check-generated-build-config-invariants.sh
+	bash scripts/ci/check-generated-endpoint-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh

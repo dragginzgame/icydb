@@ -131,7 +131,7 @@ pub struct SchemaOnlyEntity {}
 
 #[cfg(test)]
 mod tests {
-    use model_api::build::{BuildOptions, generate_with_options, get_schema};
+    use model_api::build::{generate, get_schema};
     use model_api::schema::{
         ConstraintFragmentKind, ConstraintSourceKey, FieldInsertPolicy, FieldSourceKey, FieldType,
         NamedTypeFragment, RuleSourceKey, SchemaFragment, SourceRuleOperation, TypeSourceKey,
@@ -290,12 +290,7 @@ mod tests {
         );
         drop(schema);
 
-        let actor = generate_with_options(
-            canister_path,
-            BuildOptions::default()
-                .with_metrics_enabled(false)
-                .with_icydb_crate_path("runtime_api"),
-        );
+        let actor = generate(canister_path);
         assert!(actor.contains("runtime_api"));
         assert!(!actor.contains(":: icydb ::"));
         assert!(!actor.contains("normalize_and_validate"));

@@ -1,6 +1,6 @@
 //! Module: snapshot command handling.
 //! Responsibility: call the generated storage snapshot endpoint and render storage reports.
-//! Does not own: stable-memory inspection, config surface gating, or generic ICP command construction.
+//! Does not own: stable-memory inspection, endpoint publication, or generic ICP command construction.
 //! Boundary: exposes the snapshot command and test-covered report rendering through observability.
 
 use candid::Decode;
@@ -9,14 +9,13 @@ mod render;
 
 use crate::{
     cli::CanisterTarget,
-    config::{SNAPSHOT_ENDPOINT, require_configured_endpoint},
+    endpoint::SNAPSHOT_ENDPOINT,
     icp::require_created_canister,
     observability::{call_query, endpoint_result_error},
 };
 
 /// Read and print the generated storage snapshot endpoint.
 pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
-    require_configured_endpoint(target.canister_name(), SNAPSHOT_ENDPOINT)?;
     require_created_canister(target.environment(), target.canister_name())?;
     let candid_bytes = call_query(
         target.environment(),

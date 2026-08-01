@@ -9,7 +9,7 @@ mod application;
 mod application_lowering;
 mod application_receipt;
 mod application_store;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 mod capabilities;
 mod check;
 mod codec;
@@ -22,7 +22,7 @@ pub(in crate::db) mod enum_catalog;
 mod errors;
 mod field_kind_semantics;
 mod fingerprint;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 mod format;
 mod identity;
 mod identity_state;
@@ -39,7 +39,7 @@ mod source_binding;
 mod sql_ddl;
 mod storage;
 mod store;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 mod transition;
 mod types;
 mod wire;
@@ -163,9 +163,9 @@ pub(in crate::db) use enum_catalog::{
     accepted_schema_candidate_with_field_bindings_for_tests, build_accepted_enum_catalog_for_tests,
     empty_accepted_enum_catalog_for_tests, empty_accepted_schema_candidate_for_tests,
 };
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use field_kind_semantics::AcceptedFieldKindSemantics;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use field_kind_semantics::AcceptedScalarClass;
 pub(in crate::db) use field_kind_semantics::{
     AcceptedFieldKindCategory, classify_accepted_field_kind,
@@ -175,7 +175,7 @@ pub(in crate::db) use fingerprint::{
     accepted_schema_cache_fingerprint_for_persisted_snapshot,
     accepted_schema_cache_fingerprint_method_version,
 };
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
 };
@@ -208,11 +208,15 @@ pub(in crate::db) use live_schema_checkpoint::{
 };
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) use mutation::{
-    MAX_SCHEMA_PROJECTION_ENTRIES, MutationPlan, MutationPublicationPreflight,
-    SchemaMutationRequest, SchemaTransitionSourceBudget, schema_mutation_request_for_snapshots,
+    MAX_SCHEMA_PROJECTION_ENTRIES, SchemaTransitionSourceBudget,
 };
 pub(in crate::db) use mutation::{
     MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES, UniqueConstraintProjection,
+};
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::schema) use mutation::{
+    MutationPlan, MutationPublicationPreflight, SchemaMutationRequest,
+    schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{

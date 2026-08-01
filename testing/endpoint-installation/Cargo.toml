@@ -1,0 +1,32 @@
+[package]
+name = "icydb-testing-endpoint-installation"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+license = { workspace = true }
+description = "Released-package-shaped endpoint installation fixture"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["candid", "icydb-testing-audit-default-empty-fixtures"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+candid-export = []
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
+
+[build-dependencies]
+icydb-testing-audit-default-empty-fixtures = { workspace = true }
+runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
+
+[lints]
+workspace = true

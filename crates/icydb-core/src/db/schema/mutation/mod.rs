@@ -61,11 +61,11 @@ pub(in crate::db) use ddl_admission::{
     SchemaDdlVersionContractPreflightError, validate_schema_ddl_version_contract_preflight,
 };
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 mod delta;
 #[cfg(feature = "sql")]
 pub(in crate::db::schema) use delta::required_empty_entity_field_addition_matches;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use delta::schema_mutation_request_for_snapshots;
 
 #[cfg(feature = "sql")]
@@ -161,7 +161,7 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) enum MutationPlan {
     MetadataOnly,
     FieldPathIndexRebuild {
@@ -174,13 +174,13 @@ pub(in crate::db::schema) enum MutationPlan {
 
 /// Schema-owned publication boundary for a current mutation plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) enum MutationPublicationPreflight {
     PublishableNow,
     RequiresPhysicalWork,
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 impl MutationPlan {
     /// Build the no-op plan for equal accepted snapshots.
     pub(in crate::db::schema) const fn exact_match() -> Self {
@@ -220,7 +220,6 @@ impl MutationPlan {
         }
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(in crate::db::schema) const fn expression_index_target(
         &self,
@@ -232,7 +231,7 @@ impl MutationPlan {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 impl From<SchemaMutationRequest<'_>> for MutationPlan {
     fn from(request: SchemaMutationRequest<'_>) -> Self {
         match request {

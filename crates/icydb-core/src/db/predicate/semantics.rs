@@ -11,7 +11,7 @@ use crate::{
             coercion::{CoercionId, CoercionSpec},
         },
     },
-    value::{TextMode, Value},
+    value::{TextMode, Value, casefold_text},
 };
 use std::{cmp::Ordering, mem::discriminant};
 
@@ -183,14 +183,4 @@ fn casefold_value(value: &Value) -> Option<String> {
         Value::Text(text) => Some(casefold_text(text)),
         _ => None,
     }
-}
-
-/// Canonical casefold helper for predicate text comparison and identity keys.
-#[must_use]
-pub(in crate::db::predicate) fn casefold_text(input: &str) -> String {
-    if input.is_ascii() {
-        return input.to_ascii_lowercase();
-    }
-
-    input.to_lowercase()
 }

@@ -83,8 +83,8 @@ pub(in crate::db) use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;
 #[cfg(feature = "query")]
 pub(in crate::db::executor) use covering::{
-    CoveringProjectionComponentRows, covering_projection_scan_direction,
-    decode_single_covering_projection_pairs, reorder_covering_projection_pairs,
+    covering_projection_scan_direction, decode_single_covering_projection_pairs,
+    reorder_covering_projection_pairs,
 };
 #[cfg(feature = "query")]
 pub(in crate::db::executor) use covering::{
@@ -194,8 +194,9 @@ pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
 pub(in crate::db::executor) use stream::access::TraversalRuntime;
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db::executor) use stream::access::{
-    ACCESS_SCAN_CHUNK_ENTRIES, AccessStreamExecutionPolicy, ExecutableAccess, IndexLeafOrderPolicy,
-    IndexScan, PrimaryScan, active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
+    ACCESS_SCAN_CHUNK_ENTRIES, AccessStreamExecutionPolicy, ExecutableAccess, IndexComponentRow,
+    IndexComponentRows, IndexComponentValues, IndexLeafOrderPolicy, IndexScan, PrimaryScan,
+    active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
     branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
     index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
 };

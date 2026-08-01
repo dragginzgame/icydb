@@ -340,7 +340,7 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     Ok((index, field_path, activation_id))
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn ddl_drop_index_key_report(key: &PersistedIndexKeySnapshot) -> Option<Vec<String>> {
     match key {
         PersistedIndexKeySnapshot::FieldPath(field_paths) => match field_paths.as_slice() {
@@ -368,7 +368,7 @@ fn ddl_drop_index_key_report(key: &PersistedIndexKeySnapshot) -> Option<Vec<Stri
     }
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 fn ddl_drop_index_key_item_text(item: &PersistedIndexKeyItemSnapshot) -> String {
     match item {
         PersistedIndexKeyItemSnapshot::FieldPath(field_path) => field_path.path().join("."),

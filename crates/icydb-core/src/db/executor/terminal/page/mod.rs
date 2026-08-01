@@ -24,7 +24,7 @@ use crate::{
         executor::{
             OrderReadableRow, OrderedKeyStreamBox, ScalarContinuationContext,
             measure_execution_stats_phase,
-            pipeline::contracts::{KernelPageMaterializationRequest, StructuralCursorPage},
+            pipeline::contracts::{KernelPageMaterializationRequest, ScalarPageMaterialization},
             projection::ProjectionValidationRow,
             record_projection,
             route::LoadOrderRouteMode,
@@ -223,7 +223,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
 pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>(
     request: KernelPageMaterializationRequest<'a>,
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
-) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
+) -> Result<ScalarPageMaterialization, InternalError> {
     let KernelPageMaterializationRequest {
         plan,
         key_stream,
@@ -272,7 +272,11 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     let payload = payload?;
     record_projection(payload.row_count(), projection_micros);
 
-    Ok((payload, rows_scanned, post_access_rows))
+    Ok(ScalarPageMaterialization {
+        payload,
+        rows_scanned,
+        post_access_rows,
+    })
 }
 
 /// Materialize one ordered key stream through scalar post-access phases and

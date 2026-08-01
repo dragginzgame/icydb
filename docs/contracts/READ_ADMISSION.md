@@ -59,12 +59,11 @@ continuation contract. Do not emulate continuation with hidden offsets.
 ## Generated SQL Query Surface
 
 Generated `icydb_query` remains controller-gated. It calls
-`icydb_sql_surface_require_controller("query")` before dispatch and uses
+the generated SQL controller authorization helper before dispatch and uses
 `execute_trusted_sql_query_with_perf_attribution`.
 
-`icydb.toml` has no `sql.public_read` configuration, and a non-controller
-generated SQL query endpoint is forbidden. Generated SQL is an admin surface,
-not a public endpoint template.
+The maintained `icydb_sql_query` declaration always produces a controller-gated
+admin surface, not a public endpoint template.
 
 ## Public Endpoint Guidance
 

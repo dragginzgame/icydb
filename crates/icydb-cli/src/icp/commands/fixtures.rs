@@ -6,7 +6,7 @@
 use std::process::{Command, Stdio};
 
 use crate::{
-    config::FIXTURES_LOAD_ENDPOINT,
+    endpoint::FIXTURES_LOAD_ENDPOINT,
     icp::{
         commands::append_environment_args,
         process::{

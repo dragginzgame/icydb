@@ -105,9 +105,8 @@ lane. `execute_trusted_sql_query` has the same authorization posture.
 ## Generated SQL Boundary
 
 Generated `icydb_query` is controller-gated admin SQL. It is not a public read
-endpoint template, and `icydb.toml` has no non-controller public SQL-read
-mode. Hand-written public endpoints should use the ordinary typed/dynamic
-lane.
+endpoint template. Hand-written public endpoints should use the ordinary
+typed/dynamic lane.
 
 ## Endpoint Review Checklist
 

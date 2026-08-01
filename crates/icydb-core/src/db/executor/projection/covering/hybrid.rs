@@ -14,7 +14,7 @@ use crate::{
                 resolve_index_backed_covering_scan,
             },
         },
-        executor::{CoveringProjectionComponentRows, EntityAuthority, terminal::RowLayout},
+        executor::{EntityAuthority, IndexComponentRows, terminal::RowLayout},
     },
     error::InternalError,
     traits::CanisterKind,
@@ -110,7 +110,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
     row_field_slots: &[usize],
     page_skip_count: usize,
     page_window_applied: bool,
-    raw_pairs: CoveringProjectionComponentRows,
+    raw_pairs: IndexComponentRows,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut keyed_components = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
@@ -164,7 +164,7 @@ fn execute_hybrid_covering_projection_with_checked_rows(
     row_field_slots: &[usize],
     page_skip_count: usize,
     page_window_applied: bool,
-    raw_pairs: CoveringProjectionComponentRows,
+    raw_pairs: IndexComponentRows,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));

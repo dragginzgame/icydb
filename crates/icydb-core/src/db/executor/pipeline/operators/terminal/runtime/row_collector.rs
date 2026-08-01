@@ -6,7 +6,7 @@
 use crate::{
     db::executor::{
         ExecutionKernel,
-        pipeline::contracts::{RowCollectorMaterializationRequest, StructuralCursorPage},
+        pipeline::contracts::{RowCollectorMaterializationRequest, ScalarPageMaterialization},
         terminal::page::{
             ScalarRowRuntimeHandle, execute_kernel_row_scan, resolve_cursorless_short_path_plan,
         },
@@ -18,7 +18,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn try_materialize_load_via_row_collector<'a>(
         request: RowCollectorMaterializationRequest<'a>,
         row_runtime: &mut ScalarRowRuntimeHandle<'a>,
-    ) -> Result<Option<(StructuralCursorPage, usize, usize)>, InternalError> {
+    ) -> Result<Option<ScalarPageMaterialization>, InternalError> {
         let RowCollectorMaterializationRequest {
             plan,
             scan_budget_hint,
@@ -47,6 +47,10 @@ impl ExecutionKernel {
         let rows = rows.into_plain_rows()?;
         let (payload, post_access_rows) = short_path_plan.materialize_rows(rows)?;
 
-        Ok(Some((payload, rows_scanned, post_access_rows)))
+        Ok(Some(ScalarPageMaterialization {
+            payload,
+            rows_scanned,
+            post_access_rows,
+        }))
     }
 }

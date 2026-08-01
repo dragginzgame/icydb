@@ -1,6 +1,6 @@
 //! Module: snapshot report rendering.
 //! Responsibility: render generated storage snapshot reports into CLI tables.
-//! Does not own: endpoint calls, candid decoding, or config surface gating.
+//! Does not own: endpoint calls, Candid decoding, or endpoint publication.
 //! Boundary: receives decoded storage reports and returns user-facing text.
 
 use icydb::db::{DataStoreSnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport};

@@ -522,6 +522,8 @@ pub enum RuntimeBoundaryCode {
     MutationBatchEntityMismatch,
     /// More than one mixed structural operation targeted the same accepted key.
     MutationBatchDuplicateKey,
+    /// An operational report or reset endpoint requires a controller caller.
+    OperationalSurfaceControllerRequired,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -987,7 +989,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 240);
+        assert_eq!(last, 241);
     }
 
     #[test]
@@ -1019,7 +1021,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 241, u16::MAX] {
+        for raw in [0, 242, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

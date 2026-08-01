@@ -27,13 +27,15 @@ use crate::{
 };
 use std::{borrow::Cow, ops::Bound, sync::Arc};
 
-type IndexComponentValues = Arc<[Vec<u8>]>;
+pub(in crate::db::executor) type IndexComponentValues = Arc<[Vec<u8>]>;
 
-pub(in crate::db::executor) type IndexComponentRows = Vec<(
+pub(in crate::db::executor) type IndexComponentRow = (
     DecodedDataStoreKey,
     IndexEntryExistenceWitness,
     IndexComponentValues,
-)>;
+);
+
+pub(in crate::db::executor) type IndexComponentRows = Vec<IndexComponentRow>;
 
 pub(in crate::db::executor) const ACCESS_SCAN_CHUNK_ENTRIES: usize = 64;
 const PREFIX_STREAM_SMALL_CHUNK_ENTRIES: usize = 2;

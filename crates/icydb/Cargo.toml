@@ -14,6 +14,7 @@ query = ["icydb-core/query"]
 sql = ["query", "icydb-core/sql"]
 sql-explain = ["sql", "icydb-core/sql-explain"]
 diagnostics = ["icydb-core/diagnostics"]
+metrics-extended = ["icydb-core/metrics-extended"]
 
 [dependencies]
 candid = { workspace = true }
@@ -24,9 +25,6 @@ icydb-diagnostic-code = { workspace = true }
 icydb-model = { workspace = true }
 icydb-schema = { workspace = true }
 serde = { workspace = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-icydb-config = { workspace = true }
 
 [dev-dependencies]
 trybuild = { workspace = true }

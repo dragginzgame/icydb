@@ -12,7 +12,7 @@ ignored = ["candid", "icydb-testing-audit-one-simple-fixtures"]
 crate-type = ["cdylib"]
 
 [features]
-default = ["sql"]
+default = []
 candid-export = []
 sql = ["icydb/sql"]
 

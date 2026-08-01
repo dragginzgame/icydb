@@ -1,19 +1,6 @@
 //! Shared helpers for wasm fixture schema and canister builds.
 
 ///
-/// build_configured_canister
-///
-/// Emit generated actor glue for one fixture canister using local
-/// `icydb.toml` switches.
-///
-#[macro_export]
-macro_rules! build_configured_canister {
-    ($canister_ty:ty, $canister_path:literal, $canister_name:literal) => {{
-        icydb::build::build_configured_canister!($canister_ty, $canister_path, $canister_name);
-    }};
-}
-
-///
 /// define_fixture_canister
 ///
 /// Generate the repeated canister declaration used by wasm fixture schema

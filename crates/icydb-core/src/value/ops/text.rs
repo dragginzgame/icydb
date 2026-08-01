@@ -7,19 +7,44 @@
 use crate::value::{TextMode, Value};
 use std::borrow::Cow;
 
-fn fold_ci(s: &str) -> Cow<'_, str> {
-    if s.is_ascii() {
-        return Cow::Owned(s.to_ascii_lowercase());
+/// Apply the canonical case-insensitive text fold.
+///
+/// Casefolding remains a distinct semantic contract from SQL `LOWER`, even
+/// while both use Unicode lowercase conversion today. A future full Unicode
+/// casefold must not silently change `LOWER` or persisted index expressions.
+#[must_use]
+pub(crate) fn casefold_text(input: &str) -> String {
+    lowercase_text(input)
+}
+
+/// Apply the canonical `LOWER` transform used by query and index expressions.
+#[must_use]
+pub(crate) fn lower_text(input: &str) -> String {
+    lowercase_text(input)
+}
+
+/// Apply the canonical `UPPER` transform used by query and index expressions.
+#[must_use]
+pub(crate) fn upper_text(input: &str) -> String {
+    if input.is_ascii() {
+        return input.to_ascii_uppercase();
     }
-    // NOTE: Unicode fallback - temporary to_lowercase for non-ASCII.
-    // Future: replace with proper NFKC + full casefold when available.
-    Cow::Owned(s.to_lowercase())
+
+    input.to_uppercase()
+}
+
+fn lowercase_text(input: &str) -> String {
+    if input.is_ascii() {
+        return input.to_ascii_lowercase();
+    }
+
+    input.to_lowercase()
 }
 
 fn text_with_mode(s: &'_ str, mode: TextMode) -> Cow<'_, str> {
     match mode {
         TextMode::Cs => Cow::Borrowed(s),
-        TextMode::Ci => fold_ci(s),
+        TextMode::Ci => Cow::Owned(casefold_text(s)),
     }
 }
 
@@ -37,7 +62,7 @@ fn text_op(
 
 fn ci_key(value: &Value) -> Option<String> {
     match value {
-        Value::Text(s) => Some(fold_ci(s).into_owned()),
+        Value::Text(s) => Some(casefold_text(s)),
         Value::Ulid(u) => Some(u.to_string().to_ascii_lowercase()),
         Value::Principal(p) => Some(p.to_string().to_ascii_lowercase()),
         Value::Account(a) => Some(a.to_string().to_ascii_lowercase()),
@@ -100,5 +125,21 @@ impl Value {
     #[must_use]
     pub fn text_ends_with(&self, needle: &Self, mode: TextMode) -> Option<bool> {
         text_ends_with(self, needle, mode)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{casefold_text, lower_text, upper_text};
+
+    #[test]
+    fn canonical_text_transforms_preserve_current_ascii_and_unicode_semantics() {
+        assert_eq!(casefold_text("IcYDB"), "icydb");
+        assert_eq!(lower_text("IcYDB"), "icydb");
+        assert_eq!(upper_text("IcYDB"), "ICYDB");
+
+        assert_eq!(casefold_text("Straße"), "straße");
+        assert_eq!(lower_text("Straße"), "straße");
+        assert_eq!(upper_text("Straße"), "STRASSE");
     }
 }

@@ -236,7 +236,7 @@ fn candid_escape_string_escapes_sql_for_wire_arg() {
 }
 
 #[test]
-fn sql_shell_call_kind_routes_sql_to_configured_endpoint_family() {
+fn sql_shell_call_kind_routes_sql_to_fixed_endpoint_family() {
     for sql in [
         "CREATE INDEX name_idx ON Character (name);",
         "  create   index name_idx ON Character (name)  ; ",

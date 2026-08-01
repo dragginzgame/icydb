@@ -12,14 +12,15 @@ use crate::{
         data::{DataStore, DecodedDataStoreKey},
         direction::Direction,
         executor::{
-            ExecutorError, FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, IndexScan,
+            ExecutorError, FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
+            IndexComponentRow, IndexComponentRows, IndexComponentValues, IndexScan,
             KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
             active_lowered_index_prefix_specs, apply_data_key_ordered_dedup_window,
             apply_index_scan_chunk_progress, branch_stream_chunk_entries,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk,
         },
-        index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
+        index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
@@ -52,20 +53,6 @@ fn read_row_presence_with_consistency_from_data_store(
         MissingRowPolicy::Error | MissingRowPolicy::Ignore => Ok(row_exists),
     }
 }
-
-pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
-
-pub(in crate::db::executor) type CoveringProjectionComponentRows = Vec<(
-    DecodedDataStoreKey,
-    IndexEntryExistenceWitness,
-    CoveringComponentValues,
-)>;
-
-type CoveringProjectionComponentRow = (
-    DecodedDataStoreKey,
-    IndexEntryExistenceWitness,
-    CoveringComponentValues,
-);
 
 // Build the canonical executor-owned covering mode for fast paths that still
 // must verify row presence before trusting secondary/index-backed payloads.
@@ -111,7 +98,7 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     predicate_execution: Option<IndexPredicateExecution<'_>>,
     prefix_set_merge_safety: PrefixSetMergeSafety,
     mut resolve_store_for_index: F,
-) -> Result<CoveringProjectionComponentRows, InternalError>
+) -> Result<IndexComponentRows, InternalError>
 where
     F: FnMut(&str) -> Result<StoreHandle, InternalError>,
 {
@@ -220,7 +207,7 @@ fn resolve_covering_projection_components_for_prefix_set<F>(
     index_prefix_specs: &[LoweredIndexPrefixSpec],
     scan: CoveringPrefixSetScan<'_>,
     mut resolve_store_for_index: F,
-) -> Result<CoveringProjectionComponentRows, InternalError>
+) -> Result<IndexComponentRows, InternalError>
 where
     F: FnMut(&str) -> Result<StoreHandle, InternalError>,
 {
@@ -309,7 +296,7 @@ fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
     active_specs: Vec<ActiveCoveringPrefixSpec<'_>>,
     scan: &CoveringPrefixSetScan<'_>,
     component_indices: Arc<[usize]>,
-) -> Result<CoveringProjectionComponentRows, InternalError> {
+) -> Result<IndexComponentRows, InternalError> {
     let mut rows = Vec::with_capacity(scan.limit.min(32));
     let branch_count = active_specs.len();
     let chunk_entries = covering_branch_stream_chunk_entries(Some(scan.limit), branch_count);
@@ -382,7 +369,7 @@ fn resolve_materialized_covering_projection_components_for_prefix_set(
     active_specs: Vec<ActiveCoveringPrefixSpec<'_>>,
     scan: &CoveringPrefixSetScan<'_>,
     component_indices: &[usize],
-) -> Result<CoveringProjectionComponentRows, InternalError> {
+) -> Result<IndexComponentRows, InternalError> {
     let mut rows = Vec::new();
     for active in active_specs {
         let (lower, upper) = active.prefix.raw_bounds()?;
@@ -416,7 +403,7 @@ fn resolve_covering_projection_components_for_index_bounds(
     limit: usize,
     component_indices: &[usize],
     predicate_execution: Option<IndexPredicateExecution<'_>>,
-) -> Result<CoveringProjectionComponentRows, InternalError> {
+) -> Result<IndexComponentRows, InternalError> {
     IndexScan::components_structural(
         store,
         entity_tag,
@@ -487,7 +474,7 @@ impl<'a> CoveringComponentStreamBox<'a> {
         }
     }
 
-    fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {
+    fn next_row(&mut self) -> Result<Option<IndexComponentRow>, InternalError> {
         match self {
             Self::Prefix(stream) => stream.next_row(),
             Self::Merge(stream) => stream.next_row(),
@@ -495,10 +482,7 @@ impl<'a> CoveringComponentStreamBox<'a> {
         }
     }
 
-    fn collect_limit(
-        &mut self,
-        limit: usize,
-    ) -> Result<CoveringProjectionComponentRows, InternalError> {
+    fn collect_limit(&mut self, limit: usize) -> Result<IndexComponentRows, InternalError> {
         let mut rows = Vec::with_capacity(limit.min(32));
         while rows.len() < limit {
             let Some(row) = self.next_row()? else {
@@ -523,7 +507,7 @@ struct CoveringPrefixComponentStream<'a> {
     chunk_entries: usize,
     component_indices: Arc<[usize]>,
     predicate_execution: Option<IndexPredicateExecution<'a>>,
-    buffer: CoveringProjectionComponentRows,
+    buffer: IndexComponentRows,
     buffer_pos: usize,
     exhausted: bool,
 }
@@ -597,7 +581,7 @@ impl<'a> CoveringPrefixComponentStream<'a> {
         Ok(())
     }
 
-    fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {
+    fn next_row(&mut self) -> Result<Option<IndexComponentRow>, InternalError> {
         while self.buffer_pos == self.buffer.len() && !self.exhausted {
             self.load_next_chunk()?;
         }
@@ -613,7 +597,7 @@ impl<'a> CoveringPrefixComponentStream<'a> {
 }
 
 struct CoveringComponentStreamSideState {
-    row: Option<CoveringProjectionComponentRow>,
+    row: Option<IndexComponentRow>,
     done: bool,
     last_key: Option<DecodedDataStoreKey>,
     comparator: KeyOrderComparator,
@@ -645,7 +629,7 @@ impl CoveringComponentStreamSideState {
         Ok(())
     }
 
-    fn push_row(&mut self, row: CoveringProjectionComponentRow) -> Result<(), InternalError> {
+    fn push_row(&mut self, row: IndexComponentRow) -> Result<(), InternalError> {
         self.validate_monotonicity(&row.0)?;
         self.row = Some(row);
 
@@ -666,7 +650,7 @@ impl CoveringComponentStreamSideState {
         Ok(())
     }
 
-    fn take_row(&mut self) -> Option<CoveringProjectionComponentRow> {
+    fn take_row(&mut self) -> Option<IndexComponentRow> {
         let row = self.row.take()?;
         self.last_key = Some(row.0.clone());
 
@@ -705,7 +689,7 @@ impl<'a> MergeCoveringComponentStream<'a> {
         }
     }
 
-    fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {
+    fn next_row(&mut self) -> Result<Option<IndexComponentRow>, InternalError> {
         loop {
             self.left_state.ensure_row(&mut self.left)?;
             self.right_state.ensure_row(&mut self.right)?;
@@ -762,7 +746,7 @@ impl<'a> CoveringComponentFlatMergeChild<'a> {
 }
 
 impl FlatMergeOrderedChild for CoveringComponentFlatMergeChild<'_> {
-    type Item = CoveringProjectionComponentRow;
+    type Item = IndexComponentRow;
     type KeyWitness = DecodedDataStoreKey;
 
     fn ensure_item(&mut self) -> Result<(), InternalError> {
@@ -798,14 +782,14 @@ impl FlatMergeOrderedChild for CoveringComponentFlatMergeChild<'_> {
 // let the caller decide how the admitted component bytes become terminal
 // payloads.
 pub(in crate::db::executor) fn map_covering_projection_pairs<T, F>(
-    raw_pairs: CoveringProjectionComponentRows,
+    raw_pairs: IndexComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
     mut map_components: F,
 ) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
-    F: FnMut(CoveringComponentValues) -> Result<Option<T>, InternalError>,
+    F: FnMut(IndexComponentValues) -> Result<Option<T>, InternalError>,
 {
     let capacity = raw_pairs.len();
 
@@ -844,7 +828,7 @@ impl CoveringProjectionComponentWindow {
 // owns terminal-specific decode/fold semantics; this helper owns stale-row
 // filtering and row-check attribution.
 pub(in crate::db::executor) fn fold_covering_projection_component_rows_in_window<T, F>(
-    raw_pairs: CoveringProjectionComponentRows,
+    raw_pairs: IndexComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
@@ -853,7 +837,7 @@ pub(in crate::db::executor) fn fold_covering_projection_component_rows_in_window
     mut fold_component_row: F,
 ) -> Result<Option<T>, InternalError>
 where
-    F: FnMut(T, DecodedDataStoreKey, CoveringComponentValues) -> Result<Option<T>, InternalError>,
+    F: FnMut(T, DecodedDataStoreKey, IndexComponentValues) -> Result<Option<T>, InternalError>,
 {
     let mut accumulator = initial;
     let mut present_rows = 0usize;
@@ -931,7 +915,7 @@ pub(in crate::db::executor) fn decode_covering_projection_component(
 // unsupported component kinds fail-closed at the caller boundary.
 #[cfg(feature = "query")]
 fn decode_covering_projection_components(
-    components: CoveringComponentValues,
+    components: IndexComponentValues,
 ) -> Result<Option<Vec<Value>>, InternalError> {
     let mut decoded = Vec::with_capacity(components.len());
     for component in components.iter() {
@@ -947,7 +931,7 @@ fn decode_covering_projection_components(
 // Decode one single-component vector under the executor invariant that the
 // covering route promised exactly one projection payload per row.
 pub(in crate::db::executor) fn decode_single_covering_projection_value(
-    components: CoveringComponentValues,
+    components: IndexComponentValues,
 ) -> Result<Option<Value>, InternalError> {
     let mut components = components.iter();
     let Some(component) = components.next() else {
@@ -963,7 +947,7 @@ pub(in crate::db::executor) fn decode_single_covering_projection_value(
 // Share one executor-owned decode-and-map contract across the generic
 // multi-component and single-component covering projection lanes.
 fn decode_covering_projection_pairs_with<T, D, Decode, Map>(
-    raw_pairs: CoveringProjectionComponentRows,
+    raw_pairs: IndexComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
@@ -971,7 +955,7 @@ fn decode_covering_projection_pairs_with<T, D, Decode, Map>(
     mut map_decoded: Map,
 ) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
-    Decode: FnMut(CoveringComponentValues) -> Result<Option<D>, InternalError>,
+    Decode: FnMut(IndexComponentValues) -> Result<Option<D>, InternalError>,
     Map: FnMut(D) -> Result<T, InternalError>,
 {
     map_covering_projection_pairs(
@@ -993,7 +977,7 @@ where
 // let the caller map the decoded value vector into its terminal payload.
 #[cfg(feature = "query")]
 pub(in crate::db::executor) fn decode_covering_projection_pairs<T, F>(
-    raw_pairs: CoveringProjectionComponentRows,
+    raw_pairs: IndexComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
@@ -1015,7 +999,7 @@ where
 // Decode one single-component covering projection stream under the existing-row
 // contract and let the caller map the decoded runtime value.
 pub(in crate::db::executor) fn decode_single_covering_projection_pairs<T, F>(
-    raw_pairs: CoveringProjectionComponentRows,
+    raw_pairs: IndexComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
@@ -1148,7 +1132,7 @@ mod tests {
 
     #[test]
     fn decode_single_covering_projection_value_rejects_multiple_components() {
-        let components: CoveringComponentValues = Arc::from(vec![
+        let components: IndexComponentValues = Arc::from(vec![
             vec![ValueTag::Bool.to_u8(), 1],
             vec![ValueTag::Bool.to_u8(), 0],
         ]);

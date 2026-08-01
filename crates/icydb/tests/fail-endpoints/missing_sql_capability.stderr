@@ -1,0 +1,9 @@
+error: endpoint declaration `icydb_ddl` requires the `icydb/sql` Cargo feature
+ --> tests/fail-endpoints/missing_sql_capability.rs:5:1
+  |
+5 | / icydb::endpoints! {
+6 | |     icydb_ddl;
+7 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `$crate::__icydb_with_sql_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

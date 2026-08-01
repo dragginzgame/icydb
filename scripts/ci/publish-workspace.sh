@@ -18,7 +18,6 @@ PUBLISH_ORDER=(
     icydb-model-macros
     icydb-model
     icydb-core
-    icydb-config
     icydb
     icydb-cli
 )

@@ -19,7 +19,7 @@ use icydb::{
     db::{
         EntitySchemaDescription, IntegrityCheckResult, QuickIntegrityStatus, RowProjectionOutput,
         SqlIntegrityError,
-        sql::{SqlGroupedRowsOutput, SqlQueryResult},
+        sql::{SqlGroupedRowsOutput, SqlQueryPerfResult, SqlQueryResult},
     },
     diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
     types::Decimal,
@@ -32,21 +32,6 @@ use icydb_testing_sqlite_reference::{
     SqliteReferenceWindow, execute_sqlite_reference_scenario, required_sqlite_reference_scenarios,
 };
 use serde::Deserialize;
-
-// Mirror the generated IcyDB SQL query envelope so these boundary tests can
-// keep asserting the ordinary SQL payload while the CLI also receives perf data.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct SqlQueryPerfResult {
-    result: SqlQueryResult,
-    instructions: u64,
-    planner_instructions: u64,
-    store_instructions: u64,
-    executor_instructions: u64,
-    pure_covering_decode_instructions: u64,
-    pure_covering_row_assembly_instructions: u64,
-    decode_instructions: u64,
-    compiler_instructions: u64,
-}
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct IdentityCloseoutPerfResult {
@@ -76,8 +61,7 @@ fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
 }
 
 fn install_sql_bounded_canister_fixture() -> StandaloneCanisterFixture {
-    // Reuse the SQL smoke canister code with the bounded generated update
-    // policy selected in icydb.toml.
+    // Reuse the SQL smoke canister code with its bounded source declaration.
     install_fixture_canister("sql_bounded")
 }
 

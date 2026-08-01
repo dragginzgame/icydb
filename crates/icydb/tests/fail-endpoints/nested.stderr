@@ -1,0 +1,15 @@
+error[E0433]: cannot find `__icydb_generated` in `crate`
+ --> tests/fail-endpoints/nested.rs:2:5
+  |
+2 |     icydb::endpoints! {}
+  |     ^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_generated` in the crate root
+  |
+  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find value `__icydb_endpoints_root_binding` in the crate root
+ --> tests/fail-endpoints/nested.rs:2:5
+  |
+2 |     icydb::endpoints! {}
+  |     ^^^^^^^^^^^^^^^^^^^^ not found in the crate root
+  |
+  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

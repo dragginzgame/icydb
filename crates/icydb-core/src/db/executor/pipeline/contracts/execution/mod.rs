@@ -16,5 +16,7 @@ pub(in crate::db::executor) use inputs::{
 };
 #[cfg(feature = "query")]
 pub(in crate::db::executor) use outcomes::KernelRowsExecutionAttempt;
-pub(in crate::db::executor) use outcomes::{ExecutionOutcomeMetrics, MaterializedExecutionAttempt};
+pub(in crate::db::executor) use outcomes::{
+    ExecutionOutcomeMetrics, MaterializedExecutionAttempt, ScalarPageMaterialization,
+};
 pub(in crate::db::executor) use stream::ResolvedExecutionKeyStream;

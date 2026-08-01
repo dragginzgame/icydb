@@ -392,8 +392,8 @@ fn collect_branch_set_literals<'a>(
     schema: &SchemaInfo,
     children: &'a [Predicate],
     eq_values: &mut Vec<CachedEqLiteral<'a>>,
-    in_values: &mut Vec<CachedInLiteral<'a>>,
-    excluded_values: &mut Vec<CachedExcludedLiteral<'a>>,
+    in_values: &mut Vec<CachedSetLiteral<'a>>,
+    excluded_values: &mut Vec<CachedSetLiteral<'a>>,
 ) {
     for child in children {
         let Predicate::Compare(cmp) = child else {
@@ -418,7 +418,7 @@ fn collect_branch_set_literals<'a>(
                 let Value::List(values) = &cmp.value else {
                     continue;
                 };
-                in_values.push(CachedInLiteral {
+                in_values.push(CachedSetLiteral {
                     field: cmp.field.as_str(),
                     values: values
                         .iter()
@@ -431,7 +431,7 @@ fn collect_branch_set_literals<'a>(
                 });
             }
             CompareOp::Ne => {
-                excluded_values.push(CachedExcludedLiteral {
+                excluded_values.push(CachedSetLiteral {
                     field: cmp.field.as_str(),
                     values: vec![CachedInValue {
                         value: &cmp.value,
@@ -444,7 +444,7 @@ fn collect_branch_set_literals<'a>(
                 let Value::List(values) = &cmp.value else {
                     continue;
                 };
-                excluded_values.push(CachedExcludedLiteral {
+                excluded_values.push(CachedSetLiteral {
                     field: cmp.field.as_str(),
                     values: values
                         .iter()
@@ -474,13 +474,7 @@ struct CachedEqLiteral<'a> {
     compatible: bool,
 }
 
-struct CachedInLiteral<'a> {
-    field: &'a str,
-    values: Vec<CachedInValue<'a>>,
-    coercion: CoercionId,
-}
-
-struct CachedExcludedLiteral<'a> {
+struct CachedSetLiteral<'a> {
     field: &'a str,
     values: Vec<CachedInValue<'a>>,
     coercion: CoercionId,
@@ -536,7 +530,7 @@ fn build_index_eq_prefix_for_items(
 
 fn build_index_branch_values(
     key_item: SemanticIndexKeyItemRef<'_>,
-    in_values: &[CachedInLiteral<'_>],
+    in_values: &[CachedSetLiteral<'_>],
 ) -> Option<Vec<Value>> {
     let mut matched: Option<Vec<Value>> = None;
     for cached in in_values {
@@ -588,7 +582,7 @@ fn build_index_branch_values(
 fn prune_branch_values_by_exclusions(
     key_item: SemanticIndexKeyItemRef<'_>,
     branch_values: &mut Vec<Value>,
-    excluded_values: &[CachedExcludedLiteral<'_>],
+    excluded_values: &[CachedSetLiteral<'_>],
 ) {
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let branches_before_pruning = branch_values.len();

@@ -1,7 +1,7 @@
 //! Module: SQL shell command integration.
-//! Responsibility: run one-shot SQL and interactive shell flows against configured canisters.
-//! Does not own: CLI parsing, endpoint configuration persistence, or SQL execution semantics.
-//! Boundary: routes SQL to configured query/update endpoints and renders shell-facing output.
+//! Responsibility: run one-shot SQL and interactive shell flows against deployed canisters.
+//! Does not own: CLI parsing, endpoint publication, or SQL execution semantics.
+//! Boundary: routes SQL to fixed deployed method names and renders shell-facing output.
 
 mod call;
 mod input;
@@ -17,12 +17,9 @@ use icydb::db::sql::SqlQueryResult;
 
 use crate::{
     cli::{SqlArgs, SqlShellFields},
-    config::{
-        ConfiguredEndpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT,
-        require_configured_endpoint,
-    },
+    endpoint::{Endpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT},
     icp::require_created_canister,
-    shell::render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
+    shell::render::render_shell_text_from_perf_result,
 };
 
 ///
@@ -83,7 +80,6 @@ pub(crate) fn run_sql_command(args: SqlArgs) -> Result<(), String> {
 fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, String> {
     let call_kind = route::sql_shell_call_kind(sql)?;
     let endpoint = sql_endpoint(call_kind);
-    require_configured_endpoint(canister, endpoint)?;
     require_created_canister(environment, canister)?;
 
     let escaped_sql = call::candid_escape_string(sql);
@@ -97,7 +93,7 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     }
 }
 
-const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> ConfiguredEndpoint {
+const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
     match call_kind {
         route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
         route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
@@ -108,13 +104,13 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> ConfiguredEndpoint 
 fn execute_trusted_sql_query(
     environment: &str,
     canister: &str,
-    endpoint: ConfiguredEndpoint,
+    endpoint: Endpoint,
     escaped_sql: &str,
 ) -> Result<String, String> {
     let candid_bytes = call::icp_query(environment, canister, endpoint.method(), escaped_sql)?;
     let response = Decode!(
         candid_bytes.as_slice(),
-        Result<ShellSqlQueryPerfResult, icydb::Error>
+        Result<icydb::db::sql::SqlQueryPerfResult, icydb::Error>
     )
     .map_err(|err| err.to_string())?;
 
@@ -127,7 +123,7 @@ fn execute_trusted_sql_query(
 fn execute_trusted_sql_mutation_call(
     environment: &str,
     canister: &str,
-    endpoint: ConfiguredEndpoint,
+    endpoint: Endpoint,
     escaped_sql: &str,
 ) -> Result<String, String> {
     let candid_bytes = call::icp_update(environment, canister, endpoint.method(), escaped_sql)?;

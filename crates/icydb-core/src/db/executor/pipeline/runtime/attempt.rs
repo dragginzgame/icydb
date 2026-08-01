@@ -12,7 +12,7 @@ use crate::{
             pipeline::{
                 contracts::{
                     ExecutionInputs, ExecutionOutcomeMetrics, MaterializedExecutionAttempt,
-                    ResolvedExecutionKeyStream, StructuralCursorPage,
+                    ResolvedExecutionKeyStream, ScalarPageMaterialization,
                 },
                 operators::decorate_resolved_execution_key_stream,
                 runtime::ExecutionMaterializationContract,
@@ -22,8 +22,6 @@ use crate::{
     },
     error::InternalError,
 };
-
-type MaterializedExecutionPayloadResult = (StructuralCursorPage, usize, usize);
 
 ///
 /// ExecutionAttemptKernel
@@ -71,7 +69,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
         route_plan: &ExecutionRoutePlan,
         continuation: ScalarContinuationContext,
         key_stream: &'req mut OrderedKeyStreamBox,
-    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
+    ) -> Result<ScalarPageMaterialization, InternalError> {
         self.materialization_contract(route_plan)
             .materialize_resolved_execution_stream(
                 self.inputs.runtime(),
@@ -109,12 +107,15 @@ impl<'a> ExecutionAttemptKernel<'a> {
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
         self.apply_enforced_scan_probe(resolved.key_stream_mut());
-        let (payload, keys_scanned, post_access_rows) = self
-            .materialize_resolved_execution_stream(
-                route_plan,
-                continuation,
-                resolved.key_stream_mut(),
-            )?;
+        let ScalarPageMaterialization {
+            payload,
+            rows_scanned: keys_scanned,
+            post_access_rows,
+        } = self.materialize_resolved_execution_stream(
+            route_plan,
+            continuation,
+            resolved.key_stream_mut(),
+        )?;
         let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
 
         Ok(MaterializedExecutionAttempt {

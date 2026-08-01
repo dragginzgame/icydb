@@ -72,8 +72,11 @@ pub mod value {
 pub mod metrics {
     pub use icydb_core::metrics::{
         CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
-        EntitySummary, EventCounters, EventOps, EventReport, MetricRatio, MetricsSink,
-        compact_metric_code, compact_metrics_report, metrics_report, metrics_reset_all,
+        MetricsSink, compact_metric_code, compact_metrics_report, metrics_reset_all,
+    };
+    #[cfg(feature = "metrics-extended")]
+    pub use icydb_core::metrics::{
+        EntitySummary, EventCounters, EventOps, EventReport, MetricRatio, metrics_report,
     };
 }
 
@@ -83,20 +86,32 @@ pub mod build {
     //! Host-side build-script facade for generated actor glue.
     //!
     //! This module is the advertised downstream build-script API. Add `icydb`
-    //! to `[build-dependencies]`, then call
-    //! `icydb::build::build_configured_canister!()` from `build.rs`.
-    //!
-    //! `icydb-config` remains the configuration implementation behind this
-    //! facade. Model-graph code generation is owned by `icydb-model`.
+    //! to `[build-dependencies]`, then call `icydb::build::build_canister!()`
+    //! from `build.rs`. Model-graph code generation is owned by `icydb-model`.
     //! This module is host-only and is not part of Wasm runtime builds.
 
-    pub use icydb_config::{
-        ConfigError, GeneratedBuildTarget, GeneratedCanisterConfig, GeneratedIcydbConfig,
-        GeneratedMetricsMode, GeneratedMetricsPolicy, GeneratedSqlIntrospectionPolicy,
-        GeneratedSqlUpdatePolicy, ResolvedIcydbConfig, build_configured_canister,
-        emit_config_for_build_script, emit_configured_canister_for_build_script,
-        load_resolved_icydb_toml, resolve_existing_icydb_toml,
-    };
+    pub use crate::build_canister;
+
+    /// Emit one generated private actor module for a build script.
+    ///
+    /// This function is expansion support for [`build_canister!`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an environment or filesystem error when Cargo does not provide
+    /// `OUT_DIR` or the generated actor cannot be written.
+    #[doc(hidden)]
+    pub fn __emit_canister_for_build_script(
+        canister_path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        println!("cargo:rerun-if-changed=build.rs");
+        let out_dir = std::env::var("OUT_DIR")?;
+        let actor_file = std::path::PathBuf::from(out_dir).join("actor.rs");
+        let actor = icydb_model::build::generate(canister_path);
+        std::fs::write(actor_file, actor)?;
+
+        Ok(())
+    }
 }
 pub mod db;
 pub mod diagnostic {
@@ -190,12 +205,447 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // Macros
 //
 
-// Include the generated actor module emitted by `build!` (placed in `OUT_DIR/actor.rs`).
+/// Generate one canister's private actor module from its authored schema type.
+#[cfg(not(target_arch = "wasm32"))]
 #[macro_export]
+macro_rules! build_canister {
+    ($canister_ty:ty) => {{
+        let _ = ::std::any::TypeId::of::<$canister_ty>();
+        $crate::build::__emit_canister_for_build_script(stringify!($canister_ty))
+    }};
+}
+
+/// Include the generated private actor module emitted by [`build_canister!`].
+#[macro_export]
+#[expect(
+    clippy::crate_in_macro_def,
+    reason = "start! must bind generated items in the consuming canister crate"
+)]
 macro_rules! start {
     () => {
-        // actor.rs
-        include!(concat!(env!("OUT_DIR"), "/actor.rs"));
+        #[doc(hidden)]
+        struct __IcydbStartRootMarker;
+
+        #[doc(hidden)]
+        const fn __icydb_start_root_binding(_: __IcydbStartRootMarker) {}
+
+        const _: fn(__IcydbStartRootMarker) = crate::__icydb_start_root_binding;
+
+        #[allow(dead_code)]
+        mod __icydb_generated {
+            #[doc(hidden)]
+            pub(crate) const __ICYDB_START_BINDING: () = ();
+
+            include!(concat!(env!("OUT_DIR"), "/actor.rs"));
+        }
+
+        use __icydb_generated::db;
+    };
+}
+
+#[doc(hidden)]
+#[cfg(feature = "sql")]
+#[macro_export]
+macro_rules! __icydb_with_sql_items {
+    ($($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(not(feature = "sql"))]
+#[macro_export]
+macro_rules! __icydb_with_sql_items {
+    ($($item:item)*) => {};
+}
+
+#[doc(hidden)]
+#[cfg(feature = "metrics-extended")]
+#[macro_export]
+macro_rules! __icydb_with_metrics_extended_items {
+    ($($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(not(feature = "metrics-extended"))]
+#[macro_export]
+macro_rules! __icydb_with_metrics_extended_items {
+    ($($item:item)*) => {};
+}
+
+#[doc(hidden)]
+#[cfg(feature = "sql")]
+#[macro_export]
+macro_rules! __icydb_with_sql_endpoint {
+    ($endpoint:literal; $($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(not(feature = "sql"))]
+#[macro_export]
+macro_rules! __icydb_with_sql_endpoint {
+    ($endpoint:literal; $($item:item)*) => {
+        compile_error!(concat!(
+            "endpoint declaration `",
+            $endpoint,
+            "` requires the `icydb/sql` Cargo feature"
+        ));
+    };
+}
+
+#[doc(hidden)]
+#[cfg(feature = "sql-explain")]
+#[macro_export]
+macro_rules! __icydb_with_sql_explain_endpoint {
+    ($endpoint:literal; $($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(not(feature = "sql-explain"))]
+#[macro_export]
+macro_rules! __icydb_with_sql_explain_endpoint {
+    ($endpoint:literal; $($item:item)*) => {
+        compile_error!(concat!(
+            "endpoint declaration `",
+            $endpoint,
+            "` requires the `icydb/sql-explain` Cargo feature"
+        ));
+    };
+}
+
+#[doc(hidden)]
+#[cfg(feature = "metrics-extended")]
+#[macro_export]
+macro_rules! __icydb_with_metrics_extended_endpoint {
+    ($endpoint:literal; $($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(not(feature = "metrics-extended"))]
+#[macro_export]
+macro_rules! __icydb_with_metrics_extended_endpoint {
+    ($endpoint:literal; $($item:item)*) => {
+        compile_error!(concat!(
+            "endpoint declaration `",
+            $endpoint,
+            "` requires the `icydb/metrics-extended` Cargo feature"
+        ));
+    };
+}
+
+/// Declare the complete fixed IcyDB endpoint surface exported by this canister.
+#[macro_export]
+#[expect(
+    clippy::crate_in_macro_def,
+    reason = "endpoints! must prove crate-root placement in the consuming canister"
+)]
+macro_rules! endpoints {
+    ($($declaration:tt)*) => {
+        #[doc(hidden)]
+        struct __IcydbEndpointsRootMarker;
+
+        #[doc(hidden)]
+        const fn __icydb_endpoints_root_binding(_: __IcydbEndpointsRootMarker) {}
+
+        const _: fn(__IcydbEndpointsRootMarker) = crate::__icydb_endpoints_root_binding;
+
+        #[doc(hidden)]
+        #[allow(unused_imports)]
+        use $crate as __icydb_facade;
+
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATIONS: () =
+            crate::__icydb_generated::__ICYDB_START_BINDING;
+
+        $crate::__icydb_endpoints_internal!($($declaration)*);
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+#[expect(
+    clippy::crate_in_macro_def,
+    reason = "endpoint wrappers call the consuming canister's private generated module"
+)]
+macro_rules! __icydb_endpoints_internal {
+    () => {};
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_sql_query(introspection = false); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_QUERY: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_sql_query";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
+            fn __icydb_export_icydb_query(
+                sql: String,
+            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
+                crate::__icydb_generated::endpoint_handlers::sql_query::<false>(sql)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_sql_query(introspection = true); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_QUERY: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_explain_endpoint! {
+            "icydb_sql_query";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
+            fn __icydb_export_icydb_query(
+                sql: String,
+            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
+                crate::__icydb_generated::endpoint_handlers::sql_query::<true>(sql)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_ddl; $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_DDL: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_ddl";
+            #[$crate::__reexports::ic_cdk::update(name = "icydb_ddl")]
+            fn __icydb_export_icydb_ddl(
+                sql: String,
+            ) -> Result<__icydb_facade::db::sql::SqlQueryResult, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
+                crate::__icydb_generated::endpoint_handlers::sql_ddl(sql)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_update(admission = primary_key_only); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_UPDATE: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_update";
+            #[$crate::__reexports::ic_cdk::update(name = "icydb_update")]
+            fn __icydb_export_icydb_update(
+                sql: String,
+            ) -> Result<__icydb_facade::db::sql::SqlQueryResult, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
+                crate::__icydb_generated::endpoint_handlers::sql_update_primary_key(sql)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_update(admission = bounded_deterministic); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_UPDATE: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_update";
+            #[$crate::__reexports::ic_cdk::update(name = "icydb_update")]
+            fn __icydb_export_icydb_update(
+                sql: String,
+            ) -> Result<__icydb_facade::db::sql::SqlQueryResult, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
+                crate::__icydb_generated::endpoint_handlers::sql_update_bounded(sql)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_integrity; $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_INTEGRITY: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_integrity";
+            #[allow(clippy::result_large_err)]
+            #[$crate::__reexports::ic_cdk::update(name = "icydb_integrity")]
+            fn __icydb_export_icydb_integrity(
+                sql: String,
+            ) -> Result<__icydb_facade::db::IntegrityCheckResult, __icydb_facade::db::SqlIntegrityError> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()
+                    .map_err(__icydb_facade::db::SqlIntegrityError::Sql)?;
+                crate::__icydb_generated::endpoint_handlers::sql_integrity(sql)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_fixtures_reset; $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_FIXTURES_RESET: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[cfg(not(feature = "test-admin-api"))]
+        compile_error!("endpoint declaration `icydb_fixtures_reset` requires the canister `test-admin-api` Cargo feature");
+        $(#[cfg($($cfg)*)])*
+        #[cfg(feature = "test-admin-api")]
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_fixtures_reset";
+            #[$crate::__reexports::ic_cdk::update(name = "icydb_fixtures_reset")]
+            fn __icydb_export_icydb_fixtures_reset() -> Result<(), __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
+                crate::__icydb_generated::endpoint_handlers::fixtures_reset()
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_fixtures_load(handler = $handler:path); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_FIXTURES_LOAD: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[cfg(not(feature = "test-admin-api"))]
+        compile_error!("endpoint declaration `icydb_fixtures_load` requires the canister `test-admin-api` Cargo feature");
+        $(#[cfg($($cfg)*)])*
+        #[cfg(feature = "test-admin-api")]
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_fixtures_load";
+            #[$crate::__reexports::ic_cdk::update(name = "icydb_fixtures_load")]
+            fn __icydb_export_icydb_fixtures_load() -> Result<(), __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
+                let handler: fn() -> Result<(), $crate::Error> = $handler;
+                crate::__icydb_generated::endpoint_handlers::fixtures_load(handler)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_metrics(authorization = public); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_METRICS: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics")]
+        fn __icydb_export_icydb_metrics(
+            window_start_ms: Option<u64>,
+        ) -> Result<__icydb_facade::metrics::CompactMetricsReport, __icydb_facade::Error> {
+            crate::__icydb_generated::endpoint_handlers::metrics(window_start_ms)
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_metrics(authorization = controller); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_METRICS: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics")]
+        fn __icydb_export_icydb_metrics(
+            window_start_ms: Option<u64>,
+        ) -> Result<__icydb_facade::metrics::CompactMetricsReport, __icydb_facade::Error> {
+            crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
+            crate::__icydb_generated::endpoint_handlers::metrics(window_start_ms)
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_metrics_extended(authorization = public); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_METRICS_EXTENDED: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_metrics_extended_endpoint! {
+            "icydb_metrics_extended";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics_extended")]
+            fn __icydb_export_icydb_metrics_extended(
+                window_start_ms: Option<u64>,
+            ) -> Result<__icydb_facade::metrics::EventReport, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_handlers::metrics_extended(window_start_ms)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_metrics_extended(authorization = controller); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_METRICS_EXTENDED: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_metrics_extended_endpoint! {
+            "icydb_metrics_extended";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics_extended")]
+            fn __icydb_export_icydb_metrics_extended(
+                window_start_ms: Option<u64>,
+            ) -> Result<__icydb_facade::metrics::EventReport, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
+                crate::__icydb_generated::endpoint_handlers::metrics_extended(window_start_ms)
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_metrics_reset; $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_METRICS_RESET: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[$crate::__reexports::ic_cdk::update(name = "icydb_metrics_reset")]
+        fn __icydb_export_icydb_metrics_reset() -> Result<(), __icydb_facade::Error> {
+            crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
+            crate::__icydb_generated::endpoint_handlers::metrics_reset()
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_snapshot; $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_SNAPSHOT: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[$crate::__reexports::ic_cdk::query(name = "icydb_snapshot")]
+        fn __icydb_export_icydb_snapshot() -> Result<__icydb_facade::db::StorageReport, __icydb_facade::Error> {
+            crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
+            crate::__icydb_generated::endpoint_handlers::snapshot()
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_schema(authorization = public); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_SCHEMA: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[$crate::__reexports::ic_cdk::query(name = "icydb_schema")]
+        fn __icydb_export_icydb_schema(
+        ) -> Result<Vec<__icydb_facade::db::EntitySchemaDescription>, __icydb_facade::Error> {
+            crate::__icydb_generated::endpoint_handlers::schema()
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_schema(authorization = controller); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_SCHEMA: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[$crate::__reexports::ic_cdk::query(name = "icydb_schema")]
+        fn __icydb_export_icydb_schema(
+        ) -> Result<Vec<__icydb_facade::db::EntitySchemaDescription>, __icydb_facade::Error> {
+            crate::__icydb_generated::endpoint_authorization::require_schema_controller()?;
+            crate::__icydb_generated::endpoint_handlers::schema()
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* $endpoint:ident $($rest:tt)*) => {
+        compile_error!(concat!("unknown or invalid IcyDB endpoint declaration `", stringify!($endpoint), "`"));
+    };
+
+    (#[$attribute:meta] $($rest:tt)*) => {
+        compile_error!("IcyDB endpoint declarations accept only `#[cfg(...)]` attributes");
+    };
+
+    ($($invalid:tt)+) => {
+        compile_error!("invalid IcyDB endpoint declaration syntax");
     };
 }
 
@@ -229,13 +679,9 @@ mod tests {
     }
 
     #[test]
-    fn build_facade_exports_configured_entrypoint_metadata() {
+    fn build_facade_exports_typed_entrypoint() {
         fn assert_model_inner<T: crate::traits::Inner<u64>>() {}
 
-        assert_eq!(
-            build::GeneratedBuildTarget::default(),
-            build::GeneratedBuildTarget::Unknown
-        );
         assert_model_inner::<ModelWrapper>();
         let wrapper = ModelWrapper(7);
         assert_eq!(*crate::traits::Inner::inner(&wrapper), 7);
@@ -247,7 +693,7 @@ mod tests {
     }
 
     fn build_facade_macros_resolve() -> Result<(), Box<dyn std::error::Error>> {
-        build::build_configured_canister!((), "crate::Canister", "canister");
+        build::build_canister!(())?;
 
         Ok(())
     }

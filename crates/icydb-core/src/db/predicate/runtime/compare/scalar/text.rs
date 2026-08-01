@@ -1,9 +1,9 @@
 use crate::{
     db::predicate::{
-        CoercionId, CoercionSpec, CompareOp, casefold_text, eval_list_membership_compare_result,
+        CoercionId, CoercionSpec, CompareOp, eval_list_membership_compare_result,
         eval_ordered_compare_result,
     },
-    value::{TextMode, Value},
+    value::{TextMode, Value, casefold_text},
 };
 use std::cmp::Ordering;
 

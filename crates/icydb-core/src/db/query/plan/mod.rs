@@ -45,8 +45,8 @@ pub(in crate::db::query) use access_planner::{
 };
 pub(in crate::db) use aggregate_shape::AggregateShape;
 pub(in crate::db) use continuation::{
-    AcceptedContinuationIdentity, PlannedContinuationContract, ScalarAccessWindowPlan,
-    effective_offset_for_cursor_window,
+    AcceptedContinuationIdentity, GroupedPaginationWindow, PlannedContinuationContract,
+    ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
 #[cfg(feature = "query")]
 pub(in crate::db) use covering::CoveringReadField;

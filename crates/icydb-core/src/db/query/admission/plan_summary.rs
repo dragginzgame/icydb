@@ -60,9 +60,6 @@ pub(super) fn summary_from_plan(
     }
 }
 
-// Keep the staged extractor live before admission enforcement calls it directly.
-const _: fn(QueryAdmissionLane, &AccessPlannedQuery) -> QueryAdmissionSummary = summary_from_plan;
-
 pub(super) const fn access_satisfies_index_requirement(
     kind: QueryAdmissionAccessKind,
     scan_bound: Option<u64>,

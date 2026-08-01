@@ -1,38 +1,22 @@
 //! Module: db::sql
-//! Responsibility: generated SQL helper surface tokens for one canister actor.
-//! Does not own: SQL parsing, query execution, or controller authorization policy.
-//! Boundary: emits opt-in dispatch helpers and endpoint exports from codegen metadata.
-
-use crate::build::actor::{BuildSqlSurfaceFlags, BuildSqlUpdatePolicy};
+//! Responsibility: generated private SQL capability tokens for one canister actor.
+//! Does not own: public endpoint declarations, authorization, or SQL execution semantics.
+//! Boundary: emits capability-gated private dispatch and handler items only.
 
 use proc_macro2::TokenStream;
 use quote::quote;
 
-///
-/// SqlSurfaceTokens
-///
-/// Generated token bundle for the opted-in IcyDB SQL helper surface. These
-/// helpers stay non-exported; the public controller-gated methods are owned by
-/// the runtime macro.
-///
-
+/// Private SQL token bundle for one generated actor.
 pub(super) struct SqlSurfaceTokens {
-    surfaces: BuildSqlSurfaceFlags,
-    update_policy: Option<BuildSqlUpdatePolicy>,
     has_entities: bool,
     reset_statements: TokenStream,
 }
 
 impl SqlSurfaceTokens {
-    pub(super) fn empty(
-        surfaces: BuildSqlSurfaceFlags,
-        update_policy: Option<BuildSqlUpdatePolicy>,
-    ) -> Self {
+    pub(super) fn empty() -> Self {
         Self {
-            surfaces,
-            update_policy,
             has_entities: false,
-            reset_statements: quote!(),
+            reset_statements: TokenStream::new(),
         }
     }
 
@@ -43,34 +27,19 @@ impl SqlSurfaceTokens {
     }
 
     fn readonly_dispatch_tokens(&self) -> TokenStream {
-        let introspection_guard = if self.surfaces.introspection_enabled() {
-            quote!()
-        } else {
-            quote! {
-                if dispatch.requires_introspection() {
-                    return Err(::icydb::Error::from_runtime_boundary(
-                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
-                        ::icydb::ErrorOrigin::Interface,
-                    ));
-                }
-            }
-        };
         let entity_dispatch = if self.has_entities {
-            quote! {
-                db()?.execute_trusted_sql_query_with_perf_attribution(sql)
-            }
+            quote! { db()?.execute_trusted_sql_query_with_perf_attribution(sql) }
         } else {
             empty_sql_surface_query_dispatch()
         };
         let show_entities_dispatch = if self.has_entities {
-            show_entities_dispatch()
+            quote! { db()?.execute_trusted_sql_query_with_perf_attribution(sql) }
         } else {
             empty_sql_surface_query_dispatch()
         };
 
         quote! {
-            #[cfg(feature = "sql")]
-            fn __icydb_query_dispatch(
+            fn __icydb_query_dispatch<const INTROSPECTION: bool>(
                 sql: &str,
             ) -> Result<
                 (
@@ -80,7 +49,12 @@ impl SqlSurfaceTokens {
                 ::icydb::Error,
             > {
                 let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
-                #introspection_guard
+                if !INTROSPECTION && dispatch.requires_introspection() {
+                    return Err(::icydb::Error::from_runtime_boundary(
+                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
+                        ::icydb::ErrorOrigin::Interface,
+                    ));
+                }
 
                 match dispatch.entity_name() {
                     None => #show_entities_dispatch,
@@ -95,13 +69,11 @@ impl SqlSurfaceTokens {
 
         if reset_statements.is_empty() {
             quote! {
-                #[cfg(feature = "sql")]
-                const fn icydb_sql_surface_reset_all_tables() {}
+                const fn __icydb_sql_surface_reset_all_tables() {}
             }
         } else {
             quote! {
-                #[cfg(feature = "sql")]
-                fn icydb_sql_surface_reset_all_tables() -> Result<(), ::icydb::Error> {
+                fn __icydb_sql_surface_reset_all_tables() -> Result<(), ::icydb::Error> {
                     #reset_statements
 
                     Ok(())
@@ -112,9 +84,7 @@ impl SqlSurfaceTokens {
 
     fn ddl_dispatch_tokens(&self) -> TokenStream {
         let entity_dispatch = if self.has_entities {
-            quote! {
-                db()?.execute_admin_sql_ddl(sql)
-            }
+            quote! { db()?.execute_admin_sql_ddl(sql) }
         } else {
             quote! {
                 Err(::icydb::Error::from_runtime_boundary(
@@ -125,9 +95,7 @@ impl SqlSurfaceTokens {
         };
 
         quote! {
-
-            #[cfg(feature = "sql")]
-            fn icydb_sql_surface_ddl_dispatch(
+            fn __icydb_sql_surface_ddl_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
@@ -142,20 +110,19 @@ impl SqlSurfaceTokens {
     }
 
     fn update_dispatch_tokens(&self) -> TokenStream {
-        let entity_dispatch = match (self.has_entities, self.update_policy) {
-            (true, Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)) => {
-                quote! { db()?.execute_sql_public_primary_key_update(sql) }
-            }
-            (true, Some(BuildSqlUpdatePolicy::PublicBoundedDeterministic)) => {
-                quote! { db()?.execute_sql_public_bounded_update(sql) }
-            }
-            (false, _) | (true, None) => empty_sql_surface_query_dispatch(),
+        let primary_key_dispatch = if self.has_entities {
+            quote! { db()?.execute_sql_public_primary_key_update(sql) }
+        } else {
+            empty_sql_surface_query_dispatch()
+        };
+        let bounded_dispatch = if self.has_entities {
+            quote! { db()?.execute_sql_public_bounded_update(sql) }
+        } else {
+            empty_sql_surface_query_dispatch()
         };
 
         quote! {
-
-            #[cfg(feature = "sql")]
-            fn icydb_sql_surface_update_dispatch(
+            fn __icydb_sql_surface_update_primary_key_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
@@ -163,8 +130,96 @@ impl SqlSurfaceTokens {
                         ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
                         ::icydb::ErrorOrigin::Interface,
                     )),
-                    Some(_entity) => #entity_dispatch,
+                    Some(_entity) => #primary_key_dispatch,
                 }
+            }
+
+            fn __icydb_sql_surface_update_bounded_dispatch(
+                sql: &str,
+            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+                match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
+                    None => Err(::icydb::Error::from_runtime_boundary(
+                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
+                        ::icydb::ErrorOrigin::Interface,
+                    )),
+                    Some(_entity) => #bounded_dispatch,
+                }
+            }
+        }
+    }
+
+    fn handler_tokens(&self) -> TokenStream {
+        let reset_result = if self.reset_statements.is_empty() {
+            quote! {
+                __icydb_sql_surface_reset_all_tables();
+                Ok(())
+            }
+        } else {
+            quote! { __icydb_sql_surface_reset_all_tables() }
+        };
+
+        quote! {
+            pub(crate) fn __icydb_endpoint_handler_sql_query<const INTROSPECTION: bool>(
+                sql: String,
+            ) -> Result<::icydb::db::sql::SqlQueryPerfResult, ::icydb::Error> {
+                let (result, attribution) =
+                    __icydb_query_dispatch::<INTROSPECTION>(sql.as_str())?;
+
+                Ok(::icydb::db::sql::SqlQueryPerfResult::from_attribution(
+                    result,
+                    attribution,
+                ))
+            }
+
+            pub(crate) fn __icydb_endpoint_handler_sql_ddl(
+                sql: String,
+            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+                __icydb_sql_surface_ddl_dispatch(sql.as_str())
+            }
+
+            #[allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+            pub(crate) fn __icydb_endpoint_handler_fixtures_reset(
+            ) -> Result<(), ::icydb::Error> {
+                #reset_result
+            }
+
+            pub(crate) fn __icydb_endpoint_handler_fixtures_load(
+                handler: fn() -> Result<(), ::icydb::Error>,
+            ) -> Result<(), ::icydb::Error> {
+                __icydb_endpoint_handler_fixtures_reset()?;
+                handler()
+            }
+
+            pub(crate) fn __icydb_endpoint_handler_sql_update_primary_key(
+                sql: String,
+            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+                __icydb_sql_surface_update_primary_key_dispatch(sql.as_str())
+            }
+
+            pub(crate) fn __icydb_endpoint_handler_sql_update_bounded(
+                sql: String,
+            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+                __icydb_sql_surface_update_bounded_dispatch(sql.as_str())
+            }
+
+            #[allow(clippy::result_large_err)]
+            pub(crate) fn __icydb_endpoint_handler_sql_integrity(
+                sql: String,
+            ) -> Result<::icydb::db::IntegrityCheckResult, ::icydb::db::SqlIntegrityError> {
+                let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
+                let owner =
+                    ::icydb::db::IntegrityJobOwner::new(caller.to_text()).map_err(|error| {
+                        ::icydb::db::SqlIntegrityError::Integrity(
+                            ::icydb::db::IntegrityCheckError::Job(error),
+                        )
+                    })?;
+                let session = db().map_err(|error| {
+                    ::icydb::db::SqlIntegrityError::Integrity(
+                        ::icydb::db::IntegrityCheckError::Database(error),
+                    )
+                })?;
+
+                session.execute_admin_integrity_sql(sql.as_str(), owner)
             }
         }
     }
@@ -172,218 +227,21 @@ impl SqlSurfaceTokens {
 
 impl quote::ToTokens for SqlSurfaceTokens {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let controller_guard = sql_surface_controller_guard();
-        let readonly_enabled = self.surfaces.readonly_enabled();
-        let ddl_enabled = self.surfaces.ddl_enabled();
-        let fixtures_enabled = self.surfaces.fixtures_enabled();
-        let perf_result = readonly_enabled.then(sql_surface_perf_result);
-        let readonly_dispatch = self
-            .surfaces
-            .readonly_enabled()
-            .then(|| self.readonly_dispatch_tokens());
-        let ddl_dispatch = ddl_enabled.then(|| self.ddl_dispatch_tokens());
-        let update_dispatch = self
-            .update_policy
-            .is_some()
-            .then(|| self.update_dispatch_tokens());
-        let endpoints = sql_surface_endpoint_exports(
-            self.surfaces,
-            self.update_policy,
-            !self.reset_statements.is_empty(),
-        );
-        let reset_helper = fixtures_enabled.then(|| self.reset_helper_tokens());
+        let readonly_dispatch = self.readonly_dispatch_tokens();
+        let reset_helper = self.reset_helper_tokens();
+        let ddl_dispatch = self.ddl_dispatch_tokens();
+        let update_dispatch = self.update_dispatch_tokens();
+        let handlers = self.handler_tokens();
 
         tokens.extend(quote! {
-            #controller_guard
-            #perf_result
-            #readonly_dispatch
-            #reset_helper
-            #ddl_dispatch
-            #update_dispatch
-            #endpoints
+            ::icydb::__icydb_with_sql_items! {
+                #readonly_dispatch
+                #reset_helper
+                #ddl_dispatch
+                #update_dispatch
+                #handlers
+            }
         });
-    }
-}
-
-fn sql_surface_controller_guard() -> TokenStream {
-    quote! {
-        #[cfg(feature = "sql")]
-        fn icydb_sql_surface_require_controller(_action: &str) -> Result<(), ::icydb::Error> {
-            let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
-            if !::icydb::__reexports::ic_cdk::api::is_controller(&caller) {
-                return Err(::icydb::Error::from_runtime_boundary(
-                    ::icydb::diagnostic::RuntimeBoundaryCode::SqlSurfaceControllerRequired,
-                    ::icydb::ErrorOrigin::Interface,
-                ));
-            }
-
-            Ok(())
-        }
-    }
-}
-
-fn sql_surface_perf_result() -> TokenStream {
-    quote! {
-        #[cfg(feature = "sql")]
-        #[derive(::icydb::__reexports::candid::CandidType, Clone, Debug, Eq, PartialEq)]
-        struct IcydbSqlQueryPerfResult {
-            result: ::icydb::db::sql::SqlQueryResult,
-            instructions: u64,
-            planner_instructions: u64,
-            store_instructions: u64,
-            executor_instructions: u64,
-            pure_covering_decode_instructions: u64,
-            pure_covering_row_assembly_instructions: u64,
-            decode_instructions: u64,
-            compiler_instructions: u64,
-        }
-
-        #[cfg(feature = "sql")]
-        impl IcydbSqlQueryPerfResult {
-            fn from_attribution(
-                result: ::icydb::db::sql::SqlQueryResult,
-                attribution: ::icydb::db::SqlQueryPerfAttribution,
-            ) -> Self {
-                Self {
-                    result,
-                    instructions: attribution.total_local_instructions,
-                    planner_instructions: attribution.execution.planner_local_instructions,
-                    store_instructions: attribution.execution.store_local_instructions,
-                    executor_instructions: attribution.execution.executor_local_instructions,
-                    pure_covering_decode_instructions: attribution
-                        .pure_covering
-                        .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
-                    pure_covering_row_assembly_instructions: attribution
-                        .pure_covering
-                        .map_or(0, |pure_covering| {
-                            pure_covering.row_assembly_local_instructions
-                        }),
-                    decode_instructions: attribution.response_decode_local_instructions,
-                    compiler_instructions: attribution.compile_local_instructions,
-                }
-            }
-        }
-    }
-}
-
-fn sql_surface_endpoint_exports(
-    surfaces: BuildSqlSurfaceFlags,
-    update_policy: Option<BuildSqlUpdatePolicy>,
-    reset_is_fallible: bool,
-) -> TokenStream {
-    let query_endpoint = surfaces.readonly_enabled().then(|| {
-        quote! {
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::query(name = "icydb_query")]
-        fn __icydb_query(
-            sql: String,
-        ) -> Result<IcydbSqlQueryPerfResult, ::icydb::Error> {
-            icydb_sql_surface_require_controller("query")?;
-
-            let (result, attribution) = __icydb_query_dispatch(sql.as_str())?;
-
-            Ok(IcydbSqlQueryPerfResult::from_attribution(
-                result,
-                attribution,
-            ))
-        }
-        }
-    });
-
-    let ddl_endpoint = surfaces.ddl_enabled().then(|| {
-        quote! {
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update(name = "icydb_ddl")]
-        fn __icydb_ddl(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-            icydb_sql_surface_require_controller("DDL")?;
-
-            icydb_sql_surface_ddl_dispatch(sql.as_str())
-        }
-        }
-    });
-
-    let fixture_endpoints = surfaces.fixtures_enabled().then(|| {
-        let reset_endpoint_result = if reset_is_fallible {
-            quote! { icydb_sql_surface_reset_all_tables() }
-        } else {
-            quote! {
-                icydb_sql_surface_reset_all_tables();
-                Ok(())
-            }
-        };
-        let reset_before_load = if reset_is_fallible {
-            quote! { icydb_sql_surface_reset_all_tables()?; }
-        } else {
-            quote! { icydb_sql_surface_reset_all_tables(); }
-        };
-
-        quote! {
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update(name = "icydb_fixtures_reset")]
-        fn __icydb_fixtures_reset() -> Result<(), ::icydb::Error> {
-            icydb_sql_surface_require_controller("lifecycle reset")?;
-
-            #reset_endpoint_result
-        }
-
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update(name = "icydb_fixtures_load")]
-        fn __icydb_fixtures_load() -> Result<(), ::icydb::Error> {
-            icydb_sql_surface_require_controller("lifecycle load")?;
-            let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_fixtures_load;
-
-            #reset_before_load
-            hook()
-        }
-        }
-    });
-
-    let update_endpoint = update_policy.is_some().then(|| {
-        quote! {
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::ic_cdk::update(name = "icydb_update")]
-        fn __icydb_update(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-            icydb_sql_surface_require_controller("SQL update")?;
-
-            icydb_sql_surface_update_dispatch(sql.as_str())
-        }
-        }
-    });
-
-    let integrity_endpoint = surfaces.integrity_enabled().then(|| {
-        quote! {
-        #[cfg(feature = "sql")]
-        #[allow(clippy::result_large_err)]
-        #[::icydb::__reexports::ic_cdk::update(name = "icydb_integrity")]
-        fn __icydb_integrity(
-            sql: String,
-        ) -> Result<::icydb::db::IntegrityCheckResult, ::icydb::db::SqlIntegrityError> {
-            icydb_sql_surface_require_controller("integrity")
-                .map_err(::icydb::db::SqlIntegrityError::Sql)?;
-
-            let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
-            let owner = ::icydb::db::IntegrityJobOwner::new(caller.to_text()).map_err(|error| {
-                ::icydb::db::SqlIntegrityError::Integrity(
-                    ::icydb::db::IntegrityCheckError::Job(error),
-                )
-            })?;
-            let session = db().map_err(|error| {
-                ::icydb::db::SqlIntegrityError::Integrity(
-                    ::icydb::db::IntegrityCheckError::Database(error),
-                )
-            })?;
-
-            session.execute_admin_integrity_sql(sql.as_str(), owner)
-        }
-        }
-    });
-
-    quote! {
-        #query_endpoint
-        #ddl_endpoint
-        #fixture_endpoints
-        #update_endpoint
-        #integrity_endpoint
     }
 }
 
@@ -403,19 +261,9 @@ fn empty_sql_surface_query_dispatch() -> TokenStream {
     }
 }
 
-fn show_entities_dispatch() -> TokenStream {
-    quote! {
-        db()?.execute_trusted_sql_query_with_perf_attribution(sql)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use quote::quote;
-
-    use crate::build::actor::{BuildSqlSurfaceFlags, BuildSqlUpdatePolicy};
 
     use super::SqlSurfaceTokens;
 
@@ -427,353 +275,91 @@ mod tests {
             .collect()
     }
 
-    fn generated_export_names_and_signatures(
-        tokens: proc_macro2::TokenStream,
-    ) -> BTreeSet<(String, String)> {
-        let file = syn::parse2::<syn::File>(tokens)
-            .expect("generated SQL surface should remain valid Rust syntax");
-
-        file.items
-            .into_iter()
-            .filter_map(|item| {
-                let syn::Item::Fn(function) = item else {
-                    return None;
-                };
-                let exported = function.attrs.iter().any(|attribute| {
-                    attribute.path().segments.last().is_some_and(|segment| {
-                        matches!(segment.ident.to_string().as_str(), "query" | "update")
-                    })
-                });
-                exported.then(|| {
-                    let signature = function.sig;
-                    (
-                        signature.ident.to_string(),
-                        semantic_export_signature(&signature),
-                    )
-                })
-            })
-            .collect()
-    }
-
-    fn expected_export_signature(signature: syn::Signature) -> String {
-        semantic_export_signature(&signature)
-    }
-
-    fn semantic_export_signature(signature: &syn::Signature) -> String {
-        let inputs = signature
-            .inputs
-            .iter()
-            .map(|input| match input {
-                syn::FnArg::Receiver(receiver) => compact_tokens(quote!(#receiver)),
-                syn::FnArg::Typed(input) => {
-                    let ty = &input.ty;
-                    compact_tokens(quote!(#ty))
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        let output = match &signature.output {
-            syn::ReturnType::Default => "()".to_string(),
-            syn::ReturnType::Type(_, output) => compact_tokens(quote!(#output)),
-        };
-
-        format!("fn {}({inputs})->{output}", signature.ident)
-    }
-
-    fn all_sql_surface_flags() -> BuildSqlSurfaceFlags {
-        BuildSqlSurfaceFlags::default()
-            .with_readonly_enabled(true)
-            .with_ddl_enabled(true)
-            .with_fixtures_enabled(true)
-            .with_integrity_enabled(true)
-            .with_introspection_enabled(true)
-    }
-
-    fn sql_surface_flags_without_introspection() -> BuildSqlSurfaceFlags {
-        BuildSqlSurfaceFlags::default()
-            .with_readonly_enabled(true)
-            .with_ddl_enabled(true)
-            .with_fixtures_enabled(true)
-    }
-
     #[test]
-    fn generated_sql_surface_exports_only_query_ddl_and_fixture_endpoints() {
-        let non_integrity_surfaces = BuildSqlSurfaceFlags::default()
-            .with_readonly_enabled(true)
-            .with_ddl_enabled(true)
-            .with_fixtures_enabled(true)
-            .with_introspection_enabled(true);
-        let surface = compact_tokens(super::sql_surface_endpoint_exports(
-            non_integrity_surfaces,
-            None,
-            true,
-        ));
+    fn generated_sql_capability_contains_every_private_handler_and_no_export() {
+        let mut surface = SqlSurfaceTokens::empty();
+        surface.push_entity("Character");
+        let surface = compact_tokens(quote!(#surface));
 
-        assert!(surface.contains("name=\"icydb_query\""));
-        assert!(surface.contains("name=\"icydb_ddl\""));
-        assert!(surface.contains("name=\"icydb_fixtures_reset\""));
-        assert!(surface.contains("name=\"icydb_fixtures_load\""));
-        assert!(!surface.contains("name=\"icydb_update\""));
-        assert!(!surface.contains("name=\"icydb_integrity\""));
-        assert!(surface.contains("fn__icydb_query("));
-        assert!(surface.contains("fn__icydb_ddl("));
-        assert!(surface.contains("fn__icydb_fixtures_reset("));
-        assert!(surface.contains("fn__icydb_fixtures_load("));
-        assert_eq!(surface.matches("::icydb::__reexports::ic_cdk::").count(), 4);
-    }
-
-    #[test]
-    fn generated_sql_export_contract_cannot_carry_resumable_state() {
-        for policy in [
-            BuildSqlUpdatePolicy::PublicPrimaryKeyOnly,
-            BuildSqlUpdatePolicy::PublicBoundedDeterministic,
+        for handler in [
+            "sql_query",
+            "sql_ddl",
+            "fixtures_reset",
+            "fixtures_load",
+            "sql_update_primary_key",
+            "sql_update_bounded",
+            "sql_integrity",
         ] {
-            let tokens =
-                super::sql_surface_endpoint_exports(all_sql_surface_flags(), Some(policy), true);
-            let compact = compact_tokens(tokens.clone()).to_ascii_lowercase();
-            assert!(!compact.contains("resumable"));
-            assert!(!compact.contains("continuation"));
-
-            let exports = generated_export_names_and_signatures(tokens);
-            let expected = BTreeSet::from([
-                (
-                    "__icydb_query".to_string(),
-                    expected_export_signature(syn::parse_quote! {
-                        fn __icydb_query(
-                            sql: String,
-                        ) -> Result<IcydbSqlQueryPerfResult, ::icydb::Error>
-                    }),
-                ),
-                (
-                    "__icydb_ddl".to_string(),
-                    expected_export_signature(syn::parse_quote! {
-                        fn __icydb_ddl(
-                            sql: String,
-                        ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error>
-                    }),
-                ),
-                (
-                    "__icydb_fixtures_reset".to_string(),
-                    expected_export_signature(syn::parse_quote! {
-                        fn __icydb_fixtures_reset() -> Result<(), ::icydb::Error>
-                    }),
-                ),
-                (
-                    "__icydb_fixtures_load".to_string(),
-                    expected_export_signature(syn::parse_quote! {
-                        fn __icydb_fixtures_load() -> Result<(), ::icydb::Error>
-                    }),
-                ),
-                (
-                    "__icydb_update".to_string(),
-                    expected_export_signature(syn::parse_quote! {
-                        fn __icydb_update(
-                            sql: String,
-                        ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error>
-                    }),
-                ),
-                (
-                    "__icydb_integrity".to_string(),
-                    expected_export_signature(syn::parse_quote! {
-                        fn __icydb_integrity(
-                            sql: String,
-                        ) -> Result<
-                            ::icydb::db::IntegrityCheckResult,
-                            ::icydb::db::SqlIntegrityError
-                        >
-                    }),
-                ),
-            ]);
-
-            assert_eq!(exports, expected);
+            assert!(surface.contains(format!("__icydb_endpoint_handler_{handler}").as_str()));
+        }
+        for forbidden in [
+            "ic_cdk::query",
+            "ic_cdk::update",
+            "export_name",
+            "no_mangle",
+        ] {
+            assert!(!surface.contains(forbidden));
         }
     }
 
     #[test]
-    fn generated_readonly_sql_surface_uses_trusted_query_and_admin_ddl() {
-        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+    fn generated_sql_capability_keeps_both_sealed_update_admissions() {
+        let mut surface = SqlSurfaceTokens::empty();
+        surface.push_entity("Character");
+        let surface = compact_tokens(quote!(#surface));
 
-        surface_tokens.push_entity("Character");
-
-        let surface = compact_tokens(quote!(#surface_tokens));
-        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
-        assert!(surface.contains("execute_admin_sql_ddl"));
-        assert!(!surface.contains("identifiers_tail_match"));
-        assert!(!surface.contains("crate::Character"));
-        assert!(!surface.contains("SqlQueryEntityNotConfigured"));
-        assert!(!surface.contains("SqlDdlEntityNotConfigured"));
+        assert!(surface.contains("execute_sql_public_primary_key_update(sql)"));
+        assert!(surface.contains("execute_sql_public_bounded_update(sql)"));
+        assert!(surface.contains("__icydb_sql_surface_update_primary_key_dispatch"));
+        assert!(surface.contains("__icydb_sql_surface_update_bounded_dispatch"));
     }
 
     #[test]
-    fn generated_empty_sql_surface_rejects_entity_dispatch_before_runtime_access() {
-        let surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+    fn generated_sql_capability_uses_trusted_query_and_admin_ddl() {
+        let mut surface = SqlSurfaceTokens::empty();
+        surface.push_entity("Character");
+        let surface = compact_tokens(quote!(#surface));
 
-        let surface = compact_tokens(quote!(#surface_tokens));
-
-        assert!(surface.contains("SqlQueryNoConfiguredEntities"));
-        assert!(surface.contains("SqlDdlEntityNotConfigured"));
-        assert!(!surface.contains("execute_trusted_sql_query_with_perf_attribution"));
-        assert!(!surface.contains("execute_admin_sql_ddl"));
+        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution(sql)"));
+        assert!(surface.contains("execute_admin_sql_ddl(sql)"));
     }
 
     #[test]
-    fn generated_readonly_sql_surface_has_one_controller_query_endpoint() {
-        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+    fn generated_sql_query_capability_keeps_introspection_gate() {
+        let mut surface = SqlSurfaceTokens::empty();
+        surface.push_entity("Character");
+        let surface = compact_tokens(quote!(#surface));
 
-        surface_tokens.push_entity("Character");
-
-        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
-            all_sql_surface_flags(),
-            None,
-            true,
-        ));
-        let surface = compact_tokens(quote!(#surface_tokens));
-
-        assert!(endpoint.contains("name=\"icydb_query\""));
-        assert!(endpoint.contains("fn__icydb_query("));
-        assert_eq!(
-            endpoint
-                .matches("::icydb::__reexports::ic_cdk::query")
-                .count(),
-            1
-        );
-        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
-    }
-
-    #[test]
-    fn generated_sql_query_endpoint_guards_explicit_trusted_dispatch() {
-        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
-
-        surface_tokens.push_entity("Character");
-
-        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
-            all_sql_surface_flags(),
-            None,
-            true,
-        ));
-        let surface = compact_tokens(quote!(#surface_tokens));
-
-        assert!(endpoint.contains("name=\"icydb_query\""));
-        let controller_guard = endpoint
-            .find("icydb_sql_surface_require_controller(\"query\")")
-            .expect("generated query endpoint should require its controller guard");
-        let trusted_dispatch = endpoint
-            .find("__icydb_query_dispatch")
-            .expect("generated query endpoint should call its trusted dispatch");
-        assert!(controller_guard < trusted_dispatch);
-        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
-    }
-
-    #[test]
-    fn generated_integrity_endpoint_guards_canonical_integrity_dispatch() {
-        let integrity_only = BuildSqlSurfaceFlags::default().with_integrity_enabled(true);
-        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
-            integrity_only,
-            None,
-            false,
-        ));
-
-        assert!(endpoint.contains("name=\"icydb_integrity\""));
-        assert!(endpoint.contains("allow(clippy::result_large_err)"));
-        let controller_guard = endpoint
-            .find("icydb_sql_surface_require_controller(\"integrity\")")
-            .expect("generated integrity endpoint should require its controller guard");
-        let owner = endpoint
-            .find("IntegrityJobOwner::new")
-            .expect("generated integrity endpoint should bind jobs to the caller");
-        let canonical_dispatch = endpoint
-            .find("execute_admin_integrity_sql")
-            .expect("generated integrity endpoint should use canonical SQL lowering");
-        assert!(controller_guard < owner);
-        assert!(owner < canonical_dispatch);
-        assert!(!endpoint.contains("execute_admin_sql_ddl"));
-        assert!(!endpoint.contains("__icydb_query_dispatch"));
-    }
-
-    #[test]
-    fn generated_sql_surface_does_not_emit_dead_code_suppressions() {
-        let mut surface_tokens = SqlSurfaceTokens::empty(
-            all_sql_surface_flags(),
-            Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
-        );
-
-        surface_tokens.push_entity("Character");
-
-        let surface = compact_tokens(quote!(#surface_tokens));
-
-        assert!(!surface.contains("allow(dead_code)"));
-    }
-
-    #[test]
-    fn generated_sql_fixture_reset_surface_does_not_emit_lint_suppressions() {
-        let empty_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
-        let empty_surface = compact_tokens(empty_surface_tokens.reset_helper_tokens());
-
-        let mut entity_surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
-        entity_surface_tokens.push_entity("Character");
-        let entity_surface = compact_tokens(entity_surface_tokens.reset_helper_tokens());
-
-        assert!(!empty_surface.contains("allow("));
-        assert!(!entity_surface.contains("allow("));
-        assert!(empty_surface.contains("constfnicydb_sql_surface_reset_all_tables()"));
-        assert!(entity_surface.contains("fnicydb_sql_surface_reset_all_tables()"));
-        assert!(entity_surface.contains("Result<(),::icydb::Error>"));
-    }
-
-    #[test]
-    fn generated_sql_query_surface_can_reject_introspection() {
-        let mut surface_tokens =
-            SqlSurfaceTokens::empty(sql_surface_flags_without_introspection(), None);
-
-        surface_tokens.push_entity("Character");
-
-        let surface = compact_tokens(quote!(#surface_tokens));
-        assert!(surface.contains("sql_statement_dispatch"));
-        assert!(surface.contains("requires_introspection"));
+        assert!(surface.contains("if!INTROSPECTION&&dispatch.requires_introspection()"));
         assert!(surface.contains("SqlIntrospectionDisabled"));
-        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution"));
     }
 
     #[test]
-    fn generated_sql_update_surface_requires_explicit_primary_key_policy() {
-        let mut surface_tokens = SqlSurfaceTokens::empty(
-            all_sql_surface_flags(),
-            Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
-        );
+    fn generated_fixture_load_reuses_reset_then_calls_handler_once() {
+        let surface = SqlSurfaceTokens::empty();
+        let handler = compact_tokens(surface.handler_tokens());
+        let reset = handler
+            .find("__icydb_endpoint_handler_fixtures_reset()?")
+            .expect("fixture load should propagate reset failure");
+        let load = handler
+            .find("handler()")
+            .expect("fixture load should invoke the checked handler");
 
-        surface_tokens.push_entity("Character");
-
-        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
-            all_sql_surface_flags(),
-            Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
-            true,
-        ));
-        let surface = compact_tokens(quote!(#surface_tokens));
-        assert!(endpoint.contains("name=\"icydb_update\""));
-        assert!(endpoint.contains("fn__icydb_update("));
-        assert!(surface.contains("icydb_sql_surface_update_dispatch"));
-        assert!(surface.contains("execute_sql_public_primary_key_update"));
-        assert!(
-            !surface.contains("execute_sql_public_bounded_update"),
-            "first generated SQL update policy must not expose bounded multi-row UPDATE",
-        );
+        assert!(reset < load);
+        assert_eq!(handler.matches("handler()").count(), 1);
     }
 
     #[test]
-    fn generated_sql_update_surface_can_select_bounded_policy_without_broad_update() {
-        let mut surface_tokens = SqlSurfaceTokens::empty(
-            all_sql_surface_flags(),
-            Some(BuildSqlUpdatePolicy::PublicBoundedDeterministic),
-        );
+    fn empty_and_entity_sql_capabilities_keep_exact_dispatch_boundaries() {
+        let empty_surface = SqlSurfaceTokens::empty();
+        let empty = compact_tokens(quote!(#empty_surface));
+        let mut entity = SqlSurfaceTokens::empty();
+        entity.push_entity("Character");
+        let entity = compact_tokens(quote!(#entity));
 
-        surface_tokens.push_entity("Character");
-
-        let surface = compact_tokens(quote!(#surface_tokens));
-        assert!(surface.contains("icydb_sql_surface_update_dispatch"));
-        assert!(surface.contains("execute_sql_public_bounded_update"));
-        assert!(
-            !surface.contains("execute_sql_public_primary_key_update"),
-            "bounded generated SQL update policy must not silently select the primary-key-only helper",
-        );
+        assert!(empty.contains("SqlQueryNoConfiguredEntities"));
+        assert!(!empty.contains("execute_trusted_sql_query_with_perf_attribution"));
+        assert!(entity.contains("execute_trusted_sql_query_with_perf_attribution"));
+        assert!(entity.contains("DELETEFROMCharacter"));
     }
 }

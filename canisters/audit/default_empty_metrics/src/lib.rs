@@ -4,5 +4,10 @@
 
 icydb::start!();
 
+icydb::endpoints! {
+    icydb_metrics(authorization = public);
+    icydb_metrics_reset;
+}
+
 #[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();

@@ -1,7 +1,7 @@
 //! Module: db::schema
-//! Responsibility: generated accepted-schema report endpoint tokens.
+//! Responsibility: generated accepted-schema report capability tokens.
 //! Does not own: schema validation, entity description semantics, or controller policy.
-//! Boundary: emits controller-gated accepted-schema reports for immutable
+//! Boundary: emits only the private accepted-schema handler for immutable
 //! authored entity identities.
 
 use proc_macro2::TokenStream;
@@ -10,9 +10,7 @@ use quote::quote;
 ///
 /// SchemaSurfaceTokens
 ///
-/// Generated token bundle for the opted-in accepted-schema report endpoint.
-/// The endpoint remains generated because only codegen knows the concrete
-/// entity source keys bound to one canister.
+/// Generated token bundle for the private accepted-schema report capability.
 ///
 
 pub(super) struct SchemaSurfaceTokens {
@@ -36,22 +34,8 @@ impl quote::ToTokens for SchemaSurfaceTokens {
         let entity_sources = &self.entity_sources;
 
         tokens.extend(quote! {
-            fn icydb_schema_surface_require_controller() -> Result<(), ::icydb::Error> {
-                let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
-                if !::icydb::__reexports::ic_cdk::api::is_controller(&caller) {
-                    return Err(::icydb::Error::from_runtime_boundary(
-                        ::icydb::diagnostic::RuntimeBoundaryCode::SchemaSurfaceControllerRequired,
-                        ::icydb::ErrorOrigin::Interface,
-                    ));
-                }
-
-                Ok(())
-            }
-
-            #[::icydb::__reexports::ic_cdk::query(name = "icydb_schema")]
-            fn __icydb_schema() -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
-                icydb_schema_surface_require_controller()?;
-
+            #[allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+            pub(crate) fn __icydb_endpoint_handler_schema() -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
                 Ok(vec![
                     #(db()?.try_describe_entity_by_source_key(#entity_sources)?),*
                 ])
@@ -75,15 +59,45 @@ mod tests {
     }
 
     #[test]
-    fn generated_schema_surface_resolves_current_entity_names() {
+    fn generated_schema_capability_resolves_current_entity_names_privately() {
         let mut surface_tokens = SchemaSurfaceTokens::empty();
         surface_tokens.push_entity("Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
 
-        assert!(surface.contains("name=\"icydb_schema\""));
-        assert!(surface.contains("fn__icydb_schema("));
+        assert!(surface.contains("fn__icydb_endpoint_handler_schema("));
         assert!(surface.contains("try_describe_entity_by_source_key(\"Character\")"));
         assert!(!surface.contains("crate::Character"));
+        assert!(!surface.contains("icydb_schema"));
+        assert!(!surface.contains("ic_cdk::query"));
+    }
+
+    #[test]
+    fn generated_schema_private_handler_cannot_export_a_method() {
+        let mut surface_tokens = SchemaSurfaceTokens::empty();
+        surface_tokens.push_entity("Character");
+        let file = syn::parse2::<syn::File>(quote!(#surface_tokens))
+            .expect("generated schema surface should remain valid Rust syntax");
+        let handler = file
+            .items
+            .into_iter()
+            .find_map(|item| match item {
+                syn::Item::Fn(function)
+                    if function.sig.ident == "__icydb_endpoint_handler_schema" =>
+                {
+                    Some(function)
+                }
+                _ => None,
+            })
+            .expect("generated schema surface should contain its private handler");
+
+        assert!(matches!(handler.vis, syn::Visibility::Restricted(_)));
+        assert_eq!(handler.attrs.len(), 1);
+        assert!(
+            handler
+                .attrs
+                .iter()
+                .all(|attribute| attribute.path().is_ident("allow"))
+        );
     }
 }

@@ -89,11 +89,6 @@ impl AcceptedStructuralMutation {
     }
 }
 
-struct OrderedAcceptedStructuralMutation {
-    input_ordinal: u32,
-    intent: AcceptedStructuralMutation,
-}
-
 const MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS: usize = 4_096;
 const MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES: usize = 16 * 1024 * 1024;
 const MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES: usize = 1024 * 1024;
@@ -798,18 +793,6 @@ impl<C: CanisterKind> DbSession<C> {
             })
             .count();
         let _ = checked_pre_key_candidate_count(identity_candidate_count)?;
-        let mutations = mutations
-            .into_iter()
-            .enumerate()
-            .map(|(input_index, intent)| {
-                u32::try_from(input_index)
-                    .map(|input_ordinal| OrderedAcceptedStructuralMutation {
-                        input_ordinal,
-                        intent,
-                    })
-                    .map_err(|_| InternalError::mutation_batch_too_many_items())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         let mut identity_cursor: Option<IdentityStatementCursor> = None;
         let mut identity_insert_ordinal = 0_u32;
         let mut scheduler = AcceptedMutationConstraintScheduler::new(
@@ -822,9 +805,9 @@ impl<C: CanisterKind> DbSession<C> {
         let mut output = Vec::with_capacity(mutations.len());
         let mut staged_bytes = 0_usize;
 
-        for mutation in mutations {
-            let batch_input_ordinal = mutation.input_ordinal;
-            let mutation = mutation.intent;
+        for (input_index, mutation) in mutations.into_iter().enumerate() {
+            let batch_input_ordinal = u32::try_from(input_index)
+                .map_err(|_| InternalError::mutation_batch_too_many_items())?;
             let AcceptedStructuralMutation::Save {
                 mode,
                 target,

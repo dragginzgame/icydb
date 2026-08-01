@@ -623,4 +623,6 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchEntityMismatch });
     RUNTIME_BOUNDARY_MUTATION_BATCH_DUPLICATE_KEY = 240 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchDuplicateKey });
+    RUNTIME_BOUNDARY_OPERATIONAL_SURFACE_CONTROLLER_REQUIRED = 241 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::OperationalSurfaceControllerRequired });
 }

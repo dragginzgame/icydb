@@ -35,30 +35,65 @@ The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
 maintenance uses the newer internal toolchain listed below.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and
-call `icydb::build::build_configured_canister!()`.
+call `icydb::build::build_canister!(SchemaCanister)`.
 
-## Generated Endpoint Config
+## Explicit Endpoint Declarations
 
-Local canisters load generated endpoint switches from `icydb.toml` through the
-public `icydb::build` facade. Generated canister endpoints use public
-`icydb_*` method names; their generated Rust wrappers use hidden `__icydb_*`
-names only to avoid collisions with plain application hooks. The CLI checks the
-config before calling endpoint families.
+`icydb::start!()` installs private runtime wiring and never creates a public
+Candid method. Declare each maintained public IcyDB method explicitly in the
+canister source:
 
-Create or replace a local `icydb.toml` for a canister when setting up a new
-demo or test canister:
+```rust
+icydb::start!();
 
-```bash
-icydb config init --canister demo_rpg --all
-icydb config init --canister demo_rpg --all --force
+icydb::endpoints! {
+    #[cfg(feature = "local-sql-query")]
+    icydb_sql_query(introspection = true);
+    icydb_ddl;
+    icydb_update(admission = primary_key_only);
+    icydb_metrics(authorization = public);
+    icydb_metrics_reset;
+    icydb_schema(authorization = controller);
+}
 ```
 
-`config init` writes at the visible workspace root by default. Pass
-`--start-dir <path>` when running from a canister subdirectory or from outside
-the workspace. Readonly SQL is enabled by default; pass `--no-readonly` only for
-canisters that should not expose `icydb_query`. `--all` also enables the
-primary-key-only `icydb_update` policy. Use `--update-policy bounded` when the
-generated update endpoint must instead admit the bounded deterministic policy.
+One declaration creates exactly one fixed method. A declaration whose required
+Cargo capability is absent fails compilation; compiling a capability without a
+declaration exports nothing. Use canister-owned Cargo features for local/test
+declarations and omit those features from production builds.
+
+For example, keep development capabilities and their declarations behind the
+same canister-owned features:
+
+```toml
+[features]
+default = []
+local-sql-query = ["icydb/sql", "icydb/sql-explain"]
+test-admin-api = ["icydb/sql"]
+```
+
+```rust
+#[cfg(feature = "test-admin-api")]
+fn load_fixtures() -> Result<(), icydb::Error> {
+    Ok(())
+}
+
+icydb::start!();
+
+icydb::endpoints! {
+    #[cfg(feature = "local-sql-query")]
+    icydb_sql_query(introspection = true);
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_reset;
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_load(handler = load_fixtures);
+}
+```
+
+Production builds omit both features, so neither the methods nor capability
+code enabled only by those features, such as SQL introspection, is present in
+that Wasm. No IcyDB TOML file or target environment variable participates in
+endpoint selection.
 
 Readonly SQL is a generated controller-gated admin surface, not a generated
 public read endpoint. Do not expose `icydb_query` or a thin wrapper around it
@@ -69,50 +104,24 @@ has performed caller authorization. See
 Hand-written public read endpoint guidance is in
 [docs/guides/read-intent.md](docs/guides/read-intent.md).
 
-Example generated endpoint config:
-
-```toml
-[canisters.demo_rpg.sql]
-readonly = true
-ddl = true
-fixtures = true
-update = true
-
-[canisters.demo_rpg.sql.introspection]
-local = true
-ic = false
-
-[canisters.demo_rpg.metrics]
-local = "extended"
-ic = "simple"
-
-[canisters.demo_rpg.snapshot]
-enabled = true
-
-[canisters.demo_rpg.schema]
-enabled = true
-```
-
 Current generated endpoint surfaces:
 
 - `icydb_query` for controller-gated read SQL
-  - `EXPLAIN`, `DESCRIBE`, and `SHOW` follow
-    `[canisters.<name>.sql.introspection]`; defaults are `local = true` and
-    `ic = false`
+  - `introspection = true` requires the `icydb/sql-explain` capability
 - `icydb_ddl` for supported accepted-catalog SQL DDL
-- `icydb_update` only when `update = "primary_key"` (also selected by `true`)
-  or `update = "bounded"`; both policies are controller-gated and narrower
-  than the session/library mutation surface
+- `icydb_update` with declared `primary_key_only` or `bounded_deterministic`
+  admission; both policies are controller-gated and narrower than the
+  session/library mutation surface
 - `icydb_fixtures_reset` and `icydb_fixtures_load` for local fixture flows
 - `icydb_snapshot` for storage inventory and stable allocation metadata
-- `icydb_schema` and `icydb_schema_check` for accepted schema diagnostics
+- `icydb_schema` for accepted schema descriptions
 - `icydb_metrics` and `icydb_metrics_reset` for default runtime metrics
 - `icydb_metrics_extended` when the target metrics mode is `extended`
 
-Fixture loading calls a plain non-exported user hook when present:
+Fixture loading calls the explicitly named plain non-exported user hook:
 
 ```rust
-fn icydb_fixtures_load() -> Result<(), icydb::Error> {
+fn load_fixtures() -> Result<(), icydb::Error> {
     Ok(())
 }
 ```
@@ -125,13 +134,8 @@ Install the local CLI binary from this repository:
 make install
 ```
 
-Inspect the generated-endpoint config that local CLI commands use:
-
-```bash
-icydb config show
-icydb config show --environment demo
-icydb config check --environment demo
-```
+The CLI calls fixed method names on the deployed canister. If a declaration is
+absent, the replica's ordinary method-not-found response is authoritative.
 
 ## Maintainer Workstation Setup
 
@@ -332,7 +336,7 @@ cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX IF EXISTS
 
 `sql` keeps an explicit `--canister/-c` flag because it also accepts trailing
 SQL text. Target-style commands such as `snapshot`, `schema show`,
-`schema check`, `metrics`, and `canister refresh` take the canister as a
+`metrics`, and `canister refresh` take the canister as a
 required positional argument.
 
 All canister-targeting commands default the ICP environment to `demo`, or use
@@ -346,15 +350,11 @@ cargo run -q -p icydb-cli -- canister list --environment test
 `icydb sql` only queries the current canister state. It does not create or load
 demo data automatically. Use `canister refresh` for the destructive local reset
 flow for the selected ICP canister; it clears that canister's stable memory,
-then calls `icydb_fixtures_load` when the fixture endpoint is configured.
+then calls `icydb_fixtures_load` and skips loading when the method is absent.
 
 ## CLI Command Shapes
 
 ```bash
-icydb config init --canister demo_rpg --all
-icydb config show --environment demo
-icydb config check --environment demo
-
 icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
 icydb sql -e test -c demo_rpg --sql "SHOW ENTITIES"
 
@@ -366,7 +366,6 @@ icydb canister status demo_rpg
 
 icydb snapshot demo_rpg
 icydb schema show demo_rpg
-icydb schema check demo_rpg
 icydb metrics demo_rpg
 icydb metrics demo_rpg --window-start-ms <timestamp>
 icydb metrics demo_rpg --reset
@@ -453,17 +452,14 @@ Confirm the local ICP environment is running and inspect canister IDs:
 cargo run -q -p icydb-cli -- canister list --environment demo
 ```
 
-Then confirm the local generated-endpoint config and pass the SQL target
-explicitly:
+Then pass the deployed SQL target explicitly:
 
 ```bash
-cargo run -q -p icydb-cli -- config show --environment demo
 cargo run -q -p icydb-cli -- sql --environment demo --canister demo_rpg
 ```
 
-If `config show` reports a missing or disabled surface, update `icydb.toml`,
-then rebuild and deploy or refresh the canister so the generated methods match
-the config.
+If the replica reports a missing method, add the matching source declaration
+and required Cargo feature, then rebuild and deploy or refresh the canister.
 
 ### `icydb canister refresh` looks destructive
 

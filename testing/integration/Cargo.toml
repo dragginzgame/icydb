@@ -14,7 +14,7 @@ authors = { workspace = true }
 blake3 = { workspace = true }
 candid = { workspace = true }
 ic-testkit = { workspace = true }
-icydb = { workspace = true, features = ["diagnostics", "sql", "sql-explain"] }
+icydb = { workspace = true, features = ["diagnostics", "metrics-extended", "sql", "sql-explain"] }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -43,3 +43,11 @@ path = "tests/sql_perf_audit.rs"
 [[test]]
 name = "sql_perf_matrix_audit"
 path = "tests/sql_perf_matrix_audit.rs"
+
+[[test]]
+name = "canister_artifact_contract"
+path = "tests/canister_artifact_contract.rs"
+
+[[test]]
+name = "endpoint_cost_closeout"
+path = "tests/endpoint_cost_closeout.rs"

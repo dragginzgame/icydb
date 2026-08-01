@@ -19,7 +19,7 @@ use crate::{
             pipeline::contracts::{
                 CursorEmissionMode, FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest,
                 KernelPageMaterializationRequest, RowCollectorMaterializationRequest,
-                ScalarMaterializationCapabilities, StructuralCursorPage,
+                ScalarMaterializationCapabilities, ScalarPageMaterialization,
             },
             projection::PreparedProjectionContract,
             route::LoadOrderRouteMode,
@@ -38,8 +38,6 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-
-type MaterializedExecutionPayloadResult = (StructuralCursorPage, usize, usize);
 
 ///
 /// ExecutionMaterializationContract
@@ -90,7 +88,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
         consistency: MissingRowPolicy,
         continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
-    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
+    ) -> Result<ScalarPageMaterialization, InternalError> {
         runtime.materialize_resolved_execution_stream(
             self,
             emit_cursor,
@@ -206,7 +204,7 @@ impl ExecutionRuntimeAdapter {
         consistency: MissingRowPolicy,
         continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
-    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
+    ) -> Result<ScalarPageMaterialization, InternalError> {
         if !emit_cursor
             && let Some(materialized) = self.try_materialize_load_via_row_collector(
                 contract.row_collector_request(continuation, consistency, key_stream),
@@ -330,7 +328,7 @@ impl ExecutionRuntimeAdapter {
     fn try_materialize_load_via_row_collector<'req>(
         &'req self,
         request: RowCollectorMaterializationRequest<'req>,
-    ) -> Result<Option<MaterializedExecutionPayloadResult>, InternalError> {
+    ) -> Result<Option<ScalarPageMaterialization>, InternalError> {
         self.with_scalar_row_runtime_handle(|row_runtime| {
             ExecutionKernel::try_materialize_load_via_row_collector(request, row_runtime)
         })
@@ -344,7 +342,7 @@ impl ExecutionRuntimeAdapter {
         consistency: MissingRowPolicy,
         continuation: ScalarContinuationContext,
         key_stream: &'a mut OrderedKeyStreamBox,
-    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
+    ) -> Result<ScalarPageMaterialization, InternalError> {
         let cursor_emission = if emit_cursor {
             CursorEmissionMode::Emit
         } else {

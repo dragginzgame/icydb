@@ -34,7 +34,7 @@ pub(in crate::db) enum AcceptedInsertOmissionPolicy {
 /// Accepted null/default policy and database-owned generation are the only
 /// omission authorities. Rust `Default` and generated construction values do
 /// not participate.
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) const fn accepted_insert_field_is_omittable(
     omission_policy: AcceptedInsertOmissionPolicy,
     write_policy: SchemaFieldWritePolicy,

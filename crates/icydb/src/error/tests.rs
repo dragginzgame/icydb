@@ -193,6 +193,31 @@ fn public_error_runtime_boundary_collapses_detail_to_leaf_code() {
 }
 
 #[test]
+fn public_operational_controller_boundary_is_typed_and_interface_owned() {
+    let facade = Error::from_runtime_boundary(
+        icydb_diagnostic_code::RuntimeBoundaryCode::OperationalSurfaceControllerRequired,
+        ErrorOrigin::Interface,
+    );
+
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_OPERATIONAL_SURFACE_CONTROLLER_REQUIRED,
+    );
+    assert_eq!(
+        facade.class(),
+        icydb_diagnostic_code::ErrorClass::Unsupported,
+    );
+    assert_eq!(facade.origin(), ErrorOrigin::Interface);
+    assert_eq!(
+        facade.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary:
+                icydb_diagnostic_code::RuntimeBoundaryCode::OperationalSurfaceControllerRequired,
+        }),
+    );
+}
+
+#[test]
 fn public_error_runtime_corruption_boundary_preserves_its_broad_code() {
     let facade = Error::from_runtime_boundary(
         icydb_diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,

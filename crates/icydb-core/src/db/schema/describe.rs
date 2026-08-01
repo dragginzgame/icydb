@@ -1182,7 +1182,7 @@ fn describe_persisted_index_fields(key: &PersistedIndexKeySnapshot) -> Vec<Strin
     doc,
     doc = "Build field descriptors using accepted persisted schema slot metadata."
 )]
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,

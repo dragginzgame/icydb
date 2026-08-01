@@ -11,9 +11,7 @@ use std::{
 mod fixtures;
 
 use crate::{
-    config::{FIXTURES_LOAD_ENDPOINT, configured_endpoint_enabled},
     icp::{
-        build_target_for_environment,
         process::{
             canister_id, canister_is_installed, run_external_command, unreachable_network_hint,
         },
@@ -21,8 +19,6 @@ use crate::{
     },
     table::{ColumnAlign, append_indented_table},
 };
-use icydb_config::ICYDB_BUILD_TARGET_ENV;
-
 type CanisterListRow = [String; 3];
 
 const CANISTER_LIST_HEADERS: [&str; 3] = ["canister", "created", "principal"];
@@ -95,16 +91,8 @@ fn reinstall_for_refresh(environment: &str, canister: &str) -> Result<(), String
 
 /// Refresh a local canister and load deterministic fixtures when the endpoint exists.
 pub(super) fn refresh_canister(environment: &str, canister: &str) -> Result<(), String> {
-    let load_fixtures = configured_endpoint_enabled(canister, FIXTURES_LOAD_ENDPOINT)?;
     reinstall_for_refresh(environment, canister)?;
-    if load_fixtures {
-        return fixtures::load_after_refresh(environment, canister);
-    }
-
-    eprintln!(
-        "[icydb] fixture loading is not enabled for canister '{canister}' in icydb.toml; skipping fixture load"
-    );
-    Ok(())
+    fixtures::load_after_refresh(environment, canister)
 }
 
 /// Build and upgrade a local canister without clearing stable memory.
@@ -164,7 +152,6 @@ pub(super) fn deploy_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command.arg("deploy").arg(canister);
     append_environment_args(&mut command, environment);
-    append_build_target_env(&mut command, environment);
 
     command
 }
@@ -173,7 +160,6 @@ pub(super) fn build_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command.arg("build").arg(canister);
     append_environment_args(&mut command, environment);
-    append_build_target_env(&mut command, environment);
 
     command
 }
@@ -203,13 +189,6 @@ pub(super) fn parse_canister_cycles(status: &str) -> Option<u128> {
 
 fn append_environment_args(command: &mut Command, environment: &str) {
     command.arg("--environment").arg(environment);
-}
-
-fn append_build_target_env(command: &mut Command, environment: &str) {
-    command.env(
-        ICYDB_BUILD_TARGET_ENV,
-        build_target_for_environment(environment).env_value(),
-    );
 }
 
 fn default_canister_wasm_path(canister: &str) -> PathBuf {

@@ -1,0 +1,19 @@
+error[E0433]: cannot find `__icydb_generated` in `crate`
+ --> tests/fail-endpoints/without_start.rs:1:1
+  |
+1 | / icydb::endpoints! {
+2 | |     icydb_metrics(authorization = public);
+3 | | }
+  | |_^ could not find `__icydb_generated` in the crate root
+  |
+  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_generated` in `crate`
+ --> tests/fail-endpoints/without_start.rs:1:1
+  |
+1 | / icydb::endpoints! {
+2 | |     icydb_metrics(authorization = public);
+3 | | }
+  | |_^ could not find `__icydb_generated` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,5 +1,6 @@
 //! Shared integration harness helpers.
 
+pub mod canister_artifact;
 pub mod sql_performance_contract;
 
 use std::{
@@ -167,23 +168,31 @@ impl CanisterCandidExportMode {
     }
 }
 
-/// Target-sensitive generated-surface policy for fixture canister builds.
+/// Explicit maintained Cargo feature profile for fixture canister builds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CanisterBuildTarget {
-    /// Preserve the caller's `ICYDB_BUILD_TARGET`, if any.
-    Inherit,
-    /// Local ICP/PocketIC fixture build.
-    Local,
-    /// Mainnet-oriented fixture build.
-    Ic,
+pub enum CanisterBuildProfile {
+    /// Local ICP/PocketIC build with the maintained test endpoint features.
+    LocalTest,
+    /// Production-shaped build with development and fixture features absent.
+    Production,
 }
 
-impl CanisterBuildTarget {
-    const fn env_value(self) -> Option<&'static str> {
+impl CanisterBuildProfile {
+    /// Parse one canonical build-profile label.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "local" | "local-test" => Ok(Self::LocalTest),
+            "production" => Ok(Self::Production),
+            other => Err(format!(
+                "invalid canister build profile '{other}', expected 'local' or 'production'"
+            )),
+        }
+    }
+
+    const fn target_dir_name(self) -> &'static str {
         match self {
-            Self::Inherit => None,
-            Self::Local => Some("local"),
-            Self::Ic => Some("ic"),
+            Self::LocalTest => "canister-local",
+            Self::Production => "canister-production",
         }
     }
 }
@@ -197,8 +206,8 @@ pub struct CanisterBuildOptions {
     pub sql_mode: CanisterSqlMode,
     /// Whether generated Candid metadata export stays in the canister wasm.
     pub candid_export: CanisterCandidExportMode,
-    /// Build target used by target-sensitive generated surface policy.
-    pub build_target: CanisterBuildTarget,
+    /// Exact maintained package feature profile.
+    pub build_profile: CanisterBuildProfile,
 }
 
 impl Default for CanisterBuildOptions {
@@ -207,7 +216,7 @@ impl Default for CanisterBuildOptions {
             profile: CanisterWasmProfile::Debug,
             sql_mode: CanisterSqlMode::Enabled,
             candid_export: CanisterCandidExportMode::Auto,
-            build_target: CanisterBuildTarget::Inherit,
+            build_profile: CanisterBuildProfile::LocalTest,
         }
     }
 }
@@ -342,6 +351,25 @@ fn build_canister_package(
     let mut cargo = Command::new("cargo");
     let profile = options.profile.as_str();
 
+    let policy = canister_artifact::MAINTAINED_CANISTER_POLICIES
+        .iter()
+        .find(|policy| policy.package == package_name)
+        .ok_or_else(|| format!("no maintained feature policy for package '{package_name}'"))?;
+    let selected_features = match options.build_profile {
+        CanisterBuildProfile::LocalTest => policy.local_test_features,
+        CanisterBuildProfile::Production => policy.production_features,
+    };
+    let candid_enabled = options.candid_export.enabled_for_profile(options.profile);
+    let features = selected_features
+        .iter()
+        .copied()
+        .filter(|feature| {
+            (*feature == "candid-export" && candid_enabled)
+                || (*feature != "candid-export" && options.sql_mode.enabled())
+        })
+        .collect::<Vec<_>>();
+    let canister_target_dir = target_dir(&root).join(options.build_profile.target_dir_name());
+
     // Phase 1: configure the wasm cargo build request.
     cargo.current_dir(&root).args([
         "build",
@@ -349,16 +377,12 @@ fn build_canister_package(
         WASM_TARGET_TRIPLE,
         "--package",
         package_name,
+        "--no-default-features",
     ]);
-    if !options.sql_mode.enabled() {
-        cargo.arg("--no-default-features");
+    if !features.is_empty() {
+        cargo.args(["--features", features.join(",").as_str()]);
     }
-    if options.candid_export.enabled_for_profile(options.profile) {
-        cargo.args(["--features", "candid-export"]);
-    }
-    if let Some(build_target) = options.build_target.env_value() {
-        cargo.env("ICYDB_BUILD_TARGET", build_target);
-    }
+    cargo.env("CARGO_TARGET_DIR", &canister_target_dir);
     if profile == "release" {
         cargo.arg("--release");
     } else if profile != "debug" {
@@ -372,7 +396,7 @@ fn build_canister_package(
     run_checked(cargo, context_label)?;
 
     // Phase 3: resolve the built wasm from the configured target directory.
-    let built_wasm_path = wasm_path(&target_dir(&root), package_name, profile);
+    let built_wasm_path = wasm_path(&canister_target_dir, package_name, profile);
     if !built_wasm_path.is_file() {
         return Err(format!(
             "{context_label}: build succeeded but wasm was not found at {}",
@@ -527,10 +551,7 @@ fn build_local_fixture_wasm_bytes_with_options(
 }
 
 fn local_canister_build_options() -> CanisterBuildOptions {
-    CanisterBuildOptions {
-        build_target: CanisterBuildTarget::Local,
-        ..CanisterBuildOptions::default()
-    }
+    CanisterBuildOptions::default()
 }
 
 fn canister_build_label(fixture: &FixtureCanister, options: CanisterBuildOptions) -> String {

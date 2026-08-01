@@ -30,6 +30,7 @@ use crate::{
 
 type StructuralProjectionPayloadComponents =
     (Vec<String>, Vec<Option<u32>>, Vec<Vec<OutputValue>>, u32);
+#[cfg(feature = "sql")]
 type StructuralProjectionRuntimeComponents = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Value>>, u32);
 
 /// Frozen outward projection labels and decimal display scales derived from
@@ -104,6 +105,7 @@ impl StructuralProjectionPayload {
         Ok((self.columns, self.fixed_scales, rows, self.row_count))
     }
 
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::session) fn into_runtime_components(
         self,

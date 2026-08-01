@@ -4,7 +4,6 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
-#[cfg(feature = "sql-explain")]
 use crate::db::sql::table_render::render_explain_lines;
 use crate::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
@@ -58,6 +57,58 @@ pub struct SqlConstraintValidationOutput {
     pub complete: bool,
 }
 
+/// Stable result envelope returned by the fixed administrative SQL query
+/// endpoint.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlQueryPerfResult {
+    /// Executed SQL result.
+    pub result: SqlQueryResult,
+    /// Total local instructions attributed to compilation and execution.
+    pub instructions: u64,
+    /// Planner-local instruction attribution.
+    pub planner_instructions: u64,
+    /// Store-local instruction attribution.
+    pub store_instructions: u64,
+    /// Executor-local instruction attribution.
+    pub executor_instructions: u64,
+    /// Pure-covering decode instruction attribution.
+    pub pure_covering_decode_instructions: u64,
+    /// Pure-covering row-assembly instruction attribution.
+    pub pure_covering_row_assembly_instructions: u64,
+    /// Response decode instruction attribution.
+    pub decode_instructions: u64,
+    /// SQL compiler instruction attribution.
+    pub compiler_instructions: u64,
+}
+
+impl SqlQueryPerfResult {
+    /// Construct the fixed endpoint response from maintained SQL attribution.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn from_attribution(
+        result: SqlQueryResult,
+        attribution: crate::db::SqlQueryPerfAttribution,
+    ) -> Self {
+        Self {
+            result,
+            instructions: attribution.total_local_instructions,
+            planner_instructions: attribution.execution.planner_local_instructions,
+            store_instructions: attribution.execution.store_local_instructions,
+            executor_instructions: attribution.execution.executor_local_instructions,
+            pure_covering_decode_instructions: attribution
+                .pure_covering
+                .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
+            pure_covering_row_assembly_instructions: attribution
+                .pure_covering
+                .map_or(0, |pure_covering| {
+                    pure_covering.row_assembly_local_instructions
+                }),
+            decode_instructions: attribution.response_decode_local_instructions,
+            compiler_instructions: attribution.compile_local_instructions,
+        }
+    }
+}
+
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {
@@ -67,7 +118,6 @@ pub enum SqlQueryResult {
     },
     Projection(RowProjectionOutput),
     Grouped(SqlGroupedRowsOutput),
-    #[cfg(feature = "sql-explain")]
     Explain {
         entity: String,
         explain: String,
@@ -118,7 +168,6 @@ impl SqlQueryResult {
             Self::Count { entity, row_count } => render_count_lines(entity.as_str(), *row_count),
             Self::Projection(rows) => render_query_rows_lines(rows),
             Self::Grouped(rows) => render_grouped_lines(rows),
-            #[cfg(feature = "sql-explain")]
             Self::Explain { explain, .. } => render_explain_lines(explain.as_str()),
             Self::Describe(description) => render_describe_lines(description),
             Self::ShowConstraints {
@@ -184,5 +233,55 @@ impl SqlQueryResult {
     #[must_use]
     pub fn render_text(&self) -> String {
         self.render_lines().join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use candid::types::{CandidType, Label, Type, TypeInner};
+
+    use super::{SqlQueryPerfResult, SqlQueryResult};
+
+    fn named_fields(ty: Type, expected_kind: &str) -> BTreeSet<String> {
+        let fields = match ty.as_ref() {
+            TypeInner::Record(fields) if expected_kind == "record" => fields,
+            TypeInner::Variant(fields) if expected_kind == "variant" => fields,
+            other => panic!("expected Candid {expected_kind}, got {other:?}"),
+        };
+
+        fields
+            .iter()
+            .map(|field| match field.id.as_ref() {
+                Label::Named(name) => name.clone(),
+                other => panic!("expected named Candid field, got {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sql_query_result_candid_shape_always_contains_explain() {
+        let variants = named_fields(SqlQueryResult::ty(), "variant");
+
+        assert!(variants.contains("Explain"));
+    }
+
+    #[test]
+    fn sql_query_perf_result_owns_the_fixed_public_candid_record() {
+        let fields = named_fields(SqlQueryPerfResult::ty(), "record");
+        let expected = BTreeSet::from([
+            "compiler_instructions".to_string(),
+            "decode_instructions".to_string(),
+            "executor_instructions".to_string(),
+            "instructions".to_string(),
+            "planner_instructions".to_string(),
+            "pure_covering_decode_instructions".to_string(),
+            "pure_covering_row_assembly_instructions".to_string(),
+            "result".to_string(),
+            "store_instructions".to_string(),
+        ]);
+
+        assert_eq!(fields, expected);
     }
 }

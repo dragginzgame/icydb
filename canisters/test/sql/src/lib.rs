@@ -4,6 +4,8 @@
 
 use candid::CandidType;
 use ic_cdk::{query, update};
+#[cfg(feature = "test-admin-api")]
+use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
     db::{StructuralMutation, StructuralPatch, WriteCell},
@@ -13,13 +15,32 @@ use icydb::{
 use icydb::{
     db::{DynamicQuery, query::asc},
     prelude::FieldRef,
-    types::{Decimal, Float32, Float64},
     value::OutputValue,
 };
 use icydb_model::base::types::web::MimeType;
 use icydb_model::{Inner as _, NormalizeAndValidate as _, normalize, validate};
 
 icydb::start!();
+
+icydb::endpoints! {
+    #[cfg(feature = "local-sql-query")]
+    icydb_sql_query(introspection = true);
+    icydb_ddl;
+    #[cfg(not(icydb_bounded_update))]
+    icydb_update(admission = primary_key_only);
+    #[cfg(icydb_bounded_update)]
+    icydb_update(admission = bounded_deterministic);
+    #[cfg(not(icydb_bounded_update))]
+    icydb_integrity;
+    icydb_metrics(authorization = public);
+    icydb_metrics_reset;
+    icydb_snapshot;
+    icydb_schema(authorization = controller);
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_reset;
+    #[cfg(feature = "test-admin-api")]
+    icydb_fixtures_load(handler = icydb_fixtures_load);
+}
 
 #[cfg(feature = "sql")]
 const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
@@ -92,7 +113,7 @@ fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, 
 }
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     db()?.execute_trusted_structural_insert_batch("SqlTestUser", sql_user_patches())?;
     db()?.execute_trusted_structural_insert_batch(
@@ -104,7 +125,7 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic baseline SQL user fixture batch.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn sql_user_patches() -> Vec<StructuralPatch> {
     vec![
         sql_user_patch("alice", 31, 28),
@@ -113,7 +134,7 @@ fn sql_user_patches() -> Vec<StructuralPatch> {
     ]
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn sql_user_patch(name: &str, age: i32, rank: i32) -> StructuralPatch {
     StructuralPatch::new()
         .field("name", WriteCell::Value(InputValue::Text(name.to_string())))
@@ -161,7 +182,7 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
 }
 
 /// Build one deterministic mixed numeric fixture batch for SQL type coverage.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn sql_numeric_type_patches() -> Vec<StructuralPatch> {
     vec![
         sql_numeric_type_patch(
@@ -173,7 +194,7 @@ fn sql_numeric_type_patches() -> Vec<StructuralPatch> {
     ]
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 #[expect(
     clippy::too_many_arguments,
     reason = "one fixture helper mirrors the maintained scalar SQL type matrix"

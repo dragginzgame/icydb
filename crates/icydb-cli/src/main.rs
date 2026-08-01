@@ -5,8 +5,8 @@
 
 mod cli;
 mod commands;
-mod config;
 mod diagnostic;
+mod endpoint;
 mod icp;
 mod observability;
 mod shell;

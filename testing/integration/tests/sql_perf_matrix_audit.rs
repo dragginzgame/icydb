@@ -46,7 +46,7 @@ use icydb::{
     diagnostic::{DiagnosticCode, ErrorClass},
 };
 use icydb_testing_integration::{
-    CanisterBuildOptions, CanisterBuildTarget, CanisterWasmProfile,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterWasmProfile,
     build_fixture_canister_wasm_bytes_with_options, install_prebuilt_fixture_canister,
     reset_icydb_fixtures,
     sql_performance_contract::{
@@ -2709,7 +2709,7 @@ const fn matrix_canister_wasm_profile() -> CanisterWasmProfile {
 fn matrix_canister_build_options() -> CanisterBuildOptions {
     CanisterBuildOptions {
         profile: matrix_canister_wasm_profile(),
-        build_target: CanisterBuildTarget::Local,
+        build_profile: CanisterBuildProfile::LocalTest,
         ..CanisterBuildOptions::default()
     }
 }

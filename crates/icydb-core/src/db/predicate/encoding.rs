@@ -6,9 +6,9 @@
 use crate::{
     db::{
         numeric::coerce_numeric_decimal,
-        predicate::{CoercionId, CoercionSpec, CompareOp, Predicate, casefold_text},
+        predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
     },
-    value::{CanonicalEnumBody, Value, ValueEnum, canonicalize_value_set},
+    value::{CanonicalEnumBody, Value, ValueEnum, canonicalize_value_set, casefold_text},
 };
 
 const SORT_PRED_TRUE: u8 = 0x00;

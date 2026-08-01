@@ -4,7 +4,6 @@
 //! Boundary: test-only access to crate-private CLI seams.
 
 mod cli;
-mod config;
 mod icp;
 mod observability;
 mod shell;

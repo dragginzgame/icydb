@@ -1,6 +1,6 @@
 //! Module: metrics command handling.
 //! Responsibility: call generated metrics endpoints and render human metrics reports.
-//! Does not own: config surface gating, generic ICP command construction, or other observability reports.
+//! Does not own: endpoint publication, generic ICP command construction, or other observability reports.
 //! Boundary: exposes the metrics command runner and test-covered report helpers through observability.
 
 use candid::Decode;
@@ -9,10 +9,7 @@ mod render;
 
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
-    config::{
-        ConfiguredEndpoint, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT, METRICS_RESET_ENDPOINT,
-        require_configured_endpoint_for_environment,
-    },
+    endpoint::{Endpoint, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT, METRICS_RESET_ENDPOINT},
     icp::require_created_canister,
     observability::{call_query, call_update, endpoint_result_error},
 };
@@ -22,11 +19,6 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     let target = args.target();
     let endpoint = metrics_endpoint(args.reset(), args.extended());
 
-    require_configured_endpoint_for_environment(
-        target.environment(),
-        target.canister_name(),
-        endpoint,
-    )?;
     require_created_canister(target.environment(), target.canister_name())?;
 
     if args.reset() {
@@ -40,7 +32,7 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     run_compact_metrics_report(target, endpoint, args.window_start_ms())
 }
 
-const fn metrics_endpoint(reset: bool, extended: bool) -> ConfiguredEndpoint {
+const fn metrics_endpoint(reset: bool, extended: bool) -> Endpoint {
     if reset {
         return METRICS_RESET_ENDPOINT;
     }
@@ -54,7 +46,7 @@ const fn metrics_endpoint(reset: bool, extended: bool) -> ConfiguredEndpoint {
 
 fn run_compact_metrics_report(
     target: &CanisterTarget,
-    endpoint: ConfiguredEndpoint,
+    endpoint: Endpoint,
     window_start_ms: Option<u64>,
 ) -> Result<(), String> {
     let candid_arg = metrics_candid_arg(window_start_ms);
@@ -83,7 +75,7 @@ fn run_compact_metrics_report(
 
 fn run_extended_metrics_report(
     target: &CanisterTarget,
-    endpoint: ConfiguredEndpoint,
+    endpoint: Endpoint,
     window_start_ms: Option<u64>,
 ) -> Result<(), String> {
     let candid_arg = metrics_candid_arg(window_start_ms);

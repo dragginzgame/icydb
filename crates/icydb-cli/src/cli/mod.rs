@@ -1,10 +1,9 @@
 //! Module: CLI argument surface.
 //! Responsibility: define clap parsing structs and stable accessors for command inputs.
-//! Does not own: command execution, config resolution, or rendered output.
+//! Does not own: command execution, endpoint publication, or rendered output.
 //! Boundary: exposes parsed command values to the command dispatcher and owner modules.
 
 mod canister;
-mod config;
 mod diagnostic;
 mod metrics;
 mod schema;
@@ -12,7 +11,6 @@ mod sql;
 mod target;
 
 pub(crate) use canister::CanisterCommand;
-pub(crate) use config::{ConfigArgs, ConfigCommand, ConfigInitArgs};
 pub(crate) use diagnostic::DiagnosticArgs;
 pub(crate) use metrics::MetricsArgs;
 pub(crate) use schema::SchemaCommand;
@@ -75,10 +73,6 @@ pub(crate) enum CliCommand {
     /// Inspect accepted and generated schema metadata from an IcyDB canister.
     #[command(subcommand)]
     Schema(SchemaCommand),
-
-    /// Inspect and validate IcyDB TOML config.
-    #[command(subcommand)]
-    Config(ConfigCommand),
 
     /// Manage a local ICP canister.
     #[command(subcommand)]

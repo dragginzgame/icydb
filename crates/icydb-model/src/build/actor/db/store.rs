@@ -572,7 +572,6 @@ mod tests {
         ActorBuilder::new(
             Arc::new(Schema::new()),
             Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3),
-            crate::build::BuildOptions::default(),
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
         )

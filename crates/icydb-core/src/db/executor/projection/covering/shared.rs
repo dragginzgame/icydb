@@ -5,7 +5,7 @@ use crate::{
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
-            AccessWindow, CoveringProjectionComponentRows, EntityAuthority, PrefixSetMergeSafety,
+            AccessWindow, EntityAuthority, IndexComponentRows, PrefixSetMergeSafety,
             apply_offset_limit_window, expand_index_prefix_family_with_exact_child_prefixes,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 
 pub(super) struct PreparedCoveringIndexScan {
     pub(super) component_indices: Vec<usize>,
-    pub(super) raw_pairs: CoveringProjectionComponentRows,
+    pub(super) raw_pairs: IndexComponentRows,
     pub(super) scan_window: CoveringScanWindow,
     pub(super) stream_order_satisfies_projection_order: bool,
     pub(super) store: StoreHandle,
