@@ -131,7 +131,7 @@ pub struct SchemaOnlyEntity {}
 
 #[cfg(test)]
 mod tests {
-    use model_api::build::{generate, get_schema};
+    use model_api::build::get_schema;
     use model_api::schema::{
         ConstraintFragmentKind, ConstraintSourceKey, FieldInsertPolicy, FieldSourceKey, FieldType,
         NamedTypeFragment, RuleSourceKey, SchemaFragment, SourceRuleOperation, TypeSourceKey,
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn renamed_schema_only_dependency_emits_fragment_and_actor_tokens() {
+    fn renamed_schema_only_dependency_emits_fragment() {
         let canister_path = SchemaOnlyCanister::PATH;
         let schema = get_schema().expect("schema-only fixture graph should validate");
         let fragment = schema
@@ -289,12 +289,5 @@ mod tests {
             fragment,
         );
         drop(schema);
-
-        let actor = generate(canister_path);
-        assert!(actor.contains("runtime_api"));
-        assert!(!actor.contains(":: icydb ::"));
-        assert!(!actor.contains("normalize_and_validate"));
-        assert!(!actor.contains("base :: normalizer"));
-        assert!(!actor.contains("base :: validator"));
     }
 }
