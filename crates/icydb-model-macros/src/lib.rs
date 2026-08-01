@@ -58,7 +58,10 @@ mod prelude {
         r#gen::{Imp, Implementor},
         helper::{quote_one, quote_option, quote_slice, to_path, to_str_lit},
         node::*,
-        trait_kind::{TraitBuilder, TraitKind},
+        trait_kind::{
+            ApplicationTypeKind, TraitBuilder, TraitKind, TraitSet, application_type_trait_set,
+            generated_node_trait_set,
+        },
         types::TraitStrategy,
     };
 

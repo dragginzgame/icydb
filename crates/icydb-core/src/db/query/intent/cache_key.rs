@@ -126,7 +126,7 @@ enum ProjectionExprCacheKey {
         left: Box<Self>,
         right: Box<Self>,
     },
-    Aggregate(AggregateExprCacheKey),
+    Aggregate(AggregateCacheKey),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -157,15 +157,15 @@ enum UnaryOpCacheKey {
 }
 
 ///
-/// AggregateExprCacheKey
+/// AggregateCacheKey
 ///
-/// Canonical aggregate-expression identity for projected aggregate results.
-/// It records only the semantic pieces that affect planner reuse: aggregate
-/// kind, optional target field, and whether the aggregate is distinct.
+/// Canonical aggregate identity shared by projected and grouped aggregate
+/// cache entries. It records only the semantic pieces that affect planner
+/// reuse.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct AggregateExprCacheKey {
+struct AggregateCacheKey {
     kind_tag: u8,
     target_field: Option<String>,
     input_expr: Option<String>,
@@ -187,7 +187,7 @@ struct AggregateExprCacheKey {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupingCacheKey {
     group_fields: Vec<GroupFieldCacheKey>,
-    aggregates: Vec<GroupAggregateCacheKey>,
+    aggregates: Vec<AggregateCacheKey>,
     having_expr: Option<ProjectionExprCacheKey>,
     max_groups: u64,
     max_group_bytes: u64,
@@ -205,23 +205,6 @@ struct GroupingCacheKey {
 struct GroupFieldCacheKey {
     index: usize,
     field: String,
-}
-
-///
-/// GroupAggregateCacheKey
-///
-/// Canonical identity for one aggregate slot inside grouped intent.
-/// Grouped planning uses this wrapper to preserve aggregate order and semantics
-/// without re-embedding full aggregate expressions into the parent key.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct GroupAggregateCacheKey {
-    kind_tag: u8,
-    target_field: Option<String>,
-    input_expr: Option<String>,
-    filter_expr: Option<String>,
-    distinct: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -383,7 +366,7 @@ impl ProjectionExprCacheKey {
                 right: Box::new(Self::from_expr(right.as_ref())),
             },
             Expr::Aggregate(aggregate) => {
-                Self::Aggregate(AggregateExprCacheKey::from_aggregate_expr(aggregate))
+                Self::Aggregate(AggregateCacheKey::from_aggregate_expr(aggregate))
             }
             #[cfg(test)]
             Expr::Alias { expr, name: _ } => Self::from_expr(expr.as_ref()),
@@ -427,19 +410,35 @@ impl CaseWhenArmCacheKey {
     }
 }
 
-impl AggregateExprCacheKey {
+impl AggregateCacheKey {
     fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
-        let identity = AggregateIdentity::from_aggregate_expr(aggregate);
+        Self::from_identity(
+            AggregateIdentity::from_aggregate_expr(aggregate),
+            aggregate.target_field(),
+            aggregate.filter_expr(),
+        )
+    }
 
+    fn from_group_aggregate_spec(aggregate: &crate::db::query::plan::GroupAggregateSpec) -> Self {
+        Self::from_identity(
+            aggregate.identity(),
+            aggregate.target_field(),
+            aggregate.filter_expr(),
+        )
+    }
+
+    fn from_identity(
+        identity: AggregateIdentity,
+        target_field: Option<&str>,
+        filter_expr: Option<&crate::db::query::plan::expr::Expr>,
+    ) -> Self {
         Self {
             kind_tag: identity.kind().fingerprint_tag(),
-            target_field: aggregate.target_field().map(str::to_owned),
+            target_field: target_field.map(str::to_owned),
             input_expr: identity
                 .input_expr()
                 .map(render_scalar_projection_expr_plan_label),
-            filter_expr: aggregate
-                .filter_expr()
-                .map(render_scalar_projection_expr_plan_label),
+            filter_expr: filter_expr.map(render_scalar_projection_expr_plan_label),
             distinct: identity.distinct(),
         }
     }
@@ -458,7 +457,7 @@ impl GroupingCacheKey {
                 .group
                 .aggregates
                 .iter()
-                .map(GroupAggregateCacheKey::from_group_aggregate_spec)
+                .map(AggregateCacheKey::from_group_aggregate_spec)
                 .collect(),
             having_expr: grouped
                 .having_expr
@@ -479,29 +478,53 @@ impl GroupFieldCacheKey {
     }
 }
 
-impl GroupAggregateCacheKey {
-    fn from_group_aggregate_spec(aggregate: &crate::db::query::plan::GroupAggregateSpec) -> Self {
-        let identity = aggregate.identity();
-
-        Self {
-            kind_tag: identity.kind().fingerprint_tag(),
-            target_field: aggregate.target_field().map(str::to_owned),
-            input_expr: identity
-                .input_expr()
-                .map(render_scalar_projection_expr_plan_label),
-            filter_expr: aggregate
-                .filter_expr()
-                .map(render_scalar_projection_expr_plan_label),
-            distinct: identity.distinct(),
-        }
-    }
-}
-
 impl ConsistencyCacheKey {
     const fn from_missing_row_policy(policy: MissingRowPolicy) -> Self {
         match policy {
             MissingRowPolicy::Ignore => Self::Ignore,
             MissingRowPolicy::Error => Self::Error,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::query::{
+            builder::aggregate,
+            plan::{GroupAggregateSpec, expr::Expr},
+        },
+        value::Value,
+    };
+
+    use super::AggregateCacheKey;
+
+    #[test]
+    fn scalar_and_grouped_aggregate_cache_identity_stays_shared() {
+        let aggregate = aggregate::sum("amount")
+            .with_filter_expr(Expr::Literal(Value::Bool(true)))
+            .distinct();
+        let grouped = GroupAggregateSpec::from_aggregate_expr(&aggregate);
+
+        assert_eq!(
+            AggregateCacheKey::from_aggregate_expr(&aggregate),
+            AggregateCacheKey::from_group_aggregate_spec(&grouped),
+        );
+
+        let different_filter = aggregate::sum("amount")
+            .with_filter_expr(Expr::Literal(Value::Bool(false)))
+            .distinct();
+        assert_ne!(
+            AggregateCacheKey::from_aggregate_expr(&aggregate),
+            AggregateCacheKey::from_aggregate_expr(&different_filter),
+        );
+        assert_ne!(
+            AggregateCacheKey::from_aggregate_expr(&aggregate),
+            AggregateCacheKey::from_aggregate_expr(&aggregate::sum("other_amount").distinct()),
+        );
+        assert_ne!(
+            AggregateCacheKey::from_aggregate_expr(&aggregate),
+            AggregateCacheKey::from_aggregate_expr(&aggregate::sum("amount")),
+        );
     }
 }

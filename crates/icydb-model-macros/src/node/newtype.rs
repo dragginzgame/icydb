@@ -41,7 +41,7 @@ impl HasDef for Newtype {
 
 impl ValidateNode for Newtype {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
         self.item.validate()?;
 
         if self.traits.explicitly_adds(TraitKind::Default) && self.default.is_none() {
@@ -80,10 +80,19 @@ impl HasSchemaPart for Newtype {
 }
 
 impl HasTraits for Newtype {
-    fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.build_for_type();
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::Newtype)
+    }
+
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
+    }
+
+    fn trait_baseline(&self) -> TraitSet {
+        let mut traits = application_type_trait_set();
 
         // all newtypes
+        traits.add(TraitKind::From);
         traits.add(TraitKind::Inner);
 
         // primitive traits
@@ -119,7 +128,7 @@ impl HasTraits for Newtype {
             }
         }
 
-        traits.into_vec()
+        traits
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {

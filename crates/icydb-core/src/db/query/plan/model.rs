@@ -10,6 +10,7 @@ use crate::db::{
     query::{
         builder::scalar_projection::render_scalar_projection_expr_plan_label,
         plan::{
+            aggregate_shape::AggregateShape,
             expr::{Expr, FieldId, normalize_bool_expr},
             order_contract::DeterministicSecondaryOrderContract,
             semantics::LogicalPushdownEligibility,
@@ -647,10 +648,21 @@ impl AggregateKind {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct GroupAggregateSpec {
-    pub(in crate::db) kind: AggregateKind,
-    pub(in crate::db) input_expr: Option<Box<Expr>>,
-    pub(in crate::db) filter_expr: Option<Box<Expr>>,
-    pub(in crate::db) distinct: bool,
+    shape: AggregateShape,
+}
+
+impl GroupAggregateSpec {
+    /// Wrap one canonical raw aggregate shape for grouped planning.
+    #[must_use]
+    pub(in crate::db) const fn from_shape(shape: AggregateShape) -> Self {
+        Self { shape }
+    }
+
+    /// Borrow the canonical raw aggregate shape.
+    #[must_use]
+    pub(in crate::db) const fn shape(&self) -> &AggregateShape {
+        &self.shape
+    }
 }
 
 impl PartialEq for GroupAggregateSpec {

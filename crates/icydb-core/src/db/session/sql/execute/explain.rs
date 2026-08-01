@@ -550,14 +550,14 @@ impl<C: CanisterKind> DbSession<C> {
 
         let visible_indexes =
             self.visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
-        let prefix_specs =
-            super::direct_count::direct_count_cardinality_prefix_specs_for_accepted_authority(
+        let prefix_keys =
+            super::direct_count::direct_count_cardinality_prefix_keys_for_accepted_authority(
                 authority,
                 command.query(),
                 &visible_indexes,
                 schema_info,
             )?;
-        let prefix_count = prefix_specs.as_ref().map_or(0, Vec::len);
+        let prefix_count = prefix_keys.as_ref().map_or(0, Vec::len);
         execution.node_properties.insert(
             property_keys::AGGREGATE_DIRECT_COUNT_METADATA_ELIGIBLE,
             Value::from(prefix_count != 0),

@@ -30,32 +30,19 @@ use super::metrics::{
 };
 
 ///
-/// DirectDataRowScanResult
-///
-/// DirectDataRowScanResult carries the rows retained by the direct raw-row
-/// lane plus the accounting needed by the scalar materialization boundary.
-/// The retained rows may already have had the cursorless page offset applied,
-/// while `rows_matched` preserves the pre-page matched-row count.
-///
-
-pub(super) struct DirectDataRowScanResult {
-    pub(super) rows: Vec<DataRow>,
-    pub(super) rows_scanned: usize,
-    pub(super) rows_matched: usize,
-}
-
-///
 /// RowScanResult
 ///
 /// RowScanResult is the shared scan collector payload for scalar row lanes.
 /// The concrete row type is lane-owned; scan accounting and skip/keep
-/// retention are identical for kernel rows and direct data rows.
+/// retention are identical for kernel rows and direct data rows. Retained rows
+/// may already have had the cursorless page offset applied, while
+/// `rows_matched` preserves the pre-page matched-row count.
 ///
 
-struct RowScanResult<T> {
-    rows: Vec<T>,
-    rows_scanned: usize,
-    rows_matched: usize,
+pub(super) struct RowScanResult<T> {
+    pub(super) rows: Vec<T>,
+    pub(super) rows_scanned: usize,
+    pub(super) rows_matched: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -509,7 +496,7 @@ fn scan_data_rows_direct(
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<DirectDataRowScanResult, InternalError> {
+) -> Result<RowScanResult<DataRow>, InternalError> {
     scan_data_rows_direct_with_reader(key_stream, row_keep_cap, row_skip_count, |key| {
         row_runtime.read_data_row(consistency, key)
     })
@@ -523,20 +510,14 @@ fn scan_data_rows_direct_with_reader(
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     mut read_data_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
-) -> Result<DirectDataRowScanResult, InternalError> {
-    let result = scan_rows_with(
+) -> Result<RowScanResult<DataRow>, InternalError> {
+    scan_rows_with(
         key_stream,
         row_keep_cap,
         row_skip_count,
         next_direct_data_row_scan_key,
         |key| read_direct_data_row_scan_row(key, &mut read_data_row),
-    )?;
-
-    Ok(DirectDataRowScanResult {
-        rows: result.rows,
-        rows_scanned: result.rows_scanned,
-        rows_matched: result.rows_matched,
-    })
+    )
 }
 
 fn next_direct_data_row_scan_key(
@@ -578,7 +559,7 @@ fn scan_data_rows_direct_with_filter_program(
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     filter_program: &EffectiveRuntimeFilterProgram,
-) -> Result<DirectDataRowScanResult, InternalError> {
+) -> Result<RowScanResult<DataRow>, InternalError> {
     scan_data_rows_direct_with_reader(key_stream, row_keep_cap, row_skip_count, |key| {
         row_runtime.read_data_row_with_filter_program(consistency, key, filter_program)
     })
@@ -593,7 +574,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
     consistency: MissingRowPolicy,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-) -> Result<DirectDataRowScanResult, InternalError> {
+) -> Result<RowScanResult<DataRow>, InternalError> {
     scan_direct_data_rows_with_residual_policy(
         key_stream,
         scan_budget_hint,
@@ -616,9 +597,9 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     consistency: MissingRowPolicy,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-) -> Result<DirectDataRowScanResult, InternalError> {
+) -> Result<RowScanResult<DataRow>, InternalError> {
     if row_keep_cap == Some(0) {
-        return Ok(DirectDataRowScanResult {
+        return Ok(RowScanResult {
             rows: Vec::new(),
             rows_scanned: 0,
             rows_matched: 0,

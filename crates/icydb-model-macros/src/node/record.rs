@@ -35,7 +35,7 @@ impl HasDef for Record {
 
 impl ValidateNode for Record {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
         self.fields.validate()?;
         if self.traits.explicitly_adds(TraitKind::Default) {
             validate_struct_default_request("record", self.def(), &self.fields)?;
@@ -66,9 +66,12 @@ impl HasSchemaPart for Record {
 }
 
 impl HasTraits for Record {
-    fn traits(&self) -> Vec<TraitKind> {
-        let traits = self.traits.build_for_type();
-        traits.into_vec()
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::Record)
+    }
+
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
@@ -110,5 +113,47 @@ impl ToTokens for Record {
             #base
             #typed_adapter
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Record;
+    use crate::prelude::*;
+    use darling::{FromMeta, ast::NestedMeta};
+    use quote::quote;
+
+    #[test]
+    fn unsupported_record_trait_rejects_before_emission() {
+        let args = NestedMeta::parse_meta_list(quote!(traits(add(NumericValue))))
+            .expect("record args should parse");
+        let mut node = Record::from_list(&args).expect("record should lower");
+        node.def = Def::new(
+            syn::parse2(quote!(
+                pub struct UnsupportedNumericRecord {}
+            ))
+            .expect("record input should parse as a struct"),
+        );
+
+        let error = node
+            .validate()
+            .expect_err("unsupported record trait should reject");
+        assert!(
+            error
+                .to_string()
+                .contains("trait 'NumericValue' is not supported by record application values"),
+            "unexpected error: {error}"
+        );
+
+        let emitted_error = node.resolve_trait_tokens().impls.to_string();
+        assert!(emitted_error.contains("compile_error"));
+        assert!(emitted_error.contains("NumericValue"));
+    }
+
+    #[test]
+    fn record_baseline_does_not_select_unemitted_from_trait() {
+        let node = Record::from_list(&[]).expect("empty record should lower");
+
+        assert!(!node.traits().contains(&TraitKind::From));
     }
 }

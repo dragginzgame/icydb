@@ -25,6 +25,9 @@ pub struct Enum {
     pub(crate) ty: Type,
 
     #[darling(default)]
+    pub(crate) sorted: bool,
+
+    #[darling(default)]
     pub(crate) traits: TraitBuilder,
 }
 
@@ -47,7 +50,7 @@ impl HasDef for Enum {
 impl ValidateNode for Enum {
     fn validate(&self) -> Result<(), DarlingError> {
         // Phase 1: validate trait configuration and variant shapes.
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
 
         for variant in &self.variants {
             variant.validate()?;
@@ -108,14 +111,21 @@ impl HasSchemaPart for Enum {
 }
 
 impl HasTraits for Enum {
-    fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.build_for_type();
-        // extra traits
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::Enum)
+    }
+
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
+    }
+
+    fn trait_baseline(&self) -> TraitSet {
+        let mut traits = application_type_trait_set();
         if self.is_unit_enum() {
             traits.extend([TraitKind::Copy, TraitKind::Hash, TraitKind::PartialOrd]);
         }
 
-        traits.into_vec()
+        traits
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
@@ -134,8 +144,12 @@ impl HasType for Enum {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
         let variants = self.variants.iter().map(HasTypeExpr::type_expr);
+        let sorted = self
+            .sorted
+            .then(|| quote!(#[::icydb_model::__reexports::remain::sorted]));
 
         quote! {
+            #sorted
             pub enum #ident {
                 #(#variants),*
             }
@@ -228,5 +242,30 @@ impl HasTypeExpr for EnumVariant {
         quote! {
             #body
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Enum;
+    use crate::prelude::*;
+    use darling::{FromMeta, ast::NestedMeta};
+    use quote::quote;
+
+    #[test]
+    fn top_level_sorted_flag_emits_enum_order_guard() {
+        let args =
+            NestedMeta::parse_meta_list(quote!(sorted, variant(name = "A"), variant(name = "B")))
+                .expect("enum args should parse");
+        let mut node = Enum::from_list(&args).expect("sorted enum should lower");
+        node.def = Def::new(
+            syn::parse2(quote!(
+                pub struct SortedExample {}
+            ))
+            .expect("enum input should parse as a struct"),
+        );
+
+        assert!(node.sorted);
+        assert!(node.type_part().to_string().contains("remain :: sorted"));
     }
 }

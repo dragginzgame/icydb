@@ -46,6 +46,42 @@ the consuming `NormalizeAndValidate::normalize_and_validate` method
 explicitly. Generated persistence adapters and database writes do not call
 normalizers or validators.
 
+## Generated Rust Ergonomics
+
+`traits(add(...), remove(...))` selects supported Rust trait implementations;
+it is not a free-form list. Required traits are compiler-owned, while removal
+remains available for supported generated implementations that applications
+need to replace manually. The compiler resolves the complete node and shape
+baseline before applying either directive and rejects any selected trait that
+has no derive or generated implementation strategy.
+
+`From` is generated only for newtype and collection wrappers.
+`NormalizeCustom` and `ValidateCustom` are generated for every application
+value and may be removed for a manual implementation. `Inner` is newtype-only.
+`NumericValue` is generated or explicitly opt-in only for newtypes.
+
+Collection wrappers generate `Default`, `Deref`, and `DerefMut`; other
+application values opt into `Default`, while only newtypes may opt into
+dereference and display. `Copy`, `Hash`, `Ord`, and `PartialOrd` are available
+as standard derives when the node shape does not already generate them.
+Arithmetic and assignment helpers are newtype-only and follow the wrapped
+primitive capability baseline.
+
+Enum declaration-order checking is an enum option rather than a trait:
+
+```rust,ignore
+#[enum_(
+    sorted,
+    variant(name = "First"),
+    variant(name = "Second")
+)]
+pub struct Ordered {}
+```
+
+Generated list, set, and map wrappers implement `Deref` and `DerefMut` to
+their standard containers. Methods such as `iter`, `len`, and `is_empty` are
+therefore available directly without an IcyDB-specific collection trait.
+
 References:
 
 - Workspace overview: `../../README.md`

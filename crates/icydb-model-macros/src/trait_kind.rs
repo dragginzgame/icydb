@@ -6,7 +6,7 @@
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use derive_more::IntoIterator;
-use std::{collections::HashSet, hash::Hash, str::FromStr};
+use std::{collections::BTreeSet, str::FromStr};
 
 //
 // TraitKind
@@ -14,9 +14,6 @@ use std::{collections::HashSet, hash::Hash, str::FromStr};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TraitKind {
-    // inherent impl
-    Inherent,
-
     // rust + third party
     CandidType,
     Clone,
@@ -46,13 +43,10 @@ pub enum TraitKind {
     Sum,
 
     // application model
-    Collection,
     From,
     Inner,
-    MapCollection,
     NumericValue,
     Path,
-    Sorted,
     NormalizeAuto,
     NormalizeCustom,
     ValidateAuto,
@@ -60,12 +54,123 @@ pub enum TraitKind {
     Visitable,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApplicationTypeKind {
+    Entity,
+    Enum,
+    List,
+    Map,
+    Newtype,
+    Record,
+    Set,
+    Tuple,
+}
+
+impl ApplicationTypeKind {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Entity => "entity",
+            Self::Enum => "enum",
+            Self::List => "list",
+            Self::Map => "map",
+            Self::Newtype => "newtype",
+            Self::Record => "record",
+            Self::Set => "set",
+            Self::Tuple => "tuple",
+        }
+    }
+
+    fn configurable_trait_policy(
+        self,
+        trait_kind: TraitKind,
+        baseline: &TraitSet,
+    ) -> Option<ConfigurableTraitPolicy> {
+        match trait_kind {
+            TraitKind::Copy | TraitKind::Hash | TraitKind::Ord | TraitKind::PartialOrd => Some(
+                ConfigurableTraitPolicy::from_baseline(baseline.contains(trait_kind)),
+            ),
+            TraitKind::Default => Some(if matches!(self, Self::List | Self::Map | Self::Set) {
+                ConfigurableTraitPolicy::GeneratedOverrideable
+            } else {
+                ConfigurableTraitPolicy::OptIn
+            }),
+            TraitKind::Deref | TraitKind::DerefMut => {
+                Some(if matches!(self, Self::List | Self::Map | Self::Set) {
+                    ConfigurableTraitPolicy::GeneratedOverrideable
+                } else if matches!(self, Self::Newtype) {
+                    ConfigurableTraitPolicy::OptIn
+                } else {
+                    ConfigurableTraitPolicy::Unsupported
+                })
+            }
+            TraitKind::Display => Some(if matches!(self, Self::Newtype) {
+                ConfigurableTraitPolicy::OptIn
+            } else {
+                ConfigurableTraitPolicy::Unsupported
+            }),
+            TraitKind::Add
+            | TraitKind::AddAssign
+            | TraitKind::Div
+            | TraitKind::DivAssign
+            | TraitKind::Mul
+            | TraitKind::MulAssign
+            | TraitKind::Rem
+            | TraitKind::Sub
+            | TraitKind::SubAssign
+            | TraitKind::Sum => Some(if matches!(self, Self::Newtype) {
+                ConfigurableTraitPolicy::from_baseline(baseline.contains(trait_kind))
+            } else {
+                ConfigurableTraitPolicy::Unsupported
+            }),
+            TraitKind::From => Some(
+                if matches!(self, Self::List | Self::Map | Self::Newtype | Self::Set) {
+                    ConfigurableTraitPolicy::GeneratedOverrideable
+                } else {
+                    ConfigurableTraitPolicy::Unsupported
+                },
+            ),
+            TraitKind::Inner => Some(if matches!(self, Self::Newtype) {
+                ConfigurableTraitPolicy::GeneratedOverrideable
+            } else {
+                ConfigurableTraitPolicy::Unsupported
+            }),
+            TraitKind::NormalizeCustom | TraitKind::ValidateCustom => {
+                Some(ConfigurableTraitPolicy::GeneratedOverrideable)
+            }
+            TraitKind::NumericValue => Some(if !matches!(self, Self::Newtype) {
+                ConfigurableTraitPolicy::Unsupported
+            } else if baseline.contains(TraitKind::NumericValue) {
+                ConfigurableTraitPolicy::GeneratedOverrideable
+            } else {
+                ConfigurableTraitPolicy::OptIn
+            }),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConfigurableTraitPolicy {
+    GeneratedOverrideable,
+    OptIn,
+    Unsupported,
+}
+
+impl ConfigurableTraitPolicy {
+    const fn from_baseline(generated: bool) -> Self {
+        if generated {
+            Self::GeneratedOverrideable
+        } else {
+            Self::OptIn
+        }
+    }
+}
+
 impl FromStr for TraitKind {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Inherent" => Ok(Self::Inherent),
             "CandidType" => Ok(Self::CandidType),
             "Clone" => Ok(Self::Clone),
             "Copy" => Ok(Self::Copy),
@@ -90,13 +195,10 @@ impl FromStr for TraitKind {
             "Sub" => Ok(Self::Sub),
             "SubAssign" => Ok(Self::SubAssign),
             "Sum" => Ok(Self::Sum),
-            "Collection" => Ok(Self::Collection),
             "From" => Ok(Self::From),
             "Inner" => Ok(Self::Inner),
-            "MapCollection" => Ok(Self::MapCollection),
             "NumericValue" => Ok(Self::NumericValue),
             "Path" => Ok(Self::Path),
-            "Sorted" => Ok(Self::Sorted),
             "NormalizeAuto" => Ok(Self::NormalizeAuto),
             "NormalizeCustom" => Ok(Self::NormalizeCustom),
             "ValidateAuto" => Ok(Self::ValidateAuto),
@@ -107,13 +209,10 @@ impl FromStr for TraitKind {
     }
 }
 
-const DEFAULT_TRAITS: &[TraitKind] = &[TraitKind::Clone, TraitKind::Debug, TraitKind::Path];
+const GENERATED_NODE_TRAITS: &[TraitKind] = &[TraitKind::Clone, TraitKind::Debug, TraitKind::Path];
 
-const DEFAULT_CONFIGURABLE_TYPE_TRAITS: &[TraitKind] = &[
-    TraitKind::From,
-    TraitKind::NormalizeCustom,
-    TraitKind::ValidateCustom,
-];
+const DEFAULT_CONFIGURABLE_TYPE_TRAITS: &[TraitKind] =
+    &[TraitKind::NormalizeCustom, TraitKind::ValidateCustom];
 
 const REQUIRED_TYPE_TRAITS: &[TraitKind] = &[
     TraitKind::CandidType,
@@ -126,6 +225,32 @@ const REQUIRED_TYPE_TRAITS: &[TraitKind] = &[
     TraitKind::NormalizeAuto,
     TraitKind::ValidateAuto,
     TraitKind::Visitable,
+];
+
+const CONFIGURABLE_TYPE_TRAITS: &[TraitKind] = &[
+    TraitKind::Copy,
+    TraitKind::Default,
+    TraitKind::Deref,
+    TraitKind::DerefMut,
+    TraitKind::Display,
+    TraitKind::Hash,
+    TraitKind::Ord,
+    TraitKind::PartialOrd,
+    TraitKind::Add,
+    TraitKind::AddAssign,
+    TraitKind::Div,
+    TraitKind::DivAssign,
+    TraitKind::Mul,
+    TraitKind::MulAssign,
+    TraitKind::Rem,
+    TraitKind::Sub,
+    TraitKind::SubAssign,
+    TraitKind::Sum,
+    TraitKind::From,
+    TraitKind::Inner,
+    TraitKind::NumericValue,
+    TraitKind::NormalizeCustom,
+    TraitKind::ValidateCustom,
 ];
 
 // path_to_string
@@ -240,7 +365,7 @@ impl ToTokens for TraitKind {
             Self::Display => quote!(::std::fmt::Display).to_tokens(tokens),
             Self::From => quote!(::std::convert::From).to_tokens(tokens),
             Self::Hash => quote!(::std::hash::Hash).to_tokens(tokens),
-            Self::Collection | Self::Inner | Self::MapCollection | Self::Path => {
+            Self::Inner | Self::Path => {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb_model::#trait_name).to_tokens(tokens);
             }
@@ -262,7 +387,6 @@ impl ToTokens for TraitKind {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb_model::visitor::#trait_name).to_tokens(tokens);
             }
-            Self::Inherent | Self::Sorted => {}
         }
     }
 }
@@ -272,7 +396,7 @@ impl ToTokens for TraitKind {
 //
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct TraitSet(pub HashSet<TraitKind>);
+pub struct TraitSet(BTreeSet<TraitKind>);
 
 impl TraitSet {
     pub(crate) fn add(&mut self, tr: TraitKind) {
@@ -287,6 +411,10 @@ impl TraitSet {
         self.0.remove(&tr)
     }
 
+    pub(crate) fn contains(&self, tr: TraitKind) -> bool {
+        self.0.contains(&tr)
+    }
+
     pub(crate) fn extend<I: IntoIterator<Item = TraitKind>>(&mut self, traits: I) {
         self.0.extend(traits);
     }
@@ -296,27 +424,9 @@ impl TraitSet {
     }
 }
 
-impl From<Vec<TraitKind>> for TraitSet {
-    fn from(v: Vec<TraitKind>) -> Self {
-        Self(v.into_iter().collect())
-    }
-}
-
 impl FromIterator<TraitKind> for TraitSet {
     fn from_iter<I: IntoIterator<Item = TraitKind>>(iter: I) -> Self {
         Self(iter.into_iter().collect())
-    }
-}
-
-impl ToTokens for TraitSet {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        if !self.0.is_empty() {
-            let derive_paths = self.0.iter().filter_map(|tr| tr.derive_path());
-
-            tokens.extend(quote! {
-                #[derive(#(#derive_paths),*)]
-            });
-        }
     }
 }
 
@@ -324,7 +434,7 @@ impl ToTokens for TraitSet {
 // TraitBuilder
 //
 // Collects trait additions/removals from schema attributes.
-// After parsing, it should be treated as immutable and resolved via `.build()`.
+// After parsing, it is immutable and resolves only against a complete node baseline.
 //
 
 #[derive(Clone, Debug, Default, FromMeta)]
@@ -346,7 +456,11 @@ impl TraitBuilder {
     /// Required traits are compiler-owned output rather than configurable
     /// defaults. Optional and override traits continue through the maintained
     /// generic add/remove validation.
-    pub(crate) fn validate_for_type(&self) -> Result<(), DarlingError> {
+    pub(crate) fn validate_for_type(
+        &self,
+        node_kind: ApplicationTypeKind,
+        baseline: TraitSet,
+    ) -> Result<(), DarlingError> {
         for tr in self.add.iter() {
             if REQUIRED_TYPE_TRAITS.contains(tr) {
                 return Err(DarlingError::custom(format!(
@@ -363,7 +477,85 @@ impl TraitBuilder {
             }
         }
 
-        self.resolve(type_trait_set()).map(|_| ())
+        Self::validate_configurable_baseline(node_kind, &baseline)?;
+        self.validate_configurable_traits(node_kind, &baseline)?;
+
+        self.resolve(baseline).map(|_| ())
+    }
+
+    fn validate_configurable_baseline(
+        node_kind: ApplicationTypeKind,
+        baseline: &TraitSet,
+    ) -> Result<(), DarlingError> {
+        for trait_kind in CONFIGURABLE_TYPE_TRAITS {
+            let policy = node_kind
+                .configurable_trait_policy(*trait_kind, baseline)
+                .ok_or_else(|| missing_trait_policy_error(node_kind, *trait_kind))?;
+            let generated = baseline.contains(*trait_kind);
+            let baseline_is_valid = matches!(
+                (policy, generated),
+                (ConfigurableTraitPolicy::GeneratedOverrideable, true)
+                    | (
+                        ConfigurableTraitPolicy::OptIn | ConfigurableTraitPolicy::Unsupported,
+                        false
+                    )
+            );
+            if !baseline_is_valid {
+                return Err(DarlingError::custom(format!(
+                    "internal {} trait baseline disagrees with the '{trait_kind:?}' policy",
+                    node_kind.as_str(),
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_configurable_traits(
+        &self,
+        node_kind: ApplicationTypeKind,
+        baseline: &TraitSet,
+    ) -> Result<(), DarlingError> {
+        for trait_kind in self.add.iter() {
+            if self.remove.iter().any(|removed| removed == trait_kind) {
+                return Err(DarlingError::custom(format!(
+                    "trait '{trait_kind:?}' cannot appear in both traits(add(...)) and traits(remove(...)) for {} application values",
+                    node_kind.as_str(),
+                )));
+            }
+
+            match node_kind.configurable_trait_policy(*trait_kind, baseline) {
+                Some(ConfigurableTraitPolicy::GeneratedOverrideable) => {
+                    return Err(DarlingError::custom(format!(
+                        "trait '{trait_kind:?}' is generated automatically for {} application values and cannot be added explicitly",
+                        node_kind.as_str(),
+                    )));
+                }
+                Some(ConfigurableTraitPolicy::Unsupported) => {
+                    return Err(unsupported_trait_error(node_kind, *trait_kind));
+                }
+                Some(ConfigurableTraitPolicy::OptIn) => {}
+                None => return Err(missing_trait_policy_error(node_kind, *trait_kind)),
+            }
+        }
+
+        for trait_kind in self.remove.iter() {
+            match node_kind.configurable_trait_policy(*trait_kind, baseline) {
+                Some(ConfigurableTraitPolicy::OptIn) => {
+                    return Err(DarlingError::custom(format!(
+                        "trait '{trait_kind:?}' is not generated for {} application values and cannot be removed",
+                        node_kind.as_str(),
+                    )));
+                }
+                Some(ConfigurableTraitPolicy::Unsupported) => {
+                    return Err(unsupported_trait_error(node_kind, *trait_kind));
+                }
+                Some(ConfigurableTraitPolicy::GeneratedOverrideable) => {}
+                None => return Err(missing_trait_policy_error(node_kind, *trait_kind)),
+            }
+        }
+
+        Ok(())
     }
 
     fn resolve(&self, mut set: TraitSet) -> Result<TraitSet, DarlingError> {
@@ -389,24 +581,34 @@ impl TraitBuilder {
     /// Resolve the required and default traits for an application value type.
     ///
     /// This is called only after [`Self::validate_for_type`] succeeds.
-    pub(crate) fn build_for_type(&self) -> TraitSet {
-        self.resolve(type_trait_set())
+    pub(crate) fn build_for_type(&self, baseline: TraitSet) -> TraitSet {
+        self.resolve(baseline)
             .unwrap_or_else(|_| panic!("validated application type traits must resolve"))
     }
-
-    // Generates the TraitList based on the defaults plus traits that have been
-    // added or removed. This is called only after validation succeeds.
-    pub(crate) fn build(&self) -> TraitSet {
-        self.resolve(default_trait_set())
-            .unwrap_or_else(|_| panic!("validated generated traits must resolve"))
-    }
 }
 
-fn default_trait_set() -> TraitSet {
-    DEFAULT_TRAITS.iter().copied().collect()
+fn unsupported_trait_error(node_kind: ApplicationTypeKind, trait_kind: TraitKind) -> DarlingError {
+    DarlingError::custom(format!(
+        "trait '{trait_kind:?}' is not supported by {} application values",
+        node_kind.as_str(),
+    ))
 }
 
-fn type_trait_set() -> TraitSet {
+fn missing_trait_policy_error(
+    node_kind: ApplicationTypeKind,
+    trait_kind: TraitKind,
+) -> DarlingError {
+    DarlingError::custom(format!(
+        "internal trait '{trait_kind:?}' has no policy for {} application values",
+        node_kind.as_str(),
+    ))
+}
+
+pub fn generated_node_trait_set() -> TraitSet {
+    GENERATED_NODE_TRAITS.iter().copied().collect()
+}
+
+pub fn application_type_trait_set() -> TraitSet {
     REQUIRED_TYPE_TRAITS
         .iter()
         .chain(DEFAULT_CONFIGURABLE_TYPE_TRAITS.iter())
@@ -420,7 +622,7 @@ fn type_trait_set() -> TraitSet {
 //
 
 #[derive(Clone, Debug, Default, IntoIterator)]
-pub struct TraitListMeta(pub Vec<TraitKind>);
+pub struct TraitListMeta(Vec<TraitKind>);
 
 impl TraitListMeta {
     pub(crate) fn push(&mut self, tr: TraitKind) {
@@ -451,10 +653,10 @@ mod tests {
 
     #[test]
     fn required_type_traits_are_emitted_without_author_directives() {
-        let traits = TraitBuilder::default().build_for_type();
+        let traits = TraitBuilder::default().build_for_type(application_type_trait_set());
 
         for required in REQUIRED_TYPE_TRAITS {
-            assert!(traits.0.contains(required));
+            assert!(traits.contains(*required));
         }
     }
 
@@ -465,36 +667,372 @@ mod tests {
                 add: TraitListMeta(vec![required]),
                 remove: TraitListMeta::default(),
             };
-            assert!(adds_required.validate_for_type().is_err());
+            assert!(
+                adds_required
+                    .validate_for_type(ApplicationTypeKind::Entity, application_type_trait_set(),)
+                    .is_err()
+            );
 
             let removes_required = TraitBuilder {
                 add: TraitListMeta::default(),
                 remove: TraitListMeta(vec![required]),
             };
-            assert!(removes_required.validate_for_type().is_err());
+            assert!(
+                removes_required
+                    .validate_for_type(ApplicationTypeKind::Entity, application_type_trait_set(),)
+                    .is_err()
+            );
         }
     }
 
     #[test]
     fn optional_and_override_type_traits_remain_configurable() {
-        for configurable in [
-            TraitKind::From,
-            TraitKind::NormalizeCustom,
-            TraitKind::ValidateCustom,
-        ] {
+        for configurable in [TraitKind::NormalizeCustom, TraitKind::ValidateCustom] {
             let builder = TraitBuilder {
                 add: TraitListMeta::default(),
                 remove: TraitListMeta(vec![configurable]),
             };
-            assert!(builder.validate_for_type().is_ok());
-            assert!(!builder.build_for_type().0.contains(&configurable));
+            assert!(
+                builder
+                    .validate_for_type(ApplicationTypeKind::Entity, application_type_trait_set(),)
+                    .is_ok()
+            );
+            assert!(
+                !builder
+                    .build_for_type(application_type_trait_set())
+                    .0
+                    .contains(&configurable)
+            );
         }
 
         let default = TraitBuilder {
             add: TraitListMeta(vec![TraitKind::Default]),
             remove: TraitListMeta::default(),
         };
-        assert!(default.validate_for_type().is_ok());
-        assert!(default.build_for_type().0.contains(&TraitKind::Default));
+        assert!(
+            default
+                .validate_for_type(ApplicationTypeKind::Entity, application_type_trait_set(),)
+                .is_ok()
+        );
+        assert!(
+            default
+                .build_for_type(application_type_trait_set())
+                .0
+                .contains(&TraitKind::Default)
+        );
+    }
+
+    #[test]
+    fn shape_baseline_is_applied_before_author_directives() {
+        let mut baseline = application_type_trait_set();
+        baseline.extend([
+            TraitKind::Default,
+            TraitKind::Deref,
+            TraitKind::DerefMut,
+            TraitKind::From,
+        ]);
+
+        let remove_deref = TraitBuilder {
+            add: TraitListMeta::default(),
+            remove: TraitListMeta(vec![TraitKind::Deref]),
+        };
+        assert!(
+            remove_deref
+                .validate_for_type(ApplicationTypeKind::List, baseline.clone())
+                .is_ok()
+        );
+        assert!(
+            !remove_deref
+                .build_for_type(baseline.clone())
+                .0
+                .contains(&TraitKind::Deref)
+        );
+
+        let add_default = TraitBuilder {
+            add: TraitListMeta(vec![TraitKind::Default]),
+            remove: TraitListMeta::default(),
+        };
+        assert!(
+            add_default
+                .validate_for_type(ApplicationTypeKind::List, baseline)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn generated_custom_policy_is_node_specific() {
+        let baseline = application_type_trait_set();
+        let application_nodes = [
+            ApplicationTypeKind::Entity,
+            ApplicationTypeKind::Enum,
+            ApplicationTypeKind::List,
+            ApplicationTypeKind::Map,
+            ApplicationTypeKind::Newtype,
+            ApplicationTypeKind::Record,
+            ApplicationTypeKind::Set,
+            ApplicationTypeKind::Tuple,
+        ];
+
+        for node_kind in application_nodes {
+            for trait_kind in [TraitKind::NormalizeCustom, TraitKind::ValidateCustom] {
+                assert_eq!(
+                    node_kind.configurable_trait_policy(trait_kind, &baseline),
+                    Some(ConfigurableTraitPolicy::GeneratedOverrideable),
+                );
+            }
+
+            let wrapper_policy = if matches!(
+                node_kind,
+                ApplicationTypeKind::List
+                    | ApplicationTypeKind::Map
+                    | ApplicationTypeKind::Newtype
+                    | ApplicationTypeKind::Set
+            ) {
+                ConfigurableTraitPolicy::GeneratedOverrideable
+            } else {
+                ConfigurableTraitPolicy::Unsupported
+            };
+            assert_eq!(
+                node_kind.configurable_trait_policy(TraitKind::From, &baseline),
+                Some(wrapper_policy),
+            );
+
+            let newtype_policy = if matches!(node_kind, ApplicationTypeKind::Newtype) {
+                ConfigurableTraitPolicy::GeneratedOverrideable
+            } else {
+                ConfigurableTraitPolicy::Unsupported
+            };
+            assert_eq!(
+                node_kind.configurable_trait_policy(TraitKind::Inner, &baseline),
+                Some(newtype_policy),
+            );
+
+            let numeric_policy = if matches!(node_kind, ApplicationTypeKind::Newtype) {
+                ConfigurableTraitPolicy::OptIn
+            } else {
+                ConfigurableTraitPolicy::Unsupported
+            };
+            assert_eq!(
+                node_kind.configurable_trait_policy(TraitKind::NumericValue, &baseline),
+                Some(numeric_policy),
+            );
+        }
+
+        let mut numeric_baseline = baseline;
+        numeric_baseline.add(TraitKind::NumericValue);
+        assert_eq!(
+            ApplicationTypeKind::Newtype
+                .configurable_trait_policy(TraitKind::NumericValue, &numeric_baseline),
+            Some(ConfigurableTraitPolicy::GeneratedOverrideable),
+        );
+    }
+
+    #[test]
+    fn configurable_policy_covers_every_non_required_trait() {
+        let baseline = application_type_trait_set();
+        let application_nodes = [
+            ApplicationTypeKind::Entity,
+            ApplicationTypeKind::Enum,
+            ApplicationTypeKind::List,
+            ApplicationTypeKind::Map,
+            ApplicationTypeKind::Newtype,
+            ApplicationTypeKind::Record,
+            ApplicationTypeKind::Set,
+            ApplicationTypeKind::Tuple,
+        ];
+
+        let complete_inventory: BTreeSet<_> = REQUIRED_TYPE_TRAITS
+            .iter()
+            .chain(CONFIGURABLE_TYPE_TRAITS.iter())
+            .copied()
+            .collect();
+        assert_eq!(REQUIRED_TYPE_TRAITS.len(), 10);
+        assert_eq!(CONFIGURABLE_TYPE_TRAITS.len(), 23);
+        assert_eq!(complete_inventory.len(), 33);
+
+        for node_kind in application_nodes {
+            for trait_kind in CONFIGURABLE_TYPE_TRAITS {
+                assert!(
+                    node_kind
+                        .configurable_trait_policy(*trait_kind, &baseline)
+                        .is_some(),
+                    "missing {node_kind:?}/{trait_kind:?} policy",
+                );
+            }
+            for trait_kind in REQUIRED_TYPE_TRAITS {
+                assert!(
+                    node_kind
+                        .configurable_trait_policy(*trait_kind, &baseline)
+                        .is_none(),
+                    "required {node_kind:?}/{trait_kind:?} entered configurable policy",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_generated_nodes_do_not_enter_application_trait_resolution() {
+        assert_eq!(
+            generated_node_trait_set().into_vec(),
+            vec![TraitKind::Clone, TraitKind::Debug, TraitKind::Path],
+        );
+    }
+
+    #[test]
+    fn derive_and_helper_policies_follow_node_and_baseline() {
+        let base = application_type_trait_set();
+
+        for collection in [
+            ApplicationTypeKind::List,
+            ApplicationTypeKind::Map,
+            ApplicationTypeKind::Set,
+        ] {
+            assert_eq!(
+                collection.configurable_trait_policy(TraitKind::Default, &base),
+                Some(ConfigurableTraitPolicy::GeneratedOverrideable),
+            );
+        }
+        for opt_in in [
+            ApplicationTypeKind::Entity,
+            ApplicationTypeKind::Enum,
+            ApplicationTypeKind::Newtype,
+            ApplicationTypeKind::Record,
+            ApplicationTypeKind::Tuple,
+        ] {
+            assert_eq!(
+                opt_in.configurable_trait_policy(TraitKind::Default, &base),
+                Some(ConfigurableTraitPolicy::OptIn),
+            );
+        }
+
+        for standard in [
+            TraitKind::Copy,
+            TraitKind::Hash,
+            TraitKind::Ord,
+            TraitKind::PartialOrd,
+        ] {
+            assert_eq!(
+                ApplicationTypeKind::Record.configurable_trait_policy(standard, &base),
+                Some(ConfigurableTraitPolicy::OptIn),
+            );
+            let mut generated = base.clone();
+            generated.add(standard);
+            assert_eq!(
+                ApplicationTypeKind::Enum.configurable_trait_policy(standard, &generated),
+                Some(ConfigurableTraitPolicy::GeneratedOverrideable),
+            );
+        }
+
+        for dereference in [TraitKind::Deref, TraitKind::DerefMut] {
+            assert_eq!(
+                ApplicationTypeKind::List.configurable_trait_policy(dereference, &base),
+                Some(ConfigurableTraitPolicy::GeneratedOverrideable),
+            );
+            assert_eq!(
+                ApplicationTypeKind::Newtype.configurable_trait_policy(dereference, &base),
+                Some(ConfigurableTraitPolicy::OptIn),
+            );
+            assert_eq!(
+                ApplicationTypeKind::Record.configurable_trait_policy(dereference, &base),
+                Some(ConfigurableTraitPolicy::Unsupported),
+            );
+        }
+
+        assert_eq!(
+            ApplicationTypeKind::Newtype.configurable_trait_policy(TraitKind::Display, &base),
+            Some(ConfigurableTraitPolicy::OptIn),
+        );
+        assert_eq!(
+            ApplicationTypeKind::Entity.configurable_trait_policy(TraitKind::Display, &base),
+            Some(ConfigurableTraitPolicy::Unsupported),
+        );
+
+        for arithmetic in [
+            TraitKind::Add,
+            TraitKind::AddAssign,
+            TraitKind::Div,
+            TraitKind::DivAssign,
+            TraitKind::Mul,
+            TraitKind::MulAssign,
+            TraitKind::Rem,
+            TraitKind::Sub,
+            TraitKind::SubAssign,
+            TraitKind::Sum,
+        ] {
+            assert_eq!(
+                ApplicationTypeKind::Newtype.configurable_trait_policy(arithmetic, &base),
+                Some(ConfigurableTraitPolicy::OptIn),
+            );
+            let mut generated = base.clone();
+            generated.add(arithmetic);
+            assert_eq!(
+                ApplicationTypeKind::Newtype.configurable_trait_policy(arithmetic, &generated),
+                Some(ConfigurableTraitPolicy::GeneratedOverrideable),
+            );
+            assert_eq!(
+                ApplicationTypeKind::Tuple.configurable_trait_policy(arithmetic, &base),
+                Some(ConfigurableTraitPolicy::Unsupported),
+            );
+        }
+    }
+
+    #[test]
+    fn generated_custom_directives_follow_the_closed_policy() {
+        let mut newtype_baseline = application_type_trait_set();
+        newtype_baseline.extend([TraitKind::From, TraitKind::Inner]);
+
+        let remove_generated = TraitBuilder {
+            add: TraitListMeta::default(),
+            remove: TraitListMeta(vec![
+                TraitKind::From,
+                TraitKind::Inner,
+                TraitKind::NormalizeCustom,
+                TraitKind::ValidateCustom,
+            ]),
+        };
+        assert!(
+            remove_generated
+                .validate_for_type(ApplicationTypeKind::Newtype, newtype_baseline.clone())
+                .is_ok()
+        );
+
+        let add_opt_in_numeric = TraitBuilder {
+            add: TraitListMeta(vec![TraitKind::NumericValue]),
+            remove: TraitListMeta::default(),
+        };
+        assert!(
+            add_opt_in_numeric
+                .validate_for_type(ApplicationTypeKind::Newtype, newtype_baseline.clone())
+                .is_ok()
+        );
+
+        let remove_opt_in_numeric = TraitBuilder {
+            add: TraitListMeta::default(),
+            remove: TraitListMeta(vec![TraitKind::NumericValue]),
+        };
+        let error = remove_opt_in_numeric
+            .validate_for_type(ApplicationTypeKind::Newtype, newtype_baseline)
+            .expect_err("an absent opt-in cannot be removed");
+        assert!(error.to_string().contains("is not generated for newtype"));
+
+        let add_unsupported_inner = TraitBuilder {
+            add: TraitListMeta(vec![TraitKind::Inner]),
+            remove: TraitListMeta::default(),
+        };
+        let error = add_unsupported_inner
+            .validate_for_type(ApplicationTypeKind::Record, application_type_trait_set())
+            .expect_err("record Inner should be unsupported");
+        assert!(error.to_string().contains("is not supported by record"));
+
+        let conflicting_numeric = TraitBuilder {
+            add: TraitListMeta(vec![TraitKind::NumericValue]),
+            remove: TraitListMeta(vec![TraitKind::NumericValue]),
+        };
+        let mut newtype_baseline = application_type_trait_set();
+        newtype_baseline.extend([TraitKind::From, TraitKind::Inner]);
+        let error = conflicting_numeric
+            .validate_for_type(ApplicationTypeKind::Newtype, newtype_baseline)
+            .expect_err("one trait cannot be added and removed together");
+        assert!(error.to_string().contains("cannot appear in both"));
     }
 }

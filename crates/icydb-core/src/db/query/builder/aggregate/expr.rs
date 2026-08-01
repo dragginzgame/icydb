@@ -1,7 +1,4 @@
-use crate::db::query::plan::{
-    AggregateKind,
-    expr::{Expr, FieldId, canonicalize_aggregate_input_expr},
-};
+use crate::db::query::plan::{AggregateKind, AggregateShape, expr::Expr};
 
 ///
 /// AggregateExpr
@@ -14,75 +11,73 @@ use crate::db::query::plan::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AggregateExpr {
-    kind: AggregateKind,
-    input_expr: Option<Box<Expr>>,
-    filter_expr: Option<Box<Expr>>,
-    distinct: bool,
+    shape: AggregateShape,
 }
 
 impl AggregateExpr {
     /// Construct one terminal aggregate expression with no input expression.
     const fn terminal(kind: AggregateKind) -> Self {
         Self {
-            kind,
-            input_expr: None,
-            filter_expr: None,
-            distinct: false,
+            shape: AggregateShape::terminal(kind),
         }
     }
 
     /// Construct one aggregate expression over one canonical field leaf.
     fn field_target(kind: AggregateKind, field: impl Into<String>) -> Self {
         Self {
-            kind,
-            input_expr: Some(Box::new(Expr::Field(FieldId::new(field.into())))),
-            filter_expr: None,
-            distinct: false,
+            shape: AggregateShape::field_target(kind, field.into()),
         }
     }
 
     /// Construct one aggregate expression from one planner-owned input expression.
     pub(in crate::db) fn from_expression_input(kind: AggregateKind, input_expr: Expr) -> Self {
         Self {
-            kind,
-            input_expr: Some(Box::new(canonicalize_aggregate_input_expr(
-                kind, input_expr,
-            ))),
-            filter_expr: None,
-            distinct: false,
+            shape: AggregateShape::from_expression_input(kind, input_expr),
         }
+    }
+
+    /// Build one aggregate expression from the canonical raw aggregate shape.
+    #[must_use]
+    pub(in crate::db) const fn from_shape(shape: AggregateShape) -> Self {
+        Self { shape }
+    }
+
+    /// Borrow the canonical raw aggregate shape.
+    #[must_use]
+    pub(in crate::db) const fn shape(&self) -> &AggregateShape {
+        &self.shape
     }
 
     /// Attach one planner-owned pre-aggregate filter expression to this aggregate.
     #[must_use]
     pub(in crate::db) fn with_filter_expr(mut self, filter_expr: Expr) -> Self {
-        self.filter_expr = Some(Box::new(filter_expr));
+        self.shape = self.shape.with_filter_expr(filter_expr);
         self
     }
 
     /// Enable DISTINCT modifier for this aggregate expression.
     #[must_use]
     pub const fn distinct(mut self) -> Self {
-        self.distinct = true;
+        self.shape.set_raw_distinct(true);
         self
     }
 
     /// Borrow aggregate kind.
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> AggregateKind {
-        self.kind
+        self.shape.kind()
     }
 
     /// Borrow the aggregate input expression, if any.
     #[must_use]
     pub(in crate::db) fn input_expr(&self) -> Option<&Expr> {
-        self.input_expr.as_deref()
+        self.shape.input_expr()
     }
 
     /// Borrow the aggregate filter expression, if any.
     #[must_use]
     pub(in crate::db) fn filter_expr(&self) -> Option<&Expr> {
-        self.filter_expr.as_deref()
+        self.shape.filter_expr()
     }
 
     /// Borrow the optional target field when this aggregate input stays a plain field leaf.
@@ -97,21 +92,7 @@ impl AggregateExpr {
     /// Return true when DISTINCT is enabled.
     #[must_use]
     pub(in crate::db) const fn is_distinct(&self) -> bool {
-        self.distinct
-    }
-
-    /// Build one aggregate expression from an optional field input.
-    pub(in crate::db::query) fn from_optional_field_input(
-        kind: AggregateKind,
-        target_field: Option<String>,
-        distinct: bool,
-    ) -> Self {
-        Self {
-            kind,
-            input_expr: target_field.map(|field| Box::new(Expr::Field(FieldId::new(field)))),
-            filter_expr: None,
-            distinct,
-        }
+        self.shape.raw_distinct()
     }
 
     /// Build one non-field-target terminal aggregate expression from one kind.

@@ -17,6 +17,8 @@ mod scan;
 mod store;
 
 pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
+#[cfg(any(test, feature = "query"))]
+pub(in crate::db) use cardinality::UserIndexPrefixCardinalityKey;
 pub(in crate::db) use entry::IndexEntryExistenceWitness;
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db) use entry::IndexEntryRowWitness;

@@ -1,0 +1,31 @@
+error: trait 'Copy' is generated automatically for newtype application values and cannot be added explicitly
+ --> tests/ui/derive_helper_traits/fail/redundant_standard_derives.rs:3:1
+  |
+3 | #[newtype(item(prim = "Nat64"), traits(add(Copy)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Hash' is generated automatically for newtype application values and cannot be added explicitly
+ --> tests/ui/derive_helper_traits/fail/redundant_standard_derives.rs:6:1
+  |
+6 | #[newtype(item(prim = "Nat64"), traits(add(Hash)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Ord' is generated automatically for newtype application values and cannot be added explicitly
+ --> tests/ui/derive_helper_traits/fail/redundant_standard_derives.rs:9:1
+  |
+9 | #[newtype(item(prim = "Nat64"), traits(add(Ord)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'PartialOrd' is generated automatically for newtype application values and cannot be added explicitly
+  --> tests/ui/derive_helper_traits/fail/redundant_standard_derives.rs:12:1
+   |
+12 | #[newtype(item(prim = "Nat64"), traits(add(PartialOrd)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)

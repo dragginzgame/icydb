@@ -7,7 +7,6 @@
 mod error;
 mod grouped;
 mod plan;
-mod spec;
 mod state;
 
 pub(in crate::db::executor) use error::{GroupBudgetResourceCode, GroupError};

@@ -34,7 +34,7 @@ impl HasDef for Set {
 
 impl ValidateNode for Set {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
         self.item.validate()?;
 
         Ok(())
@@ -62,21 +62,28 @@ impl HasSchemaPart for Set {
 }
 
 impl HasTraits for Set {
-    fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.build_for_type();
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::Set)
+    }
+
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
+    }
+
+    fn trait_baseline(&self) -> TraitSet {
+        let mut traits = application_type_trait_set();
         traits.extend([
-            TraitKind::Collection,
             TraitKind::Default,
             TraitKind::Deref,
             TraitKind::DerefMut,
+            TraitKind::From,
         ]);
 
-        traits.into_vec()
+        traits
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::Collection => CollectionTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),

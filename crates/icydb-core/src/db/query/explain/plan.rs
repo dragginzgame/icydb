@@ -870,7 +870,7 @@ impl AccessPlannedQuery {
                             .aggregates
                             .iter()
                             .map(|aggregate| ExplainGroupAggregate {
-                                kind: aggregate.kind,
+                                kind: aggregate.kind(),
                                 target_field: aggregate.target_field().map(str::to_string),
                                 input_expr: aggregate
                                     .input_expr()
@@ -878,7 +878,7 @@ impl AccessPlannedQuery {
                                 filter_expr: aggregate
                                     .filter_expr()
                                     .map(render_scalar_projection_expr_plan_label),
-                                distinct: aggregate.distinct,
+                                distinct: aggregate.raw_distinct(),
                             })
                             .collect(),
                         having: explain_group_having(logical),

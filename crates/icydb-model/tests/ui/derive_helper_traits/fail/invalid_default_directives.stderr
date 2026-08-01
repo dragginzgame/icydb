@@ -1,0 +1,15 @@
+error: trait 'Default' is generated automatically for list application values and cannot be added explicitly
+ --> tests/ui/derive_helper_traits/fail/invalid_default_directives.rs:3:1
+  |
+3 | #[list(item(prim = "Nat64"), traits(add(Default)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `list` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Default' is not generated for record application values and cannot be removed
+ --> tests/ui/derive_helper_traits/fail/invalid_default_directives.rs:6:1
+  |
+6 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(remove(Default)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)

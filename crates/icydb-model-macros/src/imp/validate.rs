@@ -161,9 +161,7 @@ fn indexed_collection_item_rules(block: TokenStream) -> TokenStream {
     let item_ident = format_ident!("__item");
 
     quote! {
-        use ::icydb_model::Collection;
-
-        for (i, #item_ident) in self.iter().enumerate() {
+        for (i, #item_ident) in self.0.iter().enumerate() {
             let item = #item_ident;
             let mut item_ctx = ::icydb_model::visitor::ScopedContext::new(
                 ctx,
@@ -228,7 +226,7 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
             }
         });
 
-    let inherent_tokens = Implementor::new(def, TraitKind::Inherent)
+    let inherent_tokens = Implementor::inherent(def)
         .set_tokens(quote! {
             #(#validate_helpers)*
 

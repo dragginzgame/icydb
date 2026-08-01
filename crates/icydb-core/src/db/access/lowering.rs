@@ -21,6 +21,9 @@ use crate::{
 };
 use std::{ops::Bound, sync::Arc, sync::OnceLock};
 
+#[cfg(feature = "query")]
+use crate::db::index::UserIndexPrefixCardinalityKey;
+
 const fn record_deferred_index_prefix_raw_bound_materialization() {}
 
 pub(in crate::db) type LoweredKey = RawIndexStoreKey;
@@ -398,42 +401,6 @@ impl LoweredIndexPrefixSpec {
 }
 
 ///
-/// LoweredIndexPrefixCardinalitySpec
-///
-/// Exact index-prefix metadata key for count-only paths.
-/// It intentionally carries only the already-encoded prefix components needed
-/// by index cardinality metadata, not scan bounds or executor traversal state.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "query")]
-pub(in crate::db) struct LoweredIndexPrefixCardinalitySpec {
-    index_id: IndexId,
-    prefix_components: Vec<Vec<u8>>,
-}
-
-#[cfg(feature = "query")]
-impl LoweredIndexPrefixCardinalitySpec {
-    #[must_use]
-    pub(in crate::db) const fn new(index_id: IndexId, prefix_components: Vec<Vec<u8>>) -> Self {
-        Self {
-            index_id,
-            prefix_components,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn index_id(&self) -> IndexId {
-        self.index_id
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
-        self.prefix_components.as_slice()
-    }
-}
-
-///
 /// LoweredIndexRangeSpec
 ///
 /// Lowered index-range contract with fully materialized byte bounds.
@@ -652,11 +619,11 @@ fn lower_index_specs_for_path<K>(
 }
 
 #[cfg(feature = "query")]
-pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_access(
+pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_access(
     entity_tag: EntityTag,
     access: &crate::db::query::plan::CountCardinalityPrefixAccess<'_>,
     schema_info: &SchemaInfo,
-) -> Result<Vec<LoweredIndexPrefixCardinalitySpec>, LoweredAccessError> {
+) -> Result<Vec<UserIndexPrefixCardinalityKey>, LoweredAccessError> {
     let values = access.values();
     if values.is_empty() {
         return Err(LoweredAccessError::IndexPrefix);
@@ -664,7 +631,7 @@ pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_acces
 
     match values {
         crate::db::query::plan::CountCardinalityPrefixValues::One(value) => {
-            lower_single_component_index_prefix_cardinality_specs(
+            lower_single_component_user_index_prefix_cardinality_keys(
                 entity_tag,
                 access.index().clone(),
                 std::slice::from_ref(value),
@@ -673,7 +640,7 @@ pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_acces
             .map_err(|_err| LoweredAccessError::IndexPrefix)
         }
         crate::db::query::plan::CountCardinalityPrefixValues::Many(values) => {
-            lower_single_component_index_prefix_cardinality_specs(
+            lower_single_component_user_index_prefix_cardinality_keys(
                 entity_tag,
                 access.index().clone(),
                 values,
@@ -685,28 +652,28 @@ pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_acces
 }
 
 #[cfg(feature = "query")]
-fn lower_single_component_index_prefix_cardinality_specs(
+fn lower_single_component_user_index_prefix_cardinality_keys(
     entity_tag: EntityTag,
     index: crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
     schema_info: &SchemaInfo,
-) -> Result<Vec<LoweredIndexPrefixCardinalitySpec>, InternalError> {
+) -> Result<Vec<UserIndexPrefixCardinalityKey>, InternalError> {
     if values.is_empty() {
         return Err(InternalError::query_executor_invariant());
     }
 
     let index_id =
         IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
-    let mut specs = Vec::with_capacity(values.len());
+    let mut keys = Vec::with_capacity(values.len());
     for value in values {
         let component = encode_index_component(Some(schema_info), &index, 0, value)?.into_bytes();
-        specs.push(LoweredIndexPrefixCardinalitySpec::new(
+        keys.push(UserIndexPrefixCardinalityKey::new(
             index_id,
             vec![component],
         ));
     }
 
-    Ok(specs)
+    Ok(keys)
 }
 
 fn lower_index_prefix_values_for_specs(

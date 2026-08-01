@@ -5,7 +5,6 @@
 
 use crate::db::{
     codec::hex::encode_hex_lower,
-    query::plan::AccessPlannedQuery,
     query::{
         explain::ExplainPlan,
         fingerprint::{finalize_sha256_digest, hash_sections, new_plan_fingerprint_hasher},
@@ -33,8 +32,6 @@ impl std::fmt::Display for PlanFingerprint {
         f.write_str(&self.as_hex())
     }
 }
-
-impl AccessPlannedQuery {}
 
 impl ExplainPlan {
     /// Compute a stable fingerprint for this explain plan.

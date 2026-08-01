@@ -35,7 +35,7 @@ impl HasDef for Tuple {
 
 impl ValidateNode for Tuple {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
 
         for value in &self.values {
             value.validate()?;
@@ -66,10 +66,12 @@ impl HasSchemaPart for Tuple {
 }
 
 impl HasTraits for Tuple {
-    fn traits(&self) -> Vec<TraitKind> {
-        let traits = self.traits.build_for_type();
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::Tuple)
+    }
 
-        traits.into_vec()
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {

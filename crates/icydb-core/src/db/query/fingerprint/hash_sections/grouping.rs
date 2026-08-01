@@ -119,15 +119,12 @@ impl<'a> ProjectedGroupingShape<'a> {
                 let aggregate_family = GroupedPlanAggregateFamily::from_grouped_aggregates(
                     &aggregates
                         .iter()
-                        .map(|aggregate| GroupAggregateSpec {
-                            kind: aggregate.kind(),
-                            input_expr: aggregate.target_field().map(|field| {
-                                Box::new(crate::db::query::plan::expr::Expr::Field(
-                                    crate::db::query::plan::expr::FieldId::new(field),
-                                ))
-                            }),
-                            filter_expr: None,
-                            distinct: aggregate.distinct(),
+                        .map(|aggregate| {
+                            GroupAggregateSpec::from_optional_field_input(
+                                aggregate.kind(),
+                                aggregate.target_field().map(str::to_string),
+                                aggregate.distinct(),
+                            )
                         })
                         .collect::<Vec<_>>(),
                 );
@@ -205,7 +202,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                         aggregate
                             .filter_expr()
                             .map(render_scalar_projection_expr_plan_label),
-                        aggregate.distinct(),
+                        aggregate.semantic_distinct(),
                     )
                 })
                 .collect(),

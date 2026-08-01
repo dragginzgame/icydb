@@ -2,9 +2,9 @@
 //! Does not own: compiled command variants or execution context handoff.
 
 use crate::db::{
-    access::LoweredIndexPrefixCardinalitySpec,
     commit::CommitSchemaFingerprint,
     executor::SharedPreparedExecutionPlan,
+    index::UserIndexPrefixCardinalityKey,
     session::{AcceptedSchemaCatalogContext, query::StructuralProjectionContract},
 };
 use std::rc::Rc;
@@ -97,23 +97,23 @@ impl SqlGlobalAggregatePlanCacheEntry {
 #[derive(Debug)]
 pub(in crate::db) struct SqlGlobalAggregateCountPlanCacheEntry {
     pub(super) schema_fingerprint: SqlCompiledSchemaFingerprint,
-    prefix_specs: Rc<[LoweredIndexPrefixCardinalitySpec]>,
+    prefix_keys: Rc<[UserIndexPrefixCardinalityKey]>,
 }
 
 impl SqlGlobalAggregateCountPlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
         schema_fingerprint: SqlCompiledSchemaFingerprint,
-        prefix_specs: Rc<[LoweredIndexPrefixCardinalitySpec]>,
+        prefix_keys: Rc<[UserIndexPrefixCardinalityKey]>,
     ) -> Self {
         Self {
             schema_fingerprint,
-            prefix_specs,
+            prefix_keys,
         }
     }
 
     #[must_use]
-    pub(in crate::db) fn prefix_specs(&self) -> &[LoweredIndexPrefixCardinalitySpec] {
-        self.prefix_specs.as_ref()
+    pub(in crate::db) fn prefix_keys(&self) -> &[UserIndexPrefixCardinalityKey] {
+        self.prefix_keys.as_ref()
     }
 }

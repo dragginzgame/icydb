@@ -3,14 +3,12 @@
 //! Does not own: count planning or index metadata maintenance.
 //! Boundary: fail-open helpers for runtime branch pruning.
 
-#[cfg(feature = "query")]
-use crate::db::access::LoweredIndexPrefixCardinalitySpec;
 use crate::{
     db::{
         access::{AccessPath, IndexShapeDetails, LoweredIndexPrefixSpec},
         data::DataStore,
         executor::route::IndexPrefixChildExpansionHint,
-        index::{IndexId, IndexKey, IndexKeyKind, IndexStore},
+        index::{IndexId, IndexKey, IndexKeyKind, IndexStore, UserIndexPrefixCardinalityKey},
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
     },
@@ -41,24 +39,6 @@ impl<'a> LoweredIndexPrefixCardinalityPlan<'a> {
     #[must_use]
     pub(in crate::db) const fn specs(&self) -> &'a [LoweredIndexPrefixSpec] {
         self.specs
-    }
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(in crate::db::executor) struct LoweredIndexPrefixCardinalityKey {
-    index_id: IndexId,
-    prefix_components: Vec<Vec<u8>>,
-}
-
-impl LoweredIndexPrefixCardinalityKey {
-    #[must_use]
-    pub(in crate::db::executor) const fn index_id(&self) -> IndexId {
-        self.index_id
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn prefix_components(&self) -> &[Vec<u8>] {
-        self.prefix_components.as_slice()
     }
 }
 
@@ -200,20 +180,20 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
 }
 
 #[cfg(feature = "query")]
-pub(in crate::db) fn lowered_index_prefix_cardinality_specs_from_plan(
+pub(in crate::db) fn user_index_prefix_cardinality_keys_from_plan(
     plan: LoweredIndexPrefixCardinalityPlan<'_>,
-) -> Option<Vec<LoweredIndexPrefixCardinalitySpec>> {
+) -> Option<Vec<UserIndexPrefixCardinalityKey>> {
     let prefix_len = plan.prefix_len();
-    let mut specs = Vec::with_capacity(plan.specs().len());
+    let mut keys = Vec::with_capacity(plan.specs().len());
     for spec in plan.specs() {
         let prefix_components = spec.prefix_components().get(..prefix_len)?.to_vec();
-        specs.push(LoweredIndexPrefixCardinalitySpec::new(
+        keys.push(UserIndexPrefixCardinalityKey::new(
             plan.index_id(),
             prefix_components,
         ));
     }
 
-    (!specs.is_empty()).then_some(specs)
+    (!keys.is_empty()).then_some(keys)
 }
 
 pub(in crate::db::executor) fn lowered_index_prefix_liveness_at_generation(
@@ -222,7 +202,7 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness_at_generation(
     spec: &LoweredIndexPrefixSpec,
 ) -> IndexBranchLiveness {
     let Some(cardinality_key) =
-        lowered_index_prefix_cardinality_key(spec, spec.prefix_components().len())
+        user_index_prefix_cardinality_key_from_lowered_spec(spec, spec.prefix_components().len())
     else {
         return IndexBranchLiveness::UnknownConservative(
             IndexBranchUnknownReason::MissingPrefixCardinalityKey,
@@ -243,10 +223,10 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness_at_generation(
     }
 }
 
-pub(in crate::db::executor) fn lowered_index_prefix_cardinality_key(
+fn user_index_prefix_cardinality_key_from_lowered_spec(
     spec: &LoweredIndexPrefixSpec,
     prefix_len: usize,
-) -> Option<LoweredIndexPrefixCardinalityKey> {
+) -> Option<UserIndexPrefixCardinalityKey> {
     if prefix_len == 0 {
         return None;
     }
@@ -254,10 +234,10 @@ pub(in crate::db::executor) fn lowered_index_prefix_cardinality_key(
     let index_id = exact_cardinality_index_id_from_lowered_spec(spec)?;
     let prefix_components = spec.prefix_components().get(..prefix_len)?.to_vec();
 
-    Some(LoweredIndexPrefixCardinalityKey {
+    Some(UserIndexPrefixCardinalityKey::new(
         index_id,
         prefix_components,
-    })
+    ))
 }
 
 pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(

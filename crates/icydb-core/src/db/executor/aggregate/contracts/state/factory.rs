@@ -7,8 +7,8 @@ use crate::db::{
     direction::Direction,
     executor::{
         aggregate::contracts::{
+            AggregateKind,
             plan::CompiledExpr,
-            spec::AggregateKind,
             state::{
                 GroupedAggregateReducerState, GroupedDistinctExecutionMode,
                 GroupedTerminalAggregateState,

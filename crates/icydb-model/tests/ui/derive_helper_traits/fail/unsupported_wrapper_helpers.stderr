@@ -1,0 +1,23 @@
+error: trait 'Deref' is not supported by record application values
+ --> tests/ui/derive_helper_traits/fail/unsupported_wrapper_helpers.rs:3:1
+  |
+3 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Deref)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'DerefMut' is not supported by record application values
+ --> tests/ui/derive_helper_traits/fail/unsupported_wrapper_helpers.rs:6:1
+  |
+6 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(DerefMut)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Display' is not supported by record application values
+ --> tests/ui/derive_helper_traits/fail/unsupported_wrapper_helpers.rs:9:1
+  |
+9 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Display)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)

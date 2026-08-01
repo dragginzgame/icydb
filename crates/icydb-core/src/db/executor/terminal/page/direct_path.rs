@@ -16,7 +16,7 @@ use super::{
     post_access::apply_data_row_page_window,
     row_runtime::ScalarRowRuntimeHandle,
     scan::{
-        DirectDataRowScanResult, scan_direct_data_rows_with_residual_policy,
+        RowScanResult, scan_direct_data_rows_with_residual_policy,
         scan_materialized_order_direct_data_rows,
     },
 };
@@ -115,7 +115,7 @@ pub(super) fn execute_direct_data_row_path(
             )
         }
     };
-    let DirectDataRowScanResult {
+    let RowScanResult {
         rows: mut data_rows,
         rows_scanned,
         rows_matched,

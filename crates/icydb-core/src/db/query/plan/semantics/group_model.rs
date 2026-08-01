@@ -10,8 +10,8 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
-                FieldSlotAuthority, GroupAggregateSpec, GroupPlan, GroupSpec, expr::Expr,
+                AggregateIdentity, AggregateKind, AggregateSemanticKey, AggregateShape, FieldSlot,
+                FieldSlotAuthority, GroupAggregateSpec, GroupPlan, expr::Expr,
             },
         },
         schema::{AcceptedFieldKind, SchemaInfo, canonicalize_filter_literal_for_persisted_kind},
@@ -66,18 +66,27 @@ impl GroupAggregateSpec {
     /// Build one grouped aggregate spec from one aggregate expression.
     #[must_use]
     pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
-        Self {
-            kind: aggregate.kind(),
-            input_expr: aggregate.input_expr().cloned().map(Box::new),
-            filter_expr: aggregate.filter_expr().cloned().map(Box::new),
-            distinct: aggregate.is_distinct(),
-        }
+        Self::from_shape(aggregate.shape().clone())
+    }
+
+    /// Build one grouped aggregate spec from an optional field input.
+    #[must_use]
+    pub(in crate::db) fn from_optional_field_input(
+        kind: AggregateKind,
+        target_field: Option<String>,
+        distinct: bool,
+    ) -> Self {
+        Self::from_shape(AggregateShape::from_optional_field_input(
+            kind,
+            target_field,
+            distinct,
+        ))
     }
 
     /// Return the canonical grouped aggregate terminal kind.
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> AggregateKind {
-        self.kind
+        self.shape().kind()
     }
 
     /// Build the canonical aggregate identity for this grouped terminal.
@@ -86,7 +95,7 @@ impl GroupAggregateSpec {
         AggregateIdentity::from_kind_input_and_distinct(
             self.kind(),
             self.identity_input_expr_owned(),
-            self.distinct,
+            self.raw_distinct(),
         )
     }
 
@@ -108,13 +117,13 @@ impl GroupAggregateSpec {
     /// Borrow the canonical grouped aggregate input expression, if any.
     #[must_use]
     pub(in crate::db) fn input_expr(&self) -> Option<&Expr> {
-        self.input_expr.as_deref()
+        self.shape().input_expr()
     }
 
     /// Borrow the canonical grouped aggregate filter expression, if any.
     #[must_use]
     pub(in crate::db) fn filter_expr(&self) -> Option<&Expr> {
-        self.filter_expr.as_deref()
+        self.shape().filter_expr()
     }
 
     /// Build the canonical grouped aggregate input expression for identity-only
@@ -130,19 +139,23 @@ impl GroupAggregateSpec {
 
     /// Return whether this grouped aggregate terminal uses DISTINCT in identity.
     #[must_use]
-    pub(in crate::db) fn distinct(&self) -> bool {
+    pub(in crate::db) fn semantic_distinct(&self) -> bool {
         self.identity().distinct()
+    }
+
+    /// Return the raw authored DISTINCT bit before semantic normalization.
+    #[must_use]
+    pub(in crate::db) const fn raw_distinct(&self) -> bool {
+        self.shape().raw_distinct()
     }
 
     /// Return true when this aggregate is eligible for grouped ordered streaming.
     #[must_use]
     pub(in crate::db) fn streaming_compatible(&self) -> bool {
-        self.kind
-            .supports_grouped_streaming(self.target_field().is_some(), self.distinct())
+        self.kind()
+            .supports_grouped_streaming(self.target_field().is_some(), self.semantic_distinct())
     }
 }
-
-impl GroupSpec {}
 
 impl GroupPlan {
     /// Borrow the effective grouped HAVING expression for this grouped plan.
@@ -156,20 +169,12 @@ impl GroupPlan {
 /// aggregate expression used by grouped `HAVING`, explain, and tests.
 #[must_use]
 pub(in crate::db) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
-    let expr = match aggregate.identity_input_expr_owned() {
-        Some(input_expr) => AggregateExpr::from_expression_input(aggregate.kind(), input_expr),
-        None => AggregateExpr::from_optional_field_input(aggregate.kind(), None, false),
-    };
-    let expr = match aggregate.filter_expr() {
-        Some(filter_expr) => expr.with_filter_expr(filter_expr.clone()),
-        None => expr,
-    };
-
-    if aggregate.identity().distinct() {
-        expr.distinct()
-    } else {
-        expr
-    }
+    AggregateExpr::from_shape(
+        aggregate
+            .shape()
+            .clone()
+            .with_raw_distinct(aggregate.semantic_distinct()),
+    )
 }
 
 impl FieldSlot {
@@ -240,8 +245,68 @@ impl FieldSlot {
 
 #[cfg(test)]
 mod tests {
-    use super::canonicalize_grouped_having_numeric_literal_for_accepted_kind;
-    use crate::{db::schema::AcceptedFieldKind, types::EntityTag, value::Value};
+    use crate::{
+        db::{
+            query::{
+                builder::{AggregateExpr, count, min_by, sum},
+                plan::{AggregateKind, GroupAggregateSpec, expr::Expr},
+            },
+            schema::AcceptedFieldKind,
+        },
+        types::EntityTag,
+        value::Value,
+    };
+
+    use super::{
+        canonicalize_grouped_having_numeric_literal_for_accepted_kind, group_aggregate_spec_expr,
+    };
+
+    #[test]
+    fn aggregate_wrappers_preserve_raw_and_semantic_equality_domains() {
+        let raw_min = min_by("rank");
+        let raw_distinct_min = min_by("rank").distinct();
+        assert_ne!(raw_min, raw_distinct_min);
+
+        let grouped_min = GroupAggregateSpec::from_aggregate_expr(&raw_min);
+        let grouped_distinct_min = GroupAggregateSpec::from_aggregate_expr(&raw_distinct_min);
+        assert_eq!(grouped_min, grouped_distinct_min);
+        assert!(grouped_distinct_min.raw_distinct());
+        assert!(!grouped_distinct_min.semantic_distinct());
+
+        let raw_count_rows = count();
+        let raw_count_literal = AggregateExpr::from_expression_input(
+            AggregateKind::Count,
+            Expr::Literal(Value::Nat64(1)),
+        );
+        assert_ne!(raw_count_rows, raw_count_literal);
+        assert_eq!(
+            GroupAggregateSpec::from_aggregate_expr(&raw_count_rows),
+            GroupAggregateSpec::from_aggregate_expr(&raw_count_literal),
+        );
+
+        assert_ne!(
+            GroupAggregateSpec::from_aggregate_expr(&sum("rank")),
+            GroupAggregateSpec::from_aggregate_expr(&sum("rank").distinct()),
+        );
+        assert_ne!(
+            GroupAggregateSpec::from_aggregate_expr(
+                &sum("rank").with_filter_expr(Expr::Literal(Value::Bool(true))),
+            ),
+            GroupAggregateSpec::from_aggregate_expr(
+                &sum("rank").with_filter_expr(Expr::Literal(Value::Bool(false))),
+            ),
+        );
+    }
+
+    #[test]
+    fn grouped_projection_round_trip_normalizes_only_semantic_distinct() {
+        let grouped = GroupAggregateSpec::from_aggregate_expr(&min_by("rank").distinct());
+        let projected = group_aggregate_spec_expr(&grouped);
+
+        assert_eq!(projected, min_by("rank"));
+        assert!(!projected.is_distinct());
+        assert!(grouped.raw_distinct());
+    }
 
     #[test]
     fn accepted_grouped_having_literal_canonicalization_recurses_through_relations() {

@@ -210,7 +210,7 @@ fn summarize_grouped_plan(plan: &GroupPlan) -> QueryAdmissionGroupedSummary {
             plan.group
                 .aggregates
                 .iter()
-                .filter(|aggregate| aggregate.distinct)
+                .filter(|aggregate| aggregate.raw_distinct())
                 .count(),
         )
         .unwrap_or(u32::MAX),

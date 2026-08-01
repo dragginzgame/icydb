@@ -49,7 +49,7 @@ impl HasSchemaPart for Normalizer {
 
 impl HasTraits for Normalizer {
     fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = TraitBuilder::default().build();
+        let mut traits = generated_node_trait_set();
         traits.add(TraitKind::Default);
 
         traits.into_vec()

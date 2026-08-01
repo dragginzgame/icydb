@@ -224,7 +224,7 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
             }
         });
 
-    let inherent_tokens = Implementor::new(def, TraitKind::Inherent)
+    let inherent_tokens = Implementor::inherent(def)
         .set_tokens(quote! {
             #(#normalize_helpers)*
 

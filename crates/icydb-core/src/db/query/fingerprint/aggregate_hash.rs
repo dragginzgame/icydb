@@ -210,7 +210,7 @@ mod tests {
             helper_shape
                 .filter_expr()
                 .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label),
-            helper_shape.distinct(),
+            helper_shape.semantic_distinct(),
         );
         let manual = AggregateHashShape::semantic(
             AggregateKind::Count,

@@ -226,7 +226,7 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
         }
     });
 
-    let inherent_tokens = Implementor::new(def, TraitKind::Inherent)
+    let inherent_tokens = Implementor::inherent(def)
         .set_tokens(quote! {
             #(#visit_helpers)*
             #(#visit_mut_helpers)*
@@ -301,9 +301,7 @@ fn visitable_trait_strategy(def: &Def, tokens: TokenStream) -> TraitStrategy {
 
 fn immutable_collection_visit_tokens() -> TokenStream {
     quote! {
-        use ::icydb_model::Collection;
-
-        for (i, v) in self.iter().enumerate() {
+        for (i, v) in self.0.iter().enumerate() {
             perform_visit(visitor, v, i);
         }
     }

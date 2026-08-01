@@ -6,6 +6,7 @@
 mod access_choice;
 mod access_plan;
 mod access_planner;
+mod aggregate_shape;
 mod continuation;
 mod covering;
 pub(in crate::db) mod expr;
@@ -42,6 +43,7 @@ pub(in crate::db) use access_plan::{
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access_with_accepted_schema,
 };
+pub(in crate::db) use aggregate_shape::AggregateShape;
 pub(in crate::db) use continuation::{
     AcceptedContinuationIdentity, PlannedContinuationContract, ScalarAccessWindowPlan,
     effective_offset_for_cursor_window,

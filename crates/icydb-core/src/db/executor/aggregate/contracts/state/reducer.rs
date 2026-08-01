@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::aggregate::{
-            contracts::spec::AggregateKind,
+            contracts::AggregateKind,
             value_reducer::{ValueReducerState, finalize_count},
         },
         key_taxonomy::PrimaryKeyValue,

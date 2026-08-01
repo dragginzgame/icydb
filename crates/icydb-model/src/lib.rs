@@ -60,8 +60,7 @@ use thiserror::Error as ThisError;
 pub mod prelude {
     pub(crate) use crate::build::schema_read;
     pub use crate::{
-        Collection as _, Inner as _, MapCollection as _, NormalizeAndValidate as _, Path as _,
-        base, canister, entity, enum_, err,
+        Inner as _, NormalizeAndValidate as _, Path as _, base, canister, entity, enum_, err,
         error::ErrorTree,
         list, map, newtype,
         node::*,
@@ -110,53 +109,6 @@ pub trait Inner<T> {
 
     /// Consume the wrapper and return its value.
     fn into_inner(self) -> T;
-}
-
-/// Iteration contract for generated list and set wrappers.
-pub trait Collection {
-    /// Element type.
-    type Item;
-
-    /// Borrowed iterator type.
-    type Iter<'a>: Iterator<Item = &'a Self::Item> + 'a
-    where
-        Self: 'a;
-
-    /// Iterate over elements.
-    fn iter(&self) -> Self::Iter<'_>;
-
-    /// Return the number of elements.
-    fn len(&self) -> usize;
-
-    /// Return whether this collection is empty.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-/// Iteration contract for generated map wrappers.
-pub trait MapCollection {
-    /// Key type.
-    type Key;
-
-    /// Value type.
-    type Value;
-
-    /// Borrowed iterator type.
-    type Iter<'a>: Iterator<Item = (&'a Self::Key, &'a Self::Value)> + 'a
-    where
-        Self: 'a;
-
-    /// Iterate over entries.
-    fn iter(&self) -> Self::Iter<'_>;
-
-    /// Return the number of entries.
-    fn len(&self) -> usize;
-
-    /// Return whether this map is empty.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 /// Exact public proposal vocabulary consumed by application-model lowering.

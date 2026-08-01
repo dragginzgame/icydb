@@ -103,7 +103,7 @@ pub(in crate::db) use explain::{
 #[cfg(feature = "query")]
 pub(in crate::db) use index_prefix_cardinality::exact_count_cardinality_prefixes_for_plan;
 #[cfg(feature = "query")]
-pub(in crate::db) use index_prefix_cardinality::lowered_index_prefix_cardinality_specs_from_plan;
+pub(in crate::db) use index_prefix_cardinality::user_index_prefix_cardinality_keys_from_plan;
 #[cfg(any(test, feature = "query"))]
 pub(in crate::db::executor) use index_prefix_cardinality::{
     expand_index_prefix_family_with_exact_child_prefixes, lowered_index_prefix_liveness,

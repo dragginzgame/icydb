@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.216.md](docs/changelog/0.216.md)
 
+- `0.216.4` closes generated traits over exact node-specific policies and
+  removes duplicate query cache, plan, scan, and cardinality carriers without
+  changing query behavior, persisted formats, or Candid surfaces.
+
 - `0.216.3` removes duplicate commit and query intermediates and makes
   `RowProjectionOutput` the single dynamic and SQL projected-row response,
   preserving wire and persisted formats while hard-cutting redundant Rust APIs.

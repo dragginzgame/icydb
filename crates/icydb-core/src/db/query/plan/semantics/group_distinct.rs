@@ -4,8 +4,7 @@
 //! Boundary: provides planner-shared grouped DISTINCT policy reasoning contracts.
 
 use crate::db::query::plan::{
-    AggregateKind, FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec, GroupPlan,
-    expr::Expr, validate::GroupPlanError,
+    AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, expr::Expr, validate::GroupPlanError,
 };
 use crate::error::InternalError;
 
@@ -66,8 +65,6 @@ impl<'a> GlobalDistinctFieldAggregate<'a> {
         self.target_field
     }
 }
-
-impl GlobalDistinctAggregateKind {}
 
 impl GroupDistinctPolicyReason {
     /// Construct one grouped DISTINCT HAVING-unsupported reason.
@@ -226,7 +223,7 @@ fn resolve_global_distinct_supported_aggregate<'a>(
     if aggregate.target_field().is_none() {
         return Err(GroupDistinctPolicyReason::global_distinct_requires_field_target_aggregate());
     }
-    if !aggregate.distinct() {
+    if !aggregate.semantic_distinct() {
         return Err(
             GroupDistinctPolicyReason::global_distinct_requires_distinct_aggregate_terminal(),
         );

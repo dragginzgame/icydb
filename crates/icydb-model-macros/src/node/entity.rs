@@ -418,7 +418,7 @@ impl HasDef for Entity {
 impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), DarlingError> {
         // Phase 1: validate trait configuration and field shapes.
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
         self.fields.validate()?;
         self.validate_schema_version()?;
         if self.traits.explicitly_adds(TraitKind::Default) {
@@ -611,8 +611,12 @@ impl HasSchemaPart for Entity {
 }
 
 impl HasTraits for Entity {
-    fn traits(&self) -> Vec<TraitKind> {
-        self.traits.build_for_type().into_vec()
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::Entity)
+    }
+
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {

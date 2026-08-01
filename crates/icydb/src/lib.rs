@@ -66,7 +66,6 @@ pub mod value {
     pub use icydb_core::value::{
         InputValue, InputValueEnum, OutputValue, OutputValueEnum, ValueTag,
     };
-    pub use icydb_model::{Collection, MapCollection};
 }
 
 #[doc(hidden)]
@@ -168,7 +167,7 @@ pub mod prelude {
     };
     pub use crate::{
         db,
-        traits::{Collection as _, Inner as _, MapCollection as _, Path as _},
+        traits::{Inner as _, Path as _},
         types::*,
         value::{InputValue, OutputValue},
     };

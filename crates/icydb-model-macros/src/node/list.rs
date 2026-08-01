@@ -34,7 +34,7 @@ impl HasDef for List {
 
 impl ValidateNode for List {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
         self.item.validate()?;
 
         Ok(())
@@ -62,21 +62,28 @@ impl HasSchemaPart for List {
 }
 
 impl HasTraits for List {
-    fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.build_for_type();
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::List)
+    }
+
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
+    }
+
+    fn trait_baseline(&self) -> TraitSet {
+        let mut traits = application_type_trait_set();
         traits.extend([
-            TraitKind::Collection,
             TraitKind::Default,
             TraitKind::Deref,
             TraitKind::DerefMut,
+            TraitKind::From,
         ]);
 
-        traits.into_vec()
+        traits
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::Collection => CollectionTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
@@ -107,5 +114,32 @@ impl ToTokens for List {
             #base
             #typed_adapter
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::List;
+    use crate::prelude::*;
+    use darling::{FromMeta, ast::NestedMeta};
+    use quote::quote;
+
+    #[test]
+    fn shape_baseline_precedes_trait_removal() {
+        let args = NestedMeta::parse_meta_list(quote!(item(prim = "Nat8"), traits(remove(Deref))))
+            .expect("list args should parse");
+        let mut node = List::from_list(&args).expect("list should lower");
+        node.def = Def::new(
+            syn::parse2(quote!(
+                pub struct WithoutDeref {}
+            ))
+            .expect("list input should parse as a struct"),
+        );
+
+        node.validate().expect("shape trait should be removable");
+        let traits = node.traits();
+        assert!(!traits.contains(&TraitKind::Deref));
+        assert!(traits.contains(&TraitKind::DerefMut));
+        assert!(traits.contains(&TraitKind::From));
     }
 }

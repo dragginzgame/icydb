@@ -10,10 +10,10 @@ use crate::{
         executor::{
             aggregate::{
                 contracts::{
+                    AggregateKind,
                     error::GroupError,
                     grouped::ExecutionContext,
                     plan::{CompiledExpr, collapse_true_only_boolean_admission},
-                    spec::AggregateKind,
                     state::{
                         ExtremumKind, FoldControl, GroupedAggregateReducerState,
                         GroupedDistinctExecutionMode, canonical_key_from_data_key,

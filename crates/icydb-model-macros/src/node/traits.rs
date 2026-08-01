@@ -82,40 +82,30 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
         let mut has_serde_deserialize = false;
 
         for tr in self.traits() {
-            // Each trait can either have an explicit map or fallback to default.
-            let strat = self.map_trait(tr).or_else(|| self.default_strategy(tr));
+            let Some(strategy) = self.trait_strategy(tr) else {
+                impls.extend(
+                    self.missing_trait_strategy_error(self.application_type_kind(), tr)
+                        .write_errors(),
+                );
+                continue;
+            };
 
-            if let Some(strategy) = strat {
-                if let Some(ts) = strategy.imp {
-                    impls.extend(ts);
-                }
+            if let Some(ts) = strategy.imp {
+                impls.extend(ts);
+            }
 
-                if let Some(derive_tr) = strategy.derive
-                    && let Some(path) = derive_tr.derive_path()
-                {
-                    if matches!(derive_tr, TraitKind::Deserialize) {
-                        has_serde_deserialize = true;
-                    }
-                    if matches!(derive_tr, TraitKind::CandidType) {
-                        attrs.push(quote!(
-                            #[candid_path("::icydb_model::__reexports::candid")]
-                        ));
-                    }
-                    derive_traits.push(path);
-                }
-            } else if let Some(path) = tr.derive_path() {
-                if matches!(tr, TraitKind::Deserialize) {
+            if let Some(derive_tr) = strategy.derive
+                && let Some(path) = derive_tr.derive_path()
+            {
+                if matches!(derive_tr, TraitKind::Deserialize) {
                     has_serde_deserialize = true;
                 }
-                if matches!(tr, TraitKind::CandidType) {
+                if matches!(derive_tr, TraitKind::CandidType) {
                     attrs.push(quote!(
                         #[candid_path("::icydb_model::__reexports::candid")]
                     ));
                 }
                 derive_traits.push(path);
-            }
-            if matches!(tr, TraitKind::Sorted) {
-                attrs.push(quote!(#[::icydb_model::__reexports::remain::sorted]));
             }
         }
 
@@ -173,9 +163,28 @@ pub trait HasTypeExpr {
 ///
 
 pub trait HasTraits: HasType {
+    /// Application node kind used by the node-aware trait resolver.
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        None
+    }
+
+    /// Authored trait directives for an application value node.
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        None
+    }
+
+    /// Compiler- and shape-owned traits before authored directives are applied.
+    fn trait_baseline(&self) -> TraitSet {
+        application_type_trait_set()
+    }
+
     /// List of traits this node participates in (either derived or implemented).
     fn traits(&self) -> Vec<TraitKind> {
-        vec![]
+        let Some(builder) = self.trait_builder() else {
+            return Vec::new();
+        };
+
+        builder.build_for_type(self.trait_baseline()).into_vec()
     }
 
     /// Map a specific trait to a custom implementation.
@@ -218,6 +227,66 @@ pub trait HasTraits: HasType {
 
             _ => None,
         }
+    }
+
+    /// Resolve a selected trait to its sole derive or implementation strategy.
+    fn trait_strategy(&self, trait_kind: TraitKind) -> Option<TraitStrategy> {
+        self.map_trait(trait_kind)
+            .or_else(|| self.default_strategy(trait_kind))
+            .or_else(|| {
+                trait_kind
+                    .derive_path()
+                    .map(|_| TraitStrategy::from_derive(trait_kind))
+            })
+    }
+
+    /// Validate directives against the complete node/shape baseline and prove
+    /// that every selected trait has an emission strategy.
+    fn validate_traits(&self) -> Result<(), DarlingError> {
+        let Some(node_kind) = self.application_type_kind() else {
+            return Ok(());
+        };
+        let Some(builder) = self.trait_builder() else {
+            return Err(DarlingError::custom(format!(
+                "internal {} trait resolver has no authored directive owner",
+                node_kind.as_str(),
+            )));
+        };
+
+        let baseline = self.trait_baseline();
+        builder.validate_for_type(node_kind, baseline.clone())?;
+        let selected = builder.build_for_type(baseline).into_vec();
+        for trait_kind in selected {
+            let Some(strategy) = self.trait_strategy(trait_kind) else {
+                return Err(self.missing_trait_strategy_error(Some(node_kind), trait_kind));
+            };
+            let has_impl = strategy
+                .imp
+                .as_ref()
+                .is_some_and(|tokens| !tokens.is_empty());
+            let has_derive = strategy
+                .derive
+                .is_some_and(|derived| derived.derive_path().is_some());
+            if !has_impl && !has_derive {
+                return Err(self.missing_trait_strategy_error(Some(node_kind), trait_kind));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn missing_trait_strategy_error(
+        &self,
+        node_kind: Option<ApplicationTypeKind>,
+        trait_kind: TraitKind,
+    ) -> DarlingError {
+        let node_kind = node_kind.map_or("generated node", ApplicationTypeKind::as_str);
+        DarlingError::custom(format!(
+            "generated trait '{trait_kind:?}' for {} {} has no derive or implementation strategy",
+            node_kind,
+            self.def().ident(),
+        ))
+        .with_span(&self.def().ident())
     }
 }
 

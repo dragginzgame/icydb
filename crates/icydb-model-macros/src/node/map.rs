@@ -35,7 +35,7 @@ impl HasDef for Map {
 
 impl ValidateNode for Map {
     fn validate(&self) -> Result<(), DarlingError> {
-        self.traits.validate_for_type()?;
+        self.validate_traits()?;
         self.key.validate()?;
         self.value.validate()?;
 
@@ -105,20 +105,29 @@ impl HasSchemaPart for Map {
 }
 
 impl HasTraits for Map {
-    fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = self.traits.build_for_type();
-        traits.add(TraitKind::Default);
-        traits.add(TraitKind::MapCollection);
-        traits.add(TraitKind::Deref);
-        traits.add(TraitKind::DerefMut);
+    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+        Some(ApplicationTypeKind::Map)
+    }
 
-        traits.into_vec()
+    fn trait_builder(&self) -> Option<&TraitBuilder> {
+        Some(&self.traits)
+    }
+
+    fn trait_baseline(&self) -> TraitSet {
+        let mut traits = application_type_trait_set();
+        traits.extend([
+            TraitKind::Default,
+            TraitKind::Deref,
+            TraitKind::DerefMut,
+            TraitKind::From,
+        ]);
+
+        traits
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::From => FromTrait::strategy(self),
-            TraitKind::MapCollection => MapCollectionTrait::strategy(self),
             TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
@@ -159,7 +168,9 @@ mod tests {
 
     fn map_node() -> Map {
         Map {
-            def: Def::default(),
+            def: Def::new(syn::parse_quote!(
+                struct TestMap;
+            )),
             name: None,
             key: Item {
                 primitive: Some(Primitive::Text),

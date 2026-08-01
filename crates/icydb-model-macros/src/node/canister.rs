@@ -119,7 +119,7 @@ impl HasSchemaPart for Canister {
 
 impl HasTraits for Canister {
     fn traits(&self) -> Vec<TraitKind> {
-        TraitBuilder::default().build().into_vec()
+        generated_node_trait_set().into_vec()
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {

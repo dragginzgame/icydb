@@ -8,6 +8,43 @@ use crate::db::index::{
 };
 use std::collections::BTreeMap as HeapBTreeMap;
 
+/// Exact lookup key for one user-index component prefix.
+///
+/// This is the shared engine contract consumed by access lowering, direct
+/// aggregate execution, and executor branch-liveness probes. It deliberately
+/// omits `IndexKeyKind`: user-index ownership is part of the type contract.
+/// The ordered cardinality map retains its separate storage key below.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "query"))]
+pub(in crate::db) struct UserIndexPrefixCardinalityKey {
+    index_id: IndexId,
+    prefix_components: Vec<Vec<u8>>,
+}
+
+#[cfg(any(test, feature = "query"))]
+impl UserIndexPrefixCardinalityKey {
+    /// Construct one lookup from an index generation and encoded components.
+    #[must_use]
+    pub(in crate::db) const fn new(index_id: IndexId, prefix_components: Vec<Vec<u8>>) -> Self {
+        Self {
+            index_id,
+            prefix_components,
+        }
+    }
+
+    /// Return the physical index generation owning this prefix.
+    #[must_use]
+    pub(in crate::db) const fn index_id(&self) -> IndexId {
+        self.index_id
+    }
+
+    /// Borrow the already-encoded prefix components.
+    #[must_use]
+    pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
+        self.prefix_components.as_slice()
+    }
+}
+
 ///
 /// IndexPrefixCardinality
 ///
@@ -561,4 +598,27 @@ fn counted_prefixes(
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::index::{IndexId, UserIndexPrefixCardinalityKey},
+        types::EntityTag,
+    };
+
+    #[test]
+    fn user_prefix_lookup_key_preserves_physical_generation_and_encoded_components() {
+        let entity_tag = EntityTag::new(0xCA7D);
+        let components = vec![b"collection-a".to_vec(), b"Draft".to_vec()];
+        let current_index = IndexId::new_with_generation(entity_tag, 2, 7);
+        let next_index = IndexId::new_with_generation(entity_tag, 2, 8);
+
+        let current = UserIndexPrefixCardinalityKey::new(current_index, components.clone());
+        let next = UserIndexPrefixCardinalityKey::new(next_index, components.clone());
+
+        assert_eq!(current.index_id(), current_index);
+        assert_eq!(current.prefix_components(), components.as_slice());
+        assert_ne!(current, next);
+    }
 }

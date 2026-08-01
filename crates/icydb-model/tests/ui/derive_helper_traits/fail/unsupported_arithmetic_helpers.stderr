@@ -1,0 +1,79 @@
+error: trait 'Add' is not supported by record application values
+ --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:3:1
+  |
+3 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Add)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'AddAssign' is not supported by record application values
+ --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:6:1
+  |
+6 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(AddAssign)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Div' is not supported by record application values
+ --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:9:1
+  |
+9 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Div)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'DivAssign' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:12:1
+   |
+12 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(DivAssign)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Mul' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:15:1
+   |
+15 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Mul)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'MulAssign' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:18:1
+   |
+18 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(MulAssign)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Rem' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:21:1
+   |
+21 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Rem)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Sub' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:24:1
+   |
+24 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Sub)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'SubAssign' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:27:1
+   |
+27 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(SubAssign)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trait 'Sum' is not supported by record application values
+  --> tests/ui/derive_helper_traits/fail/unsupported_arithmetic_helpers.rs:30:1
+   |
+30 | #[record(fields(field(name = "value", value(item(prim = "Nat64")))), traits(add(Sum)))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `record` (in Nightly builds, run with -Z macro-backtrace for more info)

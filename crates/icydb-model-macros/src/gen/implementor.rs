@@ -18,9 +18,14 @@ pub trait Imp<N> {
 /// Implementor
 ///
 
+enum ImplementationTarget {
+    Inherent,
+    Trait(TraitKind),
+}
+
 pub struct Implementor<'a> {
     def: &'a Def,
-    trait_kind: TraitKind,
+    target: ImplementationTarget,
     trait_generics: Vec<TokenStream>,
     extra_generics: Vec<GenericParam>,
     extra_where: Vec<WherePredicate>,
@@ -29,9 +34,17 @@ pub struct Implementor<'a> {
 
 impl<'a> Implementor<'a> {
     pub fn new(def: &'a Def, trait_kind: TraitKind) -> Self {
+        Self::with_target(def, ImplementationTarget::Trait(trait_kind))
+    }
+
+    pub fn inherent(def: &'a Def) -> Self {
+        Self::with_target(def, ImplementationTarget::Inherent)
+    }
+
+    fn with_target(def: &'a Def, target: ImplementationTarget) -> Self {
         Self {
             def,
-            trait_kind,
+            target,
             trait_generics: Vec::new(),
             extra_generics: Vec::new(),
             extra_where: Vec::new(),
@@ -74,7 +87,6 @@ impl<'a> Implementor<'a> {
             .as_ref()
             .expect("Def.item must be Some for impl generation");
         let generics = &item.generics;
-        let trait_kind = &self.trait_kind;
         let trait_generics = &self.trait_generics;
 
         // Split once to get the type-position generics (e.g., `Type<T, 'a>`).
@@ -104,27 +116,20 @@ impl<'a> Implementor<'a> {
             quote!()
         };
 
-        // ---- Trait path with optional generics (avoid `Trait<>`)
-        let trait_path = match trait_kind {
-            TraitKind::Inherent => quote!(), // not used
-            t => {
-                if trait_generics.is_empty() {
-                    quote!( #t )
-                } else {
-                    quote!( #t::< #(#trait_generics),* > )
-                }
-            }
-        };
-
-        match trait_kind {
-            TraitKind::Inherent => {
-                // impl <all_params> Type<ty_params> where ...
+        match &self.target {
+            ImplementationTarget::Inherent => {
                 quote! {
                     impl #impl_generics_ts #ident #ty_generics #where_tokens
                 }
             }
-            _ => {
-                // impl <all_params> Trait<trait_generics> for Type<ty_params> where ...
+            ImplementationTarget::Trait(trait_kind) => {
+                // Trait path with optional generics (avoid `Trait<>`).
+                let trait_path = if trait_generics.is_empty() {
+                    quote!( #trait_kind )
+                } else {
+                    quote!( #trait_kind::< #(#trait_generics),* > )
+                };
+
                 quote! {
                     impl #impl_generics_ts #trait_path for #ident #ty_generics #where_tokens
                 }
