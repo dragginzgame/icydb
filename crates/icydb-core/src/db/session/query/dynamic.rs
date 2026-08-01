@@ -5,8 +5,8 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, DynamicQueryResult, DynamicTypedEntityBinding, MissingRowPolicy,
-        QueryError,
+        DbSession, DynamicQuery, DynamicTypedEntityBinding, MissingRowPolicy, QueryError,
+        RowProjectionOutput,
         query::{admission::QueryAdmissionPolicy, intent::StructuralQuery},
         session::AcceptedSchemaCatalogContext,
     },
@@ -26,7 +26,7 @@ impl<C: CanisterKind> DbSession<C> {
         request: &DynamicQuery,
         lane: DynamicReadLane,
         catalog: AcceptedSchemaCatalogContext,
-    ) -> Result<DynamicQueryResult, QueryError> {
+    ) -> Result<RowProjectionOutput, QueryError> {
         let schema = catalog.accepted_schema_info();
         let mut query = StructuralQuery::new(MissingRowPolicy::Ignore);
         if let Some(filter) = request.filter_expr() {
@@ -57,7 +57,7 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
         let (columns, _fixed_scales, rows, row_count) = payload.into_output_components()?;
 
-        Ok(DynamicQueryResult {
+        Ok(RowProjectionOutput {
             entity: catalog.snapshot().entity_name().to_string(),
             columns,
             rows,
@@ -69,7 +69,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &DynamicQuery,
         lane: DynamicReadLane,
-    ) -> Result<DynamicQueryResult, QueryError> {
+    ) -> Result<RowProjectionOutput, QueryError> {
         if request.entity().is_empty() {
             return Err(QueryError::execute(
                 InternalError::query_invalid_logical_plan(),
@@ -89,7 +89,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_public_dynamic_query(
         &self,
         request: &DynamicQuery,
-    ) -> Result<DynamicQueryResult, QueryError> {
+    ) -> Result<RowProjectionOutput, QueryError> {
         self.execute_dynamic_query(request, DynamicReadLane::Public)
     }
 
@@ -100,7 +100,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &DynamicTypedEntityBinding,
         request: &DynamicQuery,
-    ) -> Result<Option<DynamicQueryResult>, QueryError> {
+    ) -> Result<Option<RowProjectionOutput>, QueryError> {
         let Some(catalog) = self
             .current_typed_entity_binding_catalog(binding)
             .map_err(QueryError::execute)?
@@ -119,7 +119,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_trusted_dynamic_query(
         &self,
         request: &DynamicQuery,
-    ) -> Result<DynamicQueryResult, QueryError> {
+    ) -> Result<RowProjectionOutput, QueryError> {
         self.execute_dynamic_query(request, DynamicReadLane::Trusted)
     }
 }

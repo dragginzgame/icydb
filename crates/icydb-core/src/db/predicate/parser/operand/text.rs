@@ -89,8 +89,9 @@ pub(in crate::db::predicate::parser) fn parse_prefix_text_predicate(
 
 // Parse one bounded direct `STARTS_WITH(...)` predicate spelling.
 // This remains intentionally narrow: it accepts only plain fields plus the
-// same LOWER/UPPER casefold wrappers already supported on the reduced `LIKE`
-// prefix family, and it does not open generic SQL function predicates.
+// recognized LOWER/UPPER wrapper grammar. Conversion admits LOWER and returns
+// the typed unsupported-feature error for UPPER; this does not open generic
+// SQL function predicates.
 pub(in crate::db::predicate::parser) fn parse_starts_with_predicate(
     cursor: &mut SqlTokenCursor,
 ) -> Result<Predicate, SqlParseError> {
@@ -98,7 +99,8 @@ pub(in crate::db::predicate::parser) fn parse_starts_with_predicate(
     cursor.expect_lparen()?;
 
     // Keep the direct spelling exact and structural: the first argument may be
-    // one plain field identifier or one bounded LOWER/UPPER field wrapper.
+    // one plain field identifier or one recognized LOWER/UPPER field wrapper;
+    // conversion below owns exact wrapper admission.
     let operand = parse_predicate_field_operand(cursor)?;
 
     if matches!(cursor.peek_kind(), Some(TokenKind::LParen)) {

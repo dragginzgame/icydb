@@ -5,9 +5,7 @@
 
 use crate::{
     db::{
-        commit::prepared_op::PreparedIndexDeltaKind,
         data::{DecodedDataStoreKey, RawDataStoreKey},
-        index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
         journal::{
             JournalBatch, JournalRecord, decode_journal_batch, encode_journal_batch,
             journal_batch_encoded_len,
@@ -22,11 +20,9 @@ use ic_stable_structures::Storable;
 use std::cell::Cell;
 use std::{
     borrow::Cow,
-    cell::RefCell,
     collections::BTreeSet,
     rc::Rc,
     sync::atomic::{AtomicU64, Ordering},
-    thread::LocalKey,
 };
 
 // Commit-marker durability invariant:
@@ -107,65 +103,6 @@ impl CommitRowOp {
             after,
             schema_fingerprint,
         ))
-    }
-}
-
-///
-/// CommitIndexOp
-///
-/// Internal index mutation used during row-op preparation/apply.
-/// Not persisted in commit markers.
-///
-
-#[derive(Clone, Debug)]
-pub(crate) struct CommitIndexOp {
-    pub(crate) index_store: &'static LocalKey<RefCell<IndexStore>>,
-    pub(crate) key: RawIndexStoreKey,
-    pub(crate) value: Option<IndexEntryValue>,
-    pub(crate) delta_kind: PreparedIndexDeltaKind,
-}
-
-impl CommitIndexOp {
-    /// Build one index commit op without delta counter attribution.
-    pub(crate) const fn unchanged(
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
-    ) -> Self {
-        Self {
-            index_store,
-            key,
-            value,
-            delta_kind: PreparedIndexDeltaKind::None,
-        }
-    }
-
-    /// Build one index commit op that contributes to insert counters.
-    pub(crate) const fn index_insert(
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
-    ) -> Self {
-        Self {
-            index_store,
-            key,
-            value,
-            delta_kind: PreparedIndexDeltaKind::IndexInsert,
-        }
-    }
-
-    /// Build one index commit op that contributes to remove counters.
-    pub(crate) const fn index_remove(
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
-    ) -> Self {
-        Self {
-            index_store,
-            key,
-            value,
-            delta_kind: PreparedIndexDeltaKind::IndexRemove,
-        }
     }
 }
 

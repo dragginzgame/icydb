@@ -3,12 +3,7 @@
 //! Does not own: accepted schema resolution, planning, or execution.
 //! Boundary: public dynamic inputs are lowered once against accepted authority.
 
-use crate::{
-    db::query::expr::{FilterExpr, OrderTerm},
-    value::OutputValue,
-};
-use candid::CandidType;
-use serde::Deserialize;
+use crate::db::query::expr::{FilterExpr, OrderTerm};
 
 ///
 /// DynamicQuery
@@ -91,22 +86,4 @@ impl DynamicQuery {
     pub(in crate::db) const fn row_limit(&self) -> Option<u32> {
         self.limit
     }
-}
-
-///
-/// DynamicQueryResult
-///
-/// Row-oriented output from one accepted-schema-driven dynamic read.
-///
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct DynamicQueryResult {
-    /// Accepted entity name used for the read.
-    pub entity: String,
-    /// Selected output-column names in row order.
-    pub columns: Vec<String>,
-    /// Row-oriented output values.
-    pub rows: Vec<Vec<OutputValue>>,
-    /// Number of returned rows.
-    pub row_count: u32,
 }

@@ -4,7 +4,8 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
-use crate::{db::response::render_output_value_text, value::OutputValue};
+use crate::value::OutputValue;
+use icydb_core::value::render_output_value_text;
 
 use icydb_core::types::Decimal;
 

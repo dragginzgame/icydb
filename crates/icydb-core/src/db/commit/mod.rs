@@ -39,8 +39,8 @@ pub(in crate::db) use marker::{
     encode_commit_marker_payload,
 };
 pub(in crate::db) use marker::{
-    CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
-    generate_commit_id, generate_marker_batch_id,
+    CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES, generate_commit_id,
+    generate_marker_batch_id,
 };
 pub(in crate::db) use memory::{
     CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,

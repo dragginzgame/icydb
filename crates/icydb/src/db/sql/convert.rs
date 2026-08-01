@@ -5,7 +5,7 @@
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
 use crate::db::{
-    response::RowProjectionOutput,
+    RowProjectionOutput,
     sql::{
         SqlConstraintValidationOutput, SqlGroupedRowsOutput, SqlQueryResult,
         value_render::{render_projection_value_text, sql_projection_output_rows},

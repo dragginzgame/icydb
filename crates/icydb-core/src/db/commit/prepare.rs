@@ -7,8 +7,7 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitIndexOp, CommitRowOp, CommitSchemaFingerprint, PreparedIndexMutation,
-            PreparedRowCommitOp,
+            CommitRowOp, CommitSchemaFingerprint, PreparedIndexMutation, PreparedRowCommitOp,
         },
         data::{
             AcceptedStructuralRowAuthority, CanonicalRow, CanonicalSlotReader, DataStore,
@@ -623,7 +622,7 @@ fn prepare_candidate_unique_index_commit_ops(
     data_key: &DecodedDataStoreKey,
     old_slots: Option<&StructuralSlotReader<'_>>,
     new_slots: Option<&StructuralSlotReader<'_>>,
-) -> Result<Vec<CommitIndexOp>, InternalError> {
+) -> Result<Vec<PreparedIndexMutation>, InternalError> {
     let Some(candidate) = candidate else {
         return Ok(Vec::new());
     };
@@ -637,7 +636,7 @@ fn prepare_candidate_unique_index_commit_ops(
         .transpose()?
         .flatten();
     match (old_key, new_key) {
-        (Some(old_key), None) => Ok(vec![CommitIndexOp::unchanged(
+        (Some(old_key), None) => Ok(vec![PreparedIndexMutation::unchanged(
             candidate.index_store,
             old_key,
             None,
@@ -714,7 +713,7 @@ fn finalize_row_commit_structural<C>(
     db: &Db<C>,
     authority: CommitPrepareAuthority,
     data_key: RawDataStoreKey,
-    forward_index_ops: Vec<CommitIndexOp>,
+    forward_index_ops: Vec<PreparedIndexMutation>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_value: Option<CanonicalRow>,
 ) -> Result<PreparedRowCommitOp, InternalError>
@@ -735,22 +734,15 @@ where
 
 // Materialize one prepared row commit entirely from structural planning outputs.
 fn materialize_prepared_row_commit(
-    forward_index_ops: Vec<CommitIndexOp>,
+    forward_index_ops: Vec<PreparedIndexMutation>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_store: &'static LocalKey<RefCell<DataStore>>,
     data_index_store: &'static LocalKey<RefCell<IndexStore>>,
     data_key: RawDataStoreKey,
     data_value: Option<CanonicalRow>,
 ) -> PreparedRowCommitOp {
-    // Phase 1: lower planned commit ops into mechanical index mutations.
-    let mut index_ops = Vec::with_capacity(forward_index_ops.len() + reverse_index_ops.len());
-    index_ops.extend(
-        forward_index_ops
-            .into_iter()
-            .map(PreparedIndexMutation::from),
-    );
-
-    // Phase 2: append the already-prepared reverse-index mutations unchanged.
+    let mut index_ops = forward_index_ops;
+    index_ops.reserve(reverse_index_ops.len());
     index_ops.extend(reverse_index_ops);
 
     PreparedRowCommitOp {
@@ -768,7 +760,7 @@ fn materialize_prepared_row_commit(
 fn materialize_forward_index_commit_ops<C>(
     db: &Db<C>,
     index_plan: IndexMutationPlan,
-) -> Result<Vec<CommitIndexOp>, InternalError>
+) -> Result<Vec<PreparedIndexMutation>, InternalError>
 where
     C: crate::traits::CanisterKind,
 {
@@ -785,7 +777,7 @@ where
 // index-owned commit-op builder so same-key and different-key transitions keep
 // their exact raw-entry behavior and deterministic ordering.
 fn build_commit_ops_for_index_group<C>(
-    commit_ops: &mut Vec<CommitIndexOp>,
+    commit_ops: &mut Vec<PreparedIndexMutation>,
     db: &Db<C>,
     group: IndexDeltaGroup,
 ) -> Result<(), InternalError>
@@ -812,7 +804,7 @@ where
 
 // Compute commit-time index operations for one old/new membership pair.
 fn build_commit_ops_for_index_delta_pair(
-    commit_ops: &mut Vec<CommitIndexOp>,
+    commit_ops: &mut Vec<PreparedIndexMutation>,
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
     remove_delta: Option<IndexMembershipDelta>,
     insert_delta: Option<IndexMembershipDelta>,
@@ -829,7 +821,7 @@ fn build_commit_ops_for_index_delta_pair(
                 store,
                 insert_delta.key.to_raw()?,
                 Some(IndexRowIdentity::new(&insert_delta.primary_key)),
-                CommitIndexOp::unchanged,
+                PreparedIndexMutation::unchanged,
             );
         }
 
@@ -841,12 +833,12 @@ fn build_commit_ops_for_index_delta_pair(
     let mut first: Option<(
         RawIndexStoreKey,
         Option<IndexRowIdentity>,
-        CommitIndexOpBuilder,
+        PreparedIndexMutationBuilder,
     )> = None;
     let mut second: Option<(
         RawIndexStoreKey,
         Option<IndexRowIdentity>,
-        CommitIndexOpBuilder,
+        PreparedIndexMutationBuilder,
     )> = None;
 
     if let Some(remove_delta) = remove_delta {
@@ -855,7 +847,7 @@ fn build_commit_ops_for_index_delta_pair(
             &mut second,
             remove_delta.key.to_raw()?,
             None,
-            CommitIndexOp::index_remove,
+            PreparedIndexMutation::index_remove,
         );
     }
 
@@ -865,7 +857,7 @@ fn build_commit_ops_for_index_delta_pair(
             &mut second,
             insert_delta.key.to_raw()?,
             Some(IndexRowIdentity::new(&insert_delta.primary_key)),
-            CommitIndexOp::index_insert,
+            PreparedIndexMutation::index_insert,
         );
     }
 
@@ -884,16 +876,16 @@ fn insert_commit_candidate(
     first: &mut Option<(
         RawIndexStoreKey,
         Option<IndexRowIdentity>,
-        CommitIndexOpBuilder,
+        PreparedIndexMutationBuilder,
     )>,
     second: &mut Option<(
         RawIndexStoreKey,
         Option<IndexRowIdentity>,
-        CommitIndexOpBuilder,
+        PreparedIndexMutationBuilder,
     )>,
     raw_key: RawIndexStoreKey,
     entry: Option<IndexRowIdentity>,
-    build_commit_op: CommitIndexOpBuilder,
+    build_commit_op: PreparedIndexMutationBuilder,
 ) {
     match first {
         None => *first = Some((raw_key, entry, build_commit_op)),
@@ -905,19 +897,19 @@ fn insert_commit_candidate(
     }
 }
 
-type CommitIndexOpBuilder = fn(
+type PreparedIndexMutationBuilder = fn(
     &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
     RawIndexStoreKey,
     Option<IndexEntryValue>,
-) -> CommitIndexOp;
+) -> PreparedIndexMutation;
 
 // Encode one touched index entry into one deterministic commit operation.
 fn push_commit_op_for_index_entry(
-    commit_ops: &mut Vec<CommitIndexOp>,
+    commit_ops: &mut Vec<PreparedIndexMutation>,
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
     raw_key: RawIndexStoreKey,
     entry: Option<IndexRowIdentity>,
-    build_commit_op: CommitIndexOpBuilder,
+    build_commit_op: PreparedIndexMutationBuilder,
 ) {
     let value = entry.map(|_| IndexEntryValue::presence());
 

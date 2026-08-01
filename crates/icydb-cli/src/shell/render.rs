@@ -6,7 +6,7 @@
 use std::time::Instant;
 
 use icydb::db::{
-    response::RowProjectionOutput,
+    RowProjectionOutput,
     sql::{
         SqlGroupedRowsOutput, SqlQueryResult, render_grouped_lines,
         render_projection_display_rows_lines,

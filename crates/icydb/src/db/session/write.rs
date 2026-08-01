@@ -7,7 +7,7 @@
 //! above the core save pipeline.
 
 #[cfg(feature = "query")]
-use crate::db::DynamicQueryResult;
+use crate::db::RowProjectionOutput;
 use crate::{
     db::{DynamicMutationResult, session::DbSession},
     error::Error,
@@ -925,7 +925,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn typed_query_row(
         &self,
         binding: &TypedEntityBinding,
-        result: &DynamicQueryResult,
+        result: &RowProjectionOutput,
         row_index: usize,
     ) -> Result<OutputRow, TypedRowError> {
         self.typed_output_row(

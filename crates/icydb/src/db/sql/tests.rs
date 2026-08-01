@@ -7,8 +7,7 @@
 use crate::db::{
     EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription, EntityIndexDescription,
     EntityRelationCardinality, EntityRelationDescription, EntitySchemaDescription,
-    MemoryCatalogDescription, StoreCatalogDescription,
-    response::RowProjectionOutput,
+    MemoryCatalogDescription, RowProjectionOutput, StoreCatalogDescription,
     sql::{
         SqlGroupedRowsOutput, SqlQueryResult, render_describe_lines, render_show_columns_lines,
         render_show_constraints_lines, render_show_entities_lines,

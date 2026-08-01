@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.216.md](docs/changelog/0.216.md)
 
+- `0.216.3` removes duplicate commit and query intermediates and makes
+  `RowProjectionOutput` the single dynamic and SQL projected-row response,
+  preserving wire and persisted formats while hard-cutting redundant Rust APIs.
+
 - `0.216.2` completes the closeout with scalar API hard cuts, corrected time,
   Blob and Unicode `UPPER` semantics, allocation-free collection membership,
   and clean minimal SQL fixture builds without changing persisted layouts.

@@ -1119,7 +1119,7 @@ findings without a broad rewrite.
 #### D3. Separate engine-neutral query support from SQL — complete (R7)
 
 - Modules/features: core/facade Cargo features, session query modules,
-  `DynamicQueryResult`, SQL response conversion, typed-query canister manifests.
+  `RowProjectionOutput`, SQL response conversion, typed-query canister manifests.
 - Initial problem: structural/typed reads required SQL frontend/DTOs.
 - Desired invariant: SQL and typed/dynamic are sibling frontends over a query
   feature/core, not owner and dependent.

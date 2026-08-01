@@ -112,6 +112,8 @@ pub use key_taxonomy::{
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
 };
+#[cfg(feature = "query")]
+pub use query::DynamicQuery;
 #[cfg(any(test, feature = "query"))]
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
@@ -123,8 +125,6 @@ pub use query::explain::{
 };
 #[cfg(any(test, feature = "query"))]
 pub use query::plan::validate::PlanError;
-#[cfg(feature = "query")]
-pub use query::{DynamicQuery, DynamicQueryResult};
 #[cfg(any(test, feature = "query"))]
 pub use query::{
     builder::{
@@ -154,7 +154,7 @@ pub use registry::{
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
 #[cfg(any(test, feature = "query"))]
-pub use response::GroupedRow;
+pub use response::{GroupedRow, RowProjectionOutput};
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
 pub use schema::{

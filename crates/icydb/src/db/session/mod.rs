@@ -71,7 +71,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_trusted_dynamic_query(
         &self,
         request: &crate::db::DynamicQuery,
-    ) -> Result<crate::db::DynamicQueryResult, crate::Error> {
+    ) -> Result<crate::db::RowProjectionOutput, crate::Error> {
         self.inner
             .execute_trusted_dynamic_query(request)
             .map_err(Into::into)
@@ -82,7 +82,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_public_dynamic_query(
         &self,
         request: &crate::db::DynamicQuery,
-    ) -> Result<crate::db::DynamicQueryResult, crate::Error> {
+    ) -> Result<crate::db::RowProjectionOutput, crate::Error> {
         self.inner
             .execute_public_dynamic_query(request)
             .map_err(Into::into)
@@ -93,7 +93,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &TypedEntityBinding,
         request: &crate::db::DynamicQuery,
-    ) -> Result<Option<crate::db::DynamicQueryResult>, crate::Error> {
+    ) -> Result<Option<crate::db::RowProjectionOutput>, crate::Error> {
         self.inner
             .execute_public_dynamic_query_for_typed_binding(binding.inner(), request)
             .map_err(Into::into)

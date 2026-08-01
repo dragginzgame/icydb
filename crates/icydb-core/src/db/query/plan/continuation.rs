@@ -90,56 +90,6 @@ pub(in crate::db) struct GroupedContinuationWindow {
 }
 
 impl GroupedContinuationWindow {
-    // Construct one immutable grouped continuation paging window.
-    const fn new(
-        limit: Option<usize>,
-        initial_offset_for_page: usize,
-        selection_bound: Option<usize>,
-        resume_initial_offset: u32,
-        resume_boundary: Option<Value>,
-    ) -> Self {
-        Self {
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        }
-    }
-
-    /// Consume grouped continuation window fields in pagination handoff order.
-    #[must_use]
-    pub(in crate::db) fn into_pagination_window_fields(
-        self,
-    ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
-        (
-            self.limit,
-            self.initial_offset_for_page,
-            self.selection_bound,
-            self.resume_initial_offset,
-            self.resume_boundary,
-        )
-    }
-}
-
-///
-/// GroupedContinuationWindowDraft
-///
-/// Internal grouped paging-window draft assembled from one planned
-/// continuation contract plus validated grouped cursor state.
-/// This keeps grouped resume arithmetic in one local phase instead of spreading
-/// it across the outward `GroupedContinuationWindow` construction path.
-///
-
-struct GroupedContinuationWindowDraft {
-    limit: Option<usize>,
-    initial_offset_for_page: usize,
-    selection_bound: Option<usize>,
-    resume_initial_offset: u32,
-    resume_boundary: Option<Value>,
-}
-
-impl GroupedContinuationWindowDraft {
     // Project grouped window arithmetic from planner-owned continuation state.
     fn from_contract_and_cursor(
         contract: &PlannedContinuationContract,
@@ -173,9 +123,12 @@ impl GroupedContinuationWindowDraft {
         }
     }
 
-    // Finalize the outward grouped paging-window DTO.
-    fn into_window(self) -> GroupedContinuationWindow {
-        GroupedContinuationWindow::new(
+    /// Consume grouped continuation window fields in pagination handoff order.
+    #[must_use]
+    pub(in crate::db) fn into_pagination_window_fields(
+        self,
+    ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
+        (
             self.limit,
             self.initial_offset_for_page,
             self.selection_bound,
@@ -379,7 +332,9 @@ impl PlannedContinuationContract {
     ) -> Result<GroupedContinuationWindow, CursorPlanError> {
         self.validate_grouped_cursor_contract(!cursor.is_empty())?;
 
-        Ok(GroupedContinuationWindowDraft::from_contract_and_cursor(self, cursor).into_window())
+        Ok(GroupedContinuationWindow::from_contract_and_cursor(
+            self, cursor,
+        ))
     }
 
     // Enforce grouped continuation ownership once for all grouped cursor entrypoints.

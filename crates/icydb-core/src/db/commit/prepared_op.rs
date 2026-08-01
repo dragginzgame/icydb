@@ -4,7 +4,6 @@
 //! Boundary: commit::{prepare,relation,executor} -> commit::prepared_op -> commit::apply.
 
 use crate::db::{
-    commit::marker::CommitIndexOp,
     data::{CanonicalRow, DataStore, RawDataStoreKey},
     index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
 };
@@ -25,18 +24,49 @@ pub(crate) struct PreparedIndexMutation {
     pub(crate) delta_kind: PreparedIndexDeltaKind,
 }
 
-impl From<CommitIndexOp> for PreparedIndexMutation {
-    fn from(value: CommitIndexOp) -> Self {
+impl PreparedIndexMutation {
+    /// Build one prepared index mutation without delta counter attribution.
+    pub(crate) const fn unchanged(
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
+    ) -> Self {
         Self {
-            index_store: value.index_store,
-            key: value.key,
-            value: value.value,
-            delta_kind: value.delta_kind,
+            index_store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::None,
         }
     }
-}
 
-impl PreparedIndexMutation {
+    /// Build one prepared index mutation that contributes to insert counters.
+    pub(crate) const fn index_insert(
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
+    ) -> Self {
+        Self {
+            index_store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::IndexInsert,
+        }
+    }
+
+    /// Build one prepared index mutation that contributes to remove counters.
+    pub(crate) const fn index_remove(
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
+    ) -> Self {
+        Self {
+            index_store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::IndexRemove,
+        }
+    }
+
     /// Build one rollback index mutation without delta counter attribution.
     pub(crate) const fn rollback_snapshot(
         index_store: &'static LocalKey<RefCell<IndexStore>>,

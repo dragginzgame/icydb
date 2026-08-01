@@ -8,8 +8,8 @@
 use crate::db::sql::table_render::render_explain_lines;
 use crate::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-    EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
-    response::RowProjectionOutput,
+    EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput,
+    StoreCatalogDescription,
     sql::table_render::{
         SqlDdlRenderInput, render_constraint_diagnostic_line, render_count_lines,
         render_describe_lines, render_grouped_lines, render_query_rows_lines,

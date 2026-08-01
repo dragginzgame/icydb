@@ -17,6 +17,6 @@ pub(in crate::db) mod read_intent;
 pub(in crate::db) mod trace;
 
 #[cfg(feature = "query")]
-pub use dynamic::{DynamicQuery, DynamicQueryResult};
+pub use dynamic::DynamicQuery;
 #[cfg(feature = "sql")]
 pub(in crate::db) use fingerprint::resumable_update_scope_fingerprint;

@@ -16,14 +16,14 @@ pub mod sql;
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
 #[cfg(feature = "query")]
-pub use icydb_core::db::{DynamicQuery, DynamicQueryResult};
+pub use icydb_core::db::{DynamicQuery, RowProjectionOutput};
 #[cfg(feature = "sql")]
 pub use icydb_core::db::{
     TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
     TrustedResumableUpdateRestartReason,
 };
 #[cfg(feature = "sql")]
-pub use response::{ExecutionTrace, GroupedRow, RowProjectionOutput};
+pub use response::{ExecutionTrace, GroupedRow};
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
 pub use session::{

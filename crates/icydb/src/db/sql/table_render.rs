@@ -7,8 +7,8 @@
 use crate::ConstraintDiagnostic;
 use crate::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-    EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
-    response::RowProjectionOutput,
+    EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput,
+    StoreCatalogDescription,
     sql::{SqlGroupedRowsOutput, value_render::render_projection_rows},
 };
 use std::fmt::Write as _;
