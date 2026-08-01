@@ -1749,6 +1749,11 @@ const OPENING_BASELINE: OpeningBaseline = OpeningBaseline {
     raw_sql_perf_wasm_sha256: "80c9371ea616a9c0f37f7b0a77f7f54b506cba6584d6d5ce777248843092f381",
 };
 
+// The 0.217 endpoint hard cut retired five config-owned policy providers and
+// replaced them with one source-declaration feature-profile provider. Keep the
+// opening inventory historical while checking the exact current authority.
+const CURRENT_DETERMINISTIC_PROVIDERS: usize = 98;
+
 #[derive(Clone, Copy, Debug, Serialize)]
 struct OpeningInventory {
     tier_c_top_level_declarations: usize,
@@ -2353,10 +2358,10 @@ fn validate_catalog() -> Result<(), String> {
             MANIFEST.len()
         ));
     }
-    if PROVIDERS.len() != OPENING_BASELINE.deterministic_providers {
+    if PROVIDERS.len() != CURRENT_DETERMINISTIC_PROVIDERS {
         return Err(format!(
-            "post-0.214 provider drift: expected {}, observed {}",
-            OPENING_BASELINE.deterministic_providers,
+            "current provider drift: expected {}, observed {}",
+            CURRENT_DETERMINISTIC_PROVIDERS,
             PROVIDERS.len()
         ));
     }
