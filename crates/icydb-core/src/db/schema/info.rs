@@ -519,13 +519,6 @@ impl SchemaInfo {
 
     /// Borrow accepted value-catalog authority.
     #[must_use]
-    #[cfg_attr(
-        target_arch = "wasm32",
-        expect(
-            dead_code,
-            reason = "schema DDL binding is host-owned even when SQL query support is built for wasm"
-        )
-    )]
     pub(in crate::db) const fn value_catalog_handle(&self) -> &AcceptedValueCatalogHandle {
         &self.value_catalog
     }

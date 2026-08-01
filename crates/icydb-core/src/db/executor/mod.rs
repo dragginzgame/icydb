@@ -131,7 +131,7 @@ pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
 pub(in crate::db::executor) use pipeline::contracts::{
     AccessScanContinuationInput, AccessStreamBindings,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister_with_phase_attribution;

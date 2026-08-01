@@ -154,7 +154,7 @@ pub use registry::{
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
 #[cfg(any(test, feature = "query"))]
-pub use response::{GroupedRow, RowProjectionOutput};
+pub use response::{GroupedQueryOutput, GroupedRow, RowProjectionOutput};
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
 pub use schema::{

@@ -8,7 +8,6 @@ mod cache;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 mod diagnostics;
 mod dynamic;
-#[cfg(feature = "sql")]
 mod grouped;
 mod projection;
 

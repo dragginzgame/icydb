@@ -19,7 +19,7 @@ use crate::{
         query::intent::StructuralQuery,
         schema::AcceptedSchemaSnapshot,
         session::{
-            finalize_structural_grouped_projection_result,
+            finalize_structural_grouped_projection_result, grouped_cursor_from_bytes,
             query::{StructuralProjectionContract, StructuralProjectionPayload},
             sql::projection::{
                 execute_sql_projection_rows_for_canister,
@@ -27,7 +27,6 @@ use crate::{
                 sql_statement_result_from_structural_projection_payload,
             },
             sql::{SqlCacheAttribution, SqlCompiledCommandExecutionContext, SqlStatementResult},
-            sql_grouped_cursor_from_bytes,
         },
     },
     traits::CanisterKind,
@@ -52,7 +51,7 @@ impl<C: CanisterKind> DbSession<C> {
         let row_count = result.row_count();
         let (rows, continuation_cursor, _) =
             finalize_structural_grouped_projection_result(result, None)?;
-        let next_cursor = sql_grouped_cursor_from_bytes(continuation_cursor);
+        let next_cursor = grouped_cursor_from_bytes(continuation_cursor);
 
         Ok(SqlStatementResult::Grouped {
             columns,

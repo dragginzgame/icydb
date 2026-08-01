@@ -88,6 +88,28 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
+    /// Execute one ordinary entity-name-driven bounded grouped read.
+    #[cfg(feature = "query")]
+    pub fn execute_public_dynamic_grouped_query(
+        &self,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<crate::db::GroupedQueryOutput, crate::Error> {
+        self.inner
+            .execute_public_dynamic_grouped_query(request)
+            .map_err(Into::into)
+    }
+
+    /// Execute one trusted entity-name-driven grouped read.
+    #[cfg(feature = "query")]
+    pub fn execute_trusted_dynamic_grouped_query(
+        &self,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<crate::db::GroupedQueryOutput, crate::Error> {
+        self.inner
+            .execute_trusted_dynamic_grouped_query(request)
+            .map_err(Into::into)
+    }
+
     #[cfg(feature = "query")]
     pub(crate) fn execute_public_typed_dynamic_query(
         &self,
@@ -96,6 +118,17 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Option<crate::db::RowProjectionOutput>, crate::Error> {
         self.inner
             .execute_public_dynamic_query_for_typed_binding(binding.inner(), request)
+            .map_err(Into::into)
+    }
+
+    #[cfg(feature = "query")]
+    pub(crate) fn execute_public_typed_dynamic_grouped_query(
+        &self,
+        binding: &TypedEntityBinding,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<Option<crate::db::GroupedQueryOutput>, crate::Error> {
+        self.inner
+            .execute_public_dynamic_grouped_query_for_typed_binding(binding.inner(), request)
             .map_err(Into::into)
     }
 }

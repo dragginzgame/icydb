@@ -5,8 +5,8 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, DynamicTypedEntityBinding, MissingRowPolicy, QueryError,
-        RowProjectionOutput,
+        DbSession, DynamicQuery, DynamicTypedEntityBinding, GroupedQueryOutput, MissingRowPolicy,
+        QueryError, RowProjectionOutput,
         query::{admission::QueryAdmissionPolicy, intent::StructuralQuery},
         session::AcceptedSchemaCatalogContext,
     },
@@ -21,12 +21,10 @@ enum DynamicReadLane {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn execute_dynamic_query_against_catalog(
-        &self,
+    fn structural_query_from_dynamic_request(
         request: &DynamicQuery,
-        lane: DynamicReadLane,
-        catalog: AcceptedSchemaCatalogContext,
-    ) -> Result<RowProjectionOutput, QueryError> {
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<StructuralQuery, QueryError> {
         let schema = catalog.accepted_schema_info();
         let mut query = StructuralQuery::new(MissingRowPolicy::Ignore);
         if let Some(filter) = request.filter_expr() {
@@ -41,6 +39,39 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(limit) = request.row_limit() {
             query = query.limit(limit);
         }
+        for field in request.group_fields() {
+            query = query.group_by_with_schema(field, &schema)?;
+        }
+        for aggregate in request.aggregates() {
+            query = query.aggregate(aggregate.clone());
+        }
+        if let Some((max_groups, max_group_bytes)) = request.grouped_execution_limits() {
+            if max_groups == 0 || max_group_bytes == 0 {
+                return Err(QueryError::execute(
+                    InternalError::query_invalid_logical_plan(),
+                ));
+            }
+            query = query.grouped_limits(u64::from(max_groups), u64::from(max_group_bytes));
+        }
+
+        Ok(query)
+    }
+
+    fn execute_dynamic_query_against_catalog(
+        &self,
+        request: &DynamicQuery,
+        lane: DynamicReadLane,
+        catalog: AcceptedSchemaCatalogContext,
+    ) -> Result<RowProjectionOutput, QueryError> {
+        if request.has_grouping()
+            || request.grouped_execution_limits().is_some()
+            || request.continuation_cursor().is_some()
+        {
+            return Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            ));
+        }
+        let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
 
         let authority = catalog
             .accepted_entity_authority()
@@ -63,6 +94,41 @@ impl<C: CanisterKind> DbSession<C> {
             rows,
             row_count,
         })
+    }
+
+    fn execute_dynamic_grouped_query_against_catalog(
+        &self,
+        request: &DynamicQuery,
+        lane: DynamicReadLane,
+        catalog: AcceptedSchemaCatalogContext,
+    ) -> Result<GroupedQueryOutput, QueryError> {
+        if !request.has_grouping() {
+            return Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            ));
+        }
+        if request.grouped_execution_limits().is_none() {
+            return Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            ));
+        }
+        if !request.selected_fields().is_empty() {
+            return Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            ));
+        }
+        let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
+        let public_admission = match lane {
+            DynamicReadLane::Public => Some(QueryAdmissionPolicy::default_bounded_read()),
+            DynamicReadLane::Trusted => None,
+        };
+
+        self.execute_structural_grouped_from_query(
+            &query,
+            &catalog,
+            public_admission.as_ref(),
+            request.continuation_cursor(),
+        )
     }
 
     fn execute_dynamic_query(
@@ -93,6 +159,26 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_dynamic_query(request, DynamicReadLane::Public)
     }
 
+    /// Execute one ordinary entity-name-driven bounded grouped read.
+    pub fn execute_public_dynamic_grouped_query(
+        &self,
+        request: &DynamicQuery,
+    ) -> Result<GroupedQueryOutput, QueryError> {
+        if request.entity().is_empty() {
+            return Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            ));
+        }
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
+            .map_err(QueryError::execute)?;
+        self.execute_dynamic_grouped_query_against_catalog(
+            request,
+            DynamicReadLane::Public,
+            catalog,
+        )
+    }
+
     /// Execute one typed read through the binding's immutable accepted entity
     /// identity. `None` means the opaque binding is stale.
     #[doc(hidden)]
@@ -111,6 +197,28 @@ impl<C: CanisterKind> DbSession<C> {
             .map(Some)
     }
 
+    /// Execute one grouped typed read through the binding's immutable accepted
+    /// entity identity. `None` means the opaque binding is stale.
+    #[doc(hidden)]
+    pub fn execute_public_dynamic_grouped_query_for_typed_binding(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        request: &DynamicQuery,
+    ) -> Result<Option<GroupedQueryOutput>, QueryError> {
+        let Some(catalog) = self
+            .current_typed_entity_binding_catalog(binding)
+            .map_err(QueryError::execute)?
+        else {
+            return Ok(None);
+        };
+        self.execute_dynamic_grouped_query_against_catalog(
+            request,
+            DynamicReadLane::Public,
+            catalog,
+        )
+        .map(Some)
+    }
+
     /// Execute one trusted entity-name-driven dynamic read.
     ///
     /// This uses accepted schema, planner, executor, and projection authority
@@ -121,5 +229,28 @@ impl<C: CanisterKind> DbSession<C> {
         request: &DynamicQuery,
     ) -> Result<RowProjectionOutput, QueryError> {
         self.execute_dynamic_query(request, DynamicReadLane::Trusted)
+    }
+
+    /// Execute one trusted entity-name-driven grouped read.
+    ///
+    /// This bypasses ordinary public admission but retains accepted-schema
+    /// planning, explicit grouped limits, cursor validation, and execution.
+    pub fn execute_trusted_dynamic_grouped_query(
+        &self,
+        request: &DynamicQuery,
+    ) -> Result<GroupedQueryOutput, QueryError> {
+        if request.entity().is_empty() {
+            return Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            ));
+        }
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
+            .map_err(QueryError::execute)?;
+        self.execute_dynamic_grouped_query_against_catalog(
+            request,
+            DynamicReadLane::Trusted,
+            catalog,
+        )
     }
 }

@@ -8,7 +8,7 @@ mod grouped;
 #[cfg(feature = "query")]
 mod scalar;
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use grouped::execute_shared_grouped_plan_for_canister;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use grouped::execute_shared_grouped_plan_for_canister_with_phase_attribution;

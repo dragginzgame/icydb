@@ -278,6 +278,11 @@ paths after controller authorization. See the
 surface and [READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
 for the full admission contract.
 
+The same `query` feature also supports SQL-independent grouped typed and
+dynamic reads. Grouped calls declare ordered keys and aggregates, require
+explicit engine and page limits, and return an opaque continuation cursor;
+the public facade guide contains the maintained example.
+
 Use the structural insert-batch helper when a same-entity batch must be
 all-or-nothing:
 

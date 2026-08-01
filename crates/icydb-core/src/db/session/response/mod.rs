@@ -6,5 +6,4 @@
 mod grouped;
 
 pub(in crate::db) use grouped::finalize_structural_grouped_projection_result;
-#[cfg(feature = "sql")]
-pub(in crate::db) use grouped::sql_grouped_cursor_from_bytes;
+pub(in crate::db) use grouped::grouped_cursor_from_bytes;

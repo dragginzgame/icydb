@@ -16,8 +16,7 @@ The default policy has these frozen ceilings:
 - maximum returned rows: 100;
 - primary-key predicate input: 1024 terms and 64 KiB;
 - grouped engine budget: 100 groups, 64 KiB per group, and 1024 distinct
-  entries, although the current typed/dynamic facade does not expose grouped
-  construction.
+  entries.
 
 `PublicRead` also rejects unbounded full scans and materialized ordering. A
 caller-supplied `LIMIT` does not prove safe access by itself: the selected
@@ -35,19 +34,25 @@ owns authorization and the resource policy.
 | --- | --- | --- |
 | `DbSession::query::<E>()?.execute_rows()` | `PublicRead` | Generated binding and decode around the ordinary accepted structural lane. |
 | `execute_public_dynamic_query` | `PublicRead` | Entity/field names resolve against accepted schema; built-in bounded admission applies. |
+| `DbSession::query::<E>()?.execute_grouped()` | `PublicRead` | Generated binding selects accepted entity identity; the engine-neutral grouped result remains structural. |
+| `execute_public_dynamic_grouped_query` | `PublicRead` | Grouped dynamic execution requires explicit limits and exposes an opaque continuation cursor. |
 | `execute_trusted_dynamic_query` | trusted bypass | Explicit maintenance/admin dynamic read. |
+| `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
 | generated `icydb_query` | trusted bypass | Controller-gated admin SQL using `execute_trusted_sql_query_with_perf_attribution`. |
 | SQL `EXPLAIN` | `DiagnosticExplain` | Observational planning only on its diagnostic route. |
 
 Public callers cannot provide scalar continuation state, offsets, or admission
-policy controls.
+policy controls. Grouped callers may provide only the opaque cursor issued by
+the preceding page of the same accepted plan.
 
 ## Which API should I use?
 
 - Known generated row type: `query::<E>()`; runtime adapters are automatic.
 - Runtime entity/field names: `DynamicQuery` plus
   `execute_public_dynamic_query`.
+- Grouped typed/dynamic rows: ordered `.group_by(...)` and `.aggregate(...)`
+  declarations, explicit `.grouped_limits(...)`, and the grouped terminal.
 - Controller/admin maintenance: `execute_trusted_dynamic_query`.
 - Authorized SQL tooling: `execute_trusted_sql_query`.
 - Planner inspection: trusted SQL `EXPLAIN`.
@@ -55,6 +60,12 @@ policy controls.
 Ordinary typed and dynamic calls require a positive limit at or below 100 and
 a safe selected route. The current scalar typed surface intentionally has no
 continuation contract. Do not emulate continuation with hidden offsets.
+
+Grouped calls additionally require positive `max_groups` and
+`max_group_bytes` values. Public calls must remain within the frozen ceilings;
+trusted calls bypass public admission but not their declared hard limits.
+Group keys and aggregates define grouped output, so `.select(...)` is rejected
+for grouped execution.
 
 ## Generated SQL Query Surface
 

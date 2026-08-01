@@ -13,7 +13,7 @@ use crate::db::query::{
         state::{GroupedIntent, NormalizedFilter, QueryIntent},
     },
     plan::{
-        FieldSlot, GroupAggregateSpec, OrderSpec, OrderTerm,
+        FieldSlot, GroupAggregateSpec, GroupedExecutionConfig, OrderSpec, OrderTerm,
         expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr, normalize_bool_expr},
     },
 };
@@ -113,6 +113,20 @@ impl QueryIntent {
         };
 
         grouped.group.aggregates.push(aggregate);
+    }
+
+    /// Set explicit hard limits for grouped execution.
+    pub(in crate::db::query::intent) fn set_grouped_execution_limits(
+        &mut self,
+        max_groups: u64,
+        max_group_bytes: u64,
+    ) {
+        let Some(grouped) = self.grouped_mutation_target() else {
+            return;
+        };
+
+        grouped.group.execution =
+            GroupedExecutionConfig::with_hard_limits(max_groups, max_group_bytes);
     }
 
     /// Record one grouped HAVING expression while preserving the caller-owned

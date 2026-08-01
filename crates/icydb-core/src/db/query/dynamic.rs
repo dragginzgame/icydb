@@ -3,7 +3,10 @@
 //! Does not own: accepted schema resolution, planning, or execution.
 //! Boundary: public dynamic inputs are lowered once against accepted authority.
 
-use crate::db::query::expr::{FilterExpr, OrderTerm};
+use crate::db::query::{
+    builder::AggregateExpr,
+    expr::{FilterExpr, OrderTerm},
+};
 
 ///
 /// DynamicQuery
@@ -20,6 +23,10 @@ pub struct DynamicQuery {
     order: Vec<OrderTerm>,
     fields: Vec<String>,
     limit: Option<u32>,
+    group_fields: Vec<String>,
+    aggregates: Vec<AggregateExpr>,
+    grouped_limits: Option<(u32, u32)>,
+    cursor: Option<String>,
 }
 
 impl DynamicQuery {
@@ -32,6 +39,10 @@ impl DynamicQuery {
             order: Vec::new(),
             fields: Vec::new(),
             limit: None,
+            group_fields: Vec::new(),
+            aggregates: Vec::new(),
+            grouped_limits: None,
+            cursor: None,
         }
     }
 
@@ -49,7 +60,10 @@ impl DynamicQuery {
         self
     }
 
-    /// Select explicit fields in output order.
+    /// Select explicit fields in scalar output order.
+    ///
+    /// Grouped execution rejects an explicit scalar selection because group
+    /// keys and aggregates define its output contract.
     #[must_use]
     pub fn select<I, S>(mut self, fields: I) -> Self
     where
@@ -64,6 +78,37 @@ impl DynamicQuery {
     #[must_use]
     pub const fn limit(mut self, limit: u32) -> Self {
         self.limit = Some(limit);
+        self
+    }
+
+    /// Append one accepted field to the grouped key in declaration order.
+    #[must_use]
+    pub fn group_by(mut self, field: impl Into<String>) -> Self {
+        self.group_fields.push(field.into());
+        self
+    }
+
+    /// Append one grouped aggregate in declaration order.
+    #[must_use]
+    pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
+        self.aggregates.push(aggregate);
+        self
+    }
+
+    /// Set explicit hard limits for grouped execution.
+    ///
+    /// Ordinary public reads additionally enforce their built-in admission
+    /// ceilings. Zero values are rejected before execution.
+    #[must_use]
+    pub const fn grouped_limits(mut self, max_groups: u32, max_group_bytes: u32) -> Self {
+        self.grouped_limits = Some((max_groups, max_group_bytes));
+        self
+    }
+
+    /// Continue a grouped page from one opaque cursor returned by IcyDB.
+    #[must_use]
+    pub fn cursor(mut self, cursor: impl Into<String>) -> Self {
+        self.cursor = Some(cursor.into());
         self
     }
 
@@ -85,5 +130,25 @@ impl DynamicQuery {
 
     pub(in crate::db) const fn row_limit(&self) -> Option<u32> {
         self.limit
+    }
+
+    pub(in crate::db) const fn has_grouping(&self) -> bool {
+        !self.group_fields.is_empty() || !self.aggregates.is_empty()
+    }
+
+    pub(in crate::db) const fn group_fields(&self) -> &[String] {
+        self.group_fields.as_slice()
+    }
+
+    pub(in crate::db) const fn aggregates(&self) -> &[AggregateExpr] {
+        self.aggregates.as_slice()
+    }
+
+    pub(in crate::db) const fn grouped_execution_limits(&self) -> Option<(u32, u32)> {
+        self.grouped_limits
+    }
+
+    pub(in crate::db) fn continuation_cursor(&self) -> Option<&str> {
+        self.cursor.as_deref()
     }
 }

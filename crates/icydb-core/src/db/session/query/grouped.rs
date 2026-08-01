@@ -3,20 +3,27 @@
 //! Does not own: grouped planning, runtime aggregation, or response shaping.
 //! Boundary: validates a shared prepared plan and delegates grouped execution.
 
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 use crate::db::executor::{
     GroupedExecutePhaseAttribution, execute_shared_grouped_plan_for_canister_with_phase_attribution,
 };
 use crate::{
     db::{
-        DbSession, QueryError,
+        DbSession, GroupedQueryOutput, QueryError,
         cursor::decode_optional_grouped_cursor_token,
         diagnostics::ExecutionTrace,
         executor::{
             ExecutionFamily, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
             execute_shared_grouped_plan_for_canister,
         },
-        session::query::query_error_from_executor_plan_error,
+        query::{
+            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
+            intent::StructuralQuery,
+        },
+        session::{
+            AcceptedSchemaCatalogContext, finalize_structural_grouped_projection_result,
+            grouped_cursor_from_bytes, query::query_error_from_executor_plan_error,
+        },
     },
     traits::CanisterKind,
 };
@@ -29,6 +36,44 @@ fn ensure_grouped_execution_family(family: ExecutionFamily) -> Result<(), QueryE
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Plan, admit, and execute one engine-neutral grouped query.
+    pub(in crate::db::session) fn execute_structural_grouped_from_query(
+        &self,
+        query: &StructuralQuery,
+        catalog: &AcceptedSchemaCatalogContext,
+        admission: Option<&QueryAdmissionPolicy>,
+        cursor_token: Option<&str>,
+    ) -> Result<GroupedQueryOutput, QueryError> {
+        let authority = catalog
+            .accepted_entity_authority()
+            .map_err(QueryError::execute)?;
+        let (prepared_plan, _) = self
+            .cached_shared_query_plan_for_accepted_authority_with_catalog(
+                authority, catalog, query,
+            )?;
+        if let Some(policy) = admission {
+            let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
+                policy.lane(),
+                prepared_plan.logical_plan(),
+            ));
+            if let Some(rejection) = summary.rejection() {
+                return Err(QueryError::from(rejection.code()));
+            }
+        }
+
+        let (result, trace) =
+            self.execute_structural_grouped_with_trace(prepared_plan, cursor_token)?;
+        let row_count = result.row_count();
+        let (rows, next_cursor, _) = finalize_structural_grouped_projection_result(result, trace)?;
+
+        Ok(GroupedQueryOutput {
+            entity: catalog.snapshot().entity_name().to_string(),
+            rows,
+            row_count,
+            next_cursor: grouped_cursor_from_bytes(next_cursor),
+        })
+    }
+
     /// Execute one accepted-schema-owned grouped plan without a generated type.
     pub(in crate::db::session) fn execute_structural_grouped_with_trace(
         &self,
@@ -56,7 +101,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one accepted-schema-owned grouped plan with phase attribution.
-    #[cfg(feature = "diagnostics")]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db::session) fn execute_structural_grouped_with_phase_attribution(
         &self,
         plan: SharedPreparedExecutionPlan,

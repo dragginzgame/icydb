@@ -14,12 +14,16 @@ Generated Rust adapters never choose admission or execution semantics.
 | --- | --- |
 | Bounded typed rows | `db.query::<E>()?.limit(n).execute_rows()` |
 | Bounded dynamic rows | `execute_public_dynamic_query(&request)` |
+| Bounded typed grouped page | `db.query::<E>()?...execute_grouped()` |
+| Bounded dynamic grouped page | `execute_public_dynamic_grouped_query(&request)` |
 | Trusted dynamic maintenance read | `execute_trusted_dynamic_query(&request)` |
+| Trusted dynamic grouped maintenance read | `execute_trusted_dynamic_grouped_query(&request)` |
 | Trusted SQL read | `execute_trusted_sql_query(sql)` |
 | Query diagnostics | SQL `EXPLAIN` through a trusted/admin surface |
 
-Public typed and dynamic reads return one bounded result. Callers do not
-provide continuation state or internal admission controls.
+Public scalar typed and dynamic reads return one bounded result without
+caller-provided continuation state or admission controls. Grouped reads expose
+only an opaque continuation cursor and require explicit engine limits.
 
 ## When Admission Rejects A Read
 
@@ -86,6 +90,27 @@ The current scalar typed surface intentionally has no cursor or offset.
 Endpoints that require scalable continuation need a separately designed
 continuation contract; do not emulate one with hidden offsets.
 
+## Bounded Grouped Pages
+
+Grouped typed and dynamic reads use the same query-only engine lane as scalar
+reads. Declare group keys and aggregates in output order, provide hard grouped
+limits, and bound each returned page:
+
+```rust
+let page = db()?
+    .query::<User>()?
+    .group_by("country")
+    .aggregate(count())
+    .grouped_limits(100, 64 * 1024)
+    .limit(25)
+    .execute_grouped()?;
+```
+
+Continue by rebuilding the same request and passing `page.next_cursor` through
+`.cursor(...)`. The token is opaque and remains bound to the accepted plan and
+schema authority. Grouped queries reject `.select(...)`; their output is
+defined by the ordered group keys and aggregate declarations.
+
 ## Trusted Reads
 
 Trusted reads are visible method choices, not ambient flags:
@@ -114,6 +139,7 @@ typed/dynamic lane.
 - Use the public lane for caller-facing reads.
 - Include a positive limit at or below 100.
 - Ensure filtering and ordering can select an accepted bounded/index route.
+- For grouped reads, include positive group limits within the public ceilings.
 - Treat admission rejection as a typed failure, never as an empty result.
 - Bound the final encoded response.
 - Use trusted methods only for explicit admin work.

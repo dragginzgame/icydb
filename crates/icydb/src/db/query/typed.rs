@@ -7,12 +7,12 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, TypedBindingError, TypedEntityAdapter, TypedEntityBinding,
-        TypedRowError,
+        DbSession, DynamicQuery, GroupedQueryOutput, TypedBindingError, TypedEntityAdapter,
+        TypedEntityBinding, TypedRowError,
     },
     traits::CanisterKind,
 };
-use icydb_core::db::{FilterExpr, OrderTerm};
+use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm};
 use std::{error::Error as StdError, fmt, marker::PhantomData};
 
 /// Failure while constructing or executing one accepted-schema-bound typed query.
@@ -86,7 +86,10 @@ where
         self
     }
 
-    /// Select explicit accepted fields in output order.
+    /// Select explicit accepted fields in scalar output order.
+    ///
+    /// Grouped execution rejects an explicit scalar selection because group
+    /// keys and aggregates define its output contract.
     #[must_use]
     pub fn select<I, S>(mut self, fields: I) -> Self
     where
@@ -101,6 +104,34 @@ where
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.request = self.request.limit(limit);
+        self
+    }
+
+    /// Append one accepted field to the grouped key in declaration order.
+    #[must_use]
+    pub fn group_by(mut self, field: impl Into<String>) -> Self {
+        self.request = self.request.group_by(field);
+        self
+    }
+
+    /// Append one grouped aggregate in declaration order.
+    #[must_use]
+    pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
+        self.request = self.request.aggregate(aggregate);
+        self
+    }
+
+    /// Set explicit hard limits for grouped execution.
+    #[must_use]
+    pub fn grouped_limits(mut self, max_groups: u32, max_group_bytes: u32) -> Self {
+        self.request = self.request.grouped_limits(max_groups, max_group_bytes);
+        self
+    }
+
+    /// Continue from one opaque grouped cursor returned by IcyDB.
+    #[must_use]
+    pub fn cursor(mut self, cursor: impl Into<String>) -> Self {
+        self.request = self.request.cursor(cursor);
         self
     }
 
@@ -127,6 +158,23 @@ where
             );
         }
         Ok(rows)
+    }
+
+    /// Execute through ordinary bounded grouped-read admission.
+    ///
+    /// Group keys and aggregate outputs preserve their declaration order. The
+    /// accepted schema, shared query planner, and grouped executor remain the
+    /// sole runtime authorities; `E` supplies only the source-bound entity
+    /// binding used to reject stale adapters.
+    pub fn execute_grouped(self) -> Result<GroupedQueryOutput, TypedQueryError> {
+        self.session
+            .execute_public_typed_dynamic_grouped_query(&self.binding, &self.request)
+            .map_err(TypedQueryError::Database)?
+            .ok_or({
+                TypedQueryError::Row(TypedRowError::Adapter(
+                    crate::db::TypedAdapterError::StaleBinding,
+                ))
+            })
     }
 }
 

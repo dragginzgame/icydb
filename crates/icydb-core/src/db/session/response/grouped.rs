@@ -3,7 +3,6 @@
 //! Does not own: grouped execution, aggregate evaluation, or public response DTO shape.
 //! Boundary: converts executor grouped results into traced public grouped page envelopes.
 
-#[cfg(feature = "sql")]
 use crate::db::cursor::encode_cursor;
 use crate::db::{
     GroupedRow, QueryError,
@@ -79,10 +78,9 @@ pub(in crate::db) fn finalize_structural_grouped_projection_result(
     Ok((rows, next_cursor, trace))
 }
 
-// Convert core grouped cursor bytes into the SQL statement surface's external
-// cursor string. The byte payload already came from the cursor-owned grouped
-// encoder above, so this is only lowercase-hex display formatting.
-#[cfg(feature = "sql")]
-pub(in crate::db) fn sql_grouped_cursor_from_bytes(cursor: Option<Vec<u8>>) -> Option<String> {
+// Convert core grouped cursor bytes into the query surface's external cursor
+// string. The byte payload already came from the cursor-owned grouped encoder,
+// so this is only lowercase-hex display formatting.
+pub(in crate::db) fn grouped_cursor_from_bytes(cursor: Option<Vec<u8>>) -> Option<String> {
     cursor.as_deref().map(encode_cursor)
 }

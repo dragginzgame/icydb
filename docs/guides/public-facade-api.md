@@ -36,6 +36,27 @@ before crossing the existing `InputValue` / `OutputValue` boundary.
 `execute_trusted_dynamic_query` only after application-owned admin
 authorization.
 
+Grouped reads use the same `query` feature, accepted-schema planner, plan
+cache, executor, and public-value conversion as SQL. They do not require the
+SQL parser or SQL response types:
+
+```rust
+let page = db()?
+    .query::<User>()?
+    .group_by("country")
+    .aggregate(count())
+    .grouped_limits(100, 64 * 1024)
+    .limit(25)
+    .execute_grouped()?;
+```
+
+`grouped_limits` is mandatory and bounds total groups and bytes per group. A
+positive `limit` bounds the current page; pass a returned `next_cursor` back
+through `.cursor(...)` for the next page. Group keys and aggregates define the
+output in declaration order, so grouped queries do not also use `.select(...)`.
+Dynamic callers use `execute_public_dynamic_grouped_query` or the explicitly
+trusted `execute_trusted_dynamic_grouped_query` terminal.
+
 Ordinary public reads:
 
 - require a positive `LIMIT` no greater than 100;

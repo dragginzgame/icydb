@@ -315,6 +315,16 @@ impl QueryModel {
     }
 
     // Override grouped hard limits for this grouped query.
+    #[must_use]
+    pub(in crate::db::query::intent) fn grouped_limits(
+        mut self,
+        max_groups: u64,
+        max_group_bytes: u64,
+    ) -> Self {
+        self.intent
+            .set_grouped_execution_limits(max_groups, max_group_bytes);
+        self
+    }
 
     // Append one grouped HAVING compare over one grouped key field using an
     // explicit schema view for slot authority.

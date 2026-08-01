@@ -208,6 +208,13 @@ impl StructuralQuery {
         self
     }
 
+    /// Set explicit hard limits for grouped execution.
+    #[must_use]
+    pub(in crate::db) fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
+        self.intent = self.intent.grouped_limits(max_groups, max_group_bytes);
+        self
+    }
+
     #[cfg(feature = "query")]
     pub(in crate::db) fn having_expr_preserving_shape(
         self,

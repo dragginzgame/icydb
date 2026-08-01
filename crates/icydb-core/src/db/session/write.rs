@@ -1691,6 +1691,28 @@ mod typed_adapter_tests {
         );
         assert_eq!(result.affected_rows, 1);
 
+        let second_patch = replacement
+            .bind_write_fields(vec![
+                (
+                    ID_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(2)),
+                ),
+                (
+                    REPLACEMENT_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(10)),
+                ),
+            ])
+            .expect("second source-bound patch should lower");
+        session
+            .execute_trusted_typed_mutation(
+                &replacement,
+                &DynamicTypedMutation::Insert {
+                    patch: second_patch,
+                },
+            )
+            .expect("second typed insert should use the accepted mutation pipeline")
+            .expect("replacement binding should remain current");
+
         #[cfg(feature = "query")]
         {
             let query = crate::db::DynamicQuery::new("RenamedEntity")
@@ -1710,6 +1732,86 @@ mod typed_adapter_tests {
                 ]]
             );
             assert_eq!(result.row_count, 1);
+            assert!(
+                session
+                    .execute_trusted_dynamic_query(&query.cursor("00"))
+                    .is_err(),
+                "scalar execution must not silently ignore grouped cursor state"
+            );
+
+            let grouped_query = crate::db::DynamicQuery::new("RenamedEntity")
+                .filter(crate::db::FieldRef::new("id").eq(1_u64))
+                .group_by("value")
+                .aggregate(crate::db::count())
+                .grouped_limits(1, 1024)
+                .limit(1);
+            let grouped = session
+                .execute_public_dynamic_grouped_query(&grouped_query)
+                .expect("query-only grouped execution should use accepted authority");
+            let typed_grouped = session
+                .execute_public_dynamic_grouped_query_for_typed_binding(
+                    &replacement,
+                    &grouped_query,
+                )
+                .expect("typed grouped execution should inspect accepted authority")
+                .expect("replacement binding should remain current");
+            assert_eq!(typed_grouped, grouped);
+            assert!(
+                session
+                    .execute_public_dynamic_grouped_query_for_typed_binding(
+                        &renamed,
+                        &grouped_query,
+                    )
+                    .expect("stale grouped binding should inspect accepted authority")
+                    .is_none(),
+                "stale typed grouped bindings must fail closed before execution"
+            );
+            assert_eq!(grouped.entity, "RenamedEntity");
+            assert_eq!(grouped.row_count, 1);
+            assert_eq!(grouped.rows.len(), 1);
+            assert_eq!(
+                grouped.rows[0].group_key(),
+                &[crate::value::OutputValue::Nat64(9)]
+            );
+            assert_eq!(
+                grouped.rows[0].aggregate_values(),
+                &[crate::value::OutputValue::Nat64(1)]
+            );
+            assert_eq!(grouped.next_cursor, None);
+
+            let selected_grouped_query = grouped_query.select(["value"]);
+            assert!(
+                session
+                    .execute_public_dynamic_grouped_query(&selected_grouped_query)
+                    .is_err(),
+                "grouped output must be declared only by group keys and aggregates"
+            );
+
+            let paged_query = crate::db::DynamicQuery::new("RenamedEntity")
+                .group_by("value")
+                .aggregate(crate::db::count())
+                .grouped_limits(2, 1024)
+                .limit(1);
+            let first_page = session
+                .execute_trusted_dynamic_grouped_query(&paged_query)
+                .expect("query-only grouped first page should execute");
+            assert_eq!(first_page.row_count, 1);
+            assert_eq!(
+                first_page.rows[0].group_key(),
+                &[crate::value::OutputValue::Nat64(9)]
+            );
+            let cursor = first_page
+                .next_cursor
+                .expect("first grouped page should return a continuation cursor");
+            let second_page = session
+                .execute_trusted_dynamic_grouped_query(&paged_query.cursor(cursor))
+                .expect("query-only grouped continuation should execute");
+            assert_eq!(second_page.row_count, 1);
+            assert_eq!(
+                second_page.rows[0].group_key(),
+                &[crate::value::OutputValue::Nat64(10)]
+            );
+            assert_eq!(second_page.next_cursor, None);
         }
     }
 }

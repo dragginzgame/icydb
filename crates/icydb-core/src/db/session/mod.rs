@@ -10,7 +10,7 @@ mod catalog;
 mod integrity;
 #[cfg(feature = "query")]
 mod query;
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 mod response;
 #[cfg(feature = "sql")]
 mod sql;
@@ -34,10 +34,10 @@ pub use query::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
 };
-#[cfg(feature = "sql")]
+#[cfg(feature = "query")]
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
-#[cfg(feature = "sql")]
-pub(in crate::db) use response::sql_grouped_cursor_from_bytes;
+#[cfg(feature = "query")]
+pub(in crate::db) use response::grouped_cursor_from_bytes;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
