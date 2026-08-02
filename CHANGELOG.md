@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.217.md](docs/changelog/0.217.md)
 
+- `0.217.2` hard-cuts the unreachable `TypedQueryError::Binding` variant,
+  contracts grouped-query scaffolding, and keeps release tests exhaustive
+  without recursive canister builds in routine Cargo runs; query behavior and
+  formats are unchanged.
+
 - `0.217.1` adds bounded SQL-independent grouped dynamic and typed reads over
   the shared accepted-schema engine, keeps query-only builds lean, and reports
   malformed grouped requests through typed query diagnostics instead of

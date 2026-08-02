@@ -15,11 +15,9 @@ use crate::{
 use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm};
 use std::{error::Error as StdError, fmt, marker::PhantomData};
 
-/// Failure while constructing or executing one accepted-schema-bound typed query.
+/// Failure while executing one accepted-schema-bound typed query.
 #[derive(Debug)]
 pub enum TypedQueryError {
-    /// The generated adapter could not bind to current accepted authority.
-    Binding(TypedBindingError),
     /// The accepted dynamic read rejected or failed.
     Database(crate::Error),
     /// A returned accepted row could not be projected through the binding.
@@ -29,7 +27,6 @@ pub enum TypedQueryError {
 impl fmt::Display for TypedQueryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Binding(error) => error.fmt(formatter),
             Self::Database(error) => error.fmt(formatter),
             Self::Row(error) => error.fmt(formatter),
         }

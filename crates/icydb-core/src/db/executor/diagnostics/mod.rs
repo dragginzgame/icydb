@@ -1,10 +1,8 @@
 //! Module: db::executor::diagnostics
-//! Responsibility: executor-scoped diagnostics contracts for node/counter correlation.
+//! Responsibility: executor-scoped execution-trace projection.
 //! Does not own: explain rendering, metrics sink persistence, or route behavior.
-//! Boundary: additive observability types consumed by executor-local diagnostics paths.
+//! Boundary: projects executor access and direction into diagnostics-owned trace types.
 
-#[cfg(test)]
-mod counters;
 #[cfg(all(test, feature = "sql-explain"))]
 mod node;
 

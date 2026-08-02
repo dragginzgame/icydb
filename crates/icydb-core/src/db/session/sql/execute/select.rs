@@ -49,8 +49,7 @@ impl<C: CanisterKind> DbSession<C> {
         result: StructuralGroupedProjectionResult,
     ) -> Result<SqlStatementResult, QueryError> {
         let row_count = result.row_count();
-        let (rows, continuation_cursor, _) =
-            finalize_structural_grouped_projection_result(result, None)?;
+        let (rows, continuation_cursor) = finalize_structural_grouped_projection_result(result)?;
         let next_cursor = grouped_cursor_from_bytes(continuation_cursor);
 
         Ok(SqlStatementResult::Grouped {

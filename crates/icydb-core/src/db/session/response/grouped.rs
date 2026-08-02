@@ -1,19 +1,18 @@
 //! Module: session::response::grouped
 //! Responsibility: grouped paged response finalization.
 //! Does not own: grouped execution, aggregate evaluation, or public response DTO shape.
-//! Boundary: converts executor grouped results into traced public grouped page envelopes.
+//! Boundary: converts executor grouped results into public grouped page envelopes.
 
 use crate::db::cursor::encode_cursor;
 use crate::db::{
     GroupedRow, QueryError,
     cursor::GroupedContinuationToken,
-    diagnostics::ExecutionTrace,
     executor::{RuntimeGroupedRow, StructuralGroupedProjectionResult},
     schema::{AcceptedEnumCatalog, output_value_from_runtime},
 };
 
-/// Grouped rows, optional encoded continuation, and optional execution trace.
-type FinalizedGroupedProjection = (Vec<GroupedRow>, Option<Vec<u8>>, Option<ExecutionTrace>);
+/// Grouped rows and an optional encoded continuation.
+type FinalizedGroupedProjection = (Vec<GroupedRow>, Option<Vec<u8>>);
 
 // Encode one grouped executor cursor into the raw cursor bytes stored by core
 // paged grouped response DTOs. The response layer receives opaque bytes only;
@@ -69,13 +68,12 @@ fn grouped_rows_from_runtime_rows(
 // shaping without exposing grouped cursor-page fields to session callers.
 pub(in crate::db) fn finalize_structural_grouped_projection_result(
     result: StructuralGroupedProjectionResult,
-    trace: Option<ExecutionTrace>,
 ) -> Result<FinalizedGroupedProjection, QueryError> {
     let (rows, next_cursor, value_catalog) = result.into_rows_and_cursor();
     let next_cursor = encode_grouped_page_cursor(next_cursor)?;
     let rows = grouped_rows_from_runtime_rows(value_catalog.enum_catalog(), rows)?;
 
-    Ok((rows, next_cursor, trace))
+    Ok((rows, next_cursor))
 }
 
 // Convert core grouped cursor bytes into the query surface's external cursor

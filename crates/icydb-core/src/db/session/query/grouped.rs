@@ -10,7 +10,7 @@ use crate::db::executor::{
 use crate::{
     db::{
         DbSession, GroupedQueryOutput, QueryError,
-        cursor::decode_optional_grouped_cursor_token,
+        cursor::{ValidatedGroupedCursor, decode_optional_grouped_cursor_token},
         diagnostics::ExecutionTrace,
         executor::{
             ExecutionFamily, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
@@ -61,10 +61,10 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
 
-        let (result, trace) =
+        let (result, _trace) =
             self.execute_structural_grouped_with_trace(prepared_plan, cursor_token)?;
         let row_count = result.row_count();
-        let (rows, next_cursor, _) = finalize_structural_grouped_projection_result(result, trace)?;
+        let (rows, next_cursor) = finalize_structural_grouped_projection_result(result)?;
 
         Ok(GroupedQueryOutput {
             entity: catalog.snapshot().entity_name().to_string(),
@@ -74,12 +74,11 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    /// Execute one accepted-schema-owned grouped plan without a generated type.
-    pub(in crate::db::session) fn execute_structural_grouped_with_trace(
+    fn prepare_structural_grouped_execution(
         &self,
         plan: SharedPreparedExecutionPlan,
         cursor_token: Option<&str>,
-    ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, ValidatedGroupedCursor), QueryError> {
         let authority = plan.authority_ref();
         self.ensure_accepted_schema_authority_is_current_for_store_path(
             authority.store_path(),
@@ -93,6 +92,17 @@ impl<C: CanisterKind> DbSession<C> {
         let cursor = plan
             .prepare_grouped_cursor_token(cursor)
             .map_err(query_error_from_executor_plan_error)?;
+
+        Ok((plan, cursor))
+    }
+
+    /// Execute one accepted-schema-owned grouped plan without a generated type.
+    pub(in crate::db::session) fn execute_structural_grouped_with_trace(
+        &self,
+        plan: SharedPreparedExecutionPlan,
+        cursor_token: Option<&str>,
+    ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError> {
+        let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
 
         self.with_metrics(|| {
             execute_shared_grouped_plan_for_canister(&self.db, self.debug, plan, cursor)
@@ -114,19 +124,7 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let authority = plan.authority_ref();
-        self.ensure_accepted_schema_authority_is_current_for_store_path(
-            authority.store_path(),
-            plan.accepted_schema_authority()
-                .map_err(QueryError::execute)?,
-        )
-        .map_err(QueryError::execute)?;
-        ensure_grouped_execution_family(plan.execution_family().map_err(QueryError::execute)?)?;
-        let cursor = decode_optional_grouped_cursor_token(cursor_token)
-            .map_err(QueryError::from_cursor_plan_error)?;
-        let cursor = plan
-            .prepare_grouped_cursor_token(cursor)
-            .map_err(query_error_from_executor_plan_error)?;
+        let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
 
         self.with_metrics(|| {
             execute_shared_grouped_plan_for_canister_with_phase_attribution(

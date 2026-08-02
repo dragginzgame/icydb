@@ -10,6 +10,7 @@ use icydb_testing_integration::{
 };
 
 #[test]
+#[ignore = "builds and inspects 18 canister artifacts; run `make test-canister-artifact-contract`"]
 fn production_and_local_source_declarations_match_the_frozen_endpoint_policy() {
     for policy in MAINTAINED_CANISTER_POLICIES {
         for (build_profile, expected) in [

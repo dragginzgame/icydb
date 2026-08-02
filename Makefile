@@ -1,6 +1,7 @@
 .PHONY: help version tags patch minor major package publish release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-bump test-sql-canister-matrix test-sql-tier-c-shard test-sql-tier-c-merge \
+        test test-bump test-canister-artifact-contract test-sql-canister-matrix \
+        test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-sql-perf-wasm build-canister-local build-canister-production \
         test-sql-perf-p1-shard test-sql-perf-p1-merge \
@@ -99,6 +100,8 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
+	@echo "  test-canister-artifact-contract"
+	@echo "                  Build and inspect all 18 maintained production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
 	@echo "                  Run the live generated SQL canister endpoint matrix"
 	@echo "  test-sql-tier-c-shard TIER_C_SHARD=0"
@@ -246,9 +249,9 @@ release-major: major release-stage release-commit release-push
 # Tests
 #
 
-test: clippy test-unit
+test: clippy test-unit test-canister-artifact-contract
 
-test-bump: clippy test-unit
+test-bump: clippy test-unit test-canister-artifact-contract
 
 test-unit:
 	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
@@ -260,6 +263,12 @@ test-unit:
 test-no-default-smoke:
 	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
 	$(CARGO_WORK_ENV) cargo test -p icydb-core --no-default-features
+
+test-canister-artifact-contract:
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+		--test canister_artifact_contract \
+		production_and_local_source_declarations_match_the_frozen_endpoint_policy \
+		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
 	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister --features icydb/sql-explain -- --nocapture
