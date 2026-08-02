@@ -37,3 +37,17 @@ fn public_trusted_sql_facade_compile_contract() {
     let t = trybuild::TestCases::new();
     t.pass("tests/pass-sql/**/*.rs");
 }
+
+#[cfg(feature = "sql")]
+#[test]
+fn source_declared_primary_key_update_policy_selects_exact_handler() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/pass-sql/endpoint_update_primary_key.rs");
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn source_declared_bounded_update_policy_selects_exact_handler() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/pass-sql/endpoint_update_bounded.rs");
+}

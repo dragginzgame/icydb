@@ -390,15 +390,15 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "build.sql.update_primary_key_policy",
-        "crates/icydb-model/src/build/actor/endpoint.rs",
-        "alternative_closed_options_select_only_their_exact_handlers",
+        "crates/icydb/tests/compile.rs",
+        "source_declared_primary_key_update_policy_selects_exact_handler",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_bounded_policy",
-        "crates/icydb-model/src/build/actor/endpoint.rs",
-        "alternative_closed_options_select_only_their_exact_handlers",
+        "crates/icydb/tests/compile.rs",
+        "source_declared_bounded_update_policy_selects_exact_handler",
         BoundaryAssertion,
         [Boundary]
     ),
