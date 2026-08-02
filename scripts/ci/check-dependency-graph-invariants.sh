@@ -17,9 +17,9 @@ BEGIN {
   }
   banned_set["canic-cdk"] = 1
   banned_set["ic-agent"] = 1
-  # Temporary resolver guard for ic-agent 0.47.3 under rustc 1.96:
-  # time 0.3.48 trips E0119 in the ic-agent nonce timestamp path.
-  required_exact["time"] = "0.3.47"
+  # Keep the resolved time release aligned with the reviewed workspace
+  # dependency after removal of the retired ic-agent resolver guard.
+  required_exact["time"] = "0.3.55"
 }
 
 function strip_value(line) {
