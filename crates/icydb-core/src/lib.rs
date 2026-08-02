@@ -18,14 +18,15 @@
 )]
 // The query-only build owns the complete engine-neutral planner/executor
 // substrate. SQL is an optional frontend over that substrate and is currently
-// the only consumer of some grouped, aggregate, cursor, and diagnostic
+// the only consumer of some SQL-explain, diagnostic, and frontend-extension
 // capabilities, so those internal extension points are intentionally dormant
-// when `query` is enabled without `sql`.
+// when `query` is enabled without `sql`. Grouped planning and execution are
+// live through the query-only facade.
 #![cfg_attr(
     all(not(test), feature = "query", not(feature = "sql")),
     expect(
         dead_code,
-        reason = "SQL is an optional frontend and currently consumes engine-neutral grouped, aggregate, cursor, and diagnostic capabilities not exposed by the query-only facade"
+        reason = "SQL-only explain, diagnostic, and frontend-extension capabilities remain intentionally dormant in query-only builds"
     )
 )]
 

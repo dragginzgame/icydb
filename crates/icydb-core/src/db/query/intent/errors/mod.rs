@@ -416,6 +416,12 @@ pub enum IntentError {
     PlanShape(PolicyPlanError),
 
     HavingRequiresGroupBy,
+
+    ScalarTerminalRequiresScalarQuery,
+
+    GroupedTerminalRequiresGroupedQuery,
+
+    GroupedOutputDefinedByGroupAndAggregates,
 }
 
 impl From<PolicyPlanError> for IntentError {
@@ -428,5 +434,20 @@ impl IntentError {
     /// Construct one HAVING-requires-GROUP-BY intent error.
     pub(in crate::db::query) const fn having_requires_group_by() -> Self {
         Self::HavingRequiresGroupBy
+    }
+
+    /// Construct one scalar-terminal-on-grouped-intent error.
+    pub(in crate::db) const fn scalar_terminal_requires_scalar_query() -> Self {
+        Self::ScalarTerminalRequiresScalarQuery
+    }
+
+    /// Construct one grouped-terminal-on-scalar-intent error.
+    pub(in crate::db) const fn grouped_terminal_requires_grouped_query() -> Self {
+        Self::GroupedTerminalRequiresGroupedQuery
+    }
+
+    /// Construct one grouped-output-with-scalar-selection error.
+    pub(in crate::db) const fn grouped_output_defined_by_group_and_aggregates() -> Self {
+        Self::GroupedOutputDefinedByGroupAndAggregates
     }
 }

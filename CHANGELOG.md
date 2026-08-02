@@ -7,19 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### ➕ Added
-
-- Adds SQL-independent grouped dynamic and typed queries with explicit engine
-  limits and opaque continuation cursors over the shared accepted-schema query
-  engine.
-
 ## [0.217.x] 🔌 - 2026-08-01 - Explicit Canister Endpoint Exports
 
 Detailed notes: [docs/changelog/0.217.md](docs/changelog/0.217.md)
 
-- `0.217.1` keeps query-only builds lean by excluding SQL-only schema,
-  capability, literal-conversion, and projection helpers without changing
-  query behavior or persisted and public formats.
+- `0.217.1` adds bounded SQL-independent grouped dynamic and typed reads over
+  the shared accepted-schema engine, keeps query-only builds lean, and reports
+  malformed grouped requests through typed query diagnostics instead of
+  planner invariants; persisted and existing successful SQL response formats
+  are unchanged.
 
 - `0.217.0` makes maintained IcyDB endpoints explicit source declarations and
   removes TOML and CLI configuration authority in a breaking pre-1.0 hard cut.

@@ -7,12 +7,15 @@ use crate::{
     db::{
         DbSession, DynamicQuery, DynamicTypedEntityBinding, GroupedQueryOutput, MissingRowPolicy,
         QueryError, RowProjectionOutput,
-        query::{admission::QueryAdmissionPolicy, intent::StructuralQuery},
+        query::{
+            admission::QueryAdmissionPolicy,
+            intent::{IntentError, StructuralQuery},
+        },
         session::AcceptedSchemaCatalogContext,
     },
-    error::InternalError,
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::QueryReadAdmissionCode;
 
 #[derive(Clone, Copy)]
 enum DynamicReadLane {
@@ -47,9 +50,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
         if let Some((max_groups, max_group_bytes)) = request.grouped_execution_limits() {
             if max_groups == 0 || max_group_bytes == 0 {
-                return Err(QueryError::execute(
-                    InternalError::query_invalid_logical_plan(),
-                ));
+                return Err(QueryReadAdmissionCode::GroupedQueryRequiresLimits.into());
             }
             query = query.grouped_limits(u64::from(max_groups), u64::from(max_group_bytes));
         }
@@ -67,8 +68,8 @@ impl<C: CanisterKind> DbSession<C> {
             || request.grouped_execution_limits().is_some()
             || request.continuation_cursor().is_some()
         {
-            return Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
+            return Err(QueryError::intent(
+                IntentError::scalar_terminal_requires_scalar_query(),
             ));
         }
         let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
@@ -103,18 +104,16 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: AcceptedSchemaCatalogContext,
     ) -> Result<GroupedQueryOutput, QueryError> {
         if !request.has_grouping() {
-            return Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
+            return Err(QueryError::intent(
+                IntentError::grouped_terminal_requires_grouped_query(),
             ));
         }
         if request.grouped_execution_limits().is_none() {
-            return Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
-            ));
+            return Err(QueryReadAdmissionCode::GroupedQueryRequiresLimits.into());
         }
         if !request.selected_fields().is_empty() {
-            return Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
+            return Err(QueryError::intent(
+                IntentError::grouped_output_defined_by_group_and_aggregates(),
             ));
         }
         let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
@@ -136,12 +135,6 @@ impl<C: CanisterKind> DbSession<C> {
         request: &DynamicQuery,
         lane: DynamicReadLane,
     ) -> Result<RowProjectionOutput, QueryError> {
-        if request.entity().is_empty() {
-            return Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
-            ));
-        }
-
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
@@ -164,11 +157,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &DynamicQuery,
     ) -> Result<GroupedQueryOutput, QueryError> {
-        if request.entity().is_empty() {
-            return Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
-            ));
-        }
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
@@ -239,11 +227,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &DynamicQuery,
     ) -> Result<GroupedQueryOutput, QueryError> {
-        if request.entity().is_empty() {
-            return Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
-            ));
-        }
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;

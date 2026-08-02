@@ -1459,6 +1459,19 @@ mod typed_adapter_tests {
         )
     }
 
+    #[cfg(feature = "query")]
+    fn assert_query_diagnostic(
+        error: crate::db::QueryError,
+        code: icydb_diagnostic_code::DiagnosticCode,
+        origin: icydb_diagnostic_code::ErrorOrigin,
+        detail: icydb_diagnostic_code::DiagnosticDetail,
+    ) {
+        let diagnostic = error.diagnostic();
+        assert_eq!(diagnostic.code(), code);
+        assert_eq!(diagnostic.origin(), origin);
+        assert_eq!(diagnostic.detail(), Some(&detail));
+    }
+
     #[test]
     fn typed_adapter_kind_matching_is_exact_but_accepts_relation_key_wrappers() {
         let relation = AcceptedFieldKind::Relation {
@@ -1732,11 +1745,27 @@ mod typed_adapter_tests {
                 ]]
             );
             assert_eq!(result.row_count, 1);
-            assert!(
+            assert_query_diagnostic(
                 session
                     .execute_trusted_dynamic_query(&query.cursor("00"))
-                    .is_err(),
-                "scalar execution must not silently ignore grouped cursor state"
+                    .expect_err("scalar execution must reject grouped cursor state"),
+                icydb_diagnostic_code::DiagnosticCode::QueryIntent,
+                icydb_diagnostic_code::ErrorOrigin::Query,
+                icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+                    kind: icydb_diagnostic_code::QueryErrorKind::Intent,
+                },
+            );
+            assert_query_diagnostic(
+                session
+                    .execute_public_dynamic_grouped_query(
+                        &crate::db::DynamicQuery::new("RenamedEntity").grouped_limits(1, 1024),
+                    )
+                    .expect_err("grouped execution must reject scalar query state"),
+                icydb_diagnostic_code::DiagnosticCode::QueryIntent,
+                icydb_diagnostic_code::ErrorOrigin::Query,
+                icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+                    kind: icydb_diagnostic_code::QueryErrorKind::Intent,
+                },
             );
 
             let grouped_query = crate::db::DynamicQuery::new("RenamedEntity")
@@ -1779,12 +1808,57 @@ mod typed_adapter_tests {
             );
             assert_eq!(grouped.next_cursor, None);
 
-            let selected_grouped_query = grouped_query.select(["value"]);
-            assert!(
+            assert_query_diagnostic(
                 session
-                    .execute_public_dynamic_grouped_query(&selected_grouped_query)
-                    .is_err(),
-                "grouped output must be declared only by group keys and aggregates"
+                    .execute_public_dynamic_grouped_query(&grouped_query.clone().select(["value"]))
+                    .expect_err("grouped output must reject scalar selection"),
+                icydb_diagnostic_code::DiagnosticCode::QueryIntent,
+                icydb_diagnostic_code::ErrorOrigin::Query,
+                icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+                    kind: icydb_diagnostic_code::QueryErrorKind::Intent,
+                },
+            );
+            assert_query_diagnostic(
+                session
+                    .execute_public_dynamic_grouped_query(
+                        &crate::db::DynamicQuery::new("RenamedEntity")
+                            .group_by("value")
+                            .aggregate(crate::db::count()),
+                    )
+                    .expect_err("public grouped execution must require explicit limits"),
+                icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission,
+                icydb_diagnostic_code::ErrorOrigin::Query,
+                icydb_diagnostic_code::DiagnosticDetail::QueryReadAdmission {
+                    reason:
+                        icydb_diagnostic_code::QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+                },
+            );
+            assert_query_diagnostic(
+                session
+                    .execute_trusted_dynamic_grouped_query(
+                        &crate::db::DynamicQuery::new("RenamedEntity")
+                            .group_by("value")
+                            .aggregate(crate::db::count())
+                            .grouped_limits(0, 1024),
+                    )
+                    .expect_err("trusted grouped execution must reject zero limits"),
+                icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission,
+                icydb_diagnostic_code::ErrorOrigin::Query,
+                icydb_diagnostic_code::DiagnosticDetail::QueryReadAdmission {
+                    reason:
+                        icydb_diagnostic_code::QueryReadAdmissionCode::GroupedQueryRequiresLimits,
+                },
+            );
+            assert_query_diagnostic(
+                session
+                    .execute_public_dynamic_grouped_query(&grouped_query.grouped_limits(101, 1024))
+                    .expect_err("public grouped execution must enforce its group budget"),
+                icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission,
+                icydb_diagnostic_code::ErrorOrigin::Query,
+                icydb_diagnostic_code::DiagnosticDetail::QueryReadAdmission {
+                    reason:
+                        icydb_diagnostic_code::QueryReadAdmissionCode::GroupedQueryExceedsBudget,
+                },
             );
 
             let paged_query = crate::db::DynamicQuery::new("RenamedEntity")
@@ -1792,6 +1866,17 @@ mod typed_adapter_tests {
                 .aggregate(crate::db::count())
                 .grouped_limits(2, 1024)
                 .limit(1);
+            assert_query_diagnostic(
+                session
+                    .execute_public_dynamic_grouped_query(&paged_query)
+                    .expect_err("public grouped execution must reject an unbounded full scan"),
+                icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission,
+                icydb_diagnostic_code::ErrorOrigin::Query,
+                icydb_diagnostic_code::DiagnosticDetail::QueryReadAdmission {
+                    reason:
+                        icydb_diagnostic_code::QueryReadAdmissionCode::UnboundedFullScanRejected,
+                },
+            );
             let first_page = session
                 .execute_trusted_dynamic_grouped_query(&paged_query)
                 .expect("query-only grouped first page should execute");
@@ -1803,6 +1888,18 @@ mod typed_adapter_tests {
             let cursor = first_page
                 .next_cursor
                 .expect("first grouped page should return a continuation cursor");
+            assert_query_diagnostic(
+                session
+                    .execute_trusted_dynamic_grouped_query(
+                        &paged_query.clone().cursor(format!("{cursor}0")),
+                    )
+                    .expect_err("tampered grouped cursor must fail closed"),
+                icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+                icydb_diagnostic_code::ErrorOrigin::Cursor,
+                icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+                    kind: icydb_diagnostic_code::QueryErrorKind::InvalidContinuationCursor,
+                },
+            );
             let second_page = session
                 .execute_trusted_dynamic_grouped_query(&paged_query.cursor(cursor))
                 .expect("query-only grouped continuation should execute");
