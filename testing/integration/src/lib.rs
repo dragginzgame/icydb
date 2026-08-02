@@ -373,6 +373,7 @@ fn build_canister_package(
     // Phase 1: configure the wasm cargo build request.
     cargo.current_dir(&root).args([
         "build",
+        "--locked",
         "--target",
         WASM_TARGET_TRIPLE,
         "--package",

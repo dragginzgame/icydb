@@ -16,7 +16,7 @@ use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
 };
 use serde::Deserialize;
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 use std::ops::Bound;
@@ -26,42 +26,30 @@ thread_local! {
     static JOURNALED_SNAPSHOT_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 thread_local! {
     static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
-thread_local! {
     static INDEX_STORE_RANGE_SCAN_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
-    static INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn record_index_store_get_call() {
     INDEX_STORE_GET_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn record_index_store_range_scan_call() {
     INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn record_index_store_entry_read() {
     INDEX_STORE_ENTRY_READ_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
-
-#[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
-fn record_index_store_prefix_cardinality_lookup() {
-    INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
@@ -71,7 +59,7 @@ fn visit_index_store_entry<E>(
     value: &IndexEntryValue,
     visit: &mut impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
 ) -> Result<bool, E> {
-    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     record_index_store_entry_read();
 
     visit(key, value)
@@ -198,7 +186,7 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => {
                 for (key, value) in map {
-                    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+                    #[cfg(all(feature = "sql", feature = "diagnostics"))]
                     record_index_store_entry_read();
 
                     if visitor(key, value)?.should_stop() {
@@ -221,7 +209,7 @@ impl IndexStore {
     }
 
     pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        #[cfg(feature = "diagnostics")]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_index_store_get_call();
 
         match &self.backend {
@@ -280,9 +268,6 @@ impl IndexStore {
         index_id: IndexId,
         components: &[Vec<u8>],
     ) -> Option<u64> {
-        #[cfg(any(test, feature = "diagnostics"))]
-        record_index_store_prefix_cardinality_lookup();
-
         self.prefix_cardinality
             .exact_count(data_generation, key_kind, index_id, components)
     }
@@ -299,9 +284,6 @@ impl IndexStore {
         component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         stop_after: Option<u64>,
     ) -> Option<u64> {
-        #[cfg(any(test, feature = "diagnostics"))]
-        record_index_store_prefix_cardinality_lookup();
-
         self.prefix_cardinality.exact_count_sum(
             data_generation,
             key_kind,
@@ -323,9 +305,6 @@ impl IndexStore {
         parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         max_children: usize,
     ) -> Option<Vec<Vec<Vec<u8>>>> {
-        #[cfg(any(test, feature = "diagnostics"))]
-        record_index_store_prefix_cardinality_lookup();
-
         self.prefix_cardinality.exact_child_prefixes_for_parent_set(
             data_generation,
             key_kind,
@@ -458,32 +437,24 @@ impl IndexStore {
     }
 
     /// Return the monotonic perf-only count of index-entry fetches seen by this process.
-    #[cfg(all(feature = "diagnostics", any(test, feature = "query")))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         INDEX_STORE_GET_CALL_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of index range traversal probes seen by this process.
-    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
-    #[cfg_attr(
-        all(test, not(feature = "diagnostics")),
-        expect(dead_code, reason = "counter is consumed by diagnostics-shaped tests")
-    )]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) fn current_range_scan_call_count() -> u64 {
         INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of index entries yielded by traversal.
-    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
-    #[cfg_attr(
-        all(test, not(feature = "diagnostics")),
-        expect(dead_code, reason = "counter is consumed by diagnostics-shaped tests")
-    )]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) fn current_entry_read_count() -> u64 {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
     }
 
-    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db::index) fn record_range_scan_call() {
         record_index_store_range_scan_call();
     }
@@ -1088,7 +1059,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "diagnostics")]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     #[test]
     fn index_store_diagnostic_counters_record_gets_range_scans_and_entry_reads() {
         let mut store = IndexStore::init_heap();

@@ -3,16 +3,21 @@
 //! Does not own: stage derivation orchestration or route execution assembly.
 //! Boundary: exposes the typed stage bundles consumed by planner entrypoint, intent, feasibility, and execution modules.
 
+#[cfg(feature = "sql-explain")]
+use crate::db::executor::{
+    aggregate::AggregateFoldMode,
+    route::{AggregateSeekSpec, RouteExplainFacts},
+};
 use crate::db::{
     direction::Direction,
     executor::{
-        aggregate::{AggregateFoldMode, AggregateKind},
+        aggregate::AggregateKind,
         planning::route::planner::execution::derive_route_execution_stage,
         route::{
-            AggregateRouteShape, AggregateSeekSpec, ExecutionRoutePlan, FastPathOrder,
-            GroupedExecutionMode, GroupedExecutionModeContext, IndexRangeLimitSpec,
-            PushdownApplicability, RouteCapabilityFacts, RouteContinuationPlan, RouteExecutionMode,
-            RouteShapeKind, ScanHintPlan, TopNSeekSpec,
+            AggregateRouteShape, ExecutionRoutePlan, FastPathOrder, GroupedExecutionMode,
+            GroupedExecutionModeContext, IndexRangeLimitSpec, PushdownApplicability,
+            RouteCapabilityFacts, RouteContinuationPlan, RouteExecutionMode, RouteShapeKind,
+            ScanHintPlan, TopNSeekSpec,
         },
     },
     query::plan::{CoveringReadExecutionPlan, GroupedPlanStrategy},
@@ -35,6 +40,7 @@ pub(super) struct RouteDerivationContext {
     pub(super) scan_hints: ScanHintPlan,
     pub(super) top_n_seek_spec: Option<TopNSeekSpec>,
     pub(super) aggregate_physical_fetch_hint: Option<usize>,
+    #[cfg(feature = "sql-explain")]
     pub(super) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(super) grouped_execution_mode: Option<GroupedExecutionMode>,
 }
@@ -112,8 +118,10 @@ pub(super) struct RouteFeasibilityStage {
 ///
 
 pub(super) struct RouteExecutionStage {
+    #[cfg(feature = "sql-explain")]
     pub(super) route_shape_kind: RouteShapeKind,
     pub(super) execution_mode: RouteExecutionMode,
+    #[cfg(feature = "sql-explain")]
     pub(super) aggregate_fold_mode: AggregateFoldMode,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
 }
@@ -164,9 +172,19 @@ pub(super) fn assemble_execution_route_plan(
     } = feasibility_stage;
     debug_assert_grouped_route_plan_alignment(&intent_stage, &derivation);
 
+    #[cfg(feature = "sql-explain")]
+    let explain = RouteExplainFacts::new(
+        execution_stage.route_shape_kind,
+        derivation.aggregate_seek_spec,
+        execution_stage.aggregate_fold_mode,
+        intent_stage.grouped_plan_strategy,
+        load_terminal_fast_path,
+    );
+    #[cfg(not(feature = "sql-explain"))]
+    let _ = load_terminal_fast_path;
+
     ExecutionRoutePlan {
         direction: derivation.direction,
-        route_shape_kind: execution_stage.route_shape_kind,
         continuation,
         execution_mode: execution_stage.execution_mode,
         desc_physical_reverse_supported: derivation.support.desc_physical_reverse_supported,
@@ -175,12 +193,10 @@ pub(super) fn assemble_execution_route_plan(
         capability_facts: derivation.capability_facts,
         fast_path_order: intent_stage.fast_path_order,
         top_n_seek_spec: derivation.top_n_seek_spec,
-        aggregate_seek_spec: derivation.aggregate_seek_spec,
         scan_hints: derivation.scan_hints,
-        aggregate_fold_mode: execution_stage.aggregate_fold_mode,
-        grouped_plan_strategy: intent_stage.grouped_plan_strategy,
         grouped_execution_mode: derivation.grouped_execution_mode,
-        load_terminal_fast_path,
+        #[cfg(feature = "sql-explain")]
+        explain,
     }
 }
 

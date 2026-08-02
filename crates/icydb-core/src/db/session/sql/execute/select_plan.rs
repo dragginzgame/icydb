@@ -98,7 +98,7 @@ fn cache_compiled_select_prepared_plan(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "diagnostics"))]
     pub(in crate::db) fn sql_select_prepared_plan_for_tests(
         &self,
         query: &StructuralQuery,

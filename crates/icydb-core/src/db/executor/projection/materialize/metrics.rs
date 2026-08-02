@@ -8,10 +8,10 @@
 ///
 /// Executor callback bundle for structural projection materialization counters.
 /// This keeps projection row shaping in executor ownership while allowing
-/// adapter layers to own their diagnostic counter storage and labels.
+/// the SQL diagnostics adapter to own its counter storage and labels.
 ///
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[derive(Clone, Copy)]
 pub(in crate::db) struct ProjectionMaterializationMetricsRecorder {
     slot_rows_path_hit: fn(),
@@ -22,13 +22,13 @@ pub(in crate::db) struct ProjectionMaterializationMetricsRecorder {
     distinct_bounded_stop: fn(),
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 const fn ignore_projection_event() {}
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 const fn ignore_projection_slot_event(_projected_slot: bool) {}
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 impl ProjectionMaterializationMetricsRecorder {
     /// Construct one observer from adapter-owned materialization counters.
     pub(in crate::db) const fn new(
@@ -89,15 +89,15 @@ impl ProjectionMaterializationMetricsRecorder {
 ///
 /// ProjectionMaterializationMetricsRecorder
 ///
-/// Zero-sized no-op recorder used when materialization diagnostics are not
+/// Zero-sized no-op recorder used when SQL materialization diagnostics are not
 /// compiled. Keeping the type available avoids cfg-heavy executor signatures.
 ///
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(not(all(feature = "sql", feature = "diagnostics")))]
 #[derive(Clone, Copy)]
 pub(in crate::db) struct ProjectionMaterializationMetricsRecorder;
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(not(all(feature = "sql", feature = "diagnostics")))]
 impl ProjectionMaterializationMetricsRecorder {
     /// Construct one no-op structural projection materialization observer.
     pub(in crate::db) const fn new() -> Self {

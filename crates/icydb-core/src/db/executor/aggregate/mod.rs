@@ -19,6 +19,8 @@ pub(in crate::db::executor) use capability::{
     AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
     field_target_is_tie_free_probe_target,
 };
+#[cfg(feature = "sql-explain")]
+pub(in crate::db::executor) use contracts::AggregateFoldMode;
 #[cfg(all(test, feature = "query"))]
 pub(in crate::db::executor) use contracts::BinaryOp;
 #[cfg(feature = "query")]
@@ -26,10 +28,10 @@ pub(in crate::db::executor) use contracts::FieldId;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use contracts::GroupedRuntimeStats;
 pub(in crate::db::executor) use contracts::{
-    AccessPlannedQuery, AggregateFoldMode, AggregateKind, CompiledExpr,
-    EffectiveRuntimeFilterProgram, ExecutionConfig, ExecutionContext, FieldSlot, FoldControl,
-    GlobalDistinctAggregateKind, GroupError, GroupedAggregateExecutionSpec,
-    GroupedDistinctExecutionStrategy, OrderDirection, PlannedProjectionLayout, ProjectionSpec,
+    AccessPlannedQuery, AggregateKind, CompiledExpr, EffectiveRuntimeFilterProgram,
+    ExecutionConfig, ExecutionContext, FieldSlot, FoldControl, GlobalDistinctAggregateKind,
+    GroupError, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, OrderDirection,
+    PlannedProjectionLayout, ProjectionSpec,
 };
 #[cfg(feature = "query")]
 pub(in crate::db::executor) use contracts::{

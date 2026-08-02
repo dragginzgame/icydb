@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.217.md](docs/changelog/0.217.md)
 
+- `0.217.3` closes the endpoint-export audit, aligns the IC runtime/test stack,
+  and removes EXPLAIN- and SQL-diagnostic-only state from query builds without
+  changing endpoints, successful query results, Candid, or persisted formats.
+
 - `0.217.2` hard-cuts the unreachable `TypedQueryError::Binding` variant,
   contracts grouped-query scaffolding, and keeps release tests exhaustive
   without recursive canister builds in routine Cargo runs; query behavior and

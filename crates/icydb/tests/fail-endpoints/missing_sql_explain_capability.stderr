@@ -1,0 +1,9 @@
+error: endpoint declaration `icydb_sql_query` requires the `icydb/sql-explain` Cargo feature
+ --> tests/fail-endpoints/missing_sql_explain_capability.rs:5:1
+  |
+5 | / icydb::endpoints! {
+6 | |     icydb_sql_query(introspection = true);
+7 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `$crate::__icydb_with_sql_explain_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

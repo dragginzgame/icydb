@@ -95,11 +95,7 @@ pub(super) fn sql_error_with_recovery_hint(
 }
 
 fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
-    stale_sql_method_missing(error) || stale_startup_index_rebuild(error)
-}
-
-fn stale_sql_method_missing(error: &str) -> bool {
-    error.contains("has no query method 'icydb_query'")
+    stale_startup_index_rebuild(error)
 }
 
 fn stale_startup_index_rebuild(error: &str) -> bool {

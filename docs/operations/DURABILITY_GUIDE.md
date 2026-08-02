@@ -124,10 +124,11 @@ read-only diagnostic verification after recovery, not part of replay.
 
 ## Integrity Inspection Workflow
 
-Enable `[canisters.<name>.sql] integrity = true` only for canisters that should
-expose the distinct controller-gated `icydb_integrity` update endpoint. The
-direct session API likewise requires the application to enforce controller or
-equivalent integrity-specific authorization.
+Add a visible `icydb_integrity` declaration only to canisters that should
+expose the distinct controller-gated update endpoint, and compile its required
+`icydb/sql` capability. The direct session API likewise requires the
+application to enforce controller or equivalent integrity-specific
+authorization.
 
 Use Quick for one bounded metadata/control result. Use Deep when row and
 derived-state proof is required:

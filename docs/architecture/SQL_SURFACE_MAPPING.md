@@ -88,27 +88,29 @@ lane:
 
 | generated endpoint | `SELECT` | explain / introspection | row mutation SQL | DDL |
 |---|---|---|---|---|
-| `icydb_query` | yes | build-target policy | no | no |
+| `icydb_query` | yes | source-declared `introspection` option | no | no |
 | `icydb_ddl` | no | no | no | yes |
-| `icydb_update` | no | no | `UPDATE` only, when explicitly configured | no |
-| `icydb_integrity` | no | `CHECK INTEGRITY` only, when explicitly configured | no | no |
+| `icydb_update` | no | no | source-declared `UPDATE` admission only | no |
+| `icydb_integrity` | no | source-declared `CHECK INTEGRITY` only | no | no |
 
-No generated SQL write endpoint is part of the default generated surface.
-`icydb_update` is emitted only when `icydb.toml` selects an explicit update
-policy: `update = true` or `update = "primary_key"` for public primary-key-only
-`UPDATE`, or `update = "bounded"` for public bounded deterministic `UPDATE`.
-The broad trusted mutation ingress rejects `UPDATE`; generated update dispatch
-uses only its configured primary-key or bounded policy.
+No generated SQL endpoint is implicit. `icydb_update` is exported only by a
+visible `icydb_update(admission = primary_key_only)` or
+`icydb_update(admission = bounded_deterministic)` declaration. The broad
+trusted mutation ingress rejects `UPDATE`; the declared wrapper dispatches
+only through its selected private admission handler.
 
-`icydb_integrity` is likewise default-off and emitted only with
-`[canisters.<name>.sql] integrity = true`. It is an update endpoint because
-Deep requests durably advance diagnostic progress. Its controller guard binds
-the authenticated caller as the job owner before invoking the canonical
-integrity SQL entrypoint; query, DDL, and update dispatch are not involved.
+`icydb_integrity` is exported only by an `icydb_integrity` source declaration.
+It is an update endpoint because Deep requests durably advance diagnostic
+progress. Its controller guard binds the authenticated caller as the job owner
+before invoking the canonical integrity SQL entrypoint; query, DDL, and update
+dispatch are not involved.
 
-Generated `icydb_query` admits operational SQL introspection only when the
-build target policy allows it. The `[canisters.<name>.sql.introspection]`
-defaults are `local = true` and `ic = false`; unknown direct builds fail closed.
+The source spelling `icydb_sql_query(introspection = true)` exports the
+historical Candid method `icydb_query` with operational SQL introspection and
+requires the `icydb/sql-explain` Cargo capability. The `false` form keeps the
+same method and rejects the frozen introspection families. Canister-owned Cargo
+features may conditionally compile declarations for local/test builds; IcyDB
+does not infer endpoint policy from a target environment.
 
 ## What Is Already Stable
 

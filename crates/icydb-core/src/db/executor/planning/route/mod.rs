@@ -49,6 +49,8 @@ pub(in crate::db::executor) use fast_path::verify_pk_stream_fast_path_access;
 pub(in crate::db::executor) use guard::*;
 pub(in crate::db::executor) use hints::widened_residual_filter_predicate_pushdown_fetch;
 pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPushdownRejection};
+#[cfg(feature = "sql-explain")]
+pub(in crate::db::executor) use planner::build_aggregate_execution_route_plan_for_explain;
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_mode;
 #[cfg(feature = "query")]

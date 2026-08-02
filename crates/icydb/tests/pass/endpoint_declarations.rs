@@ -21,6 +21,8 @@ mod __icydb_generated {
 }
 
 icydb::endpoints! {
+    #[cfg(any())]
+    icydb_ddl;
     icydb_metrics(authorization = public);
     icydb_metrics_reset;
 }

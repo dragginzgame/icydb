@@ -185,6 +185,8 @@ pub(super) fn derive_route_derivation_context_for_model(
         capability_facts,
         support.desc_physical_reverse_supported,
     );
+    #[cfg(not(feature = "sql-explain"))]
+    let _ = aggregate_seek_spec;
 
     RouteDerivationContext {
         direction,
@@ -195,6 +197,7 @@ pub(super) fn derive_route_derivation_context_for_model(
         scan_hints,
         top_n_seek_spec,
         aggregate_physical_fetch_hint,
+        #[cfg(feature = "sql-explain")]
         aggregate_seek_spec,
         grouped_execution_mode,
     }

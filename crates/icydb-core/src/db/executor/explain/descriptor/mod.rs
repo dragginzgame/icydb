@@ -3,6 +3,7 @@
 //! Does not own: route-capability derivation or explain rendering output.
 //! Boundary: project immutable execution contracts into stable descriptor fields.
 
+#[cfg(feature = "sql-explain")]
 mod aggregate;
 mod load;
 pub(in crate::db::executor::explain::descriptor) mod shared;

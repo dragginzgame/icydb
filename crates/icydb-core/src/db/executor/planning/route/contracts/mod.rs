@@ -12,6 +12,8 @@ pub(in crate::db::executor) use crate::db::executor::ContinuationMode;
 pub(in crate::db::executor) use crate::db::executor::{AccessWindow, RouteContinuationPlan};
 pub(in crate::db::executor) use capability_facts::RouteCapabilityFacts;
 pub use execution::RouteExecutionMode;
+#[cfg(feature = "sql-explain")]
+pub(in crate::db::executor) use execution::RouteExplainFacts;
 pub(in crate::db::executor) use execution::{
     AggregateSeekSpec, ExecutionRoutePlan, GroupedExecutionMode, GroupedExecutionModeContext,
     IndexPrefixChildExpansionBudget, IndexPrefixChildExpansionHint, IndexRangeLimitSpec,

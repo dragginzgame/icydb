@@ -25,7 +25,8 @@ pub(in crate::db::executor) use plan::{
     Expr, FieldId, PageSpec, ProjectionField, admit_true_only_boolean_value,
     compile_scalar_projection_expr_from_schema,
 };
+#[cfg(feature = "sql-explain")]
+pub(in crate::db::executor) use state::AggregateFoldMode;
 pub(in crate::db::executor) use state::{
-    AggregateFoldMode, AggregateStateFactory, FoldControl, GroupedDistinctExecutionMode,
-    GroupedTerminalAggregateState,
+    AggregateStateFactory, FoldControl, GroupedDistinctExecutionMode, GroupedTerminalAggregateState,
 };

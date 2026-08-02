@@ -204,16 +204,12 @@ fn interactive_start_message_names_target_and_exit_controls() {
 }
 
 #[test]
-fn sql_recovery_hint_points_stale_canister_to_targeted_refresh() {
-    let message = sql_error_with_recovery_hint(
-        "Canister has no query method 'icydb_query'.",
-        DEFAULT_ENVIRONMENT,
-        "demo_rpg",
-    );
+fn sql_recovery_hint_preserves_authoritative_deployed_method_absence() {
+    let error = "Canister has no query method 'icydb_query'.";
 
-    assert!(
-        message.contains("icydb canister refresh demo_rpg --environment demo"),
-        "stale canister errors should include a targeted refresh command"
+    assert_eq!(
+        sql_error_with_recovery_hint(error, DEFAULT_ENVIRONMENT, "demo_rpg"),
+        error,
     );
 }
 

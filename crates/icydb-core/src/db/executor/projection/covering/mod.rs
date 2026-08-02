@@ -67,11 +67,11 @@ impl<'a> PreparedCoveringProjectionRuntime<'a> {
 /// CoveringProjectionMetricsRecorder
 ///
 /// Executor callback bundle for covering projection materialization counters.
-/// The executor owns covering projection execution, while the adapter layer
-/// still owns its test/diagnostic counter storage.
+/// The executor owns covering projection execution, while the SQL diagnostics
+/// adapter owns its counter storage.
 ///
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[derive(Clone, Copy)]
 pub(in crate::db) struct CoveringProjectionMetricsRecorder {
     path_hit: fn(),
@@ -79,10 +79,10 @@ pub(in crate::db) struct CoveringProjectionMetricsRecorder {
     row_field_access: fn(),
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 const fn ignore_covering_projection_event() {}
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 impl CoveringProjectionMetricsRecorder {
     /// Construct one observer from projection materialization counter
     /// callbacks supplied by the response-shaping layer.
@@ -157,15 +157,15 @@ where
 ///
 /// CoveringProjectionMetricsRecorder
 ///
-/// Zero-sized no-op recorder used when materialization diagnostics are not
+/// Zero-sized no-op recorder used when SQL materialization diagnostics are not
 /// compiled. Keeping the type available avoids cfg-heavy executor signatures.
 ///
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(not(all(feature = "sql", feature = "diagnostics")))]
 #[derive(Clone, Copy)]
 pub(in crate::db) struct CoveringProjectionMetricsRecorder;
 
-#[cfg(not(any(test, feature = "diagnostics")))]
+#[cfg(not(all(feature = "sql", feature = "diagnostics")))]
 impl CoveringProjectionMetricsRecorder {
     pub(in crate::db) const fn new() -> Self {
         Self

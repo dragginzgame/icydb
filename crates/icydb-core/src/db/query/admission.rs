@@ -20,10 +20,7 @@ pub(in crate::db) enum QueryAdmissionLane {
     /// Caller-facing bounded typed/dynamic read path.
     PublicRead,
     /// EXPLAIN-only path that describes planning and admission without row execution.
-    #[cfg_attr(
-        not(feature = "sql-explain"),
-        expect(dead_code, reason = "the diagnostic lane is owned by SQL EXPLAIN")
-    )]
+    #[cfg(feature = "sql-explain")]
     DiagnosticExplain,
 }
 
@@ -41,7 +38,11 @@ impl QueryAdmissionLane {
     /// Return whether this lane may execute and return data rows.
     #[must_use]
     pub(in crate::db) const fn executes_rows(self) -> bool {
-        !matches!(self, Self::DiagnosticExplain)
+        match self {
+            Self::PublicRead => true,
+            #[cfg(feature = "sql-explain")]
+            Self::DiagnosticExplain => false,
+        }
     }
 }
 

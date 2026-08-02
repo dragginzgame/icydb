@@ -8,6 +8,8 @@ mod plan;
 use crate::db::{direction::Direction, query::plan::GroupedPlanStrategy};
 
 pub(in crate::db::executor) use plan::ExecutionRoutePlan;
+#[cfg(feature = "sql-explain")]
+pub(in crate::db::executor) use plan::RouteExplainFacts;
 
 ///
 /// LoadOrderRouteMode

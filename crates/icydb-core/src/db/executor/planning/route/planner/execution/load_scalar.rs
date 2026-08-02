@@ -3,13 +3,12 @@
 //! Does not own: load execution or feasibility derivation.
 //! Boundary: maps staged route facts into scalar load execution mode.
 
-use crate::db::executor::{
-    aggregate::AggregateFoldMode,
-    route::{
-        RouteExecutionMode, RouteShapeKind, load_streaming_allowed,
-        planner::{RouteExecutionStage, RouteFeasibilityStage},
-    },
+use crate::db::executor::route::{
+    RouteExecutionMode, load_streaming_allowed,
+    planner::{RouteExecutionStage, RouteFeasibilityStage},
 };
+#[cfg(feature = "sql-explain")]
+use crate::db::executor::{aggregate::AggregateFoldMode, route::RouteShapeKind};
 
 /// Derive the execution mode for scalar load routes.
 pub(super) const fn derive_execution_mode_for_load(
@@ -31,8 +30,10 @@ pub(super) const fn build_execution_stage_for_load(
 ) -> RouteExecutionStage {
     // Load routes keep index-range limit contracts intact.
     RouteExecutionStage {
+        #[cfg(feature = "sql-explain")]
         route_shape_kind: RouteShapeKind::LoadScalar,
         execution_mode: derive_execution_mode_for_load(feasibility_stage),
+        #[cfg(feature = "sql-explain")]
         aggregate_fold_mode: AggregateFoldMode::ExistingRows,
         index_range_limit_spec: feasibility_stage.index_range_limit_spec,
     }

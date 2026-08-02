@@ -3,13 +3,12 @@
 //! Does not own: COUNT terminal execution or feasibility derivation.
 //! Boundary: maps staged route facts into COUNT execution mode and fold mode.
 
-use crate::db::executor::{
-    aggregate::AggregateFoldMode,
-    route::{
-        RouteExecutionMode, RouteShapeKind,
-        planner::{RouteExecutionStage, RouteFeasibilityStage},
-    },
+use crate::db::executor::route::{
+    RouteExecutionMode,
+    planner::{RouteExecutionStage, RouteFeasibilityStage},
 };
+#[cfg(feature = "sql-explain")]
+use crate::db::executor::{aggregate::AggregateFoldMode, route::RouteShapeKind};
 
 /// Derive the execution mode for scalar aggregate `COUNT` routes.
 pub(super) const fn derive_execution_mode_for_aggregate_count(
@@ -26,7 +25,7 @@ pub(super) const fn derive_execution_mode_for_aggregate_count(
 }
 
 /// Build the execution stage for scalar aggregate `COUNT` routes.
-pub(super) fn build_execution_stage_for_aggregate_count(
+pub(super) const fn build_execution_stage_for_aggregate_count(
     feasibility_stage: &RouteFeasibilityStage,
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,
 ) -> RouteExecutionStage {
@@ -40,6 +39,7 @@ pub(super) fn build_execution_stage_for_aggregate_count(
             feasibility_stage,
             execution_mode,
         );
+    #[cfg(feature = "sql-explain")]
     let aggregate_fold_mode = match (
         feasibility_stage
             .derivation
@@ -53,6 +53,7 @@ pub(super) fn build_execution_stage_for_aggregate_count(
         (true, _) | (false, false) => AggregateFoldMode::KeysOnly,
         (false, true) => AggregateFoldMode::ExistingRows,
     };
+    #[cfg(feature = "sql-explain")]
     debug_assert!(
         !matches!(execution_mode, RouteExecutionMode::Streaming)
             || matches!(
@@ -63,8 +64,10 @@ pub(super) fn build_execution_stage_for_aggregate_count(
     );
 
     RouteExecutionStage {
+        #[cfg(feature = "sql-explain")]
         route_shape_kind: RouteShapeKind::AggregateCount,
         execution_mode,
+        #[cfg(feature = "sql-explain")]
         aggregate_fold_mode,
         index_range_limit_spec,
     }

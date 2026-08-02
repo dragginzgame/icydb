@@ -299,3 +299,38 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::sql_statement_dispatch;
+
+    #[test]
+    fn frozen_operational_sql_families_require_introspection() {
+        for sql in [
+            "DESCRIBE Example",
+            "SHOW CONSTRAINTS FROM Example",
+            "SHOW INDEXES FROM Example",
+            "SHOW COLUMNS Example",
+            "SHOW ENTITIES",
+            "SHOW STORES",
+            "SHOW MEMORY",
+        ] {
+            let dispatch = sql_statement_dispatch(sql)
+                .unwrap_or_else(|error| panic!("{sql} should classify: {error}"));
+            assert!(dispatch.requires_introspection(), "{sql}");
+        }
+
+        let select = sql_statement_dispatch("SELECT id FROM Example")
+            .expect("ordinary SELECT should classify");
+        assert!(!select.requires_introspection());
+    }
+
+    #[cfg(feature = "sql-explain")]
+    #[test]
+    fn explain_requires_introspection() {
+        let dispatch = sql_statement_dispatch("EXPLAIN SELECT id FROM Example")
+            .expect("EXPLAIN should classify");
+
+        assert!(dispatch.requires_introspection());
+    }
+}

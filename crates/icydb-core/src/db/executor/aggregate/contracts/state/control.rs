@@ -83,10 +83,11 @@ impl ExtremumKind {
 ///
 /// AggregateFoldMode
 ///
-/// AggregateFoldMode selects whether aggregate execution must inspect existing
-/// rows or can satisfy the request from decoded key streams only.
+/// AggregateFoldMode describes to EXPLAIN whether the selected aggregate route
+/// inspects existing rows or can use decoded key streams only.
 ///
 
+#[cfg(feature = "sql-explain")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum AggregateFoldMode {
     ExistingRows,

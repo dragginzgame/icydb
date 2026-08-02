@@ -28,7 +28,7 @@ struct RetainedSlotLayoutData {
     required_slots: Box<[usize]>,
     value_modes: Box<[RetainedSlotValueMode]>,
     has_value_mode_overrides: bool,
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(feature = "diagnostics")]
     octet_length_value_count: usize,
     slot_to_value_index: Box<[Option<usize>]>,
 }
@@ -66,11 +66,11 @@ impl RetainedSlotLayout {
         debug_assert!(value_modes.is_empty() || required_slots.len() == value_modes.len());
 
         let mut has_value_mode_overrides = false;
-        #[cfg(any(test, feature = "diagnostics"))]
+        #[cfg(feature = "diagnostics")]
         let mut octet_length_value_count = 0usize;
         for mode in &value_modes {
             has_value_mode_overrides |= *mode != RetainedSlotValueMode::Normal;
-            #[cfg(any(test, feature = "diagnostics"))]
+            #[cfg(feature = "diagnostics")]
             {
                 octet_length_value_count = octet_length_value_count.saturating_add(usize::from(
                     *mode == RetainedSlotValueMode::ScalarOctetLength,
@@ -93,7 +93,7 @@ impl RetainedSlotLayout {
                     Vec::new().into_boxed_slice()
                 },
                 has_value_mode_overrides,
-                #[cfg(any(test, feature = "diagnostics"))]
+                #[cfg(feature = "diagnostics")]
                 octet_length_value_count,
                 slot_to_value_index: slot_to_value_index.into_boxed_slice(),
             }),
@@ -121,7 +121,7 @@ impl RetainedSlotLayout {
 
     /// Return how many retained values are materialized as scalar byte lengths.
     #[must_use]
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(feature = "diagnostics")]
     pub(in crate::db::executor) fn octet_length_value_count(&self) -> usize {
         self.data.octet_length_value_count
     }

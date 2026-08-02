@@ -1,0 +1,43 @@
+error[E0428]: the name `__IcydbEndpointsRootMarker` is defined multiple times
+ --> tests/fail-endpoints/duplicate_block.rs:6:1
+  |
+5 | icydb::endpoints! {}
+  | -------------------- previous definition of the type `__IcydbEndpointsRootMarker` here
+6 | icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^ `__IcydbEndpointsRootMarker` redefined here
+  |
+  = note: `__IcydbEndpointsRootMarker` must be defined only once in the type namespace of this module
+  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__icydb_endpoints_root_binding` is defined multiple times
+ --> tests/fail-endpoints/duplicate_block.rs:6:1
+  |
+5 | icydb::endpoints! {}
+  | -------------------- previous definition of the value `__icydb_endpoints_root_binding` here
+6 | icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^ `__icydb_endpoints_root_binding` redefined here
+  |
+  = note: `__icydb_endpoints_root_binding` must be defined only once in the value namespace of this module
+  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0428]: the name `__ICYDB_ENDPOINT_DECLARATIONS` is defined multiple times
+ --> tests/fail-endpoints/duplicate_block.rs:6:1
+  |
+5 | icydb::endpoints! {}
+  | -------------------- previous definition of the value `__ICYDB_ENDPOINT_DECLARATIONS` here
+6 | icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^ `__ICYDB_ENDPOINT_DECLARATIONS` redefined here
+  |
+  = note: `__ICYDB_ENDPOINT_DECLARATIONS` must be defined only once in the value namespace of this module
+  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0252]: the name `__icydb_facade` is defined multiple times
+ --> tests/fail-endpoints/duplicate_block.rs:6:1
+  |
+5 | icydb::endpoints! {}
+  | -------------------- previous import of the module `__icydb_facade` here
+6 | icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^ `__icydb_facade` reimported here
+  |
+  = note: `__icydb_facade` must be defined only once in the type namespace of this module
+  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,10 @@
+error: IcyDB endpoint declarations accept only `#[cfg(...)]` attributes
+ --> tests/fail-endpoints/unsupported_attribute.rs:5:1
+  |
+5 | / icydb::endpoints! {
+6 | |     #[allow(dead_code)]
+7 | |     icydb_metrics(authorization = public);
+8 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

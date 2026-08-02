@@ -872,7 +872,7 @@ pub(in crate::db::executor::explain::descriptor) fn explain_node_properties_for_
     if aggregation.is_count() {
         node_properties.insert(
             property_keys::COUNT_FOLD,
-            Value::from(match route_plan.aggregate_fold_mode {
+            Value::from(match route_plan.aggregate_fold_mode() {
                 AggregateFoldMode::ExistingRows => "rows",
                 AggregateFoldMode::KeysOnly => "keys",
             }),

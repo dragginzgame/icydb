@@ -236,8 +236,12 @@ exposes full entity and store paths for debugging.
 
 <!-- icydb-sql-feature id="introspection.generated_policy" kind="policy" status="accepted" -->
 Generated `icydb_query` gates `EXPLAIN`, `DESCRIBE`, and `SHOW` by
-`[canisters.<name>.sql.introspection]`. The default policy is `local = true`
-and `ic = false`; direct builds with an unknown target fail closed.
+the visible source declaration. `icydb_sql_query(introspection = true)`
+requires the `icydb/sql-explain` Cargo capability and admits the frozen
+introspection families; the `false` form rejects them with
+`SqlIntrospectionDisabled`. Canister-owned Cargo features may place the
+declaration behind `#[cfg(...)]` for local/test builds. No build target or
+configuration file selects this policy implicitly.
 
 <!-- icydb-sql-feature id="introspection.storage_modes" kind="semantic" status="accepted" -->
 Storage modes have distinct contracts. `heap` is volatile live storage with
@@ -314,11 +318,12 @@ acknowledgement sequences, additional entity arguments on continue/abort, and
 all predicates, projections, ordering, limits, or caller-authored internal
 progress fail closed.
 
-`[canisters.<name>.sql] integrity = true` emits the distinct
-controller-gated `icydb_integrity` update endpoint. The endpoint derives the
-durable job owner from the authenticated caller principal and delegates to
-`execute_admin_integrity_sql(...)`; it does not pass through generated query,
-DDL, or row-mutation dispatch. The setting defaults to `false`.
+A visible `icydb_integrity` declaration emits the distinct controller-gated
+update endpoint when the `icydb/sql` capability is compiled. The endpoint
+derives the durable job owner from the authenticated caller principal and
+delegates to `execute_admin_integrity_sql(...)`; it does not pass through
+generated query, DDL, or row-mutation dispatch. Compiling the capability alone
+exports nothing.
 
 Applications using the direct method must provide their own equivalent
 authorization boundary. Ordinary query, mutation, and DDL entry points reject

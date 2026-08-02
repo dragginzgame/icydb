@@ -18,10 +18,11 @@ use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{
         EntitySchemaDescription, IntegrityCheckResult, QuickIntegrityStatus, RowProjectionOutput,
-        SqlIntegrityError,
+        SqlIntegrityError, StorageReport,
         sql::{SqlGroupedRowsOutput, SqlQueryPerfResult, SqlQueryResult},
     },
     diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
+    metrics::CompactMetricsReport,
     types::Decimal,
     value::OutputValue,
 };
@@ -2380,6 +2381,66 @@ fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
 }
 
 #[test]
+fn source_declared_controller_endpoints_authorize_before_private_handlers() {
+    let fixture = install_sql_canister_fixture();
+    let outsider = Principal::self_authenticating([8_u8; 32]);
+    let sql_error = Error::from_runtime_boundary(
+        RuntimeBoundaryCode::SqlSurfaceControllerRequired,
+        ErrorOrigin::Interface,
+    );
+    let operational_error = Error::from_runtime_boundary(
+        RuntimeBoundaryCode::OperationalSurfaceControllerRequired,
+        ErrorOrigin::Interface,
+    );
+    let schema_error = Error::from_runtime_boundary(
+        RuntimeBoundaryCode::SchemaSurfaceControllerRequired,
+        ErrorOrigin::Interface,
+    );
+
+    let query: Result<SqlQueryPerfResult, Error> = fixture
+        .query_call_as(outsider, "icydb_query", ("not valid SQL".to_string(),))
+        .expect("non-controller SQL query response should decode");
+    assert_eq!(query, Err(sql_error.clone()));
+
+    for method in ["icydb_ddl", "icydb_update"] {
+        let result: Result<SqlQueryResult, Error> = fixture
+            .update_call_as(outsider, method, ("not valid SQL".to_string(),))
+            .expect("non-controller SQL update response should decode");
+        assert_eq!(result, Err(sql_error.clone()), "{method}");
+    }
+    for method in ["icydb_fixtures_reset", "icydb_fixtures_load"] {
+        let result: Result<(), Error> = fixture
+            .update_call_as(outsider, method, ())
+            .expect("non-controller fixture response should decode");
+        assert_eq!(result, Err(sql_error.clone()), "{method}");
+    }
+
+    let metrics: Result<CompactMetricsReport, Error> = fixture
+        .query_call_as(outsider, "icydb_metrics", (None::<u64>,))
+        .expect("public metrics response should decode");
+    assert!(
+        metrics.is_ok(),
+        "public metrics must not require a controller"
+    );
+
+    let metrics_reset: Result<(), Error> = fixture
+        .update_call_as(outsider, "icydb_metrics_reset", ())
+        .expect("non-controller metrics reset response should decode");
+    assert_eq!(metrics_reset, Err(operational_error.clone()));
+    let snapshot: Result<StorageReport, Error> = fixture
+        .query_call_as(outsider, "icydb_snapshot", ())
+        .expect("non-controller snapshot response should decode");
+    assert_eq!(
+        snapshot.expect_err("a non-controller snapshot must fail before its handler"),
+        operational_error,
+    );
+    let schema: Result<Vec<EntitySchemaDescription>, Error> = fixture
+        .query_call_as(outsider, "icydb_schema", ())
+        .expect("non-controller schema response should decode");
+    assert_eq!(schema, Err(schema_error));
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3353,7 +3414,7 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
         &fixture,
         format!("UPDATE SqlTestUser SET age = 32 WHERE id = '{alice_id}'").as_str(),
     )
-    .expect("configured generated SQL update endpoint should admit primary-key UPDATE");
+    .expect("source-declared SQL update endpoint should admit primary-key UPDATE");
 
     assert_eq!(
         result,
@@ -3385,7 +3446,7 @@ fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation(
         &fixture,
         "UPDATE SqlTestUser SET age = 32 WHERE name = 'alice'",
     )
-    .expect_err("configured generated SQL update endpoint must reject non-PK UPDATE");
+    .expect_err("source-declared SQL update endpoint must reject non-PK UPDATE");
 
     assert_eq!(
         err.code(),
@@ -3427,7 +3488,7 @@ fn sql_canister_update_endpoint_rejects_primary_key_update_with_extra_guard_with
         &fixture,
         format!("UPDATE SqlTestUser SET age = 32 WHERE id = '{alice_id}' AND age = 31").as_str(),
     )
-    .expect_err("configured generated SQL update endpoint must reject guarded PK UPDATE");
+    .expect_err("source-declared SQL update endpoint must reject guarded PK UPDATE");
 
     assert_eq!(
         err.code(),
@@ -3672,7 +3733,7 @@ fn sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_orde
         &fixture,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 2",
     )
-    .expect("configured bounded SQL update endpoint should admit explicit bounded UPDATE");
+    .expect("source-declared bounded SQL update endpoint should admit explicit bounded UPDATE");
 
     assert_eq!(
         result,
@@ -3719,7 +3780,7 @@ fn sql_canister_bounded_update_endpoint_rejects_unordered_limit_without_mutation
         &fixture,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 LIMIT 2",
     )
-    .expect_err("configured bounded SQL update endpoint must reject implicit ordering");
+    .expect_err("source-declared bounded SQL update endpoint must reject implicit ordering");
 
     assert_eq!(
         err.code(),
@@ -3760,7 +3821,7 @@ fn sql_canister_bounded_update_endpoint_rejects_limit_above_default_without_muta
         &fixture,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 101",
     )
-    .expect_err("configured bounded SQL update endpoint must reject excessive LIMIT");
+    .expect_err("source-declared bounded SQL update endpoint must reject excessive LIMIT");
 
     assert_eq!(
         err.code(),
@@ -3801,7 +3862,7 @@ fn sql_canister_bounded_update_endpoint_rejects_non_primary_key_order_without_mu
         &fixture,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY age ASC LIMIT 2",
     )
-    .expect_err("configured bounded SQL update endpoint must reject non-PK ordering");
+    .expect_err("source-declared bounded SQL update endpoint must reject non-PK ordering");
 
     assert_eq!(
         err.code(),
@@ -3842,7 +3903,7 @@ fn sql_canister_bounded_update_endpoint_rejects_desc_order_without_mutation() {
         &fixture,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id DESC LIMIT 2",
     )
-    .expect_err("configured bounded SQL update endpoint must reject descending order");
+    .expect_err("source-declared bounded SQL update endpoint must reject descending order");
 
     assert_eq!(
         err.code(),
@@ -3883,7 +3944,7 @@ fn sql_canister_bounded_update_endpoint_rejects_offset_without_mutation() {
         &fixture,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 2 OFFSET 1",
     )
-    .expect_err("configured bounded SQL update endpoint must reject OFFSET");
+    .expect_err("source-declared bounded SQL update endpoint must reject OFFSET");
 
     assert_eq!(
         err.code(),

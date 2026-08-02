@@ -90,60 +90,38 @@ impl GroupedAdmissionPolicy {
     }
 }
 
+/// Physical access requirements attached to one read-admission surface.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LimitRequirement {
-    Required,
-    #[cfg_attr(
-        all(not(test), not(feature = "sql-explain")),
-        expect(dead_code, reason = "optional limits are owned by SQL EXPLAIN")
-    )]
-    Optional,
+struct AccessAdmissionPolicy {
+    index_required: bool,
+    full_scan_allowed: bool,
+    materialized_sort_allowed: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum IndexRequirement {
-    Required,
-    #[cfg_attr(
-        all(not(test), not(feature = "sql-explain")),
-        expect(dead_code, reason = "optional index policy is owned by SQL EXPLAIN")
-    )]
-    Optional,
-}
+impl AccessAdmissionPolicy {
+    const BOUNDED_PUBLIC_READ: Self = Self {
+        index_required: true,
+        full_scan_allowed: false,
+        materialized_sort_allowed: false,
+    };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FullScanPolicy {
-    #[cfg_attr(
-        all(not(test), not(feature = "sql-explain")),
-        expect(dead_code, reason = "full-scan admission is owned by SQL EXPLAIN")
-    )]
-    Allow,
-    Reject,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MaterializedSortPolicy {
-    #[cfg_attr(
-        all(not(test), not(feature = "sql-explain")),
-        expect(
-            dead_code,
-            reason = "materialized-sort admission is owned by SQL EXPLAIN"
-        )
-    )]
-    Allow,
-    Reject,
+    #[cfg(feature = "sql-explain")]
+    const DIAGNOSTIC_EXPLAIN: Self = Self {
+        index_required: false,
+        full_scan_allowed: true,
+        materialized_sort_allowed: true,
+    };
 }
 
 /// Read-admission policy attached to one query surface.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct QueryAdmissionPolicy {
     lane: QueryAdmissionLane,
-    limit_requirement: LimitRequirement,
+    limit_required: bool,
     max_returned_rows: Option<NonZeroU32>,
     max_primary_key_input_terms: Option<NonZeroU32>,
     max_primary_key_input_bytes: Option<NonZeroU32>,
-    index_requirement: IndexRequirement,
-    full_scan_policy: FullScanPolicy,
-    materialized_sort_policy: MaterializedSortPolicy,
+    access: AccessAdmissionPolicy,
     grouped: GroupedAdmissionPolicy,
 }
 
@@ -153,7 +131,7 @@ impl QueryAdmissionPolicy {
     pub(in crate::db) const fn public_read(max_returned_rows: NonZeroU32) -> Self {
         Self {
             lane: QueryAdmissionLane::PublicRead,
-            limit_requirement: LimitRequirement::Required,
+            limit_required: true,
             max_returned_rows: Some(max_returned_rows),
             max_primary_key_input_terms: Some(non_zero_default(
                 DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_TERMS,
@@ -161,9 +139,7 @@ impl QueryAdmissionPolicy {
             max_primary_key_input_bytes: Some(non_zero_default(
                 DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_BYTES,
             )),
-            index_requirement: IndexRequirement::Required,
-            full_scan_policy: FullScanPolicy::Reject,
-            materialized_sort_policy: MaterializedSortPolicy::Reject,
+            access: AccessAdmissionPolicy::BOUNDED_PUBLIC_READ,
             grouped: GroupedAdmissionPolicy::disabled(),
         }
     }
@@ -198,13 +174,11 @@ impl QueryAdmissionPolicy {
     pub(in crate::db) const fn diagnostic_explain() -> Self {
         Self {
             lane: QueryAdmissionLane::DiagnosticExplain,
-            limit_requirement: LimitRequirement::Optional,
+            limit_required: false,
             max_returned_rows: None,
             max_primary_key_input_terms: None,
             max_primary_key_input_bytes: None,
-            index_requirement: IndexRequirement::Optional,
-            full_scan_policy: FullScanPolicy::Allow,
-            materialized_sort_policy: MaterializedSortPolicy::Allow,
+            access: AccessAdmissionPolicy::DIAGNOSTIC_EXPLAIN,
             grouped: GroupedAdmissionPolicy::disabled(),
         }
     }
@@ -218,25 +192,25 @@ impl QueryAdmissionPolicy {
     /// Return whether the surface requires caller-visible LIMIT.
     #[must_use]
     pub(in crate::db) const fn require_limit(&self) -> bool {
-        matches!(self.limit_requirement, LimitRequirement::Required)
+        self.limit_required
     }
 
     /// Return whether the selected plan must use an index-backed path.
     #[must_use]
     pub(in crate::db) const fn require_index(&self) -> bool {
-        matches!(self.index_requirement, IndexRequirement::Required)
+        self.access.index_required
     }
 
     /// Return whether a full entity scan may execute.
     #[must_use]
     pub(in crate::db) const fn allow_full_scan(&self) -> bool {
-        matches!(self.full_scan_policy, FullScanPolicy::Allow)
+        self.access.full_scan_allowed
     }
 
     /// Return whether this surface permits materialized ORDER BY execution.
     #[must_use]
     pub(in crate::db) const fn allow_materialized_sort(&self) -> bool {
-        matches!(self.materialized_sort_policy, MaterializedSortPolicy::Allow)
+        self.access.materialized_sort_allowed
     }
 
     /// Apply this policy to one already-summarized plan.
@@ -410,5 +384,33 @@ fn primary_key_materialized_sort_has_exact_candidate_bound(
     ) {
         (Some(scan_bound), Some(materialized_rows)) => u64::from(materialized_rows) == scan_bound,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::QueryAdmissionPolicy;
+
+    use std::num::NonZeroU32;
+
+    #[test]
+    fn public_read_keeps_bounded_access_requirements() {
+        let policy = QueryAdmissionPolicy::public_read(NonZeroU32::MIN);
+
+        assert!(policy.require_limit());
+        assert!(policy.require_index());
+        assert!(!policy.allow_full_scan());
+        assert!(!policy.allow_materialized_sort());
+    }
+
+    #[cfg(feature = "sql-explain")]
+    #[test]
+    fn diagnostic_explain_keeps_non_executing_access_permissions() {
+        let policy = QueryAdmissionPolicy::diagnostic_explain();
+
+        assert!(!policy.require_limit());
+        assert!(!policy.require_index());
+        assert!(policy.allow_full_scan());
+        assert!(policy.allow_materialized_sort());
     }
 }

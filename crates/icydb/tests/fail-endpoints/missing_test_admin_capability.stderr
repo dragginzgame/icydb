@@ -1,0 +1,9 @@
+error: endpoint declaration `icydb_fixtures_reset` requires the canister `test-admin-api` Cargo feature
+ --> tests/fail-endpoints/missing_test_admin_capability.rs:7:1
+  |
+7 | / icydb::endpoints! {
+8 | |     icydb_fixtures_reset;
+9 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

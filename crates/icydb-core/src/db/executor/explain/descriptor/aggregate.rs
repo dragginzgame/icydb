@@ -13,7 +13,8 @@ use crate::db::{
         },
         planning::preparation::slot_map_for_model_plan,
         route::{
-            AggregateRouteShape, ExecutionRoutePlan, RoutePlanRequest, build_execution_route_plan,
+            AggregateRouteShape, ExecutionRoutePlan,
+            build_aggregate_execution_route_plan_for_explain,
         },
     },
     query::{
@@ -46,12 +47,10 @@ impl AggregateExplainPreparation {
     ) -> Self {
         let execution_preparation =
             ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
-        let route_plan = build_execution_route_plan(
+        let route_plan = build_aggregate_execution_route_plan_for_explain(
             plan,
-            RoutePlanRequest::Aggregate {
-                aggregate,
-                execution_preparation: &execution_preparation,
-            },
+            aggregate,
+            &execution_preparation,
         );
         let covering_projection =
             aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);

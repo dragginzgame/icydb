@@ -24,15 +24,10 @@ pub(super) fn load_after_refresh(environment: &str, canister: &str) -> Result<()
     ensure_local_fixture_cycles(environment, canister)?;
 
     eprintln!("[icydb] loading fixtures for canister '{canister}' in environment '{environment}'");
-    match run_fixtures_load(environment, canister)? {
-        FixtureLoadOutcome::Loaded(stdout) => {
-            print!("{stdout}");
-            Ok(())
-        }
-        FixtureLoadOutcome::SkippedMissingEndpoint => Ok(()),
-        FixtureLoadOutcome::InsufficientCycles { stderr }
-        | FixtureLoadOutcome::Failed { stderr } => Err(fixture_load_error(stderr)),
-    }
+    let stdout = run_fixtures_load(environment, canister)?;
+    print!("{stdout}");
+
+    Ok(())
 }
 
 fn ensure_local_fixture_cycles(environment: &str, canister: &str) -> Result<(), String> {
@@ -81,38 +76,24 @@ fn read_canister_cycles(environment: &str, canister: &str) -> Result<Option<u128
     ))
 }
 
-enum FixtureLoadOutcome {
-    Loaded(String),
-    SkippedMissingEndpoint,
-    InsufficientCycles { stderr: String },
-    Failed { stderr: String },
-}
-
-fn run_fixtures_load(environment: &str, canister: &str) -> Result<FixtureLoadOutcome, String> {
+fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String> {
     let output = fixtures_load_command(environment, canister)
         .stdin(Stdio::null())
         .output()
         .map_err(|err| err.to_string())?;
-    if output.status.success() {
-        return Ok(FixtureLoadOutcome::Loaded(
-            String::from_utf8_lossy(output.stdout.as_slice()).to_string(),
-        ));
+    fixture_load_result(
+        output.status.success(),
+        output.stdout.as_slice(),
+        output.stderr.as_slice(),
+    )
+}
+
+fn fixture_load_result(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<String, String> {
+    if success {
+        return Ok(String::from_utf8_lossy(stdout).to_string());
     }
 
-    let stderr = output_stderr(output.stderr.as_slice());
-    if looks_like_missing_fixtures_endpoint(stderr.as_str()) {
-        eprintln!(
-            "[icydb] fixture endpoint '{}' is not exported by '{canister}'; skipping fixture load",
-            FIXTURES_LOAD_ENDPOINT.method(),
-        );
-        return Ok(FixtureLoadOutcome::SkippedMissingEndpoint);
-    }
-
-    if looks_like_insufficient_cycles(stderr.as_str()) {
-        return Ok(FixtureLoadOutcome::InsufficientCycles { stderr });
-    }
-
-    Ok(FixtureLoadOutcome::Failed { stderr })
+    Err(fixture_load_error(output_stderr(stderr)))
 }
 
 fn fixture_load_error(stderr: String) -> String {
@@ -135,20 +116,6 @@ pub(super) fn fixtures_load_command(environment: &str, canister: &str) -> Comman
     command
 }
 
-fn looks_like_missing_fixtures_endpoint(stderr: &str) -> bool {
-    stderr.contains("CanisterMethodNotFound")
-        || stderr.contains("has no update method")
-        || stderr.contains("has no query method")
-}
-
-fn looks_like_insufficient_cycles(stderr: &str) -> bool {
-    let lowered = stderr.to_ascii_lowercase();
-
-    lowered.contains("insufficient cycles")
-        || lowered.contains("cannot grow memory")
-        || stderr.contains("IC0532")
-}
-
 pub(super) fn parse_canister_cycles(status: &str) -> Option<u128> {
     status.lines().find_map(|line| {
         let cycles = line.trim().strip_prefix("Cycles:")?.trim();
@@ -167,4 +134,20 @@ pub(super) fn top_up_command(environment: &str, canister: &str, amount: &str) ->
     append_environment_args(&mut command, environment);
 
     command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixture_load_result;
+
+    #[test]
+    fn deployed_fixture_method_absence_remains_an_authoritative_failure() {
+        let error = fixture_load_result(false, b"", b"CanisterMethodNotFound")
+            .expect_err("a missing deployed fixture endpoint must fail refresh");
+
+        assert_eq!(
+            error,
+            "icp canister call icydb_fixtures_load failed: CanisterMethodNotFound",
+        );
+    }
 }

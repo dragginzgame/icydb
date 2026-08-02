@@ -1,0 +1,9 @@
+error: unknown or invalid IcyDB endpoint declaration `icydb_metrics`
+ --> tests/fail-endpoints/invalid_option.rs:5:1
+  |
+5 | / icydb::endpoints! {
+6 | |     icydb_metrics(authorization = private);
+7 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

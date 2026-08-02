@@ -3,27 +3,65 @@
 //! Does not own: route feasibility derivation or runtime execution.
 //! Boundary: exposes route-derived execution facts consumed by preparation and explain surfaces.
 
-#[cfg(feature = "sql-explain")]
-use crate::db::executor::route::{IndexPrefixChildExpansionHint, LoadOrderRouteReason};
 use crate::db::{
     direction::Direction,
     executor::{
         IndexLeafOrderPolicy,
-        aggregate::AggregateFoldMode,
         route::{
             PushdownApplicability,
             contracts::{
                 RouteCapabilityFacts, RouteContinuationPlan,
                 execution::{
-                    AggregateSeekSpec, GroupedExecutionMode, IndexRangeLimitSpec,
-                    LoadOrderRouteMode, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
+                    GroupedExecutionMode, IndexRangeLimitSpec, LoadOrderRouteMode,
+                    RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
                 },
-                shape::{FastPathOrder, RouteShapeKind},
+                shape::FastPathOrder,
             },
+        },
+    },
+};
+#[cfg(feature = "sql-explain")]
+use crate::db::{
+    executor::{
+        aggregate::AggregateFoldMode,
+        route::{
+            AggregateSeekSpec, IndexPrefixChildExpansionHint, LoadOrderRouteReason, RouteShapeKind,
         },
     },
     query::plan::{CoveringReadExecutionPlan, GroupedPlanStrategy},
 };
+
+/// EXPLAIN-only route facts retained after executable route selection.
+#[cfg(feature = "sql-explain")]
+#[derive(Clone)]
+pub(in crate::db::executor) struct RouteExplainFacts {
+    route_shape_kind: RouteShapeKind,
+    aggregate_seek_spec: Option<AggregateSeekSpec>,
+    aggregate_fold_mode: AggregateFoldMode,
+    grouped_plan_strategy: Option<GroupedPlanStrategy>,
+    load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
+}
+
+#[cfg(feature = "sql-explain")]
+impl RouteExplainFacts {
+    /// Freeze the route decisions consumed only by EXPLAIN projections.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        route_shape_kind: RouteShapeKind,
+        aggregate_seek_spec: Option<AggregateSeekSpec>,
+        aggregate_fold_mode: AggregateFoldMode,
+        grouped_plan_strategy: Option<GroupedPlanStrategy>,
+        load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
+    ) -> Self {
+        Self {
+            route_shape_kind,
+            aggregate_seek_spec,
+            aggregate_fold_mode,
+            grouped_plan_strategy,
+            load_terminal_fast_path,
+        }
+    }
+}
 
 ///
 /// ExecutionRoutePlan
@@ -37,11 +75,6 @@ use crate::db::{
 #[derive(Clone)]
 pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) direction: Direction,
-    #[cfg_attr(
-        not(feature = "sql-explain"),
-        expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
-    )]
-    pub(in crate::db::executor) route_shape_kind: RouteShapeKind,
     pub(in crate::db::executor) continuation: RouteContinuationPlan,
     pub(in crate::db::executor) execution_mode: RouteExecutionMode,
     pub(in crate::db::executor) desc_physical_reverse_supported: bool,
@@ -50,28 +83,10 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor::planning::route) capability_facts: RouteCapabilityFacts,
     pub(in crate::db::executor) fast_path_order: &'static [FastPathOrder],
     pub(in crate::db::executor) top_n_seek_spec: Option<TopNSeekSpec>,
-    #[cfg_attr(
-        not(feature = "sql-explain"),
-        expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
-    )]
-    pub(in crate::db::executor) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
-    #[cfg_attr(
-        not(feature = "sql-explain"),
-        expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
-    )]
-    pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
-    #[cfg_attr(
-        not(feature = "sql-explain"),
-        expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
-    )]
-    pub(in crate::db::executor) grouped_plan_strategy: Option<GroupedPlanStrategy>,
     pub(in crate::db::executor) grouped_execution_mode: Option<GroupedExecutionMode>,
-    #[cfg_attr(
-        not(feature = "sql-explain"),
-        expect(dead_code, reason = "retained for SQL EXPLAIN route diagnostics")
-    )]
-    pub(in crate::db::executor) load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
+    #[cfg(feature = "sql-explain")]
+    pub(in crate::db::executor) explain: RouteExplainFacts,
 }
 
 impl ExecutionRoutePlan {
@@ -82,7 +97,6 @@ impl ExecutionRoutePlan {
     pub(in crate::db::executor) const fn grouped_for_test(direction: Direction) -> Self {
         Self {
             direction,
-            route_shape_kind: RouteShapeKind::AggregateGrouped,
             continuation: RouteContinuationPlan::initial_for_test(),
             execution_mode: RouteExecutionMode::Materialized,
             desc_physical_reverse_supported: false,
@@ -106,16 +120,20 @@ impl ExecutionRoutePlan {
             },
             fast_path_order: &[],
             top_n_seek_spec: None,
-            aggregate_seek_spec: None,
             scan_hints: ScanHintPlan {
                 physical_fetch_hint: None,
                 load_scan_budget_hint: None,
                 index_prefix_child_expansion: None,
             },
-            aggregate_fold_mode: AggregateFoldMode::ExistingRows,
-            grouped_plan_strategy: None,
             grouped_execution_mode: Some(GroupedExecutionMode::HashMaterialized),
-            load_terminal_fast_path: None,
+            #[cfg(feature = "sql-explain")]
+            explain: RouteExplainFacts::new(
+                RouteShapeKind::AggregateGrouped,
+                None,
+                AggregateFoldMode::ExistingRows,
+                None,
+                None,
+            ),
         }
     }
 
@@ -134,7 +152,7 @@ impl ExecutionRoutePlan {
     pub(in crate::db::executor) const fn load_terminal_fast_path(
         &self,
     ) -> Option<&CoveringReadExecutionPlan> {
-        self.load_terminal_fast_path.as_ref()
+        self.explain.load_terminal_fast_path.as_ref()
     }
 
     #[must_use]
@@ -148,7 +166,7 @@ impl ExecutionRoutePlan {
     #[must_use]
     #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn route_shape_kind(&self) -> RouteShapeKind {
-        self.route_shape_kind
+        self.explain.route_shape_kind
     }
 
     pub(in crate::db::executor) const fn execution_mode(&self) -> RouteExecutionMode {
@@ -180,10 +198,17 @@ impl ExecutionRoutePlan {
     pub(in crate::db::executor) const fn grouped_plan_fallback_reason(
         &self,
     ) -> Option<crate::db::query::plan::GroupedPlanFallbackReason> {
-        match self.grouped_plan_strategy {
+        match self.explain.grouped_plan_strategy {
             Some(strategy) => strategy.fallback_reason(),
             None => None,
         }
+    }
+
+    /// Return the aggregate fold mode retained for route diagnostics.
+    #[must_use]
+    #[cfg(feature = "sql-explain")]
+    pub(in crate::db::executor) const fn aggregate_fold_mode(&self) -> AggregateFoldMode {
+        self.explain.aggregate_fold_mode
     }
 
     /// Return whether DESC execution can traverse the physical access path in reverse.
@@ -276,7 +301,7 @@ impl ExecutionRoutePlan {
     #[must_use]
     #[cfg(feature = "sql-explain")]
     pub(in crate::db::executor) const fn aggregate_seek_spec(&self) -> Option<AggregateSeekSpec> {
-        self.aggregate_seek_spec
+        self.explain.aggregate_seek_spec
     }
 
     /// Return route-owned bounded fetch hint derived from aggregate seek contract.

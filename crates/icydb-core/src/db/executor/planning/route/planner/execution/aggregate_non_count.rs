@@ -3,13 +3,12 @@
 //! Does not own: aggregate terminal execution or feasibility derivation.
 //! Boundary: maps staged route facts into non-`COUNT` execution mode.
 
-use crate::db::executor::{
-    aggregate::AggregateFoldMode,
-    route::{
-        RouteExecutionMode, RouteShapeKind, aggregate_non_count_streaming_allowed,
-        planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
-    },
+use crate::db::executor::route::{
+    RouteExecutionMode, aggregate_non_count_streaming_allowed,
+    planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
 };
+#[cfg(feature = "sql-explain")]
+use crate::db::executor::{aggregate::AggregateFoldMode, route::RouteShapeKind};
 
 /// Derive the execution mode for non-`COUNT` scalar aggregate routes.
 pub(super) const fn derive_execution_mode_for_aggregate_non_count(
@@ -59,8 +58,10 @@ pub(super) fn build_execution_stage_for_aggregate_non_count(
     );
 
     RouteExecutionStage {
+        #[cfg(feature = "sql-explain")]
         route_shape_kind: RouteShapeKind::AggregateNonCount,
         execution_mode,
+        #[cfg(feature = "sql-explain")]
         aggregate_fold_mode: AggregateFoldMode::ExistingRows,
         index_range_limit_spec,
     }

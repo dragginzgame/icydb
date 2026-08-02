@@ -17,6 +17,7 @@ ICP_DIR="$ROOT/.icp/local/canisters/$CAN"
 WASM_TARGET="$ICP_DIR/$CAN.wasm"
 
 cargo run --manifest-path "$ROOT/Cargo.toml" \
+    --locked \
     --package icydb-testing-integration \
     --bin build_fixture_canister \
     -- "$CAN" --build-profile local --profile debug --candid-export on
