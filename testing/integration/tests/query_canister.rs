@@ -1,7 +1,7 @@
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_integration::install_fixture_canister;
 
-fn typed_query_row_count(fixture: &StandaloneCanisterFixture, method: &str) -> Result<u32, String> {
+fn typed_query_row_count(fixture: &StandaloneCanisterFixture, method: &str) -> u32 {
     fixture
         .query_call(method, ())
         .expect("typed query endpoint response should decode")
@@ -14,8 +14,7 @@ fn query_only_typed_canisters_execute_without_sql() {
         ("ten_entity_typed_query", "query_ten_entity_typed_rows"),
     ] {
         let fixture = install_fixture_canister(canister);
-        let row_count = typed_query_row_count(&fixture, method)
-            .unwrap_or_else(|error| panic!("{canister} typed query should succeed: {error}"));
+        let row_count = typed_query_row_count(&fixture, method);
 
         assert_eq!(
             row_count, 0,
