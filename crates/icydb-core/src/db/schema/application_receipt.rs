@@ -17,7 +17,7 @@ use serde::Deserialize;
 use sha2::Digest;
 
 const SCHEMA_CHANGE_JOB_ID_PROFILE: &[u8] = b"icydb.schema-application.job-id.v1";
-const MAX_SCHEMA_CHANGE_ACTIVATIONS: usize = 512;
+pub(in crate::db::schema) const MAX_SCHEMA_CHANGE_ACTIVATIONS: usize = 512;
 
 ///
 /// SchemaChangeJobId
@@ -30,7 +30,7 @@ const MAX_SCHEMA_CHANGE_ACTIVATIONS: usize = 512;
 pub struct SchemaChangeJobId([u8; 32]);
 
 impl SchemaChangeJobId {
-    fn from_bytes(bytes: [u8; 32]) -> Result<Self, InternalError> {
+    pub(in crate::db::schema) fn from_bytes(bytes: [u8; 32]) -> Result<Self, InternalError> {
         if bytes == [0; 32] {
             return Err(InternalError::store_corruption());
         }
@@ -319,7 +319,7 @@ impl SchemaChangeReceipt {
 /// Minimal generated-check identity carried by a pending application job.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaChangeActivation {
     store: TargetStoreIdentity,
     entity_tag: u64,
@@ -369,7 +369,7 @@ impl SchemaChangeActivation {
 /// pending job. Terminal receipts cannot retain activation state.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaApplicationRecord {
     receipt: SchemaChangeReceipt,
     activations: Vec<SchemaChangeActivation>,

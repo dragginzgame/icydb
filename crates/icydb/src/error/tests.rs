@@ -16,43 +16,9 @@ use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOr
 use serde::Serialize;
 
 #[derive(CandidType, Serialize)]
-enum ConstraintDiagnosticKindWire {
-    Check,
-    TargetedRule,
-}
-
-#[derive(CandidType, Serialize)]
-enum ConstraintDiagnosticContextWire {
-    WriteAdmission,
-}
-
-#[derive(CandidType, Serialize)]
-enum ConstraintValuePathComponentWire {
-    RootField {
-        field_id: u32,
-    },
-    RecordMember {
-        composite_type_id: u32,
-        member_id: u32,
-    },
-}
-
-#[derive(CandidType, Serialize)]
-struct ConstraintValuePathWire {
-    components: Vec<ConstraintValuePathComponentWire>,
-}
-
-#[derive(CandidType, Serialize)]
-struct ConstraintDiagnosticWire {
-    constraint_id: u32,
-    constraint_name: String,
-    constraint_kind: ConstraintDiagnosticKindWire,
-    entity: String,
-    primary_key: Option<Vec<u8>>,
-    field_paths: Vec<String>,
-    value_path: Option<ConstraintValuePathWire>,
-    context: ConstraintDiagnosticContextWire,
-    error_code: u16,
+struct DiagnosticFactWire {
+    tag: u8,
+    value: u64,
 }
 
 #[derive(CandidType, Serialize)]
@@ -60,7 +26,7 @@ struct ErrorWire {
     code: u16,
     class: u8,
     origin: u8,
-    constraint: Option<ConstraintDiagnosticWire>,
+    facts: Vec<DiagnosticFactWire>,
 }
 
 fn expect_record_fields(ty: Type) -> Vec<String> {
@@ -435,108 +401,54 @@ fn error_struct_candid_shape_is_stable() {
     let mut fields = expect_record_fields(Error::ty());
     fields.sort();
 
-    assert_eq!(fields, ["class", "code", "constraint", "origin"]);
+    assert_eq!(fields, ["class", "code", "facts", "origin"]);
 }
 
 #[test]
-fn public_error_candid_preserves_the_typed_constraint_diagnostic() {
-    let bytes = Encode!(&ErrorWire {
-        code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
-        class: icydb_diagnostic_code::ErrorClass::InvariantViolation.wire_code(),
-        origin: icydb_diagnostic_code::ErrorOrigin::Executor.wire_code(),
-        constraint: Some(ConstraintDiagnosticWire {
-            constraint_id: 41,
-            constraint_name: "adult_age".to_string(),
-            constraint_kind: ConstraintDiagnosticKindWire::Check,
-            entity: "example::Person".to_string(),
-            primary_key: Some(vec![4, 9]),
-            field_paths: vec!["age".to_string()],
-            value_path: None,
-            context: ConstraintDiagnosticContextWire::WriteAdmission,
-            error_code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
-                .raw(),
-        }),
-    })
-    .expect("typed public constraint error should encode");
-    let error =
-        Decode!(bytes.as_slice(), Error).expect("typed public constraint error should decode");
-    let diagnostic = error
-        .constraint_diagnostic()
-        .expect("public error should retain the constraint diagnostic");
+fn diagnostic_fact_candid_shape_is_stable() {
+    let mut fields = expect_record_fields(DiagnosticFact::ty());
+    fields.sort();
 
-    assert_eq!(diagnostic.constraint_id(), 41);
-    assert_eq!(diagnostic.constraint_name(), "adult_age");
-    assert_eq!(
-        diagnostic.constraint_kind(),
-        ConstraintDiagnosticKind::Check
-    );
-    assert_eq!(diagnostic.entity(), "example::Person");
-    assert_eq!(diagnostic.primary_key(), Some([4, 9].as_slice()));
-    assert_eq!(diagnostic.field_paths(), &["age".to_string()]);
-    assert_eq!(
-        diagnostic.context(),
-        ConstraintDiagnosticContext::WriteAdmission
-    );
-    assert_eq!(
-        diagnostic.error_code(),
-        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
-    );
+    assert_eq!(fields, ["tag", "value"]);
 }
 
 #[test]
-fn public_error_candid_preserves_targeted_rule_identity_and_value_path() {
+fn public_error_candid_preserves_bounded_numeric_facts() {
     let bytes = Encode!(&ErrorWire {
-        code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
-        class: icydb_diagnostic_code::ErrorClass::InvariantViolation.wire_code(),
+        code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS
+            .raw(),
+        class: icydb_diagnostic_code::ErrorClass::Unsupported.wire_code(),
         origin: icydb_diagnostic_code::ErrorOrigin::Executor.wire_code(),
-        constraint: Some(ConstraintDiagnosticWire {
-            constraint_id: 44,
-            constraint_name: "degree_range".to_string(),
-            constraint_kind: ConstraintDiagnosticKindWire::TargetedRule,
-            entity: "example::Character".to_string(),
-            primary_key: Some(vec![5]),
-            field_paths: vec!["profile".to_string()],
-            value_path: Some(ConstraintValuePathWire {
-                components: vec![
-                    ConstraintValuePathComponentWire::RootField { field_id: 2 },
-                    ConstraintValuePathComponentWire::RecordMember {
-                        composite_type_id: 7,
-                        member_id: 11,
-                    },
-                ],
-            }),
-            context: ConstraintDiagnosticContextWire::WriteAdmission,
-            error_code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
-                .raw(),
-        }),
-    })
-    .expect("typed targeted-rule error should encode");
-    let error = Decode!(bytes.as_slice(), Error).expect("typed targeted-rule error should decode");
-    let diagnostic = error
-        .constraint_diagnostic()
-        .expect("public error should retain the targeted-rule diagnostic");
-
-    assert_eq!(
-        diagnostic.constraint_kind(),
-        ConstraintDiagnosticKind::TargetedRule
-    );
-    assert_eq!(diagnostic.field_paths(), &["profile".to_string()]);
-    let value_path = diagnostic
-        .value_path()
-        .expect("targeted rule should retain one typed occurrence path");
-    assert_eq!(
-        value_path.components(),
-        &[
-            ConstraintValuePathComponent::RootField { field_id: 2 },
-            ConstraintValuePathComponent::RecordMember {
-                composite_type_id: 7,
-                member_id: 11,
+        facts: vec![
+            DiagnosticFactWire {
+                tag: icydb_diagnostic_code::DiagnosticFactTag::ActualCount.raw(),
+                value: 5_000,
             },
-        ]
+            DiagnosticFactWire {
+                tag: icydb_diagnostic_code::DiagnosticFactTag::Limit.raw(),
+                value: 4_096,
+            },
+        ],
+    })
+    .expect("numeric public error facts should encode");
+    let error = Decode!(bytes.as_slice(), Error).expect("numeric public error should decode");
+
+    assert_eq!(
+        error.code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS,
     );
     assert_eq!(
-        value_path.to_string(),
-        "field#2/record#7.member#11".to_string()
+        error.facts(),
+        &[
+            DiagnosticFact {
+                tag: icydb_diagnostic_code::DiagnosticFactTag::ActualCount.raw(),
+                value: 5_000,
+            },
+            DiagnosticFact {
+                tag: icydb_diagnostic_code::DiagnosticFactTag::Limit.raw(),
+                value: 4_096,
+            },
+        ],
     );
 }
 

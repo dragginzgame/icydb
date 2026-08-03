@@ -72,6 +72,7 @@ type DeepIntegrityPageStatus = variant {
   Terminal : IntegrityTerminalOutcome;
   InProgress;
 };
+type DiagnosticFact = record { tag : nat8; value : nat64 };
 type EntityCatalogDescription = record {
   storage : text;
   schema_version : nat32;
@@ -300,7 +301,7 @@ type Error = record {
   code : nat16;
   class : nat8;
   origin : nat8;
-  constraint : opt ConstraintDiagnostic;
+  facts : vec DiagnosticFact;
 };
 type EventCounters = record {
   ops : EventOps;

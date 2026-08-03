@@ -11,6 +11,10 @@
 
 use std::fmt;
 
+mod fact;
+
+pub use fact::{DiagnosticFactTag, MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair};
+
 ///
 /// DiagnosticCode
 ///

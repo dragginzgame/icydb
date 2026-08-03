@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.219.x] 🩺 - 2026-08-03 - Compact Structured Diagnostics
+
+Detailed notes: [docs/changelog/0.219.md](docs/changelog/0.219.md)
+
+- `0.219.0` hard-cuts public errors to bounded numeric facts and replaces
+  private Candid/Serde schema-job codecs with direct bounded formats, requiring
+  affected development state to be recreated while preserving successful
+  execution semantics.
+
 ## [0.218.x] 🧭 - 2026-08-03 - Explicit Versioned Schema Migrations
 
 Detailed notes: [docs/changelog/0.218.md](docs/changelog/0.218.md)

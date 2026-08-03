@@ -7,11 +7,45 @@ use crate::{
             AcceptedCheckExprV1, AcceptedNamedTypeIdentity, AcceptedRuleOperation,
             AcceptedRuleTarget, AcceptedTargetPath, AcceptedTargetPathComponent,
             ConstraintActivationKind, ConstraintOrigin, MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
-            composite_catalog::CompositeTypeId,
+            composite_catalog::{CompositeFieldId, CompositeTypeId},
+            enum_catalog::{EnumTypeId, EnumVariantId},
         },
     },
     types::EntityTag,
 };
+
+fn rewrite_current_job_bytes(bytes: &[u8], rewrite: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+    let body_len = bytes
+        .len()
+        .checked_sub(CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES)
+        .expect("current job bytes should include a checksum");
+    let mut body = bytes[..body_len].to_vec();
+    rewrite(&mut body);
+    let checksum = crc32c(&body).to_be_bytes();
+    body.extend_from_slice(&checksum);
+    body
+}
+
+fn golden_job() -> ConstraintValidationJob {
+    ConstraintValidationJob {
+        entity_tag: EntityTag::new(1),
+        entity_path: "x".to_string(),
+        constraint_id: ConstraintId::new(1).expect("golden constraint ID should be non-zero"),
+        activation_epoch: 1,
+        activation_fingerprint: ConstraintActivationFingerprint::new([0x11; 32]),
+        base_schema_fingerprint: AcceptedSchemaFingerprint::new([0x22; 32]),
+        phase: ConstraintValidationPhase::Forward,
+        checkpoint: None,
+        captured_store_revisions: None,
+        staged_generation: None,
+        rows_scanned: 0,
+        findings_seen: 0,
+        restarts: 0,
+        forward_findings: 0,
+        receipt_sequence: 0,
+        last_receipt: None,
+    }
+}
 
 fn activation(state: ConstraintActivationState) -> ConstraintActivationSnapshot {
     let id = ConstraintId::new(7).expect("test activation ID should be non-zero");
@@ -69,6 +103,11 @@ fn validation_job_round_trips_current_forward_identity() {
     job.rows_scanned = 3;
 
     let bytes = encode_constraint_validation_job(&job).expect("job should encode");
+    assert_eq!(
+        encode_constraint_validation_job(&job)
+            .expect("repeat encoding should remain deterministic"),
+        bytes,
+    );
     let decoded = decode_constraint_validation_job(&bytes).expect("job should decode");
 
     assert_eq!(decoded, job);
@@ -111,17 +150,33 @@ fn validation_job_rejects_cross_entity_checkpoint_and_unbounded_receipt() {
 }
 
 #[test]
-fn validation_job_decode_rejects_noncurrent_profile_and_oversized_bytes() {
-    let entity = EntityTag::new(46);
-    let activation = activation(ConstraintActivationState::Validating);
-    let job =
-        ConstraintValidationJob::start(entity, "tests::Checked".to_string(), &activation, None)
-            .expect("validating activation should start a job");
-    let mut wire = ConstraintValidationJobWire::from_job(&job);
-    wire.contract_profile = u32::from_be_bytes(*b"ICJZ");
-    let bytes = Encode!(&wire).expect("noncurrent test wire should encode");
-    let error = decode_constraint_validation_job(&bytes)
-        .expect_err("noncurrent job profile must fail closed");
+fn validation_job_v1_golden_bytes_remain_stable() {
+    let bytes = encode_constraint_validation_job(&golden_job()).expect("golden job should encode");
+    let mut expected = CONSTRAINT_VALIDATION_JOB_MAGIC.to_vec();
+    expected.push(CONSTRAINT_VALIDATION_JOB_CODEC_VERSION);
+    expected.extend_from_slice(&1_u64.to_be_bytes());
+    expected.extend_from_slice(&1_u32.to_be_bytes());
+    expected.push(b'x');
+    expected.extend_from_slice(&1_u32.to_be_bytes());
+    expected.extend_from_slice(&1_u64.to_be_bytes());
+    expected.extend_from_slice(&[0x11; 32]);
+    expected.extend_from_slice(&[0x22; 32]);
+    expected.extend_from_slice(&[1, 0, 0, 0]);
+    expected.extend_from_slice(&[0; 5 * size_of::<u64>()]);
+    expected.push(0);
+    expected.extend_from_slice(&[48, 56, 155, 49]);
+
+    assert_eq!(bytes, expected);
+}
+
+#[test]
+fn validation_job_decode_rejects_noncurrent_version_and_oversized_bytes() {
+    let bytes = encode_constraint_validation_job(&golden_job()).expect("job should encode");
+    let noncurrent = rewrite_current_job_bytes(&bytes, |body| {
+        body[CONSTRAINT_VALIDATION_JOB_MAGIC.len()] = 2;
+    });
+    let error = decode_constraint_validation_job(&noncurrent)
+        .expect_err("noncurrent job version must fail closed");
     assert_eq!(
         error.class,
         crate::error::ErrorClass::IncompatiblePersistedFormat
@@ -133,6 +188,96 @@ fn validation_job_decode_rejects_noncurrent_profile_and_oversized_bytes() {
             .is_err(),
         "oversized job bytes must reject before decoding",
     );
+}
+
+#[test]
+fn validation_job_decode_rejects_truncation_corruption_and_trailing_bytes() {
+    let bytes = encode_constraint_validation_job(&golden_job()).expect("job should encode");
+    for len in 0..bytes.len() {
+        assert!(
+            decode_constraint_validation_job(&bytes[..len]).is_err(),
+            "truncated current bytes at {len} must fail closed",
+        );
+    }
+
+    let mut corrupt = bytes.clone();
+    corrupt[9] ^= 1;
+    assert!(decode_constraint_validation_job(&corrupt).is_err());
+
+    let bad_magic = rewrite_current_job_bytes(&bytes, |body| body[0] ^= 1);
+    assert!(decode_constraint_validation_job(&bad_magic).is_err());
+
+    let trailing = rewrite_current_job_bytes(&bytes, |body| body.push(0));
+    assert!(decode_constraint_validation_job(&trailing).is_err());
+}
+
+#[test]
+fn validation_job_decode_rejects_bounded_lengths_and_unknown_tags() {
+    let bytes = encode_constraint_validation_job(&golden_job()).expect("job should encode");
+    let oversized_entity_path = rewrite_current_job_bytes(&bytes, |body| {
+        let path_len_offset = CONSTRAINT_VALIDATION_JOB_MAGIC.len() + 1 + size_of::<u64>();
+        body[path_len_offset..path_len_offset + size_of::<u32>()].copy_from_slice(
+            &u32::try_from(MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES + 1)
+                .expect("test path bound should fit u32")
+                .to_be_bytes(),
+        );
+    });
+    assert!(decode_constraint_validation_job(&oversized_entity_path).is_err());
+
+    let unknown_phase = rewrite_current_job_bytes(&bytes, |body| {
+        let phase_offset = CONSTRAINT_VALIDATION_JOB_MAGIC.len()
+            + 1
+            + size_of::<u64>()
+            + size_of::<u32>()
+            + golden_job().entity_path().len()
+            + size_of::<u32>()
+            + size_of::<u64>()
+            + 32
+            + 32;
+        body[phase_offset] = u8::MAX;
+    });
+    assert!(decode_constraint_validation_job(&unknown_phase).is_err());
+
+    let mut reader = ConstraintValidationJobReader::new(&[u8::MAX]);
+    assert!(decode_path_component(&mut reader).is_err());
+}
+
+#[test]
+fn validation_job_path_component_tags_round_trip_exhaustively() {
+    let composite_type_id = CompositeTypeId::new(3).expect("test composite ID should be non-zero");
+    let components = [
+        AcceptedTargetPathComponent::RootField(FieldId::new(1)),
+        AcceptedTargetPathComponent::RecordMember {
+            composite_type_id,
+            member_id: CompositeFieldId::new(4).expect("test member ID should be non-zero"),
+        },
+        AcceptedTargetPathComponent::TupleElement {
+            composite_type_id,
+            ordinal: 5,
+        },
+        AcceptedTargetPathComponent::Newtype { composite_type_id },
+        AcceptedTargetPathComponent::EnumVariant {
+            enum_type_id: EnumTypeId::new(6).expect("test enum ID should be non-zero"),
+            variant_id: EnumVariantId::new(7).expect("test variant ID should be non-zero"),
+        },
+        AcceptedTargetPathComponent::ListElement { index: 8 },
+        AcceptedTargetPathComponent::SetElement { index: 9 },
+        AcceptedTargetPathComponent::MapEntryKey { index: 10 },
+        AcceptedTargetPathComponent::MapEntryValue { index: 11 },
+    ];
+
+    for (index, component) in components.iter().enumerate() {
+        let mut writer = ConstraintValidationJobWriter::new();
+        encode_path_component(&mut writer, component);
+        let bytes = writer.finish().expect("path component should encode");
+        assert_eq!(bytes[0], u8::try_from(index + 1).expect("tag should fit"));
+        let mut reader = ConstraintValidationJobReader::new(&bytes);
+        assert_eq!(
+            decode_path_component(&mut reader).expect("path component should decode"),
+            *component,
+        );
+        reader.finish().expect("component should consume all bytes");
+    }
 }
 
 #[test]
@@ -268,6 +413,12 @@ fn forward_and_verify_progress_preserve_receipt_and_revision_invariants() {
             .expect("Verify should retain one revision")[0]
             .revision(),
         3,
+    );
+    let verify_bytes =
+        encode_constraint_validation_job(&job).expect("Verify progress should encode");
+    assert_eq!(
+        decode_constraint_validation_job(&verify_bytes).expect("Verify progress should decode"),
+        job,
     );
 
     job.restart_forward(0, Vec::new())

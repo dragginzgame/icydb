@@ -72,36 +72,122 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         .copied()
         .map_or_else(|| code_text(code).to_string(), diagnostic_detail_text);
     let summary = format!("{}: {detail}", code_label(code));
-    let Some(constraint) = err.constraint_diagnostic() else {
+    if err.facts().is_empty() {
         return summary;
-    };
+    }
 
-    let value_path = constraint
-        .value_path()
-        .map_or_else(String::new, |path| format!(" value_path={path}"));
-    format!(
-        "{summary}; constraint id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}{}",
-        constraint.constraint_id(),
-        constraint.constraint_name(),
-        constraint.constraint_kind().as_str(),
-        constraint.entity(),
-        constraint
-            .primary_key()
-            .map_or_else(|| "-".to_string(), render_hex_bytes),
-        constraint.field_paths().join(","),
-        constraint.context().as_str(),
-        class_text(constraint.error_class()),
-        constraint.error_code().raw(),
-        value_path,
-    )
+    let mut rendered = String::new();
+    for (index, fact) in err.facts().iter().enumerate() {
+        if index != 0 {
+            rendered.push(' ');
+        }
+        match icydb::diagnostic::DiagnosticFactTag::known(fact.tag()) {
+            Some(tag) => {
+                let _ = write!(rendered, "{}={}", fact_tag_text(tag), fact.value());
+            }
+            None => {
+                let _ = write!(rendered, "tag#{}={}", fact.tag(), fact.value());
+            }
+        }
+    }
+
+    format!("{summary}; facts {rendered}")
 }
 
-fn render_hex_bytes(bytes: &[u8]) -> String {
-    let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        let _ = write!(rendered, "{byte:02x}");
+const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static str {
+    use icydb::diagnostic::DiagnosticFactTag;
+
+    match tag {
+        DiagnosticFactTag::AcceptedSchemaFingerprintMethod => "accepted_schema_fingerprint_method",
+        DiagnosticFactTag::AcceptedSchemaFingerprintHigh => "accepted_schema_fingerprint_high",
+        DiagnosticFactTag::AcceptedSchemaFingerprintLow => "accepted_schema_fingerprint_low",
+        DiagnosticFactTag::ExpectedFingerprintPrefix => "expected_fingerprint_prefix",
+        DiagnosticFactTag::ActualFingerprintPrefix => "actual_fingerprint_prefix",
+        DiagnosticFactTag::EntityTag => "entity_tag",
+        DiagnosticFactTag::ExpectedEntityTag => "expected_entity_tag",
+        DiagnosticFactTag::ActualEntityTag => "actual_entity_tag",
+        DiagnosticFactTag::ConstraintId => "constraint_id",
+        DiagnosticFactTag::FieldId => "field_id",
+        DiagnosticFactTag::IndexId => "index_id",
+        DiagnosticFactTag::RelationId => "relation_id",
+        DiagnosticFactTag::MutationOperation => "mutation_operation",
+        DiagnosticFactTag::RowOperation => "row_operation",
+        DiagnosticFactTag::BatchPosition => "batch_position",
+        DiagnosticFactTag::FirstBatchPosition => "first_batch_position",
+        DiagnosticFactTag::DuplicateBatchPosition => "duplicate_batch_position",
+        DiagnosticFactTag::ClauseIndex => "clause_index",
+        DiagnosticFactTag::TermIndex => "term_index",
+        DiagnosticFactTag::FirstTermIndex => "first_term_index",
+        DiagnosticFactTag::DuplicateTermIndex => "duplicate_term_index",
+        DiagnosticFactTag::ProjectionIndex => "projection_index",
+        DiagnosticFactTag::GroupIndex => "group_index",
+        DiagnosticFactTag::AggregateIndex => "aggregate_index",
+        DiagnosticFactTag::ArgumentIndex => "argument_index",
+        DiagnosticFactTag::BranchIndex => "branch_index",
+        DiagnosticFactTag::ComponentIndex => "component_index",
+        DiagnosticFactTag::ParameterIndex => "parameter_index",
+        DiagnosticFactTag::SourceSpanStart => "source_span_start",
+        DiagnosticFactTag::SourceSpanEnd => "source_span_end",
+        DiagnosticFactTag::Expected => "expected",
+        DiagnosticFactTag::Actual => "actual",
+        DiagnosticFactTag::Minimum => "minimum",
+        DiagnosticFactTag::Maximum => "maximum",
+        DiagnosticFactTag::Limit => "limit",
+        DiagnosticFactTag::ExpectedCount => "expected_count",
+        DiagnosticFactTag::ActualCount => "actual_count",
+        DiagnosticFactTag::ExpectedRevision => "expected_revision",
+        DiagnosticFactTag::ActualRevision => "actual_revision",
+        DiagnosticFactTag::CurrentRevision => "current_revision",
+        DiagnosticFactTag::RequestedRevision => "requested_revision",
+        DiagnosticFactTag::ExpectedVersion => "expected_version",
+        DiagnosticFactTag::ActualVersion => "actual_version",
+        DiagnosticFactTag::CurrentVersion => "current_version",
+        DiagnosticFactTag::RequestedVersion => "requested_version",
+        DiagnosticFactTag::ExpectedOffset => "expected_offset",
+        DiagnosticFactTag::ActualOffset => "actual_offset",
+        DiagnosticFactTag::ExpectedArity => "expected_arity",
+        DiagnosticFactTag::ActualArity => "actual_arity",
+        DiagnosticFactTag::ExpectedLength => "expected_length",
+        DiagnosticFactTag::ActualLength => "actual_length",
+        DiagnosticFactTag::ExpectedSlotCount => "expected_slot_count",
+        DiagnosticFactTag::ActualSlotCount => "actual_slot_count",
+        DiagnosticFactTag::RowLayout => "row_layout",
+        DiagnosticFactTag::HistoryFloor => "history_floor",
+        DiagnosticFactTag::CurrentLayout => "current_layout",
+        DiagnosticFactTag::PhysicalSlot => "physical_slot",
+        DiagnosticFactTag::PhysicalGeneration => "physical_generation",
+        DiagnosticFactTag::ExpectedMemoryId => "expected_memory_id",
+        DiagnosticFactTag::ActualMemoryId => "actual_memory_id",
+        DiagnosticFactTag::ConstraintKind => "constraint_kind",
+        DiagnosticFactTag::ConstraintContext => "constraint_context",
+        DiagnosticFactTag::FieldKind => "field_kind",
+        DiagnosticFactTag::ValueKind => "value_kind",
+        DiagnosticFactTag::TypeFamily => "type_family",
+        DiagnosticFactTag::FunctionKind => "function_kind",
+        DiagnosticFactTag::OperatorKind => "operator_kind",
+        DiagnosticFactTag::AggregateKind => "aggregate_kind",
+        DiagnosticFactTag::KeyNamespaceKind => "key_namespace_kind",
+        DiagnosticFactTag::ComponentKind => "component_kind",
+        DiagnosticFactTag::MismatchKind => "mismatch_kind",
+        DiagnosticFactTag::DecodeReason => "decode_reason",
+        DiagnosticFactTag::BudgetResource => "budget_resource",
+        DiagnosticFactTag::MigrationPhase => "migration_phase",
+        DiagnosticFactTag::DatabaseControlRecordKind => "database_control_record_kind",
+        DiagnosticFactTag::StateKind => "state_kind",
+        DiagnosticFactTag::PayloadComponent => "payload_component",
+        DiagnosticFactTag::ExpectedSignaturePrefix => "expected_signature_prefix",
+        DiagnosticFactTag::ActualSignaturePrefix => "actual_signature_prefix",
+        DiagnosticFactTag::FindingPosition => "finding_position",
+        DiagnosticFactTag::RootField => "root_field",
+        DiagnosticFactTag::RecordMember => "record_member",
+        DiagnosticFactTag::TupleElement => "tuple_element",
+        DiagnosticFactTag::Newtype => "newtype",
+        DiagnosticFactTag::EnumVariant => "enum_variant",
+        DiagnosticFactTag::ListElement => "list_element",
+        DiagnosticFactTag::SetElement => "set_element",
+        DiagnosticFactTag::MapEntryKey => "map_entry_key",
+        DiagnosticFactTag::MapEntryValue => "map_entry_value",
     }
-    rendered
 }
 
 const fn class_text(class: ErrorClass) -> &'static str {
@@ -976,28 +1062,28 @@ mod tests {
     }
 
     #[test]
-    fn renders_typed_constraint_identity_and_context() {
+    fn renders_known_and_unknown_numeric_facts() {
         let err: icydb::Error = serde_json::from_value(serde_json::json!({
-            "code": icydb::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
-            "class": icydb::diagnostic::ErrorClass::InvariantViolation.wire_code(),
+            "code": icydb::ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS.raw(),
+            "class": icydb::diagnostic::ErrorClass::Unsupported.wire_code(),
             "origin": icydb::diagnostic::ErrorOrigin::Executor.wire_code(),
-            "constraint": {
-                "constraint_id": 41,
-                "constraint_name": "adult_age",
-                "constraint_kind": "Check",
-                "entity": "example::Person",
-                "primary_key": [4, 9],
-                "field_paths": ["age"],
-                "context": "WriteAdmission",
-                "error_code":
-                    icydb::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
-            },
+            "facts": [
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ActualCount.raw(),
+                    "value": 5_000,
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::Limit.raw(),
+                    "value": 4_096,
+                },
+                { "tag": 250, "value": 7 },
+            ],
         }))
-        .expect("typed constraint error should decode");
+        .expect("numeric fact error should decode");
 
         assert_eq!(
             render_error(&err),
-            "E_RUNTIME_INVARIANT_VIOLATION: mutation violates an accepted constraint or activation gate; constraint id=41 name=adult_age kind=check entity=example::Person primary_key=0409 fields=age context=write_admission class=invariant-violation code=E223",
+            "E_RUNTIME_UNSUPPORTED: structural mutation batch exceeds the operation-count bound; facts actual_count=5000 limit=4096 tag#250=7",
         );
     }
 

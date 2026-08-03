@@ -6,6 +6,7 @@
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
+        database_format::crc32c,
         schema::{
             AcceptedSchemaFingerprint, AcceptedTargetPath, AcceptedTargetPathComponent,
             ConstraintActivationFingerprint, ConstraintActivationKind,
@@ -13,23 +14,39 @@ use crate::{
             MAX_ACCEPTED_TARGET_PATH_COMPONENTS, PersistedSchemaSnapshot,
             composite_catalog::{CompositeFieldId, CompositeTypeId},
             enum_catalog::{EnumTypeId, EnumVariantId},
+            wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
     error::InternalError,
     types::EntityTag,
 };
-use candid::{CandidType, Decode, Encode};
-use ic_stable_structures::Storable;
-use serde::Deserialize;
-use std::borrow::Cow;
 
-const CONSTRAINT_VALIDATION_JOB_CODEC_VERSION: u32 = 1;
-const CONSTRAINT_VALIDATION_JOB_PROFILE: u32 = u32::from_be_bytes(*b"ICJB");
+const CONSTRAINT_VALIDATION_JOB_MAGIC: [u8; 8] = *b"ICYCVJOB";
+const CONSTRAINT_VALIDATION_JOB_CODEC_VERSION: u8 = 1;
 pub(in crate::db) const MAX_CONSTRAINT_VALIDATION_JOB_BYTES: usize = 64 * 1024;
+const CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES: usize = size_of::<u32>();
+const OPTIONAL_ABSENT_TAG: u8 = 0;
+const OPTIONAL_PRESENT_TAG: u8 = 1;
+const PHASE_FORWARD_TAG: u8 = 1;
+const PHASE_VERIFY_TAG: u8 = 2;
+const PATH_ROOT_FIELD_TAG: u8 = 1;
+const PATH_RECORD_MEMBER_TAG: u8 = 2;
+const PATH_TUPLE_ELEMENT_TAG: u8 = 3;
+const PATH_NEWTYPE_TAG: u8 = 4;
+const PATH_ENUM_VARIANT_TAG: u8 = 5;
+const PATH_LIST_ELEMENT_TAG: u8 = 6;
+const PATH_SET_ELEMENT_TAG: u8 = 7;
+const PATH_MAP_ENTRY_KEY_TAG: u8 = 8;
+const PATH_MAP_ENTRY_VALUE_TAG: u8 = 9;
 const MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES: usize = 4 * 1024;
 const MAX_CONSTRAINT_VALIDATION_STORE_REVISIONS: usize = 16;
 const MAX_CONSTRAINT_VALIDATION_FINDINGS_PER_RECEIPT: usize = 64;
 const MAX_CONSTRAINT_VALIDATION_FINDING_FIELDS: usize = 32;
+
+type ConstraintValidationJobWriter = SchemaWireWriter<
+    { MAX_CONSTRAINT_VALIDATION_JOB_BYTES - CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES },
+>;
+type ConstraintValidationJobReader<'a> = SchemaWireReader<'a>;
 
 /// Project durable accepted field identities into bounded diagnostic paths.
 pub(in crate::db) fn accepted_constraint_field_paths(
@@ -265,24 +282,6 @@ impl ConstraintValidationJob {
     #[must_use]
     pub(in crate::db) const fn constraint_id(&self) -> ConstraintId {
         self.constraint_id
-    }
-
-    /// Return the bound activation epoch.
-    #[must_use]
-    pub(in crate::db) const fn activation_epoch(&self) -> u64 {
-        self.activation_epoch
-    }
-
-    /// Return the bound activation semantic fingerprint.
-    #[must_use]
-    pub(in crate::db) const fn activation_fingerprint(&self) -> ConstraintActivationFingerprint {
-        self.activation_fingerprint
-    }
-
-    /// Return the accepted root against which activation began.
-    #[must_use]
-    pub(in crate::db) const fn base_schema_fingerprint(&self) -> AcceptedSchemaFingerprint {
-        self.base_schema_fingerprint
     }
 
     /// Return the current bounded proof phase.
@@ -638,98 +637,40 @@ fn page_checkpoint_is_invalid(
     next.is_none_or(|next| current.is_some_and(|current| next <= current))
 }
 
-#[derive(CandidType, Deserialize)]
-struct ConstraintValidationJobWire {
-    codec_version: u32,
-    contract_profile: u32,
-    entity_tag: u64,
-    entity_path: String,
-    constraint_id: u32,
-    activation_epoch: u64,
-    activation_fingerprint: [u8; 32],
-    base_schema_fingerprint: [u8; 32],
-    phase: ConstraintValidationPhaseWire,
-    checkpoint: Option<Vec<u8>>,
-    captured_store_revisions: Option<Vec<ConstraintStoreRevisionWire>>,
-    staged_generation: Option<u64>,
-    rows_scanned: u64,
-    findings_seen: u64,
-    restarts: u64,
-    forward_findings: u64,
-    receipt_sequence: u64,
-    last_receipt: Option<ConstraintValidationReceiptWire>,
-}
-
-#[derive(CandidType, Deserialize)]
-enum ConstraintValidationPhaseWire {
-    Forward,
-    Verify,
-}
-
-#[derive(CandidType, Deserialize)]
-struct ConstraintStoreRevisionWire {
-    store_path: String,
-    revision: u64,
-}
-
-#[derive(CandidType, Deserialize)]
-struct ConstraintValidationReceiptWire {
-    page_sequence: u64,
-    findings: Vec<ConstraintValidationFindingWire>,
-}
-
-#[derive(CandidType, Deserialize)]
-struct ConstraintValidationFindingWire {
-    primary_key: Vec<u8>,
-    field_ids: Vec<u32>,
-    value_path: Option<Vec<ConstraintValidationPathComponentWire>>,
-    error_code: u16,
-}
-
-#[derive(CandidType, Deserialize)]
-enum ConstraintValidationPathComponentWire {
-    RootField {
-        field_id: u32,
-    },
-    RecordMember {
-        composite_type_id: u32,
-        member_id: u32,
-    },
-    TupleElement {
-        composite_type_id: u32,
-        ordinal: u32,
-    },
-    Newtype {
-        composite_type_id: u32,
-    },
-    EnumVariant {
-        enum_type_id: u32,
-        variant_id: u32,
-    },
-    ListElement {
-        index: u32,
-    },
-    SetElement {
-        index: u32,
-    },
-    MapEntryKey {
-        index: u32,
-    },
-    MapEntryValue {
-        index: u32,
-    },
-}
-
 /// Encode one closed current validation job.
 pub(in crate::db) fn encode_constraint_validation_job(
     job: &ConstraintValidationJob,
 ) -> Result<Vec<u8>, InternalError> {
     job.validate(None)?;
-    let encoded = Encode!(&ConstraintValidationJobWire::from_job(job))
-        .map_err(|_| InternalError::store_invariant())?;
-    if encoded.len() > MAX_CONSTRAINT_VALIDATION_JOB_BYTES {
-        return Err(InternalError::store_unsupported());
-    }
+
+    let mut writer = ConstraintValidationJobWriter::new();
+    writer.push_bytes(&CONSTRAINT_VALIDATION_JOB_MAGIC);
+    writer.push_u8(CONSTRAINT_VALIDATION_JOB_CODEC_VERSION);
+    writer.push_u64(job.entity_tag.value());
+    writer.push_bounded_string(
+        job.entity_path.as_str(),
+        MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES,
+    )?;
+    writer.push_u32(job.constraint_id.get());
+    writer.push_u64(job.activation_epoch);
+    writer.push_bytes(&job.activation_fingerprint.as_bytes());
+    writer.push_bytes(&job.base_schema_fingerprint.as_bytes());
+    writer.push_u8(match job.phase {
+        ConstraintValidationPhase::Forward => PHASE_FORWARD_TAG,
+        ConstraintValidationPhase::Verify => PHASE_VERIFY_TAG,
+    });
+    encode_optional_raw_key(&mut writer, job.checkpoint.as_ref())?;
+    encode_optional_revisions(&mut writer, job.captured_store_revisions.as_deref())?;
+    encode_optional_u64(&mut writer, job.staged_generation);
+    writer.push_u64(job.rows_scanned);
+    writer.push_u64(job.findings_seen);
+    writer.push_u64(job.restarts);
+    writer.push_u64(job.forward_findings);
+    writer.push_u64(job.receipt_sequence);
+    encode_optional_receipt(&mut writer, job.last_receipt.as_ref())?;
+
+    let mut encoded = writer.finish()?;
+    encoded.extend_from_slice(&crc32c(&encoded).to_be_bytes());
     Ok(encoded)
 }
 
@@ -737,278 +678,384 @@ pub(in crate::db) fn encode_constraint_validation_job(
 pub(in crate::db) fn decode_constraint_validation_job(
     bytes: &[u8],
 ) -> Result<ConstraintValidationJob, InternalError> {
-    if bytes.len() > MAX_CONSTRAINT_VALIDATION_JOB_BYTES {
+    if bytes.len() <= CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES
+        || bytes.len() > MAX_CONSTRAINT_VALIDATION_JOB_BYTES
+    {
         return Err(InternalError::store_corruption());
     }
-    let wire = Decode!(bytes, ConstraintValidationJobWire)
+
+    let checksum_offset = bytes
+        .len()
+        .checked_sub(CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES)
+        .ok_or_else(InternalError::store_corruption)?;
+    let (body, checksum) = bytes.split_at(checksum_offset);
+    let expected_checksum = u32::from_be_bytes(
+        checksum
+            .try_into()
+            .map_err(|_| InternalError::store_corruption())?,
+    );
+    if crc32c(body) != expected_checksum {
+        return Err(InternalError::store_corruption());
+    }
+
+    let mut reader = ConstraintValidationJobReader::new(body);
+    if reader.read_array::<8>()? != CONSTRAINT_VALIDATION_JOB_MAGIC {
+        return Err(InternalError::store_corruption());
+    }
+    if reader.read_u8()? != CONSTRAINT_VALIDATION_JOB_CODEC_VERSION {
+        return Err(InternalError::serialize_incompatible_persisted_format());
+    }
+
+    let entity_tag = EntityTag::new(reader.read_u64()?);
+    let entity_path = reader.read_bounded_string(MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES)?;
+    let constraint_id =
+        ConstraintId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)?;
+    let activation_epoch = reader.read_u64()?;
+    let activation_fingerprint = ConstraintActivationFingerprint::new(reader.read_array()?);
+    let base_schema_fingerprint = AcceptedSchemaFingerprint::new(reader.read_array()?);
+    let phase = match reader.read_u8()? {
+        PHASE_FORWARD_TAG => ConstraintValidationPhase::Forward,
+        PHASE_VERIFY_TAG => ConstraintValidationPhase::Verify,
+        _ => return Err(InternalError::store_corruption()),
+    };
+    let checkpoint = decode_optional_raw_key(&mut reader)?;
+    let captured_store_revisions = decode_optional_revisions(&mut reader)?;
+    let staged_generation = decode_optional_u64(&mut reader)?;
+    let rows_scanned = reader.read_u64()?;
+    let findings_seen = reader.read_u64()?;
+    let restarts = reader.read_u64()?;
+    let forward_findings = reader.read_u64()?;
+    let receipt_sequence = reader.read_u64()?;
+    let last_receipt = decode_optional_receipt(&mut reader)?;
+    reader.finish()?;
+
+    let job = ConstraintValidationJob {
+        entity_tag,
+        entity_path,
+        constraint_id,
+        activation_epoch,
+        activation_fingerprint,
+        base_schema_fingerprint,
+        phase,
+        checkpoint,
+        captured_store_revisions,
+        staged_generation,
+        rows_scanned,
+        findings_seen,
+        restarts,
+        forward_findings,
+        receipt_sequence,
+        last_receipt,
+    };
+    job.validate(None)?;
+    Ok(job)
+}
+
+fn encode_optional_raw_key(
+    writer: &mut ConstraintValidationJobWriter,
+    key: Option<&RawDataStoreKey>,
+) -> Result<(), InternalError> {
+    match key {
+        None => writer.push_u8(OPTIONAL_ABSENT_TAG),
+        Some(key) => {
+            writer.push_u8(OPTIONAL_PRESENT_TAG);
+            writer.push_bounded_len_prefixed_bytes(
+                key.as_bytes(),
+                RawDataStoreKey::MAX_STORED_SIZE_USIZE,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn decode_optional_raw_key(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<Option<RawDataStoreKey>, InternalError> {
+    match reader.read_u8()? {
+        OPTIONAL_ABSENT_TAG => Ok(None),
+        OPTIONAL_PRESENT_TAG => decode_raw_key(reader).map(Some),
+        _ => Err(InternalError::store_corruption()),
+    }
+}
+
+fn encode_optional_revisions(
+    writer: &mut ConstraintValidationJobWriter,
+    revisions: Option<&[ConstraintStoreRevision]>,
+) -> Result<(), InternalError> {
+    let Some(revisions) = revisions else {
+        writer.push_u8(OPTIONAL_ABSENT_TAG);
+        return Ok(());
+    };
+    writer.push_u8(OPTIONAL_PRESENT_TAG);
+    writer.push_len(revisions.len())?;
+    for revision in revisions {
+        writer.push_bounded_string(
+            revision.store_path.as_str(),
+            MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES,
+        )?;
+        writer.push_u64(revision.revision);
+    }
+    Ok(())
+}
+
+fn decode_optional_revisions(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<Option<Vec<ConstraintStoreRevision>>, InternalError> {
+    match reader.read_u8()? {
+        OPTIONAL_ABSENT_TAG => Ok(None),
+        OPTIONAL_PRESENT_TAG => {
+            let count = reader.read_bounded_count(MAX_CONSTRAINT_VALIDATION_STORE_REVISIONS)?;
+            let mut revisions = Vec::new();
+            revisions
+                .try_reserve_exact(count)
+                .map_err(|_| InternalError::store_corruption())?;
+            for _ in 0..count {
+                revisions.push(ConstraintStoreRevision::new(
+                    reader.read_bounded_string(MAX_CONSTRAINT_VALIDATION_ENTITY_PATH_BYTES)?,
+                    reader.read_u64()?,
+                ));
+            }
+            Ok(Some(revisions))
+        }
+        _ => Err(InternalError::store_corruption()),
+    }
+}
+
+fn encode_optional_u64(writer: &mut ConstraintValidationJobWriter, value: Option<u64>) {
+    match value {
+        None => writer.push_u8(OPTIONAL_ABSENT_TAG),
+        Some(value) => {
+            writer.push_u8(OPTIONAL_PRESENT_TAG);
+            writer.push_u64(value);
+        }
+    }
+}
+
+fn decode_optional_u64(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<Option<u64>, InternalError> {
+    match reader.read_u8()? {
+        OPTIONAL_ABSENT_TAG => Ok(None),
+        OPTIONAL_PRESENT_TAG => reader.read_u64().map(Some),
+        _ => Err(InternalError::store_corruption()),
+    }
+}
+
+fn encode_optional_receipt(
+    writer: &mut ConstraintValidationJobWriter,
+    receipt: Option<&ConstraintValidationReceipt>,
+) -> Result<(), InternalError> {
+    let Some(receipt) = receipt else {
+        writer.push_u8(OPTIONAL_ABSENT_TAG);
+        return Ok(());
+    };
+    writer.push_u8(OPTIONAL_PRESENT_TAG);
+    writer.push_u64(receipt.page_sequence);
+    writer.push_len(receipt.findings.len())?;
+    for finding in &receipt.findings {
+        encode_finding(writer, finding)?;
+    }
+    Ok(())
+}
+
+fn decode_optional_receipt(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<Option<ConstraintValidationReceipt>, InternalError> {
+    match reader.read_u8()? {
+        OPTIONAL_ABSENT_TAG => Ok(None),
+        OPTIONAL_PRESENT_TAG => {
+            let page_sequence = reader.read_u64()?;
+            let count =
+                reader.read_bounded_count(MAX_CONSTRAINT_VALIDATION_FINDINGS_PER_RECEIPT)?;
+            let mut findings = Vec::new();
+            findings
+                .try_reserve_exact(count)
+                .map_err(|_| InternalError::store_corruption())?;
+            for _ in 0..count {
+                findings.push(decode_finding(reader)?);
+            }
+            Ok(Some(ConstraintValidationReceipt::new(
+                page_sequence,
+                findings,
+            )))
+        }
+        _ => Err(InternalError::store_corruption()),
+    }
+}
+
+fn encode_finding(
+    writer: &mut ConstraintValidationJobWriter,
+    finding: &ConstraintValidationFinding,
+) -> Result<(), InternalError> {
+    writer.push_bounded_len_prefixed_bytes(
+        finding.primary_key.as_bytes(),
+        RawDataStoreKey::MAX_STORED_SIZE_USIZE,
+    )?;
+    writer.push_len(finding.field_ids.len())?;
+    for field_id in &finding.field_ids {
+        writer.push_u32(field_id.get());
+    }
+    match finding.value_path.as_ref() {
+        None => writer.push_u8(OPTIONAL_ABSENT_TAG),
+        Some(path) => {
+            writer.push_u8(OPTIONAL_PRESENT_TAG);
+            writer.push_len(path.components().len())?;
+            for component in path.components() {
+                encode_path_component(writer, component);
+            }
+        }
+    }
+    writer.push_u16(finding.error_code);
+    Ok(())
+}
+
+fn decode_finding(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<ConstraintValidationFinding, InternalError> {
+    let primary_key = decode_raw_key(reader)?;
+    let field_count = reader.read_bounded_count(MAX_CONSTRAINT_VALIDATION_FINDING_FIELDS)?;
+    let mut field_ids = Vec::new();
+    field_ids
+        .try_reserve_exact(field_count)
         .map_err(|_| InternalError::store_corruption())?;
-    wire.into_job()
-}
-
-impl ConstraintValidationJobWire {
-    fn from_job(job: &ConstraintValidationJob) -> Self {
-        Self {
-            codec_version: CONSTRAINT_VALIDATION_JOB_CODEC_VERSION,
-            contract_profile: CONSTRAINT_VALIDATION_JOB_PROFILE,
-            entity_tag: job.entity_tag.value(),
-            entity_path: job.entity_path.clone(),
-            constraint_id: job.constraint_id.get(),
-            activation_epoch: job.activation_epoch(),
-            activation_fingerprint: job.activation_fingerprint().as_bytes(),
-            base_schema_fingerprint: job.base_schema_fingerprint().as_bytes(),
-            phase: ConstraintValidationPhaseWire::from_phase(job.phase),
-            checkpoint: job
-                .checkpoint
-                .as_ref()
-                .map(|checkpoint| checkpoint.as_bytes().to_vec()),
-            captured_store_revisions: job.captured_store_revisions.as_ref().map(|revisions| {
-                revisions
-                    .iter()
-                    .map(ConstraintStoreRevisionWire::from_revision)
-                    .collect()
-            }),
-            staged_generation: job.staged_generation(),
-            rows_scanned: job.rows_scanned,
-            findings_seen: job.findings_seen(),
-            restarts: job.restarts(),
-            forward_findings: job.forward_findings,
-            receipt_sequence: job.receipt_sequence,
-            last_receipt: job
-                .last_receipt
-                .as_ref()
-                .map(ConstraintValidationReceiptWire::from_receipt),
-        }
+    for _ in 0..field_count {
+        field_ids.push(FieldId::new(reader.read_u32()?));
     }
-
-    fn into_job(self) -> Result<ConstraintValidationJob, InternalError> {
-        if self.codec_version != CONSTRAINT_VALIDATION_JOB_CODEC_VERSION
-            || self.contract_profile != CONSTRAINT_VALIDATION_JOB_PROFILE
-        {
-            return Err(InternalError::serialize_incompatible_persisted_format());
-        }
-        let constraint_id =
-            ConstraintId::new(self.constraint_id).ok_or_else(InternalError::store_corruption)?;
-        let checkpoint = self.checkpoint.map(raw_key_from_wire).transpose()?;
-        let job = ConstraintValidationJob {
-            entity_tag: EntityTag::new(self.entity_tag),
-            entity_path: self.entity_path,
-            constraint_id,
-            activation_epoch: self.activation_epoch,
-            activation_fingerprint: ConstraintActivationFingerprint::new(
-                self.activation_fingerprint,
-            ),
-            base_schema_fingerprint: AcceptedSchemaFingerprint::new(self.base_schema_fingerprint),
-            phase: self.phase.into_phase(),
-            checkpoint,
-            captured_store_revisions: self.captured_store_revisions.map(|revisions| {
-                revisions
-                    .into_iter()
-                    .map(ConstraintStoreRevisionWire::into_revision)
-                    .collect()
-            }),
-            staged_generation: self.staged_generation,
-            rows_scanned: self.rows_scanned,
-            findings_seen: self.findings_seen,
-            restarts: self.restarts,
-            forward_findings: self.forward_findings,
-            receipt_sequence: self.receipt_sequence,
-            last_receipt: self
-                .last_receipt
-                .map(ConstraintValidationReceiptWire::into_receipt)
-                .transpose()?,
-        };
-        job.validate(None)?;
-        Ok(job)
-    }
-}
-
-impl ConstraintValidationPhaseWire {
-    const fn from_phase(phase: ConstraintValidationPhase) -> Self {
-        match phase {
-            ConstraintValidationPhase::Forward => Self::Forward,
-            ConstraintValidationPhase::Verify => Self::Verify,
-        }
-    }
-
-    const fn into_phase(self) -> ConstraintValidationPhase {
-        match self {
-            Self::Forward => ConstraintValidationPhase::Forward,
-            Self::Verify => ConstraintValidationPhase::Verify,
-        }
-    }
-}
-
-impl ConstraintStoreRevisionWire {
-    fn from_revision(revision: &ConstraintStoreRevision) -> Self {
-        Self {
-            store_path: revision.store_path.clone(),
-            revision: revision.revision,
-        }
-    }
-
-    fn into_revision(self) -> ConstraintStoreRevision {
-        ConstraintStoreRevision::new(self.store_path, self.revision)
-    }
-}
-
-impl ConstraintValidationReceiptWire {
-    fn from_receipt(receipt: &ConstraintValidationReceipt) -> Self {
-        Self {
-            page_sequence: receipt.page_sequence,
-            findings: receipt
-                .findings()
-                .iter()
-                .map(ConstraintValidationFindingWire::from_finding)
-                .collect(),
-        }
-    }
-
-    fn into_receipt(self) -> Result<ConstraintValidationReceipt, InternalError> {
-        Ok(ConstraintValidationReceipt::new(
-            self.page_sequence,
-            self.findings
-                .into_iter()
-                .map(ConstraintValidationFindingWire::into_finding)
-                .collect::<Result<Vec<_>, _>>()?,
-        ))
-    }
-}
-
-impl ConstraintValidationFindingWire {
-    fn from_finding(finding: &ConstraintValidationFinding) -> Self {
-        Self {
-            primary_key: finding.primary_key().as_bytes().to_vec(),
-            field_ids: finding
-                .field_ids()
-                .iter()
-                .map(|field| field.get())
-                .collect(),
-            value_path: finding.value_path().map(|path| {
-                path.components()
-                    .iter()
-                    .map(ConstraintValidationPathComponentWire::from_component)
-                    .collect()
-            }),
-            error_code: finding.error_code(),
-        }
-    }
-
-    fn into_finding(self) -> Result<ConstraintValidationFinding, InternalError> {
-        let primary_key = raw_key_from_wire(self.primary_key)?;
-        let field_ids = self.field_ids.into_iter().map(FieldId::new).collect();
-        match self.value_path {
-            Some(path) => Ok(ConstraintValidationFinding::new_targeted(
-                primary_key,
-                field_ids,
-                AcceptedTargetPath::new(
-                    path.into_iter()
-                        .map(ConstraintValidationPathComponentWire::into_component)
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-                self.error_code,
-            )),
-            None => Ok(ConstraintValidationFinding::new(
-                primary_key,
-                field_ids,
-                self.error_code,
-            )),
-        }
-    }
-}
-
-impl ConstraintValidationPathComponentWire {
-    const fn from_component(component: &AcceptedTargetPathComponent) -> Self {
-        match component {
-            AcceptedTargetPathComponent::RootField(field_id) => Self::RootField {
-                field_id: field_id.get(),
-            },
-            AcceptedTargetPathComponent::RecordMember {
-                composite_type_id,
-                member_id,
-            } => Self::RecordMember {
-                composite_type_id: composite_type_id.get(),
-                member_id: member_id.get(),
-            },
-            AcceptedTargetPathComponent::TupleElement {
-                composite_type_id,
-                ordinal,
-            } => Self::TupleElement {
-                composite_type_id: composite_type_id.get(),
-                ordinal: *ordinal,
-            },
-            AcceptedTargetPathComponent::Newtype { composite_type_id } => Self::Newtype {
-                composite_type_id: composite_type_id.get(),
-            },
-            AcceptedTargetPathComponent::EnumVariant {
-                enum_type_id,
-                variant_id,
-            } => Self::EnumVariant {
-                enum_type_id: enum_type_id.get(),
-                variant_id: variant_id.get(),
-            },
-            AcceptedTargetPathComponent::ListElement { index } => {
-                Self::ListElement { index: *index }
+    let value_path = match reader.read_u8()? {
+        OPTIONAL_ABSENT_TAG => None,
+        OPTIONAL_PRESENT_TAG => {
+            let component_count = reader.read_bounded_count(MAX_ACCEPTED_TARGET_PATH_COMPONENTS)?;
+            let mut components = Vec::new();
+            components
+                .try_reserve_exact(component_count)
+                .map_err(|_| InternalError::store_corruption())?;
+            for _ in 0..component_count {
+                components.push(decode_path_component(reader)?);
             }
-            AcceptedTargetPathComponent::SetElement { index } => Self::SetElement { index: *index },
-            AcceptedTargetPathComponent::MapEntryKey { index } => {
-                Self::MapEntryKey { index: *index }
-            }
-            AcceptedTargetPathComponent::MapEntryValue { index } => {
-                Self::MapEntryValue { index: *index }
-            }
+            Some(AcceptedTargetPath::new(components))
         }
-    }
+        _ => return Err(InternalError::store_corruption()),
+    };
+    let error_code = reader.read_u16()?;
+    Ok(match value_path {
+        Some(value_path) => ConstraintValidationFinding::new_targeted(
+            primary_key,
+            field_ids,
+            value_path,
+            error_code,
+        ),
+        None => ConstraintValidationFinding::new(primary_key, field_ids, error_code),
+    })
+}
 
-    fn into_component(self) -> Result<AcceptedTargetPathComponent, InternalError> {
-        match self {
-            Self::RootField { field_id } => Ok(AcceptedTargetPathComponent::RootField(
-                FieldId::new(field_id),
-            )),
-            Self::RecordMember {
-                composite_type_id,
-                member_id,
-            } => Ok(AcceptedTargetPathComponent::RecordMember {
-                composite_type_id: CompositeTypeId::new(composite_type_id)
-                    .ok_or_else(InternalError::store_corruption)?,
-                member_id: CompositeFieldId::new(member_id)
-                    .ok_or_else(InternalError::store_corruption)?,
-            }),
-            Self::TupleElement {
-                composite_type_id,
-                ordinal,
-            } => Ok(AcceptedTargetPathComponent::TupleElement {
-                composite_type_id: CompositeTypeId::new(composite_type_id)
-                    .ok_or_else(InternalError::store_corruption)?,
-                ordinal,
-            }),
-            Self::Newtype { composite_type_id } => Ok(AcceptedTargetPathComponent::Newtype {
-                composite_type_id: CompositeTypeId::new(composite_type_id)
-                    .ok_or_else(InternalError::store_corruption)?,
-            }),
-            Self::EnumVariant {
-                enum_type_id,
-                variant_id,
-            } => Ok(AcceptedTargetPathComponent::EnumVariant {
-                enum_type_id: EnumTypeId::new(enum_type_id)
-                    .ok_or_else(InternalError::store_corruption)?,
-                variant_id: EnumVariantId::new(variant_id)
-                    .ok_or_else(InternalError::store_corruption)?,
-            }),
-            Self::ListElement { index } => Ok(AcceptedTargetPathComponent::ListElement { index }),
-            Self::SetElement { index } => Ok(AcceptedTargetPathComponent::SetElement { index }),
-            Self::MapEntryKey { index } => Ok(AcceptedTargetPathComponent::MapEntryKey { index }),
-            Self::MapEntryValue { index } => {
-                Ok(AcceptedTargetPathComponent::MapEntryValue { index })
-            }
+fn encode_path_component(
+    writer: &mut ConstraintValidationJobWriter,
+    component: &AcceptedTargetPathComponent,
+) {
+    match component {
+        AcceptedTargetPathComponent::RootField(field_id) => {
+            writer.push_u8(PATH_ROOT_FIELD_TAG);
+            writer.push_u32(field_id.get());
+        }
+        AcceptedTargetPathComponent::RecordMember {
+            composite_type_id,
+            member_id,
+        } => {
+            writer.push_u8(PATH_RECORD_MEMBER_TAG);
+            writer.push_u32(composite_type_id.get());
+            writer.push_u32(member_id.get());
+        }
+        AcceptedTargetPathComponent::TupleElement {
+            composite_type_id,
+            ordinal,
+        } => {
+            writer.push_u8(PATH_TUPLE_ELEMENT_TAG);
+            writer.push_u32(composite_type_id.get());
+            writer.push_u32(*ordinal);
+        }
+        AcceptedTargetPathComponent::Newtype { composite_type_id } => {
+            writer.push_u8(PATH_NEWTYPE_TAG);
+            writer.push_u32(composite_type_id.get());
+        }
+        AcceptedTargetPathComponent::EnumVariant {
+            enum_type_id,
+            variant_id,
+        } => {
+            writer.push_u8(PATH_ENUM_VARIANT_TAG);
+            writer.push_u32(enum_type_id.get());
+            writer.push_u32(variant_id.get());
+        }
+        AcceptedTargetPathComponent::ListElement { index } => {
+            writer.push_u8(PATH_LIST_ELEMENT_TAG);
+            writer.push_u32(*index);
+        }
+        AcceptedTargetPathComponent::SetElement { index } => {
+            writer.push_u8(PATH_SET_ELEMENT_TAG);
+            writer.push_u32(*index);
+        }
+        AcceptedTargetPathComponent::MapEntryKey { index } => {
+            writer.push_u8(PATH_MAP_ENTRY_KEY_TAG);
+            writer.push_u32(*index);
+        }
+        AcceptedTargetPathComponent::MapEntryValue { index } => {
+            writer.push_u8(PATH_MAP_ENTRY_VALUE_TAG);
+            writer.push_u32(*index);
         }
     }
 }
 
-fn raw_key_from_wire(bytes: Vec<u8>) -> Result<RawDataStoreKey, InternalError> {
-    if bytes.len() > RawDataStoreKey::MAX_STORED_SIZE_USIZE {
-        return Err(InternalError::store_corruption());
+fn decode_path_component(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<AcceptedTargetPathComponent, InternalError> {
+    match reader.read_u8()? {
+        PATH_ROOT_FIELD_TAG => Ok(AcceptedTargetPathComponent::RootField(FieldId::new(
+            reader.read_u32()?,
+        ))),
+        PATH_RECORD_MEMBER_TAG => Ok(AcceptedTargetPathComponent::RecordMember {
+            composite_type_id: decode_composite_type_id(reader)?,
+            member_id: CompositeFieldId::new(reader.read_u32()?)
+                .ok_or_else(InternalError::store_corruption)?,
+        }),
+        PATH_TUPLE_ELEMENT_TAG => Ok(AcceptedTargetPathComponent::TupleElement {
+            composite_type_id: decode_composite_type_id(reader)?,
+            ordinal: reader.read_u32()?,
+        }),
+        PATH_NEWTYPE_TAG => Ok(AcceptedTargetPathComponent::Newtype {
+            composite_type_id: decode_composite_type_id(reader)?,
+        }),
+        PATH_ENUM_VARIANT_TAG => Ok(AcceptedTargetPathComponent::EnumVariant {
+            enum_type_id: EnumTypeId::new(reader.read_u32()?)
+                .ok_or_else(InternalError::store_corruption)?,
+            variant_id: EnumVariantId::new(reader.read_u32()?)
+                .ok_or_else(InternalError::store_corruption)?,
+        }),
+        PATH_LIST_ELEMENT_TAG => Ok(AcceptedTargetPathComponent::ListElement {
+            index: reader.read_u32()?,
+        }),
+        PATH_SET_ELEMENT_TAG => Ok(AcceptedTargetPathComponent::SetElement {
+            index: reader.read_u32()?,
+        }),
+        PATH_MAP_ENTRY_KEY_TAG => Ok(AcceptedTargetPathComponent::MapEntryKey {
+            index: reader.read_u32()?,
+        }),
+        PATH_MAP_ENTRY_VALUE_TAG => Ok(AcceptedTargetPathComponent::MapEntryValue {
+            index: reader.read_u32()?,
+        }),
+        _ => Err(InternalError::store_corruption()),
     }
-    let key = <RawDataStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
+}
+
+fn decode_composite_type_id(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<CompositeTypeId, InternalError> {
+    CompositeTypeId::new(reader.read_u32()?).ok_or_else(InternalError::store_corruption)
+}
+
+fn decode_raw_key(
+    reader: &mut ConstraintValidationJobReader<'_>,
+) -> Result<RawDataStoreKey, InternalError> {
+    let bytes = reader.read_bounded_len_prefixed_bytes(RawDataStoreKey::MAX_STORED_SIZE_USIZE)?;
+    let key = RawDataStoreKey::from_persisted_bytes(bytes.to_vec());
     DecodedDataStoreKey::try_from_raw(&key).map_err(|_| InternalError::store_corruption())?;
     Ok(key)
 }

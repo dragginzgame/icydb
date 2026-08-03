@@ -115,18 +115,19 @@ pub mod diagnostic {
     //! Compact diagnostic identity for CLI and canister callers.
 
     pub use icydb_diagnostic_code::{
-        Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
-        QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
-        RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode,
-        SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+        Diagnostic, DiagnosticCode, DiagnosticDetail, DiagnosticFactTag, ErrorClass, ErrorCode,
+        ErrorOrigin, MAX_PUBLIC_DIAGNOSTIC_FACTS, QueryErrorKind, QueryProjectionCode,
+        QueryReadAdmissionCode, QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind,
+        SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
+        SqlSurfaceMismatchCode, SqlWriteBoundaryCode, pack_u32_pair, unpack_u32_pair,
     };
 }
 mod error;
 pub mod traits;
 pub use error::{
     ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind,
-    ConstraintValuePath, ConstraintValuePathComponent, Error, ErrorKind, ErrorOrigin,
-    QueryErrorKind, RuntimeErrorKind,
+    ConstraintValuePath, ConstraintValuePathComponent, DiagnosticFact, Error, ErrorKind,
+    ErrorOrigin, QueryErrorKind, RuntimeErrorKind,
 };
 pub use icydb_diagnostic_code::ErrorCode;
 

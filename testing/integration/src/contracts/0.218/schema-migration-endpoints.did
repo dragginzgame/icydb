@@ -1,45 +1,9 @@
-type ConstraintDiagnostic = record {
-  entity : text;
-  value_path : opt ConstraintValuePath;
-  context : ConstraintDiagnosticContext;
-  primary_key : opt blob;
-  constraint_kind : ConstraintDiagnosticKind;
-  constraint_name : text;
-  field_paths : vec text;
-  constraint_id : nat32;
-  error_code : nat16;
-};
-type ConstraintDiagnosticContext = variant {
-  MigrationValidation;
-  WriteAdmission;
-  Integrity;
-};
-type ConstraintDiagnosticKind = variant {
-  NotNull;
-  Relation;
-  TargetedRule;
-  Unique;
-  Check;
-};
-type ConstraintValuePath = record {
-  components : vec ConstraintValuePathComponent;
-};
-type ConstraintValuePathComponent = variant {
-  SetElement : record { index : nat32 };
-  MapEntryValue : record { index : nat32 };
-  RootField : record { field_id : nat32 };
-  MapEntryKey : record { index : nat32 };
-  ListElement : record { index : nat32 };
-  RecordMember : record { member_id : nat32; composite_type_id : nat32 };
-  EnumVariant : record { enum_type_id : nat32; variant_id : nat32 };
-  Newtype : record { composite_type_id : nat32 };
-  TupleElement : record { ordinal : nat32; composite_type_id : nat32 };
-};
+type DiagnosticFact = record { tag : nat8; value : nat64 };
 type Error = record {
   code : nat16;
   class : nat8;
   origin : nat8;
-  constraint : opt ConstraintDiagnostic;
+  facts : vec DiagnosticFact;
 };
 type ExpectedAcceptedHead = variant {
   Empty;

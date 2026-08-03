@@ -167,6 +167,23 @@ Integrity requests use the typed `IntegrityCheckRequest` protocol or the
 admin SQL integrity surface. They never accept caller-authored checkpoints,
 proof vectors, or physical traversal state.
 
+## Public Errors
+
+Public `icydb::Error` values carry a stable numeric E-code, compact class and
+origin codes, and a bounded sequence of `DiagnosticFact { tag, value }`
+records. The E-code owns the reason; facts contain only numeric parameters such
+as positions, counts, limits, versions, and accepted IDs.
+
+Ordinary errors do not carry schema-specific names, values, keys, rows, SQL
+text, principals, or diagnostic prose. Use `Error::facts()` and the
+production-safe numeric identities under `icydb::diagnostic` for machine
+handling. The CLI owns human-readable labels and always retains a numeric
+fallback for unknown tags.
+
+Historical constraint-validation findings remain explicit operational output
+because their bounded row locator is needed for acknowledgement and repair.
+They are not embedded in ordinary `Error` values.
+
 ## Current Construction Surfaces
 
 Use generated `*Insert` inputs for application-authored inserts. Runtime reads

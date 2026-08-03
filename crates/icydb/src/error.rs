@@ -22,6 +22,34 @@ pub use icydb_core::error::{
 };
 
 //
+// DiagnosticFact
+//
+
+/// One bounded numeric parameter attached to a public IcyDB error.
+///
+/// The leaf error code owns the reason. Facts contain only production-safe
+/// numeric parameters interpreted together with that code.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub struct DiagnosticFact {
+    tag: u8,
+    value: u64,
+}
+
+impl DiagnosticFact {
+    /// Return the stable numeric fact-tag identity.
+    #[must_use]
+    pub const fn tag(&self) -> u8 {
+        self.tag
+    }
+
+    /// Return the numeric fact value.
+    #[must_use]
+    pub const fn value(&self) -> u64 {
+        self.value
+    }
+}
+
+//
 // Error
 //
 
@@ -31,7 +59,7 @@ pub struct Error {
     code: u16,
     class: u8,
     origin: u8,
-    constraint: Option<ConstraintDiagnostic>,
+    facts: Vec<DiagnosticFact>,
 }
 
 impl Error {
@@ -54,7 +82,7 @@ impl Error {
             code: code.raw(),
             class: code.class().wire_code(),
             origin: origin.wire_code(),
-            constraint: None,
+            facts: Vec::new(),
         }
     }
 
@@ -91,9 +119,7 @@ impl Error {
     }
 
     fn from_internal_error(err: &InternalError) -> Self {
-        let mut facade = Self::from_diagnostic(err.diagnostic());
-        facade.constraint = err.constraint_diagnostic().cloned();
-        facade
+        Self::from_diagnostic(err.diagnostic())
     }
 
     /// Return the compact diagnostic code.
@@ -129,10 +155,10 @@ impl Error {
         self.code().diagnostic_code()
     }
 
-    /// Borrow the accepted constraint failure carried by this error.
+    /// Borrow the bounded numeric facts carried by this error.
     #[must_use]
-    pub const fn constraint_diagnostic(&self) -> Option<&ConstraintDiagnostic> {
-        self.constraint.as_ref()
+    pub const fn facts(&self) -> &[DiagnosticFact] {
+        self.facts.as_slice()
     }
 }
 

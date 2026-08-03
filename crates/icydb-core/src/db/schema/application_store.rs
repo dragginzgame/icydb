@@ -8,18 +8,23 @@ use crate::{
         commit::{MAX_COMMIT_BYTES, commit_memory_handle, current_commit_memory_allocation},
         database_format::crc32c,
         schema::{
-            SchemaApplicationRecord, SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeReceipt,
+            SchemaApplicationRecord, SchemaChangeActivation, SchemaChangeJob, SchemaChangeJobId,
+            SchemaChangeOutcome, SchemaChangeReceipt,
+            application_receipt::MAX_SCHEMA_CHANGE_ACTIVATIONS,
             derive_schema_change_job_id,
+            wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
     error::InternalError,
 };
-use candid::{Decode, Encode};
 use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, RestrictedMemory, Storable,
     memory_manager::VirtualMemory, storable::Bound,
 };
-use icydb_schema::{SchemaSubmissionKey, TargetDatabaseIdentity};
+use icydb_schema::{
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
+    SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
+};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 
@@ -31,6 +36,12 @@ const APPLICATION_RECORD_MAGIC: &[u8; 8] = b"ICYSAR01";
 const APPLICATION_RECORD_VERSION: u8 = 1;
 const APPLICATION_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 pub(in crate::db) const MAX_SCHEMA_APPLICATION_RECORD_BYTES: u32 = 64 * 1024;
+const HEAD_EMPTY_TAG: u8 = 0;
+const HEAD_EXACT_TAG: u8 = 1;
+const OUTCOME_NO_OP_TAG: u8 = 1;
+const OUTCOME_APPLIED_TAG: u8 = 2;
+const OUTCOME_PENDING_TAG: u8 = 3;
+const OUTCOME_ABORTED_TAG: u8 = 4;
 const MAX_SCHEMA_APPLICATION_RECORDS: u64 = 64;
 const APPLICATION_RECORD_KEY_PROFILE: &[u8] = b"icydb.schema-application.record-key.v1";
 const WASM_PAGE_BYTES: u64 = 65_536;
@@ -38,6 +49,10 @@ const APPLICATION_MEMORY_START_PAGE: u64 = MAX_COMMIT_BYTES as u64 / WASM_PAGE_B
 const APPLICATION_MEMORY_END_PAGE: u64 = 4_096;
 
 type ApplicationMemory = RestrictedMemory<VirtualMemory<DefaultMemoryImpl>>;
+type ApplicationRecordWriter = SchemaWireWriter<
+    { MAX_SCHEMA_APPLICATION_RECORD_BYTES as usize - APPLICATION_RECORD_HEADER_BYTES },
+>;
+type ApplicationRecordReader<'a> = SchemaWireReader<'a>;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct ApplicationRecordKey([u8; 32]);
@@ -387,7 +402,7 @@ pub(in crate::db) fn encode_application_record(
     record: &SchemaApplicationRecord,
 ) -> Result<Vec<u8>, InternalError> {
     record.validate()?;
-    let payload = Encode!(record).map_err(|_| InternalError::store_invariant())?;
+    let payload = encode_application_record_payload(record)?;
     let payload_len = u32::try_from(payload.len()).map_err(|_| InternalError::store_invariant())?;
     let mut encoded = Vec::with_capacity(APPLICATION_RECORD_HEADER_BYTES + payload.len());
     encoded.extend_from_slice(APPLICATION_RECORD_MAGIC);
@@ -408,9 +423,11 @@ fn decode_application_record(
     if bytes.len() > MAX_SCHEMA_APPLICATION_RECORD_BYTES as usize
         || bytes.len() < APPLICATION_RECORD_HEADER_BYTES
         || &bytes[..8] != APPLICATION_RECORD_MAGIC
-        || bytes[8] != APPLICATION_RECORD_VERSION
     {
         return Err(InternalError::store_corruption());
+    }
+    if bytes[8] != APPLICATION_RECORD_VERSION {
+        return Err(InternalError::serialize_incompatible_persisted_format());
     }
     let payload_len = u32::from_le_bytes(
         bytes[9..13]
@@ -428,15 +445,149 @@ fn decode_application_record(
     if payload.len() != payload_len || crc32c(payload) != expected_checksum {
         return Err(InternalError::store_corruption());
     }
-    let record =
-        Decode!(payload, SchemaApplicationRecord).map_err(|_| InternalError::store_corruption())?;
-    record.validate()?;
+    let record = decode_application_record_payload(payload)?;
     if ApplicationRecordKey::from_receipt(record.receipt())? != expected_key
         || encode_application_record(&record)? != bytes
     {
         return Err(InternalError::store_corruption());
     }
     Ok(record)
+}
+
+fn encode_application_record_payload(
+    record: &SchemaApplicationRecord,
+) -> Result<Vec<u8>, InternalError> {
+    let mut writer = ApplicationRecordWriter::new();
+    let receipt = record.receipt();
+    writer.push_bytes(&receipt.database_identity().to_bytes());
+    writer.push_bounded_string(
+        receipt.submission_key().as_str(),
+        MAX_SCHEMA_SUBMISSION_KEY_BYTES,
+    )?;
+    writer.push_bytes(&receipt.proposal_digest().to_bytes());
+    encode_expected_head(&mut writer, receipt.prior_head());
+    encode_schema_change_outcome(&mut writer, receipt.outcome());
+    writer.push_len(record.activations().len())?;
+    for activation in record.activations() {
+        writer.push_bytes(&activation.store().to_bytes());
+        writer.push_u64(activation.entity_tag());
+        writer.push_u32(activation.constraint_id());
+    }
+    writer.finish()
+}
+
+fn decode_application_record_payload(
+    payload: &[u8],
+) -> Result<SchemaApplicationRecord, InternalError> {
+    let mut reader = ApplicationRecordReader::new(payload);
+    let database_identity = TargetDatabaseIdentity::from_bytes(reader.read_array()?);
+    let submission_key =
+        SchemaSubmissionKey::try_new(reader.read_bounded_string(MAX_SCHEMA_SUBMISSION_KEY_BYTES)?)
+            .map_err(|_| InternalError::store_corruption())?;
+    let proposal_digest = SchemaProposalDigest::from_bytes(reader.read_array()?);
+    let prior_head = decode_expected_head(&mut reader)?;
+    let outcome = decode_schema_change_outcome(&mut reader)?;
+    let activation_count = reader.read_bounded_count(MAX_SCHEMA_CHANGE_ACTIVATIONS)?;
+    let mut activations = Vec::new();
+    activations
+        .try_reserve_exact(activation_count)
+        .map_err(|_| InternalError::store_corruption())?;
+    for _ in 0..activation_count {
+        activations.push(
+            SchemaChangeActivation::new(
+                TargetStoreIdentity::from_bytes(reader.read_array()?),
+                reader.read_u64()?,
+                reader.read_u32()?,
+            )
+            .map_err(|_| InternalError::store_corruption())?,
+        );
+    }
+    reader.finish()?;
+
+    let receipt = SchemaChangeReceipt::new(
+        database_identity,
+        submission_key,
+        proposal_digest,
+        prior_head,
+        outcome,
+    )?;
+    SchemaApplicationRecord::new(receipt, activations)
+}
+
+fn encode_expected_head(writer: &mut ApplicationRecordWriter, head: &ExpectedAcceptedHead) {
+    match head {
+        ExpectedAcceptedHead::Empty => writer.push_u8(HEAD_EMPTY_TAG),
+        ExpectedAcceptedHead::Exact {
+            revision,
+            fingerprint,
+        } => {
+            writer.push_u8(HEAD_EXACT_TAG);
+            writer.push_u64(*revision);
+            writer.push_bytes(&fingerprint.to_bytes());
+        }
+    }
+}
+
+fn decode_expected_head(
+    reader: &mut ApplicationRecordReader<'_>,
+) -> Result<ExpectedAcceptedHead, InternalError> {
+    match reader.read_u8()? {
+        HEAD_EMPTY_TAG => Ok(ExpectedAcceptedHead::Empty),
+        HEAD_EXACT_TAG => Ok(ExpectedAcceptedHead::Exact {
+            revision: reader.read_u64()?,
+            fingerprint: ExpectedSchemaFingerprint::from_bytes(reader.read_array()?),
+        }),
+        _ => Err(InternalError::store_corruption()),
+    }
+}
+
+fn encode_schema_change_outcome(
+    writer: &mut ApplicationRecordWriter,
+    outcome: &SchemaChangeOutcome,
+) {
+    match outcome {
+        SchemaChangeOutcome::NoOp { accepted_head } => {
+            writer.push_u8(OUTCOME_NO_OP_TAG);
+            encode_expected_head(writer, accepted_head);
+        }
+        SchemaChangeOutcome::Applied { accepted_head } => {
+            writer.push_u8(OUTCOME_APPLIED_TAG);
+            encode_expected_head(writer, accepted_head);
+        }
+        SchemaChangeOutcome::Pending {
+            job,
+            candidate_head,
+        } => {
+            writer.push_u8(OUTCOME_PENDING_TAG);
+            writer.push_bytes(&job.id().to_bytes());
+            encode_expected_head(writer, candidate_head);
+        }
+        SchemaChangeOutcome::Aborted { accepted_head } => {
+            writer.push_u8(OUTCOME_ABORTED_TAG);
+            encode_expected_head(writer, accepted_head);
+        }
+    }
+}
+
+fn decode_schema_change_outcome(
+    reader: &mut ApplicationRecordReader<'_>,
+) -> Result<SchemaChangeOutcome, InternalError> {
+    match reader.read_u8()? {
+        OUTCOME_NO_OP_TAG => Ok(SchemaChangeOutcome::NoOp {
+            accepted_head: decode_expected_head(reader)?,
+        }),
+        OUTCOME_APPLIED_TAG => Ok(SchemaChangeOutcome::Applied {
+            accepted_head: decode_expected_head(reader)?,
+        }),
+        OUTCOME_PENDING_TAG => Ok(SchemaChangeOutcome::Pending {
+            job: SchemaChangeJob::new(SchemaChangeJobId::from_bytes(reader.read_array()?)?),
+            candidate_head: decode_expected_head(reader)?,
+        }),
+        OUTCOME_ABORTED_TAG => Ok(SchemaChangeOutcome::Aborted {
+            accepted_head: decode_expected_head(reader)?,
+        }),
+        _ => Err(InternalError::store_corruption()),
+    }
 }
 
 fn encode_application_header() -> Vec<u8> {
@@ -505,7 +656,8 @@ pub(in crate::db) fn verify_schema_application_record_op(
 #[cfg(test)]
 mod tests {
     use super::{
-        APPLICATION_HEADER_KEY, APPLICATION_MEMORY_START_PAGE, ApplicationRecordBytes,
+        APPLICATION_HEADER_KEY, APPLICATION_MEMORY_START_PAGE, APPLICATION_RECORD_HEADER_BYTES,
+        APPLICATION_RECORD_MAGIC, APPLICATION_RECORD_VERSION, ApplicationRecordBytes,
         ApplicationRecordKey, MAX_SCHEMA_APPLICATION_RECORDS, SchemaApplicationRecordOp,
         SchemaApplicationStore, crc32c, decode_application_header, decode_application_record,
         encode_application_header, encode_application_record,
@@ -530,8 +682,8 @@ mod tests {
     };
     use ic_stable_structures::RestrictedMemory;
     use icydb_schema::{
-        ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
-        TargetDatabaseIdentity, TargetStoreIdentity,
+        ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
+        SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
     };
 
     fn submission_key(value: &str) -> SchemaSubmissionKey {
@@ -572,6 +724,23 @@ mod tests {
             ],
         )
         .expect("pending record should admit")
+    }
+
+    fn no_op_record(value: &str) -> SchemaApplicationRecord {
+        SchemaApplicationRecord::new(
+            SchemaChangeReceipt::new(
+                TargetDatabaseIdentity::from_bytes([0x11; 32]),
+                submission_key(value),
+                SchemaProposalDigest::from_bytes([0x22; 32]),
+                ExpectedAcceptedHead::Empty,
+                SchemaChangeOutcome::NoOp {
+                    accepted_head: ExpectedAcceptedHead::Empty,
+                },
+            )
+            .expect("no-op receipt should admit"),
+            Vec::new(),
+        )
+        .expect("no-op record should admit")
     }
 
     fn applied_record(pending: &SchemaApplicationRecord) -> SchemaApplicationRecord {
@@ -621,29 +790,124 @@ mod tests {
             .expect("application store should initialize")
     }
 
+    fn rewrite_application_payload(encoded: &[u8], rewrite: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+        let mut payload = encoded[APPLICATION_RECORD_HEADER_BYTES..].to_vec();
+        rewrite(&mut payload);
+        let mut rewritten = APPLICATION_RECORD_MAGIC.to_vec();
+        rewritten.push(APPLICATION_RECORD_VERSION);
+        rewritten.extend_from_slice(
+            &u32::try_from(payload.len())
+                .expect("test payload should fit u32")
+                .to_le_bytes(),
+        );
+        rewritten.extend_from_slice(&crc32c(&payload).to_le_bytes());
+        rewritten.extend_from_slice(&payload);
+        rewritten
+    }
+
     #[test]
     fn application_record_codec_is_canonical_and_checksum_bound() {
-        let record = pending_record("codec");
-        let key = ApplicationRecordKey::from_receipt(record.receipt()).expect("key should derive");
-        let encoded = encode_application_record(&record).expect("record should encode");
-        assert_eq!(
-            decode_application_record(&encoded, key).expect("record should decode"),
-            record,
-        );
+        let pending = pending_record("codec");
+        let records = [
+            no_op_record("codec-no-op"),
+            pending.clone(),
+            applied_record(&pending),
+            aborted_record(&pending),
+        ];
+        for record in records {
+            let key =
+                ApplicationRecordKey::from_receipt(record.receipt()).expect("key should derive");
+            let encoded = encode_application_record(&record).expect("record should encode");
+            assert_eq!(
+                encode_application_record(&record).expect("repeat encoding should remain stable"),
+                encoded,
+            );
+            assert_eq!(
+                decode_application_record(&encoded, key).expect("record should decode"),
+                record,
+            );
+        }
 
-        let mut retired_identity = encoded.clone();
-        retired_identity[..8].copy_from_slice(b"ICYSCREC");
-        assert!(
-            decode_application_record(&retired_identity, key).is_err(),
-            "the retired development-format identity must fail closed",
-        );
-
-        let mut corrupted = encoded;
+        let key = ApplicationRecordKey::from_receipt(pending.receipt()).expect("key should derive");
+        let mut corrupted = encode_application_record(&pending).expect("record should encode");
         let last = corrupted
             .last_mut()
             .expect("encoded record should contain a payload");
         *last ^= 0x80;
         assert!(decode_application_record(&corrupted, key).is_err());
+    }
+
+    #[test]
+    fn application_record_v1_golden_bytes_remain_stable() {
+        let pending = pending_record("golden");
+        let record = applied_record(&pending);
+        let encoded = encode_application_record(&record).expect("golden record should encode");
+
+        let mut payload = vec![0x11; 32];
+        payload.extend_from_slice(&6_u32.to_be_bytes());
+        payload.extend_from_slice(b"golden");
+        payload.extend_from_slice(&[0x22; 32]);
+        payload.push(0);
+        payload.push(2);
+        payload.push(1);
+        payload.extend_from_slice(&1_u64.to_be_bytes());
+        payload.extend_from_slice(&[0x33; 32]);
+        payload.extend_from_slice(&0_u32.to_be_bytes());
+        let mut expected = b"ICYSAR01".to_vec();
+        expected.push(1);
+        expected.extend_from_slice(
+            &u32::try_from(payload.len())
+                .expect("golden payload should fit u32")
+                .to_le_bytes(),
+        );
+        expected.extend_from_slice(&crc32c(&payload).to_le_bytes());
+        expected.extend_from_slice(&payload);
+
+        assert_eq!(encoded, expected);
+    }
+
+    #[test]
+    fn application_record_decode_rejects_truncation_tags_lengths_and_trailing_bytes() {
+        let record = pending_record("malformed");
+        let key = ApplicationRecordKey::from_receipt(record.receipt()).expect("key should derive");
+        let encoded = encode_application_record(&record).expect("record should encode");
+        for len in 0..encoded.len() {
+            assert!(
+                decode_application_record(&encoded[..len], key).is_err(),
+                "truncated application record at {len} must fail closed",
+            );
+        }
+
+        let mut bad_magic = encoded.clone();
+        bad_magic[0] ^= 1;
+        assert!(decode_application_record(&bad_magic, key).is_err());
+
+        let mut bad_version = encoded.clone();
+        bad_version[APPLICATION_RECORD_MAGIC.len()] = 2;
+        let error = decode_application_record(&bad_version, key)
+            .expect_err("noncurrent application record version must fail closed");
+        assert_eq!(
+            error.class,
+            crate::error::ErrorClass::IncompatiblePersistedFormat
+        );
+
+        let oversized_key = rewrite_application_payload(&encoded, |payload| {
+            payload[32..36].copy_from_slice(
+                &u32::try_from(MAX_SCHEMA_SUBMISSION_KEY_BYTES + 1)
+                    .expect("submission-key bound should fit u32")
+                    .to_be_bytes(),
+            );
+        });
+        assert!(decode_application_record(&oversized_key, key).is_err());
+
+        let unknown_outcome = rewrite_application_payload(&encoded, |payload| {
+            let outcome_offset = 32 + 4 + "malformed".len() + 32 + 1;
+            payload[outcome_offset] = u8::MAX;
+        });
+        assert!(decode_application_record(&unknown_outcome, key).is_err());
+
+        let trailing = rewrite_application_payload(&encoded, |payload| payload.push(0));
+        assert!(decode_application_record(&trailing, key).is_err());
     }
 
     #[test]
@@ -834,14 +1098,11 @@ mod tests {
         let store = empty_store(222);
         assert!(store.map.contains_key(&APPLICATION_HEADER_KEY));
 
-        let mut retired_identity = encode_application_header();
-        retired_identity[..8].copy_from_slice(b"ICYSCAPP");
-        let checksum = crc32c(&retired_identity[..9]);
-        retired_identity[9..].copy_from_slice(&checksum.to_le_bytes());
-        assert!(
-            decode_application_header(&retired_identity).is_err(),
-            "the retired application-header identity must fail closed",
-        );
+        let mut malformed_magic = encode_application_header();
+        malformed_magic[0] ^= 1;
+        let checksum = crc32c(&malformed_magic[..9]);
+        malformed_magic[9..].copy_from_slice(&checksum.to_le_bytes());
+        assert!(decode_application_header(&malformed_magic).is_err());
     }
 
     #[test]
