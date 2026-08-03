@@ -49,8 +49,11 @@ impl SchemaProposal {
         }
         let relation_targets = relation_target_meanings(entity, &entities, &mut pending_types)?;
         let reachable_types = reachable_type_meanings(&types, pending_types)?;
-        let encoded = candid::encode_args((&normalized, &relation_targets, &reachable_types))
-            .map_err(|_| SchemaContractError::Encode)?;
+        let encoded = crate::codec::encode_entity_source_meaning(
+            &normalized,
+            &relation_targets,
+            &reachable_types,
+        )?;
 
         let mut hasher = Sha256::new();
         hasher.update(ENTITY_SOURCE_DIGEST_PROFILE);

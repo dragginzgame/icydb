@@ -86,6 +86,22 @@ impl IntBig {
         out
     }
 
+    pub(crate) fn to_sign_and_magnitude_bytes(&self) -> (bool, Vec<u8>) {
+        let (sign, magnitude) = self.0.0.to_bytes_be();
+        (sign == num_bigint::Sign::Minus, magnitude)
+    }
+
+    pub(crate) fn from_sign_and_magnitude_bytes(negative: bool, magnitude: &[u8]) -> Self {
+        let sign = if magnitude.is_empty() {
+            num_bigint::Sign::NoSign
+        } else if negative {
+            num_bigint::Sign::Minus
+        } else {
+            num_bigint::Sign::Plus
+        };
+        Self::from_bigint(BigInt::from_bytes_be(sign, magnitude))
+    }
+
     /// Saturating addition (unbounded; equivalent to normal addition).
     #[must_use]
     pub fn saturating_add(self, rhs: Self) -> Self {

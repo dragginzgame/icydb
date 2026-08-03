@@ -2,9 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use candid::CandidType;
-use serde::{Deserialize, Serialize};
-
 use crate::{
     ConstraintSourceKey, Decimal, DeclaredEntityVersion, EntitySourceKey, FieldSourceKey,
     IndexSourceKey, MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS,
@@ -14,7 +11,7 @@ use crate::{
 };
 
 /// Logical type reference in a proposal fragment.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldType {
     /// Exact built-in scalar contract.
     Scalar(ScalarType),
@@ -25,7 +22,7 @@ pub enum FieldType {
 }
 
 /// Exact scalar field contract required by accepted-schema lowering.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScalarType {
     /// ICRC account.
     Account,
@@ -200,7 +197,7 @@ impl FieldType {
 }
 
 /// Insert policy authored for one field.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldInsertPolicy {
     /// Omission rejects.
     Required,
@@ -213,7 +210,7 @@ pub enum FieldInsertPolicy {
 }
 
 /// Accepted database-owned lifecycle policy.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FieldManagementPolicy {
     /// Set once on insert and preserve thereafter.
     CreatedAt,
@@ -222,7 +219,7 @@ pub enum FieldManagementPolicy {
 }
 
 /// One field definition keyed by its current source name.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FieldFragment {
     source_key: FieldSourceKey,
     name: SchemaName,
@@ -316,7 +313,7 @@ impl FieldFragment {
 }
 
 /// One ordered index key component.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IndexKeyFragment {
     /// Direct field key.
     Field(FieldSourceKey),
@@ -357,7 +354,7 @@ impl IndexKeyFragment {
 }
 
 /// One secondary-index proposal definition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IndexFragment {
     source_key: IndexSourceKey,
     name: SchemaName,
@@ -435,14 +432,14 @@ impl IndexFragment {
 }
 
 /// Maintained referential action in the current proposal contract.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RelationDeleteAction {
     /// Reject deletion while a source row refers to the target.
     Restrict,
 }
 
 /// One source-owned relation definition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RelationFragment {
     source_key: RelationSourceKey,
     name: SchemaName,
@@ -530,7 +527,7 @@ impl RelationFragment {
 }
 
 /// One source constraint kind.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConstraintFragmentKind {
     /// General row check over top-level source fields.
     Check(SourceCheckExpr),
@@ -548,7 +545,7 @@ impl ConstraintFragmentKind {
 }
 
 /// One source-bound nominal durable-rule target.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TargetedRuleFragment {
     root: FieldSourceKey,
     target_type: TypeSourceKey,
@@ -603,7 +600,7 @@ impl TargetedRuleFragment {
 }
 
 /// One source constraint declaration.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConstraintFragment {
     source_key: ConstraintSourceKey,
     name: SchemaName,
@@ -668,7 +665,7 @@ impl ConstraintFragment {
 }
 
 /// Store-free logical entity definition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EntityFragment {
     source_key: EntitySourceKey,
     name: SchemaName,
@@ -894,7 +891,7 @@ fn validate_insert_generation(
 ///
 /// Composite fields carry exact type and nullability facts only. Insert,
 /// generation, and management policies belong to persisted entity fields.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecordFieldFragment {
     source_key: FieldSourceKey,
     name: SchemaName,
@@ -948,7 +945,7 @@ impl RecordFieldFragment {
 
 /// One positional tuple member and its explicit-null policy.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TupleElementFragment {
     field_type: FieldType,
     nullable: bool,
@@ -982,7 +979,7 @@ impl TupleElementFragment {
 }
 
 /// Named record-type definition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecordTypeFragment {
     source_key: TypeSourceKey,
     name: SchemaName,
@@ -1042,7 +1039,7 @@ impl RecordTypeFragment {
 }
 
 /// One named enum variant.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnumVariantFragment {
     source_key: TypeSourceKey,
     name: SchemaName,
@@ -1100,7 +1097,7 @@ impl EnumVariantFragment {
 }
 
 /// Named enum-type definition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnumTypeFragment {
     source_key: TypeSourceKey,
     name: SchemaName,
@@ -1163,7 +1160,7 @@ impl EnumTypeFragment {
 }
 
 /// Named reusable type definition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NamedTypeFragment {
     /// Record type.
     Record(RecordTypeFragment),
@@ -1322,7 +1319,7 @@ impl NamedTypeFragment {
 }
 
 /// Reusable store-free collection of entity and type definitions.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SchemaFragment {
     entities: Vec<EntityFragment>,
     types: Vec<NamedTypeFragment>,

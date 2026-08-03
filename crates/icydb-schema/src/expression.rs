@@ -2,9 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use candid::CandidType;
-use serde::{Deserialize, Serialize};
-
 use crate::{
     Account, Blob, Date, Decimal, Duration, FieldSourceKey, Float32, Float64, IntBig,
     MAX_PROPOSAL_LITERAL_BYTES, MAX_SOURCE_CHECK_INSTRUCTIONS, NatBig, Principal, ScalarKind,
@@ -12,7 +9,7 @@ use crate::{
 };
 
 /// One canonical scalar literal carried by a schema proposal.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ScalarLiteral {
     /// Account identifier.
     Account(Account),
@@ -109,7 +106,7 @@ impl ScalarLiteral {
 ///
 /// This is an AST transport, not accepted bytecode: field references remain
 /// typed current-name keys and IcyDB still owns accepted binding and compilation.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SourceCheckInstruction {
     /// Push one field value.
     Field(FieldSourceKey),
@@ -142,7 +139,7 @@ pub enum SourceCheckInstruction {
 }
 
 /// Bounded canonical source expression.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceCheckExpr {
     instructions: Vec<SourceCheckInstruction>,
 }

@@ -65,7 +65,7 @@ pub use icydb_core::db::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
-pub use icydb_core::db::{QueryTracePlan, ReadIntentKind, TraceExecutionFamily, TraceReuseEvent};
+pub use icydb_core::db::{ReadIntentKind, TraceReuseEvent};
 pub use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,

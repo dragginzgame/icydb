@@ -1,12 +1,14 @@
+use std::mem::size_of;
+
 use crate::{
     db::schema::{
-        AcceptedCheckExprV1, AcceptedConstraintCatalog, AcceptedConstraintKind,
-        AcceptedConstraintSnapshot, AcceptedFieldKind, AcceptedNamedTypeIdentity,
-        AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaFingerprint,
-        ConstraintActivationKind, ConstraintIdAllocator, ConstraintOrigin, FieldId,
-        FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
-        MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldOrigin, PersistedFieldSnapshot,
-        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        AcceptedCheckExprV1, AcceptedCheckLiteralV1, AcceptedCheckValueExprV1,
+        AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
+        AcceptedFieldKind, AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
+        AcceptedSchemaFingerprint, ConstraintActivationKind, ConstraintIdAllocator,
+        ConstraintOrigin, FieldId, FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement,
+        LeafCodec, MAX_ACCEPTED_RECURSIVE_DEPTH, MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldOrigin,
+        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
         RowLayoutVersion, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
@@ -20,8 +22,8 @@ use crate::{
 };
 
 fn encode_unchecked_schema_fixture(snapshot: &PersistedSchemaSnapshot) -> Vec<u8> {
-    candid::encode_one(super::PersistedSchemaSnapshotWire::from_snapshot(snapshot))
-        .expect("unchecked schema wire fixture should encode")
+    super::encode_unchecked_persisted_schema_snapshot_for_tests(snapshot)
+        .expect("unchecked schema fixture should encode")
 }
 
 #[test]
@@ -30,13 +32,13 @@ fn persisted_schema_snapshot_codec_enforces_shared_byte_bound_before_decode() {
 
     let oversized = vec![0_u8; MAX_SCHEMA_SNAPSHOT_BYTES as usize + 1];
     let error = decode_persisted_schema_snapshot(&oversized)
-        .expect_err("oversized schema snapshot must reject before Candid decoding");
+        .expect_err("oversized schema snapshot must reject before decoding");
     assert_eq!(error.class(), ErrorClass::Corruption);
     assert_eq!(error.origin(), ErrorOrigin::Store);
     assert_eq!(
         super::persisted_schema_snapshot_decode_count_for_tests(),
         0,
-        "oversized bytes must not enter Candid decoding",
+        "oversized bytes must not enter schema decoding",
     );
 
     let bounded_malformed = vec![0_u8; MAX_SCHEMA_SNAPSHOT_BYTES as usize];
@@ -47,7 +49,7 @@ fn persisted_schema_snapshot_codec_enforces_shared_byte_bound_before_decode() {
     assert_eq!(
         super::persisted_schema_snapshot_decode_count_for_tests(),
         1,
-        "the exact byte boundary may enter Candid decoding",
+        "the exact byte boundary may enter schema decoding",
     );
 
     let oversized_snapshot = PersistedSchemaSnapshot::new(
@@ -74,9 +76,9 @@ fn decode_persisted_schema_snapshot_rejects_future_codec_version() {
         SchemaRowLayout::initial(Vec::new()),
         Vec::new(),
     );
-    let mut wire = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    wire.codec_version = super::SCHEMA_SNAPSHOT_CODEC_VERSION.saturating_add(1);
-    let encoded = candid::encode_one(&wire).expect("future schema codec fixture should encode");
+    let mut encoded = encode_unchecked_schema_fixture(&snapshot);
+    encoded[super::SCHEMA_SNAPSHOT_MAGIC.len()] =
+        super::SCHEMA_SNAPSHOT_FORMAT_VERSION.saturating_add(1);
 
     let error = decode_persisted_schema_snapshot(&encoded)
         .expect_err("future schema codec version must fail closed");
@@ -86,7 +88,7 @@ fn decode_persisted_schema_snapshot_rejects_future_codec_version() {
 }
 
 #[test]
-fn decode_persisted_schema_snapshot_rejects_retired_pre_target_contract_profile() {
+fn decode_persisted_schema_snapshot_rejects_corrupt_format_magic() {
     let snapshot = PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         "entities::WrongProfile".to_string(),
@@ -95,15 +97,257 @@ fn decode_persisted_schema_snapshot_rejects_retired_pre_target_contract_profile(
         SchemaRowLayout::initial(Vec::new()),
         Vec::new(),
     );
-    let mut wire = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    wire.contract_profile = u32::from_be_bytes(*b"ICYZ");
-    let encoded = candid::encode_one(&wire).expect("retired schema profile fixture should encode");
+    let mut encoded = encode_unchecked_schema_fixture(&snapshot);
+    encoded[0] ^= 0xff;
 
     let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("retired schema contract profile must fail closed");
+        .expect_err("corrupt schema format magic must fail closed");
+
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
+fn decode_persisted_schema_snapshot_hard_cuts_retired_candid_format() {
+    let error = decode_persisted_schema_snapshot(b"DIDLretired")
+        .expect_err("retired Candid schema snapshots must fail closed");
 
     assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(error.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_unknown_tags_and_trailing_bytes() {
+    let mut kind_reader = super::SnapshotReader::new(&[u8::MAX]);
+    let kind_error = super::field::decode_kind(&mut kind_reader, 0)
+        .expect_err("unknown field-kind tags must fail closed");
+    assert_eq!(kind_error.class(), ErrorClass::Corruption);
+
+    let mut encoded = encode_persisted_schema_snapshot(&temporal_schema_snapshot())
+        .expect("current snapshot should encode");
+    encoded.push(0);
+    let trailing_error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("trailing snapshot bytes must fail closed");
+    assert_eq!(trailing_error.class(), ErrorClass::Corruption);
+}
+
+#[test]
+fn persisted_schema_snapshot_encoding_is_canonical() {
+    const TEMPORAL_SCHEMA_V1: &[u8] = &[
+        73, 67, 89, 85, 83, 78, 80, 0, 1, 0, 0, 0, 2, 0, 0, 0, 18, 101, 110, 116, 105, 116, 105,
+        101, 115, 58, 58, 84, 101, 109, 112, 111, 114, 97, 108, 0, 0, 0, 8, 84, 101, 109, 112, 111,
+        114, 97, 108, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0,
+        0, 0, 0, 2, 0, 1, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 19, 95, 95, 105, 99, 121,
+        100, 98, 95, 112, 114, 105, 109, 97, 114, 121, 95, 107, 101, 121, 1, 1, 0, 0, 0, 2, 0, 0,
+        0, 18, 95, 95, 105, 99, 121, 100, 98, 95, 110, 111, 116, 95, 110, 117, 108, 108, 95, 49, 1,
+        2, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 18, 95, 95, 105, 99, 121, 100, 98, 95, 110, 111, 116,
+        95, 110, 117, 108, 108, 95, 50, 1, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0,
+        0, 2, 105, 100, 0, 0, 26, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 13, 0, 0, 0, 2,
+        0, 0, 0, 5, 115, 99, 111, 114, 101, 0, 1, 23, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 0, 0, 1, 48,
+        2, 0, 0, 0, 2, 16, 32, 0, 0, 1, 1, 1, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+
+    let snapshot = temporal_schema_snapshot();
+    let encoded =
+        encode_persisted_schema_snapshot(&snapshot).expect("current snapshot should encode");
+    assert!(encoded.starts_with(&super::SCHEMA_SNAPSHOT_MAGIC));
+    assert_eq!(
+        encoded[super::SCHEMA_SNAPSHOT_MAGIC.len()],
+        super::SCHEMA_SNAPSHOT_FORMAT_VERSION,
+    );
+    assert_eq!(encoded, TEMPORAL_SCHEMA_V1);
+
+    let decoded =
+        decode_persisted_schema_snapshot(&encoded).expect("current snapshot should decode");
+    let reencoded =
+        encode_persisted_schema_snapshot(&decoded).expect("decoded snapshot should re-encode");
+    assert_eq!(reencoded, encoded);
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_truncation_and_deceptive_lengths() {
+    let encoded = encode_persisted_schema_snapshot(&temporal_schema_snapshot())
+        .expect("current snapshot should encode");
+
+    for prefix_len in 0..encoded.len() {
+        let error = decode_persisted_schema_snapshot(&encoded[..prefix_len])
+            .expect_err("every truncated current snapshot must fail closed");
+        assert!(matches!(
+            error.class(),
+            ErrorClass::Corruption | ErrorClass::IncompatiblePersistedFormat
+        ));
+    }
+
+    let mut deceptive_length = encoded;
+    let entity_path_length_offset =
+        super::SCHEMA_SNAPSHOT_MAGIC.len() + size_of::<u8>() + size_of::<u32>();
+    deceptive_length[entity_path_length_offset..entity_path_length_offset + size_of::<u32>()]
+        .copy_from_slice(&u32::MAX.to_be_bytes());
+    let error = decode_persisted_schema_snapshot(&deceptive_length)
+        .expect_err("a declared length above the accepted bound must fail before allocation");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+}
+
+#[test]
+fn persisted_schema_snapshot_uses_exact_recursive_depth_boundaries() {
+    fn list_kind(levels: usize) -> AcceptedFieldKind {
+        let mut kind = AcceptedFieldKind::Nat64;
+        for _ in 0..levels {
+            kind = AcceptedFieldKind::List(Box::new(kind));
+        }
+        kind
+    }
+
+    let valid_kind = list_kind(MAX_ACCEPTED_RECURSIVE_DEPTH - 1);
+    let mut writer = super::SnapshotWriter::new();
+    super::field::encode_kind(&mut writer, &valid_kind, 0)
+        .expect("the highest valid recursive field kind must encode");
+    let valid_bytes = writer.finish().expect("valid kind bytes should finish");
+    let mut reader = super::SnapshotReader::new(&valid_bytes);
+    let decoded = super::field::decode_kind(&mut reader, 0)
+        .expect("the highest valid recursive field kind must decode");
+    reader
+        .finish()
+        .expect("valid kind should consume all bytes");
+    assert_eq!(decoded, valid_kind);
+
+    let invalid_kind = list_kind(MAX_ACCEPTED_RECURSIVE_DEPTH);
+    let mut writer = super::SnapshotWriter::new();
+    let error = super::field::encode_kind(&mut writer, &invalid_kind, 0)
+        .expect_err("the first out-of-range recursive field kind must reject");
+    assert_eq!(error.class(), ErrorClass::Unsupported);
+
+    let mut invalid_bytes = vec![29; MAX_ACCEPTED_RECURSIVE_DEPTH];
+    invalid_bytes.push(23);
+    let mut reader = super::SnapshotReader::new(&invalid_bytes);
+    let error = super::field::decode_kind(&mut reader, 0)
+        .expect_err("persisted field recursion beyond the accepted bound must reject");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+}
+
+#[test]
+fn persisted_schema_snapshot_uses_exact_check_expression_depth_boundaries() {
+    let valid_not_count = usize::from(crate::db::schema::check::MAX_CHECK_EXPR_V1_DEPTH) - 1;
+    let mut valid_bytes = vec![3; valid_not_count];
+    valid_bytes.push(1);
+    let mut reader = super::SnapshotReader::new(&valid_bytes);
+    let mut nodes = 0;
+    let _ = super::constraint::decode_check_expression(&mut reader, 0, &mut nodes)
+        .expect("the highest valid check-expression depth must decode");
+    reader
+        .finish()
+        .expect("valid check expression should consume all bytes");
+
+    let invalid_not_count = usize::from(crate::db::schema::check::MAX_CHECK_EXPR_V1_DEPTH);
+    let mut invalid_bytes = vec![3; invalid_not_count];
+    invalid_bytes.push(1);
+    let mut reader = super::SnapshotReader::new(&invalid_bytes);
+    let mut nodes = 0;
+    let error = super::constraint::decode_check_expression(&mut reader, 0, &mut nodes)
+        .expect_err("the first out-of-range check-expression depth must reject");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+}
+
+fn single_field_contract_snapshot(
+    kind: AcceptedFieldKind,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+) -> PersistedSchemaSnapshot {
+    PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "entities::ContractBoundary".to_string(),
+        "ContractBoundary".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            kind,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            storage_decode,
+            leaf_codec,
+        )],
+    )
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_invalid_local_field_contracts() {
+    let malformed = [
+        single_field_contract_snapshot(
+            AcceptedFieldKind::Decimal {
+                scale: icydb_schema::Decimal::max_supported_scale().saturating_add(1),
+            },
+            FieldStorageDecode::ByKind,
+            LeafCodec::Structural,
+        ),
+        single_field_contract_snapshot(
+            AcceptedFieldKind::IntBig { max_bytes: 0 },
+            FieldStorageDecode::ByKind,
+            LeafCodec::Structural,
+        ),
+        single_field_contract_snapshot(
+            AcceptedFieldKind::NatBig { max_bytes: 0 },
+            FieldStorageDecode::ByKind,
+            LeafCodec::Structural,
+        ),
+        single_field_contract_snapshot(
+            AcceptedFieldKind::Nat64,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Structural,
+        ),
+    ];
+
+    for snapshot in malformed {
+        let error = encode_persisted_schema_snapshot(&snapshot)
+            .expect_err("accepted codec egress must reject malformed field contracts");
+        assert_eq!(error.class(), ErrorClass::InvariantViolation);
+
+        let encoded = encode_unchecked_schema_fixture(&snapshot);
+        let error = decode_persisted_schema_snapshot(&encoded)
+            .expect_err("accepted codec ingress must reject malformed field contracts");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+    }
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_noncanonical_check_literal_contract() {
+    let snapshot = snapshot_with_true_check();
+    let mut constraints = snapshot.constraints().to_vec();
+    let position = constraints
+        .iter()
+        .position(|constraint| matches!(constraint.kind(), AcceptedConstraintKind::Check { .. }))
+        .expect("test snapshot should contain a check constraint");
+    let accepted = &constraints[position];
+    constraints[position] = AcceptedConstraintSnapshot::new(
+        accepted.id(),
+        accepted.name().to_string(),
+        accepted.origin(),
+        AcceptedConstraintKind::Check {
+            expression: Box::new(AcceptedCheckExprV1::IsNull(
+                AcceptedCheckValueExprV1::Literal(AcceptedCheckLiteralV1::from_accepted_parts(
+                    AcceptedFieldKind::Nat64,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Structural,
+                    vec![1],
+                )),
+            )),
+        },
+    );
+    let allocator = snapshot.constraint_id_allocator();
+    let malformed = snapshot.with_constraint_catalog(
+        AcceptedConstraintCatalog::from_persisted_parts(allocator, constraints, Vec::new()),
+    );
+
+    let error = encode_persisted_schema_snapshot(&malformed)
+        .expect_err("accepted codec egress must reject a noncanonical check literal");
+    assert_eq!(error.class(), ErrorClass::InvariantViolation);
+    let encoded = encode_unchecked_schema_fixture(&malformed);
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("accepted codec ingress must reject a noncanonical check literal");
+    assert_eq!(error.class(), ErrorClass::Corruption);
 }
 
 #[test]
@@ -225,55 +469,6 @@ fn persisted_schema_snapshot_rejects_orphan_structural_constraint_reference() {
     );
 }
 
-fn assert_structural_constraint_wire_rejects(wire: super::PersistedSchemaSnapshotWire) {
-    let encoded = candid::encode_one(&wire).expect("malformed constraint wire should encode");
-    let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("malformed structural constraint catalog must fail closed");
-
-    assert_eq!(
-        error.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
-    );
-}
-
-#[test]
-fn persisted_schema_snapshot_rejects_malformed_constraint_identity_and_metadata() {
-    let mut zero_id =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    zero_id.constraints[0].id = 0;
-    assert_structural_constraint_wire_rejects(zero_id);
-
-    let mut allocator_below_id =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    allocator_below_id.constraint_id_high_water = 1;
-    assert_structural_constraint_wire_rejects(allocator_below_id);
-
-    let mut duplicate_id =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    duplicate_id.constraints[1].id = duplicate_id.constraints[0].id;
-    assert_structural_constraint_wire_rejects(duplicate_id);
-
-    let mut duplicate_name =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    duplicate_name.constraints[1].name = duplicate_name.constraints[0].name.clone();
-    assert_structural_constraint_wire_rejects(duplicate_name);
-
-    let mut invalid_name =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    invalid_name.constraints[0].name = "invalid name".to_string();
-    assert_structural_constraint_wire_rejects(invalid_name);
-
-    let mut overlong_name =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    overlong_name.constraints[0].name = "a".repeat(257);
-    assert_structural_constraint_wire_rejects(overlong_name);
-
-    let mut wrong_origin =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    wrong_origin.constraints[1].origin = super::ConstraintOriginWire::SqlDdl;
-    assert_structural_constraint_wire_rejects(wrong_origin);
-}
-
 fn snapshot_with_true_check() -> PersistedSchemaSnapshot {
     let snapshot = temporal_schema_snapshot();
     let catalog = snapshot
@@ -328,63 +523,6 @@ fn persisted_schema_snapshot_round_trips_current_targeted_rule() {
         decode_persisted_schema_snapshot(&encoded).expect("current targeted rule should decode");
 
     assert_eq!(decoded, snapshot);
-
-    let mut missing_root = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    let super::AcceptedConstraintKindWire::TargetedRule { target, .. } = &mut missing_root
-        .constraints
-        .last_mut()
-        .expect("rule should exist")
-        .kind
-    else {
-        panic!("targeted rule wire should retain its kind");
-    };
-    target.root_field_id = 999;
-    assert_structural_constraint_wire_rejects(missing_root);
-
-    let mut zero_target = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    let super::AcceptedConstraintKindWire::TargetedRule { target, .. } = &mut zero_target
-        .constraints
-        .last_mut()
-        .expect("rule should exist")
-        .kind
-    else {
-        panic!("targeted rule wire should retain its kind");
-    };
-    target.target_type = super::AcceptedNamedTypeIdentityWire::Composite(0);
-    assert_structural_constraint_wire_rejects(zero_target);
-
-    let mut reversed_range = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    let super::AcceptedConstraintKindWire::TargetedRule { operation, .. } = &mut reversed_range
-        .constraints
-        .last_mut()
-        .expect("rule should exist")
-        .kind
-    else {
-        panic!("targeted rule wire should retain its kind");
-    };
-    **operation = super::AcceptedRuleOperationWire::LengthRangeInclusive { min: 9, max: 8 };
-    assert_structural_constraint_wire_rejects(reversed_range);
-}
-
-#[test]
-fn current_targeted_rule_wire_round_trips_maximum_and_multiple_of() {
-    let literal = crate::db::schema::AcceptedCheckLiteralV1::from_accepted_parts(
-        AcceptedFieldKind::Nat64,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Nat64),
-        vec![5],
-    );
-    for operation in [
-        AcceptedRuleOperation::NumericMaximumInclusive {
-            value: literal.clone(),
-        },
-        AcceptedRuleOperation::MultipleOf { divisor: literal },
-    ] {
-        let decoded = super::AcceptedRuleOperationWire::from_operation(&operation)
-            .into_operation()
-            .expect("current targeted operation wire should decode");
-        assert_eq!(decoded, operation);
-    }
 }
 
 fn snapshot_with_check_activation() -> PersistedSchemaSnapshot {
@@ -531,53 +669,6 @@ fn persisted_schema_snapshot_round_trips_planner_invisible_unique_candidate() {
     assert_eq!(decoded, snapshot);
     assert!(decoded.indexes().is_empty());
     assert_eq!(decoded.candidate_indexes().len(), 1);
-
-    let mut missing_owner = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    missing_owner.candidate_indexes.clear();
-    assert_structural_constraint_wire_rejects(missing_owner);
-}
-
-#[test]
-fn persisted_schema_snapshot_rejects_stale_or_unbound_activation_identity() {
-    let snapshot = snapshot_with_check_activation();
-
-    let mut stale_fingerprint = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    stale_fingerprint.activations[0].fingerprint[0] ^= 1;
-    assert_structural_constraint_wire_rejects(stale_fingerprint);
-
-    let mut zero_epoch = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    zero_epoch.activations[0].activation_epoch = 0;
-    assert_structural_constraint_wire_rejects(zero_epoch);
-
-    let mut duplicate_name = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    duplicate_name.activations[0].name = duplicate_name.constraints[0].name.clone();
-    assert_structural_constraint_wire_rejects(duplicate_name);
-}
-
-#[test]
-fn persisted_schema_snapshot_rejects_invalid_check_field_and_noncanonical_boolean() {
-    let snapshot = snapshot_with_true_check();
-    let mut unknown_field = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    let Some(check) = unknown_field.constraints.last_mut() else {
-        panic!("test check wire should exist");
-    };
-    check.kind = super::AcceptedConstraintKindWire::Check {
-        expression: Box::new(super::AcceptedCheckExprV1Wire::IsNull(
-            super::AcceptedCheckValueExprV1Wire::Field(999),
-        )),
-    };
-    assert_structural_constraint_wire_rejects(unknown_field);
-
-    let mut noncanonical = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    let Some(check) = noncanonical.constraints.last_mut() else {
-        panic!("test check wire should exist");
-    };
-    check.kind = super::AcceptedConstraintKindWire::Check {
-        expression: Box::new(super::AcceptedCheckExprV1Wire::And(vec![
-            super::AcceptedCheckExprV1Wire::True,
-        ])),
-    };
-    assert_structural_constraint_wire_rejects(noncanonical);
 }
 
 fn temporal_schema_snapshot() -> PersistedSchemaSnapshot {
@@ -627,58 +718,6 @@ fn temporal_schema_snapshot() -> PersistedSchemaSnapshot {
             ),
         ],
     )
-}
-
-fn assert_temporal_schema_wire_rejects(wire: super::PersistedSchemaSnapshotWire) {
-    let encoded = candid::encode_one(&wire).expect("invalid temporal schema fixture should encode");
-    let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("invalid temporal schema metadata must fail closed");
-
-    assert_eq!(error.class(), ErrorClass::Corruption);
-}
-
-#[test]
-fn persisted_schema_snapshot_rejects_invalid_layout_version_ranges() {
-    let mut zero_current =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    zero_current.row_layout.current_version = 0;
-    assert_temporal_schema_wire_rejects(zero_current);
-
-    let mut zero_floor =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    zero_floor.row_layout.history_floor = 0;
-    assert_temporal_schema_wire_rejects(zero_floor);
-
-    let mut inverted =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    inverted.row_layout.history_floor = inverted.row_layout.current_version.saturating_add(1);
-    assert_temporal_schema_wire_rejects(inverted);
-
-    let mut future_introduction =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    future_introduction.fields[1].introduced_in_layout = future_introduction
-        .row_layout
-        .current_version
-        .saturating_add(1);
-    assert_temporal_schema_wire_rejects(future_introduction);
-}
-
-#[test]
-fn persisted_schema_snapshot_rejects_open_or_overclosed_history() {
-    let mut open_history =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    open_history.fields[1].historical_fill = super::SchemaHistoricalFillWire::Reject;
-    assert_temporal_schema_wire_rejects(open_history);
-
-    let mut overclosed_history =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    overclosed_history.row_layout.history_floor = overclosed_history.row_layout.current_version;
-    assert_temporal_schema_wire_rejects(overclosed_history);
-
-    let mut invalid_null_fill =
-        super::PersistedSchemaSnapshotWire::from_snapshot(&temporal_schema_snapshot());
-    invalid_null_fill.fields[1].historical_fill = super::SchemaHistoricalFillWire::Null;
-    assert_temporal_schema_wire_rejects(invalid_null_fill);
 }
 
 #[test]
@@ -1186,27 +1225,6 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
     assert_eq!(index.key().field_paths()[0].field_id(), FieldId::new(2));
     assert_eq!(index.key().field_paths()[0].slot(), SchemaFieldSlot::new(1));
     assert_eq!(index.key().field_paths()[0].path(), &["email".to_string()]);
-
-    let mut zero_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    zero_identity.indexes[0].schema_id = 0;
-    let encoded = candid::encode_one(&zero_identity)
-        .expect("zero logical index identity fixture should encode");
-    let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("zero logical index identity must fail closed");
-    assert_eq!(error.class(), ErrorClass::Corruption);
-
-    let duplicate = snapshot.indexes()[0]
-        .clone_with_dense_identities(2, |field_id, slot| Some((field_id, slot)))
-        .expect("test index should support physical ordinal compaction");
-    let mut duplicate_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    duplicate_identity
-        .indexes
-        .push(super::PersistedIndexSnapshotWire::from_index(&duplicate));
-    let encoded = candid::encode_one(&duplicate_identity)
-        .expect("duplicate logical index identity fixture should encode");
-    let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("duplicate logical index identity must fail closed");
-    assert_eq!(error.class(), ErrorClass::Corruption);
 }
 
 #[test]
@@ -1281,32 +1299,6 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
     assert_eq!(relation.target_path(), "entities::Owner");
     assert_eq!(relation.local_field_ids(), &[FieldId::new(2)]);
     assert_eq!(decoded.fields()[1].kind(), &relation_kind);
-
-    let mut zero_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    zero_identity.relations[0].relation_id = 0;
-    let encoded = candid::encode_one(&zero_identity)
-        .expect("zero logical relation identity fixture should encode");
-    let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("zero logical relation identity must fail closed");
-    assert_eq!(error.class(), ErrorClass::Corruption);
-
-    let duplicate = PersistedRelationEdgeSnapshot::new(
-        relation.id(),
-        "secondary_owner".to_string(),
-        "entities::SecondaryOwner".to_string(),
-        vec![FieldId::new(2)],
-    );
-    let mut duplicate_identity = super::PersistedSchemaSnapshotWire::from_snapshot(&snapshot);
-    duplicate_identity
-        .relations
-        .push(super::PersistedRelationEdgeSnapshotWire::from_relation(
-            &duplicate,
-        ));
-    let encoded = candid::encode_one(&duplicate_identity)
-        .expect("duplicate logical relation identity fixture should encode");
-    let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("duplicate logical relation identity must fail closed");
-    assert_eq!(error.class(), ErrorClass::Corruption);
 }
 
 #[test]

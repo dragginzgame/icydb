@@ -4419,7 +4419,7 @@ mod tests {
     fn physical_migration_validation_is_bounded_staged_and_does_not_rewrite_rows() {
         use std::convert::Infallible;
 
-        use super::migrate_schema;
+        use super::{defer_generated_schema_application_for_prepared_migration, migrate_schema};
         use crate::db::{
             data::StoreVisit,
             index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind},
@@ -4580,6 +4580,10 @@ mod tests {
             row_bytes(),
             before_rows,
             "abort must retain predecessor rows"
+        );
+        assert!(
+            !defer_generated_schema_application_for_prepared_migration(&db, &proposal)
+                .expect("terminal aborted record must not block generated startup"),
         );
     }
 

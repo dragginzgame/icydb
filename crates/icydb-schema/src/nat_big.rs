@@ -86,6 +86,14 @@ impl NatBig {
         out
     }
 
+    pub(crate) fn to_magnitude_bytes(&self) -> Vec<u8> {
+        self.0.0.to_bytes_be()
+    }
+
+    pub(crate) fn from_magnitude_bytes(magnitude: &[u8]) -> Self {
+        Self::from_biguint(BigUint::from_bytes_be(magnitude))
+    }
+
     /// Saturating addition (unbounded; equivalent to normal addition).
     #[must_use]
     pub fn saturating_add(self, rhs: Self) -> Self {

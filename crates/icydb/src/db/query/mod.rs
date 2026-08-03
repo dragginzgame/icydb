@@ -12,14 +12,12 @@ mod typed;
 pub use typed::{Query, TypedQueryError};
 
 pub use icydb_core::db::{
-    AccessRequirementError, AccessRequirementViolation, AggregateExpr, CompareOp,
-    ExplainAccessCandidate, ExplainAccessDecision, ExplainAccessDecisionKind,
-    ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
-    ExplainSelectedAccess, FieldRef, FilterExpr, FilterValue, MissingRowPolicy,
-    NumericProjectionExpr, OrderDirection, OrderExpr, OrderTerm, QueryTracePlan,
-    RequiredAccessPath, RoundProjectionExpr, TextProjectionExpr, TraceExecutionFamily,
-    TraceReuseEvent, ValueProjectionExpr, add, asc, avg, contains, count, count_by, desc, div,
-    ends_with, exists, field, first, last, left, length, lower, ltrim, max, max_by, min, min_by,
-    mul, position, replace, right, round, round_expr, rtrim, starts_with, sub, substring,
-    substring_with_length, sum, trim, upper,
+    AggregateExpr, CompareOp, ExplainAccessCandidate, ExplainAccessDecision,
+    ExplainAccessDecisionKind, ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex,
+    ExplainResidualSummary, ExplainSelectedAccess, FieldRef, FilterExpr, FilterValue,
+    MissingRowPolicy, NumericProjectionExpr, OrderDirection, OrderExpr, OrderTerm,
+    RoundProjectionExpr, TextProjectionExpr, TraceReuseEvent, ValueProjectionExpr, add, asc, avg,
+    contains, count, count_by, desc, div, ends_with, exists, field, first, last, left, length,
+    lower, ltrim, max, max_by, min, min_by, mul, position, replace, right, round, round_expr,
+    rtrim, starts_with, sub, substring, substring_with_length, sum, trim, upper,
 };

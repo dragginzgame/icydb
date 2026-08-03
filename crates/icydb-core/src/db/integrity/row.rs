@@ -164,9 +164,12 @@ struct RowAtom {
     ordinal: u32,
 }
 
-#[expect(
-    clippy::large_enum_variant,
-    reason = "the finding stays stack-owned until direct page insertion; boxing would add one heap allocation per physical finding"
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    expect(
+        clippy::large_enum_variant,
+        reason = "the finding stays stack-owned until direct page insertion; boxing would add one heap allocation per physical finding"
+    )
 )]
 enum RowAtomOutcome {
     Clean,

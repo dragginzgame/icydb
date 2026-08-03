@@ -2,23 +2,20 @@
 
 use std::collections::BTreeSet;
 
-use candid::CandidType;
-use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use sha2::{Digest, Sha256};
 
 use crate::{
     ConstraintSourceKey, EntitySourceKey, FieldSourceKey, MAX_SCHEMA_MIGRATION_ENTITIES,
-    MAX_SCHEMA_MIGRATION_PLAN_BYTES, MAX_SCHEMA_MIGRATION_RENAMES, MAX_SCHEMA_MIGRATION_TRANSFORMS,
-    RelationSourceKey, RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError,
-    SchemaMigrationPlanDigest, TypeSourceKey, check_len,
+    MAX_SCHEMA_MIGRATION_RENAMES, MAX_SCHEMA_MIGRATION_TRANSFORMS, RelationSourceKey,
+    RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError, SchemaMigrationPlanDigest,
+    TypeSourceKey, check_len,
 };
 
-const MIGRATION_PROGRAM_VERSION_CURRENT: u16 = 1;
+pub(crate) const MIGRATION_PROGRAM_VERSION_CURRENT: u16 = 1;
 const MIGRATION_PLAN_DIGEST_PROFILE: &[u8] = b"icydb.schema-migration-plan.v1";
 
 /// Positive application-declared source version for one current entity.
-#[derive(CandidType, Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DeclaredEntityVersion(u32);
 
 impl DeclaredEntityVersion {
@@ -41,17 +38,8 @@ impl DeclaredEntityVersion {
     }
 }
 
-impl<'de> Deserialize<'de> for DeclaredEntityVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Self::try_new(u32::deserialize(deserializer)?).map_err(D::Error::custom)
-    }
-}
-
 /// One exact source-name correspondence applied simultaneously with its plan.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SchemaMigrationRename {
     /// Rename one entity-local field.
     Field {
@@ -145,7 +133,7 @@ impl SchemaMigrationRename {
 }
 
 /// One closed deterministic historical-row transform declaration.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SchemaMigrationTransform {
     /// Fill one current target field with one exact typed literal.
     Fill {
@@ -217,7 +205,7 @@ impl SchemaMigrationTransform {
 }
 
 /// One immediate-predecessor transition for a current entity declaration.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EntityMigration {
     entity: EntitySourceKey,
     from: DeclaredEntityVersion,
@@ -308,7 +296,7 @@ impl EntityMigration {
 }
 
 /// One canonical database-scoped coordinated migration plan.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SchemaMigrationPlan {
     program_version: u16,
     transitions: Vec<EntityMigration>,
@@ -345,15 +333,13 @@ impl SchemaMigrationPlan {
                 return Err(SchemaContractError::DuplicateMigrationSource);
             }
         }
-        let transition_bytes =
-            candid::encode_one(&transitions).map_err(|_| SchemaContractError::Encode)?;
+        let transition_bytes = crate::encode_migration_transitions_for_digest(&transitions)?;
         let digest = digest_plan_transitions(&transition_bytes);
         let plan = Self {
             program_version: MIGRATION_PROGRAM_VERSION_CURRENT,
             transitions,
             digest,
         };
-        ensure_plan_bound(&plan)?;
         Ok(plan)
     }
 
@@ -388,60 +374,6 @@ impl SchemaMigrationPlan {
         }
         Ok(())
     }
-}
-
-/// Encode one bounded canonical migration plan.
-///
-/// # Errors
-///
-/// Returns a typed validation, encoding, or size error.
-pub fn encode_schema_migration_plan(
-    plan: &SchemaMigrationPlan,
-) -> Result<Vec<u8>, SchemaContractError> {
-    plan.validate()?;
-    let bytes = candid::encode_one(plan).map_err(|_| SchemaContractError::Encode)?;
-    if bytes.len() > MAX_SCHEMA_MIGRATION_PLAN_BYTES {
-        return Err(SchemaContractError::EncodedTooLarge {
-            len: bytes.len(),
-            max: MAX_SCHEMA_MIGRATION_PLAN_BYTES,
-        });
-    }
-    Ok(bytes)
-}
-
-/// Decode one bounded canonical migration plan.
-///
-/// # Errors
-///
-/// Returns a typed size, decoding, version, validation, or canonicalization
-/// error. Obsolete forms are never translated.
-pub fn decode_schema_migration_plan(
-    bytes: &[u8],
-) -> Result<SchemaMigrationPlan, SchemaContractError> {
-    if bytes.len() > MAX_SCHEMA_MIGRATION_PLAN_BYTES {
-        return Err(SchemaContractError::EncodedTooLarge {
-            len: bytes.len(),
-            max: MAX_SCHEMA_MIGRATION_PLAN_BYTES,
-        });
-    }
-    let plan = candid::decode_one::<SchemaMigrationPlan>(bytes)
-        .map_err(|_| SchemaContractError::Decode)?;
-    plan.validate()?;
-    if encode_schema_migration_plan(&plan)? != bytes {
-        return Err(SchemaContractError::NonCanonical);
-    }
-    Ok(plan)
-}
-
-fn ensure_plan_bound(plan: &SchemaMigrationPlan) -> Result<(), SchemaContractError> {
-    let bytes = candid::encode_one(plan).map_err(|_| SchemaContractError::Encode)?;
-    if bytes.len() > MAX_SCHEMA_MIGRATION_PLAN_BYTES {
-        return Err(SchemaContractError::EncodedTooLarge {
-            len: bytes.len(),
-            max: MAX_SCHEMA_MIGRATION_PLAN_BYTES,
-        });
-    }
-    Ok(())
 }
 
 fn digest_plan_transitions(bytes: &[u8]) -> SchemaMigrationPlanDigest {
@@ -502,6 +434,9 @@ const fn is_v1_cast_target(target: ScalarType) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        MAX_SCHEMA_MIGRATION_PLAN_BYTES, decode_schema_migration_plan, encode_schema_migration_plan,
+    };
 
     fn entity(value: &str) -> EntitySourceKey {
         EntitySourceKey::try_new(value).expect("entity source should admit")
@@ -558,14 +493,87 @@ mod tests {
     }
 
     #[test]
+    fn every_current_migration_operation_roundtrips_exactly() {
+        let transition = EntityMigration::try_new(
+            entity("Account"),
+            DeclaredEntityVersion::try_new(3).expect("version should admit"),
+            Some(entity("User")),
+            vec![
+                SchemaMigrationRename::Field {
+                    from: field("old_field"),
+                    to: field("new_field"),
+                },
+                SchemaMigrationRename::NamedType {
+                    from: TypeSourceKey::try_new("OldType").expect("type should admit"),
+                    to: TypeSourceKey::try_new("NewType").expect("type should admit"),
+                },
+                SchemaMigrationRename::EnumVariant {
+                    named_type: TypeSourceKey::try_new("OldEnum").expect("type should admit"),
+                    from: TypeSourceKey::try_new("OldVariant").expect("variant should admit"),
+                    to: TypeSourceKey::try_new("NewVariant").expect("variant should admit"),
+                },
+                SchemaMigrationRename::RecordField {
+                    named_type: TypeSourceKey::try_new("OldRecord").expect("type should admit"),
+                    from: field("old_member"),
+                    to: field("new_member"),
+                },
+                SchemaMigrationRename::Relation {
+                    from: RelationSourceKey::try_new("old_relation")
+                        .expect("relation should admit"),
+                    to: RelationSourceKey::try_new("new_relation").expect("relation should admit"),
+                },
+                SchemaMigrationRename::Constraint {
+                    from: ConstraintSourceKey::try_new("old_constraint")
+                        .expect("constraint should admit"),
+                    to: ConstraintSourceKey::try_new("new_constraint")
+                        .expect("constraint should admit"),
+                },
+                SchemaMigrationRename::Rule {
+                    named_type: TypeSourceKey::try_new("OldRuleOwner").expect("type should admit"),
+                    from: RuleSourceKey::try_new("old_rule").expect("rule should admit"),
+                    to: RuleSourceKey::try_new("new_rule").expect("rule should admit"),
+                },
+            ],
+            vec![
+                SchemaMigrationTransform::Fill {
+                    to: field("filled"),
+                    literal: ScalarLiteral::Nat(1),
+                },
+                SchemaMigrationTransform::Copy {
+                    from: field("copy_source"),
+                    to: field("copied"),
+                },
+                SchemaMigrationTransform::CheckedCast {
+                    from: field("cast_source"),
+                    to: field("casted"),
+                    target: ScalarType::Nat64,
+                },
+                SchemaMigrationTransform::Coalesce {
+                    from: field("nullable_source"),
+                    to: field("coalesced"),
+                    literal: ScalarLiteral::Nat(0),
+                },
+            ],
+        )
+        .expect("transition should admit");
+        let plan = SchemaMigrationPlan::try_new(vec![transition]).expect("plan should admit");
+        let encoded = encode_schema_migration_plan(&plan).expect("plan should encode");
+
+        assert_eq!(
+            decode_schema_migration_plan(&encoded).expect("plan should decode"),
+            plan,
+        );
+    }
+
+    #[test]
     fn plan_digest_has_one_fixed_current_vector() {
         let plan = SchemaMigrationPlan::try_new(vec![transition("Account", "User")])
             .expect("plan should admit");
         assert_eq!(
             plan.digest().to_bytes(),
             [
-                112, 32, 202, 185, 208, 245, 26, 207, 64, 171, 3, 52, 250, 32, 61, 253, 141, 53,
-                112, 54, 108, 123, 104, 157, 229, 10, 70, 161, 138, 164, 77, 16,
+                198, 22, 117, 206, 250, 126, 65, 102, 162, 77, 246, 242, 60, 127, 68, 242, 56, 105,
+                141, 56, 136, 233, 54, 180, 100, 187, 24, 63, 167, 158, 239, 93,
             ],
         );
     }
@@ -607,10 +615,10 @@ mod tests {
 
     #[test]
     fn obsolete_programs_and_oversized_transport_fail_closed() {
-        let mut plan = SchemaMigrationPlan::try_new(vec![transition("Account", "User")])
+        let plan = SchemaMigrationPlan::try_new(vec![transition("Account", "User")])
             .expect("plan should admit");
-        plan.program_version = 2;
-        let bytes = candid::encode_one(plan).expect("raw future plan should encode");
+        let mut bytes = encode_schema_migration_plan(&plan).expect("plan should encode");
+        bytes[5..7].copy_from_slice(&2_u16.to_be_bytes());
         assert_eq!(
             decode_schema_migration_plan(&bytes),
             Err(SchemaContractError::UnsupportedMigrationProgramVersion {

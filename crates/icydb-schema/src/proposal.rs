@@ -18,11 +18,8 @@ use crate::{
 };
 
 /// Sole maintained proposal contract version.
-#[derive(
-    CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
-)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
-#[serde(transparent)]
 pub struct ProposalContractVersion(u16);
 
 impl ProposalContractVersion {
@@ -43,11 +40,8 @@ impl ProposalContractVersion {
 }
 
 /// Feature required by one proposal.
-#[derive(
-    CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
-)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
-#[serde(transparent)]
 pub struct SchemaCapability(u16);
 
 impl SchemaCapability {
@@ -109,7 +103,7 @@ impl ExpectedAcceptedHead {
 }
 
 /// Explicit entity-to-store routing in the target database.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EntityStoreAssignment {
     entity: EntitySourceKey,
     store: TargetStoreIdentity,
@@ -136,9 +130,7 @@ impl EntityStoreAssignment {
 }
 
 /// Explicit hard-cut removal operation.
-#[derive(
-    CandidType, Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
-)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SchemaRemoval {
     /// Remove an entity.
     Entity(EntitySourceKey),
@@ -175,7 +167,7 @@ pub enum SchemaRemoval {
 }
 
 /// Canonical current-form database-scoped proposal.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SchemaProposal {
     version: ProposalContractVersion,
     capabilities: Vec<SchemaCapability>,
@@ -1156,9 +1148,9 @@ mod tests {
     use crate::decode_schema_proposal;
     use std::str::FromStr;
 
-    fn empty_proposal() -> SchemaProposal {
+    fn empty_proposal_with(capabilities: Vec<SchemaCapability>) -> SchemaProposal {
         SchemaProposal::try_compose(
-            Vec::new(),
+            capabilities,
             TargetDatabaseIdentity::from_bytes([1; 32]),
             SchemaSubmissionKey::try_new("proposal-version-test")
                 .expect("submission key should admit"),
@@ -1173,9 +1165,9 @@ mod tests {
 
     #[test]
     fn decoded_future_contract_version_fails_typed() {
-        let mut proposal = empty_proposal();
-        proposal.version = ProposalContractVersion::from_raw(3);
-        let bytes = candid::encode_one(proposal).expect("raw future proposal should encode");
+        let proposal = empty_proposal_with(Vec::new());
+        let mut bytes = crate::encode_schema_proposal(&proposal).expect("proposal should encode");
+        bytes[5..7].copy_from_slice(&3_u16.to_be_bytes());
 
         assert_eq!(
             decode_schema_proposal(&bytes),
@@ -1188,9 +1180,9 @@ mod tests {
 
     #[test]
     fn decoded_unknown_capability_fails_typed() {
-        let mut proposal = empty_proposal();
-        proposal.capabilities = vec![SchemaCapability::from_raw(u16::MAX)];
-        let bytes = candid::encode_one(proposal).expect("raw proposal should encode");
+        let proposal = empty_proposal_with(vec![SchemaCapability::EXACT_COMPOSITE_TYPES]);
+        let mut bytes = crate::encode_schema_proposal(&proposal).expect("proposal should encode");
+        bytes[11..13].copy_from_slice(&u16::MAX.to_be_bytes());
 
         assert_eq!(
             decode_schema_proposal(&bytes),

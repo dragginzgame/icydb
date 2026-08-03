@@ -131,6 +131,16 @@ impl AcceptedCheckLiteralV1 {
         self.payload.as_slice()
     }
 
+    /// Return whether the persisted literal's local field and storage
+    /// contracts are canonical before catalog-dependent payload validation.
+    #[must_use]
+    pub(in crate::db::schema) fn has_valid_local_shape(&self) -> bool {
+        self.kind.has_valid_local_shape()
+            && self.leaf_codec == self.kind.leaf_codec_for_storage(self.storage_decode)
+            && !self.payload.is_empty()
+            && self.payload.len() <= MAX_CHECK_EXPR_V1_LITERAL_BYTES
+    }
+
     pub(in crate::db::schema) fn canonical_key(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         write_literal_key(&mut bytes, self);
@@ -482,13 +492,14 @@ fn validate_value_expr(
             }
         }
         AcceptedCheckValueExprV1::Literal(literal) => {
+            if !literal.has_valid_local_shape() {
+                return Err(AcceptedCheckExprV1Error::UnsupportedFieldKind);
+            }
             bounds.literal_bytes = bounds
                 .literal_bytes
                 .checked_add(literal.payload().len())
                 .ok_or(AcceptedCheckExprV1Error::LiteralBytesExceeded)?;
-            if literal.payload().is_empty()
-                || bounds.literal_bytes > MAX_CHECK_EXPR_V1_LITERAL_BYTES
-            {
+            if bounds.literal_bytes > MAX_CHECK_EXPR_V1_LITERAL_BYTES {
                 return Err(AcceptedCheckExprV1Error::LiteralBytesExceeded);
             }
             Ok(Some(literal.kind().clone()))

@@ -51,10 +51,9 @@ use candidate::{
 const fn sql_write_error_class(error: &QueryError) -> ErrorClass {
     match error {
         QueryError::Execute(err) => err.as_internal().class(),
-        QueryError::Validate(_)
-        | QueryError::Plan(_)
-        | QueryError::Intent(_)
-        | QueryError::AccessRequirement(_) => ErrorClass::Unsupported,
+        QueryError::Validate(_) | QueryError::Plan(_) | QueryError::Intent(_) => {
+            ErrorClass::Unsupported
+        }
     }
 }
 

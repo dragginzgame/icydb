@@ -130,13 +130,10 @@ pub use query::{
         ExplainSelectedAccess,
     },
     expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
-    intent::{
-        AccessRequirementError, AccessRequirementViolation, IntentError, QueryError,
-        QueryExecutionError, RequiredAccessPath,
-    },
+    intent::{IntentError, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
     read_intent::ReadIntentKind,
-    trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseEvent},
+    trace::TraceReuseEvent,
 };
 pub use registry::{
     StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,

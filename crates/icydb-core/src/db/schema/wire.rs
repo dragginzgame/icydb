@@ -42,6 +42,10 @@ impl<const MAX_BYTES: usize> SchemaWireWriter<MAX_BYTES> {
         self.push_bytes(&value.to_be_bytes());
     }
 
+    pub(in crate::db::schema) fn push_bool(&mut self, value: bool) {
+        self.push_u8(u8::from(value));
+    }
+
     pub(in crate::db::schema) fn push_len(&mut self, value: usize) -> Result<(), InternalError> {
         self.push_u32(u32::try_from(value).map_err(|_| InternalError::store_unsupported())?);
         Ok(())
@@ -51,6 +55,14 @@ impl<const MAX_BYTES: usize> SchemaWireWriter<MAX_BYTES> {
         self.push_len_prefixed_bytes(value.as_bytes())
     }
 
+    pub(in crate::db::schema) fn push_bounded_string(
+        &mut self,
+        value: &str,
+        max_bytes: usize,
+    ) -> Result<(), InternalError> {
+        self.push_bounded_len_prefixed_bytes(value.as_bytes(), max_bytes)
+    }
+
     pub(in crate::db::schema) fn push_len_prefixed_bytes(
         &mut self,
         value: &[u8],
@@ -58,6 +70,17 @@ impl<const MAX_BYTES: usize> SchemaWireWriter<MAX_BYTES> {
         self.push_len(value.len())?;
         self.push_bytes(value);
         Ok(())
+    }
+
+    pub(in crate::db::schema) fn push_bounded_len_prefixed_bytes(
+        &mut self,
+        value: &[u8],
+        max_bytes: usize,
+    ) -> Result<(), InternalError> {
+        if value.len() > max_bytes {
+            return Err(InternalError::store_unsupported());
+        }
+        self.push_len_prefixed_bytes(value)
     }
 
     pub(in crate::db::schema) fn push_optional_u32(&mut self, value: Option<u32>) {
@@ -124,9 +147,28 @@ impl<'a> SchemaWireReader<'a> {
         Ok(u64::from_be_bytes(self.read_array()?))
     }
 
+    pub(in crate::db::schema) fn read_bool(&mut self) -> Result<bool, InternalError> {
+        match self.read_u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(InternalError::store_corruption()),
+        }
+    }
+
     pub(in crate::db::schema) fn read_count(&mut self) -> Result<usize, InternalError> {
         let count = self.read_u32()? as usize;
         if count > self.remaining() {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(count)
+    }
+
+    pub(in crate::db::schema) fn read_bounded_count(
+        &mut self,
+        max: usize,
+    ) -> Result<usize, InternalError> {
+        let count = self.read_count()?;
+        if count > max {
             return Err(InternalError::store_corruption());
         }
         Ok(count)
@@ -138,10 +180,30 @@ impl<'a> SchemaWireReader<'a> {
         Ok(value.to_string())
     }
 
+    pub(in crate::db::schema) fn read_bounded_string(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<String, InternalError> {
+        let bytes = self.read_bounded_len_prefixed_bytes(max_bytes)?;
+        let value = std::str::from_utf8(bytes).map_err(|_| InternalError::store_corruption())?;
+        Ok(value.to_string())
+    }
+
     pub(in crate::db::schema) fn read_len_prefixed_bytes(
         &mut self,
     ) -> Result<&'a [u8], InternalError> {
         let len = self.read_u32()? as usize;
+        self.read_slice(len)
+    }
+
+    pub(in crate::db::schema) fn read_bounded_len_prefixed_bytes(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<&'a [u8], InternalError> {
+        let len = self.read_u32()? as usize;
+        if len > max_bytes {
+            return Err(InternalError::store_corruption());
+        }
         self.read_slice(len)
     }
 

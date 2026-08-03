@@ -270,9 +270,7 @@ impl<C: CanisterKind> DbSession<C> {
                 visible_indexes
             }
             #[cfg(feature = "sql")]
-            QueryPlanVisibility::PrimaryOnly => {
-                VisibleIndexes::accepted_schema_primary_only(schema_info)
-            }
+            QueryPlanVisibility::PrimaryOnly => VisibleIndexes::accepted_schema_primary_only(),
             QueryPlanVisibility::StoreNotReady => VisibleIndexes::none(),
         }
     }

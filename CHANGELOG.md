@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.218.md](docs/changelog/0.218.md)
 
+- `0.218.1` hard-cuts retired query DTOs and reflected schema codecs in favor
+  of bounded current formats, requiring development-state recreation without
+  changing public Candid or runtime response formats.
+
 - `0.218.0` adds explicit durable per-entity schema migrations and simplifies
   the base/query/SQL capability boundary, canonical ordering work, and audit
   attribution in a breaking pre-1.0 hard cut.

@@ -9,7 +9,7 @@ use crate::db::{
     query::{
         builder::AggregateExpr,
         expr::OrderTerm as FluentOrderTerm,
-        intent::{AccessRequirements, QueryError, QueryModel},
+        intent::{QueryError, QueryModel},
         plan::{AccessPlannedQuery, PreparedScalarPlanningState, VisibleIndexes},
     },
     schema::SchemaInfo,
@@ -30,7 +30,6 @@ use std::sync::OnceLock;
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralQuery {
     intent: QueryModel,
-    access_requirements: AccessRequirements,
     structural_cache_key: OnceLock<crate::db::query::intent::StructuralQueryCacheKey>,
 }
 
@@ -39,7 +38,6 @@ impl StructuralQuery {
     pub(in crate::db) const fn new(consistency: MissingRowPolicy) -> Self {
         Self {
             intent: QueryModel::new(consistency),
-            access_requirements: AccessRequirements::new(),
             structural_cache_key: OnceLock::new(),
         }
     }
@@ -47,13 +45,9 @@ impl StructuralQuery {
     // Rewrap one updated generic-free intent model back into the structural
     // query shell so local transformation helpers do not rebuild `Self`
     // ad hoc at each boundary method.
-    const fn from_intent_and_access_requirements(
-        intent: QueryModel,
-        access_requirements: AccessRequirements,
-    ) -> Self {
+    const fn from_intent(intent: QueryModel) -> Self {
         Self {
             intent,
-            access_requirements,
             structural_cache_key: OnceLock::new(),
         }
     }
@@ -61,13 +55,9 @@ impl StructuralQuery {
     // Apply one infallible intent transformation while preserving the
     // structural query shell at this boundary.
     fn map_intent(self, map: impl FnOnce(QueryModel) -> QueryModel) -> Self {
-        let Self {
-            intent,
-            access_requirements,
-            ..
-        } = self;
+        let Self { intent, .. } = self;
 
-        Self::from_intent_and_access_requirements(map(intent), access_requirements)
+        Self::from_intent(map(intent))
     }
 
     // Apply one fallible intent transformation while keeping result wrapping
@@ -76,14 +66,9 @@ impl StructuralQuery {
         self,
         map: impl FnOnce(QueryModel) -> Result<QueryModel, QueryError>,
     ) -> Result<Self, QueryError> {
-        let Self {
-            intent,
-            access_requirements,
-            ..
-        } = self;
+        let Self { intent, .. } = self;
 
-        map(intent)
-            .map(|intent| Self::from_intent_and_access_requirements(intent, access_requirements))
+        map(intent).map(Self::from_intent)
     }
 
     #[must_use]
@@ -248,15 +233,11 @@ impl StructuralQuery {
         visible_indexes: &VisibleIndexes,
         planning_state: PreparedScalarPlanningState<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        let mut plan = self
-            .intent
+        self.intent
             .build_plan_model_with_indexes_from_scalar_planning_state(
                 visible_indexes,
                 planning_state,
-            )?;
-        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes))?;
-
-        Ok(plan)
+            )
     }
 
     pub(in crate::db) fn try_build_count_cardinality_prefix_access_with_schema_info(
@@ -275,14 +256,8 @@ impl StructuralQuery {
         &self,
         schema_info: SchemaInfo,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
-        let mut plan = self
-            .intent
-            .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?;
-        if let Some(plan) = &mut plan {
-            self.validate_access_requirements_for_visibility(plan, None)?;
-        }
-
-        Ok(plan)
+        self.intent
+            .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)
     }
 
     #[must_use]
@@ -311,33 +286,5 @@ impl StructuralQuery {
 
         self.intent
             .structural_cache_key_with_normalized_predicate_fingerprint(predicate_fingerprint)
-    }
-
-    fn finalize_access_choice_for_visibility(
-        plan: &mut AccessPlannedQuery,
-        visible_indexes: Option<&VisibleIndexes>,
-    ) {
-        let Some(visible_indexes) = visible_indexes else {
-            return;
-        };
-        if let Some(schema_info) = visible_indexes.accepted_schema_info() {
-            plan.finalize_access_choice_with_semantic_indexes_and_schema(
-                visible_indexes.accepted_semantic_index_contracts(),
-                schema_info,
-            );
-        }
-    }
-
-    fn validate_access_requirements_for_visibility(
-        &self,
-        plan: &mut AccessPlannedQuery,
-        visible_indexes: Option<&VisibleIndexes>,
-    ) -> Result<(), QueryError> {
-        if self.access_requirements.is_empty() {
-            return Ok(());
-        }
-
-        Self::finalize_access_choice_for_visibility(plan, visible_indexes);
-        self.access_requirements.validate(plan)
     }
 }

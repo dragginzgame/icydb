@@ -1024,6 +1024,10 @@ fn terminal_retention_deadline(now: u64) -> Result<u64, IntegrityJobError> {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the shared caller preserves the fallible native clock contract"
+)]
 fn now_nanos() -> Result<u64, IntegrityJobError> {
     Ok(ic_cdk::api::time())
 }

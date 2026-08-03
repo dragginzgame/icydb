@@ -9,7 +9,7 @@ Pin IcyDB by tag in the canister crate:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.218.0" }
 ```
 
 The default crate feature set provides structural writes and accepted-schema
@@ -18,14 +18,14 @@ session/library SQL APIs, or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.218.0", features = ["sql"] }
 ```
 
 Schema-authoring crates use `icydb-model` with the same tag:
 
 ```toml
 [dependencies]
-icydb-model = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.213.32" }
+icydb-model = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.218.0" }
 ```
 
 The runtime `icydb` facade does not re-export model declaration macros.

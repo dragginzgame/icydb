@@ -198,7 +198,6 @@ pub(in crate::db) struct VisibleIndexes {
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
     accepted_expression_indexes: Vec<AcceptedPlannerExpressionIndex>,
     accepted_semantic_index_contracts: Vec<SemanticIndexAccessContract>,
-    accepted_schema_info: Option<SchemaInfo>,
     authority: VisibleIndexAuthority,
 }
 
@@ -423,7 +422,6 @@ impl VisibleIndexes {
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
             accepted_semantic_index_contracts: Vec::new(),
-            accepted_schema_info: None,
             authority: VisibleIndexAuthority::StoreNotReady,
         }
     }
@@ -451,7 +449,6 @@ impl VisibleIndexes {
             accepted_field_path_indexes,
             accepted_expression_indexes,
             accepted_semantic_index_contracts,
-            accepted_schema_info: Some(schema_info.clone()),
             authority: VisibleIndexAuthority::AcceptedSchema {
                 field_path_indexes: accepted_field_path_index_count,
                 expression_indexes: accepted_expression_index_count,
@@ -464,12 +461,11 @@ impl VisibleIndexes {
     /// Exact mutation selection uses this view to retain accepted field and
     /// codec authority while forcing authoritative primary-store traversal.
     #[must_use]
-    pub(in crate::db) fn accepted_schema_primary_only(schema_info: &SchemaInfo) -> Self {
+    pub(in crate::db) const fn accepted_schema_primary_only() -> Self {
         Self {
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
             accepted_semantic_index_contracts: Vec::new(),
-            accepted_schema_info: Some(schema_info.clone()),
             authority: VisibleIndexAuthority::AcceptedSchema {
                 field_path_indexes: 0,
                 expression_indexes: 0,
@@ -502,12 +498,6 @@ impl VisibleIndexes {
         &self,
     ) -> &[SemanticIndexAccessContract] {
         self.accepted_semantic_index_contracts.as_slice()
-    }
-
-    /// Borrow the accepted schema info that authorized this visible-index view.
-    #[must_use]
-    pub(in crate::db) const fn accepted_schema_info(&self) -> Option<&SchemaInfo> {
-        self.accepted_schema_info.as_ref()
     }
 
     /// Return whether accepted field-path planner contracts are internally

@@ -18,7 +18,7 @@ use crate::db::schema::{
 use sha2::Digest;
 
 const PRIMARY_KEY_CONSTRAINT_NAME: &str = "__icydb_primary_key";
-const MAX_ACCEPTED_CONSTRAINT_NAME_BYTES: usize = 256;
+pub(in crate::db::schema) const MAX_ACCEPTED_CONSTRAINT_NAME_BYTES: usize = 256;
 const CONSTRAINT_ACTIVATION_FINGERPRINT_DOMAIN: &[u8] = b"icydb.constraint-activation.v1";
 
 /// Return the deterministic first-publication primary-key constraint name.
@@ -125,13 +125,18 @@ impl AcceptedRuleOperation {
         match self {
             Self::LengthRangeInclusive { min, max } => min <= max,
             Self::MultipleOf { divisor } => {
-                accepted_rule_exact_numeric_kind_is_supported(divisor.kind())
+                divisor.has_valid_local_shape()
+                    && accepted_rule_exact_numeric_kind_is_supported(divisor.kind())
             }
             Self::NumericMaximumInclusive { value } | Self::NumericMinimumInclusive { value } => {
-                accepted_rule_numeric_kind_is_supported(value.kind())
+                value.has_valid_local_shape()
+                    && accepted_rule_numeric_kind_is_supported(value.kind())
             }
             Self::NumericRangeInclusive { min, max } => {
-                min.kind() == max.kind() && accepted_rule_numeric_kind_is_supported(min.kind())
+                min.has_valid_local_shape()
+                    && max.has_valid_local_shape()
+                    && min.kind() == max.kind()
+                    && accepted_rule_numeric_kind_is_supported(min.kind())
             }
         }
     }

@@ -98,6 +98,12 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
 
     let mut matched_primary_key_fields = 0usize;
     for field in fields {
+        if !field.kind().has_valid_local_shape()
+            || field.leaf_codec() != field.kind().leaf_codec_for_storage(field.storage_decode())
+        {
+            return Some(());
+        }
+
         if primary_key_field_ids.contains(&field.id()) {
             matched_primary_key_fields += 1;
             if !matches!(field.historical_fill(), SchemaHistoricalFill::Reject) {
@@ -213,7 +219,7 @@ fn duplicate_field_detail(subject: &str, fields: &[PersistedFieldSnapshot]) -> O
 // top-level field, so uniqueness is enforced per field.
 fn nested_leaf_detail(_subject: &str, field: &PersistedFieldSnapshot) -> Option<()> {
     for (index, leaf) in field.nested_leaves().iter().enumerate() {
-        if leaf.path().is_empty() {
+        if leaf.path().is_empty() || !leaf.kind().has_valid_local_shape() {
             return Some(());
         }
 

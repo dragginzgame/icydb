@@ -5,7 +5,7 @@
 
 use crate::{
     db::schema::composite_catalog::CompositeTypeId,
-    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
+    db::schema::{FieldStorageDecode, LeafCodec, MAX_ACCEPTED_RECURSIVE_DEPTH, ScalarCodec},
     types::EntityTag,
     value::EnumTypeId,
 };
@@ -72,6 +72,60 @@ pub(in crate::db) enum AcceptedFieldKind {
 }
 
 impl AcceptedFieldKind {
+    /// Return whether this accepted kind is locally well formed without
+    /// consulting enum or composite catalogs.
+    ///
+    /// Persisted decoding uses this check before a snapshot becomes runtime
+    /// authority. Catalog-reference existence remains a bundle-level concern.
+    #[must_use]
+    pub(in crate::db::schema) fn has_valid_local_shape(&self) -> bool {
+        self.has_valid_local_shape_at(0)
+    }
+
+    fn has_valid_local_shape_at(&self, depth: usize) -> bool {
+        if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
+            return false;
+        }
+
+        let next_depth = depth.saturating_add(1);
+        match self {
+            Self::Decimal { scale } => *scale <= icydb_schema::Decimal::max_supported_scale(),
+            Self::IntBig { max_bytes } | Self::NatBig { max_bytes } => *max_bytes != 0,
+            Self::Relation { key_kind, .. } | Self::List(key_kind) | Self::Set(key_kind) => {
+                key_kind.has_valid_local_shape_at(next_depth)
+            }
+            Self::Map { key, value } => {
+                key.has_valid_local_shape_at(next_depth)
+                    && value.has_valid_local_shape_at(next_depth)
+            }
+            Self::Account
+            | Self::Blob { .. }
+            | Self::Bool
+            | Self::Composite { .. }
+            | Self::Date
+            | Self::Duration
+            | Self::Enum { .. }
+            | Self::Float32
+            | Self::Float64
+            | Self::Int8
+            | Self::Int16
+            | Self::Int32
+            | Self::Int64
+            | Self::Int128
+            | Self::Principal
+            | Self::Subaccount
+            | Self::Text { .. }
+            | Self::Timestamp
+            | Self::Nat8
+            | Self::Nat16
+            | Self::Nat32
+            | Self::Nat64
+            | Self::Nat128
+            | Self::Ulid
+            | Self::Unit => true,
+        }
+    }
+
     /// Resolve the canonical leaf codec for this accepted kind and storage
     /// contract. Catalog-decoded values always retain the structural envelope;
     /// direct scalar storage uses the same leaf codec throughout schema
@@ -102,6 +156,7 @@ impl AcceptedFieldKind {
             Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 => {
                 LeafCodec::Scalar(ScalarCodec::Nat64)
             }
+            Self::Relation { key_kind, .. } => key_kind.leaf_codec_for_storage(storage_decode),
             Self::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
             Self::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
             Self::Account
@@ -114,7 +169,6 @@ impl AcceptedFieldKind {
             | Self::Map { .. }
             | Self::Nat128
             | Self::NatBig { .. }
-            | Self::Relation { .. }
             | Self::Set(_) => LeafCodec::Structural,
         }
     }

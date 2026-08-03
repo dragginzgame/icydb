@@ -208,8 +208,7 @@ fn proposal_construction_is_order_independent_and_roundtrips_exactly() {
     let reverse_bytes = encode_schema_proposal(&reverse_input).expect("proposal should encode");
 
     assert_eq!(reverse_bytes, canonical_bytes);
-    candid::decode_one::<SchemaProposal>(&canonical_bytes)
-        .expect("Candid proposal representation should decode");
+    assert_eq!(&canonical_bytes[..5], b"ICYP\x01");
     assert_eq!(
         decode_schema_proposal(&canonical_bytes).expect("proposal should decode"),
         canonical,
@@ -474,6 +473,20 @@ fn named_collection_fragments_roundtrip_canonically() {
         decode_schema_fragment(&bytes).expect("fragment should decode"),
         fragment,
     );
+
+    let mut future_wire_version = bytes.clone();
+    future_wire_version[4] = 2;
+    assert_eq!(
+        decode_schema_fragment(&future_wire_version),
+        Err(SchemaContractError::Decode),
+    );
+
+    let mut trailing = bytes;
+    trailing.push(0);
+    assert_eq!(
+        decode_schema_fragment(&trailing),
+        Err(SchemaContractError::Decode),
+    );
 }
 
 #[test]
@@ -598,21 +611,22 @@ fn exact_scalar_field_types_roundtrip_without_width_or_bound_loss() {
         ScalarType::Ulid,
         ScalarType::Unit,
     ];
-    let bytes = candid::encode_one(&types).expect("exact scalar types should encode");
+    let fragment = SchemaFragment::try_new(
+        Vec::new(),
+        vec![NamedTypeFragment::tuple(
+            SchemaName::try_new("ExactScalars").expect("name should admit"),
+            types
+                .into_iter()
+                .map(|scalar| TupleElementFragment::new(FieldType::Scalar(scalar), false))
+                .collect(),
+        )],
+    )
+    .expect("scalar fixture should admit");
+    let bytes = encode_schema_fragment(&fragment).expect("fragment should encode");
 
     assert_eq!(
-        candid::decode_one::<Vec<ScalarType>>(&bytes).expect("exact scalar types should decode"),
-        types,
-    );
-    assert_ne!(
-        candid::encode_one(ScalarType::Int8).expect("int8 should encode"),
-        candid::encode_one(ScalarType::Int64).expect("int64 should encode"),
-    );
-    assert_ne!(
-        candid::encode_one(ScalarType::Text { max_len: Some(8) })
-            .expect("bounded text should encode"),
-        candid::encode_one(ScalarType::Text { max_len: Some(9) })
-            .expect("distinct bounded text should encode"),
+        decode_schema_fragment(&bytes).expect("fragment should decode"),
+        fragment,
     );
 }
 
@@ -1141,11 +1155,43 @@ fn proposal_literals_preserve_every_canonical_scalar_atom() {
         ScalarLiteral::Ulid(Ulid::from_u128(14)),
         ScalarLiteral::Unit(Unit),
     ];
-    let bytes = candid::encode_one(&literals).expect("literal vector should encode");
-    let decoded =
-        candid::decode_one::<Vec<ScalarLiteral>>(&bytes).expect("literal vector should decode");
+    let id = FieldFragment::new(
+        SchemaName::try_new("id").expect("name should admit"),
+        FieldType::Scalar(ScalarType::Nat64),
+        false,
+        FieldInsertPolicy::Required,
+        None,
+    );
+    let id_key = id.source_key().clone();
+    let constraints = literals
+        .into_iter()
+        .enumerate()
+        .map(|(position, literal)| {
+            ConstraintFragment::check(
+                SchemaName::try_new(format!("literal_{position}")).expect("name should admit"),
+                SourceCheckExpr::try_new(vec![SourceCheckInstruction::Literal(literal)])
+                    .expect("literal expression should admit"),
+            )
+        })
+        .collect();
+    let entity = EntityFragment::try_new(
+        SchemaName::try_new("LiteralHolder").expect("name should admit"),
+        version_one(),
+        vec![id],
+        vec![id_key],
+        Vec::new(),
+        Vec::new(),
+        constraints,
+    )
+    .expect("literal entity should admit");
+    let fragment =
+        SchemaFragment::try_new(vec![entity], Vec::new()).expect("literal fragment should admit");
+    let bytes = encode_schema_fragment(&fragment).expect("fragment should encode");
 
-    assert_eq!(decoded, literals);
+    assert_eq!(
+        decode_schema_fragment(&bytes).expect("fragment should decode"),
+        fragment,
+    );
 }
 
 #[test]
@@ -1178,8 +1224,8 @@ fn proposal_digest_has_a_fixed_current_form_vector() {
             .expect("proposal should hash")
             .to_bytes(),
         [
-            86, 241, 179, 230, 133, 206, 57, 29, 161, 137, 17, 154, 226, 109, 245, 86, 217, 243,
-            66, 153, 20, 143, 27, 65, 49, 188, 185, 132, 50, 16, 238, 49,
+            91, 132, 63, 134, 218, 82, 51, 86, 102, 2, 201, 219, 4, 134, 110, 170, 27, 92, 144,
+            137, 21, 216, 224, 114, 198, 0, 226, 111, 83, 77, 187, 131,
         ],
     );
 }

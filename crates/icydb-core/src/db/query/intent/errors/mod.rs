@@ -3,7 +3,6 @@
 //! Does not own: planner rule evaluation or runtime execution policy decisions.
 //! Boundary: unifies intent/planner/cursor/resource errors into query API error classes.
 
-use super::AccessRequirementError;
 #[cfg(feature = "sql")]
 use crate::db::query::plan::validate::ExprPlanError;
 #[cfg(feature = "sql")]
@@ -33,8 +32,6 @@ pub enum QueryError {
     Plan(Box<PlanError>),
 
     Intent(IntentError),
-
-    AccessRequirement(Box<AccessRequirementError>),
 
     Execute(QueryExecutionError),
 }
@@ -77,7 +74,6 @@ impl QueryError {
             }
             Self::Plan(_) => diagnostic_code::DiagnosticCode::QueryPlan,
             Self::Intent(_) => diagnostic_code::DiagnosticCode::QueryIntent,
-            Self::AccessRequirement(_) => diagnostic_code::DiagnosticCode::QueryAccessRequirement,
             Self::Execute(error) => error.diagnostic_code(),
         }
     }
@@ -88,7 +84,7 @@ impl QueryError {
             Self::Plan(error) if error.is_invalid_continuation_cursor() => {
                 diagnostic_code::ErrorOrigin::Cursor
             }
-            Self::Validate(_) | Self::Plan(_) | Self::Intent(_) | Self::AccessRequirement(_) => {
+            Self::Validate(_) | Self::Plan(_) | Self::Intent(_) => {
                 diagnostic_code::ErrorOrigin::Query
             }
         }
@@ -105,7 +101,6 @@ impl QueryError {
             }
             Self::Plan(_) => diagnostic_code::QueryErrorKind::Plan,
             Self::Intent(_) => diagnostic_code::QueryErrorKind::Intent,
-            Self::AccessRequirement(_) => diagnostic_code::QueryErrorKind::AccessRequirement,
             Self::Execute(_) => return None,
         };
 
@@ -298,12 +293,6 @@ impl From<QueryExecutionError> for QueryError {
 impl From<diagnostic_code::QueryReadAdmissionCode> for QueryError {
     fn from(reason: diagnostic_code::QueryReadAdmissionCode) -> Self {
         Self::execute(InternalError::from(reason))
-    }
-}
-
-impl From<AccessRequirementError> for QueryError {
-    fn from(err: AccessRequirementError) -> Self {
-        Self::AccessRequirement(Box::new(err))
     }
 }
 
