@@ -15,10 +15,7 @@ sql = ["icydb/sql"]
 diagnostics = ["icydb/diagnostics"]
 local-sql-query = ["sql"]
 schema-migration-api = ["icydb/migration"]
-schema-migration-v2 = [
-    "schema-migration-api",
-    "icydb-testing-test-sql-fixtures/migration-v2",
-]
+schema-migration-v2 = ["schema-migration-api", "icydb-testing-test-sql-fixtures/migration-v2"]
 test-admin-api = ["sql"]
 
 [dependencies]

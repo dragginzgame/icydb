@@ -144,12 +144,21 @@ require_pattern \
   "no persisted-format change" \
   "persisted-format inventory must retain the no-change documentation rule"
 
-unexpected_format_versions="$({
-  rg -n --no-heading --color=never --pcre2 \
+format_version_matches="$(
+  rg -n --no-heading --color=never \
     'const\s+[A-Z0-9_]*(?:FORMAT_VERSION|CODEC_VERSION|HEADER_VERSION|RECORD_VERSION|WIRE_VERSION|VERSION_CURRENT|CURRENT_VERSION)[A-Z0-9_]*\s*:[^=]+=[^;]*\b(?:[2-9]|[1-9][0-9]+)\b[^;]*;' \
     crates \
-    --glob '*.rs' || true
-} | rg -v '^crates/icydb-core/src/db/commit/marker\.rs:[0-9]+:pub\(in crate::db\) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;$' || true)"
+    --glob '*.rs' || {
+      rg_status=$?
+      if [[ $rg_status -ne 1 ]]; then
+        exit "$rg_status"
+      fi
+    }
+)"
+unexpected_format_versions="$(
+  printf '%s\n' "$format_version_matches" |
+    rg -v '^crates/icydb-core/src/db/commit/marker\.rs:[0-9]+:pub\(in crate::db\) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;$' || true
+)"
 if [[ -n "$unexpected_format_versions" ]]
 then
   printf '%s\n' "$unexpected_format_versions"
