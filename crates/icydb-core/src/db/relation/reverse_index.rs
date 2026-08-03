@@ -204,6 +204,11 @@ impl AcceptedRelationInfo {
 }
 
 impl RelationConstraintProjection {
+    /// Return the exact planner-invisible reverse-index generation.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db) fn index_id(&self) -> Result<IndexId, InternalError> {
+        reverse_index_id_for_relation(&self.source, &self.relation)
+    }
     /// Bind one isolated activation candidate to row and target-store authority.
     pub(in crate::db) fn new<C: CanisterKind>(
         db: &Db<C>,

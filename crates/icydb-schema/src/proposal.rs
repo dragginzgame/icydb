@@ -10,10 +10,11 @@ use crate::{
     ConstraintFragmentKind, ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldFragment,
     FieldSourceKey, FieldType, IndexSourceKey, MAX_SCHEMA_ASSIGNMENTS, MAX_SCHEMA_CAPABILITIES,
     MAX_SCHEMA_PROPOSAL_FRAGMENTS, MAX_SCHEMA_REMOVALS, NamedTypeFragment, RelationSourceKey,
-    ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaProposalDigest,
-    SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation,
-    TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey, check_len,
-    encode_schema_fragment, encode_schema_proposal,
+    ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaMigrationPlan,
+    SchemaMigrationRename, SchemaMigrationTransform, SchemaProposalDigest, SchemaSubmissionKey,
+    SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation, TargetDatabaseIdentity,
+    TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey, check_len, encode_schema_fragment,
+    encode_schema_proposal,
 };
 
 /// Sole maintained proposal contract version.
@@ -26,7 +27,7 @@ pub struct ProposalContractVersion(u16);
 
 impl ProposalContractVersion {
     /// Current pre-1.0 hard-cut proposal contract version.
-    pub const CURRENT: Self = Self(1);
+    pub const CURRENT: Self = Self(2);
 
     /// Construct a version token for decoding and incompatibility tests.
     #[must_use]
@@ -64,6 +65,8 @@ impl SchemaCapability {
     pub const GENERATED_VALUES: Self = Self(6);
     /// Managed created/updated timestamps.
     pub const MANAGED_TIMESTAMPS: Self = Self(7);
+    /// Explicit versioned source migration declarations.
+    pub const VERSIONED_MIGRATIONS: Self = Self(8);
 
     /// Construct a raw token for incompatibility testing and transport.
     #[must_use]
@@ -78,7 +81,7 @@ impl SchemaCapability {
     }
 
     const fn is_supported(self) -> bool {
-        matches!(self.0, 1..=7)
+        matches!(self.0, 1..=8)
     }
 }
 
@@ -182,6 +185,7 @@ pub struct SchemaProposal {
     fragments: Vec<SchemaFragment>,
     assignments: Vec<EntityStoreAssignment>,
     removals: Vec<SchemaRemoval>,
+    migration: Option<SchemaMigrationPlan>,
 }
 
 impl SchemaProposal {
@@ -196,8 +200,9 @@ impl SchemaProposal {
     /// Returns a typed contract error for bounds, duplicate definitions,
     /// ambiguous routing, removal conflicts, or malformed nested data.
     #[expect(
+        clippy::too_many_arguments,
         clippy::too_many_lines,
-        reason = "composition validates and canonicalizes one atomic public envelope"
+        reason = "composition receives and validates one complete atomic public envelope"
     )]
     pub fn try_compose(
         mut capabilities: Vec<SchemaCapability>,
@@ -207,6 +212,7 @@ impl SchemaProposal {
         mut fragments: Vec<SchemaFragment>,
         mut assignments: Vec<EntityStoreAssignment>,
         mut removals: Vec<SchemaRemoval>,
+        migration: Option<SchemaMigrationPlan>,
     ) -> Result<Self, SchemaContractError> {
         check_len(
             "proposal capabilities",
@@ -233,6 +239,15 @@ impl SchemaProposal {
         {
             return Err(SchemaContractError::UnsupportedCapability);
         }
+        let declares_migration_capability = capabilities
+            .binary_search(&SchemaCapability::VERSIONED_MIGRATIONS)
+            .is_ok();
+        if declares_migration_capability != migration.is_some() {
+            return Err(SchemaContractError::InvalidMigrationPlan);
+        }
+        if let Some(plan) = &migration {
+            plan.validate()?;
+        }
         for fragment in &fragments {
             fragment.validate()?;
         }
@@ -240,14 +255,16 @@ impl SchemaProposal {
             .into_iter()
             .map(|fragment| encode_schema_fragment(&fragment).map(|bytes| (bytes, fragment)))
             .collect::<Result<Vec<_>, _>>()?;
-        keyed_fragments.sort_by(|left, right| left.0.cmp(&right.0));
+        // Canonically equal fragment bytes describe equal fragments, while
+        // duplicate assignment/removal keys reject below; no stable tie is observable.
+        keyed_fragments.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         fragments = keyed_fragments
             .into_iter()
             .map(|(_, fragment)| fragment)
             .collect();
-        assignments.sort_by(|left, right| left.entity.cmp(&right.entity));
+        assignments.sort_unstable_by(|left, right| left.entity.cmp(&right.entity));
         ensure_no_adjacent_duplicates_by(&assignments, |assignment| &assignment.entity)?;
-        removals.sort();
+        removals.sort_unstable();
         ensure_no_adjacent_duplicates(&removals)?;
 
         let mut entity_definitions = BTreeMap::new();
@@ -333,6 +350,9 @@ impl SchemaProposal {
             &type_definitions,
             &removals,
         )?;
+        if let Some(plan) = &migration {
+            validate_migration_plan(plan, &entity_definitions, &type_definitions)?;
+        }
 
         Ok(Self {
             version: ProposalContractVersion::CURRENT,
@@ -343,6 +363,7 @@ impl SchemaProposal {
             fragments,
             assignments,
             removals,
+            migration,
         })
     }
 
@@ -394,6 +415,12 @@ impl SchemaProposal {
         &self.removals
     }
 
+    /// Borrow the optional coordinated source migration plan.
+    #[must_use]
+    pub const fn migration(&self) -> Option<&SchemaMigrationPlan> {
+        self.migration.as_ref()
+    }
+
     /// Compute the canonical proposal digest.
     ///
     /// # Errors
@@ -421,11 +448,259 @@ impl SchemaProposal {
             self.fragments.clone(),
             self.assignments.clone(),
             self.removals.clone(),
+            self.migration.clone(),
         )?;
         if rebuilt != *self {
             return Err(SchemaContractError::NonCanonical);
         }
         Ok(())
+    }
+}
+
+fn validate_migration_plan(
+    plan: &SchemaMigrationPlan,
+    entities: &BTreeMap<EntitySourceKey, &EntityFragment>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<(), SchemaContractError> {
+    for transition in plan.transitions() {
+        let entity = entities
+            .get(transition.entity())
+            .copied()
+            .ok_or(SchemaContractError::InvalidMigrationReference)?;
+        if transition.from().get().checked_add(1) != Some(entity.version().get()) {
+            return Err(SchemaContractError::MigrationVersionGap);
+        }
+        for rename in transition.renames() {
+            validate_migration_rename_target(rename, transition, entity, types)?;
+        }
+        for transform in transition.transforms() {
+            validate_migration_transform_target(transform, entity, types)?;
+        }
+    }
+    validate_shared_type_transition_closure(plan, entities, types)?;
+    Ok(())
+}
+
+fn validate_shared_type_transition_closure(
+    plan: &SchemaMigrationPlan,
+    entities: &BTreeMap<EntitySourceKey, &EntityFragment>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<(), SchemaContractError> {
+    for declaring_transition in plan.transitions() {
+        for rename in declaring_transition.renames() {
+            let Some(target_type) = shared_rename_target_type(declaring_transition, rename) else {
+                continue;
+            };
+            for (entity_source, entity) in entities {
+                if !entity_reaches_named_type(entity, &target_type, types) {
+                    continue;
+                }
+                let repeats_rename = plan.transitions().iter().any(|transition| {
+                    transition.entity() == entity_source && transition.renames().contains(rename)
+                });
+                if !repeats_rename {
+                    return Err(SchemaContractError::InvalidMigrationReference);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn shared_rename_target_type(
+    transition: &crate::EntityMigration,
+    rename: &SchemaMigrationRename,
+) -> Option<TypeSourceKey> {
+    match rename {
+        SchemaMigrationRename::NamedType { to, .. } => Some(to.clone()),
+        SchemaMigrationRename::EnumVariant { named_type, .. }
+        | SchemaMigrationRename::RecordField { named_type, .. } => {
+            Some(migration_target_type(transition, named_type))
+        }
+        SchemaMigrationRename::Field { .. }
+        | SchemaMigrationRename::Relation { .. }
+        | SchemaMigrationRename::Constraint { .. }
+        | SchemaMigrationRename::Rule { .. } => None,
+    }
+}
+
+fn validate_migration_rename_target(
+    rename: &SchemaMigrationRename,
+    transition: &crate::EntityMigration,
+    entity: &EntityFragment,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<(), SchemaContractError> {
+    let valid = match rename {
+        SchemaMigrationRename::Field { to, .. } => {
+            entity.fields().iter().any(|field| field.source_key() == to)
+        }
+        SchemaMigrationRename::NamedType { to, .. } => entity_reaches_named_type(entity, to, types),
+        SchemaMigrationRename::EnumVariant { named_type, to, .. } => {
+            let target_type = migration_target_type(transition, named_type);
+            entity_reaches_named_type(entity, &target_type, types)
+                && matches!(
+                    types.get(&target_type),
+                    Some(NamedTypeFragment::Enum(target))
+                        if target.variants().iter().any(|variant| variant.source_key() == to)
+                )
+        }
+        SchemaMigrationRename::RecordField { named_type, to, .. } => {
+            let target_type = migration_target_type(transition, named_type);
+            entity_reaches_named_type(entity, &target_type, types)
+                && matches!(
+                    types.get(&target_type),
+                    Some(NamedTypeFragment::Record(target))
+                        if target.fields().iter().any(|field| field.source_key() == to)
+                )
+        }
+        SchemaMigrationRename::Relation { to, .. } => entity
+            .relations()
+            .iter()
+            .any(|relation| relation.source_key() == to),
+        SchemaMigrationRename::Constraint { to, .. } => entity
+            .constraints()
+            .iter()
+            .any(|constraint| constraint.source_key() == to),
+        SchemaMigrationRename::Rule { named_type, to, .. } => {
+            let target_type = migration_target_type(transition, named_type);
+            entity.constraints().iter().any(|constraint| {
+                matches!(
+                    constraint.kind(),
+                    ConstraintFragmentKind::TargetedRule(rule)
+                        if rule.target_type() == &target_type && rule.rule() == to
+                )
+            })
+        }
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(SchemaContractError::InvalidMigrationReference)
+    }
+}
+
+fn entity_reaches_named_type(
+    entity: &EntityFragment,
+    target: &TypeSourceKey,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> bool {
+    let mut seen = BTreeSet::new();
+    entity
+        .fields()
+        .iter()
+        .any(|field| field_type_reaches_named_type(field.field_type(), target, types, &mut seen))
+        || entity.constraints().iter().any(|constraint| {
+            matches!(
+                constraint.kind(),
+                ConstraintFragmentKind::TargetedRule(rule) if rule.target_type() == target
+            )
+        })
+}
+
+fn field_type_reaches_named_type(
+    field_type: &FieldType,
+    target: &TypeSourceKey,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    seen: &mut BTreeSet<TypeSourceKey>,
+) -> bool {
+    match field_type {
+        FieldType::Scalar(_) => false,
+        FieldType::List(inner) => field_type_reaches_named_type(inner, target, types, seen),
+        FieldType::Named(source) if source == target => true,
+        FieldType::Named(source) if !seen.insert(source.clone()) => false,
+        FieldType::Named(source) => match types.get(source) {
+            Some(NamedTypeFragment::Record(record)) => record.fields().iter().any(|field| {
+                field_type_reaches_named_type(field.field_type(), target, types, seen)
+            }),
+            Some(NamedTypeFragment::Enum(r#enum)) => r#enum.variants().iter().any(|variant| {
+                variant.payload().is_some_and(|payload| {
+                    field_type_reaches_named_type(payload, target, types, seen)
+                })
+            }),
+            Some(
+                NamedTypeFragment::Newtype { inner, .. }
+                | NamedTypeFragment::List { item: inner, .. }
+                | NamedTypeFragment::Set { item: inner, .. },
+            ) => field_type_reaches_named_type(inner, target, types, seen),
+            Some(NamedTypeFragment::Map { key, value, .. }) => {
+                field_type_reaches_named_type(key, target, types, seen)
+                    || field_type_reaches_named_type(value, target, types, seen)
+            }
+            Some(NamedTypeFragment::Tuple { members, .. }) => members.iter().any(|member| {
+                field_type_reaches_named_type(member.field_type(), target, types, seen)
+            }),
+            None => false,
+        },
+    }
+}
+
+fn migration_target_type(
+    transition: &crate::EntityMigration,
+    accepted_before: &TypeSourceKey,
+) -> TypeSourceKey {
+    transition
+        .renames()
+        .iter()
+        .find_map(|rename| match rename {
+            SchemaMigrationRename::NamedType { from, to } if from == accepted_before => {
+                Some(to.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| accepted_before.clone())
+}
+
+fn validate_migration_transform_target(
+    transform: &SchemaMigrationTransform,
+    entity: &EntityFragment,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<(), SchemaContractError> {
+    let target = entity
+        .fields()
+        .iter()
+        .find(|field| field.source_key() == transform.target())
+        .ok_or(SchemaContractError::InvalidMigrationReference)?;
+    match transform {
+        SchemaMigrationTransform::Fill { literal, .. }
+        | SchemaMigrationTransform::Coalesce { literal, .. } => {
+            validate_migration_literal_target(literal, target, types)
+        }
+        SchemaMigrationTransform::CheckedCast {
+            target: target_scalar,
+            ..
+        } if target.field_type() == &FieldType::Scalar(*target_scalar) => Ok(()),
+        SchemaMigrationTransform::Copy { .. } => Ok(()),
+        SchemaMigrationTransform::CheckedCast { .. } => {
+            Err(SchemaContractError::InvalidMigrationTransform)
+        }
+    }
+}
+
+fn validate_migration_literal_target(
+    literal: &ScalarLiteral,
+    target: &FieldFragment,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<(), SchemaContractError> {
+    let valid = match (target.field_type(), literal) {
+        (FieldType::Scalar(scalar), literal) => scalar.accepts_literal(literal),
+        (FieldType::Named(target_type), ScalarLiteral::EnumUnit { enum_type, variant })
+            if target_type == enum_type =>
+        {
+            matches!(
+                types.get(enum_type),
+                Some(NamedTypeFragment::Enum(target_enum))
+                    if target_enum
+                        .variants()
+                        .iter()
+                        .any(|candidate| candidate.source_key() == variant)
+            )
+        }
+        (FieldType::List(_) | FieldType::Named(_), _) => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(SchemaContractError::LiteralTypeMismatch)
     }
 }
 
@@ -891,6 +1166,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            None,
         )
         .expect("empty proposal should compose")
     }
@@ -898,14 +1174,14 @@ mod tests {
     #[test]
     fn decoded_future_contract_version_fails_typed() {
         let mut proposal = empty_proposal();
-        proposal.version = ProposalContractVersion::from_raw(2);
+        proposal.version = ProposalContractVersion::from_raw(3);
         let bytes = candid::encode_one(proposal).expect("raw future proposal should encode");
 
         assert_eq!(
             decode_schema_proposal(&bytes),
             Err(SchemaContractError::UnsupportedVersion {
-                found: 2,
-                supported: 1,
+                found: 3,
+                supported: 2,
             }),
         );
     }

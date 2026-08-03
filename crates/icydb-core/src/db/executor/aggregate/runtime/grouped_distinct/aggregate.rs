@@ -16,7 +16,7 @@ use crate::{
                     resolve_any_aggregate_target_slot_from_planner_slot,
                     resolve_numeric_aggregate_target_slot_from_planner_slot,
                 },
-                value_reducer::finalize_count,
+                value_reducer::ValueReducerState,
             },
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::ResolvedExecutionKeyStream,
@@ -70,15 +70,15 @@ impl GlobalDistinctAggregateKind {
         match self {
             Self::Count => DistinctReducerSpec {
                 apply_mode: DistinctApplyMode::Count,
-                finalize_mode: DistinctFinalizeMode::Count,
+                reducer: ValueReducerState::count(),
             },
             Self::Sum => DistinctReducerSpec {
                 apply_mode: DistinctApplyMode::Numeric,
-                finalize_mode: DistinctFinalizeMode::Sum,
+                reducer: ValueReducerState::sum(),
             },
             Self::Avg => DistinctReducerSpec {
                 apply_mode: DistinctApplyMode::Numeric,
-                finalize_mode: DistinctFinalizeMode::Avg,
+                reducer: ValueReducerState::avg(),
             },
         }
     }
@@ -137,7 +137,7 @@ impl GlobalDistinctFieldAggregateDispatcher {
 
 struct DistinctReducerSpec {
     apply_mode: DistinctApplyMode,
-    finalize_mode: DistinctFinalizeMode,
+    reducer: ValueReducerState,
 }
 
 impl DistinctReducerSpec {
@@ -164,20 +164,6 @@ enum DistinctApplyMode {
 }
 
 ///
-/// DistinctFinalizeMode
-///
-/// DistinctFinalizeMode resolves grouped DISTINCT finalization once so the
-/// runtime can keep infallible reducers infallible and isolate the error-
-/// producing AVG path to a single branch.
-///
-
-enum DistinctFinalizeMode {
-    Count,
-    Sum,
-    Avg,
-}
-
-///
 /// GlobalDistinctFieldAccumulator
 ///
 /// GlobalDistinctFieldAccumulator owns the reducer state for one global grouped
@@ -185,22 +171,16 @@ enum DistinctFinalizeMode {
 ///
 
 struct GlobalDistinctFieldAccumulator {
-    distinct_count: u64,
-    numeric_sum: Decimal,
-    saw_numeric_value: bool,
     apply_mode: DistinctApplyMode,
-    finalize_mode: DistinctFinalizeMode,
+    reducer: ValueReducerState,
 }
 
 impl GlobalDistinctFieldAccumulator {
     // Build one empty global DISTINCT reducer state.
-    const fn new(reducer_spec: DistinctReducerSpec) -> Self {
+    fn new(reducer_spec: DistinctReducerSpec) -> Self {
         Self {
-            distinct_count: 0,
-            numeric_sum: Decimal::ZERO,
-            saw_numeric_value: false,
             apply_mode: reducer_spec.apply_mode,
-            finalize_mode: reducer_spec.finalize_mode,
+            reducer: reducer_spec.reducer,
         }
     }
 
@@ -209,56 +189,21 @@ impl GlobalDistinctFieldAccumulator {
         &mut self,
         numeric_value: Option<Decimal>,
     ) -> Result<(), InternalError> {
-        self.distinct_count = self.distinct_count.saturating_add(1);
-
         match self.apply_mode {
-            DistinctApplyMode::Count => Ok(()),
-            DistinctApplyMode::Numeric => Self::apply_numeric(self, numeric_value),
+            DistinctApplyMode::Count => self.reducer.increment_count(),
+            DistinctApplyMode::Numeric => {
+                let Some(numeric_value) = numeric_value else {
+                    return Err(GroupError::numeric_ingest_payload_required().into_internal_error());
+                };
+
+                self.reducer.ingest_decimal(numeric_value)
+            }
         }
     }
 
     // Finalize the reducer state into one grouped aggregate output value.
     fn finalize(self) -> Result<Value, InternalError> {
-        match self.finalize_mode {
-            DistinctFinalizeMode::Count => Ok(finalize_count(self.distinct_count)),
-            DistinctFinalizeMode::Sum => Ok(Self::finalize_sum(self)),
-            DistinctFinalizeMode::Avg => Self::finalize_avg(self),
-        }
-    }
-
-    fn apply_numeric(
-        state: &mut Self,
-        numeric_value: Option<Decimal>,
-    ) -> Result<(), InternalError> {
-        let Some(numeric_value) = numeric_value else {
-            return Err(GroupError::numeric_ingest_payload_required().into_internal_error());
-        };
-        state.numeric_sum =
-            crate::db::numeric::add_decimal_terms_checked(state.numeric_sum, numeric_value)
-                .map_err(crate::db::numeric::NumericEvalError::into_internal_error)?;
-        state.saw_numeric_value = true;
-
-        Ok(())
-    }
-
-    fn finalize_sum(state: Self) -> Value {
-        state
-            .saw_numeric_value
-            .then_some(state.numeric_sum)
-            .map_or(Value::Null, Value::Decimal)
-    }
-
-    fn finalize_avg(state: Self) -> Result<Value, InternalError> {
-        if !state.saw_numeric_value || state.distinct_count == 0 {
-            return Ok(Value::Null);
-        }
-        let avg = crate::db::numeric::average_decimal_terms_checked(
-            state.numeric_sum,
-            state.distinct_count,
-        )
-        .map_err(crate::db::numeric::NumericEvalError::into_internal_error)?;
-
-        Ok(Value::Decimal(avg))
+        self.reducer.into_final_value()
     }
 }
 
@@ -319,4 +264,41 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         Vec::new(),
         vec![accumulator.finalize()?],
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{types::Decimal, value::Value};
+
+    use super::{GlobalDistinctAggregateKind, GlobalDistinctFieldAccumulator};
+
+    #[test]
+    fn global_distinct_accumulator_delegates_to_shared_value_reducers() {
+        let one = Decimal::from_i64(1).expect("decimal one");
+        let three = Decimal::from_i64(3).expect("decimal three");
+
+        let mut count =
+            GlobalDistinctFieldAccumulator::new(GlobalDistinctAggregateKind::Count.reducer_spec());
+        count.apply_distinct_value(None).expect("count ingest");
+        count.apply_distinct_value(None).expect("count ingest");
+        assert_eq!(count.finalize().expect("count finalize"), Value::Nat64(2));
+
+        let mut sum =
+            GlobalDistinctFieldAccumulator::new(GlobalDistinctAggregateKind::Sum.reducer_spec());
+        sum.apply_distinct_value(Some(one)).expect("sum ingest");
+        sum.apply_distinct_value(Some(three)).expect("sum ingest");
+        assert_eq!(
+            sum.finalize().expect("sum finalize"),
+            Value::Decimal(Decimal::from_i64(4).expect("decimal four")),
+        );
+
+        let mut avg =
+            GlobalDistinctFieldAccumulator::new(GlobalDistinctAggregateKind::Avg.reducer_spec());
+        avg.apply_distinct_value(Some(one)).expect("avg ingest");
+        avg.apply_distinct_value(Some(three)).expect("avg ingest");
+        assert_eq!(
+            avg.finalize().expect("avg finalize"),
+            Value::Decimal(Decimal::from_i64(2).expect("decimal two")),
+        );
+    }
 }

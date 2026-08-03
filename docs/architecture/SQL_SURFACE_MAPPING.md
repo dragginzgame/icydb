@@ -107,10 +107,10 @@ dispatch are not involved.
 
 The source spelling `icydb_sql_query(introspection = true)` exports the
 historical Candid method `icydb_query` with operational SQL introspection and
-requires the `icydb/sql-explain` Cargo capability. The `false` form keeps the
-same method and rejects the frozen introspection families. Canister-owned Cargo
-features may conditionally compile declarations for local/test builds; IcyDB
-does not infer endpoint policy from a target environment.
+uses the `icydb/sql` Cargo capability. The `false` form keeps the same method
+and rejects the frozen introspection families. Canister-owned Cargo features
+may conditionally compile declarations for local/test builds; IcyDB does not
+infer endpoint policy from a target environment.
 
 ## What Is Already Stable
 

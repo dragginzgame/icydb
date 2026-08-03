@@ -14,7 +14,6 @@ use crate::db::data::structural_field::{
         },
     },
 };
-#[cfg(any(test, feature = "query"))]
 use crate::db::data::structural_field::{
     binary::{TAG_MAP, parse_binary_head},
     value_storage::{
@@ -46,7 +45,6 @@ impl<'a> ValueStorageView<'a> {
     }
 
     /// Wrap bytes whose exact boundary was already returned by skip traversal.
-    #[cfg(any(test, feature = "query"))]
     const fn from_skip_bounded_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }
@@ -129,7 +127,6 @@ impl<'a> ValueStorageView<'a> {
     }
 
     /// Return the value slice for one text-keyed map entry using byte equality.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn map_text_key_bytes(
         &self,
         key: &[u8],

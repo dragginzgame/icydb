@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.218.x] 🧭 - 2026-08-03 - Explicit Versioned Schema Migrations
+
+Detailed notes: [docs/changelog/0.218.md](docs/changelog/0.218.md)
+
+- `0.218.0` adds explicit durable per-entity schema migrations and simplifies
+  the base/query/SQL capability boundary, canonical ordering work, and audit
+  attribution in a breaking pre-1.0 hard cut.
+
 ## [0.217.x] 🔌 - 2026-08-01 - Explicit Canister Endpoint Exports
 
 Detailed notes: [docs/changelog/0.217.md](docs/changelog/0.217.md)

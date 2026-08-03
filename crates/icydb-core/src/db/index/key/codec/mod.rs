@@ -26,7 +26,6 @@ use bounds::{
 };
 use error::IndexKeyDecodeError;
 use std::cmp::Ordering;
-#[cfg(any(test, feature = "query"))]
 use std::ops::Bound;
 use tuple::{compare_component_segments, compare_segment_bytes, push_segment, read_segment};
 
@@ -203,7 +202,6 @@ impl IndexKey {
         Ok((lower, upper))
     }
 
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::index) fn raw_bounds_for_prefix_component_range_with_kind<
         C: AsRef<[u8]>,
         B: AsRef<[u8]>,
@@ -311,7 +309,6 @@ impl IndexKey {
         Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
     }
 
-    #[cfg(any(test, feature = "query"))]
     fn raw_component_range_bound_with_kind<C: AsRef<[u8]>, B: AsRef<[u8]>>(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
@@ -456,7 +453,6 @@ impl IndexKey {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn primary_key_bytes(&self) -> &[u8] {
         self.primary_key.as_slice()
     }
@@ -505,13 +501,11 @@ impl PrefixBoundSentinel {
 }
 
 #[derive(Clone, Copy)]
-#[cfg(any(test, feature = "query"))]
 enum RangeBoundSide {
     Lower,
     Upper,
 }
 
-#[cfg(any(test, feature = "query"))]
 impl RangeBoundSide {
     const fn unbounded_sentinel(self) -> PrefixBoundSentinel {
         match self {
@@ -535,7 +529,6 @@ impl RangeBoundSide {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn validate_component_bound<B: AsRef<[u8]>>(bound: &Bound<B>) -> Result<(), IndexKeyEncodeError> {
     match bound {
         Bound::Unbounded => Ok(()),
@@ -553,7 +546,6 @@ fn validate_component_bound<B: AsRef<[u8]>>(bound: &Bound<B>) -> Result<(), Inde
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn component_bound_encoded_len<B: AsRef<[u8]>>(
     bound: &Bound<B>,
     unbounded_sentinel: PrefixBoundSentinel,
@@ -564,7 +556,6 @@ fn component_bound_encoded_len<B: AsRef<[u8]>>(
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn push_component_bound_segment<B: AsRef<[u8]>>(
     bytes: &mut Vec<u8>,
     bound: &Bound<B>,

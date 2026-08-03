@@ -3,6 +3,8 @@
 //! Does not own: journal-tail storage, commit marker lifecycle, recovery, or fold.
 //! Boundary: logical journal records -> stable-memory journal batch bytes.
 
+#[cfg(any(test, feature = "migration"))]
+use crate::db::index::RawIndexStoreKey;
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
@@ -21,11 +23,13 @@ use crate::{
     types::EntityTag,
 };
 use ic_stable_structures::{Storable, storable::Bound};
+#[cfg(any(test, feature = "migration"))]
+use icydb_schema::SchemaMigrationPlanDigest;
 use std::borrow::Cow;
 
 pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 1;
 pub(in crate::db) const MAX_JOURNAL_BATCH_BYTES: u32 = MAX_COMMIT_BYTES;
-const MAX_JOURNAL_BATCH_RECORDS: usize = 16 * 1024;
+pub(in crate::db) const MAX_JOURNAL_BATCH_RECORDS: usize = 16 * 1024;
 const MAX_JOURNAL_PATH_BYTES: usize = 4 * 1024;
 const JOURNAL_BATCH_MAGIC: [u8; 4] = *b"IJBT";
 const JOURNAL_BATCH_HEADER_BYTES: usize = 9;
@@ -39,6 +43,10 @@ const JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH: u8 = 4;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT: u8 = 5;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE: u8 = 6;
 const JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE: u8 = 7;
+#[cfg(any(test, feature = "migration"))]
+const JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT: u8 = 8;
+#[cfg(any(test, feature = "migration"))]
+const JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT: u8 = 9;
 
 pub(in crate::db) type JournalBatchId = [u8; JOURNAL_BATCH_ID_BYTES];
 pub(in crate::db) type JournalCommitMarkerId = [u8; JOURNAL_COMMIT_MARKER_ID_BYTES];
@@ -97,8 +105,9 @@ impl Storable for JournalSequence {
     };
 }
 
-/// Logical journal record. Index entries are intentionally absent from the
-/// first format; indexes are derived materialized state.
+/// Logical journal record. Ordinary index entries remain derived materialized
+/// state. Migration-private entries are retained only while predecessor
+/// authority is gated, so their exact marker-bound effects are explicit.
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum JournalRecord {
@@ -142,6 +151,22 @@ pub(in crate::db) enum JournalRecord {
     },
     /// One contiguous marker-owned advance for an accepted Identity owner.
     IdentityRangeAdvance { range: IdentityRangeAdvance },
+    /// Candidate-layout row replacement owned by one exact migration plan.
+    #[cfg(any(test, feature = "migration"))]
+    SchemaMigrationRowPut {
+        store_path: String,
+        primary_key: RawDataStoreKey,
+        row_bytes: Vec<u8>,
+        schema_fingerprint: CommitSchemaFingerprint,
+        plan_digest: SchemaMigrationPlanDigest,
+    },
+    /// Planner-invisible candidate index entry owned by one exact migration plan.
+    #[cfg(any(test, feature = "migration"))]
+    SchemaMigrationIndexPut {
+        store_path: String,
+        key: crate::db::index::RawIndexStoreKey,
+        plan_digest: SchemaMigrationPlanDigest,
+    },
 }
 
 impl JournalRecord {
@@ -174,6 +199,40 @@ impl JournalRecord {
         };
         validate_journal_record(&record)?;
 
+        Ok(record)
+    }
+
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db) fn schema_migration_row_put(
+        store_path: impl Into<String>,
+        primary_key: RawDataStoreKey,
+        row_bytes: Vec<u8>,
+        schema_fingerprint: CommitSchemaFingerprint,
+        plan_digest: SchemaMigrationPlanDigest,
+    ) -> Result<Self, InternalError> {
+        let record = Self::SchemaMigrationRowPut {
+            store_path: store_path.into(),
+            primary_key,
+            row_bytes,
+            schema_fingerprint,
+            plan_digest,
+        };
+        validate_journal_record(&record)?;
+        Ok(record)
+    }
+
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db) fn schema_migration_index_put(
+        store_path: impl Into<String>,
+        key: crate::db::index::RawIndexStoreKey,
+        plan_digest: SchemaMigrationPlanDigest,
+    ) -> Result<Self, InternalError> {
+        let record = Self::SchemaMigrationIndexPut {
+            store_path: store_path.into(),
+            key,
+            plan_digest,
+        };
+        validate_journal_record(&record)?;
         Ok(record)
     }
 
@@ -453,6 +512,10 @@ fn write_journal_batch_payload(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the current persisted journal format is encoded by one exhaustive record-kind match"
+)]
 fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(), InternalError> {
     match record {
         JournalRecord::RowPut {
@@ -544,6 +607,44 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             out.extend_from_slice(&range.expected_high_water().to_le_bytes());
             out.extend_from_slice(&range.new_high_water().to_le_bytes());
             out.extend_from_slice(&range.allocation_count().to_le_bytes());
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut {
+            store_path,
+            primary_key,
+            row_bytes,
+            schema_fingerprint,
+            plan_digest,
+        } => {
+            out.push(JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal migration row store_path",
+            )?;
+            write_len_prefixed_bytes(
+                out,
+                primary_key.as_bytes(),
+                "journal migration row primary_key",
+            )?;
+            write_len_prefixed_bytes(out, row_bytes, "journal migration row payload")?;
+            out.extend_from_slice(schema_fingerprint);
+            out.extend_from_slice(&plan_digest.to_bytes());
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationIndexPut {
+            store_path,
+            key,
+            plan_digest,
+        } => {
+            out.push(JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal migration index store_path",
+            )?;
+            write_len_prefixed_bytes(out, key.as_bytes(), "journal migration index key")?;
+            out.extend_from_slice(&plan_digest.to_bytes());
         }
     }
 
@@ -667,6 +768,45 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
             .map_err(|_| journal_batch_corruption())?;
             JournalRecord::identity_range_advance(range)
         }
+        #[cfg(any(test, feature = "migration"))]
+        JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT => {
+            let store_path = read_utf8_path(bytes, cursor, "journal migration row store_path")?;
+            let primary_key = read_primary_key(bytes, cursor)?;
+            let row_bytes =
+                read_len_prefixed_bytes(bytes, cursor, "journal migration row payload")?.to_vec();
+            let schema_fingerprint = read_fixed_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>(
+                bytes,
+                cursor,
+                "migration row schema fingerprint",
+            )?;
+            let plan_digest = SchemaMigrationPlanDigest::from_bytes(read_fixed_array::<32>(
+                bytes,
+                cursor,
+                "migration row plan digest",
+            )?);
+            JournalRecord::schema_migration_row_put(
+                store_path,
+                primary_key,
+                row_bytes,
+                schema_fingerprint,
+                plan_digest,
+            )
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT => {
+            let store_path = read_utf8_path(bytes, cursor, "journal migration index store_path")?;
+            let key_bytes = read_len_prefixed_bytes(bytes, cursor, "journal migration index key")?;
+            if key_bytes.len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE {
+                return Err(journal_batch_corruption());
+            }
+            let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes));
+            let plan_digest = SchemaMigrationPlanDigest::from_bytes(read_fixed_array::<32>(
+                bytes,
+                cursor,
+                "migration index plan digest",
+            )?);
+            JournalRecord::schema_migration_index_put(store_path, key, plan_digest)
+        }
         _ => Err(journal_batch_corruption()),
     }
 }
@@ -691,7 +831,7 @@ fn journal_batch_payload_len(batch: &JournalBatch) -> usize {
         .saturating_sub(JOURNAL_BATCH_HEADER_BYTES)
 }
 
-fn journal_record_payload_len(record: &JournalRecord) -> usize {
+pub(in crate::db) fn journal_record_payload_len(record: &JournalRecord) -> usize {
     match record {
         JournalRecord::RowPut {
             entity_path,
@@ -743,6 +883,25 @@ fn journal_record_payload_len(record: &JournalRecord) -> usize {
             .saturating_add(size_of::<u32>())
             .saturating_add(size_of::<u128>() * 2)
             .saturating_add(size_of::<u32>()),
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut {
+            store_path,
+            primary_key,
+            row_bytes,
+            ..
+        } => 1usize
+            .saturating_add(size_of::<u32>() + store_path.len())
+            .saturating_add(size_of::<u32>() + primary_key.as_bytes().len())
+            .saturating_add(size_of::<u32>() + row_bytes.len())
+            .saturating_add(JOURNAL_SCHEMA_FINGERPRINT_BYTES)
+            .saturating_add(32),
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationIndexPut {
+            store_path, key, ..
+        } => 1usize
+            .saturating_add(size_of::<u32>() + store_path.len())
+            .saturating_add(size_of::<u32>() + key.as_bytes().len())
+            .saturating_add(32),
     }
 }
 
@@ -833,6 +992,9 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
                 | JournalRecord::ConstraintValidationJobPut { .. }
                 | JournalRecord::ConstraintValidationJobDelete { .. }
                 | JournalRecord::IdentityRangeAdvance { .. } => {}
+                #[cfg(any(test, feature = "migration"))]
+                JournalRecord::SchemaMigrationRowPut { .. }
+                | JournalRecord::SchemaMigrationIndexPut { .. } => {}
             }
         }
         if count != range.allocation_count() || expected_allocation != range.new_high_water() {
@@ -842,6 +1004,10 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the current persisted journal format is validated by one exhaustive record-kind match"
+)]
 fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> {
     match record {
         JournalRecord::RowPut {
@@ -916,6 +1082,36 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
                 range.allocation_count(),
             )
             .map_err(|_| journal_batch_corruption())?;
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut {
+            store_path,
+            primary_key,
+            row_bytes,
+            plan_digest,
+            ..
+        } => {
+            validate_path(store_path, "journal migration row store_path")?;
+            validate_primary_key_shape(primary_key)?;
+            validate_row_payload(row_bytes)?;
+            if plan_digest.to_bytes() == [0; 32] {
+                return Err(journal_batch_corruption());
+            }
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationIndexPut {
+            store_path,
+            key,
+            plan_digest,
+        } => {
+            validate_path(store_path, "journal migration index store_path")?;
+            if key.as_bytes().is_empty()
+                || key.as_bytes().len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE
+                || crate::db::index::IndexKey::try_from_raw(key).is_err()
+                || plan_digest.to_bytes() == [0; 32]
+            {
+                return Err(journal_batch_corruption());
+            }
         }
     }
 

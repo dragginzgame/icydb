@@ -340,7 +340,7 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
     }
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::query::explain) fn write_access_json(
     access: &ExplainAccessPath,
     out: &mut String,

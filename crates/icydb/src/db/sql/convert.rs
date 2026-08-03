@@ -55,7 +55,7 @@ pub(crate) fn sql_query_result_from_statement(
             row_count,
             next_cursor,
         )),
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatementResult::Explain(explain) => SqlQueryResult::Explain {
             entity: entity_name,
             explain,

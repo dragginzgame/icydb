@@ -28,7 +28,7 @@ pub(in crate::db::executor) enum ContinuationMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[expect(clippy::struct_excessive_bools)]
 pub(in crate::db::executor) struct RouteContinuationPlan {
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     mode: ContinuationMode,
     applied: bool,
     strict_advance_required_when_applied: bool,
@@ -50,7 +50,7 @@ impl RouteContinuationPlan {
         let applied = !matches!(mode, ContinuationMode::Initial);
 
         Self {
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             mode,
             applied,
             strict_advance_required_when_applied: !applied
@@ -105,7 +105,7 @@ impl RouteContinuationPlan {
 
     /// Return the route continuation mode.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn mode(self) -> ContinuationMode {
         self.mode
     }
@@ -142,7 +142,7 @@ impl RouteContinuationPlan {
 
     /// Return the page limit projected from the keep window.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn limit(&self) -> Option<u32> {
         self.access_window_keep.page_limit()
     }
@@ -293,7 +293,7 @@ mod tests {
         let continuation =
             RouteContinuationPlan::initial_with_policy(ContinuationPolicy::new(true, false, false));
 
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         assert_eq!(continuation.mode(), ContinuationMode::Initial);
         assert!(!continuation.applied());
         assert!(continuation.strict_advance_required_when_applied());

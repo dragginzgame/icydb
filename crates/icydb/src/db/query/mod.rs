@@ -7,10 +7,8 @@
 //! Public facade query surface. Generated typed reads are a projection over
 //! the accepted structural lane; the raw planner representation stays internal.
 
-#[cfg(feature = "query")]
 mod typed;
 
-#[cfg(feature = "query")]
 pub use typed::{Query, TypedQueryError};
 
 pub use icydb_core::db::{

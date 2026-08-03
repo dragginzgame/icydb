@@ -13,11 +13,9 @@ doctest = false
 
 [features]
 default = []
-query = []
-sql = ["query"]
-sql-explain = ["sql"]
+sql = []
 diagnostics = []
-metrics-extended = []
+migration = []
 
 [dependencies]
 candid = { workspace = true }

@@ -1454,7 +1454,6 @@ impl SchemaStore {
     }
 
     /// Return the current accepted revision without decoding its bundle.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn current_accepted_schema_revision(
         &self,
     ) -> Result<Option<AcceptedSchemaRevision>, InternalError> {
@@ -2130,7 +2129,6 @@ impl SchemaStore {
 
     /// Load one entity snapshot from the immutable bundle selected by the
     /// current accepted root.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn current_accepted_persisted_snapshot(
         &self,
         entity: EntityTag,

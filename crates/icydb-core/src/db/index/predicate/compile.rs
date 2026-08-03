@@ -380,7 +380,7 @@ fn compile_index_many_literal(mut literals: Vec<Vec<u8>>) -> Option<IndexLiteral
         return Some(IndexLiteral::Many(literals));
     }
 
-    literals.sort();
+    literals.sort_unstable();
     literals.dedup();
 
     Some(IndexLiteral::ManySorted(literals))

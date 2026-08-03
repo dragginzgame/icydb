@@ -8,6 +8,12 @@ mod __icydb_generated {
             Ok(icydb::metrics::CompactMetricsReport::default())
         }
 
+        pub(crate) fn metrics_extended(
+            _: Option<u64>,
+        ) -> Result<icydb::metrics::EventReport, icydb::Error> {
+            Ok(icydb::metrics::EventReport::default())
+        }
+
         pub(crate) fn metrics_reset() -> Result<(), icydb::Error> {
             Ok(())
         }
@@ -24,6 +30,7 @@ icydb::endpoints! {
     #[cfg(any())]
     icydb_ddl;
     icydb_metrics(authorization = public);
+    icydb_metrics_extended(authorization = public);
     icydb_metrics_reset;
 }
 

@@ -3,9 +3,7 @@
 //! Does not own: query route planning or executor predicate evaluation.
 //! Boundary: converts serialized filter input into planner-owned boolean expressions.
 
-#[cfg(feature = "query")]
 use crate::db::query::plan::expr::UnaryOp;
-#[cfg(feature = "query")]
 use crate::db::schema::SchemaInfo;
 use crate::{
     db::query::plan::expr::{BinaryOp, Expr, FieldId, Function},
@@ -200,12 +198,10 @@ pub enum FilterExpr {
 impl FilterExpr {
     /// Lower this dynamic filter expression against accepted schema authority.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db::query) fn lower_bool_expr_for_schema(&self, schema: &SchemaInfo) -> Expr {
         self.lower_bool_expr_with_schema(schema)
     }
 
-    #[cfg(feature = "query")]
     #[expect(clippy::too_many_lines)]
     fn lower_bool_expr_with_schema(&self, schema: &SchemaInfo) -> Expr {
         match self {
@@ -583,7 +579,6 @@ impl FilterExpr {
     }
 }
 
-#[cfg(feature = "query")]
 fn lower_compare(schema: &SchemaInfo, field: &str, value: &FilterValue) -> Value {
     let raw = value.lower_value();
     schema
@@ -591,7 +586,6 @@ fn lower_compare(schema: &SchemaInfo, field: &str, value: &FilterValue) -> Value
         .unwrap_or(raw)
 }
 
-#[cfg(feature = "query")]
 fn lower_membership(schema: &SchemaInfo, field: &str, values: &[FilterValue]) -> Vec<Value> {
     values
         .iter()
@@ -599,7 +593,6 @@ fn lower_membership(schema: &SchemaInfo, field: &str, values: &[FilterValue]) ->
         .collect()
 }
 
-#[cfg(feature = "query")]
 fn fold_filter_bool_chain(op: BinaryOp, exprs: &[FilterExpr], schema: &SchemaInfo) -> Expr {
     let mut exprs = exprs.iter();
     let Some(first) = exprs.next() else {

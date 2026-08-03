@@ -9,7 +9,6 @@ pub(in crate::db::executor) mod grouped;
 mod materialization;
 mod scan;
 
-#[cfg(feature = "query")]
 use crate::db::executor::saturating_u32_len;
 use crate::db::{
     cursor::GroupedContinuationToken,
@@ -18,7 +17,6 @@ use crate::db::{
     schema::AcceptedValueCatalogHandle,
 };
 
-#[cfg(feature = "query")]
 pub(in crate::db::executor) use execution::KernelRowsExecutionAttempt;
 pub(in crate::db) use execution::StructuralCursorPage;
 pub(in crate::db::executor) use execution::{
@@ -77,7 +75,6 @@ impl StructuralGroupedProjectionResult {
 
     /// Return the grouped row count computed at the executor boundary.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn row_count(&self) -> u32 {
         saturating_u32_len(self.page.rows.len())
     }

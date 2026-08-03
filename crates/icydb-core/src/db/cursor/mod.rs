@@ -37,7 +37,6 @@ pub(in crate::db) use runtime::{ContinuationKeyRef, ContinuationRuntime};
 pub(in crate::db) use signature::ContinuationSignature;
 pub(crate) use string::CursorDecodeError;
 use string::decode_cursor;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use string::encode_cursor;
 #[cfg(test)]
 pub(in crate::db) use string::encode_grouped_cursor_token;

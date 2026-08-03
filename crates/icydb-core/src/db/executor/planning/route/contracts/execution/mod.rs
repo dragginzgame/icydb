@@ -8,7 +8,7 @@ mod plan;
 use crate::db::{direction::Direction, query::plan::GroupedPlanStrategy};
 
 pub(in crate::db::executor) use plan::ExecutionRoutePlan;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use plan::RouteExplainFacts;
 
 ///
@@ -33,7 +33,7 @@ pub(in crate::db::executor) enum LoadOrderRouteMode {
 impl LoadOrderRouteMode {
     /// Return the stable observability code for this load-order route mode.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
             Self::DirectStreaming => "direct_streaming",
@@ -112,7 +112,7 @@ pub(in crate::db::executor) enum LoadOrderRouteReason {
 impl LoadOrderRouteReason {
     /// Return the stable observability code for this load-order route reason.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -180,7 +180,7 @@ impl LoadOrderRouteDecision {
 
     /// Return the reason attached to the ordered-load route mode.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn reason(self) -> LoadOrderRouteReason {
         self.reason
     }
@@ -240,7 +240,7 @@ impl GroupedExecutionMode {
 
     /// Return the stable observability code for this grouped execution mode.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
             Self::HashMaterialized => "hash_materialized",
@@ -375,7 +375,7 @@ pub(in crate::db::executor) enum AggregateSeekSpec {
 impl AggregateSeekSpec {
     /// Return the bounded fetch size for this aggregate seek.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn fetch(self) -> usize {
         match self {
             Self::First { fetch } | Self::Last { fetch } => fetch,

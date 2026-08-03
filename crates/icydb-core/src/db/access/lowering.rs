@@ -21,7 +21,6 @@ use crate::{
 };
 use std::{ops::Bound, sync::Arc, sync::OnceLock};
 
-#[cfg(feature = "query")]
 use crate::db::index::UserIndexPrefixCardinalityKey;
 
 const fn record_deferred_index_prefix_raw_bound_materialization() {}
@@ -618,7 +617,6 @@ fn lower_index_specs_for_path<K>(
     Ok(())
 }
 
-#[cfg(feature = "query")]
 pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_access(
     entity_tag: EntityTag,
     access: &crate::db::query::plan::CountCardinalityPrefixAccess<'_>,
@@ -651,7 +649,6 @@ pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_a
     }
 }
 
-#[cfg(feature = "query")]
 fn lower_single_component_user_index_prefix_cardinality_keys(
     entity_tag: EntityTag,
     index: crate::db::access::SemanticIndexAccessContract,

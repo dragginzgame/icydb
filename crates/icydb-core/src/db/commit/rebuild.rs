@@ -96,7 +96,7 @@ fn sorted_store_handles(db: &Db<impl CanisterKind>) -> Vec<(&'static str, StoreH
     });
     // StoreRegistry iteration is HashMap-backed and intentionally unordered.
     // Recovery semantics must remain deterministic, so sort explicitly by path.
-    stores.sort_by_key(|(path, _)| *path);
+    stores.sort_unstable_by_key(|(path, _)| *path);
     debug_assert!(
         stores.windows(2).all(|pair| pair[0].0 <= pair[1].0),
         "store registry iteration order must not affect semantic rebuild ordering",

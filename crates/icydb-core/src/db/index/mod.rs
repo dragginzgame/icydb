@@ -9,7 +9,6 @@ pub(in crate::db) mod envelope;
 mod expression_contract;
 mod key;
 mod plan;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) mod predicate;
 mod range;
 mod readers;
@@ -17,21 +16,16 @@ mod scan;
 mod store;
 
 pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use cardinality::UserIndexPrefixCardinalityKey;
 pub(in crate::db) use entry::IndexEntryExistenceWitness;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use entry::IndexEntryRowWitness;
 pub(in crate::db) use entry::IndexRowIdentity;
 pub(in crate::db) use envelope::{envelope_is_empty, key_within_envelope};
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use envelope::{
     resume_bounds_for_continuation, validate_index_scan_continuation_advancement,
 };
 pub(in crate::db) use expression_contract::SemanticIndexExpression;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use expression_contract::index_expression_supports_text_casefold_lookup;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use key::{
     EncodedValue, IndexExpressionSourceClass, encode_accepted_index_literal_component,
 };
@@ -43,13 +37,11 @@ pub(in crate::db) use plan::{
     IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView,
     plan_index_mutation_for_slot_reader_structural,
 };
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram, compile_index_program,
     compile_index_program_for_targets,
 };
 pub(in crate::db) use range::raw_keys_for_component_prefix_with_kind;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use range::{
     IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode,
     build_index_bounds_lowering_for_arity, build_index_component_range_with_encoded_prefix,

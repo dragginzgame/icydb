@@ -346,7 +346,7 @@ pub(crate) fn capture_perf_environment(
             },
             rust_toolchain,
             wasm_target: WASM_TARGET.to_string(),
-            feature_set: ["diagnostics", "sql", "sql-explain"]
+            feature_set: ["diagnostics", "sql"]
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
@@ -948,11 +948,7 @@ pub(crate) mod tests {
                 },
                 rust_toolchain: "rustc test".to_string(),
                 wasm_target: WASM_TARGET.to_string(),
-                feature_set: vec![
-                    "diagnostics".to_string(),
-                    "sql".to_string(),
-                    "sql-explain".to_string(),
-                ],
+                feature_set: vec!["diagnostics".to_string(), "sql".to_string()],
                 pocket_ic_version: "pocket-ic-server test".to_string(),
                 pocket_ic_sha256: "33".repeat(32),
                 diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,

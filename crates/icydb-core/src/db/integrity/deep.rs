@@ -965,7 +965,7 @@ fn merge_blocked_families(
     page: &[IntegrityVerifierFamily],
 ) {
     accumulated.extend_from_slice(page);
-    accumulated.sort();
+    accumulated.sort_unstable();
     accumulated.dedup();
 }
 

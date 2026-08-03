@@ -17,7 +17,7 @@ use super::{
     SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, SqlWriteValue, parse_integrity_sql,
     parse_sql,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use super::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1720,7 +1720,7 @@ fn parse_delete_statement_with_direct_starts_with_family() {
 }
 
 #[test]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn parse_explain_json_wrapped_select() {
     let statement = parse_sql("EXPLAIN JSON SELECT * FROM users LIMIT 1")
         .expect("explain statement should parse");
@@ -1748,7 +1748,7 @@ fn parse_explain_json_wrapped_select() {
 }
 
 #[test]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn parse_explain_execution_json_wrapped_select() {
     let statement = parse_sql("EXPLAIN EXECUTION JSON SELECT * FROM users LIMIT 1")
         .expect("execution-json explain statement should parse");
@@ -1776,20 +1776,7 @@ fn parse_explain_execution_json_wrapped_select() {
 }
 
 #[test]
-#[cfg(not(feature = "sql-explain"))]
-fn parse_explain_requires_sql_explain_feature() {
-    let err = parse_sql("EXPLAIN SELECT * FROM users").expect_err("EXPLAIN should be gated");
-
-    assert_eq!(
-        err,
-        SqlParseError::UnsupportedFeature {
-            feature: SqlFeatureCode::Other,
-        },
-    );
-}
-
-#[test]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
     let cases = [
         (
@@ -3419,7 +3406,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
 }
 
 #[test]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn parse_explain_execution_with_qualified_identifiers() {
     let statement = parse_sql(
         "EXPLAIN EXECUTION SELECT users.name FROM public.users \
@@ -3460,7 +3447,7 @@ fn parse_explain_execution_with_qualified_identifiers() {
 }
 
 #[test]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn parse_explain_execution_verbose_with_qualified_identifiers() {
     let statement = parse_sql(
         "EXPLAIN EXECUTION VERBOSE SELECT users.name FROM public.users \
@@ -4403,7 +4390,7 @@ fn parse_sql_unsupported_feature_codes_are_stable() {
             "SELECT * FROM users EXCEPT SELECT * FROM users",
             SqlFeatureCode::UnionIntersectExcept,
         ),
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         (
             "EXPLAIN INSERT INTO users VALUES (1)",
             SqlFeatureCode::Insert,
@@ -4432,7 +4419,7 @@ fn parse_sql_unsupported_feature_codes_are_stable() {
             "DESCRIBE users WHERE age > 1",
             SqlFeatureCode::DescribeModifier,
         ),
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         ("EXPLAIN DESCRIBE users", SqlFeatureCode::DescribeModifier),
         ("SHOW DATABASES", SqlFeatureCode::ShowUnsupportedCommand),
         (

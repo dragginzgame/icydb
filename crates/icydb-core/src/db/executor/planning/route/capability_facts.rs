@@ -24,7 +24,7 @@ use crate::db::{
     },
     query::plan::{AccessPlannedQuery, GroupedPlanStrategy, OrderDirection, PlannerRouteProfile},
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::{
     executor::route::access_order_satisfied_by_route_mode, query::plan::CoveringReadExecutionPlan,
 };
@@ -265,7 +265,7 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
 // still needs to distinguish access-preserved ordering from shapes that rely
 // on the shared materialized boundary even when the generic route mode
 // proves the broader ordered-load capability.
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: Option<&CoveringReadExecutionPlan>,

@@ -94,7 +94,7 @@ fn compare_map_entry_keys(left: &(Value, Value), right: &(Value, Value)) -> Orde
 
 // Sort map entries in canonical key order without changing ownership.
 fn sort_map_entries_in_place(entries: &mut [(Value, Value)]) {
-    entries.sort_by(compare_map_entry_keys);
+    entries.sort_unstable_by(compare_map_entry_keys);
 }
 
 /// Normalize map entries into canonical deterministic order.

@@ -1,0 +1,9 @@
+error: endpoint declaration `icydb_schema_migrate` requires the `icydb/migration` Cargo feature
+ --> tests/fail-endpoints/missing_migration_capability.rs:5:1
+  |
+5 | / icydb::endpoints! {
+6 | |     icydb_schema_migrate;
+7 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `$crate::__icydb_with_migration_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

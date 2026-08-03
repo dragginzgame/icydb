@@ -8,16 +8,12 @@ use crate::db::schema::AcceptedFieldKind;
 use crate::db::schema::{
     AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind,
 };
-#[cfg(any(test, feature = "query"))]
 use crate::types::{Account, Decimal, Float32, Float64, Principal};
-#[cfg(any(test, feature = "query"))]
 use crate::types::{IntBig, NatBig, Ulid};
-#[cfg(any(test, feature = "query"))]
 use crate::value::{CoercionFamily, Value};
 #[cfg(any(test, feature = "sql"))]
 use crate::value::{InputValue, InputValueEnum};
 use std::fmt;
-#[cfg(any(test, feature = "query"))]
 use std::str::FromStr;
 
 ///
@@ -59,7 +55,6 @@ pub(crate) enum ScalarType {
 // The scalar registry is keyed by runtime `Value` variant names. Keep that
 // value vocabulary local and project broad fixed-width schema families onto
 // explicit signed/unsigned predicate classifications.
-#[cfg(any(test, feature = "query"))]
 macro_rules! scalar_type_variant {
     (Int) => {
         ScalarType::SignedNumeric
@@ -73,7 +68,6 @@ macro_rules! scalar_type_variant {
 }
 
 // Local helpers to expand the scalar registry into match arms.
-#[cfg(any(test, feature = "query"))]
 macro_rules! scalar_coercion_family_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         match $self {
@@ -82,7 +76,6 @@ macro_rules! scalar_coercion_family_from_registry {
     };
 }
 
-#[cfg(any(test, feature = "query"))]
 macro_rules! scalar_matches_value_from_registry {
     ( @args $self:expr, $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         matches!(
@@ -92,7 +85,6 @@ macro_rules! scalar_matches_value_from_registry {
     };
 }
 
-#[cfg(any(test, feature = "query"))]
 macro_rules! scalar_supports_numeric_coercion_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         match $self {
@@ -101,7 +93,6 @@ macro_rules! scalar_supports_numeric_coercion_from_registry {
     };
 }
 
-#[cfg(any(test, feature = "query"))]
 macro_rules! scalar_is_keyable_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         match $self {
@@ -110,7 +101,6 @@ macro_rules! scalar_is_keyable_from_registry {
     };
 }
 
-#[cfg(any(test, feature = "query"))]
 macro_rules! scalar_supports_ordering_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         match $self {
@@ -119,7 +109,6 @@ macro_rules! scalar_supports_ordering_from_registry {
     };
 }
 
-#[cfg(any(test, feature = "query"))]
 impl ScalarType {
     #[must_use]
     pub(crate) const fn coercion_family(&self) -> CoercionFamily {
@@ -179,7 +168,6 @@ impl FieldType {
         matches!(self, Self::Scalar(_) | Self::List(_) | Self::Set(_))
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn coercion_family(&self) -> Option<CoercionFamily> {
         match self {
@@ -189,31 +177,26 @@ impl FieldType {
         }
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn is_text(&self) -> bool {
         matches!(self, Self::Scalar(ScalarType::Text))
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn is_bool(&self) -> bool {
         matches!(self, Self::Scalar(ScalarType::Bool))
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn is_collection(&self) -> bool {
         matches!(self, Self::List(_) | Self::Set(_) | Self::Map { .. })
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn is_list_like(&self) -> bool {
         matches!(self, Self::List(_) | Self::Set(_))
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn is_orderable(&self) -> bool {
         match self {
@@ -222,7 +205,6 @@ impl FieldType {
         }
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn is_keyable(&self) -> bool {
         match self {
@@ -231,7 +213,6 @@ impl FieldType {
         }
     }
 
-    #[cfg(any(test, feature = "query"))]
     #[must_use]
     pub(crate) const fn supports_numeric_coercion(&self) -> bool {
         match self {
@@ -241,7 +222,6 @@ impl FieldType {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> bool {
     match field_type {
         FieldType::Scalar(inner) => inner.matches_value(literal),
@@ -351,7 +331,6 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
 /// Unlike strict SQL literals, public filter numerics arrive as text so their
 /// Candid shape stays stable across narrow and wide numeric field kinds.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -373,7 +352,6 @@ pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind(
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
     match kind {
         AcceptedFieldKind::Account => canonicalize_text_or_exact(
@@ -468,7 +446,6 @@ fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
     match kind {
         AcceptedFieldKind::Int8 => {
@@ -542,7 +519,6 @@ fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) 
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn canonicalize_text_or_exact<T, E>(
     value: &Value,
     exact: impl FnOnce(&Value) -> Option<T>,
@@ -558,7 +534,6 @@ fn canonicalize_text_or_exact<T, E>(
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn canonicalize_filter_int(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => *inner,
@@ -570,7 +545,6 @@ fn canonicalize_filter_int(value: &Value, min: i64, max: i64) -> Option<Value> {
     (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
-#[cfg(any(test, feature = "query"))]
 fn canonicalize_filter_nat(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u64::try_from(*inner).ok()?,
@@ -740,7 +714,6 @@ fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
     Some(Value::Nat128(value))
 }
 
-#[cfg(any(test, feature = "query"))]
 fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => IntBig::from(*inner),
@@ -753,7 +726,6 @@ fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Opti
     (value.to_leb128().len() <= max_bytes as usize).then_some(Value::IntBig(value))
 }
 
-#[cfg(any(test, feature = "query"))]
 fn canonicalize_nat_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => NatBig::from(u64::try_from(*inner).ok()?),

@@ -397,7 +397,7 @@ fn lower_initial_composite_shape(
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-            fields.sort_by(|left, right| left.name().cmp(right.name()));
+            fields.sort_unstable_by(|left, right| left.name().cmp(right.name()));
             AcceptedCompositeShape::Record(fields)
         }
         NamedTypeFragment::Enum(_) => return Err(InternalError::store_invariant()),
@@ -453,6 +453,27 @@ fn lower_initial_composite_shape(
     Ok(shape)
 }
 
+fn proposal_definitions(
+    proposal: &SchemaProposal,
+) -> (
+    BTreeMap<EntitySourceKey, &EntityFragment>,
+    BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) {
+    // Proposal validation owns duplicate rejection. Direct insertion avoids
+    // BTreeMap's stable bulk-collection sorter at this Wasm boundary.
+    let mut entities = BTreeMap::new();
+    let mut types = BTreeMap::new();
+    for fragment in proposal.fragments() {
+        for entity in fragment.entities() {
+            entities.insert(entity.source_key().clone(), entity);
+        }
+        for r#type in fragment.types() {
+            types.insert(r#type.source_key().clone(), r#type);
+        }
+    }
+    (entities, types)
+}
+
 /// Lower a source-keyed proposal against an empty accepted database.
 ///
 /// This is the sole proposal-to-accepted candidate path. Mutations of an
@@ -467,33 +488,19 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
         return Err(InternalError::store_unsupported());
     }
 
-    let store_paths = stores
-        .iter()
-        .map(|store| (store.identity, store.path))
-        .collect::<BTreeMap<_, _>>();
-    let assignments = proposal
-        .assignments()
-        .iter()
-        .map(|assignment| {
-            store_paths
-                .get(&assignment.store())
-                .copied()
-                .map(|path| (assignment.entity().clone(), path))
-                .ok_or_else(InternalError::store_unsupported)
-        })
-        .collect::<Result<BTreeMap<_, _>, _>>()?;
-    let entities = proposal
-        .fragments()
-        .iter()
-        .flat_map(icydb_schema::SchemaFragment::entities)
-        .map(|entity| (entity.source_key().clone(), entity))
-        .collect::<BTreeMap<_, _>>();
-    let types = proposal
-        .fragments()
-        .iter()
-        .flat_map(icydb_schema::SchemaFragment::types)
-        .map(|r#type| (r#type.source_key().clone(), r#type))
-        .collect::<BTreeMap<_, _>>();
+    let mut store_paths = BTreeMap::new();
+    for store in stores {
+        store_paths.insert(store.identity, store.path);
+    }
+    let mut assignments = BTreeMap::new();
+    for assignment in proposal.assignments() {
+        let path = store_paths
+            .get(&assignment.store())
+            .copied()
+            .ok_or_else(InternalError::store_unsupported)?;
+        assignments.insert(assignment.entity().clone(), path);
+    }
+    let (entities, types) = proposal_definitions(proposal);
     if entities.len() != proposal.assignments().len()
         || assignments
             .keys()
@@ -511,7 +518,7 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
         entities_by_store.entry(path).or_default().push(*entity);
     }
     for store_entities in entities_by_store.values_mut() {
-        store_entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
+        store_entities.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
     }
 
     let accepted_entities = allocate_entity_identities(&entities_by_store)?;
@@ -526,7 +533,6 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
             &types,
         )?);
     }
-    candidates.sort_by(|left, right| left.store_path().cmp(right.store_path()));
     Ok(candidates)
 }
 
@@ -555,22 +561,11 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     {
         return Err(InternalError::store_unsupported());
     }
-    let store_by_identity = stores
-        .iter()
-        .map(|store| (store.identity, store))
-        .collect::<BTreeMap<_, _>>();
-    let entities = proposal
-        .fragments()
-        .iter()
-        .flat_map(icydb_schema::SchemaFragment::entities)
-        .map(|entity| (entity.source_key().clone(), entity))
-        .collect::<BTreeMap<_, _>>();
-    let types = proposal
-        .fragments()
-        .iter()
-        .flat_map(icydb_schema::SchemaFragment::types)
-        .map(|r#type| (r#type.source_key().clone(), r#type))
-        .collect::<BTreeMap<_, _>>();
+    let mut store_by_identity = BTreeMap::new();
+    for store in stores {
+        store_by_identity.insert(store.identity, store);
+    }
+    let (entities, types) = proposal_definitions(proposal);
     if entities.len() != proposal.assignments().len() {
         return Err(InternalError::store_unsupported());
     }
@@ -631,7 +626,6 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     if used_types.len() != types.len() {
         return Err(InternalError::store_unsupported());
     }
-    candidates.sort_by(|left, right| left.store_path().cmp(right.store_path()));
     Ok(candidates)
 }
 
@@ -730,13 +724,13 @@ fn lower_existing_store_candidate(
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    entities.sort_by(|left, right| left.source_key().cmp(right.source_key()));
-    removals.constraints.sort();
-    removals.entities.sort();
-    removals.fields.sort();
-    removals.indexes.sort();
-    removals.relations.sort();
-    removals.types.sort();
+    entities.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
+    removals.constraints.sort_unstable();
+    removals.entities.sort_unstable();
+    removals.fields.sort_unstable();
+    removals.indexes.sort_unstable();
+    removals.relations.sort_unstable();
+    removals.types.sort_unstable();
     let mut catalogs =
         lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
     let mut snapshots = store.bundle.entity_snapshots().clone();
@@ -1462,28 +1456,25 @@ fn lower_existing_named_catalogs(
         else {
             return Err(InternalError::store_unsupported());
         };
-        let variants = proposed
-            .variants()
-            .iter()
-            .map(|variant| {
-                let variant_id = bundle
-                    .source_bindings()
-                    .enum_variant(type_id, variant.source_key())
-                    .ok_or_else(InternalError::store_unsupported)?;
-                let payload = variant
-                    .payload()
-                    .map(|payload| {
-                        Ok::<_, InternalError>((
-                            lower_field_type(payload, |source| {
-                                bundle.source_bindings().named_type(source)
-                            })?,
-                            field_storage_decode(payload),
-                        ))
-                    })
-                    .transpose()?;
-                Ok((variant_id, (variant.name().as_str().to_string(), payload)))
-            })
-            .collect::<Result<BTreeMap<_, _>, InternalError>>()?;
+        let mut variants = BTreeMap::new();
+        for variant in proposed.variants() {
+            let variant_id = bundle
+                .source_bindings()
+                .enum_variant(type_id, variant.source_key())
+                .ok_or_else(InternalError::store_unsupported)?;
+            let payload = variant
+                .payload()
+                .map(|payload| {
+                    Ok::<_, InternalError>((
+                        lower_field_type(payload, |source| {
+                            bundle.source_bindings().named_type(source)
+                        })?,
+                        field_storage_decode(payload),
+                    ))
+                })
+                .transpose()?;
+            variants.insert(variant_id, (variant.name().as_str().to_string(), payload));
+        }
         let accepted = bundle
             .enum_catalog()
             .enum_type(type_id)
@@ -1563,7 +1554,7 @@ fn lower_existing_composite_shape(
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-            fields.sort_by(|left, right| left.name().cmp(right.name()));
+            fields.sort_unstable_by(|left, right| left.name().cmp(right.name()));
             AcceptedCompositeShape::Record(fields)
         }
         NamedTypeFragment::Newtype { inner, .. } => {
@@ -1770,7 +1761,7 @@ fn lower_existing_fields(
         let kind = lower_field_type(proposed.field_type(), |source| bindings.named_type(source))?;
         let storage_decode = field_storage_decode(proposed.field_type());
         let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
-        let nested_leaves = lower_nested_leaves(&kind, &catalogs.composite_catalog)?;
+        let nested_leaves = lower_migration_nested_leaves(&kind, &catalogs.composite_catalog)?;
         let write_policy =
             lower_write_policy(proposed.insert_policy(), proposed.management(), &kind)?;
         let insert_default = AcceptedDefaultLowering {
@@ -1822,6 +1813,59 @@ fn lower_existing_fields(
         changed,
         field_names_changed,
     })
+}
+
+/// Lower one generated migration target through the ordinary accepted-field
+/// constructors while retaining the migration planner's explicit identity
+/// and full-rewrite slot assignment.
+///
+/// This seam deliberately does not accept historical fill. A physical
+/// migration validates and later rewrites every predecessor row into the new
+/// layout, so the target layout admits no absent legacy slot.
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db::schema) fn lower_migration_field(
+    proposed: &icydb_schema::FieldFragment,
+    id: FieldId,
+    slot: SchemaFieldSlot,
+    introduced_in_layout: RowLayoutVersion,
+    bindings: &AcceptedSourceBindingCatalog,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<PersistedFieldSnapshot, InternalError> {
+    let kind = lower_field_type(proposed.field_type(), |source| bindings.named_type(source))?;
+    let storage_decode = field_storage_decode(proposed.field_type());
+    let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
+    let nested_leaves = lower_migration_nested_leaves(&kind, composite_catalog)?;
+    let write_policy = lower_write_policy(proposed.insert_policy(), proposed.management(), &kind)?;
+    let insert_default = AcceptedDefaultLowering {
+        bindings,
+        enum_catalog,
+        composite_catalog,
+    }
+    .lower(
+        proposed.insert_policy(),
+        proposed.name().as_str(),
+        &kind,
+        proposed.nullable(),
+        storage_decode,
+        leaf_codec,
+    )?;
+
+    Ok(PersistedFieldSnapshot::new_with_write_policy_and_origin(
+        id,
+        proposed.name().as_str().to_string(),
+        slot,
+        kind,
+        nested_leaves,
+        proposed.nullable(),
+        introduced_in_layout,
+        insert_default,
+        SchemaHistoricalFill::Reject,
+        write_policy,
+        PersistedFieldOrigin::Generated,
+        storage_decode,
+        leaf_codec,
+    ))
 }
 
 fn lower_existing_indexes(
@@ -1893,6 +1937,89 @@ struct ExistingIndexLowering<'a> {
     entity_tag: EntityTag,
     snapshot: &'a PersistedSchemaSnapshot,
     bindings: &'a AcceptedSourceBindingCatalog,
+}
+
+/// Lower one migration-bound current index through the ordinary accepted
+/// index constructor while retaining the supplied accepted identity.
+#[cfg(any(test, feature = "migration"))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "migration index proof keeps every accepted catalog and identity input explicit"
+)]
+pub(in crate::db::schema) fn lower_migration_index(
+    proposed: &icydb_schema::IndexFragment,
+    accepted: &PersistedIndexSnapshot,
+    revision: AcceptedSchemaRevision,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+    entity_tag: EntityTag,
+    snapshot: &PersistedSchemaSnapshot,
+    bindings: &AcceptedSourceBindingCatalog,
+) -> Result<PersistedIndexSnapshot, InternalError> {
+    ExistingIndexLowering {
+        revision,
+        enum_catalog,
+        composite_catalog,
+        entity_tag,
+        snapshot,
+        bindings,
+    }
+    .lower(proposed, accepted)
+}
+
+/// Lower one new generated index directly into an unpublished migration
+/// candidate under already-reserved accepted identities.
+#[cfg(any(test, feature = "migration"))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "new migration indexes bind every catalog and physical identity explicitly"
+)]
+pub(in crate::db::schema) fn lower_new_migration_index(
+    proposed: &icydb_schema::IndexFragment,
+    schema_id: SchemaIndexId,
+    ordinal: u16,
+    physical_generation: u64,
+    store_path: &'static str,
+    revision: AcceptedSchemaRevision,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+    entity_tag: EntityTag,
+    snapshot: &PersistedSchemaSnapshot,
+    bindings: &AcceptedSourceBindingCatalog,
+) -> Result<PersistedIndexSnapshot, InternalError> {
+    let value_catalog = AcceptedValueCatalogHandle::new(
+        enum_catalog.clone(),
+        composite_catalog.clone(),
+        AcceptedStoreCatalogScope::new(),
+        revision,
+        AcceptedSchemaFingerprint::new([1; 32]),
+    );
+    let key = lower_index_key(proposed.key(), entity_tag, snapshot, bindings)?;
+    let predicate_sql = proposed
+        .predicate()
+        .map(|predicate| {
+            let accepted = bind_source_check_expr(
+                predicate,
+                entity_tag,
+                bindings,
+                snapshot,
+                enum_catalog,
+                composite_catalog,
+            )
+            .map_err(|_| InternalError::store_unsupported())?;
+            render_accepted_check_expr_sql(&accepted, snapshot, &value_catalog)
+        })
+        .transpose()?;
+    Ok(PersistedIndexSnapshot::new(
+        schema_id,
+        ordinal,
+        proposed.name().as_str().to_string(),
+        store_path.to_string(),
+        proposed.unique(),
+        key,
+        predicate_sql,
+    )
+    .clone_with_schema_identity(schema_id, ordinal, physical_generation))
 }
 
 impl ExistingIndexLowering<'_> {
@@ -2034,7 +2161,7 @@ fn resolve_existing_entity<'bundle>(
     resolved.ok_or_else(InternalError::store_unsupported)
 }
 
-fn bind_targeted_rule(
+pub(in crate::db::schema) fn bind_targeted_rule(
     proposed: &TargetedRuleFragment,
     entity_tag: EntityTag,
     bindings: &AcceptedSourceBindingCatalog,
@@ -2599,7 +2726,7 @@ fn lower_initial_entity_fields(
         })?;
         let storage_decode = field_storage_decode(field.field_type());
         let leaf_codec = field_leaf_codec(field.field_type(), &kind);
-        let nested_leaves = lower_nested_leaves(&kind, &context.composite_catalog)?;
+        let nested_leaves = lower_migration_nested_leaves(&kind, &context.composite_catalog)?;
         let write_policy = lower_write_policy(field.insert_policy(), field.management(), &kind)?;
         let insert_default = AcceptedDefaultLowering {
             bindings: &context.named_type_bindings,
@@ -2655,7 +2782,7 @@ fn lower_initial_entity_fields(
     )
 }
 
-fn lower_nested_leaves(
+pub(in crate::db::schema) fn lower_migration_nested_leaves(
     kind: &AcceptedFieldKind,
     catalog: &AcceptedCompositeCatalog,
 ) -> Result<Vec<PersistedNestedLeafSnapshot>, InternalError> {
@@ -2681,7 +2808,7 @@ fn lower_nested_leaves(
             0,
         )?;
     }
-    leaves.sort_by(|left, right| left.path().cmp(right.path()));
+    leaves.sort_unstable_by(|left, right| left.path().cmp(right.path()));
     Ok(leaves)
 }
 
@@ -3112,17 +3239,22 @@ mod tests {
     };
     use crate::value::{InputValue, InputValueEnum, Value};
     use icydb_schema::{
-        ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
-        EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
-        ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
-        IndexFragment, IndexKeyFragment, IndexSourceKey, NamedTypeFragment, RecordFieldFragment,
-        RecordTypeFragment, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment,
-        SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr,
-        SourceCheckInstruction, SourceRuleOperation, TargetDatabaseIdentity, TargetStoreIdentity,
-        TargetedRuleFragment, TupleElementFragment, TypeSourceKey,
+        ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
+        EntitySourceKey, EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment,
+        ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy,
+        FieldSourceKey, FieldType, IndexFragment, IndexKeyFragment, IndexSourceKey,
+        NamedTypeFragment, RecordFieldFragment, RecordTypeFragment, ScalarLiteral, ScalarType,
+        SchemaCapability, SchemaFragment, SchemaName, SchemaProposal, SchemaRemoval,
+        SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation,
+        TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, TupleElementFragment,
+        TypeSourceKey,
     };
     fn name(value: &str) -> SchemaName {
         SchemaName::try_new(value).expect("test schema name should admit")
+    }
+
+    fn version_one() -> DeclaredEntityVersion {
+        DeclaredEntityVersion::try_new(1).expect("fixture version should admit")
     }
 
     struct TargetedRuleProposalFixture {
@@ -3189,6 +3321,7 @@ mod tests {
             .collect();
         let entity = EntityFragment::try_new(
             name("Targeted"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -3241,6 +3374,7 @@ mod tests {
             vec![fragment],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             removals,
+            None,
         )
         .expect("targeted proposal should compose");
         TargetedRuleProposalFixture {
@@ -3292,6 +3426,7 @@ mod tests {
         .expect("test check should admit");
         let entity = EntityFragment::try_new(
             name(entity_name),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -3340,6 +3475,7 @@ mod tests {
             vec![fragment],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             removals,
+            None,
         )
         .expect("test proposal should compose");
         (proposal, entity_source, store)
@@ -3428,6 +3564,7 @@ mod tests {
             let id_source = FieldSourceKey::try_new("id").expect("field source should admit");
             let entity = EntityFragment::try_new(
                 name(&entity_name),
+                version_one(),
                 vec![FieldFragment::new(
                     name("id"),
                     FieldType::Scalar(scalar),
@@ -3459,6 +3596,7 @@ mod tests {
                 vec![fragment],
                 vec![EntityStoreAssignment::new(entity_source.clone(), store)],
                 Vec::new(),
+                None,
             )
             .expect("identity proposal should compose");
 
@@ -3512,6 +3650,7 @@ mod tests {
         .expect("test newtype rule should admit");
         let entity = EntityFragment::try_new(
             name("Compass"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -3555,6 +3694,7 @@ mod tests {
             vec![fragment],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             Vec::new(),
+            None,
         )
         .expect("test proposal should compose");
 
@@ -4225,6 +4365,7 @@ mod tests {
                 constraint: ConstraintSourceKey::try_new("score_non_negative")
                     .expect("test constraint source should admit"),
             }],
+            None,
         )
         .expect("exact removal proposal should compose");
 
@@ -4324,6 +4465,7 @@ mod tests {
                 entity: entity_source,
                 field: FieldSourceKey::try_new("score").expect("test field source should admit"),
             }],
+            None,
         )
         .expect("exact physical removal proposal should compose");
 
@@ -4381,6 +4523,7 @@ mod tests {
                 index: IndexSourceKey::try_new("score_idx")
                     .expect("test index source should admit"),
             }],
+            None,
         )
         .expect("exact index removal proposal should compose");
 
@@ -4599,6 +4742,7 @@ mod tests {
         ));
         let entity = EntityFragment::try_new(
             name("Holder"),
+            version_one(),
             fields,
             vec![id_source],
             Vec::new(),
@@ -4614,6 +4758,7 @@ mod tests {
         let id = FieldSourceKey::try_new("id").expect("field key should admit");
         let entity = EntityFragment::try_new(
             name("Other"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -4896,6 +5041,7 @@ mod tests {
             ConstraintSourceKey::for_targeted_field_rule(&policy_source, &field_key, &rule_source);
         let entity = EntityFragment::try_new(
             name("Collection"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -4940,6 +5086,7 @@ mod tests {
             vec![fragment],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             Vec::new(),
+            None,
         )
         .expect("cyclic proposal should compose");
 
@@ -5250,6 +5397,7 @@ mod tests {
         let id_source = FieldSourceKey::try_new("id").expect("field source should admit");
         let entity = EntityFragment::try_new(
             name("CycleHolder"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -5285,6 +5433,7 @@ mod tests {
             ],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             Vec::new(),
+            None,
         )
         .expect("record-cycle proposal should compose");
 
@@ -5348,6 +5497,7 @@ mod tests {
                 EntityStoreAssignment::new(other_entity_source.clone(), other_store),
             ],
             Vec::new(),
+            None,
         )
         .expect("test proposal should compose");
         let targets = [
@@ -5415,6 +5565,7 @@ mod tests {
             ],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             Vec::new(),
+            None,
         )
         .expect("initial named-type proposal should compose");
         let initial_candidates = lower_initial_schema_proposal(
@@ -5446,6 +5597,7 @@ mod tests {
             ],
             vec![EntityStoreAssignment::new(entity_source, store)],
             Vec::new(),
+            None,
         )
         .expect("exact named-type proposal should compose");
 
@@ -5481,6 +5633,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             removals,
+            None,
         )
         .expect("recursive removal proposal should compose")
     }
@@ -5494,6 +5647,7 @@ mod tests {
         let id_source = FieldSourceKey::try_new("id").expect("id field source should admit");
         let entity = EntityFragment::try_new(
             name(name_value),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -5573,6 +5727,7 @@ mod tests {
                 EntityStoreAssignment::new(right_source.clone(), right_store),
             ],
             Vec::new(),
+            None,
         )
         .expect("recursive component proposal should compose");
         let targets = [

@@ -4,13 +4,10 @@
 //! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
 
 mod accepted_schema;
-#[cfg(feature = "query")]
 mod bounded_cache;
 mod catalog;
 mod integrity;
-#[cfg(feature = "query")]
 mod query;
-#[cfg(feature = "query")]
 mod response;
 #[cfg(feature = "sql")]
 mod sql;
@@ -19,7 +16,6 @@ mod write;
 #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 mod tests;
 
-#[cfg(feature = "query")]
 use crate::metrics::sink::with_metrics_sink;
 use crate::{
     db::{Db, StoreRegistry},
@@ -34,9 +30,7 @@ pub use query::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
 };
-#[cfg(feature = "query")]
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
-#[cfg(feature = "query")]
 pub(in crate::db) use response::grouped_cursor_from_bytes;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{
@@ -97,7 +91,6 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
-    #[cfg(feature = "query")]
     fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
         if let Some(sink) = self.metrics {
             with_metrics_sink(sink, f)

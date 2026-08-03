@@ -50,17 +50,20 @@ Pin IcyDB by tag in downstream canisters:
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.217.3" }
 ```
 
-The default crate feature set provides structural writes and accepted-schema
-runtime support. Enable `query` for typed or dynamic reads without the SQL
-frontend:
+Base IcyDB provides accepted-schema runtime support together with structural,
+typed, and dynamic reads and writes. Enable `sql` only when the canister uses
+session/library SQL APIs or generated SQL endpoints; SQL is an optional
+frontend over the same engine-neutral query runtime.
 
-```toml
-[dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.217.3", features = ["query"] }
-```
+IcyDB has three optional Cargo features:
 
-Enable `sql` instead when the canister uses session/library SQL APIs or
-generated SQL endpoints; `sql` includes `query`.
+- `sql` adds SQL, including `EXPLAIN`, `DESCRIBE`, and `SHOW`.
+- `diagnostics` adds detailed execution attribution for profiling and audits.
+- `migration` adds explicit schema-migration operations and endpoints.
+
+Compact and extended metrics types are part of base IcyDB. The explicit
+`icydb_metrics_extended` source declaration, rather than another Cargo feature,
+selects the public extended-metrics endpoint.
 
 Application schema crates depend separately on `icydb-model`; the runtime
 `icydb` facade does not re-export model declaration macros. Low-level tools
@@ -152,6 +155,11 @@ timestamp fields. The bare form creates conventional `created_at` and
 an omitted nested entry retains its conventional name.
 Entity and store names come directly from their Rust declarations; neither
 macro accepts a second name or generated-symbol override.
+
+Schema evolution uses explicit adjacent per-entity versions and a coordinated
+canister-owned plan; it never infers a rename from generated identifiers. See
+[Schema Migrations](docs/guides/schema-migrations.md) for adoption, deployment,
+bounded advancement, recovery, and abort guidance.
 
 Typed adapters are automatic when the schema crate depends on the `icydb`
 runtime facade. Named enums, records, newtypes, lists, sets, maps, and tuples
@@ -278,10 +286,10 @@ paths after controller authorization. See the
 surface and [READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
 for the full admission contract.
 
-The same `query` feature also supports SQL-independent grouped typed and
-dynamic reads. Grouped calls declare ordered keys and aggregates, require
-explicit engine and page limits, and return an opaque continuation cursor;
-the public facade guide contains the maintained example.
+Base IcyDB also supports SQL-independent grouped typed and dynamic reads.
+Grouped calls declare ordered keys and aggregates, require explicit engine and
+page limits, and return an opaque continuation cursor; the public facade guide
+contains the maintained example.
 
 Use the structural insert-batch helper when a same-entity batch must be
 all-or-nothing:

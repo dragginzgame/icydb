@@ -408,7 +408,7 @@ pub(in crate::metrics) fn compact_report_window_start(
         }
     }
 
-    entity_counters.sort_by(|a, b| {
+    entity_counters.sort_unstable_by(|a, b| {
         let a_activity = compact_metrics_activity(a.metrics());
         let b_activity = compact_metrics_activity(b.metrics());
         b_activity

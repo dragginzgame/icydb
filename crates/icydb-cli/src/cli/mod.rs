@@ -13,7 +13,7 @@ mod target;
 pub(crate) use canister::CanisterCommand;
 pub(crate) use diagnostic::DiagnosticArgs;
 pub(crate) use metrics::MetricsArgs;
-pub(crate) use schema::SchemaCommand;
+pub(crate) use schema::{ConfirmedMigrationTarget, SchemaCommand, SchemaMigrationCommand};
 pub(crate) use sql::{SqlArgs, SqlShellFields};
 pub(crate) use target::{CanisterTarget, EnvironmentTarget};
 

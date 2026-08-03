@@ -139,7 +139,6 @@ impl GroupedAggregateExecutionSpec {
     /// state or pretending the implicit single aggregate row came from grouped
     /// route preparation.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn from_uncompiled_inputs(
         kind: AggregateKind,
         target_slot: Option<FieldSlot>,

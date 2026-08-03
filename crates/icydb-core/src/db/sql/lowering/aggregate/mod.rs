@@ -9,10 +9,10 @@ mod terminal;
 
 use crate::db::sql::parser::{SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement};
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::sql::lowering) use command::LoweredSqlGlobalAggregateCommand;
 pub(crate) use command::SqlGlobalAggregateCommand;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(crate) use command::bind_lowered_sql_explain_global_aggregate_with_schema;
 pub(in crate::db) use command::compile_sql_global_aggregate_command_from_prepared_with_schema;
 pub(in crate::db::sql::lowering) use command::lower_global_aggregate_select_shape;

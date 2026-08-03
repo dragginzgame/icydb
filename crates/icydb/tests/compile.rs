@@ -14,17 +14,23 @@ fn public_facade_compile_contract() {
     #[cfg(not(feature = "sql"))]
     t.compile_fail("tests/fail-endpoints/missing_sql_capability.rs");
 
-    #[cfg(not(feature = "metrics-extended"))]
-    t.compile_fail("tests/fail-endpoints/missing_metrics_extended_capability.rs");
-
-    #[cfg(all(feature = "sql", not(feature = "sql-explain")))]
-    t.compile_fail("tests/fail-endpoints/missing_sql_explain_capability.rs");
-
     #[cfg(feature = "sql")]
     t.compile_fail("tests/fail-endpoints/missing_test_admin_capability.rs");
+
+    #[cfg(not(feature = "migration"))]
+    {
+        t.compile_fail("tests/fail-migration/missing_capability.rs");
+        t.compile_fail("tests/fail-endpoints/missing_migration_capability.rs");
+    }
 }
 
-#[cfg(feature = "query")]
+#[cfg(feature = "migration")]
+#[test]
+fn source_migration_capability_compile_contract() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/pass-migration/**/*.rs");
+}
+
 #[test]
 fn public_query_facade_compile_contract() {
     let t = trybuild::TestCases::new();

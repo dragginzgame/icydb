@@ -177,7 +177,6 @@ impl StructuralCursorPage {
 
     /// Dispatch one structural projection consumer onto the page's concrete row
     /// payload without exposing the payload enum to the session boundary.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn consume_projection_rows<T>(
         self,
         handle_slot_rows: impl FnOnce(Vec<RetainedSlotRow>) -> T,
@@ -220,13 +219,6 @@ impl CursorEmissionMode {
 /// behavior explicit at the execution boundary instead of scattering multiple
 /// interdependent bool flags across kernel/runtime contracts.
 ///
-#[cfg_attr(
-    all(not(test), not(feature = "query")),
-    expect(
-        dead_code,
-        reason = "query execution constructs retained-slot row materialization; non-query builds retain only shared projection validation"
-    )
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum ProjectionMaterializationMode {
     None,

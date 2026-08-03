@@ -1,12 +1,32 @@
 use icydb_model::prelude::*;
 use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
+#[cfg(not(feature = "migration-v2"))]
 define_fixture_canister!(
     SqlTestCanister = "SqlTestCanister",
     namespace = "test_sql",
     memory_min = 155,
     memory_max = 160,
     commit_memory_id = 159,
+);
+
+#[cfg(feature = "migration-v2")]
+define_fixture_canister!(
+    SqlTestCanister = "SqlTestCanister",
+    namespace = "test_sql",
+    memory_min = 155,
+    memory_max = 160,
+    commit_memory_id = 159,
+    migrations(entity_migration(
+        entity = "SqlTestUser",
+        from = 1,
+        renames(field(from = "rank", to = "score")),
+        transforms(rewrite(
+            from = "age",
+            to = "age",
+            checked_cast(to = "Nat16")
+        ))
+    )),
 );
 
 define_fixture_store!(
@@ -26,6 +46,7 @@ define_fixture_store!(
 /// Small indexed user fixture used by generated-vs-typed SQL smoke tests.
 ///
 
+#[cfg(not(feature = "migration-v2"))]
 #[entity(store = "SqlTestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -38,6 +59,24 @@ define_fixture_store!(
         field(name = "name", value(item(prim = "Text", unbounded))),
         field(name = "age", value(item(prim = "Int32"))),
         field(name = "rank", value(item(prim = "Int32")))
+    ),
+    timestamps
+)]
+pub struct SqlTestUser {}
+
+#[cfg(feature = "migration-v2")]
+#[entity(store = "SqlTestStore",
+    version = 2,
+    pk(fields = ["id"]),
+    index(fields = ["name"]),
+    fields(
+        field(name = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
+        field(name = "name", value(item(prim = "Text", unbounded))),
+        field(name = "age", value(item(prim = "Nat16"))),
+        field(name = "score", value(item(prim = "Int32")))
     ),
     timestamps
 )]

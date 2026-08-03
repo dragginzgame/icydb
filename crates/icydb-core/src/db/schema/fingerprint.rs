@@ -17,7 +17,6 @@ use crate::{
 use sha2::{Digest, Sha256};
 const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_DOMAIN: &[u8] = b"icydb.accepted-schema.runtime";
 const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION: u8 = 1;
-#[cfg(any(test, feature = "query"))]
 const ACCEPTED_SCHEMA_ADMISSION_FINGERPRINT_VERSION: u8 = 1;
 
 /// Compute one accepted-schema fingerprint for runtime cache identity.
@@ -64,7 +63,6 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint_for_persisted_snapshot(
 /// Unlike the runtime cache fingerprint, this intentionally normalizes the
 /// declared schema version out of the accepted snapshot before hashing. The
 /// version is compared as an adjacent identity fact by admission policy.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) fn accepted_schema_admission_fingerprint(
     schema: &PersistedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
@@ -83,7 +81,6 @@ pub(in crate::db) const fn accepted_schema_cache_fingerprint_method_version() ->
 }
 
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) const fn accepted_schema_admission_fingerprint_method_version() -> u8 {
     ACCEPTED_SCHEMA_ADMISSION_FINGERPRINT_VERSION
 }
@@ -108,7 +105,6 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint_from_raw(
 }
 
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 fn accepted_schema_admission_fingerprint_from_raw(
     entity_path: &str,
     encoded_snapshot: &[u8],
@@ -132,7 +128,6 @@ fn schema_with_cache_fingerprint_version(
     schema_with_fingerprint_version_and_indexes(schema, schema.indexes().to_vec())
 }
 
-#[cfg(any(test, feature = "query"))]
 fn schema_with_admission_fingerprint_version(
     schema: &PersistedSchemaSnapshot,
 ) -> PersistedSchemaSnapshot {
@@ -171,7 +166,6 @@ fn schema_with_fingerprint_version_and_indexes(
     )
 }
 
-#[cfg(any(test, feature = "query"))]
 fn index_with_admission_fingerprint_name(index: &PersistedIndexSnapshot) -> PersistedIndexSnapshot {
     let name = if index.generated() {
         format!("generated-index-{}", index.ordinal())
@@ -182,7 +176,6 @@ fn index_with_admission_fingerprint_name(index: &PersistedIndexSnapshot) -> Pers
     index_with_identity_and_name(index, index.schema_id(), name)
 }
 
-#[cfg(any(test, feature = "query"))]
 fn index_with_identity_and_name(
     index: &PersistedIndexSnapshot,
     schema_id: crate::db::schema::SchemaIndexId,

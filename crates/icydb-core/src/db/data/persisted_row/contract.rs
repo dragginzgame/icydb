@@ -180,10 +180,7 @@ where
 
 // Build and emit one canonical row from runtime values through accepted field
 // contracts.
-pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_accepted_contract<
-    'a,
-    F,
->(
+pub(in crate::db) fn canonical_row_from_runtime_value_source_with_accepted_contract<'a, F>(
     contract: &StructuralRowContract,
     value_for_slot: F,
 ) -> Result<CanonicalRow, InternalError>

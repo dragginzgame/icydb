@@ -2,6 +2,7 @@
 members = [
     "canisters/audit/default_empty",
     "canisters/audit/default_empty_metrics",
+    "canisters/audit/one_entity_dynamic_query",
     "canisters/audit/one_entity_sql_query",
     "canisters/audit/one_entity_typed_query",
     "canisters/audit/sql_perf",
@@ -181,3 +182,14 @@ opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+# Audit-only equivalent of `wasm-release` that retains enough symbol data for
+# attribution tools. Never use this profile as a deploy-size measurement.
+[profile.wasm-attribution]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "none"
+debug = "line-tables-only"

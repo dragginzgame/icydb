@@ -18,14 +18,23 @@ macro_rules! define_fixture_canister {
         namespace = $namespace:literal,
         memory_min = $memory_min:literal,
         memory_max = $memory_max:literal,
-        commit_memory_id = $commit_memory_id:literal $(,)?
+        commit_memory_id = $commit_memory_id:literal
+        $(, migrations($($migrations:tt)*))?
+        $(,)?
     ) => {
         #[doc = ""]
         #[doc = stringify!($canister)]
         #[doc = ""]
         #[doc = "Canister model used by wasm SQL fixtures."]
         #[doc = ""]
-        #[canister(memory_namespace = $namespace, memory_min = $memory_min, memory_max = $memory_max, commit_memory_id = $commit_memory_id, integrity_progress_memory_id = $memory_max)]
+        #[canister(
+            memory_namespace = $namespace,
+            memory_min = $memory_min,
+            memory_max = $memory_max,
+            commit_memory_id = $commit_memory_id,
+            integrity_progress_memory_id = $memory_max
+            $(, migrations($($migrations)*))?
+        )]
         pub struct $canister {}
     };
 }

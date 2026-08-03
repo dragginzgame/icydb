@@ -47,7 +47,6 @@ pub(in crate::db) use evaluate::evaluate_grouped_having_expr;
 pub(in crate::db) struct ProjectionAccessCode(u8);
 
 impl ProjectionAccessCode {
-    #[cfg(feature = "query")]
     pub(in crate::db) const UNKNOWN: Self = Self(0);
     pub(in crate::db) const SLOT: Self = Self(1);
     pub(in crate::db) const GROUP_KEY: Self = Self(2);
@@ -360,7 +359,6 @@ impl ProjectionEvalError {
         }
     }
 
-    #[cfg(feature = "query")]
     pub(in crate::db) const fn missing_unknown_value() -> Self {
         Self::MissingFieldValue {
             access: ProjectionAccessCode::UNKNOWN,
@@ -755,7 +753,6 @@ impl CompiledExpr {
 
     /// Return whether this compiled expression contains a nested field-path leaf.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn contains_field_path(&self) -> bool {
         match self {
             Self::FieldPath { .. } => true,

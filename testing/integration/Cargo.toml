@@ -14,7 +14,7 @@ authors = { workspace = true }
 blake3 = { workspace = true }
 candid = { workspace = true }
 ic-testkit = { workspace = true }
-icydb = { workspace = true, features = ["diagnostics", "metrics-extended", "sql", "sql-explain"] }
+icydb = { workspace = true, features = ["diagnostics", "migration", "sql"] }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -51,3 +51,7 @@ path = "tests/canister_artifact_contract.rs"
 [[test]]
 name = "endpoint_cost_closeout"
 path = "tests/endpoint_cost_closeout.rs"
+
+[[test]]
+name = "schema_migration_closeout"
+path = "tests/schema_migration_closeout.rs"

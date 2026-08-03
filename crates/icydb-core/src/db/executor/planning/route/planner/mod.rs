@@ -9,11 +9,11 @@ mod feasibility;
 mod intent;
 mod stages;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use entrypoints::build_aggregate_execution_route_plan_for_explain;
 pub(in crate::db::executor) use entrypoints::{RoutePlanRequest, build_execution_route_plan};
 use feasibility::derive_execution_feasibility_stage_for_model;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use intent::derive_aggregate_route_intent_stage;
 use intent::{derive_grouped_route_intent_stage, derive_load_route_intent_stage};
 use stages::{

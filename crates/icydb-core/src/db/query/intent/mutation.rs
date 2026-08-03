@@ -3,9 +3,7 @@
 //! Does not own: final planner validation or executor route/runtime semantics.
 //! Boundary: applies fluent/query API mutations to internal intent state contracts.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::predicate::Predicate;
-#[cfg(feature = "query")]
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::query::{
     intent::{
@@ -27,14 +25,12 @@ impl QueryIntent {
 
     /// Append one already-normalized filter predicate to scalar intent,
     /// implicitly AND-ing chains.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
         self.append_normalized_filter(NormalizedFilter::from_normalized_predicate(predicate));
     }
 
     /// Append one normalized scalar filter with both semantic views already
     /// prepared by the caller.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::query::intent) fn append_filter_with_predicate_subset(
         &mut self,
         expr: Expr,
@@ -68,7 +64,6 @@ impl QueryIntent {
     }
 
     /// Override scalar ORDER BY with one validated order specification.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::query::intent) fn set_order_spec(&mut self, order: OrderSpec) {
         self.scalar_mut().order = Some(order);
     }
@@ -79,7 +74,6 @@ impl QueryIntent {
     }
 
     /// Override scalar projection selection with one explicit planner contract.
-    #[cfg(feature = "query")]
     pub(in crate::db::query::intent) fn set_projection_selection(
         &mut self,
         projection_selection: ProjectionSelection,
@@ -132,7 +126,6 @@ impl QueryIntent {
     /// Record one grouped HAVING expression while preserving the caller-owned
     /// canonical grouped shape instead of re-running searched-CASE semantic
     /// canonicalization during append.
-    #[cfg(feature = "query")]
     pub(in crate::db::query::intent) fn push_having_expr_preserving_shape(
         &mut self,
         expr: Expr,

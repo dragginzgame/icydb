@@ -258,7 +258,6 @@ impl AggregateSemanticKey {
 
     /// Move this key into its identity and filter components.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn into_identity_and_filter(self) -> (AggregateIdentity, Option<Expr>) {
         (self.identity, self.filter_expr)
     }

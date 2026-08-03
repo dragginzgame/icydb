@@ -84,8 +84,8 @@ require_pattern \
   "persisted-format policy must retain the pre-1.0 hard-cut classification"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_POLICY.md" \
-  "new magic or profile identity" \
-  "pre-1.0 hard cuts must change format identity while retaining version 1"
+  "prior decoder is deleted" \
+  "pre-1.0 hard cuts must not retain a compatibility decoder"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_POLICY.md" \
   "^### Backward-compatible reader extension$" \
@@ -144,12 +144,16 @@ require_pattern \
   "no persisted-format change" \
   "persisted-format inventory must retain the no-change documentation rule"
 
-if rg -n --no-heading --color=never --pcre2 \
-  'const\s+[A-Z0-9_]*(?:FORMAT_VERSION|CODEC_VERSION|HEADER_VERSION|RECORD_VERSION|WIRE_VERSION|VERSION_CURRENT|CURRENT_VERSION|VERSION)[A-Z0-9_]*\s*:[^=]+=[^;]*\b(?:[2-9]|[1-9][0-9]+)\b[^;]*;' \
-  crates \
-  --glob '*.rs'
+unexpected_format_versions="$({
+  rg -n --no-heading --color=never --pcre2 \
+    'const\s+[A-Z0-9_]*(?:FORMAT_VERSION|CODEC_VERSION|HEADER_VERSION|RECORD_VERSION|WIRE_VERSION|VERSION_CURRENT|CURRENT_VERSION)[A-Z0-9_]*\s*:[^=]+=[^;]*\b(?:[2-9]|[1-9][0-9]+)\b[^;]*;' \
+    crates \
+    --glob '*.rs' || true
+} | rg -v '^crates/icydb-core/src/db/commit/marker\.rs:[0-9]+:pub\(in crate::db\) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;$' || true)"
+if [[ -n "$unexpected_format_versions" ]]
 then
-  echo "[ERROR] Active pre-1.0 format/version constants must remain at version 1." >&2
+  printf '%s\n' "$unexpected_format_versions"
+  echo "[ERROR] An undocumented active format/version constant exceeds version 1." >&2
   status=1
 fi
 

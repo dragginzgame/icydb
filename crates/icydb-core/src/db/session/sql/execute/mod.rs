@@ -9,7 +9,7 @@ mod aggregate_plan;
 mod aggregate_request;
 mod diagnostics;
 mod direct_count;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 mod explain;
 mod global_aggregate;
 mod metadata;
@@ -21,7 +21,7 @@ mod write_returning;
 use crate::db::executor::EntityAuthority;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::sql::lowering::LoweredSqlCommand;
 use crate::error::InternalError;
 use crate::{
@@ -127,7 +127,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     fn execute_accepted_explain_sql_with_catalog_cache_attribution(
         &self,
         lowered: &LoweredSqlCommand,
@@ -166,7 +166,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context(query, context)
             }
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             CompiledSqlCommand::Explain(lowered) => self
                 .execute_accepted_explain_sql_with_catalog_cache_attribution(
                     lowered,
@@ -211,7 +211,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         accepted_authority: Option<&EntityAuthority>,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        #[cfg(not(feature = "sql-explain"))]
+        #[cfg(not(feature = "sql"))]
         let _ = accepted_authority;
 
         if let Some(result) =
@@ -220,7 +220,7 @@ impl<C: CanisterKind> DbSession<C> {
             return result;
         }
 
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         if let CompiledSqlCommand::Explain(lowered) = compiled {
             return self.execute_accepted_explain_sql_with_catalog_cache_attribution(
                 lowered,

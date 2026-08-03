@@ -3,6 +3,8 @@
 //! Does not own: proposal lowering, accepted reconciliation, or runtime schema interpretation.
 //! Boundary: marker-owned accepted candidate -> bounded control-memory checkpoint -> recovery.
 
+#[cfg(any(test, feature = "migration"))]
+use crate::db::schema::migration_record::SchemaMigrationRecordOp;
 use crate::{
     db::{
         commit::{commit_memory_handle, current_commit_memory_allocation},
@@ -20,6 +22,7 @@ use crate::{
                 MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, decode_identity_state,
                 encode_identity_state, identity_kind_maximum, prepare_identity_state_transition,
             },
+            migration_record::{SchemaMigrationRecord, decode_schema_migration_record},
             wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
@@ -30,7 +33,21 @@ use ic_stable_structures::{
     memory_manager::VirtualMemory, storable::Bound,
 };
 use sha2::{Digest, Sha256};
-use std::borrow::Cow;
+use std::{borrow::Cow, cell::Cell};
+
+const MIGRATION_GATE_UNKNOWN: u8 = 0;
+const MIGRATION_GATE_READY: u8 = 1;
+const MIGRATION_GATE_BLOCKED: u8 = 2;
+
+thread_local! {
+    static MIGRATION_GATE_STATE: Cell<u8> = const { Cell::new(MIGRATION_GATE_UNKNOWN) };
+}
+
+#[cfg(any(test, feature = "migration"))]
+use crate::db::schema::migration_lineage::{
+    AcceptedEntitySourceLineageCatalog, EntitySourceLineageCatalogOp,
+    decode_entity_source_lineage_catalog,
+};
 
 const CHECKPOINT_HEADER_KEY: LiveSchemaCheckpointKey = LiveSchemaCheckpointKey([0; 32]);
 const CHECKPOINT_HEADER_MAGIC: &[u8; 8] = b"ICYSLVHD";
@@ -40,6 +57,8 @@ const CHECKPOINT_MAGIC: &[u8; 8] = b"ICYSLIVE";
 const CHECKPOINT_VERSION: u8 = 1;
 const CHECKPOINT_FIXED_BYTES: usize = 8 + 1 + 4 + 4 + 4 + 4 + 4;
 const CHECKPOINT_KEY_PROFILE: &[u8] = b"icydb.live-schema-checkpoint.key.v1";
+const LINEAGE_KEY_PROFILE: &[u8] = b"icydb.schema-lineage.key.v1";
+const MIGRATION_KEY_PROFILE: &[u8] = b"icydb.schema-migration.key.v1";
 const MAX_LIVE_SCHEMA_CHECKPOINTS: u64 = icydb_schema::MAX_SCHEMA_ASSIGNMENTS as u64;
 const MAX_LIVE_SCHEMA_CHECKPOINT_BYTES: usize = CHECKPOINT_FIXED_BYTES
     + MAX_SCHEMA_STORE_PATH_BYTES
@@ -57,6 +76,18 @@ type CheckpointReader<'a> = SchemaWireReader<'a>;
 struct LiveSchemaCheckpointKey([u8; 32]);
 
 impl LiveSchemaCheckpointKey {
+    fn reserved(profile: &[u8]) -> Self {
+        Self(Sha256::digest(profile).into())
+    }
+
+    fn lineage() -> Self {
+        Self::reserved(LINEAGE_KEY_PROFILE)
+    }
+
+    fn migration() -> Self {
+        Self::reserved(MIGRATION_KEY_PROFILE)
+    }
+
     fn for_store(store_path: &str) -> Result<Self, InternalError> {
         if store_path.is_empty() || store_path.len() > MAX_SCHEMA_STORE_PATH_BYTES {
             return Err(InternalError::store_invariant());
@@ -68,7 +99,7 @@ impl LiveSchemaCheckpointKey {
         hasher.update(path_len.to_be_bytes());
         hasher.update(store_path.as_bytes());
         let key = Self(hasher.finalize().into());
-        if key == CHECKPOINT_HEADER_KEY {
+        if key == CHECKPOINT_HEADER_KEY || key == Self::lineage() || key == Self::migration() {
             return Err(InternalError::store_invariant());
         }
         Ok(key)
@@ -167,6 +198,9 @@ impl LiveSchemaCheckpointStore {
                 .get(&CHECKPOINT_HEADER_KEY)
                 .ok_or_else(InternalError::store_corruption)?;
             decode_checkpoint_header(&header.0)?;
+            if let Some(record) = store.map.get(&LiveSchemaCheckpointKey::migration()) {
+                decode_schema_migration_record(&record.0)?;
+            }
             if store.checkpoint_count()? > MAX_LIVE_SCHEMA_CHECKPOINTS {
                 return Err(InternalError::store_corruption());
             }
@@ -270,10 +304,110 @@ impl LiveSchemaCheckpointStore {
     }
 
     fn checkpoint_count(&self) -> Result<u64, InternalError> {
-        self.map
+        let non_header = self
+            .map
             .len()
             .checked_sub(1)
+            .ok_or_else(InternalError::store_corruption)?;
+        non_header
+            .checked_sub(u64::from(
+                self.map.get(&LiveSchemaCheckpointKey::lineage()).is_some(),
+            ))
+            .and_then(|count| {
+                count.checked_sub(u64::from(
+                    self.map
+                        .get(&LiveSchemaCheckpointKey::migration())
+                        .is_some(),
+                ))
+            })
             .ok_or_else(InternalError::store_corruption)
+    }
+
+    fn load_migration(&self) -> Result<Option<SchemaMigrationRecord>, InternalError> {
+        self.map
+            .get(&LiveSchemaCheckpointKey::migration())
+            .map(|bytes| decode_schema_migration_record(&bytes.0))
+            .transpose()
+    }
+
+    #[cfg(any(test, feature = "migration"))]
+    fn preflight_migration(
+        &self,
+        operation: &SchemaMigrationRecordOp,
+    ) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
+        operation.validate()?;
+        let current = self
+            .map
+            .get(&LiveSchemaCheckpointKey::migration())
+            .map(|bytes| bytes.0);
+        if current.as_deref() == Some(operation.after_bytes()) {
+            return Ok(LiveSchemaCheckpointPreflight::AlreadyApplied);
+        }
+        if current.as_deref() != operation.before_bytes() {
+            return Err(InternalError::schema_migration(
+                icydb_diagnostic_code::SchemaMigrationCode::PublicationRaceLost,
+            ));
+        }
+        Ok(LiveSchemaCheckpointPreflight::Ready)
+    }
+
+    #[cfg(any(test, feature = "migration"))]
+    fn apply_migration(
+        &mut self,
+        operation: &SchemaMigrationRecordOp,
+    ) -> Result<(), InternalError> {
+        match self.preflight_migration(operation)? {
+            LiveSchemaCheckpointPreflight::AlreadyApplied => return Ok(()),
+            LiveSchemaCheckpointPreflight::Ready => {}
+        }
+        self.map.insert(
+            LiveSchemaCheckpointKey::migration(),
+            LiveSchemaCheckpointBytes(operation.after_bytes().to_vec()),
+        );
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "migration"))]
+    fn load_lineage(&self) -> Result<Option<AcceptedEntitySourceLineageCatalog>, InternalError> {
+        self.map
+            .get(&LiveSchemaCheckpointKey::lineage())
+            .map(|bytes| decode_entity_source_lineage_catalog(&bytes.0))
+            .transpose()
+    }
+
+    #[cfg(any(test, feature = "migration"))]
+    fn preflight_lineage(
+        &self,
+        operation: &EntitySourceLineageCatalogOp,
+    ) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
+        operation.validate()?;
+        let current = self
+            .map
+            .get(&LiveSchemaCheckpointKey::lineage())
+            .map(|bytes| bytes.0);
+        if current.as_deref() == Some(operation.after_bytes()) {
+            return Ok(LiveSchemaCheckpointPreflight::AlreadyApplied);
+        }
+        if current.as_deref() != operation.before_bytes() {
+            return Err(InternalError::schema_application_conflict());
+        }
+        Ok(LiveSchemaCheckpointPreflight::Ready)
+    }
+
+    #[cfg(any(test, feature = "migration"))]
+    fn apply_lineage(
+        &mut self,
+        operation: &EntitySourceLineageCatalogOp,
+    ) -> Result<(), InternalError> {
+        match self.preflight_lineage(operation)? {
+            LiveSchemaCheckpointPreflight::AlreadyApplied => return Ok(()),
+            LiveSchemaCheckpointPreflight::Ready => {}
+        }
+        self.map.insert(
+            LiveSchemaCheckpointKey::lineage(),
+            LiveSchemaCheckpointBytes(operation.after_bytes().to_vec()),
+        );
+        Ok(())
     }
 
     fn preflight_identity_range(
@@ -569,23 +703,213 @@ pub(in crate::db) fn verify_live_identity_range_checkpoint(
     Ok(())
 }
 
+pub(in crate::db) fn load_schema_migration_record()
+-> Result<Option<SchemaMigrationRecord>, InternalError> {
+    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.load_migration()
+}
+
+/// Reject ordinary database work while one durable offline migration owns the
+/// database-wide gate. A Wasm without the migration capability cannot safely
+/// interpret any nonterminal record, including `Prepared`.
+pub(in crate::db) fn ensure_schema_migration_ready_for_ordinary_operations()
+-> Result<(), InternalError> {
+    match MIGRATION_GATE_STATE.with(Cell::get) {
+        MIGRATION_GATE_READY => return Ok(()),
+        MIGRATION_GATE_BLOCKED => {
+            return Err(InternalError::schema_migration(
+                icydb_diagnostic_code::SchemaMigrationCode::MigrationInProgress,
+            ));
+        }
+        MIGRATION_GATE_UNKNOWN => {}
+        _ => return Err(InternalError::store_invariant()),
+    }
+    let Some(record) = load_schema_migration_record()? else {
+        MIGRATION_GATE_STATE.with(|state| state.set(MIGRATION_GATE_READY));
+        return Ok(());
+    };
+    if schema_migration_record_blocks_ordinary_operations(&record, cfg!(feature = "migration")) {
+        MIGRATION_GATE_STATE.with(|state| state.set(MIGRATION_GATE_BLOCKED));
+        return Err(InternalError::schema_migration(
+            icydb_diagnostic_code::SchemaMigrationCode::MigrationInProgress,
+        ));
+    }
+    MIGRATION_GATE_STATE.with(|state| state.set(MIGRATION_GATE_READY));
+    Ok(())
+}
+
+const fn schema_migration_record_blocks_ordinary_operations(
+    record: &SchemaMigrationRecord,
+    migration_capability_compiled: bool,
+) -> bool {
+    !record.phase().terminal()
+        && (!migration_capability_compiled || record.phase().blocks_ordinary_operations())
+}
+
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) fn preflight_schema_migration_record_op(
+    operation: &SchemaMigrationRecordOp,
+) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
+    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.preflight_migration(operation)
+}
+
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) fn apply_schema_migration_record_op(
+    operation: &SchemaMigrationRecordOp,
+) -> Result<(), InternalError> {
+    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.apply_migration(operation)?;
+    let after = decode_schema_migration_record(operation.after_bytes())?;
+    let state = if schema_migration_record_blocks_ordinary_operations(
+        &after,
+        cfg!(feature = "migration"),
+    ) {
+        MIGRATION_GATE_BLOCKED
+    } else {
+        MIGRATION_GATE_READY
+    };
+    MIGRATION_GATE_STATE.with(|gate| gate.set(state));
+    Ok(())
+}
+
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) fn verify_schema_migration_record_op(
+    operation: &SchemaMigrationRecordOp,
+) -> Result<(), InternalError> {
+    let current = LiveSchemaCheckpointStore::open(checkpoint_memory()?)?
+        .map
+        .get(&LiveSchemaCheckpointKey::migration())
+        .ok_or_else(InternalError::recovery_effect_verification_failed)?;
+    if current.0 != operation.after_bytes() {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+    operation.validate()
+}
+
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db::schema) fn load_entity_source_lineage_catalog()
+-> Result<Option<AcceptedEntitySourceLineageCatalog>, InternalError> {
+    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.load_lineage()
+}
+
+#[cfg(test)]
+pub(in crate::db) fn entity_source_lineage_matches_for_tests(
+    operation: &EntitySourceLineageCatalogOp,
+) -> Result<bool, InternalError> {
+    let Some(catalog) = load_entity_source_lineage_catalog()? else {
+        return Ok(false);
+    };
+    Ok(
+        crate::db::schema::migration_lineage::encode_entity_source_lineage_catalog(&catalog)?
+            == operation.after_bytes(),
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db) fn schema_migration_record_matches_for_tests(
+    operation: &SchemaMigrationRecordOp,
+) -> Result<bool, InternalError> {
+    let Some(record) = load_schema_migration_record()? else {
+        return Ok(false);
+    };
+    Ok(
+        crate::db::schema::migration_record::encode_schema_migration_record(&record)?
+            == operation.after_bytes(),
+    )
+}
+
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) fn preflight_entity_source_lineage_catalog_op(
+    operation: &EntitySourceLineageCatalogOp,
+) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
+    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.preflight_lineage(operation)
+}
+
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) fn apply_entity_source_lineage_catalog_op(
+    operation: &EntitySourceLineageCatalogOp,
+) -> Result<(), InternalError> {
+    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.apply_lineage(operation)
+}
+
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) fn verify_entity_source_lineage_catalog_op(
+    operation: &EntitySourceLineageCatalogOp,
+) -> Result<(), InternalError> {
+    let current = LiveSchemaCheckpointStore::open(checkpoint_memory()?)?
+        .map
+        .get(&LiveSchemaCheckpointKey::lineage())
+        .ok_or_else(InternalError::recovery_effect_verification_failed)?;
+    if current.0 != operation.after_bytes() {
+        return Err(InternalError::recovery_effect_verification_failed());
+    }
+    operation.validate()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        IdentityStateInventory, LiveSchemaCheckpointPreflight, LiveSchemaCheckpointStore,
-        decode_checkpoint, encode_checkpoint,
+        IdentityStateInventory, LiveSchemaCheckpointKey, LiveSchemaCheckpointPreflight,
+        LiveSchemaCheckpointStore, decode_checkpoint, encode_checkpoint,
+        schema_migration_record_blocks_ordinary_operations,
     };
     use crate::{
         db::{
             integrity::DatabaseIncarnationId,
             schema::{
                 AcceptedSchemaRevision, empty_accepted_schema_candidate_for_tests,
-                live_schema_checkpoint::{LiveSchemaCheckpoint, LiveSchemaCheckpointKey},
+                live_schema_checkpoint::LiveSchemaCheckpoint,
+                migration_lineage::{
+                    AcceptedEntitySourceLineage, AcceptedEntitySourceLineageCatalog,
+                    EntitySourceLineageCatalogOp,
+                },
+                migration_record::{
+                    PersistedSchemaMigrationEntity, PersistedSchemaMigrationPhase,
+                    PersistedSchemaMigrationProgress, PersistedSchemaMigrationTransition,
+                    SchemaMigrationRecord, SchemaMigrationRecordOp,
+                },
             },
         },
         testing::test_memory,
     };
     use ic_stable_structures::RestrictedMemory;
+    use icydb_schema::{
+        EntitySourceDigest, EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
+        SchemaMigrationPlanDigest, SchemaProposalDigest, TargetDatabaseIdentity,
+        TargetStoreIdentity,
+    };
+
+    fn prepared_migration_record() -> SchemaMigrationRecord {
+        SchemaMigrationRecord::prepared(
+            TargetDatabaseIdentity::from_bytes([1; 32]),
+            ExpectedAcceptedHead::Exact {
+                revision: 1,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([2; 32]),
+            },
+            ExpectedAcceptedHead::Exact {
+                revision: 2,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([3; 32]),
+            },
+            SchemaProposalDigest::from_bytes([4; 32]),
+            SchemaMigrationPlanDigest::from_bytes([5; 32]),
+            vec![
+                PersistedSchemaMigrationTransition::try_new(
+                    EntitySourceKey::try_new("User").expect("source key should admit"),
+                    1,
+                    2,
+                )
+                .expect("transition should admit"),
+            ],
+            vec![
+                PersistedSchemaMigrationEntity::try_new(
+                    TargetStoreIdentity::from_bytes([6; 32]),
+                    crate::types::EntityTag::new(7),
+                    EntitySourceDigest::from_bytes([8; 32]),
+                )
+                .expect("entity should admit"),
+            ],
+            Vec::new(),
+        )
+        .expect("prepared migration should admit")
+    }
 
     #[test]
     fn checkpoint_codec_is_canonical_and_checksum_bound() {
@@ -669,5 +993,120 @@ mod tests {
             .expect("checkpoint should exist");
         assert_eq!(loaded.candidate().encoded_bundle(), second.encoded_bundle());
         assert_eq!(loaded.candidate().encoded_root(), second.encoded_root());
+    }
+
+    #[test]
+    fn lineage_uses_one_reserved_record_without_changing_checkpoint_count() {
+        let memory = RestrictedMemory::new(test_memory(245), 0..4_096);
+        let mut store =
+            LiveSchemaCheckpointStore::open(memory.clone()).expect("store should initialize");
+        let mut lineage = AcceptedEntitySourceLineageCatalog::default();
+        lineage
+            .insert(
+                TargetStoreIdentity::from_bytes([4; 32]),
+                crate::types::EntityTag::new(9),
+                AcceptedEntitySourceLineage::unadopted(ExpectedAcceptedHead::Exact {
+                    revision: 3,
+                    fingerprint: ExpectedSchemaFingerprint::from_bytes([3; 32]),
+                })
+                .expect("lineage should admit"),
+            )
+            .expect("lineage entry should insert");
+
+        let operation = EntitySourceLineageCatalogOp::replace(None, &lineage)
+            .expect("lineage operation should prepare");
+        store
+            .apply_lineage(&operation)
+            .expect("lineage should persist");
+        assert_eq!(store.checkpoint_count().expect("count should close"), 0);
+        assert_eq!(
+            store.load_lineage().expect("lineage should load"),
+            Some(lineage.clone()),
+        );
+        assert_eq!(
+            store
+                .preflight_lineage(&operation)
+                .expect("replay should preflight"),
+            LiveSchemaCheckpointPreflight::AlreadyApplied,
+        );
+
+        let reopened = LiveSchemaCheckpointStore::open(memory).expect("store should reopen");
+        assert_eq!(
+            reopened.load_lineage().expect("lineage should load"),
+            Some(lineage),
+        );
+        assert_ne!(
+            LiveSchemaCheckpointKey::lineage(),
+            LiveSchemaCheckpointKey::migration()
+        );
+    }
+
+    #[test]
+    fn migration_uses_one_reserved_record_and_exact_compare_replace() {
+        let memory = RestrictedMemory::new(test_memory(246), 0..4_096);
+        let mut store =
+            LiveSchemaCheckpointStore::open(memory.clone()).expect("store should initialize");
+        let prepared = prepared_migration_record();
+        let validating = prepared
+            .transition(
+                PersistedSchemaMigrationPhase::Validating,
+                PersistedSchemaMigrationProgress::default(),
+            )
+            .expect("validation should start");
+        let insert = SchemaMigrationRecordOp::insert(&prepared).expect("insert should prepare");
+        let replace = SchemaMigrationRecordOp::replace(&prepared, &validating)
+            .expect("replace should prepare");
+
+        store.apply_migration(&insert).expect("insert should apply");
+        assert_eq!(store.checkpoint_count().expect("count should close"), 0);
+        assert_eq!(
+            store
+                .preflight_migration(&insert)
+                .expect("replay should preflight"),
+            LiveSchemaCheckpointPreflight::AlreadyApplied,
+        );
+        store
+            .apply_migration(&replace)
+            .expect("replacement should apply");
+        assert_eq!(
+            store.load_migration().expect("migration should load"),
+            Some(validating.clone()),
+        );
+
+        let reopened = LiveSchemaCheckpointStore::open(memory).expect("store should reopen");
+        assert_eq!(
+            reopened.load_migration().expect("migration should load"),
+            Some(validating),
+        );
+    }
+
+    #[test]
+    fn migration_gate_is_phase_and_capability_exact() {
+        let prepared = prepared_migration_record();
+        assert!(!schema_migration_record_blocks_ordinary_operations(
+            &prepared, true,
+        ));
+        assert!(schema_migration_record_blocks_ordinary_operations(
+            &prepared, false,
+        ));
+        let validating = prepared
+            .transition(
+                PersistedSchemaMigrationPhase::Validating,
+                PersistedSchemaMigrationProgress::default(),
+            )
+            .expect("validation should start");
+        assert!(schema_migration_record_blocks_ordinary_operations(
+            &validating,
+            true,
+        ));
+        let aborted = validating
+            .transition(
+                PersistedSchemaMigrationPhase::Aborted,
+                PersistedSchemaMigrationProgress::default(),
+            )
+            .expect("pre-rewrite abort should admit");
+        assert!(!schema_migration_record_blocks_ordinary_operations(
+            &aborted, false,
+        ));
     }
 }

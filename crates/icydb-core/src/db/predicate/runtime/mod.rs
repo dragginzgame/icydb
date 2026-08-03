@@ -8,7 +8,6 @@ mod compare;
 use crate::db::predicate::runtime::compare::{
     eval_compare_scalar_slot, eval_compare_values, is_empty_value, text_contains_scalar,
 };
-#[cfg(any(test, feature = "query"))]
 use crate::db::{
     predicate::{
         PredicateCapabilityContext, ScalarPredicateCapability, classify_predicate_capabilities,
@@ -53,7 +52,6 @@ pub(in crate::db) struct PredicateProgram {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PredicateExecutionMode {
-    #[cfg(any(test, feature = "query"))]
     Scalar,
     Generic,
 }
@@ -61,7 +59,6 @@ enum PredicateExecutionMode {
 impl PredicateProgram {
     /// Compile a predicate through explicit schema field-slot and scalar-leaf authority.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn compile_with_schema_info(
         schema_info: &SchemaInfo,
         predicate: &Predicate,
@@ -108,7 +105,6 @@ impl PredicateProgram {
     /// fallback rows continue producing owned `Value` payloads through the
     /// same predicate hot loop.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn eval_with_slot_value_cow_reader<'a, F>(&self, read_slot: &mut F) -> bool
     where
         F: FnMut(usize) -> Option<Cow<'a, Value>>,
@@ -122,7 +118,6 @@ impl PredicateProgram {
         slots: &dyn CanonicalSlotReader,
     ) -> Result<bool, crate::error::InternalError> {
         match &self.compiled {
-            #[cfg(any(test, feature = "query"))]
             PredicateExecutionMode::Scalar => {
                 eval_scalar_executable_predicate(&self.executable, slots)
             }
@@ -132,7 +127,6 @@ impl PredicateProgram {
 
     /// Borrow the canonical executable predicate tree used by runtime evaluators.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn executable(&self) -> &ExecutablePredicate {
         &self.executable
     }
@@ -218,7 +212,6 @@ fn compile_predicate_program_with_resolver(
 
 // Admit scalar fast-path execution only when the canonical executable tree
 // stays entirely on the scalar slot seam.
-#[cfg(any(test, feature = "query"))]
 fn compile_scalar_predicate_program(
     schema_info: &SchemaInfo,
     predicate: &ExecutablePredicate,
@@ -280,7 +273,6 @@ fn mark_predicate_slot(slot: Option<usize>, required_slots: &mut [bool]) {
 }
 
 // Read one field by pre-resolved slot through one mixed borrowed/owned slot reader.
-#[cfg(any(test, feature = "query"))]
 fn field_from_slot_cow<'a, F>(
     field_slot: Option<usize>,
     read_slot: &mut F,
@@ -293,7 +285,6 @@ where
 
 // Evaluate one slot-based field predicate only when the field is present and
 // already available as either borrowed or owned data.
-#[cfg(any(test, feature = "query"))]
 fn on_present_slot_cow<'a, F>(
     field_slot: Option<usize>,
     read_slot: &mut F,
@@ -307,7 +298,6 @@ where
 
 // Load both compare operands once through the mixed borrowed/owned row-reader
 // seam and then route the resolved values into one shared compare callback.
-#[cfg(any(test, feature = "query"))]
 fn with_compare_operands_cow<'a, F, R>(
     cmp: &ExecutableComparePredicate,
     read_slot: &mut F,
@@ -359,7 +349,6 @@ fn with_compare_operands_structural<R>(
 
 // Evaluate one executable predicate against one mixed borrowed/owned runtime
 // slot reader.
-#[cfg(any(test, feature = "query"))]
 fn eval_with_executable_slot_cows<'a, F>(predicate: &ExecutablePredicate, read_slot: &mut F) -> bool
 where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
@@ -423,7 +412,6 @@ where
 
 // Evaluate one executable comparison predicate against one mixed borrowed/owned
 // runtime slot reader.
-#[cfg(any(test, feature = "query"))]
 fn eval_compare_with_executable_slot_cows<'a, F>(
     cmp: &ExecutableComparePredicate,
     read_slot: &mut F,
@@ -438,7 +426,6 @@ where
 }
 
 // Evaluate one executable predicate tree through scalar-only slot reads.
-#[cfg(any(test, feature = "query"))]
 fn eval_scalar_executable_predicate(
     predicate: &ExecutablePredicate,
     slots: &dyn CanonicalSlotReader,
@@ -488,7 +475,6 @@ fn eval_scalar_executable_predicate(
 
 // Mirror the generic predicate path for unresolved scalar field slots: value
 // predicates do not match, while `IS MISSING` is handled by its caller.
-#[cfg(any(test, feature = "query"))]
 fn eval_optional_scalar_slot(
     field_slot: Option<usize>,
     slots: &dyn CanonicalSlotReader,
@@ -535,7 +521,6 @@ fn eval_scalar_is_empty(
     })
 }
 
-#[cfg(any(test, feature = "query"))]
 fn eval_optional_scalar_is_empty(
     field_slot: Option<usize>,
     slots: &dyn CanonicalSlotReader,
@@ -548,7 +533,6 @@ fn eval_optional_scalar_is_empty(
 }
 
 // Evaluate one scalar `IS NOT EMPTY` node directly through the scalar slot seam.
-#[cfg(any(test, feature = "query"))]
 fn eval_scalar_is_not_empty(
     field_slot: usize,
     slots: &dyn CanonicalSlotReader,
@@ -556,7 +540,6 @@ fn eval_scalar_is_not_empty(
     eval_scalar_is_empty(field_slot, slots).map(|empty| !empty)
 }
 
-#[cfg(any(test, feature = "query"))]
 fn eval_optional_scalar_is_not_empty(
     field_slot: Option<usize>,
     slots: &dyn CanonicalSlotReader,
@@ -583,7 +566,6 @@ fn eval_scalar_text_contains(
     })
 }
 
-#[cfg(any(test, feature = "query"))]
 fn eval_optional_scalar_text_contains(
     field_slot: Option<usize>,
     needle: &str,
@@ -598,7 +580,6 @@ fn eval_optional_scalar_text_contains(
 }
 
 // Evaluate one executable comparison against one slot reader under the scalar fast path.
-#[cfg(any(test, feature = "query"))]
 fn eval_scalar_executable_compare_predicate(
     cmp: &ExecutableComparePredicate,
     slots: &dyn CanonicalSlotReader,

@@ -93,10 +93,10 @@ pub(in crate::db::schema) fn derive_dense_field_removal_candidate(
             ))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let field_lineage = dense_identities
-        .iter()
-        .map(|(before_id, after_id, _)| (*before_id, *after_id))
-        .collect::<BTreeMap<_, _>>();
+    let mut field_lineage = BTreeMap::new();
+    for (before_id, after_id, _) in &dense_identities {
+        field_lineage.insert(*before_id, *after_id);
+    }
     let map_field = |field_id: FieldId| field_lineage.get(&field_id).copied();
     let fields = retained_fields
         .iter()

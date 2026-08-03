@@ -75,9 +75,6 @@ pub(in crate::db::executor) const fn select_structural_cursor_payload_strategy(
         return StructuralCursorPayloadStrategy::SlotRows;
     }
 
-    #[cfg(not(feature = "query"))]
-    let _ = retain_slot_rows;
-
     StructuralCursorPayloadStrategy::DataRows
 }
 

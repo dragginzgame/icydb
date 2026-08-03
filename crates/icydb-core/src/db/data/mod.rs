@@ -15,11 +15,12 @@ mod structural_row;
 #[cfg(test)]
 pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use key::primary_key_value_from_structural_value;
 pub(in crate::db) use key::{DecodedDataStoreKey, DecodedDataStoreKeyDecodeError};
 #[cfg(feature = "sql")]
 pub(in crate::db) use persisted_row::AcceptedFixedUpdatePatch;
+#[cfg(feature = "migration")]
+pub(in crate::db) use persisted_row::canonical_row_from_runtime_value_source_with_accepted_contract;
 pub(in crate::db) use persisted_row::decode_admitted_value_from_accepted_field_contract;
 pub(in crate::db) use persisted_row::encode_accepted_value_ref_for_accepted_field_contract;
 pub(in crate::db) use persisted_row::encode_canonical_value_for_accepted_field_contract;
@@ -36,7 +37,6 @@ pub(in crate::db) use persisted_row::{
     resolve_update_structural_patch_with_accepted_contract,
 };
 pub(in crate::db) use persisted_row::{ScalarSlotValueRef, ScalarValueRef, SlotReader};
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use persisted_row::{
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,
@@ -48,12 +48,10 @@ pub(in crate::db) use persisted_row::{
     decode_validated_check_literal_payload, encode_input_value_for_candidate_field_contract,
 };
 pub(in crate::db) use row::CanonicalRow;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use row::DataRow;
 pub(in crate::db) use row::RawRow;
 pub use store::DataStore;
 pub(in crate::db) use store::StoreVisit;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use structural_field::FieldDecodeError;
 #[cfg(test)]
 pub(in crate::db) use structural_field::decode_canonical_value_storage_bytes;
@@ -65,7 +63,6 @@ pub(in crate::db) use structural_field::{
     validate_structural_field_by_accepted_kind_bytes, validate_structural_value_storage_bytes,
     value_storage_bytes_are_null,
 };
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db::data) use structural_row::SparseRequiredRowFieldBytes;
 pub(in crate::db::data) use structural_row::StructuralRowFieldBytes;
 pub(in crate::db) use structural_row::{AcceptedStructuralRowAuthority, StructuralRowContract};

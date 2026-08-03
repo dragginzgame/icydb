@@ -158,7 +158,7 @@ pub(in crate::db) fn covering_strict_predicate_compatible(
 /// Return one stable explain reason code for the current scalar load
 /// covering-read admission outcome.
 #[must_use]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn covering_read_reason_code_for_load_plan(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
@@ -187,7 +187,7 @@ pub(in crate::db) fn covering_read_reason_code_for_load_plan(
 /// existing-row semantics under the current planner + predicate-compile
 /// contracts.
 #[must_use]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
@@ -228,7 +228,6 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
 /// Derive one planner-owned hybrid direct-field projection plan from accepted
 /// schema authority.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -248,7 +247,6 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
 /// Derive one execution-grade hybrid direct-field projection plan from
 /// accepted schema authority.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -351,7 +349,6 @@ fn covering_read_execution_plan(
 
 // Freeze one execution-grade hybrid covering-read plan from one planner-owned
 // projection plan plus its row-presence contract.
-#[cfg(any(test, feature = "query"))]
 fn covering_hybrid_read_execution_plan(
     covering: CoveringReadPlan,
     existing_row_mode: CoveringExistingRowMode,
@@ -464,7 +461,7 @@ fn constant_covering_projection_value_from_prefix(
         })
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn index_backed_covering_shape_supported<K>(access: &AccessPlan<K>) -> bool {
     access.has_selected_index_access_path()
 }
@@ -710,13 +707,6 @@ fn primary_store_covering_access_facts<K>(
 /// This keeps the only real divergence between pure covering and hybrid
 /// covering explicit at the source-classification seam.
 ///
-#[cfg_attr(
-    all(not(test), not(feature = "query")),
-    expect(
-        dead_code,
-        reason = "query frontends construct hybrid row fallback; non-query builds retain only strict covering helpers"
-    )
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CoveringProjectionFieldSourcePolicy {
     StrictCovering,

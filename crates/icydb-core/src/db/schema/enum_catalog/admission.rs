@@ -132,7 +132,6 @@ impl<'a> AcceptedValueRef<'a> {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn normalize_and_admit_value(
     catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,
@@ -146,7 +145,6 @@ pub(in crate::db) fn normalize_and_admit_value(
     })
 }
 
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) fn normalize_and_admit_nullable_value(
     catalog: &AcceptedValueCatalogHandle,
     contract: &AcceptedValueContract,

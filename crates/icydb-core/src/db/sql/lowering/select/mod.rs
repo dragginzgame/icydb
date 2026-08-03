@@ -573,7 +573,7 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
 }
 
 /// Bind one lowered SQL query with an explicit schema projection.
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn bind_lowered_sql_query_structural_with_schema(
     lowered: crate::db::sql::lowering::LoweredSqlQuery,
     consistency: MissingRowPolicy,

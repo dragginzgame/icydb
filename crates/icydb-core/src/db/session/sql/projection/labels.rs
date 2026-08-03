@@ -4,11 +4,11 @@
 //! Does not own: projection execution or projection payload storage.
 //! Boundary: keeps SQL projection naming policy at the session boundary.
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::{
     query::plan::expr::ProjectionSpec, session::query::projection_labels_from_projection_spec,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::{
     db::query::{
         explain::{ExplainExecutionNodeDescriptor, property_keys, property_values},
@@ -20,7 +20,7 @@ use crate::{
 // Attach SQL-facing projection labels and shell-facing projection runtime hints
 // only at the session SQL boundary so executor-owned EXPLAIN assembly stays
 // structural.
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_descriptor(
     descriptor: &mut ExplainExecutionNodeDescriptor,
     plan: &AccessPlannedQuery,

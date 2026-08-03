@@ -19,25 +19,30 @@ use crate::{
 
 use icydb_schema::{
     EntitySourceKey, EntityStoreAssignment, FieldInsertPolicy, SchemaCapability, SchemaFragment,
-    SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity, decode_schema_fragment,
+    SchemaMigrationPlan, SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity,
+    decode_schema_fragment, decode_schema_migration_plan,
 };
 
+#[cfg(feature = "migration")]
+use crate::db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest};
+
 impl<C: CanisterKind> DbSession<C> {
-    /// Compose and apply one sealed generated schema fragment against this
-    /// database's current accepted head.
-    ///
-    /// This hidden actor-wiring boundary owns no schema semantics: it decodes
-    /// the public fragment, resolves opaque store identities issued by the
-    /// runtime, then submits the ordinary public proposal.
+    /// Validate generated deployment identity and defer ordinary schema
+    /// application only while one exact migration is durably `Prepared`.
     #[doc(hidden)]
-    pub fn apply_generated_schema_fragment(
+    pub fn ensure_generated_schema_fragment(
         &self,
         fragment_bytes: &[u8],
+        migration_plan_bytes: Option<&[u8]>,
         submission_key: &str,
         entity_stores: &[(&str, &str)],
-    ) -> Result<SchemaChangeReceipt, Error> {
+    ) -> Result<(), Error> {
         let fragment =
             decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
+        let migration_plan = migration_plan_bytes
+            .map(decode_schema_migration_plan)
+            .transpose()
+            .map_err(|_| generated_schema_input_error())?;
         let submission_key = SchemaSubmissionKey::try_new(submission_key)
             .map_err(|_| generated_schema_input_error())?;
         let target = self.schema_application_target()?;
@@ -54,6 +59,129 @@ impl<C: CanisterKind> DbSession<C> {
             submission_key,
             expected_head,
             entity_stores,
+            migration_plan,
+        )?;
+        #[cfg(feature = "migration")]
+        {
+            if self
+                .inner
+                .defer_generated_schema_application_for_prepared_migration(&proposal)?
+            {
+                return Ok(());
+            }
+        }
+        self.apply_schema(&proposal).map(|_receipt| ())
+    }
+
+    /// Execute one explicit migration operation for this deployed generated schema.
+    #[cfg(feature = "migration")]
+    #[doc(hidden)]
+    pub fn migrate_generated_schema(
+        &self,
+        fragment_bytes: &[u8],
+        migration_plan_bytes: Option<&[u8]>,
+        submission_key: &str,
+        entity_stores: &[(&str, &str)],
+        command: SchemaMigrationCommand,
+    ) -> Result<SchemaMigrationStatusPage, Error> {
+        let expected_head = migration_command_head(&command).clone();
+        let proposal = self.generated_schema_proposal(
+            fragment_bytes,
+            migration_plan_bytes,
+            submission_key,
+            entity_stores,
+            expected_head,
+        )?;
+        Ok(self.inner.migrate_schema(&proposal, command)?)
+    }
+
+    /// Return migration status for this deployed generated schema.
+    #[cfg(feature = "migration")]
+    #[doc(hidden)]
+    pub fn generated_schema_migration_status(
+        &self,
+        fragment_bytes: &[u8],
+        migration_plan_bytes: Option<&[u8]>,
+        submission_key: &str,
+        entity_stores: &[(&str, &str)],
+        request: &SchemaMigrationStatusRequest,
+    ) -> Result<SchemaMigrationStatusPage, Error> {
+        let target = self.schema_application_target()?;
+        let proposal = self.generated_schema_proposal(
+            fragment_bytes,
+            migration_plan_bytes,
+            submission_key,
+            entity_stores,
+            target.accepted_head().clone(),
+        )?;
+        Ok(self.inner.schema_migration_status(&proposal, request)?)
+    }
+
+    #[cfg(feature = "migration")]
+    fn generated_schema_proposal(
+        &self,
+        fragment_bytes: &[u8],
+        migration_plan_bytes: Option<&[u8]>,
+        submission_key: &str,
+        entity_stores: &[(&str, &str)],
+        expected_head: icydb_schema::ExpectedAcceptedHead,
+    ) -> Result<SchemaProposal, Error> {
+        let fragment =
+            decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
+        let migration_plan = migration_plan_bytes
+            .map(decode_schema_migration_plan)
+            .transpose()
+            .map_err(|_| generated_schema_input_error())?;
+        let submission_key = SchemaSubmissionKey::try_new(submission_key)
+            .map_err(|_| generated_schema_input_error())?;
+        let target = self.schema_application_target()?;
+        generated_schema_proposal(
+            &fragment,
+            &target,
+            submission_key,
+            expected_head,
+            entity_stores,
+            migration_plan,
+        )
+    }
+
+    /// Compose and apply one sealed generated schema fragment against this
+    /// database's current accepted head.
+    ///
+    /// This hidden actor-wiring boundary owns no schema semantics: it decodes
+    /// the public fragment, resolves opaque store identities issued by the
+    /// runtime, then submits the ordinary public proposal.
+    #[doc(hidden)]
+    pub fn apply_generated_schema_fragment(
+        &self,
+        fragment_bytes: &[u8],
+        migration_plan_bytes: Option<&[u8]>,
+        submission_key: &str,
+        entity_stores: &[(&str, &str)],
+    ) -> Result<SchemaChangeReceipt, Error> {
+        let fragment =
+            decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
+        let migration_plan = migration_plan_bytes
+            .map(decode_schema_migration_plan)
+            .transpose()
+            .map_err(|_| generated_schema_input_error())?;
+        let submission_key = SchemaSubmissionKey::try_new(submission_key)
+            .map_err(|_| generated_schema_input_error())?;
+        let target = self.schema_application_target()?;
+        let expected_head = if let Some(receipt) =
+            self.schema_application_receipt(target.database_identity(), &submission_key)?
+        {
+            receipt.prior_head().clone()
+        } else {
+            target.accepted_head().clone()
+        };
+        let proposal = generated_schema_proposal(
+            &fragment,
+            &target,
+            submission_key,
+            expected_head,
+            entity_stores,
+            migration_plan,
         )?;
 
         self.apply_schema(&proposal)
@@ -63,6 +191,31 @@ impl<C: CanisterKind> DbSession<C> {
     /// idempotent receipt.
     pub fn apply_schema(&self, proposal: &SchemaProposal) -> Result<SchemaChangeReceipt, Error> {
         Ok(self.inner.apply_schema(proposal)?)
+    }
+
+    /// Execute one explicit source-migration operation for an exact proposal.
+    ///
+    /// This is the Rust capability used by generated and handwritten
+    /// controller endpoints; calling it does not export a Candid method.
+    #[cfg(feature = "migration")]
+    pub fn migrate_schema(
+        &self,
+        proposal: &SchemaProposal,
+        command: SchemaMigrationCommand,
+    ) -> Result<SchemaMigrationStatusPage, Error> {
+        Ok(self.inner.migrate_schema(proposal, command)?)
+    }
+
+    /// Return one bounded source-migration status page for an exact proposal.
+    ///
+    /// Calling this Rust capability does not export a Candid method.
+    #[cfg(feature = "migration")]
+    pub fn schema_migration_status(
+        &self,
+        proposal: &SchemaProposal,
+        request: &SchemaMigrationStatusRequest,
+    ) -> Result<SchemaMigrationStatusPage, Error> {
+        Ok(self.inner.schema_migration_status(proposal, request)?)
     }
 
     /// Issue the opaque database/store identities and exact accepted head used
@@ -153,12 +306,24 @@ impl<C: CanisterKind> DbSession<C> {
     }
 }
 
+#[cfg(feature = "migration")]
+const fn migration_command_head(
+    command: &SchemaMigrationCommand,
+) -> &icydb_schema::ExpectedAcceptedHead {
+    match command {
+        SchemaMigrationCommand::Adopt { expected_head, .. }
+        | SchemaMigrationCommand::Advance { expected_head, .. }
+        | SchemaMigrationCommand::Abort { expected_head, .. } => expected_head,
+    }
+}
+
 fn generated_schema_proposal(
     fragment: &SchemaFragment,
     target: &SchemaApplicationTarget,
     submission_key: SchemaSubmissionKey,
     expected_head: icydb_schema::ExpectedAcceptedHead,
     entity_stores: &[(&str, &str)],
+    migration_plan: Option<SchemaMigrationPlan>,
 ) -> Result<SchemaProposal, Error> {
     let assignments = entity_stores
         .iter()
@@ -174,18 +339,22 @@ fn generated_schema_proposal(
         })
         .collect::<Result<Vec<_>, Error>>()?;
     SchemaProposal::try_compose(
-        generated_fragment_capabilities(fragment),
+        generated_fragment_capabilities(fragment, migration_plan.is_some()),
         target.database_identity(),
         submission_key,
         expected_head,
         vec![fragment.clone()],
         assignments,
         Vec::new(),
+        migration_plan,
     )
     .map_err(|_| generated_schema_input_error())
 }
 
-fn generated_fragment_capabilities(fragment: &SchemaFragment) -> Vec<SchemaCapability> {
+fn generated_fragment_capabilities(
+    fragment: &SchemaFragment,
+    has_migration_plan: bool,
+) -> Vec<SchemaCapability> {
     let mut exact_composite_types = !fragment.types().is_empty();
     let mut accepted_checks = false;
     let mut secondary_indexes = false;
@@ -223,6 +392,7 @@ fn generated_fragment_capabilities(fragment: &SchemaFragment) -> Vec<SchemaCapab
         (insert_defaults, SchemaCapability::INSERT_DEFAULTS),
         (generated_values, SchemaCapability::GENERATED_VALUES),
         (managed_timestamps, SchemaCapability::MANAGED_TIMESTAMPS),
+        (has_migration_plan, SchemaCapability::VERSIONED_MIGRATIONS),
     ]
     .into_iter()
     .filter_map(|(required, capability)| required.then_some(capability))

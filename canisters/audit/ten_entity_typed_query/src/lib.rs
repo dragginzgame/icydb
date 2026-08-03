@@ -8,17 +8,21 @@ use icydb_testing_audit_ten_simple_fixtures::ten_simple::TenSimpleEntity01;
 icydb::start!();
 
 #[ic_cdk::query]
-fn query_ten_entity_typed_rows() -> Result<u32, String> {
-    let rows = db()
-        .map_err(|error| error.to_string())?
-        .query::<TenSimpleEntity01>()
-        .map_err(|error| error.to_string())?
+fn query_ten_entity_typed_rows() -> u32 {
+    let Ok(database) = db() else {
+        return 0;
+    };
+    let Ok(query) = database.query::<TenSimpleEntity01>() else {
+        return 0;
+    };
+    let Ok(rows) = query
         .filter(FieldRef::new("id").eq(icydb::types::Ulid::MIN))
-        .limit(1)
         .execute_rows()
-        .map_err(|error| error.to_string())?;
+    else {
+        return 0;
+    };
 
-    u32::try_from(rows.len()).map_err(|_| "typed query row count exceeds u32".to_string())
+    u32::try_from(rows.len()).unwrap_or(u32::MAX)
 }
 
 #[cfg(feature = "candid-export")]

@@ -6,11 +6,11 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ConstraintSourceKey, Decimal, EntitySourceKey, FieldSourceKey, IndexSourceKey,
-    MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS, MAX_FRAGMENT_INDEXES,
-    MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_FIELD_TYPE_DEPTH, RelationSourceKey,
-    RuleSourceKey, ScalarKind, ScalarLiteral, SchemaContractError, SchemaName, SourceCheckExpr,
-    SourceRuleOperation, TypeSourceKey,
+    ConstraintSourceKey, Decimal, DeclaredEntityVersion, EntitySourceKey, FieldSourceKey,
+    IndexSourceKey, MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS,
+    MAX_FRAGMENT_INDEXES, MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_FIELD_TYPE_DEPTH,
+    RelationSourceKey, RuleSourceKey, ScalarKind, ScalarLiteral, SchemaContractError, SchemaName,
+    SourceCheckExpr, SourceRuleOperation, TypeSourceKey,
 };
 
 /// Logical type reference in a proposal fragment.
@@ -672,6 +672,7 @@ impl ConstraintFragment {
 pub struct EntityFragment {
     source_key: EntitySourceKey,
     name: SchemaName,
+    version: DeclaredEntityVersion,
     fields: Vec<FieldFragment>,
     primary_key: Vec<FieldSourceKey>,
     indexes: Vec<IndexFragment>,
@@ -688,6 +689,7 @@ impl EntityFragment {
     /// source keys, malformed policy, expression, or primary-key references.
     pub fn try_new(
         name: SchemaName,
+        version: DeclaredEntityVersion,
         mut fields: Vec<FieldFragment>,
         primary_key: Vec<FieldSourceKey>,
         mut indexes: Vec<IndexFragment>,
@@ -707,10 +709,12 @@ impl EntityFragment {
             return Err(SchemaContractError::InvalidReferenceList);
         }
         ensure_unique(&primary_key)?;
-        fields.sort_by(|left, right| left.source_key.cmp(&right.source_key));
-        indexes.sort_by(|left, right| left.source_key.cmp(&right.source_key));
-        relations.sort_by(|left, right| left.source_key.cmp(&right.source_key));
-        constraints.sort_by(|left, right| left.source_key.cmp(&right.source_key));
+        // Equal source keys are rejected below, so stable tie ordering cannot
+        // be observed and need not retain stable-sort machinery in Wasm.
+        fields.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
+        indexes.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
+        relations.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
+        constraints.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
         ensure_unique_sorted_by(&fields, FieldFragment::source_key)?;
         ensure_unique_sorted_by(&indexes, IndexFragment::source_key)?;
         ensure_unique_sorted_by(&relations, RelationFragment::source_key)?;
@@ -784,6 +788,7 @@ impl EntityFragment {
         Ok(Self {
             source_key,
             name,
+            version,
             fields,
             primary_key,
             indexes,
@@ -802,6 +807,12 @@ impl EntityFragment {
     #[must_use]
     pub const fn name(&self) -> &SchemaName {
         &self.name
+    }
+
+    /// Return the application-declared current entity version.
+    #[must_use]
+    pub const fn version(&self) -> DeclaredEntityVersion {
+        self.version
     }
 
     /// Borrow canonical field definitions.
@@ -837,6 +848,7 @@ impl EntityFragment {
     pub(crate) fn validate(&self) -> Result<(), SchemaContractError> {
         let rebuilt = Self::try_new(
             self.name.clone(),
+            self.version,
             self.fields.clone(),
             self.primary_key.clone(),
             self.indexes.clone(),
@@ -989,7 +1001,7 @@ impl RecordTypeFragment {
         mut fields: Vec<RecordFieldFragment>,
     ) -> Result<Self, SchemaContractError> {
         check_len("record fields", fields.len(), MAX_FRAGMENT_FIELDS)?;
-        fields.sort_by(|left, right| left.source_key.cmp(&right.source_key));
+        fields.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
         ensure_unique_sorted_by(&fields, RecordFieldFragment::source_key)?;
         ensure_unique_names(fields.iter().map(RecordFieldFragment::name))?;
         for field in &fields {
@@ -1110,7 +1122,7 @@ impl EnumTypeFragment {
             return Err(SchemaContractError::InvalidReferenceList);
         }
         check_len("enum variants", variants.len(), MAX_FRAGMENT_FIELDS)?;
-        variants.sort_by(|left, right| left.source_key.cmp(&right.source_key));
+        variants.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
         ensure_unique_sorted_by(&variants, |variant| &variant.source_key)?;
         ensure_unique_names(variants.iter().map(EnumVariantFragment::name))?;
         for variant in &variants {
@@ -1329,8 +1341,8 @@ impl SchemaFragment {
     ) -> Result<Self, SchemaContractError> {
         check_len("fragment entities", entities.len(), MAX_FRAGMENT_ENTITIES)?;
         check_len("fragment types", types.len(), MAX_FRAGMENT_TYPES)?;
-        entities.sort_by(|left, right| left.source_key.cmp(&right.source_key));
-        types.sort_by(|left, right| left.source_key().cmp(right.source_key()));
+        entities.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
+        types.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
         ensure_unique_sorted_by(&entities, EntityFragment::source_key)?;
         ensure_unique_sorted_by(&types, NamedTypeFragment::source_key)?;
         ensure_unique_names(entities.iter().map(EntityFragment::name))?;

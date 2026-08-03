@@ -3,24 +3,33 @@
 //! Does not own: typed/dynamic response decoding or logical planning.
 //! Boundary: consumes prepared structural runtime handoffs.
 
+#[cfg(feature = "sql")]
+use crate::db::executor::{
+    PreparedLoadPlan, RetainedSlotLayout,
+    pipeline::{
+        contracts::ProjectionMaterializationMode,
+        entrypoints::scalar::{
+            runtime::{
+                InitialScalarPlanRuntimeOptions,
+                prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_layout,
+            },
+            streaming::execute_prepared_scalar_kernel_row_sink_execution,
+        },
+    },
+    terminal::KernelRow,
+};
 use crate::{
     db::{
         Db,
         executor::{
-            PreparedLoadPlan, PreparedScalarRuntimeHandoff, RetainedSlotLayout,
+            PreparedScalarRuntimeHandoff,
             pipeline::{
-                contracts::{ProjectionMaterializationMode, StructuralCursorPage},
+                contracts::StructuralCursorPage,
                 entrypoints::scalar::{
                     materialized::execute_prepared_scalar_route_runtime_with_scan_count,
-                    runtime::{
-                        InitialScalarPlanRuntimeOptions,
-                        prepare_initial_scalar_retained_slot_page_runtime_from_handoff,
-                        prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_layout,
-                    },
-                    streaming::execute_prepared_scalar_kernel_row_sink_execution,
+                    runtime::prepare_initial_scalar_retained_slot_page_runtime_from_handoff,
                 },
             },
-            terminal::KernelRow,
         },
     },
     error::InternalError,
@@ -54,6 +63,7 @@ where
 }
 
 /// Execute one prepared scalar plan into an aggregate-owned retained-slot sink.
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) fn execute_prepared_scalar_aggregate_kernel_row_sink_for_canister<C>(
     db: &Db<C>,
     debug: bool,

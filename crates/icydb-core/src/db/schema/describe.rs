@@ -880,7 +880,7 @@ fn describe_entity_constraints_with_persisted_schema(
     }) {
         return Err(InternalError::store_invariant());
     }
-    descriptions.sort_by_key(|description| {
+    descriptions.sort_unstable_by_key(|description| {
         (
             description.id(),
             description.validation_state() != "validated",

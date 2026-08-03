@@ -92,7 +92,7 @@ continuation contract; do not emulate one with hidden offsets.
 
 ## Bounded Grouped Pages
 
-Grouped typed and dynamic reads use the same query-only engine lane as scalar
+Grouped typed and dynamic reads use the same engine-neutral lane as scalar
 reads. Declare group keys and aggregates in output order, provide hard grouped
 limits, and bound each returned page:
 

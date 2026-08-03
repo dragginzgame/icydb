@@ -5,12 +5,8 @@
 
 use crate::{
     db::{
-        executor::aggregate::{
-            contracts::AggregateKind,
-            value_reducer::{ValueReducerState, finalize_count},
-        },
+        executor::aggregate::{contracts::AggregateKind, value_reducer::ValueReducerState},
         key_taxonomy::PrimaryKeyValue,
-        numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
     },
     error::InternalError,
     types::Decimal,
@@ -26,9 +22,9 @@ use crate::{
 ///
 
 pub(in crate::db::executor::aggregate::contracts::state) enum GroupedAggregateReducerState {
-    Count(u64),
-    Sum { sum: Option<Decimal>, count: u64 },
-    Avg { sum: Decimal, count: u64 },
+    Count(ValueReducerState),
+    Sum(ValueReducerState),
+    Avg(ValueReducerState),
     Exists(bool),
     Min(ValueReducerState),
     Max(ValueReducerState),
@@ -48,15 +44,9 @@ impl GroupedAggregateReducerState {
         kind: AggregateKind,
     ) -> Self {
         match kind {
-            AggregateKind::Count => Self::Count(0),
-            AggregateKind::Sum => Self::Sum {
-                sum: None,
-                count: 0,
-            },
-            AggregateKind::Avg => Self::Avg {
-                sum: Decimal::ZERO,
-                count: 0,
-            },
+            AggregateKind::Count => Self::Count(ValueReducerState::count()),
+            AggregateKind::Sum => Self::Sum(ValueReducerState::sum()),
+            AggregateKind::Avg => Self::Avg(ValueReducerState::avg()),
             AggregateKind::Exists => Self::Exists(false),
             AggregateKind::Min => Self::Min(ValueReducerState::min()),
             AggregateKind::Max => Self::Max(ValueReducerState::max()),
@@ -70,10 +60,7 @@ impl GroupedAggregateReducerState {
         &mut self,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Count(count) => {
-                *count = count.saturating_add(1);
-                Ok(())
-            }
+            Self::Count(reducer) => reducer.increment_count(),
             _ => Err(Self::state_mismatch("COUNT")),
         }
     }
@@ -84,16 +71,7 @@ impl GroupedAggregateReducerState {
         value: Decimal,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Sum { sum, count } => {
-                *sum = Some(match sum {
-                    Some(current) => add_decimal_terms_checked(*current, value)
-                        .map_err(NumericEvalError::into_internal_error)?,
-                    None => value,
-                });
-                *count = count.saturating_add(1);
-
-                Ok(())
-            }
+            Self::Sum(reducer) => reducer.ingest_decimal(value),
             _ => Err(Self::state_mismatch("SUM")),
         }
     }
@@ -104,13 +82,7 @@ impl GroupedAggregateReducerState {
         value: Decimal,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Avg { sum, count } => {
-                *sum = add_decimal_terms_checked(*sum, value)
-                    .map_err(NumericEvalError::into_internal_error)?;
-                *count = count.saturating_add(1);
-
-                Ok(())
-            }
+            Self::Avg(reducer) => reducer.ingest_decimal(value),
             _ => Err(Self::state_mismatch("AVG")),
         }
     }
@@ -247,20 +219,49 @@ impl GroupedAggregateReducerState {
         self,
     ) -> Result<Value, InternalError> {
         match self {
-            Self::Count(value) => Ok(finalize_count(value)),
-            Self::Sum { sum, .. } => Ok(sum.map_or(Value::Null, Value::Decimal)),
-            Self::Avg { sum, count } => {
-                if count == 0 {
-                    return Ok(Value::Null);
-                }
-
-                average_decimal_terms_checked(sum, count)
-                    .map(Value::Decimal)
-                    .map_err(NumericEvalError::into_internal_error)
-            }
-            Self::Min(reducer) | Self::Max(reducer) => reducer.finalize(),
+            Self::Count(reducer)
+            | Self::Sum(reducer)
+            | Self::Avg(reducer)
+            | Self::Min(reducer)
+            | Self::Max(reducer) => reducer.into_final_value(),
             Self::Exists(value) => Ok(Value::Bool(value)),
             Self::First(value) | Self::Last(value) => Ok(value.unwrap_or(Value::Null)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::executor::aggregate::{AggregateKind, contracts::state::GroupedAggregateReducerState},
+        types::Decimal,
+        value::Value,
+    };
+
+    #[test]
+    fn grouped_count_sum_and_avg_delegate_to_shared_value_reducers() {
+        let one = Decimal::from_i64(1).expect("decimal one");
+        let three = Decimal::from_i64(3).expect("decimal three");
+
+        let mut count = GroupedAggregateReducerState::for_kind(AggregateKind::Count);
+        count.increment_count().expect("count ingest");
+        count.increment_count().expect("count ingest");
+        assert_eq!(count.into_value().expect("count finalize"), Value::Nat64(2));
+
+        let mut sum = GroupedAggregateReducerState::for_kind(AggregateKind::Sum);
+        sum.add_sum_value(one).expect("sum ingest");
+        sum.add_sum_value(three).expect("sum ingest");
+        assert_eq!(
+            sum.into_value().expect("sum finalize"),
+            Value::Decimal(Decimal::from_i64(4).expect("decimal four")),
+        );
+
+        let mut avg = GroupedAggregateReducerState::for_kind(AggregateKind::Avg);
+        avg.add_average_value(one).expect("avg ingest");
+        avg.add_average_value(three).expect("avg ingest");
+        assert_eq!(
+            avg.into_value().expect("avg finalize"),
+            Value::Decimal(Decimal::from_i64(2).expect("decimal two")),
+        );
     }
 }

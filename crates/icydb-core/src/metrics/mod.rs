@@ -8,7 +8,6 @@ pub(crate) mod sink;
 mod state;
 
 // re-exports
-#[cfg(any(test, feature = "metrics-extended"))]
 pub use sink::metrics_report;
 pub use sink::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
@@ -20,7 +19,6 @@ pub use state::{
     CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
     compact_metric_code,
 };
-#[cfg(any(test, feature = "metrics-extended"))]
 pub use state::{EntitySummary, EventCounters, EventOps, EventReport, MetricRatio};
 
 ///

@@ -247,7 +247,6 @@ impl SchemaTransitionRejection {
 
     // Return the structured schema-version admission decision when this
     // rejection came from the version/method/fingerprint gate.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::schema) const fn admission(
         &self,
     ) -> Option<SchemaAdmissionRejectionClassification> {

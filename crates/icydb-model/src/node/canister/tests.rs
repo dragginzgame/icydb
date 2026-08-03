@@ -3,7 +3,15 @@ use crate::build::schema_write;
 use super::*;
 
 fn insert_canister(path_module: &'static str, ident: &'static str) -> Canister {
-    let canister = Canister::new(Def::new(path_module, ident), "test_db", 100, 254, 254, 253);
+    let canister = Canister::new(
+        Def::new(path_module, ident),
+        "test_db",
+        100,
+        254,
+        254,
+        253,
+        None,
+    );
     schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
     canister
@@ -81,6 +89,7 @@ fn validate_rejects_reserved_commit_memory_id() {
         254,
         255,
         253,
+        None,
     );
     schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
@@ -104,6 +113,7 @@ fn validate_rejects_integrity_progress_memory_collision() {
         254,
         253,
         253,
+        None,
     );
     schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
@@ -125,6 +135,7 @@ fn integrity_progress_allocation_has_one_canonical_identity() {
         254,
         254,
         253,
+        None,
     );
 
     assert_eq!(canister.integrity_progress_memory_id(), 253);
@@ -234,6 +245,7 @@ fn validate_rejects_app_memory_id_below_canic_reserved_range() {
         110,
         99,
         100,
+        None,
     );
 
     let err = canister

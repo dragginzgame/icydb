@@ -174,7 +174,6 @@ impl SchemaRowLayout {
 
     /// Return the next dense physical slot index for additive field DDL.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn next_unallocated_slot(&self) -> Option<SchemaFieldSlot> {
         SchemaFieldSlot::from_generated_index(self.field_to_slot.len())
     }

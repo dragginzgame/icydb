@@ -7,7 +7,6 @@ use super::contracts::{
     CompiledExpr, CompiledExprValueReader, ProjectionEvalError,
     collapse_true_only_boolean_admission,
 };
-#[cfg(any(test, feature = "query"))]
 use crate::{
     db::data::{ScalarSlotValueRef, ScalarValueRef},
     db::schema::{LeafCodec, ScalarCodec},
@@ -341,7 +340,6 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_value_ref_reader<'a>(
 }
 
 /// Evaluate one compiled expression through a canonical raw-row slot reader.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<'a>(
     expr: &'a CompiledExpr,
     slots: &'a dyn CanonicalSlotReader,
@@ -369,7 +367,6 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<
 // materializing `Value::Text` or `Value::Blob`. Unsupported slot shapes return
 // `None` so the normal compiled-expression evaluator preserves existing
 // diagnostics for non-scalar and expression-derived inputs.
-#[cfg(any(test, feature = "query"))]
 fn eval_direct_scalar_octet_length(
     slots: &dyn CanonicalSlotReader,
     record_slot: &mut dyn FnMut(usize),

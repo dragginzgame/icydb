@@ -18,12 +18,10 @@ pub enum SchemaValidationOperator {
 }
 
 impl SchemaValidationOperator {
-    #[cfg(any(test, feature = "query"))]
     pub(crate) const fn compare(op: CompareOp) -> Self {
         Self::Compare(op)
     }
 
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn compare_field(op: CompareOp, right_field: &str) -> Self {
         Self::CompareField {
             op,
@@ -120,7 +118,6 @@ pub enum ValidateError {
 }
 
 impl ValidateError {
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn invalid_operator(field: &str, operator: SchemaValidationOperator) -> Self {
         Self::InvalidOperator {
             field: field.to_string(),
@@ -128,7 +125,6 @@ impl ValidateError {
         }
     }
 
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn invalid_literal(field: &str, reason: SchemaLiteralValidationReason) -> Self {
         Self::InvalidLiteral {
             field: field.to_string(),

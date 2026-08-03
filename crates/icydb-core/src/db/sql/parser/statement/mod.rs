@@ -10,7 +10,7 @@ mod integrity;
 mod select;
 mod update;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 use crate::db::{
     sql::parser::{
@@ -49,9 +49,9 @@ impl Parser {
             return Ok(SqlStatement::Ddl(self.parse_alter_statement()?));
         }
         if self.eat_keyword(Keyword::Explain) {
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             return Ok(SqlStatement::Explain(self.parse_explain_statement()?));
-            #[cfg(not(feature = "sql-explain"))]
+            #[cfg(not(feature = "sql"))]
             return Err(SqlParseError::unsupported_feature(SqlFeatureCode::Other));
         }
         if self.eat_keyword(Keyword::Describe) {
@@ -83,7 +83,7 @@ impl Parser {
             SqlStatement::Insert(_) => None,
             SqlStatement::Update(update) => self.update_clause_order_error(update),
             SqlStatement::Ddl(ddl) => Some(Self::ddl_clause_order_error(ddl)),
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             SqlStatement::Explain(explain) => match &explain.statement {
                 SqlExplainTarget::Select(select) => self.select_clause_order_error(select),
                 SqlExplainTarget::Delete(delete) => self.delete_clause_order_error(delete),
@@ -156,7 +156,7 @@ impl Parser {
         ))
     }
 
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     fn parse_explain_statement(&mut self) -> Result<SqlExplainStatement, SqlParseError> {
         let (mode, verbose) = if self.eat_keyword(Keyword::Execution) {
             if self.eat_keyword(Keyword::Json) {

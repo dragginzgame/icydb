@@ -59,7 +59,7 @@ impl IndexId {
 
     /// Return the dense per-entity index ordinal.
     #[must_use]
-    #[cfg(test)]
+    #[cfg(any(test, feature = "migration"))]
     pub(crate) const fn ordinal(&self) -> u16 {
         self.ordinal
     }

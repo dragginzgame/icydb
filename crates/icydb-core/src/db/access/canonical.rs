@@ -24,7 +24,7 @@ use std::ops::Bound;
 /// Canonicalize access plans that use `Value` keys.
 fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
     // Canonical sort is total and must remain deterministic.
-    plans.sort_by(canonical_cmp_access_plan_value);
+    plans.sort_unstable_by(canonical_cmp_access_plan_value);
 }
 
 // Deduplicate already-canonicalized access plans without retaining the generic

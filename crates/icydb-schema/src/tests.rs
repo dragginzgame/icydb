@@ -1,20 +1,29 @@
 use crate::{
     Account, Blob, ConstraintFragment, ConstraintFragmentKind, ConstraintSourceKey, Date, Decimal,
-    Duration, EntityFragment, EntitySourceKey, EntityStoreAssignment, EnumTypeFragment,
-    EnumVariantFragment, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment,
-    FieldInsertPolicy, FieldSourceKey, FieldType, Float32, Float64, IntBig,
-    MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_PROPOSAL_BYTES, MAX_SOURCE_KEY_BYTES,
-    NamedTypeFragment, NatBig, ProposalContractVersion, RecordFieldFragment, RecordTypeFragment,
-    RelationDeleteAction, RelationFragment, RuleSourceKey, ScalarLiteral, ScalarType,
-    SchemaCapability, SchemaContractError, SchemaFragment, SchemaName, SchemaProposal,
-    SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
-    SourceRuleOperation, Subaccount, TargetDatabaseIdentity, TargetStoreIdentity,
-    TargetedRuleFragment, Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
-    decode_schema_fragment, decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
+    DeclaredEntityVersion, Duration, EntityFragment, EntityMigration, EntitySourceKey,
+    EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
+    ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
+    Float32, Float64, IntBig, MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_PROPOSAL_BYTES,
+    MAX_SOURCE_KEY_BYTES, NamedTypeFragment, NatBig, ProposalContractVersion, RecordFieldFragment,
+    RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey, ScalarLiteral,
+    ScalarType, SchemaCapability, SchemaContractError, SchemaFragment, SchemaMigrationPlan,
+    SchemaMigrationRename, SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey,
+    SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation, Subaccount,
+    TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, Timestamp,
+    TupleElementFragment, TypeSourceKey, Ulid, Unit, decode_schema_fragment,
+    decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
 };
 
 fn source<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, SchemaContractError>) -> T {
     constructor(value.to_string()).expect("fixture source key should admit")
+}
+
+fn version_one() -> DeclaredEntityVersion {
+    DeclaredEntityVersion::try_new(1).expect("fixture version should admit")
+}
+
+fn version(value: u32) -> DeclaredEntityVersion {
+    DeclaredEntityVersion::try_new(value).expect("fixture version should admit")
 }
 
 #[test]
@@ -88,6 +97,7 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
     };
     let entity = EntityFragment::try_new(
         SchemaName::try_new(entity_name).expect("fixture name should admit"),
+        version_one(),
         fields,
         vec![id_key],
         vec![],
@@ -113,6 +123,7 @@ fn proposal(entity_name: &str, reverse_input: bool) -> SchemaProposal {
             TargetStoreIdentity::from_bytes([0x22; 32]),
         )],
         vec![],
+        None,
     )
     .expect("fixture proposal should compose")
 }
@@ -132,6 +143,7 @@ fn targeted_rule_fragment(target: TypeSourceKey) -> SchemaFragment {
     ));
     let entity = EntityFragment::try_new(
         SchemaName::try_new("measurements").expect("fixture name should admit"),
+        version_one(),
         vec![
             FieldFragment::new(
                 SchemaName::try_new("id").expect("fixture name should admit"),
@@ -223,6 +235,7 @@ fn targeted_rule_source_contract_roundtrips_in_the_current_pre_1_proposal() {
             TargetStoreIdentity::from_bytes([0x32; 32]),
         )],
         vec![],
+        None,
     )
     .expect("reachable targeted rule should compose");
     let bytes = encode_schema_proposal(&proposal).expect("targeted proposal should encode");
@@ -253,6 +266,7 @@ fn targeted_rule_rejects_an_unreachable_nominal_target() {
             TargetStoreIdentity::from_bytes([0x42; 32]),
         )],
         vec![],
+        None,
     )
     .expect_err("unreachable targeted rule must reject");
 
@@ -285,6 +299,7 @@ fn unsupported_capability_fails_before_transport() {
         vec![],
         vec![],
         vec![],
+        None,
     )
     .expect_err("unknown proposal capability must reject");
 
@@ -320,7 +335,7 @@ fn expression_stack_shape_is_validated() {
 
 #[test]
 fn contract_version_is_current_and_nonzero() {
-    assert_eq!(ProposalContractVersion::CURRENT.get(), 1);
+    assert_eq!(ProposalContractVersion::CURRENT.get(), 2);
 }
 
 #[test]
@@ -334,6 +349,7 @@ fn every_defined_entity_requires_exact_store_routing() {
         base.fragments().to_vec(),
         Vec::new(),
         Vec::new(),
+        None,
     )
     .expect_err("defined entity without routing must reject");
 
@@ -358,6 +374,7 @@ fn removals_conflict_only_with_the_exact_defined_source_key() {
             base.fragments().to_vec(),
             base.assignments().to_vec(),
             vec![unrelated_removal],
+            None,
         )
         .is_ok(),
         "a definition for the entity must not collide with an unrelated accepted removal",
@@ -377,6 +394,7 @@ fn removals_conflict_only_with_the_exact_defined_source_key() {
             entity,
             constraint: defined_constraint,
         }],
+        None,
     )
     .expect_err("defining and removing the same constraint must reject");
     assert_eq!(error, SchemaContractError::DefinitionRemovalConflict);
@@ -406,6 +424,7 @@ fn entity_local_references_and_current_names_are_closed() {
     assert_eq!(
         EntityFragment::try_new(
             SchemaName::try_new("local").expect("name should admit"),
+            version_one(),
             vec![id.clone()],
             vec![id_key.clone()],
             Vec::new(),
@@ -425,6 +444,7 @@ fn entity_local_references_and_current_names_are_closed() {
     assert_eq!(
         EntityFragment::try_new(
             SchemaName::try_new("local").expect("name should admit"),
+            version_one(),
             vec![id, duplicate_name],
             vec![id_key],
             Vec::new(),
@@ -483,6 +503,7 @@ fn entity_with_field(
     let field = source("value", FieldSourceKey::try_new);
     EntityFragment::try_new(
         SchemaName::try_new("FieldHolder").expect("name should admit"),
+        version_one(),
         vec![FieldFragment::new(
             SchemaName::try_new("value").expect("name should admit"),
             field_type,
@@ -510,6 +531,7 @@ fn entity_with_non_primary_generated_field(
     let id = source("id", FieldSourceKey::try_new);
     EntityFragment::try_new(
         SchemaName::try_new("GeneratedFieldHolder").expect("name should admit"),
+        version_one(),
         vec![
             FieldFragment::new(
                 SchemaName::try_new("id").expect("name should admit"),
@@ -719,6 +741,7 @@ fn generated_policy_rejects_nullable_or_collection_identity_shapes() {
     assert_eq!(
         EntityFragment::try_new(
             SchemaName::try_new("NullableIdentity").expect("name should admit"),
+            version_one(),
             vec![FieldFragment::new(
                 SchemaName::try_new("value").expect("name should admit"),
                 FieldType::Scalar(ScalarType::Nat64),
@@ -736,6 +759,7 @@ fn generated_policy_rejects_nullable_or_collection_identity_shapes() {
     assert_eq!(
         EntityFragment::try_new(
             SchemaName::try_new("ListIdentity").expect("name should admit"),
+            version_one(),
             vec![FieldFragment::new(
                 SchemaName::try_new("value").expect("name should admit"),
                 FieldType::List(Box::new(FieldType::Scalar(ScalarType::Nat64))),
@@ -768,6 +792,7 @@ fn one_entity_cannot_duplicate_a_managed_timestamp_policy() {
     assert_eq!(
         EntityFragment::try_new(
             SchemaName::try_new("Audit").expect("name should admit"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     SchemaName::try_new("id").expect("name should admit"),
@@ -811,6 +836,7 @@ fn compose_schema(
         vec![SchemaFragment::try_new(entities, types)?],
         assignments,
         removals,
+        None,
     )
 }
 
@@ -967,6 +993,7 @@ fn relation_entities(
     .expect("relation should admit");
     let source_definition = EntityFragment::try_new(
         SchemaName::try_new("RelationSource").expect("name should admit"),
+        version_one(),
         vec![
             FieldFragment::new(
                 SchemaName::try_new("id").expect("name should admit"),
@@ -1000,6 +1027,7 @@ fn relation_entities(
     if include_target {
         let target_definition = EntityFragment::try_new(
             SchemaName::try_new("RelationTarget").expect("name should admit"),
+            version_one(),
             vec![FieldFragment::new(
                 SchemaName::try_new("id").expect("name should admit"),
                 FieldType::Scalar(target_kind),
@@ -1037,6 +1065,7 @@ fn cross_fragment_relations_validate_exact_field_contracts() {
             fragments,
             assignments,
             Vec::new(),
+            None,
         )
     };
     assert!(compose(ScalarType::Nat64, ScalarType::Nat64).is_ok());
@@ -1059,6 +1088,7 @@ fn external_relation_targets_require_an_expected_head_and_cannot_be_removed() {
             fragments.clone(),
             assignments.clone(),
             removals,
+            None,
         )
     };
     assert_eq!(
@@ -1148,8 +1178,247 @@ fn proposal_digest_has_a_fixed_current_form_vector() {
             .expect("proposal should hash")
             .to_bytes(),
         [
-            159, 224, 124, 194, 241, 217, 189, 44, 156, 99, 99, 145, 232, 147, 102, 35, 12, 138,
-            97, 93, 46, 214, 87, 245, 152, 236, 141, 178, 252, 188, 252, 28,
+            86, 241, 179, 230, 133, 206, 57, 29, 161, 137, 17, 154, 226, 109, 245, 86, 217, 243,
+            66, 153, 20, 143, 27, 65, 49, 188, 185, 132, 50, 16, 238, 49,
         ],
+    );
+}
+
+fn versioned_entity(entity_name: &str, declared_version: u32) -> EntityFragment {
+    EntityFragment::try_new(
+        SchemaName::try_new(entity_name).expect("entity name should admit"),
+        version(declared_version),
+        vec![
+            FieldFragment::new(
+                SchemaName::try_new("id").expect("field name should admit"),
+                FieldType::Scalar(ScalarType::Nat64),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+            FieldFragment::new(
+                SchemaName::try_new("value").expect("field name should admit"),
+                FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+        ],
+        vec![source("id", FieldSourceKey::try_new)],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("versioned entity should admit")
+}
+
+fn field_rename_plan(entity_name: &str, from: u32, to: &str) -> SchemaMigrationPlan {
+    SchemaMigrationPlan::try_new(vec![
+        EntityMigration::try_new(
+            source(entity_name, EntitySourceKey::try_new),
+            version(from),
+            None,
+            vec![SchemaMigrationRename::Field {
+                from: source("old_value", FieldSourceKey::try_new),
+                to: source(to, FieldSourceKey::try_new),
+            }],
+            Vec::new(),
+        )
+        .expect("entity transition should admit"),
+    ])
+    .expect("migration plan should admit")
+}
+
+fn compose_versioned_migration(
+    account_version: u32,
+    plan: Option<SchemaMigrationPlan>,
+    include_capability: bool,
+    expected_head: ExpectedAcceptedHead,
+) -> Result<SchemaProposal, SchemaContractError> {
+    let entities = vec![
+        versioned_entity("Account", account_version),
+        versioned_entity("Audit", 1),
+    ];
+    let assignments = entities
+        .iter()
+        .map(|entity| {
+            EntityStoreAssignment::new(
+                entity.source_key().clone(),
+                TargetStoreIdentity::from_bytes([0xA1; 32]),
+            )
+        })
+        .collect();
+    SchemaProposal::try_compose(
+        include_capability
+            .then_some(SchemaCapability::VERSIONED_MIGRATIONS)
+            .into_iter()
+            .collect(),
+        TargetDatabaseIdentity::from_bytes([0xA0; 32]),
+        SchemaSubmissionKey::try_new("versioned-migration").expect("key should admit"),
+        expected_head,
+        vec![SchemaFragment::try_new(entities, Vec::new())?],
+        assignments,
+        Vec::new(),
+        plan,
+    )
+}
+
+#[test]
+fn mixed_entity_versions_and_one_predecessor_plan_compose_for_fresh_and_current_heads() {
+    let plan = field_rename_plan("Account", 1, "value");
+    let fresh =
+        compose_versioned_migration(2, Some(plan.clone()), true, ExpectedAcceptedHead::Empty)
+            .expect("fresh current schema plus predecessor plan should compose");
+    assert_eq!(fresh.fragments()[0].entities()[0].version().get(), 2);
+    assert_eq!(fresh.fragments()[0].entities()[1].version().get(), 1);
+    assert_eq!(
+        fresh.migration().map(SchemaMigrationPlan::digest),
+        Some(plan.digest())
+    );
+
+    assert!(
+        compose_versioned_migration(
+            2,
+            Some(plan),
+            true,
+            ExpectedAcceptedHead::Exact {
+                revision: 7,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([0xA2; 32]),
+            },
+        )
+        .is_ok(),
+    );
+}
+
+#[test]
+fn migration_plan_version_gap_reference_and_capability_mismatches_reject() {
+    assert_eq!(
+        compose_versioned_migration(
+            3,
+            Some(field_rename_plan("Account", 1, "value")),
+            true,
+            ExpectedAcceptedHead::Empty,
+        ),
+        Err(SchemaContractError::MigrationVersionGap),
+    );
+    assert_eq!(
+        compose_versioned_migration(
+            2,
+            Some(field_rename_plan("Account", 1, "missing")),
+            true,
+            ExpectedAcceptedHead::Empty,
+        ),
+        Err(SchemaContractError::InvalidMigrationReference),
+    );
+    assert_eq!(
+        compose_versioned_migration(
+            2,
+            Some(field_rename_plan("Account", 1, "value")),
+            false,
+            ExpectedAcceptedHead::Empty,
+        ),
+        Err(SchemaContractError::InvalidMigrationPlan),
+    );
+    assert_eq!(
+        compose_versioned_migration(2, None, true, ExpectedAcceptedHead::Empty),
+        Err(SchemaContractError::InvalidMigrationPlan),
+    );
+}
+
+fn named_type_consumer(entity_name: &str, named_type: &TypeSourceKey) -> EntityFragment {
+    EntityFragment::try_new(
+        SchemaName::try_new(entity_name).expect("entity name should admit"),
+        version(2),
+        vec![
+            FieldFragment::new(
+                SchemaName::try_new("id").expect("field name should admit"),
+                FieldType::Scalar(ScalarType::Nat64),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+            FieldFragment::new(
+                SchemaName::try_new("status").expect("field name should admit"),
+                FieldType::Named(named_type.clone()),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+        ],
+        vec![source("id", FieldSourceKey::try_new)],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("named-type consumer should admit")
+}
+
+fn named_type_transition(entity_name: &str) -> EntityMigration {
+    EntityMigration::try_new(
+        source(entity_name, EntitySourceKey::try_new),
+        version(1),
+        None,
+        vec![SchemaMigrationRename::NamedType {
+            from: source("LegacyStatus", TypeSourceKey::try_new),
+            to: source("Status", TypeSourceKey::try_new),
+        }],
+        Vec::new(),
+    )
+    .expect("named-type transition should admit")
+}
+
+fn compose_shared_named_type_migration(
+    transitions: Vec<EntityMigration>,
+) -> Result<SchemaProposal, SchemaContractError> {
+    let status = source("Status", TypeSourceKey::try_new);
+    let entities = vec![
+        named_type_consumer("Account", &status),
+        named_type_consumer("Audit", &status),
+    ];
+    let assignments = entities
+        .iter()
+        .map(|entity| {
+            EntityStoreAssignment::new(
+                entity.source_key().clone(),
+                TargetStoreIdentity::from_bytes([0xB1; 32]),
+            )
+        })
+        .collect();
+    let status_type = NamedTypeFragment::Enum(
+        EnumTypeFragment::try_new(
+            SchemaName::try_new("Status").expect("type name should admit"),
+            vec![EnumVariantFragment::new(
+                SchemaName::try_new("Active").expect("variant name should admit"),
+            )],
+        )
+        .expect("enum should admit"),
+    );
+    SchemaProposal::try_compose(
+        vec![
+            SchemaCapability::EXACT_COMPOSITE_TYPES,
+            SchemaCapability::VERSIONED_MIGRATIONS,
+        ],
+        TargetDatabaseIdentity::from_bytes([0xB0; 32]),
+        SchemaSubmissionKey::try_new("shared-type-migration").expect("key should admit"),
+        ExpectedAcceptedHead::Empty,
+        vec![SchemaFragment::try_new(entities, vec![status_type])?],
+        assignments,
+        Vec::new(),
+        Some(SchemaMigrationPlan::try_new(transitions)?),
+    )
+}
+
+#[test]
+fn shared_named_type_rename_requires_every_current_consumer_transition() {
+    assert_eq!(
+        compose_shared_named_type_migration(vec![named_type_transition("Account")]),
+        Err(SchemaContractError::InvalidMigrationReference),
+    );
+    assert!(
+        compose_shared_named_type_migration(vec![
+            named_type_transition("Audit"),
+            named_type_transition("Account"),
+        ])
+        .is_ok(),
     );
 }

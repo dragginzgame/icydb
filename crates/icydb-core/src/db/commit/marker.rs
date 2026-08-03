@@ -34,7 +34,8 @@ use std::{
 /// Stored commit-id byte width shared by marker and guard paths.
 pub(in crate::db) const COMMIT_ID_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
-pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;
+pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;
+pub(in crate::db) const MAX_DATABASE_CONTROL_OPS_PER_MARKER: usize = 4;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
 
@@ -117,10 +118,19 @@ impl CommitRowOp {
 ///
 
 #[derive(Clone, Debug)]
+pub(in crate::db) enum DatabaseControlOp {
+    SchemaApplication(SchemaApplicationRecordOp),
+    #[cfg(any(test, feature = "migration"))]
+    EntitySourceLineage(crate::db::schema::EntitySourceLineageCatalogOp),
+    #[cfg(any(test, feature = "migration"))]
+    SchemaMigration(crate::db::schema::SchemaMigrationRecordOp),
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct CommitMarker {
     pub(crate) id: [u8; COMMIT_ID_BYTES],
     pub(in crate::db) journal_batches: Vec<JournalBatch>,
-    pub(in crate::db) schema_application: Option<SchemaApplicationRecordOp>,
+    pub(in crate::db) database_control: Vec<DatabaseControlOp>,
 }
 
 impl CommitMarker {
@@ -132,7 +142,7 @@ impl CommitMarker {
         id: [u8; COMMIT_ID_BYTES],
         journal_batches: Vec<JournalBatch>,
     ) -> Result<Self, InternalError> {
-        Self::from_parts_with_schema_application(id, journal_batches, None)
+        Self::from_parts_with_database_control(id, journal_batches, Vec::new())
     }
 
     /// Construct one marker that also owns an exact schema-application record
@@ -142,10 +152,24 @@ impl CommitMarker {
         journal_batches: Vec<JournalBatch>,
         schema_application: Option<SchemaApplicationRecordOp>,
     ) -> Result<Self, InternalError> {
+        let database_control = schema_application
+            .map(DatabaseControlOp::SchemaApplication)
+            .into_iter()
+            .collect();
+        Self::from_parts_with_database_control(id, journal_batches, database_control)
+    }
+
+    /// Construct one marker with a bounded canonical database-control
+    /// transaction applied atomically beside its journal batches.
+    pub(in crate::db) fn from_parts_with_database_control(
+        id: [u8; COMMIT_ID_BYTES],
+        journal_batches: Vec<JournalBatch>,
+        database_control: Vec<DatabaseControlOp>,
+    ) -> Result<Self, InternalError> {
         let marker = Self {
             id,
             journal_batches,
-            schema_application,
+            database_control,
         };
         validate_commit_marker_shape(&marker)?;
 
@@ -160,8 +184,35 @@ impl CommitMarker {
 
     /// Borrow the exact database-wide schema-application record effect.
     #[must_use]
-    pub(in crate::db) const fn schema_application(&self) -> Option<&SchemaApplicationRecordOp> {
-        self.schema_application.as_ref()
+    #[cfg(test)]
+    pub(in crate::db) fn schema_application(&self) -> Option<&SchemaApplicationRecordOp> {
+        let mut index = 0;
+        while index < self.database_control.len() {
+            if let DatabaseControlOp::SchemaApplication(operation) = &self.database_control[index] {
+                return Some(operation);
+            }
+            index += 1;
+        }
+        None
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn entity_source_lineage(
+        &self,
+    ) -> Option<&crate::db::schema::EntitySourceLineageCatalogOp> {
+        self.database_control
+            .iter()
+            .find_map(|operation| match operation {
+                DatabaseControlOp::EntitySourceLineage(operation) => Some(operation),
+                DatabaseControlOp::SchemaApplication(_) | DatabaseControlOp::SchemaMigration(_) => {
+                    None
+                }
+            })
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn database_control(&self) -> &[DatabaseControlOp] {
+        self.database_control.as_slice()
     }
 
     // Build the canonical payload corruption for truncated variable-length fields.
@@ -182,9 +233,10 @@ impl CommitMarker {
 
 const COMMIT_MARKER_ID_BYTES: usize = COMMIT_ID_BYTES;
 const COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES: usize = 4;
-const COMMIT_MARKER_SCHEMA_APPLICATION_TAG_BYTES: usize = 1;
+const COMMIT_MARKER_DATABASE_CONTROL_COUNT_BYTES: usize = 1;
+const COMMIT_MARKER_DATABASE_CONTROL_TAG_BYTES: usize = 1;
 const COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES: usize = 32;
-const COMMIT_MARKER_SCHEMA_APPLICATION_BEFORE_TAG_BYTES: usize = 1;
+const COMMIT_MARKER_CONTROL_BEFORE_TAG_BYTES: usize = 1;
 
 /// Generate one deterministic commit id for marker persistence.
 ///
@@ -244,14 +296,32 @@ pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> us
     for batch in &marker.journal_batches {
         capacity = capacity.saturating_add(4 + journal_batch_encoded_len(batch));
     }
-    capacity = capacity.saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_TAG_BYTES);
-    if let Some(operation) = marker.schema_application() {
-        capacity = capacity
-            .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES)
-            .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_BEFORE_TAG_BYTES)
-            .saturating_add(size_of::<u32>() + operation.after_bytes().len());
-        if let Some(before) = operation.before_bytes() {
-            capacity = capacity.saturating_add(size_of::<u32>() + before.len());
+    capacity = capacity.saturating_add(COMMIT_MARKER_DATABASE_CONTROL_COUNT_BYTES);
+    for operation in marker.database_control() {
+        capacity = capacity.saturating_add(COMMIT_MARKER_DATABASE_CONTROL_TAG_BYTES);
+        match operation {
+            DatabaseControlOp::SchemaApplication(operation) => {
+                capacity = capacity
+                    .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES)
+                    .saturating_add(encoded_replace_capacity(
+                        operation.before_bytes(),
+                        operation.after_bytes(),
+                    ));
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::EntitySourceLineage(operation) => {
+                capacity = capacity.saturating_add(encoded_replace_capacity(
+                    operation.before_bytes(),
+                    operation.after_bytes(),
+                ));
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::SchemaMigration(operation) => {
+                capacity = capacity.saturating_add(encoded_replace_capacity(
+                    operation.before_bytes(),
+                    operation.after_bytes(),
+                ));
+            }
         }
     }
 
@@ -268,7 +338,16 @@ pub(in crate::db) const fn commit_marker_payload_capacity_for_single_batch(
         .saturating_add(COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES)
         .saturating_add(size_of::<u32>())
         .saturating_add(journal_batch_bytes)
-        .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_TAG_BYTES)
+        .saturating_add(COMMIT_MARKER_DATABASE_CONTROL_COUNT_BYTES)
+}
+
+const fn encoded_replace_capacity(before: Option<&[u8]>, after: &[u8]) -> usize {
+    let mut capacity =
+        COMMIT_MARKER_CONTROL_BEFORE_TAG_BYTES.saturating_add(size_of::<u32>() + after.len());
+    if let Some(before) = before {
+        capacity = capacity.saturating_add(size_of::<u32>() + before.len());
+    }
+    capacity
 }
 
 // Write the canonical marker payload into an existing output buffer.
@@ -286,27 +365,42 @@ pub(in crate::db) fn write_commit_marker_payload(
         let encoded = encode_journal_batch(batch)?;
         write_len_prefixed_bytes(out, &encoded, "commit marker journal batch")?;
     }
-    match marker.schema_application() {
-        None => out.push(0),
-        Some(operation) => {
-            out.push(1);
-            out.extend_from_slice(&operation.key().to_bytes());
-            match operation.before_bytes() {
-                None => out.push(0),
-                Some(before) => {
-                    out.push(1);
-                    write_len_prefixed_bytes(
-                        out,
-                        before,
-                        "commit marker schema application before",
-                    )?;
-                }
+    out.push(
+        u8::try_from(marker.database_control().len())
+            .map_err(|_| InternalError::commit_corruption())?,
+    );
+    for operation in marker.database_control() {
+        match operation {
+            DatabaseControlOp::SchemaApplication(operation) => {
+                out.push(1);
+                out.extend_from_slice(&operation.key().to_bytes());
+                write_replace_bytes(
+                    out,
+                    operation.before_bytes(),
+                    operation.after_bytes(),
+                    "commit marker schema application",
+                )?;
             }
-            write_len_prefixed_bytes(
-                out,
-                operation.after_bytes(),
-                "commit marker schema application after",
-            )?;
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::EntitySourceLineage(operation) => {
+                out.push(2);
+                write_replace_bytes(
+                    out,
+                    operation.before_bytes(),
+                    operation.after_bytes(),
+                    "commit marker entity source lineage",
+                )?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::SchemaMigration(operation) => {
+                out.push(3);
+                write_replace_bytes(
+                    out,
+                    operation.before_bytes(),
+                    operation.after_bytes(),
+                    "commit marker schema migration",
+                )?;
+            }
         }
     }
 
@@ -334,57 +428,122 @@ pub(in crate::db) fn decode_commit_marker_payload(
         let encoded = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker journal batch")?;
         journal_batches.push(decode_journal_batch(encoded)?);
     }
-    let schema_application =
-        match read_tag_u8(bytes, &mut cursor, "commit marker schema application")? {
-            0 => None,
-            1 => {
-                let key = ApplicationRecordKey::from_bytes(read_fixed_array::<
-                    COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES,
-                >(
-                    bytes,
-                    &mut cursor,
-                    "commit marker schema application key",
-                )?);
-                let before = match read_tag_u8(
-                    bytes,
-                    &mut cursor,
-                    "commit marker schema application before",
-                )? {
-                    0 => None,
-                    1 => Some(
-                        read_len_prefixed_bytes(
-                            bytes,
-                            &mut cursor,
-                            "commit marker schema application before",
-                        )?
-                        .to_vec(),
-                    ),
-                    _ => return Err(InternalError::commit_corruption()),
-                };
-                let after = read_len_prefixed_bytes(
-                    bytes,
-                    &mut cursor,
-                    "commit marker schema application after",
-                )?
-                .to_vec();
-                Some(
-                    SchemaApplicationRecordOp::from_encoded(key, before, after)
-                        .map_err(|_| InternalError::commit_corruption())?,
-                )
-            }
-            _ => return Err(InternalError::commit_corruption()),
-        };
+    let database_control_count = usize::from(read_tag_u8(
+        bytes,
+        &mut cursor,
+        "commit marker database control count",
+    )?);
+    if database_control_count > MAX_DATABASE_CONTROL_OPS_PER_MARKER {
+        return Err(InternalError::commit_corruption());
+    }
+    let mut database_control = Vec::new();
+    database_control
+        .try_reserve_exact(database_control_count)
+        .map_err(|_| InternalError::commit_corruption())?;
+    for _ in 0..database_control_count {
+        database_control.push(decode_database_control_op(bytes, &mut cursor)?);
+    }
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
         return Err(InternalError::commit_corruption());
     }
 
-    Ok(CommitMarker {
-        id,
-        journal_batches,
-        schema_application,
-    })
+    CommitMarker::from_parts_with_database_control(id, journal_batches, database_control)
+        .map_err(|_| InternalError::commit_corruption())
+}
+
+fn decode_database_control_op(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<DatabaseControlOp, InternalError> {
+    match read_tag_u8(bytes, cursor, "commit marker database control operation")? {
+        1 => {
+            let key = ApplicationRecordKey::from_bytes(read_fixed_array::<
+                COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES,
+            >(
+                bytes,
+                cursor,
+                "commit marker schema application key",
+            )?);
+            let (before, after) =
+                read_replace_bytes(bytes, cursor, "commit marker schema application")?;
+            SchemaApplicationRecordOp::from_encoded(key, before, after)
+                .map(DatabaseControlOp::SchemaApplication)
+                .map_err(|_| InternalError::commit_corruption())
+        }
+        2 => decode_lineage_control_op(bytes, cursor),
+        3 => decode_migration_control_op(bytes, cursor),
+        _ => Err(InternalError::commit_corruption()),
+    }
+}
+
+#[cfg(any(test, feature = "migration"))]
+fn decode_lineage_control_op(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<DatabaseControlOp, InternalError> {
+    let (before, after) = read_replace_bytes(bytes, cursor, "commit marker entity source lineage")?;
+    crate::db::schema::EntitySourceLineageCatalogOp::from_encoded(before, after)
+        .map(DatabaseControlOp::EntitySourceLineage)
+        .map_err(|_| InternalError::commit_corruption())
+}
+
+#[cfg(not(any(test, feature = "migration")))]
+fn decode_lineage_control_op(
+    _bytes: &[u8],
+    _cursor: &mut usize,
+) -> Result<DatabaseControlOp, InternalError> {
+    Err(InternalError::commit_corruption())
+}
+
+#[cfg(any(test, feature = "migration"))]
+fn decode_migration_control_op(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<DatabaseControlOp, InternalError> {
+    let (before, after) = read_replace_bytes(bytes, cursor, "commit marker schema migration")?;
+    crate::db::schema::SchemaMigrationRecordOp::from_encoded(before, after)
+        .map(DatabaseControlOp::SchemaMigration)
+        .map_err(|_| InternalError::commit_corruption())
+}
+
+#[cfg(not(any(test, feature = "migration")))]
+fn decode_migration_control_op(
+    _bytes: &[u8],
+    _cursor: &mut usize,
+) -> Result<DatabaseControlOp, InternalError> {
+    Err(InternalError::commit_corruption())
+}
+
+fn write_replace_bytes(
+    out: &mut Vec<u8>,
+    before: Option<&[u8]>,
+    after: &[u8],
+    label: &'static str,
+) -> Result<(), InternalError> {
+    match before {
+        None => out.push(0),
+        Some(before) => {
+            out.push(1);
+            write_len_prefixed_bytes(out, before, label)?;
+        }
+    }
+    write_len_prefixed_bytes(out, after, label)
+}
+
+fn read_replace_bytes(
+    bytes: &[u8],
+    cursor: &mut usize,
+    label: &'static str,
+) -> Result<(Option<Vec<u8>>, Vec<u8>), InternalError> {
+    let before = match read_tag_u8(bytes, cursor, label)? {
+        0 => None,
+        1 => Some(read_len_prefixed_bytes(bytes, cursor, label)?.to_vec()),
+        _ => return Err(InternalError::commit_corruption()),
+    };
+    let after = read_len_prefixed_bytes(bytes, cursor, label)?.to_vec();
+    Ok((before, after))
 }
 
 fn read_tag_u8(
@@ -519,10 +678,55 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
             identity_owners.push(range.owner());
         }
     }
-    if let Some(operation) = marker.schema_application() {
-        operation
-            .validate()
-            .map_err(|_| InternalError::commit_corruption())?;
+    if marker.database_control().len() > MAX_DATABASE_CONTROL_OPS_PER_MARKER {
+        return Err(InternalError::commit_corruption());
+    }
+    let mut application_keys = BTreeSet::new();
+    let mut prior_application_key = None;
+    let mut prior_rank = 0_u8;
+    #[cfg(any(test, feature = "migration"))]
+    let mut lineage_seen = false;
+    #[cfg(any(test, feature = "migration"))]
+    let mut migration_seen = false;
+    for operation in marker.database_control() {
+        match operation {
+            DatabaseControlOp::SchemaApplication(operation) => {
+                let key = operation.key();
+                if prior_rank > 1
+                    || prior_application_key.is_some_and(|prior| prior >= key)
+                    || !application_keys.insert(key)
+                {
+                    return Err(InternalError::commit_corruption());
+                }
+                prior_rank = 1;
+                prior_application_key = Some(key);
+                operation
+                    .validate()
+                    .map_err(|_| InternalError::commit_corruption())?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::EntitySourceLineage(operation) => {
+                if prior_rank > 2 || lineage_seen {
+                    return Err(InternalError::commit_corruption());
+                }
+                prior_rank = 2;
+                lineage_seen = true;
+                operation
+                    .validate()
+                    .map_err(|_| InternalError::commit_corruption())?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::SchemaMigration(operation) => {
+                if prior_rank > 3 || migration_seen {
+                    return Err(InternalError::commit_corruption());
+                }
+                prior_rank = 3;
+                migration_seen = true;
+                operation
+                    .validate()
+                    .map_err(|_| InternalError::commit_corruption())?;
+            }
+        }
     }
 
     Ok(())

@@ -18,7 +18,7 @@ pub(in crate::db::sql::lowering::aggregate) enum PreparedAggregateTarget {
 
 impl PreparedAggregateTarget {
     // Borrow the field slot when this target is field-backed.
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::sql::lowering::aggregate) const fn field_slot(&self) -> Option<&FieldSlot> {
         match self {
             Self::Field(field_slot) => Some(field_slot),
@@ -92,7 +92,7 @@ impl PreparedAggregateSemantics {
     }
 
     // Return the aggregate kind represented by this prepared semantic terminal.
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::sql::lowering::aggregate) const fn aggregate_kind(&self) -> AggregateKind {
         match self {
             Self::Count { .. } => AggregateKind::Count,
@@ -116,7 +116,7 @@ impl PreparedAggregateSemantics {
 
     // Borrow the prepared target without exposing the enum representation to
     // strategy callers.
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     const fn target(&self) -> &PreparedAggregateTarget {
         match self {
             Self::Count { target, .. }
@@ -128,7 +128,7 @@ impl PreparedAggregateSemantics {
     }
 
     // Borrow the field slot when this semantic terminal is field-backed.
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::sql::lowering::aggregate) const fn target_slot(&self) -> Option<&FieldSlot> {
         self.target().field_slot()
     }

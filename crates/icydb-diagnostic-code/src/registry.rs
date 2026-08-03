@@ -7,8 +7,8 @@
 use crate::{
     Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
     QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
-    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
-    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode,
+    SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
 macro_rules! define_error_code_registry {
@@ -625,4 +625,58 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchDuplicateKey });
     RUNTIME_BOUNDARY_OPERATIONAL_SURFACE_CONTROLLER_REQUIRED = 241 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::OperationalSurfaceControllerRequired });
+    SCHEMA_MIGRATION_UNADOPTED = 242 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::Unadopted });
+    SCHEMA_MIGRATION_MISSING_MIGRATION = 243 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::MissingMigration });
+    SCHEMA_MIGRATION_VERSION_GAP = 244 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::VersionGap });
+    SCHEMA_MIGRATION_DOWNGRADE = 245 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::Downgrade });
+    SCHEMA_MIGRATION_EMPTY_ENTITY_VERSION_BUMP = 246 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::EmptyEntityVersionBump });
+    SCHEMA_MIGRATION_DUPLICATE_ENTITY_TRANSITION = 247 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::DuplicateEntityTransition });
+    SCHEMA_MIGRATION_STALE_ACCEPTED_HEAD = 248 => RuntimeConflict,
+        detail(SchemaMigration { reason: SchemaMigrationCode::StaleAcceptedHead });
+    SCHEMA_MIGRATION_PLAN_CHANGED = 249 => RuntimeConflict,
+        detail(SchemaMigration { reason: SchemaMigrationCode::PlanChanged });
+    SCHEMA_MIGRATION_DUPLICATE_RENAME_SOURCE = 250 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::DuplicateRenameSource });
+    SCHEMA_MIGRATION_DUPLICATE_RENAME_TARGET = 251 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::DuplicateRenameTarget });
+    SCHEMA_MIGRATION_UNKNOWN_FROM_OBJECT = 252 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::UnknownFromObject });
+    SCHEMA_MIGRATION_UNKNOWN_TO_OBJECT = 253 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::UnknownToObject });
+    SCHEMA_MIGRATION_KIND_MISMATCH = 254 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::KindMismatch });
+    SCHEMA_MIGRATION_IDENTITY_CONFLICT = 255 => RuntimeConflict,
+        detail(SchemaMigration { reason: SchemaMigrationCode::IdentityConflict });
+    SCHEMA_MIGRATION_INCOMPLETE_RENAME_COVERAGE = 256 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::IncompleteRenameCoverage });
+    SCHEMA_MIGRATION_UNEXPLAINED_SCHEMA_DIFFERENCE = 257 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::UnexplainedSchemaDifference });
+    SCHEMA_MIGRATION_UNSUPPORTED_TRANSFORM = 258 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::UnsupportedTransform });
+    SCHEMA_MIGRATION_TRANSFORM_FINDING = 259 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::TransformFinding });
+    SCHEMA_MIGRATION_UNIQUE_INDEX_FINDING = 260 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::UniqueIndexFinding });
+    SCHEMA_MIGRATION_RELATION_FINDING = 261 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::RelationFinding });
+    SCHEMA_MIGRATION_CONSTRAINT_FINDING = 262 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::ConstraintFinding });
+    SCHEMA_MIGRATION_PHYSICAL_RUNNER_MISSING = 263 => RuntimeUnsupported,
+        detail(SchemaMigration { reason: SchemaMigrationCode::PhysicalRunnerMissing });
+    SCHEMA_MIGRATION_IN_PROGRESS = 264 => RuntimeConflict,
+        detail(SchemaMigration { reason: SchemaMigrationCode::MigrationInProgress });
+    SCHEMA_MIGRATION_ABORT_TOO_LATE = 265 => RuntimeConflict,
+        detail(SchemaMigration { reason: SchemaMigrationCode::AbortTooLate });
+    SCHEMA_MIGRATION_PROGRESS_CORRUPT = 266 => RuntimeCorruption,
+        detail(SchemaMigration { reason: SchemaMigrationCode::ProgressCorrupt });
+    SCHEMA_MIGRATION_CANDIDATE_MISMATCH = 267 => RuntimeCorruption,
+        detail(SchemaMigration { reason: SchemaMigrationCode::CandidateMismatch });
+    SCHEMA_MIGRATION_PUBLICATION_RACE_LOST = 268 => RuntimeConflict,
+        detail(SchemaMigration { reason: SchemaMigrationCode::PublicationRaceLost });
 }

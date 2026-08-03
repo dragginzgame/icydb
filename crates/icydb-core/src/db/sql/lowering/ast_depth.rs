@@ -20,7 +20,7 @@ pub(in crate::db::sql::lowering) fn validate_sql_statement_ast_depth(
         SqlStatement::Delete(statement) => validate_delete_statement_depth(statement),
         SqlStatement::Insert(statement) => validate_insert_statement_depth(statement),
         SqlStatement::Update(statement) => validate_update_statement_depth(statement),
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatement::Explain(statement) => match &statement.statement {
             crate::db::sql::parser::SqlExplainTarget::Select(select) => {
                 validate_select_statement_depth(select)

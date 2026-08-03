@@ -3,7 +3,6 @@
 //! Does not own: binary token wire encoding or continuation validation semantics.
 //! Boundary: cursor-owned binary token bytes -> lowercase hex external token text.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::codec::hex::encode_hex_lower;
 use crate::db::cursor::token::MAX_CURSOR_TOKEN_BYTES;
 #[cfg(test)]
@@ -32,7 +31,6 @@ pub enum CursorDecodeError {
 
 /// Encode raw cursor bytes as a lowercase hex token.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn encode_cursor(bytes: &[u8]) -> String {
     encode_hex_lower(bytes)
 }

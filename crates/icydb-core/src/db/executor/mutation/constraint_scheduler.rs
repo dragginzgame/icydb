@@ -184,7 +184,6 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
 
     /// Remove the last staged save transition when bounded resumable SQL
     /// chooses the largest durable prefix.
-    #[cfg(feature = "query")]
     pub(in crate::db) fn pop_last_save_row(&mut self) -> Result<(), InternalError> {
         let Some(row) = self.rows.pop() else {
             return Err(InternalError::query_executor_invariant());
@@ -194,7 +193,6 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
     }
 
     /// Borrow staged save transitions for bounded commit-window sizing.
-    #[cfg(feature = "query")]
     pub(in crate::db) const fn rows(&self) -> &[CommitRowOp] {
         self.rows.as_slice()
     }

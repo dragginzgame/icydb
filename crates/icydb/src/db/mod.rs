@@ -5,7 +5,6 @@
 //! Boundary: keeps public facade shape stable for downstream code.
 
 mod bootstrap;
-#[cfg(feature = "query")]
 pub mod query;
 #[cfg(feature = "sql")]
 pub mod response;
@@ -15,8 +14,13 @@ pub mod sql;
 
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
-#[cfg(feature = "query")]
 pub use icydb_core::db::{DynamicQuery, GroupedQueryOutput, GroupedRow, RowProjectionOutput};
+#[cfg(feature = "migration")]
+pub use icydb_core::db::{
+    SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,
+    SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
+};
 #[cfg(feature = "sql")]
 pub use icydb_core::db::{
     TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
@@ -56,12 +60,11 @@ pub use icydb_core::db::{
     SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
     SchemaChangeValidationPhase, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub use icydb_core::db::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
-#[cfg(feature = "query")]
 pub use icydb_core::db::{QueryTracePlan, ReadIntentKind, TraceExecutionFamily, TraceReuseEvent};
 pub use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,

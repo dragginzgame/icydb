@@ -1,10 +1,13 @@
-//! Frozen bounds for the version-1 proposal transport.
+//! Frozen bounds for the current proposal transport.
 
 /// Maximum encoded size of one reusable schema fragment.
 pub const MAX_SCHEMA_FRAGMENT_BYTES: usize = 512 * 1024;
 
 /// Maximum encoded size of one database-scoped schema proposal.
 pub const MAX_SCHEMA_PROPOSAL_BYTES: usize = 2 * 1024 * 1024;
+
+/// Maximum encoded size of one coordinated source migration plan.
+pub const MAX_SCHEMA_MIGRATION_PLAN_BYTES: usize = 512 * 1024;
 
 /// Maximum byte length of one typed current-name proposal key.
 pub const MAX_SOURCE_KEY_BYTES: usize = 128;
@@ -60,3 +63,12 @@ pub const MAX_SCHEMA_ASSIGNMENTS: usize = 4_096;
 
 /// Maximum number of required capabilities in one proposal.
 pub const MAX_SCHEMA_CAPABILITIES: usize = 32;
+
+/// Maximum number of entity transitions in one coordinated migration plan.
+pub const MAX_SCHEMA_MIGRATION_ENTITIES: usize = MAX_SCHEMA_ASSIGNMENTS;
+
+/// Maximum number of explicit rename operations for one entity transition.
+pub const MAX_SCHEMA_MIGRATION_RENAMES: usize = MAX_SCHEMA_ASSIGNMENTS;
+
+/// Maximum number of explicit transforms for one entity transition.
+pub const MAX_SCHEMA_MIGRATION_TRANSFORMS: usize = MAX_SCHEMA_ASSIGNMENTS;

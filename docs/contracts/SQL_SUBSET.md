@@ -237,11 +237,11 @@ exposes full entity and store paths for debugging.
 <!-- icydb-sql-feature id="introspection.generated_policy" kind="policy" status="accepted" -->
 Generated `icydb_query` gates `EXPLAIN`, `DESCRIBE`, and `SHOW` by
 the visible source declaration. `icydb_sql_query(introspection = true)`
-requires the `icydb/sql-explain` Cargo capability and admits the frozen
-introspection families; the `false` form rejects them with
-`SqlIntrospectionDisabled`. Canister-owned Cargo features may place the
-declaration behind `#[cfg(...)]` for local/test builds. No build target or
-configuration file selects this policy implicitly.
+uses the `icydb/sql` Cargo capability and admits the frozen introspection
+families; the `false` form rejects them with `SqlIntrospectionDisabled`.
+Canister-owned Cargo features may place the declaration behind `#[cfg(...)]`
+for local/test builds. No build target or configuration file selects this
+policy implicitly.
 
 <!-- icydb-sql-feature id="introspection.storage_modes" kind="semantic" status="accepted" -->
 Storage modes have distinct contracts. `heap` is volatile live storage with

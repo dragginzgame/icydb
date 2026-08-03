@@ -10,18 +10,14 @@ mod load_plan;
 mod shared_plan;
 
 pub use core::ExecutionFamily;
-#[cfg(feature = "query")]
 pub(in crate::db::executor::prepared_execution_plan) use core::build_prepared_execution_plan_core_with_lowered_access;
 pub(in crate::db::executor::prepared_execution_plan) use core::{
     PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_schema_fingerprint,
 };
 pub(in crate::db::executor) use core::{PreparedGroupedRuntimeResidents, PreparedScalarPlanCore};
-#[cfg(feature = "query")]
 pub(in crate::db::executor) use handoff::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use handoff::{
     PreparedAccessPlanHandoff, PreparedScalarRuntimeHandoff,
 };
-#[cfg(feature = "query")]
 pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
-#[cfg(feature = "query")]
 pub(in crate::db) use shared_plan::SharedPreparedExecutionPlan;

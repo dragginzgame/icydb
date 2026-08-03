@@ -156,7 +156,7 @@ where
         | CompiledSqlCommand::ShowEntities { .. }
         | CompiledSqlCommand::ShowStores { .. }
         | CompiledSqlCommand::ShowMemory => None,
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         CompiledSqlCommand::Explain(..) => None,
     }
 }

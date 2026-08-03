@@ -6,7 +6,7 @@
 use icydb::diagnostic::{
     DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin, QueryErrorKind,
     QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode, RuntimeBoundaryCode,
-    RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
+    RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
     SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 use std::fmt::Write as _;
@@ -143,6 +143,12 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
         }
         DiagnosticDetail::SchemaDdlAdmission { reason } => {
             format!("SQL DDL admission rejected: {}", schema_ddl_text(reason))
+        }
+        DiagnosticDetail::SchemaMigration { reason } => {
+            format!(
+                "schema migration rejected: {}",
+                schema_migration_text(reason)
+            )
         }
         DiagnosticDetail::UnsupportedSqlFeature { feature } => {
             format!("unsupported SQL feature: {}", sql_feature_text(feature))
@@ -560,6 +566,52 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
         }
         SchemaDdlAdmissionCode::RowLayoutVersionExhausted => {
             "row-layout version space is exhausted"
+        }
+    }
+}
+
+const fn schema_migration_text(reason: SchemaMigrationCode) -> &'static str {
+    match reason {
+        SchemaMigrationCode::Unadopted => "accepted generated entities are not adopted",
+        SchemaMigrationCode::MissingMigration => "a required immediate migration is missing",
+        SchemaMigrationCode::VersionGap => "an entity source version skips its predecessor",
+        SchemaMigrationCode::Downgrade => "an entity source version moves backward",
+        SchemaMigrationCode::EmptyEntityVersionBump => {
+            "an entity source version changed without a schema change"
+        }
+        SchemaMigrationCode::DuplicateEntityTransition => {
+            "the coordinated plan repeats an entity transition"
+        }
+        SchemaMigrationCode::StaleAcceptedHead => "the accepted schema head changed",
+        SchemaMigrationCode::PlanChanged => "the deployed migration plan changed",
+        SchemaMigrationCode::DuplicateRenameSource => "a rename source is used more than once",
+        SchemaMigrationCode::DuplicateRenameTarget => "a rename target is used more than once",
+        SchemaMigrationCode::UnknownFromObject => "a rename source is not accepted",
+        SchemaMigrationCode::UnknownToObject => "a rename target is not declared",
+        SchemaMigrationCode::KindMismatch => "a migration object kind does not match",
+        SchemaMigrationCode::IdentityConflict => "accepted migration identity conflicts",
+        SchemaMigrationCode::IncompleteRenameCoverage => {
+            "the migration does not cover every required rename"
+        }
+        SchemaMigrationCode::UnexplainedSchemaDifference => {
+            "the proposal contains an unexplained schema difference"
+        }
+        SchemaMigrationCode::UnsupportedTransform => "the declared transform is unsupported",
+        SchemaMigrationCode::TransformFinding => "a row transform failed validation",
+        SchemaMigrationCode::UniqueIndexFinding => "candidate uniqueness validation failed",
+        SchemaMigrationCode::RelationFinding => "candidate relation validation failed",
+        SchemaMigrationCode::ConstraintFinding => "candidate constraint validation failed",
+        SchemaMigrationCode::PhysicalRunnerMissing => {
+            "the required physical migration runner is unavailable"
+        }
+        SchemaMigrationCode::MigrationInProgress => "a schema migration is already in progress",
+        SchemaMigrationCode::AbortTooLate => "row rewriting has begun and abort is no longer safe",
+        SchemaMigrationCode::ProgressCorrupt => "durable migration progress is corrupt",
+        SchemaMigrationCode::CandidateMismatch => {
+            "durable candidate state does not match the deployed plan"
+        }
+        SchemaMigrationCode::PublicationRaceLost => {
+            "accepted migration authority changed before publication"
         }
     }
 }

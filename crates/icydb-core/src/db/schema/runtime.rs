@@ -711,14 +711,12 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
 
     /// Borrow accepted primary-key field names in key order.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn primary_key_names(&self) -> &[&'a str] {
         self.primary_key_names.as_slice()
     }
 
     /// Return whether one accepted field name belongs to the primary key.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn is_primary_key_field_name(&self, field_name: &str) -> bool {
         self.primary_key_names.contains(&field_name)
     }

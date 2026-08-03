@@ -41,7 +41,6 @@ pub(in crate::db) enum AcceptedScalarClass {
 impl AcceptedScalarClass {
     /// Return true when the class carries numeric runtime semantics.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     const fn is_numeric(self) -> bool {
         matches!(
             self,
@@ -78,7 +77,6 @@ impl AcceptedScalarClass {
 
     /// Return true when arithmetic numeric aggregates may consume this class.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     const fn supports_arithmetic_numeric(self) -> bool {
         matches!(
             self,
@@ -126,14 +124,12 @@ impl AcceptedScalarClass {
 
     /// Return true when this coarse kind alone proves stable grouping-key bytes.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     const fn supports_stable_group_key(self) -> bool {
         !matches!(self, Self::Enum | Self::Unit)
     }
 
     /// Return true when lossless predicate numeric widening supports this class.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     const fn supports_predicate_numeric_widen(self) -> bool {
         matches!(
             self,
@@ -201,7 +197,6 @@ impl AcceptedFieldKindSemantics {
 
     /// Return true when the field kind or relation key carries numeric semantics.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn is_numeric(self) -> bool {
         match self.category.scalar_class() {
             Some(class) => class.is_numeric(),
@@ -231,7 +226,6 @@ impl AcceptedFieldKindSemantics {
 
     /// Return true when arithmetic numeric aggregates may consume this kind.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn supports_arithmetic_numeric(self) -> bool {
         match self.category.scalar_class() {
             Some(class) => class.supports_arithmetic_numeric(),
@@ -241,7 +235,6 @@ impl AcceptedFieldKindSemantics {
 
     /// Return true when predicate comparison may use lossless numeric widening.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn supports_predicate_numeric_widen(self) -> bool {
         match self.category.scalar_class() {
             Some(class) => class.supports_predicate_numeric_widen(),
@@ -278,7 +271,6 @@ impl AcceptedFieldKindSemantics {
 
     /// Return true when grouping is safe without additional catalog evidence.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn supports_stable_group_key(self) -> bool {
         match self.category.scalar_class() {
             Some(class) => class.supports_stable_group_key(),

@@ -1,9 +1,9 @@
 use super::ast_depth::validate_sql_statement_ast_depth;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::sql::lowering::{
     LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, select::lower_delete_shape,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::sql::{
     lowering::aggregate::lower_global_aggregate_select_shape,
     parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget},
@@ -69,7 +69,7 @@ fn first_statement_parameter_index(statement: &SqlStatement) -> Option<usize> {
         SqlStatement::Delete(statement) => first_delete_parameter_index(statement),
         SqlStatement::Insert(statement) => first_insert_parameter_index(statement),
         SqlStatement::Update(statement) => first_update_parameter_index(statement),
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatement::Explain(statement) => first_explain_parameter_index(statement),
         SqlStatement::Ddl(_)
         | SqlStatement::Describe(_)
@@ -127,7 +127,7 @@ fn first_update_parameter_index(statement: &SqlUpdateStatement) -> Option<usize>
 
 // EXPLAIN wraps an executable reduced-SQL statement and therefore inherits the
 // same parameter admission contract as its target.
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn first_explain_parameter_index(statement: &SqlExplainStatement) -> Option<usize> {
     match &statement.statement {
         SqlExplainTarget::Select(select) => first_select_parameter_index(select),
@@ -192,7 +192,7 @@ fn first_expr_parameter_index(expr: &SqlExpr) -> Option<usize> {
 
 /// Lower one prepared SQL EXPLAIN statement through an explicit schema projection.
 #[inline(never)]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(crate) fn lower_sql_explain_command_from_prepared_statement_with_schema(
     prepared: PreparedSqlStatement,
     schema: &SchemaInfo,
@@ -292,7 +292,7 @@ fn prepare_statement(
             expected_entity,
         )?)),
         SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatement::Explain(statement) => Ok(SqlStatement::Explain(prepare_explain_statement(
             statement.clone(),
             expected_entity,
@@ -323,7 +323,7 @@ fn prepare_statement(
     }
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn prepare_explain_statement(
     statement: SqlExplainStatement,
     expected_entity: &str,
@@ -421,7 +421,7 @@ fn prepare_insert_select_source(
     Ok(statement)
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn lower_explain_prepared_with_schema(
     statement: SqlExplainStatement,
     schema: &SchemaInfo,
@@ -445,7 +445,7 @@ fn lower_explain_prepared_with_schema(
     }
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 fn lower_explain_select_prepared_with_schema(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,

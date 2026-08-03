@@ -280,3 +280,11 @@ opaque_token!(
     SchemaProposalDigest,
     "Canonical digest of one current-form schema proposal."
 );
+opaque_token!(
+    SchemaMigrationPlanDigest,
+    "Canonical digest of one current-form coordinated schema migration plan."
+);
+opaque_token!(
+    EntitySourceDigest,
+    "Canonical generated-source meaning digest for one current entity."
+);

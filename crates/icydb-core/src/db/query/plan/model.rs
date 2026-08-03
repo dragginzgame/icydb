@@ -609,7 +609,7 @@ impl AggregateKind {
 
     /// Return the explain projection mode label for this kind and projection surface.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn explain_projection_mode_label(
         self,
         has_projected_field: bool,
@@ -630,7 +630,7 @@ impl AggregateKind {
 
     /// Return whether this terminal kind can remain covering on existing-row plans.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn supports_covering_existing_rows_terminal(self) -> bool {
         matches!(self, Self::Count | Self::Exists)
     }

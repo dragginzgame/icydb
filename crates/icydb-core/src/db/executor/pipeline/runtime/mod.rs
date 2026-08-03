@@ -28,7 +28,7 @@ pub(in crate::db::executor) use grouped::{
     compile_grouped_row_slot_layout_from_inputs,
 };
 pub(in crate::db::executor) use retained_slots::compile_retained_slot_layout_for_mode;
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use retained_slots::compile_retained_slot_layout_for_mode_with_extra_slots;
 
 /// Finalize one structural scalar page before typed or structural surface projection.

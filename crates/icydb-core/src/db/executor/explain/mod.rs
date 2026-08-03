@@ -20,7 +20,7 @@ use crate::db::{
 };
 
 use descriptor::assemble_load_execution_verbose_diagnostics_from_route_facts;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use descriptor::assemble_scalar_aggregate_execution_descriptor_with_projection;
 pub(in crate::db) use descriptor::{
     assemble_load_execution_node_descriptor_from_route_facts,

@@ -1,0 +1,5 @@
+error: entity_migration(...) must declare a rename or transform
+ --> tests/ui/migrations/fail/empty_transition.rs:4:5
+  |
+4 |     migrations(entity_migration(entity = "Account", from = 1)),
+  |     ^^^^^^^^^^

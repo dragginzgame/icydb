@@ -5,10 +5,8 @@
 //! Does not own: feature semantics delegated to child modules (`query`, `executor`, etc.).
 //! Boundary: top-level db API and internal orchestration entrypoints.
 
-#[cfg(any(test, feature = "query"))]
 pub(crate) mod access;
 pub(crate) mod catalog;
-#[cfg(any(test, feature = "query"))]
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 mod dynamic_write;
@@ -17,10 +15,8 @@ pub(crate) mod integrity;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
-#[cfg(any(test, feature = "query"))]
 pub(crate) mod query;
 pub(crate) mod registry;
-#[cfg(any(test, feature = "query"))]
 pub(crate) mod response;
 pub(crate) mod runtime_entity_catalog;
 pub(crate) mod scalar_expr;
@@ -53,6 +49,7 @@ use crate::{
         commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
         data::RawDataStoreKey,
         registry::StoreHandle,
+        schema::ensure_schema_migration_ready_for_ordinary_operations,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -73,7 +70,6 @@ pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
     StoreSnapshotStorageMode,
 };
-#[cfg(any(test, feature = "query"))]
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,
@@ -87,7 +83,6 @@ pub use dynamic_write::{
     DynamicMutationResult, DynamicTypedBindingError, DynamicTypedEntityBinding,
     DynamicTypedFieldBindingRequest, DynamicTypedFieldType,
 };
-#[cfg(any(test, feature = "query"))]
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
@@ -112,20 +107,16 @@ pub use key_taxonomy::{
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
 };
-#[cfg(feature = "query")]
 pub use query::DynamicQuery;
-#[cfg(any(test, feature = "query"))]
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub use query::explain::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
-#[cfg(any(test, feature = "query"))]
 pub use query::plan::validate::PlanError;
-#[cfg(any(test, feature = "query"))]
 pub use query::{
     builder::{
         AggregateExpr, FieldRef, TextProjectionExpr, ValueProjectionExpr, avg, contains, count,
@@ -153,7 +144,6 @@ pub use registry::{
     StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
-#[cfg(any(test, feature = "query"))]
 pub use response::{GroupedQueryOutput, GroupedRow, RowProjectionOutput};
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
@@ -167,6 +157,12 @@ pub use schema::{
     SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeJob, SchemaChangeJobId,
     SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
     SchemaChangeValidationPhase,
+};
+#[cfg(feature = "migration")]
+pub use schema::{
+    SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,
+    SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
 pub use session::DbSession;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -221,6 +217,7 @@ impl<C: CanisterKind> Db<C> {
     /// Resolve one named store after enforcing startup recovery.
     pub(in crate::db) fn recovered_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
         ensure_recovered(self)?;
+        ensure_schema_migration_ready_for_ordinary_operations()?;
 
         self.store_handle(path)
     }
@@ -236,6 +233,14 @@ impl<C: CanisterKind> Db<C> {
 
     /// Ensure startup/in-progress commit recovery has been applied.
     pub(crate) fn ensure_recovered_state(&self) -> Result<(), InternalError> {
+        ensure_recovered(self)?;
+        ensure_schema_migration_ready_for_ordinary_operations()
+    }
+
+    /// Recover durable state for an explicit control-plane operation that is
+    /// allowed to inspect a gated migration. This never clears or bypasses the
+    /// gate for ordinary database work.
+    pub(in crate::db) fn ensure_recovered_control_state(&self) -> Result<(), InternalError> {
         ensure_recovered(self)
     }
 
@@ -341,7 +346,7 @@ impl<C: CanisterKind> Db<C> {
                 })
                 .collect::<Vec<_>>()
         });
-        stores.sort_by(|left, right| left.store_path().cmp(right.store_path()));
+        stores.sort_unstable_by(|left, right| left.store_path().cmp(right.store_path()));
         stores
     }
 
@@ -370,7 +375,7 @@ impl<C: CanisterKind> Db<C> {
                 })
                 .collect::<Vec<_>>()
         });
-        memory.sort_by(|left, right| {
+        memory.sort_unstable_by(|left, right| {
             left.memory_id()
                 .cmp(&right.memory_id())
                 .then_with(|| left.tag().cmp(right.tag()))

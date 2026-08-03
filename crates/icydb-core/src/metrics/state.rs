@@ -8,17 +8,13 @@
 //! query metrics are non-existent by design under IC query semantics.
 
 use crate::runtime::now_millis;
-#[cfg(any(test, feature = "metrics-extended"))]
 use candid::CandidType;
-#[cfg(any(test, feature = "metrics-extended"))]
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
 
 mod compact;
 mod ops;
-#[cfg(any(test, feature = "metrics-extended"))]
 mod report;
-#[cfg(any(test, feature = "metrics-extended"))]
 mod summary;
 
 pub(super) use compact::compact_report_window_start;
@@ -26,21 +22,12 @@ pub use compact::{
     CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
     compact_metric_code,
 };
-#[cfg(any(test, feature = "metrics-extended"))]
 pub use ops::EventOps;
-#[cfg(not(any(test, feature = "metrics-extended")))]
-pub(crate) use ops::EventOps;
-#[cfg(any(test, feature = "metrics-extended"))]
 pub use ops::MetricRatio;
-#[cfg(any(test, feature = "metrics-extended"))]
 pub(in crate::metrics) use ops::ratio;
-#[cfg(any(test, feature = "metrics-extended"))]
 pub(super) use report::report_window_start;
-#[cfg(any(test, feature = "metrics-extended"))]
 pub use report::{EventCounters, EventReport};
-#[cfg(any(test, feature = "metrics-extended"))]
 pub use summary::EntitySummary;
-#[cfg(any(test, feature = "metrics-extended"))]
 pub(in crate::metrics) use summary::entity_summary_from_counters;
 
 #[derive(Clone, Debug)]
@@ -199,12 +186,7 @@ pub(crate) struct EntityCounters {
 }
 
 #[cfg_attr(doc, doc = "EventPerf\n\nInstruction totals and maxima.")]
-#[derive(Clone, Debug, Default)]
-#[cfg_attr(
-    any(test, feature = "metrics-extended"),
-    derive(CandidType, Deserialize)
-)]
-#[cfg_attr(not(any(test, feature = "metrics-extended")), allow(unreachable_pub))]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventPerf {
     // Instruction totals per executor (ic_cdk::api::performance_counter(1))
     pub(crate) load_inst_total: u128,
@@ -217,7 +199,6 @@ pub struct EventPerf {
     pub(crate) delete_inst_max: u64,
 }
 
-#[cfg(any(test, feature = "metrics-extended"))]
 impl EventPerf {
     #[must_use]
     pub const fn new(

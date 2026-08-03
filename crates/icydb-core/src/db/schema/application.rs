@@ -11,8 +11,9 @@ use crate::{
             write_hash_tag_u8, write_hash_u64,
         },
         commit::{
-            AcceptedSchemaPublication, database_incarnation_id, ensure_recovered,
-            publish_accepted_schema_candidates_with_application_record,
+            AcceptedSchemaPublication, DatabaseControlOp, database_incarnation_id,
+            ensure_recovered, publish_accepted_schema_candidates_with_application_record,
+            publish_accepted_schema_candidates_with_database_control,
             publish_generated_row_local_abort_with_application_record,
         },
         data::DataStore,
@@ -23,6 +24,7 @@ use crate::{
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
         relation::prove_empty_reverse_relation_domain,
+        schema::ensure_schema_migration_ready_for_ordinary_operations,
         schema::{
             AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
             ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
@@ -49,10 +51,43 @@ use icydb_schema::{
 };
 use serde::Deserialize;
 use sha2::Digest;
+#[cfg(feature = "migration")]
+use std::collections::BTreeMap;
+
+#[cfg(feature = "migration")]
+use crate::db::schema::{
+    PersistedSchemaMigrationEntity, PersistedSchemaMigrationFindingKind,
+    PersistedSchemaMigrationIndex, PersistedSchemaMigrationPhase,
+    PersistedSchemaMigrationTransition, SchemaMigrationCommand, SchemaMigrationEntityTransition,
+    SchemaMigrationFinding, SchemaMigrationFindingKind, SchemaMigrationPhase,
+    SchemaMigrationReceipt, SchemaMigrationRecord, SchemaMigrationRecordOp,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
+    live_schema_checkpoint::{load_entity_source_lineage_catalog, load_schema_migration_record},
+    migration_execution::{
+        cleanup_migration_staging_page, final_validate_migration_page,
+        migration_derived_domain_count, publish_migration_rewrite_page, rewrite_migration_page,
+    },
+    migration_lineage::{
+        AcceptedEntitySourceLineage, AcceptedEntitySourceLineageCatalog,
+        AcceptedEntitySourceLineageState, EntitySourceLineageCatalogOp,
+    },
+    migration_planner::{
+        PlannedEntitySourceLineage, SchemaMigrationPlanningError, plan_entity_source_adoption,
+        plan_initial_entity_source_lineage, plan_schema_migration,
+    },
+    migration_validation::{stage_migration_index_entries, validate_migration_page},
+};
+
+#[cfg(feature = "migration")]
+use icydb_diagnostic_code::SchemaMigrationCode;
+#[cfg(feature = "migration")]
+use icydb_schema::{EntitySourceKey, SchemaMigrationPlanDigest};
 
 const DATABASE_TARGET_FINGERPRINT_PROFILE: &[u8] = b"icydb.schema-target.database.v1";
 const STORE_TARGET_FINGERPRINT_PROFILE: &[u8] = b"icydb.schema-target.store.v1";
 const ACCEPTED_DATABASE_HEAD_FINGERPRINT_PROFILE: &[u8] = b"icydb.accepted-schema.database-head.v1";
+#[cfg(feature = "migration")]
+const SCHEMA_MIGRATION_SUBMISSION_PROFILE: &[u8] = b"icydb.schema-migration.submission.v1";
 
 ///
 /// SchemaApplicationStore
@@ -188,7 +223,7 @@ pub(in crate::db) fn schema_application_target<C: CanisterKind>(
             .map(|(path, handle)| StoreApplicationAuthority { path, handle })
             .collect::<Vec<_>>()
     });
-    stores.sort_by(|left, right| left.path.cmp(right.path));
+    stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
 
     let database_identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
     let mut accepted_heads = Vec::with_capacity(stores.len());
@@ -260,6 +295,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     acknowledged_receipt: Option<u64>,
 ) -> Result<SchemaChangeProgress, InternalError> {
     ensure_recovered(db)?;
+    ensure_schema_migration_ready_for_ordinary_operations()?;
     let record = with_schema_application_store(|store| store.load_job(job_id))?
         .ok_or_else(InternalError::schema_application_conflict)?;
     let target = schema_application_target(db)?;
@@ -369,6 +405,7 @@ pub(in crate::db) fn abort_schema_application<C: CanisterKind>(
     acknowledged_receipt: Option<u64>,
 ) -> Result<SchemaChangeProgress, InternalError> {
     ensure_recovered(db)?;
+    ensure_schema_migration_ready_for_ordinary_operations()?;
     let record = with_schema_application_store(|store| store.load_job(job_id))?
         .ok_or_else(InternalError::schema_application_conflict)?;
     let target = schema_application_target(db)?;
@@ -583,6 +620,7 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     proposal: &SchemaProposal,
 ) -> Result<SchemaChangeReceipt, InternalError> {
     ensure_recovered(db)?;
+    ensure_schema_migration_ready_for_ordinary_operations()?;
     let proposal_digest = proposal
         .digest()
         .map_err(|_| InternalError::store_unsupported())?;
@@ -596,6 +634,8 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     {
         return Err(InternalError::schema_application_conflict());
     }
+
+    preflight_ordinary_source_application(db, proposal, &target)?;
 
     let authorities = application_authorities(db);
     let LoweredApplication {
@@ -617,6 +657,10 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     } else {
         accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?
     };
+    #[cfg(feature = "migration")]
+    let outcome_head = accepted_head.clone();
+    #[cfg(not(feature = "migration"))]
+    let outcome_head = accepted_head;
     let outcome = if pending.is_some() {
         let job_id = derive_schema_change_job_id(
             target.database_identity(),
@@ -626,12 +670,16 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
         )?;
         SchemaChangeOutcome::Pending {
             job: SchemaChangeJob::new(job_id),
-            candidate_head: accepted_head,
+            candidate_head: outcome_head,
         }
     } else if candidates.is_empty() {
-        SchemaChangeOutcome::NoOp { accepted_head }
+        SchemaChangeOutcome::NoOp {
+            accepted_head: outcome_head,
+        }
     } else {
-        SchemaChangeOutcome::Applied { accepted_head }
+        SchemaChangeOutcome::Applied {
+            accepted_head: outcome_head,
+        }
     };
     let receipt = SchemaChangeReceipt::new(
         target.database_identity(),
@@ -656,10 +704,1375 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     };
     let record = SchemaApplicationRecord::new(receipt.clone(), activations)?;
     let operation = SchemaApplicationRecordOp::insert(&record)?;
+    #[cfg(feature = "migration")]
+    let database_control = attach_ordinary_lineage_publication(
+        proposal,
+        target.accepted_head(),
+        &accepted_head,
+        candidates.as_slice(),
+        operation,
+    )?;
+    #[cfg(not(feature = "migration"))]
+    let database_control = vec![DatabaseControlOp::SchemaApplication(operation)];
     let publications =
         application_publications(authorities.as_slice(), &current_bundles, &candidates)?;
-    publish_accepted_schema_candidates_with_application_record(publications, operation)?;
+    publish_accepted_schema_candidates_with_database_control(publications, database_control)?;
     Ok(receipt)
+}
+
+fn preflight_ordinary_source_application<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    target: &SchemaApplicationTarget,
+) -> Result<(), InternalError> {
+    if proposal.migration().is_none()
+        || matches!(target.accepted_head(), ExpectedAcceptedHead::Empty)
+    {
+        return Ok(());
+    }
+    #[cfg(feature = "migration")]
+    if current_proposal_lineage_is_applied(db, proposal, target.accepted_head())? {
+        return Ok(());
+    }
+    #[cfg(feature = "migration")]
+    preflight_unpublished_schema_migration(target, proposal, db)?;
+    #[cfg(not(feature = "migration"))]
+    let _ = db;
+    Err(InternalError::store_unsupported())
+}
+
+/// Execute one explicit source-migration operation against the exact deployed
+/// generated proposal. Metadata-only adoption and advance complete in one
+/// marker; physical work remains rejected until the durable runner exists.
+#[cfg(feature = "migration")]
+pub(in crate::db) fn migrate_schema<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    command: SchemaMigrationCommand,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    ensure_recovered(db)?;
+    match command {
+        SchemaMigrationCommand::Adopt {
+            expected_database,
+            expected_head,
+        } => adopt_entity_source_lineage(db, proposal, expected_database, &expected_head),
+        SchemaMigrationCommand::Advance {
+            expected_database,
+            expected_head,
+            expected_plan,
+            acknowledged_finding_page,
+        } => advance_metadata_schema_migration(
+            db,
+            proposal,
+            expected_database,
+            &expected_head,
+            expected_plan,
+            acknowledged_finding_page,
+        ),
+        SchemaMigrationCommand::Abort {
+            expected_database,
+            expected_head,
+            expected_plan,
+        } => {
+            let plan = proposal.migration().ok_or_else(|| {
+                InternalError::schema_migration(SchemaMigrationCode::MissingMigration)
+            })?;
+            if proposal.target_database() != expected_database || plan.digest() != expected_plan {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::PlanChanged,
+                ));
+            }
+            if let Some(record) = exact_active_migration_record(
+                proposal,
+                expected_database,
+                &expected_head,
+                expected_plan,
+            )? {
+                let target = schema_application_target(db)?;
+                validate_active_migration_target(&record, &target)?;
+                if record.phase() == PersistedSchemaMigrationPhase::Applied
+                    || record.phase() == PersistedSchemaMigrationPhase::Aborted
+                {
+                    return active_migration_status(proposal, &target, &record);
+                }
+                if !record.phase().abortable() {
+                    return Err(InternalError::schema_migration(
+                        SchemaMigrationCode::AbortTooLate,
+                    ));
+                }
+                let planned = recompile_active_physical_migration(db, proposal, &record)?;
+                let authorities = application_authorities(db);
+                let store_identities = authorities
+                    .iter()
+                    .map(|authority| {
+                        (
+                            authority.path,
+                            derive_store_identity(record.database_identity(), authority),
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>();
+                let (progress, exhausted) = cleanup_migration_staging_page(
+                    db,
+                    &planned,
+                    record.progress(),
+                    &store_identities,
+                )?;
+                let phase = if exhausted {
+                    PersistedSchemaMigrationPhase::Aborted
+                } else {
+                    record.phase()
+                };
+                let advanced = record.transition(phase, progress)?;
+                let operation = SchemaMigrationRecordOp::replace(&record, &advanced)?;
+                publish_accepted_schema_candidates_with_database_control(
+                    Vec::new(),
+                    vec![DatabaseControlOp::SchemaMigration(operation)],
+                )?;
+                return active_migration_status(proposal, &target, &advanced);
+            }
+            let target = exact_migration_target(db, expected_database, &expected_head)?;
+            let status = schema_migration_status_for_target(db, proposal, &target)?;
+            if status.phase() == SchemaMigrationPhase::Applied {
+                Ok(status)
+            } else {
+                // Patch 4 has no nonterminal job to abort. Patch 5 introduces
+                // the bounded pre-rewrite abort state machine.
+                Err(InternalError::schema_migration(
+                    SchemaMigrationCode::MissingMigration,
+                ))
+            }
+        }
+    }
+}
+
+/// Return one bounded deployed-source migration status page.
+#[cfg(feature = "migration")]
+pub(in crate::db) fn schema_migration_status<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    request: &SchemaMigrationStatusRequest,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    ensure_recovered(db)?;
+    if !request.validate() || request.cursor().is_some() {
+        return Err(InternalError::cursor_invalid_continuation());
+    }
+    let target = schema_application_target(db)?;
+    schema_migration_status_for_target(db, proposal, &target)
+}
+
+/// Admit generated ordinary endpoint startup while an exact prepared
+/// migration deliberately leaves predecessor authority live. Every later
+/// phase remains owned by the database-wide gate.
+#[cfg(feature = "migration")]
+pub(in crate::db) fn defer_generated_schema_application_for_prepared_migration<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+) -> Result<bool, InternalError> {
+    ensure_recovered(db)?;
+    let Some(record) = load_schema_migration_record()? else {
+        return Ok(false);
+    };
+    if matches!(
+        record.phase(),
+        PersistedSchemaMigrationPhase::Applied | PersistedSchemaMigrationPhase::Aborted
+    ) {
+        return Ok(false);
+    }
+    validate_active_migration_deployment(proposal, &record)?;
+    let target = schema_application_target(db)?;
+    validate_active_migration_target(&record, &target)?;
+    match record.phase() {
+        PersistedSchemaMigrationPhase::Prepared => Ok(true),
+        PersistedSchemaMigrationPhase::Validating
+        | PersistedSchemaMigrationPhase::ReadyToRewrite
+        | PersistedSchemaMigrationPhase::RewritingRows
+        | PersistedSchemaMigrationPhase::RebuildingIndexes
+        | PersistedSchemaMigrationPhase::FinalValidation
+        | PersistedSchemaMigrationPhase::Publishing
+        | PersistedSchemaMigrationPhase::Rejected => Err(InternalError::schema_migration(
+            SchemaMigrationCode::MigrationInProgress,
+        )),
+        PersistedSchemaMigrationPhase::Applied | PersistedSchemaMigrationPhase::Aborted => {
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(feature = "migration")]
+fn adopt_entity_source_lineage<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    expected_database: TargetDatabaseIdentity,
+    expected_head: &ExpectedAcceptedHead,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    if proposal.migration().is_some() || proposal.target_database() != expected_database {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    let proposal_digest = proposal
+        .digest()
+        .map_err(|_| InternalError::store_unsupported())?;
+    let submission_key = migration_submission_key(None)?;
+    if let Some(record) = load_exact_migration_record(
+        expected_database,
+        &submission_key,
+        proposal_digest,
+        expected_head,
+    )? {
+        let replay_target = exact_migration_replay_target(db, expected_database, &record)?;
+        return schema_migration_status_for_target(db, proposal, &replay_target);
+    }
+    let target = exact_migration_target(db, expected_database, expected_head)?;
+
+    let authorities = application_authorities(db);
+    let current_bundles = load_current_application_bundles(authorities.as_slice())?;
+    let stores = existing_proposal_stores(
+        target.database_identity(),
+        authorities.as_slice(),
+        current_bundles.as_slice(),
+    );
+    let stored_before = load_entity_source_lineage_catalog()?;
+    let before = stored_before.clone().unwrap_or_default();
+    let planned = plan_entity_source_adoption(proposal, stores.as_slice(), &before)
+        .map_err(schema_migration_planning_error)?;
+    let after = lineage_after_planned(&before, planned.as_slice(), expected_head)?;
+    let receipt = SchemaChangeReceipt::new(
+        expected_database,
+        submission_key,
+        proposal_digest,
+        expected_head.clone(),
+        SchemaChangeOutcome::NoOp {
+            accepted_head: expected_head.clone(),
+        },
+    )?;
+    let record = SchemaApplicationRecord::new(receipt, Vec::new())?;
+    let operation = SchemaApplicationRecordOp::insert(&record)?;
+    let lineage = EntitySourceLineageCatalogOp::replace(stored_before.as_ref(), &after)?;
+    publish_accepted_schema_candidates_with_database_control(
+        Vec::new(),
+        vec![
+            DatabaseControlOp::SchemaApplication(operation),
+            DatabaseControlOp::EntitySourceLineage(lineage),
+        ],
+    )?;
+    schema_migration_status_for_target(db, proposal, &target)
+}
+
+#[cfg(feature = "migration")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one migration entry point keeps preparation and exact replay ordering visible"
+)]
+fn advance_metadata_schema_migration<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    expected_database: TargetDatabaseIdentity,
+    expected_head: &ExpectedAcceptedHead,
+    expected_plan: SchemaMigrationPlanDigest,
+    acknowledged_finding_page: Option<u64>,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    let plan = proposal
+        .migration()
+        .ok_or_else(|| InternalError::schema_migration(SchemaMigrationCode::MissingMigration))?;
+    if proposal.target_database() != expected_database || plan.digest() != expected_plan {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    let proposal_digest = proposal
+        .digest()
+        .map_err(|_| InternalError::store_unsupported())?;
+    if let Some(record) =
+        exact_active_migration_record(proposal, expected_database, expected_head, expected_plan)?
+    {
+        let target = schema_application_target(db)?;
+        validate_active_migration_target(&record, &target)?;
+        return advance_active_schema_migration(
+            db,
+            proposal,
+            &target,
+            &record,
+            acknowledged_finding_page,
+        );
+    }
+    if acknowledged_finding_page.is_some() {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::CandidateMismatch,
+        ));
+    }
+    let submission_key = migration_submission_key(Some(expected_plan))?;
+    if let Some(record) = load_exact_migration_record(
+        expected_database,
+        &submission_key,
+        proposal_digest,
+        expected_head,
+    )? {
+        let replay_target = exact_migration_replay_target(db, expected_database, &record)?;
+        return schema_migration_status_for_target(db, proposal, &replay_target);
+    }
+    exact_migration_target(db, expected_database, expected_head)?;
+
+    let authorities = application_authorities(db);
+    let current_bundles = load_current_application_bundles(authorities.as_slice())?;
+    let stores = existing_proposal_stores(
+        expected_database,
+        authorities.as_slice(),
+        current_bundles.as_slice(),
+    );
+    let before = load_entity_source_lineage_catalog()?
+        .ok_or_else(|| InternalError::schema_migration(SchemaMigrationCode::Unadopted))?;
+    let planned = plan_schema_migration(proposal, stores.as_slice(), &before)
+        .map_err(schema_migration_planning_error)?;
+    let mut candidates = planned.candidates().to_vec();
+    let pending = if planned.requires_physical_validation() {
+        // The ordinary online preflight intentionally rejects non-empty field
+        // removal and direct index-generation replacement. The offline
+        // migration validator owns those same historical proofs against its
+        // unpublished candidate instead.
+        None
+    } else {
+        preflight_existing_application(
+            authorities.as_slice(),
+            current_bundles.as_slice(),
+            &mut candidates,
+        )?
+    };
+    if pending.is_some() {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::MigrationInProgress,
+        ));
+    }
+    if candidates.is_empty() || planned.lineage().is_empty() {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::EmptyEntityVersionBump,
+        ));
+    }
+    validate_database_identity_state_capacity(
+        authorities.as_slice(),
+        candidates.as_slice(),
+        database_incarnation_id()?,
+    )?;
+    let accepted_head =
+        accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?;
+    if planned.requires_physical_validation() {
+        ensure_physical_migration_stores_are_journaled(db, &planned)?;
+        let record = prepared_physical_schema_migration(
+            proposal,
+            &planned,
+            candidates.as_slice(),
+            expected_database,
+            expected_head,
+            &accepted_head,
+            proposal_digest,
+            expected_plan,
+            stores.as_slice(),
+        )?;
+        let operation = SchemaMigrationRecordOp::insert(&record)?;
+        publish_accepted_schema_candidates_with_database_control(
+            Vec::new(),
+            vec![DatabaseControlOp::SchemaMigration(operation)],
+        )?;
+        let target = schema_application_target(db)?;
+        validate_active_migration_target(&record, &target)?;
+        return active_migration_status(proposal, &target, &record);
+    }
+    let after = lineage_after_planned(&before, planned.lineage(), &accepted_head)?;
+    let receipt = SchemaChangeReceipt::new(
+        expected_database,
+        submission_key,
+        proposal_digest,
+        expected_head.clone(),
+        SchemaChangeOutcome::Applied { accepted_head },
+    )?;
+    let record = SchemaApplicationRecord::new(receipt, Vec::new())?;
+    let operation = SchemaApplicationRecordOp::insert(&record)?;
+    let lineage = EntitySourceLineageCatalogOp::replace(Some(&before), &after)?;
+    let publications = application_publications(
+        authorities.as_slice(),
+        current_bundles.as_slice(),
+        candidates.as_slice(),
+    )?;
+    publish_accepted_schema_candidates_with_database_control(
+        publications,
+        vec![
+            DatabaseControlOp::SchemaApplication(operation),
+            DatabaseControlOp::EntitySourceLineage(lineage),
+        ],
+    )?;
+    let applied_target = schema_application_target(db)?;
+    schema_migration_status_for_target(db, proposal, &applied_target)
+}
+
+#[cfg(feature = "migration")]
+fn ensure_physical_migration_stores_are_journaled<C: CanisterKind>(
+    db: &Db<C>,
+    planned: &crate::db::schema::migration_planner::PlannedSchemaMigration,
+) -> Result<(), InternalError> {
+    for program in planned.programs() {
+        let store = db.store_handle(program.store_path())?;
+        if store.storage_capabilities().recovery()
+            != StoreRecoveryCapability::StableBasePlusJournalReplay
+        {
+            return Err(InternalError::schema_migration(
+                SchemaMigrationCode::PhysicalRunnerMissing,
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "migration")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "migration preparation binds every immutable deployment and candidate identity"
+)]
+fn prepared_physical_schema_migration(
+    proposal: &SchemaProposal,
+    planned: &crate::db::schema::migration_planner::PlannedSchemaMigration,
+    candidates: &[CandidateSchemaRevision],
+    database_identity: TargetDatabaseIdentity,
+    accepted_before: &ExpectedAcceptedHead,
+    candidate_head: &ExpectedAcceptedHead,
+    submission_digest: SchemaProposalDigest,
+    plan_digest: SchemaMigrationPlanDigest,
+    stores: &[ExistingProposalStore<'_>],
+) -> Result<SchemaMigrationRecord, InternalError> {
+    let plan = proposal
+        .migration()
+        .ok_or_else(|| InternalError::schema_migration(SchemaMigrationCode::MissingMigration))?;
+    let transitions = plan
+        .transitions()
+        .iter()
+        .map(|transition| {
+            PersistedSchemaMigrationTransition::try_new(
+                transition.entity().clone(),
+                transition.from().get(),
+                transition
+                    .from()
+                    .get()
+                    .checked_add(1)
+                    .ok_or_else(InternalError::store_invariant)?,
+            )
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    let entities = planned
+        .lineage()
+        .iter()
+        .map(|entity| {
+            PersistedSchemaMigrationEntity::try_new(
+                entity.store(),
+                entity.entity(),
+                entity.digest(),
+            )
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    let mut staged_indexes = Vec::new();
+    for candidate in candidates {
+        let store = stores
+            .iter()
+            .find(|store| store.path == candidate.store_path())
+            .ok_or_else(InternalError::store_invariant)?;
+        for (entity, snapshot) in candidate.bundle().entity_snapshots() {
+            let before = store.bundle.entity_snapshots().get(entity);
+            for index in snapshot
+                .indexes()
+                .iter()
+                .filter(|index| {
+                    before
+                        .and_then(|before| {
+                            before
+                                .indexes()
+                                .iter()
+                                .find(|old| old.schema_id() == index.schema_id())
+                        })
+                        .is_none_or(|old| old.physical_generation() != index.physical_generation())
+                })
+                .chain(snapshot.candidate_indexes())
+            {
+                staged_indexes.push(PersistedSchemaMigrationIndex::try_new(
+                    store.identity,
+                    *entity,
+                    u64::from(index.schema_id().get()),
+                    index.physical_generation(),
+                )?);
+            }
+        }
+    }
+    staged_indexes.sort_unstable();
+    staged_indexes.dedup();
+    SchemaMigrationRecord::prepared(
+        database_identity,
+        accepted_before.clone(),
+        candidate_head.clone(),
+        submission_digest,
+        plan_digest,
+        transitions,
+        entities,
+        staged_indexes,
+    )
+}
+
+#[cfg(feature = "migration")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the closed phase match keeps every durable migration transition and publication boundary exhaustive"
+)]
+fn advance_active_schema_migration<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    target: &SchemaApplicationTarget,
+    record: &SchemaMigrationRecord,
+    acknowledged_finding_page: Option<u64>,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    match record.phase() {
+        PersistedSchemaMigrationPhase::Prepared => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            let validating = record.transition(
+                PersistedSchemaMigrationPhase::Validating,
+                record.progress().clone(),
+            )?;
+            publish_migration_record_replacement(record, &validating)?;
+            active_migration_status(proposal, target, &validating)
+        }
+        PersistedSchemaMigrationPhase::Validating => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            let planned = recompile_active_physical_migration(db, proposal, record)?;
+            let page = validate_migration_page(db, &planned, record.progress())?;
+            let (progress, staged_entries, exhausted) = page.into_parts();
+            let phase = if progress.findings().is_empty() {
+                if exhausted {
+                    PersistedSchemaMigrationPhase::ReadyToRewrite
+                } else {
+                    PersistedSchemaMigrationPhase::Validating
+                }
+            } else {
+                PersistedSchemaMigrationPhase::Rejected
+            };
+            if progress.findings().is_empty() {
+                // Candidate generations are planner-invisible. Staging them
+                // before the cursor marker makes retry idempotent and ensures
+                // durable progress never names absent physical proof.
+                stage_migration_index_entries(staged_entries)?;
+            }
+            let advanced = record.transition(phase, progress)?;
+            publish_migration_record_replacement(record, &advanced)?;
+            active_migration_status(proposal, target, &advanced)
+        }
+        PersistedSchemaMigrationPhase::Rejected => {
+            if acknowledged_finding_page.is_some()
+                && acknowledged_finding_page != record.progress().finding_page()
+            {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            active_migration_status(proposal, target, record)
+        }
+        PersistedSchemaMigrationPhase::ReadyToRewrite => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            let progress = record.progress().begin_row_phase()?;
+            let rewriting =
+                record.transition(PersistedSchemaMigrationPhase::RewritingRows, progress)?;
+            publish_migration_record_replacement(record, &rewriting)?;
+            active_migration_status(proposal, target, &rewriting)
+        }
+        PersistedSchemaMigrationPhase::RewritingRows => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            let planned = recompile_active_physical_migration(db, proposal, record)?;
+            let page =
+                rewrite_migration_page(db, &planned, record.progress(), record.plan_digest())?;
+            let (progress, effects, exhausted) = page.into_parts();
+            if progress.rows_rewritten() > progress.rows_validated()
+                || (exhausted && progress.rows_rewritten() != progress.rows_validated())
+            {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::ProgressCorrupt,
+                ));
+            }
+            let phase = if exhausted {
+                PersistedSchemaMigrationPhase::RebuildingIndexes
+            } else {
+                PersistedSchemaMigrationPhase::RewritingRows
+            };
+            let advanced = record.transition(phase, progress)?;
+            let operation = SchemaMigrationRecordOp::replace(record, &advanced)?;
+            publish_migration_rewrite_page(effects, operation)?;
+            active_migration_status(proposal, target, &advanced)
+        }
+        PersistedSchemaMigrationPhase::RebuildingIndexes => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            let planned = recompile_active_physical_migration(db, proposal, record)?;
+            let rebuilt = migration_derived_domain_count(db, &planned)?;
+            let progress = record
+                .progress()
+                .begin_row_phase()?
+                .with_index_progress(None, rebuilt)?;
+            let validating =
+                record.transition(PersistedSchemaMigrationPhase::FinalValidation, progress)?;
+            publish_migration_record_replacement(record, &validating)?;
+            active_migration_status(proposal, target, &validating)
+        }
+        PersistedSchemaMigrationPhase::FinalValidation => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            let planned = recompile_active_physical_migration(db, proposal, record)?;
+            let page = final_validate_migration_page(db, &planned, record.progress())?;
+            let (progress, exhausted) = page.into_parts();
+            let phase = if exhausted {
+                PersistedSchemaMigrationPhase::Publishing
+            } else {
+                PersistedSchemaMigrationPhase::FinalValidation
+            };
+            let advanced = record.transition(phase, progress)?;
+            publish_migration_record_replacement(record, &advanced)?;
+            active_migration_status(proposal, target, &advanced)
+        }
+        PersistedSchemaMigrationPhase::Publishing => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            publish_completed_physical_migration(db, proposal, record)
+        }
+        PersistedSchemaMigrationPhase::Applied | PersistedSchemaMigrationPhase::Aborted => {
+            if acknowledged_finding_page.is_some() {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
+            active_migration_status(proposal, target, record)
+        }
+    }
+}
+
+#[cfg(feature = "migration")]
+fn recompile_active_physical_migration<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    record: &SchemaMigrationRecord,
+) -> Result<crate::db::schema::migration_planner::PlannedSchemaMigration, InternalError> {
+    let authorities = application_authorities(db);
+    let current_bundles = load_current_application_bundles(authorities.as_slice())?;
+    let stores = existing_proposal_stores(
+        record.database_identity(),
+        authorities.as_slice(),
+        current_bundles.as_slice(),
+    );
+    let lineage = load_entity_source_lineage_catalog()?
+        .ok_or_else(|| InternalError::schema_migration(SchemaMigrationCode::Unadopted))?;
+    let planned = plan_schema_migration(proposal, stores.as_slice(), &lineage)
+        .map_err(schema_migration_planning_error)?;
+    if !planned.requires_physical_validation() {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    let candidate_head =
+        accepted_head_after_candidates(authorities.as_slice(), planned.candidates())?;
+    if &candidate_head != record.candidate_head() {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::CandidateMismatch,
+        ));
+    }
+    Ok(planned)
+}
+
+#[cfg(feature = "migration")]
+fn publish_completed_physical_migration<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    record: &SchemaMigrationRecord,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    let target = schema_application_target(db)?;
+    validate_active_migration_target(record, &target)?;
+    let planned = recompile_active_physical_migration(db, proposal, record)?;
+    let authorities = application_authorities(db);
+    let current_bundles = load_current_application_bundles(authorities.as_slice())?;
+    let candidate_head =
+        accepted_head_after_candidates(authorities.as_slice(), planned.candidates())?;
+    if &candidate_head != record.candidate_head() {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PublicationRaceLost,
+        ));
+    }
+    let lineage_before = load_entity_source_lineage_catalog()?
+        .ok_or_else(|| InternalError::schema_migration(SchemaMigrationCode::Unadopted))?;
+    let lineage_after =
+        lineage_after_planned(&lineage_before, planned.lineage(), record.candidate_head())?;
+    let receipt = SchemaChangeReceipt::new(
+        record.database_identity(),
+        migration_submission_key(Some(record.plan_digest()))?,
+        record.submission_digest(),
+        record.accepted_before().clone(),
+        SchemaChangeOutcome::Applied {
+            accepted_head: record.candidate_head().clone(),
+        },
+    )?;
+    let application = SchemaApplicationRecord::new(receipt, Vec::new())?;
+    let application = SchemaApplicationRecordOp::insert(&application)?;
+    let lineage = EntitySourceLineageCatalogOp::replace(Some(&lineage_before), &lineage_after)?;
+    let applied = record.transition(
+        PersistedSchemaMigrationPhase::Applied,
+        record.progress().clone(),
+    )?;
+    let migration = SchemaMigrationRecordOp::replace(record, &applied)?;
+    let publications = application_publications(
+        authorities.as_slice(),
+        current_bundles.as_slice(),
+        planned.candidates(),
+    )?;
+    publish_accepted_schema_candidates_with_database_control(
+        publications,
+        vec![
+            DatabaseControlOp::SchemaApplication(application),
+            DatabaseControlOp::EntitySourceLineage(lineage),
+            DatabaseControlOp::SchemaMigration(migration),
+        ],
+    )?;
+    db.mark_all_registered_index_stores_ready();
+    let applied_target = schema_application_target(db)?;
+    active_migration_status(proposal, &applied_target, &applied)
+}
+
+#[cfg(feature = "migration")]
+fn publish_migration_record_replacement(
+    before: &SchemaMigrationRecord,
+    after: &SchemaMigrationRecord,
+) -> Result<(), InternalError> {
+    let operation = SchemaMigrationRecordOp::replace(before, after)?;
+    publish_accepted_schema_candidates_with_database_control(
+        Vec::new(),
+        vec![DatabaseControlOp::SchemaMigration(operation)],
+    )
+}
+
+#[cfg(feature = "migration")]
+fn attach_ordinary_lineage_publication(
+    proposal: &SchemaProposal,
+    prior_head: &ExpectedAcceptedHead,
+    accepted_head: &ExpectedAcceptedHead,
+    candidates: &[CandidateSchemaRevision],
+    operation: SchemaApplicationRecordOp,
+) -> Result<Vec<DatabaseControlOp>, InternalError> {
+    let mut operations = vec![DatabaseControlOp::SchemaApplication(operation)];
+    let stored_before = load_entity_source_lineage_catalog()?;
+    let planned = if matches!(prior_head, ExpectedAcceptedHead::Empty) {
+        plan_initial_entity_source_lineage(proposal, candidates)
+            .map_err(schema_migration_planning_error)?
+    } else {
+        Vec::new()
+    };
+    if planned.is_empty() && (stored_before.is_none() || prior_head == accepted_head) {
+        return Ok(operations);
+    }
+    let before = stored_before.clone().unwrap_or_default();
+    let after = lineage_after_planned(&before, planned.as_slice(), accepted_head)?;
+    if before == after {
+        return Ok(operations);
+    }
+    operations.push(DatabaseControlOp::EntitySourceLineage(
+        EntitySourceLineageCatalogOp::replace(stored_before.as_ref(), &after)?,
+    ));
+    Ok(operations)
+}
+
+#[cfg(feature = "migration")]
+fn exact_migration_target<C: CanisterKind>(
+    db: &Db<C>,
+    expected_database: TargetDatabaseIdentity,
+    expected_head: &ExpectedAcceptedHead,
+) -> Result<SchemaApplicationTarget, InternalError> {
+    let target = schema_application_target(db)?;
+    if target.database_identity() != expected_database || target.accepted_head() != expected_head {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::StaleAcceptedHead,
+        ));
+    }
+    Ok(target)
+}
+
+#[cfg(feature = "migration")]
+fn exact_migration_replay_target<C: CanisterKind>(
+    db: &Db<C>,
+    expected_database: TargetDatabaseIdentity,
+    record: &SchemaApplicationRecord,
+) -> Result<SchemaApplicationTarget, InternalError> {
+    let target = schema_application_target(db)?;
+    if target.database_identity() != expected_database
+        || target.accepted_head() != migration_record_accepted_head(record)?
+    {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    Ok(target)
+}
+
+#[cfg(feature = "migration")]
+fn schema_migration_status_for_target<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    target: &SchemaApplicationTarget,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    if let Some(record) = load_schema_migration_record()? {
+        validate_active_migration_deployment(proposal, &record)?;
+        validate_active_migration_target(&record, target)?;
+        return active_migration_status(proposal, target, &record);
+    }
+    let lineage = load_entity_source_lineage_catalog()?.unwrap_or_default();
+    let plan_digest = proposal
+        .migration()
+        .map(icydb_schema::SchemaMigrationPlan::digest);
+    let transitions = migration_transitions(proposal)?;
+    let submission_key = migration_submission_key(plan_digest)?;
+    let terminal = load_migration_record_for_status(target.database_identity(), &submission_key)?
+        .map(|record| public_migration_receipt(&record, plan_digest))
+        .transpose()?;
+    let unadopted = lineage.entries().is_empty()
+        || lineage
+            .entries()
+            .values()
+            .any(|entry| matches!(entry.state(), AcceptedEntitySourceLineageState::Unadopted));
+    let applied = current_proposal_lineage_is_applied(db, proposal, target.accepted_head())?;
+    let phase = if unadopted {
+        SchemaMigrationPhase::Unadopted
+    } else if proposal.migration().is_none() {
+        SchemaMigrationPhase::Adopted
+    } else if applied {
+        SchemaMigrationPhase::Applied
+    } else {
+        SchemaMigrationPhase::Idle
+    };
+    let terminal = terminal.filter(|receipt| {
+        receipt.accepted_head() == target.accepted_head()
+            && receipt.plan_digest() == plan_digest
+            && matches!(
+                phase,
+                SchemaMigrationPhase::Adopted | SchemaMigrationPhase::Applied
+            )
+    });
+    Ok(SchemaMigrationStatusPage::new(
+        target.database_identity(),
+        target.accepted_head().clone(),
+        plan_digest,
+        phase,
+        transitions,
+        0,
+        0,
+        0,
+        Vec::new(),
+        None,
+        terminal,
+    ))
+}
+
+#[cfg(feature = "migration")]
+fn exact_active_migration_record(
+    proposal: &SchemaProposal,
+    expected_database: TargetDatabaseIdentity,
+    expected_head: &ExpectedAcceptedHead,
+    expected_plan: SchemaMigrationPlanDigest,
+) -> Result<Option<SchemaMigrationRecord>, InternalError> {
+    let Some(record) = load_schema_migration_record()? else {
+        return Ok(None);
+    };
+    if record.database_identity() != expected_database
+        || record.accepted_before() != expected_head
+        || record.plan_digest() != expected_plan
+    {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    validate_active_migration_deployment(proposal, &record)?;
+    Ok(Some(record))
+}
+
+#[cfg(feature = "migration")]
+fn validate_active_migration_deployment(
+    proposal: &SchemaProposal,
+    record: &SchemaMigrationRecord,
+) -> Result<(), InternalError> {
+    let plan = proposal
+        .migration()
+        .ok_or_else(|| InternalError::schema_migration(SchemaMigrationCode::PlanChanged))?;
+    let proposal_digest = proposal
+        .digest()
+        .map_err(|_| InternalError::store_unsupported())?;
+    if proposal.target_database() != record.database_identity()
+        || plan.digest() != record.plan_digest()
+        || proposal_digest != record.submission_digest()
+    {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "migration")]
+fn validate_active_migration_target(
+    record: &SchemaMigrationRecord,
+    target: &SchemaApplicationTarget,
+) -> Result<(), InternalError> {
+    let expected_head = if record.phase() == PersistedSchemaMigrationPhase::Applied {
+        record.candidate_head()
+    } else {
+        record.accepted_before()
+    };
+    if target.database_identity() != record.database_identity()
+        || target.accepted_head() != expected_head
+    {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "migration")]
+fn active_migration_status(
+    proposal: &SchemaProposal,
+    target: &SchemaApplicationTarget,
+    record: &SchemaMigrationRecord,
+) -> Result<SchemaMigrationStatusPage, InternalError> {
+    validate_active_migration_deployment(proposal, record)?;
+    validate_active_migration_target(record, target)?;
+    let transitions = record
+        .transitions()
+        .iter()
+        .map(|transition| {
+            SchemaMigrationEntityTransition::new(
+                transition.entity().clone(),
+                Some(transition.predecessor_version()),
+                transition.target_version(),
+            )
+        })
+        .collect();
+    let findings = record
+        .progress()
+        .findings()
+        .iter()
+        .map(|finding| {
+            let kind = match finding.kind() {
+                PersistedSchemaMigrationFindingKind::Transform => {
+                    SchemaMigrationFindingKind::Transform
+                }
+                PersistedSchemaMigrationFindingKind::UniqueIndex => {
+                    SchemaMigrationFindingKind::UniqueIndex
+                }
+                PersistedSchemaMigrationFindingKind::Relation => {
+                    SchemaMigrationFindingKind::Relation
+                }
+                PersistedSchemaMigrationFindingKind::Constraint => {
+                    SchemaMigrationFindingKind::Constraint
+                }
+            };
+            SchemaMigrationFinding::new(
+                kind,
+                finding.entity().value(),
+                finding.primary_key().to_vec(),
+            )
+        })
+        .collect();
+    let phase = match record.phase() {
+        PersistedSchemaMigrationPhase::Prepared => SchemaMigrationPhase::Prepared,
+        PersistedSchemaMigrationPhase::Validating => SchemaMigrationPhase::Validating,
+        PersistedSchemaMigrationPhase::ReadyToRewrite => SchemaMigrationPhase::ReadyToRewrite,
+        PersistedSchemaMigrationPhase::RewritingRows => SchemaMigrationPhase::RewritingRows,
+        PersistedSchemaMigrationPhase::RebuildingIndexes => SchemaMigrationPhase::RebuildingIndexes,
+        PersistedSchemaMigrationPhase::FinalValidation => SchemaMigrationPhase::FinalValidation,
+        PersistedSchemaMigrationPhase::Publishing => SchemaMigrationPhase::Publishing,
+        PersistedSchemaMigrationPhase::Applied => SchemaMigrationPhase::Applied,
+        PersistedSchemaMigrationPhase::Rejected => SchemaMigrationPhase::Rejected,
+        PersistedSchemaMigrationPhase::Aborted => SchemaMigrationPhase::Aborted,
+    };
+    let terminal_receipt = (record.phase() == PersistedSchemaMigrationPhase::Applied).then(|| {
+        SchemaMigrationReceipt::new(
+            record.database_identity(),
+            Some(record.plan_digest()),
+            record.accepted_before().clone(),
+            record.candidate_head().clone(),
+        )
+    });
+    Ok(SchemaMigrationStatusPage::new(
+        record.database_identity(),
+        target.accepted_head().clone(),
+        Some(record.plan_digest()),
+        phase,
+        transitions,
+        record.progress().rows_validated(),
+        record.progress().rows_rewritten(),
+        record.progress().indexes_rebuilt(),
+        findings,
+        None,
+        terminal_receipt,
+    ))
+}
+
+#[cfg(feature = "migration")]
+fn load_current_application_bundles(
+    authorities: &[StoreApplicationAuthority],
+) -> Result<Vec<Option<AcceptedSchemaRevisionBundle>>, InternalError> {
+    authorities
+        .iter()
+        .map(|authority| {
+            authority
+                .handle
+                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)
+        })
+        .collect()
+}
+
+#[cfg(feature = "migration")]
+fn existing_proposal_stores<'a>(
+    database_identity: TargetDatabaseIdentity,
+    authorities: &[StoreApplicationAuthority],
+    bundles: &'a [Option<AcceptedSchemaRevisionBundle>],
+) -> Vec<ExistingProposalStore<'a>> {
+    authorities
+        .iter()
+        .zip(bundles)
+        .filter_map(|(authority, bundle)| {
+            bundle.as_ref().map(|bundle| ExistingProposalStore {
+                path: authority.path,
+                identity: derive_store_identity(database_identity, authority),
+                bundle,
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "migration")]
+fn lineage_after_planned(
+    before: &AcceptedEntitySourceLineageCatalog,
+    planned: &[PlannedEntitySourceLineage],
+    accepted_head: &ExpectedAcceptedHead,
+) -> Result<AcceptedEntitySourceLineageCatalog, InternalError> {
+    let mut entries = BTreeMap::new();
+    for (key, entry) in before.entries() {
+        let next = match entry.state() {
+            AcceptedEntitySourceLineageState::Unadopted => {
+                AcceptedEntitySourceLineage::unadopted(accepted_head.clone())?
+            }
+            AcceptedEntitySourceLineageState::Adopted {
+                version,
+                source_digest,
+            } => AcceptedEntitySourceLineage::adopted(
+                accepted_head.clone(),
+                *version,
+                *source_digest,
+            )?,
+        };
+        entries.insert(*key, next);
+    }
+    for next in planned {
+        entries.insert(
+            (next.store(), next.entity()),
+            AcceptedEntitySourceLineage::adopted(
+                accepted_head.clone(),
+                next.version(),
+                next.digest(),
+            )?,
+        );
+    }
+    AcceptedEntitySourceLineageCatalog::try_new(entries)
+}
+
+#[cfg(feature = "migration")]
+fn schema_migration_planning_error(error: SchemaMigrationPlanningError) -> InternalError {
+    let reason = match error {
+        SchemaMigrationPlanningError::Unadopted => SchemaMigrationCode::Unadopted,
+        SchemaMigrationPlanningError::MissingMigration => SchemaMigrationCode::MissingMigration,
+        SchemaMigrationPlanningError::VersionGap => SchemaMigrationCode::VersionGap,
+        SchemaMigrationPlanningError::Downgrade => SchemaMigrationCode::Downgrade,
+        SchemaMigrationPlanningError::EmptyEntityVersionBump => {
+            SchemaMigrationCode::EmptyEntityVersionBump
+        }
+        SchemaMigrationPlanningError::StaleAcceptedHead => SchemaMigrationCode::StaleAcceptedHead,
+        SchemaMigrationPlanningError::UnknownFromObject => SchemaMigrationCode::UnknownFromObject,
+        SchemaMigrationPlanningError::UnknownToObject => SchemaMigrationCode::UnknownToObject,
+        SchemaMigrationPlanningError::KindMismatch => SchemaMigrationCode::KindMismatch,
+        SchemaMigrationPlanningError::IdentityConflict => SchemaMigrationCode::IdentityConflict,
+        SchemaMigrationPlanningError::UnexplainedSchemaDifference => {
+            SchemaMigrationCode::UnexplainedSchemaDifference
+        }
+        SchemaMigrationPlanningError::UnsupportedTransform => {
+            SchemaMigrationCode::UnsupportedTransform
+        }
+        SchemaMigrationPlanningError::RekeyedCatalogInvalid
+        | SchemaMigrationPlanningError::CandidateMismatch => SchemaMigrationCode::CandidateMismatch,
+        SchemaMigrationPlanningError::CorruptLineage => SchemaMigrationCode::ProgressCorrupt,
+    };
+    InternalError::schema_migration(reason)
+}
+
+#[cfg(feature = "migration")]
+fn migration_submission_key(
+    plan_digest: Option<SchemaMigrationPlanDigest>,
+) -> Result<SchemaSubmissionKey, InternalError> {
+    let mut hasher = new_hash_sha256_prefixed(SCHEMA_MIGRATION_SUBMISSION_PROFILE);
+    match plan_digest {
+        None => write_hash_tag_u8(&mut hasher, 0),
+        Some(digest) => {
+            write_hash_tag_u8(&mut hasher, 1);
+            hasher.update(digest.to_bytes());
+        }
+    }
+    let digest = finalize_hash_sha256(hasher);
+    let mut encoded = String::with_capacity(80);
+    encoded.push_str("migration/");
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").map_err(|_| InternalError::store_invariant())?;
+    }
+    SchemaSubmissionKey::try_new(encoded).map_err(|_| InternalError::store_invariant())
+}
+
+#[cfg(feature = "migration")]
+fn load_migration_record_for_status(
+    database_identity: TargetDatabaseIdentity,
+    submission_key: &SchemaSubmissionKey,
+) -> Result<Option<SchemaApplicationRecord>, InternalError> {
+    let record =
+        with_schema_application_store(|store| store.load(database_identity, submission_key))?;
+    if record
+        .as_ref()
+        .is_some_and(|record| record.receipt().database_identity() != database_identity)
+    {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::ProgressCorrupt,
+        ));
+    }
+    Ok(record)
+}
+
+#[cfg(feature = "migration")]
+fn load_exact_migration_record(
+    database_identity: TargetDatabaseIdentity,
+    submission_key: &SchemaSubmissionKey,
+    proposal_digest: SchemaProposalDigest,
+    prior_head: &ExpectedAcceptedHead,
+) -> Result<Option<SchemaApplicationRecord>, InternalError> {
+    let Some(record) =
+        with_schema_application_store(|store| store.load(database_identity, submission_key))?
+    else {
+        return Ok(None);
+    };
+    if !record.receipt().is_exact_submission(
+        database_identity,
+        submission_key,
+        proposal_digest,
+        prior_head,
+    ) {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::PlanChanged,
+        ));
+    }
+    Ok(Some(record))
+}
+
+#[cfg(feature = "migration")]
+fn public_migration_receipt(
+    record: &SchemaApplicationRecord,
+    plan_digest: Option<SchemaMigrationPlanDigest>,
+) -> Result<SchemaMigrationReceipt, InternalError> {
+    let accepted_head = migration_record_accepted_head(record)?.clone();
+    Ok(SchemaMigrationReceipt::new(
+        record.receipt().database_identity(),
+        plan_digest,
+        record.receipt().prior_head().clone(),
+        accepted_head,
+    ))
+}
+
+#[cfg(feature = "migration")]
+fn migration_record_accepted_head(
+    record: &SchemaApplicationRecord,
+) -> Result<&ExpectedAcceptedHead, InternalError> {
+    match record.receipt().outcome() {
+        SchemaChangeOutcome::NoOp { accepted_head }
+        | SchemaChangeOutcome::Applied { accepted_head } => Ok(accepted_head),
+        SchemaChangeOutcome::Pending { .. } | SchemaChangeOutcome::Aborted { .. } => Err(
+            InternalError::schema_migration(SchemaMigrationCode::ProgressCorrupt),
+        ),
+    }
+}
+
+#[cfg(feature = "migration")]
+fn migration_transitions(
+    proposal: &SchemaProposal,
+) -> Result<Vec<SchemaMigrationEntityTransition>, InternalError> {
+    if let Some(plan) = proposal.migration() {
+        return plan
+            .transitions()
+            .iter()
+            .map(|transition| {
+                let target = proposal_entity(proposal, transition.entity())?;
+                Ok(SchemaMigrationEntityTransition::new(
+                    transition.entity().clone(),
+                    Some(transition.from().get()),
+                    target.version().get(),
+                ))
+            })
+            .collect();
+    }
+    proposal
+        .fragments()
+        .iter()
+        .flat_map(icydb_schema::SchemaFragment::entities)
+        .map(|entity| {
+            Ok(SchemaMigrationEntityTransition::new(
+                entity.source_key().clone(),
+                None,
+                entity.version().get(),
+            ))
+        })
+        .collect()
+}
+
+#[cfg(feature = "migration")]
+fn proposal_entity<'a>(
+    proposal: &'a SchemaProposal,
+    source: &EntitySourceKey,
+) -> Result<&'a icydb_schema::EntityFragment, InternalError> {
+    proposal
+        .fragments()
+        .iter()
+        .flat_map(icydb_schema::SchemaFragment::entities)
+        .find(|entity| entity.source_key() == source)
+        .ok_or_else(InternalError::store_invariant)
+}
+
+#[cfg(feature = "migration")]
+fn current_proposal_lineage_is_applied<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+    accepted_head: &ExpectedAcceptedHead,
+) -> Result<bool, InternalError> {
+    let Some(lineage) = load_entity_source_lineage_catalog()? else {
+        return Ok(false);
+    };
+    let entities = proposal
+        .fragments()
+        .iter()
+        .flat_map(icydb_schema::SchemaFragment::entities)
+        .collect::<Vec<_>>();
+    if entities.len() != lineage.entries().len() {
+        return Ok(false);
+    }
+    let target = proposal.target_database();
+    let authorities = application_authorities(db);
+    for entity in entities {
+        let source = entity.source_key();
+        let digest = proposal
+            .entity_source_digest(source)
+            .map_err(|_| InternalError::store_invariant())?;
+        let mut matched = false;
+        for authority in &authorities {
+            let store_identity = derive_store_identity(target, authority);
+            let entity_tag = authority
+                .handle
+                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+                .and_then(|bundle| bundle.source_bindings().entity(source));
+            let Some(entity_tag) = entity_tag else {
+                continue;
+            };
+            let Some(entry) = lineage.get(store_identity, entity_tag) else {
+                return Ok(false);
+            };
+            matched = entry.accepted_head() == accepted_head
+                && matches!(
+                    entry.state(),
+                    AcceptedEntitySourceLineageState::Adopted { version, source_digest }
+                        if version.get() == entity.version().get() && *source_digest == digest
+                );
+            break;
+        }
+        if !matched {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(feature = "migration")]
+fn preflight_unpublished_schema_migration<C: CanisterKind>(
+    target: &SchemaApplicationTarget,
+    proposal: &SchemaProposal,
+    db: &Db<C>,
+) -> Result<(), InternalError> {
+    let authorities = application_authorities(db);
+    let current_bundles = authorities
+        .iter()
+        .map(|authority| {
+            authority
+                .handle
+                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    let stores = authorities
+        .iter()
+        .zip(&current_bundles)
+        .filter_map(|(authority, bundle)| {
+            bundle.as_ref().map(|bundle| ExistingProposalStore {
+                path: authority.path,
+                identity: derive_store_identity(target.database_identity(), authority),
+                bundle,
+            })
+        })
+        .collect::<Vec<_>>();
+    let lineage = load_entity_source_lineage_catalog()?.unwrap_or_default();
+    let planned = plan_schema_migration(proposal, stores.as_slice(), &lineage)
+        .map_err(schema_migration_planning_error)?;
+    if planned.candidates().is_empty() || planned.lineage().is_empty() {
+        return Err(InternalError::store_invariant());
+    }
+    for next in planned.lineage() {
+        let current = lineage
+            .get(next.store(), next.entity())
+            .ok_or_else(InternalError::store_invariant)?;
+        let AcceptedEntitySourceLineageState::Adopted {
+            version,
+            source_digest,
+        } = current.state()
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        let expected_version = version
+            .get()
+            .checked_add(1)
+            .ok_or_else(InternalError::store_invariant)?;
+        if next.version().get() != expected_version || next.digest() == *source_digest {
+            return Err(InternalError::store_invariant());
+        }
+    }
+    Ok(())
 }
 
 fn lower_application_candidates(
@@ -685,7 +2098,22 @@ fn lower_application_candidates(
                     identity: derive_store_identity(target.database_identity(), authority),
                 })
                 .collect::<Vec<_>>();
-            lower_initial_schema_proposal(proposal, stores.as_slice())?
+            let candidates = lower_initial_schema_proposal(proposal, stores.as_slice())?;
+            #[cfg(feature = "migration")]
+            {
+                let planned = plan_initial_entity_source_lineage(proposal, &candidates)
+                    .map_err(schema_migration_planning_error)?;
+                if planned.len()
+                    != proposal
+                        .fragments()
+                        .iter()
+                        .map(|fragment| fragment.entities().len())
+                        .sum::<usize>()
+                {
+                    return Err(InternalError::store_invariant());
+                }
+            }
+            candidates
         }
         ExpectedAcceptedHead::Exact { .. }
             if proposal.fragments().is_empty() && proposal.removals().is_empty() =>
@@ -1364,7 +2792,7 @@ fn application_authorities<C: CanisterKind>(db: &Db<C>) -> Vec<StoreApplicationA
             .map(|(path, handle)| StoreApplicationAuthority { path, handle })
             .collect::<Vec<_>>()
     });
-    authorities.sort_by(|left, right| left.path.cmp(right.path));
+    authorities.sort_unstable_by(|left, right| left.path.cmp(right.path));
     authorities
 }
 
@@ -1551,7 +2979,7 @@ mod tests {
     };
     use crate::{
         db::{
-            Db,
+            Db, DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell,
             commit::forget_recovered_domain_for_tests,
             data::DataStore,
             index::IndexStore,
@@ -1565,25 +2993,40 @@ mod tests {
                 CandidateSchemaRevision, ConstraintOrigin, ConstraintValidationJob,
                 ExistingProposalStore, ProposalStoreTarget, SchemaApplicationRecord,
                 SchemaApplicationRecordOp, SchemaChangeActivation, SchemaChangeJob,
-                SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
+                SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaChangeReceipt, SchemaStore,
             },
         },
         error::{ErrorClass, ErrorOrigin},
         testing::test_memory,
         traits::{CanisterKind, Path},
+        value::InputValue,
     };
     use icydb_schema::{
-        ConstraintFragment, ConstraintSourceKey, EntityFragment, EntitySourceKey,
-        EntityStoreAssignment, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment,
-        FieldInsertPolicy, FieldSourceKey, FieldType, NamedTypeFragment, RuleSourceKey,
-        ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment, SchemaName, SchemaProposal,
-        SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation,
-        TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey,
+        ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
+        EntityMigration, EntitySourceKey, EntityStoreAssignment, ExpectedAcceptedHead,
+        ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
+        IndexFragment, IndexKeyFragment, NamedTypeFragment, RelationDeleteAction, RelationFragment,
+        RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment,
+        SchemaMigrationPlan, SchemaMigrationTransform, SchemaName, SchemaProposal,
+        SchemaProposalDigest, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
+        SourceRuleOperation, TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment,
+        TypeSourceKey,
     };
     use std::cell::RefCell;
 
+    fn version_one() -> DeclaredEntityVersion {
+        DeclaredEntityVersion::try_new(1).expect("fixture version should admit")
+    }
+
     const ABORT_STORE_PATH: &str = "schema_application_tests::AbortStore";
     const EVOLUTION_STORE_PATH: &str = "schema_application_tests::EvolutionStore";
+    #[cfg(feature = "migration")]
+    const MIGRATION_STORE_PATH: &str = "schema_application_tests::MigrationStore";
+    #[cfg(feature = "migration")]
+    const MIGRATION_EXECUTION_STORE_PATH: &str =
+        "schema_application_tests::MigrationExecutionStore";
+    #[cfg(feature = "migration")]
+    const MIGRATION_FINDING_STORE_PATH: &str = "schema_application_tests::MigrationFindingStore";
 
     #[test]
     fn database_identity_state_capacity_combines_store_inventories_exactly() {
@@ -1636,6 +3079,96 @@ mod tests {
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("abort journaled store should register");
+            registry
+        };
+    }
+
+    #[cfg(feature = "migration")]
+    thread_local! {
+        static MIGRATION_EXECUTION_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(210)));
+        static MIGRATION_EXECUTION_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(211)));
+        static MIGRATION_EXECUTION_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(212)));
+        static MIGRATION_EXECUTION_JOURNAL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(213)));
+        static MIGRATION_EXECUTION_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                MIGRATION_EXECUTION_STORE_PATH,
+                &MIGRATION_EXECUTION_DATA,
+                &MIGRATION_EXECUTION_INDEX,
+                &MIGRATION_EXECUTION_SCHEMA,
+                &MIGRATION_EXECUTION_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(210, "icydb.test.migration-execution.data.v1"),
+                    StoreAllocationIdentity::new(211, "icydb.test.migration-execution.index.v1"),
+                    StoreAllocationIdentity::new(212, "icydb.test.migration-execution.schema.v1"),
+                    StoreAllocationIdentity::new(213, "icydb.test.migration-execution.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("migration execution store should register");
+            registry
+        };
+    }
+
+    #[cfg(feature = "migration")]
+    thread_local! {
+        static MIGRATION_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(200)));
+        static MIGRATION_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(201)));
+        static MIGRATION_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(202)));
+        static MIGRATION_JOURNAL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(203)));
+        static MIGRATION_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                MIGRATION_STORE_PATH,
+                &MIGRATION_DATA,
+                &MIGRATION_INDEX,
+                &MIGRATION_SCHEMA,
+                &MIGRATION_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(200, "icydb.test.migration-validation.data.v1"),
+                    StoreAllocationIdentity::new(201, "icydb.test.migration-validation.index.v1"),
+                    StoreAllocationIdentity::new(202, "icydb.test.migration-validation.schema.v1"),
+                    StoreAllocationIdentity::new(203, "icydb.test.migration-validation.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("migration validation store should register");
+            registry
+        };
+    }
+
+    #[cfg(feature = "migration")]
+    thread_local! {
+        static MIGRATION_FINDING_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(206)));
+        static MIGRATION_FINDING_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(207)));
+        static MIGRATION_FINDING_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(208)));
+        static MIGRATION_FINDING_JOURNAL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(209)));
+        static MIGRATION_FINDING_REGISTRY: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                MIGRATION_FINDING_STORE_PATH,
+                &MIGRATION_FINDING_DATA,
+                &MIGRATION_FINDING_INDEX,
+                &MIGRATION_FINDING_SCHEMA,
+                &MIGRATION_FINDING_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(206, "icydb.test.migration-finding.data.v1"),
+                    StoreAllocationIdentity::new(207, "icydb.test.migration-finding.index.v1"),
+                    StoreAllocationIdentity::new(208, "icydb.test.migration-finding.schema.v1"),
+                    StoreAllocationIdentity::new(209, "icydb.test.migration-finding.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("migration finding store should register");
             registry
         };
     }
@@ -1697,6 +3230,57 @@ mod tests {
             "icydb.test.rule-evolution.integrity.v1";
     }
 
+    #[cfg(feature = "migration")]
+    struct MigrationCanister;
+
+    #[cfg(feature = "migration")]
+    impl Path for MigrationCanister {
+        const PATH: &'static str = "schema_application_tests::MigrationCanister";
+    }
+
+    #[cfg(feature = "migration")]
+    impl CanisterKind for MigrationCanister {
+        const COMMIT_MEMORY_ID: u8 = 204;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-validation.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 205;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.migration-validation.integrity.v1";
+    }
+
+    #[cfg(feature = "migration")]
+    struct MigrationExecutionCanister;
+
+    #[cfg(feature = "migration")]
+    impl Path for MigrationExecutionCanister {
+        const PATH: &'static str = "schema_application_tests::MigrationExecutionCanister";
+    }
+
+    #[cfg(feature = "migration")]
+    impl CanisterKind for MigrationExecutionCanister {
+        const COMMIT_MEMORY_ID: u8 = 214;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-execution.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 215;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.migration-execution.integrity.v1";
+    }
+
+    #[cfg(feature = "migration")]
+    struct MigrationFindingCanister;
+
+    #[cfg(feature = "migration")]
+    impl Path for MigrationFindingCanister {
+        const PATH: &'static str = "schema_application_tests::MigrationFindingCanister";
+    }
+
+    #[cfg(feature = "migration")]
+    impl CanisterKind for MigrationFindingCanister {
+        const COMMIT_MEMORY_ID: u8 = 210;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-finding.commit.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 211;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.migration-finding.integrity.v1";
+    }
+
     fn name(value: &str) -> SchemaName {
         SchemaName::try_new(value).expect("test schema name should admit")
     }
@@ -1725,6 +3309,7 @@ mod tests {
             .collect();
         let entity = EntityFragment::try_new(
             name("Item"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -1758,9 +3343,178 @@ mod tests {
             ],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             Vec::new(),
+            None,
         )
         .expect("schema proposal should compose");
         (proposal, entity_source, check_source)
+    }
+
+    #[cfg(feature = "migration")]
+    #[derive(Clone, Copy, Eq, PartialEq)]
+    enum ValidationMigrationShape {
+        Clean,
+        AllFindingFamilies,
+    }
+
+    #[cfg(feature = "migration")]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the fixture keeps both predecessor and candidate source contracts adjacent"
+    )]
+    fn validation_migration_proposal(
+        shape: ValidationMigrationShape,
+        current: bool,
+        expected_head: ExpectedAcceptedHead,
+        database: TargetDatabaseIdentity,
+        store: TargetStoreIdentity,
+    ) -> SchemaProposal {
+        let entity_source = EntitySourceKey::try_new("MigratingItem")
+            .expect("migration entity source should admit");
+        let old_value =
+            FieldSourceKey::try_new("old_value").expect("predecessor field source should admit");
+        let current_value =
+            FieldSourceKey::try_new("value").expect("candidate field source should admit");
+        let target_entity = EntitySourceKey::try_new("MigrationTarget")
+            .expect("migration target source should admit");
+        let target_id = FieldSourceKey::try_new("id").expect("target id source should admit");
+        let constraint = SourceCheckExpr::try_new(vec![
+            SourceCheckInstruction::Field(current_value.clone()),
+            SourceCheckInstruction::Literal(ScalarLiteral::Nat(8)),
+            SourceCheckInstruction::LessThanOrEqual,
+        ])
+        .expect("candidate check should admit");
+        let findings = shape == ValidationMigrationShape::AllFindingFamilies;
+        let entity = EntityFragment::try_new(
+            name("MigratingItem"),
+            DeclaredEntityVersion::try_new(if current { 2 } else { 1 })
+                .expect("migration version should admit"),
+            vec![
+                FieldFragment::new(
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    name(if current { "value" } else { "old_value" }),
+                    FieldType::Scalar(if current {
+                        ScalarType::Nat8
+                    } else {
+                        ScalarType::Int64
+                    }),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![FieldSourceKey::try_new("id").expect("id source should admit")],
+            current
+                .then(|| {
+                    IndexFragment::try_new(
+                        name("value_unique"),
+                        vec![IndexKeyFragment::Field(current_value.clone())],
+                        true,
+                        None,
+                    )
+                    .expect("candidate index should admit")
+                })
+                .into_iter()
+                .collect(),
+            (current && findings)
+                .then(|| {
+                    RelationFragment::try_new(
+                        name("value_target"),
+                        vec![current_value.clone()],
+                        target_entity.clone(),
+                        vec![target_id.clone()],
+                        RelationDeleteAction::Restrict,
+                    )
+                    .expect("candidate relation should admit")
+                })
+                .into_iter()
+                .collect(),
+            (current && findings)
+                .then(|| ConstraintFragment::check(name("value_at_most_eight"), constraint))
+                .into_iter()
+                .collect(),
+        )
+        .expect("migration entity should admit");
+        let target = EntityFragment::try_new(
+            name("MigrationTarget"),
+            version_one(),
+            vec![FieldFragment::new(
+                name("id"),
+                FieldType::Scalar(ScalarType::Nat8),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            )],
+            vec![target_id],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("migration relation target should admit");
+        let migration = current.then(|| {
+            SchemaMigrationPlan::try_new(vec![
+                EntityMigration::try_new(
+                    entity_source.clone(),
+                    DeclaredEntityVersion::try_new(1).expect("predecessor should admit"),
+                    None,
+                    Vec::new(),
+                    vec![SchemaMigrationTransform::CheckedCast {
+                        from: old_value.clone(),
+                        to: current_value,
+                        target: ScalarType::Nat8,
+                    }],
+                )
+                .expect("migration transition should admit"),
+            ])
+            .expect("migration plan should admit")
+        });
+        let mut capabilities = Vec::new();
+        if current && findings {
+            capabilities.extend([
+                SchemaCapability::ACCEPTED_CHECKS,
+                SchemaCapability::SECONDARY_INDEXES,
+                SchemaCapability::RESTRICTIVE_RELATIONS,
+            ]);
+        }
+        if migration.is_some() {
+            capabilities.push(SchemaCapability::VERSIONED_MIGRATIONS);
+        }
+        let mut entities = vec![entity];
+        let mut assignments = vec![EntityStoreAssignment::new(entity_source.clone(), store)];
+        if findings {
+            entities.push(target);
+            assignments.push(EntityStoreAssignment::new(target_entity, store));
+        }
+        SchemaProposal::try_compose(
+            capabilities,
+            database,
+            SchemaSubmissionKey::try_new(if current {
+                "migration-validation-v2"
+            } else {
+                "migration-validation-v1"
+            })
+            .expect("submission should admit"),
+            expected_head,
+            vec![
+                SchemaFragment::try_new(entities, Vec::new())
+                    .expect("migration fragment should admit"),
+            ],
+            assignments,
+            current
+                .then_some(icydb_schema::SchemaRemoval::Field {
+                    entity: entity_source,
+                    field: old_value,
+                })
+                .into_iter()
+                .collect(),
+            migration,
+        )
+        .expect("migration proposal should compose")
     }
 
     fn targeted_rule_proposal(
@@ -1780,6 +3534,7 @@ mod tests {
             ConstraintSourceKey::for_targeted_field_rule(&value_source, &value_type, &rule_source);
         let entity = EntityFragment::try_new(
             name("Measured"),
+            version_one(),
             vec![
                 FieldFragment::new(
                     name("id"),
@@ -1821,6 +3576,7 @@ mod tests {
             ],
             vec![EntityStoreAssignment::new(entity_source.clone(), store)],
             Vec::new(),
+            None,
         )
         .expect("schema proposal should compose");
         (proposal, entity_source, constraint_source)
@@ -2562,6 +4318,667 @@ mod tests {
                 })
                 .expect("recovered validation-job storage should remain readable")
                 .is_none(),
+        );
+    }
+
+    #[cfg(feature = "migration")]
+    #[test]
+    fn migration_planning_failures_retain_typed_public_classification() {
+        use super::schema_migration_planning_error;
+        use crate::db::schema::migration_planner::SchemaMigrationPlanningError;
+        use icydb_diagnostic_code::{DiagnosticDetail, SchemaMigrationCode};
+
+        for (error, reason) in [
+            (
+                SchemaMigrationPlanningError::Unadopted,
+                SchemaMigrationCode::Unadopted,
+            ),
+            (
+                SchemaMigrationPlanningError::MissingMigration,
+                SchemaMigrationCode::MissingMigration,
+            ),
+            (
+                SchemaMigrationPlanningError::VersionGap,
+                SchemaMigrationCode::VersionGap,
+            ),
+            (
+                SchemaMigrationPlanningError::Downgrade,
+                SchemaMigrationCode::Downgrade,
+            ),
+            (
+                SchemaMigrationPlanningError::EmptyEntityVersionBump,
+                SchemaMigrationCode::EmptyEntityVersionBump,
+            ),
+            (
+                SchemaMigrationPlanningError::StaleAcceptedHead,
+                SchemaMigrationCode::StaleAcceptedHead,
+            ),
+            (
+                SchemaMigrationPlanningError::UnknownFromObject,
+                SchemaMigrationCode::UnknownFromObject,
+            ),
+            (
+                SchemaMigrationPlanningError::UnknownToObject,
+                SchemaMigrationCode::UnknownToObject,
+            ),
+            (
+                SchemaMigrationPlanningError::KindMismatch,
+                SchemaMigrationCode::KindMismatch,
+            ),
+            (
+                SchemaMigrationPlanningError::IdentityConflict,
+                SchemaMigrationCode::IdentityConflict,
+            ),
+            (
+                SchemaMigrationPlanningError::UnexplainedSchemaDifference,
+                SchemaMigrationCode::UnexplainedSchemaDifference,
+            ),
+            (
+                SchemaMigrationPlanningError::UnsupportedTransform,
+                SchemaMigrationCode::UnsupportedTransform,
+            ),
+            (
+                SchemaMigrationPlanningError::RekeyedCatalogInvalid,
+                SchemaMigrationCode::CandidateMismatch,
+            ),
+            (
+                SchemaMigrationPlanningError::CandidateMismatch,
+                SchemaMigrationCode::CandidateMismatch,
+            ),
+            (
+                SchemaMigrationPlanningError::CorruptLineage,
+                SchemaMigrationCode::ProgressCorrupt,
+            ),
+        ] {
+            let diagnostic = schema_migration_planning_error(error).diagnostic();
+            assert_eq!(
+                diagnostic.detail(),
+                Some(&DiagnosticDetail::SchemaMigration { reason }),
+            );
+            assert_eq!(diagnostic.code(), reason.diagnostic_code());
+        }
+    }
+
+    #[cfg(feature = "migration")]
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the validation replay, staging, and unchanged-row assertions form one scenario"
+    )]
+    fn physical_migration_validation_is_bounded_staged_and_does_not_rewrite_rows() {
+        use std::convert::Infallible;
+
+        use super::migrate_schema;
+        use crate::db::{
+            data::StoreVisit,
+            index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind},
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            schema::{SchemaMigrationCommand, SchemaMigrationPhase},
+        };
+        use crate::types::EntityTag;
+
+        let db = Db::<MigrationCanister>::new(&MIGRATION_REGISTRY);
+        ensure_recovered(&db).expect("migration database should initialize");
+        let initial_target = schema_application_target(&db).expect("initial target should issue");
+        let store_identity = initial_target
+            .stores()
+            .first()
+            .expect("migration store should exist")
+            .identity();
+        let initial = validation_migration_proposal(
+            ValidationMigrationShape::Clean,
+            false,
+            initial_target.accepted_head().clone(),
+            initial_target.database_identity(),
+            store_identity,
+        );
+        apply_schema(&db, &initial).expect("initial schema should publish");
+
+        let session = DbSession::<MigrationCanister>::new(&MIGRATION_REGISTRY);
+        for (id, value) in [(1, 7), (2, 8)] {
+            session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                    entity: "MigratingItem".to_string(),
+                    patch: DynamicStructuralPatch::new(vec![
+                        (
+                            "id".to_string(),
+                            DynamicWriteCell::Value(InputValue::Nat64(id)),
+                        ),
+                        (
+                            "old_value".to_string(),
+                            DynamicWriteCell::Value(InputValue::Int64(value)),
+                        ),
+                    ]),
+                })
+                .expect("predecessor row should insert");
+        }
+        let store = db
+            .store_handle(MIGRATION_STORE_PATH)
+            .expect("migration store should resolve");
+        let row_bytes = || {
+            store.with_data(|data| {
+                let mut rows = Vec::new();
+                let result: Result<(), Infallible> = data.visit_entries(|key, row| {
+                    rows.push((key.as_bytes().to_vec(), row.as_bytes().to_vec()));
+                    Ok(StoreVisit::Continue)
+                });
+                result.expect("infallible row visit should complete");
+                rows
+            })
+        };
+        let before_rows = row_bytes();
+
+        let target = schema_application_target(&db).expect("migration target should issue");
+        let proposal = validation_migration_proposal(
+            ValidationMigrationShape::Clean,
+            true,
+            target.accepted_head().clone(),
+            target.database_identity(),
+            store_identity,
+        );
+        let plan = proposal
+            .migration()
+            .expect("migration plan should exist")
+            .digest();
+        let command = || SchemaMigrationCommand::Advance {
+            expected_database: target.database_identity(),
+            expected_head: target.accepted_head().clone(),
+            expected_plan: plan,
+            acknowledged_finding_page: None,
+        };
+        assert_eq!(
+            migrate_schema(&db, &proposal, command())
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "physical migration should prepare: {:?}",
+                        error.diagnostic()
+                    )
+                })
+                .phase(),
+            SchemaMigrationPhase::Prepared,
+        );
+        assert_eq!(
+            migrate_schema(&db, &proposal, command())
+                .expect("physical migration should enter validation")
+                .phase(),
+            SchemaMigrationPhase::Validating,
+        );
+        let record = super::load_schema_migration_record()
+            .expect("migration record should remain readable")
+            .expect("validating migration record should exist");
+        let planned = super::recompile_active_physical_migration(&db, &proposal, &record)
+            .expect("the exact active plan should recompile");
+        for _ in 0..2 {
+            let page = super::validate_migration_page(&db, &planned, record.progress())
+                .expect("the same validation page should remain replayable");
+            let (progress, staged, exhausted) = page.into_parts();
+            assert!(progress.findings().is_empty());
+            assert!(exhausted);
+            super::stage_migration_index_entries(staged)
+                .expect("staging before a cursor marker should be idempotent");
+        }
+        assert_eq!(
+            store.with_index(IndexStore::len),
+            2,
+            "replaying an uncheckpointed page must retain one exact staged key per row",
+        );
+        let ready =
+            migrate_schema(&db, &proposal, command()).expect("bounded validation should complete");
+        assert_eq!(ready.phase(), SchemaMigrationPhase::ReadyToRewrite);
+        assert_eq!(ready.rows_validated(), 2);
+        assert!(ready.findings().is_empty());
+        assert_eq!(row_bytes(), before_rows, "validation must not rewrite rows");
+        assert_eq!(
+            store.with_index(IndexStore::len),
+            2,
+            "the isolated candidate unique generation should be durably staged",
+        );
+        store.with_index_mut(|index| {
+            for ordinal in 0..513_u64 {
+                let component = ordinal.to_be_bytes();
+                let key = IndexKey::new_from_components_with_primary_key_value(
+                    &IndexId::new(EntityTag::new(2), 0),
+                    IndexKeyKind::User,
+                    &[component],
+                    &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(ordinal)),
+                )
+                .expect("unrelated abort-scan key should build")
+                .to_raw()
+                .expect("unrelated abort-scan key should encode");
+                index.insert(key, IndexEntryValue::presence());
+            }
+        });
+        let abort = || SchemaMigrationCommand::Abort {
+            expected_database: target.database_identity(),
+            expected_head: target.accepted_head().clone(),
+            expected_plan: plan,
+        };
+        let cleaning = migrate_schema(&db, &proposal, abort())
+            .expect("the first bounded abort cleanup page should publish");
+        assert_eq!(cleaning.phase(), SchemaMigrationPhase::ReadyToRewrite);
+        assert_eq!(store.with_index(IndexStore::len), 513);
+        let aborted =
+            migrate_schema(&db, &proposal, abort()).expect("pre-rewrite migration should abort");
+        assert_eq!(aborted.phase(), SchemaMigrationPhase::Aborted);
+        assert_eq!(
+            store.with_index(IndexStore::len),
+            513,
+            "abort must remove only planner-invisible candidate generations",
+        );
+        assert_eq!(
+            row_bytes(),
+            before_rows,
+            "abort must retain predecessor rows"
+        );
+    }
+
+    #[cfg(feature = "migration")]
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the interrupted rewrite, recovery, final proof, and publication form one scenario"
+    )]
+    fn physical_migration_rewrite_recovers_and_publishes_one_complete_candidate() {
+        use super::{
+            defer_generated_schema_application_for_prepared_migration, migrate_schema,
+            schema_migration_status_for_target,
+        };
+        use crate::db::{
+            data::{CanonicalSlotReader, DecodedDataStoreKey, StoreVisit, StructuralSlotReader},
+            schema::{
+                MigrationRewriteInterruption, SchemaMigrationCommand, SchemaMigrationPhase,
+                ensure_schema_migration_ready_for_ordinary_operations,
+                interrupt_next_migration_rewrite_at,
+            },
+        };
+        use crate::error::InternalError;
+
+        let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY);
+        ensure_recovered(&db).expect("migration execution database should initialize");
+        let initial_target = schema_application_target(&db).expect("initial target should issue");
+        let store_identity = initial_target
+            .stores()
+            .first()
+            .expect("migration execution store should exist")
+            .identity();
+        let initial = validation_migration_proposal(
+            ValidationMigrationShape::Clean,
+            false,
+            initial_target.accepted_head().clone(),
+            initial_target.database_identity(),
+            store_identity,
+        );
+        apply_schema(&db, &initial).expect("initial schema should publish");
+        let session = DbSession::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY);
+        for (id, value) in [(1, 7), (2, 8), (3, 9)] {
+            session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                    entity: "MigratingItem".to_string(),
+                    patch: DynamicStructuralPatch::new(vec![
+                        (
+                            "id".to_string(),
+                            DynamicWriteCell::Value(InputValue::Nat64(id)),
+                        ),
+                        (
+                            "old_value".to_string(),
+                            DynamicWriteCell::Value(InputValue::Int64(value)),
+                        ),
+                    ]),
+                })
+                .expect("predecessor row should insert");
+        }
+        let target = schema_application_target(&db).expect("migration target should issue");
+        let proposal = validation_migration_proposal(
+            ValidationMigrationShape::Clean,
+            true,
+            target.accepted_head().clone(),
+            target.database_identity(),
+            store_identity,
+        );
+        let plan = proposal
+            .migration()
+            .expect("migration plan should exist")
+            .digest();
+        let command = || SchemaMigrationCommand::Advance {
+            expected_database: target.database_identity(),
+            expected_head: target.accepted_head().clone(),
+            expected_plan: plan,
+            acknowledged_finding_page: None,
+        };
+        for expected in [
+            SchemaMigrationPhase::Prepared,
+            SchemaMigrationPhase::Validating,
+            SchemaMigrationPhase::ReadyToRewrite,
+            SchemaMigrationPhase::RewritingRows,
+        ] {
+            assert_eq!(
+                migrate_schema(&db, &proposal, command())
+                    .expect("migration phase should advance")
+                    .phase(),
+                expected,
+            );
+        }
+
+        for interruption in [
+            MigrationRewriteInterruption::MarkerPersisted,
+            MigrationRewriteInterruption::JournalPublished,
+            MigrationRewriteInterruption::PhysicalApplied,
+        ] {
+            interrupt_next_migration_rewrite_at(interruption);
+            migrate_schema(&db, &proposal, command())
+                .expect_err("injected interruption should retain the rewrite marker");
+
+            forget_recovered_domain_for_tests(&db)
+                .expect("upgrade should reset recovery ownership");
+            ensure_recovered(&db).unwrap_or_else(|error| {
+                panic!(
+                    "recovery should finish the exact marker-bound rewrite page: {:?}",
+                    error.diagnostic(),
+                )
+            });
+        }
+
+        let rebuilding = schema_migration_status_for_target(
+            &db,
+            &proposal,
+            &schema_application_target(&db).expect("recovered target should issue"),
+        )
+        .expect("recovered status should remain readable");
+        assert_eq!(rebuilding.phase(), SchemaMigrationPhase::RebuildingIndexes);
+        assert_eq!(rebuilding.rows_rewritten(), 3);
+        assert_eq!(
+            migrate_schema(&db, &proposal, command())
+                .expect("derived generations should complete")
+                .phase(),
+            SchemaMigrationPhase::FinalValidation,
+        );
+        assert_eq!(
+            migrate_schema(&db, &proposal, command())
+                .expect("final validation should complete")
+                .phase(),
+            SchemaMigrationPhase::Publishing,
+        );
+        let applied = migrate_schema(&db, &proposal, command())
+            .expect("candidate publication should complete atomically");
+        assert_eq!(applied.phase(), SchemaMigrationPhase::Applied);
+        assert_eq!(applied.rows_rewritten(), 3);
+        assert_eq!(applied.indexes_rebuilt(), 1);
+        assert_ne!(applied.accepted_head(), target.accepted_head());
+        let terminal_target = schema_application_target(&db).expect("terminal target should issue");
+        let terminal_proposal = validation_migration_proposal(
+            ValidationMigrationShape::Clean,
+            true,
+            terminal_target.accepted_head().clone(),
+            terminal_target.database_identity(),
+            store_identity,
+        );
+        assert!(
+            !defer_generated_schema_application_for_prepared_migration(&db, &terminal_proposal,)
+                .expect("terminal record must not block generated startup"),
+        );
+
+        let store = db
+            .store_handle(MIGRATION_EXECUTION_STORE_PATH)
+            .expect("migration execution store should resolve");
+        let runtime = db
+            .accepted_runtime_entity_for_path("MigratingItem")
+            .expect("published candidate entity should resolve");
+        let selection = store
+            .with_schema(|schema| {
+                schema.current_accepted_catalog_selection(
+                    runtime.entity_tag(),
+                    runtime.entity_path(),
+                    runtime.store_path(),
+                )
+            })
+            .expect("candidate selection should remain readable")
+            .expect("candidate selection should exist");
+        let contract = crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
+            runtime.entity_path(),
+            &selection,
+        )
+        .expect("candidate row authority should compile")
+        .into_row_contract();
+        let mut values = Vec::new();
+        store
+            .with_data(|data| {
+                data.visit_entries(|key, row| {
+                    let decoded = DecodedDataStoreKey::try_from_raw(key)
+                        .expect("rewritten key should decode");
+                    let reader =
+                        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                            row, &contract,
+                        )
+                        .expect("rewritten row should use the candidate layout");
+                    reader
+                        .validate_primary_key(&decoded)
+                        .expect("rewritten row and key should remain bound");
+                    values.push(
+                        reader
+                            .required_value_by_contract(1)
+                            .expect("candidate value slot should decode"),
+                    );
+                    Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+                })
+            })
+            .expect("rewritten row scan should complete");
+        assert_eq!(
+            values,
+            vec![
+                crate::value::Value::Nat64(7),
+                crate::value::Value::Nat64(8),
+                crate::value::Value::Nat64(9),
+            ],
+        );
+        assert_eq!(store.with_index(IndexStore::len), 3);
+        let accepted = store
+            .with_schema(SchemaStore::current_accepted_schema_bundle)
+            .expect("published candidate bundle should remain readable")
+            .expect("published candidate bundle should exist");
+        let entity_source = EntitySourceKey::try_new("MigratingItem")
+            .expect("migration entity source should admit");
+        let entity_tag = accepted
+            .source_bindings_for_tests()
+            .entity(&entity_source)
+            .expect("candidate entity source should remain bound");
+        let old_value =
+            FieldSourceKey::try_new("old_value").expect("predecessor source should admit");
+        let current_value =
+            FieldSourceKey::try_new("value").expect("candidate source should admit");
+        assert_eq!(
+            accepted
+                .source_bindings_for_tests()
+                .field(entity_tag, &old_value),
+            None,
+        );
+        assert!(
+            accepted
+                .source_bindings_for_tests()
+                .field(entity_tag, &current_value)
+                .is_some(),
+        );
+        ensure_schema_migration_ready_for_ordinary_operations()
+            .expect("terminal publication must clear the database-wide gate");
+    }
+
+    #[cfg(feature = "migration")]
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "all four finding families share one ordered historical scan fixture"
+    )]
+    fn physical_migration_validation_reports_every_typed_finding_family_without_writes() {
+        use std::convert::Infallible;
+
+        use super::migrate_schema;
+        use crate::db::{
+            data::StoreVisit,
+            schema::{SchemaMigrationCommand, SchemaMigrationFindingKind, SchemaMigrationPhase},
+        };
+
+        let db = Db::<MigrationFindingCanister>::new(&MIGRATION_FINDING_REGISTRY);
+        ensure_recovered(&db).expect("migration finding database should initialize");
+        let initial_target = schema_application_target(&db).expect("initial target should issue");
+        let store_identity = initial_target
+            .stores()
+            .first()
+            .expect("migration finding store should exist")
+            .identity();
+        let initial = validation_migration_proposal(
+            ValidationMigrationShape::AllFindingFamilies,
+            false,
+            initial_target.accepted_head().clone(),
+            initial_target.database_identity(),
+            store_identity,
+        );
+        apply_schema(&db, &initial).expect("initial finding schema should publish");
+
+        let session = DbSession::<MigrationFindingCanister>::new(&MIGRATION_FINDING_REGISTRY);
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: "MigrationTarget".to_string(),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "id".to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(7)),
+                )]),
+            })
+            .expect("relation target should insert");
+        for (id, value) in [(1, 9), (2, 8), (3, 7), (4, 7), (5, 300)] {
+            session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                    entity: "MigratingItem".to_string(),
+                    patch: DynamicStructuralPatch::new(vec![
+                        (
+                            "id".to_string(),
+                            DynamicWriteCell::Value(InputValue::Nat64(id)),
+                        ),
+                        (
+                            "old_value".to_string(),
+                            DynamicWriteCell::Value(InputValue::Int64(value)),
+                        ),
+                    ]),
+                })
+                .expect("predecessor finding row should insert");
+        }
+        let store = db
+            .store_handle(MIGRATION_FINDING_STORE_PATH)
+            .expect("migration finding store should resolve");
+        let row_bytes = || {
+            store.with_data(|data| {
+                let mut rows = Vec::new();
+                let result: Result<(), Infallible> = data.visit_entries(|key, row| {
+                    rows.push((key.as_bytes().to_vec(), row.as_bytes().to_vec()));
+                    Ok(StoreVisit::Continue)
+                });
+                result.expect("infallible row visit should complete");
+                rows
+            })
+        };
+        let before_rows = row_bytes();
+
+        let target = schema_application_target(&db).expect("migration target should issue");
+        let proposal = validation_migration_proposal(
+            ValidationMigrationShape::AllFindingFamilies,
+            true,
+            target.accepted_head().clone(),
+            target.database_identity(),
+            store_identity,
+        );
+        let plan = proposal
+            .migration()
+            .expect("migration plan should exist")
+            .digest();
+        let command = || SchemaMigrationCommand::Advance {
+            expected_database: target.database_identity(),
+            expected_head: target.accepted_head().clone(),
+            expected_plan: plan,
+            acknowledged_finding_page: None,
+        };
+        assert_eq!(
+            migrate_schema(&db, &proposal, command())
+                .expect("finding migration should prepare")
+                .phase(),
+            SchemaMigrationPhase::Prepared,
+        );
+        assert_eq!(
+            migrate_schema(&db, &proposal, command())
+                .expect("finding migration should enter validation")
+                .phase(),
+            SchemaMigrationPhase::Validating,
+        );
+        let rejected =
+            migrate_schema(&db, &proposal, command()).expect("validation should report findings");
+        assert_eq!(rejected.phase(), SchemaMigrationPhase::Rejected);
+        assert_eq!(rejected.rows_validated(), 5);
+        assert_eq!(
+            rejected
+                .findings()
+                .iter()
+                .map(crate::db::schema::SchemaMigrationFinding::kind)
+                .collect::<Vec<_>>(),
+            vec![
+                SchemaMigrationFindingKind::Constraint,
+                SchemaMigrationFindingKind::Relation,
+                SchemaMigrationFindingKind::UniqueIndex,
+                SchemaMigrationFindingKind::Transform,
+            ],
+        );
+        assert_eq!(
+            row_bytes(),
+            before_rows,
+            "rejected validation must not rewrite accepted rows"
+        );
+        assert_eq!(
+            store.with_index(IndexStore::len),
+            0,
+            "a rejected page must not publish any staged generation"
+        );
+    }
+
+    #[cfg(feature = "migration")]
+    #[test]
+    fn exact_migration_retry_binds_the_terminal_head_not_the_predecessor_head() {
+        use super::exact_migration_replay_target;
+
+        let db = Db::<EvolutionCanister>::new(&EVOLUTION_REGISTRY);
+        ensure_recovered(&db).expect("test database should initialize");
+        let initial_target = schema_application_target(&db).expect("initial target should issue");
+        let (proposal, _, _) = generated_check_proposal(
+            initial_target.accepted_head().clone(),
+            "migration-retry-initial",
+            false,
+            initial_target.database_identity(),
+            initial_target
+                .stores()
+                .first()
+                .expect("test store should exist")
+                .identity(),
+        );
+        apply_schema(&db, &proposal).expect("initial schema should publish");
+        let current_target = schema_application_target(&db).expect("current target should issue");
+        assert_ne!(
+            current_target.accepted_head(),
+            initial_target.accepted_head(),
+        );
+
+        let receipt = SchemaChangeReceipt::new(
+            current_target.database_identity(),
+            SchemaSubmissionKey::try_new("migration/retry")
+                .expect("migration submission should admit"),
+            SchemaProposalDigest::from_bytes([0x77; 32]),
+            initial_target.accepted_head().clone(),
+            SchemaChangeOutcome::Applied {
+                accepted_head: current_target.accepted_head().clone(),
+            },
+        )
+        .expect("terminal migration receipt should admit");
+        let record = SchemaApplicationRecord::new(receipt, Vec::new())
+            .expect("terminal migration record should admit");
+
+        assert_eq!(
+            exact_migration_replay_target(&db, current_target.database_identity(), &record,)
+                .expect("exact retry should resolve the terminal target"),
+            current_target,
         );
     }
 }

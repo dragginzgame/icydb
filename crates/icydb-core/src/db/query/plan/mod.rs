@@ -48,23 +48,19 @@ pub(in crate::db) use continuation::{
     AcceptedContinuationIdentity, GroupedPaginationWindow, PlannedContinuationContract,
     ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
-#[cfg(feature = "query")]
 pub(in crate::db) use covering::CoveringReadField;
-#[cfg(feature = "query")]
 pub(in crate::db) use covering::CoveringReadFieldSource;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use covering::covering_hybrid_projection_execution_plan_with_schema_info;
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
     CoveringReadExecutionPlan, covering_read_execution_plan_with_schema_info,
     covering_strict_predicate_compatible,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use covering::{
     covering_read_reason_code_for_load_plan, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db::query::plan) use group::extend_unique_grouped_aggregate_specs_from_expr;
-#[cfg(feature = "query")]
 pub(in crate::db) use group::grouped_executor_handoff;
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionRoute,
@@ -99,9 +95,7 @@ pub(in crate::db) use order_contract::{
 };
 pub(in crate::db) use order_term::index_key_item_order_terms;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
-#[cfg(feature = "query")]
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
-#[cfg(feature = "query")]
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{
     build_query_model_plan_with_indexes_from_scalar_planning_state,
@@ -125,7 +119,7 @@ pub(in crate::db::query) use projection::{
     lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
     lower_projection_identity, lower_projection_intent_with_schema,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use semantics::access_plan_label;
 #[cfg(feature = "sql")]
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;
@@ -470,7 +464,6 @@ impl VisibleIndexes {
     /// Exact mutation selection uses this view to retain accepted field and
     /// codec authority while forcing authoritative primary-store traversal.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_schema_primary_only(schema_info: &SchemaInfo) -> Self {
         Self {
             accepted_field_path_indexes: Vec::new(),

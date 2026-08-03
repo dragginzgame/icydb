@@ -7,26 +7,24 @@
 //! the low-level vocabulary exported through the facade.
 #![warn(unreachable_pub)]
 // The no-default test target intentionally type-checks shared test/helper
-// surfaces whose consuming tests live behind SQL, SQL-explain, or diagnostics
+// surfaces whose consuming tests live behind SQL or diagnostics
 // features. Keep production and all-features dead-code linting strict.
 #![cfg_attr(
     all(test, not(feature = "sql")),
     expect(
         dead_code,
-        reason = "shared test helpers have SQL, SQL-explain, and diagnostics consumers"
+        reason = "shared test helpers have SQL and diagnostics consumers"
     )
 )]
-// The query-only build owns the complete engine-neutral planner/executor
-// substrate. SQL is an optional frontend over that substrate and is currently
-// the only consumer of some SQL-explain, diagnostic, and frontend-extension
-// capabilities, so those internal extension points are intentionally dormant
-// when `query` is enabled without `sql`. Grouped planning and execution are
-// live through the query-only facade.
+// The base build owns the complete engine-neutral planner/executor substrate.
+// SQL is an optional frontend over that substrate and is currently the only
+// consumer of some SQL explain, diagnostic, and frontend-extension capabilities,
+// so those internal extension points are intentionally dormant without SQL.
 #![cfg_attr(
-    all(not(test), feature = "query", not(feature = "sql")),
+    all(not(test), not(feature = "sql")),
     expect(
         dead_code,
-        reason = "SQL-only explain, diagnostic, and frontend-extension capabilities remain intentionally dormant in query-only builds"
+        reason = "SQL-only explain, diagnostic, and frontend-extension capabilities remain intentionally dormant in base builds"
     )
 )]
 

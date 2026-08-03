@@ -13,9 +13,8 @@ path = "../sql/src/lib.rs"
 default = []
 candid-export = []
 sql = ["icydb/sql"]
-sql-explain = ["sql", "icydb/sql-explain"]
 diagnostics = ["icydb/diagnostics"]
-local-sql-query = ["sql-explain"]
+local-sql-query = ["sql"]
 test-admin-api = ["sql"]
 
 [dependencies]

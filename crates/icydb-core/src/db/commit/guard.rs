@@ -3,11 +3,13 @@
 //! Does not own: mutation planning, marker payload semantics, or recovery orchestration.
 //! Boundary: executor::mutation -> commit::guard -> commit::store (one-way).
 
+#[cfg(any(test, feature = "migration"))]
+use crate::db::schema::preflight_schema_migration_record_op;
 use crate::{
     db::{
         commit::{
             PreparedRowCommitOp,
-            marker::CommitMarker,
+            marker::{CommitMarker, DatabaseControlOp},
             store::{with_commit_store, with_initialized_commit_store},
         },
         schema::preflight_schema_application_record_op,
@@ -148,8 +150,20 @@ impl CommitGuard {
 
 /// Persist a commit marker and open the commit window.
 pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
-    if let Some(operation) = marker.schema_application() {
-        preflight_schema_application_record_op(operation)?;
+    for operation in marker.database_control() {
+        match operation {
+            DatabaseControlOp::SchemaApplication(operation) => {
+                preflight_schema_application_record_op(operation)?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::EntitySourceLineage(operation) => {
+                crate::db::schema::preflight_entity_source_lineage_catalog_op(operation)?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::SchemaMigration(operation) => {
+                preflight_schema_migration_record_op(operation)?;
+            }
+        }
     }
     with_commit_store(|store| {
         // Phase 1: enforce one in-flight marker at a time before opening the

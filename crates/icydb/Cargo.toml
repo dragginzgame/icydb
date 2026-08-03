@@ -10,11 +10,9 @@ authors = { workspace = true }
 
 [features]
 default = []
-query = ["icydb-core/query"]
-sql = ["query", "icydb-core/sql"]
-sql-explain = ["sql", "icydb-core/sql-explain"]
+sql = ["icydb-core/sql"]
 diagnostics = ["icydb-core/diagnostics"]
-metrics-extended = ["icydb-core/metrics-extended"]
+migration = ["icydb-core/migration"]
 
 [dependencies]
 candid = { workspace = true }

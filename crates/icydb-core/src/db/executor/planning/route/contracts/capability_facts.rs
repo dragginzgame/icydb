@@ -3,7 +3,7 @@
 //! Does not own: capability derivation algorithms or execution dispatch.
 //! Boundary: exposes immutable capability facts consumed by route gates and hints.
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::executor::route::LoadOrderRouteReason;
 use crate::db::executor::{
     aggregate::capability::AggregateFieldExtremaIneligibilityReason,
@@ -45,7 +45,7 @@ impl RouteCapabilityFacts {
 
     /// Return the explanation for the ordered-load route mode decision.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn load_order_route_reason(self) -> LoadOrderRouteReason {
         self.load_order_route_decision.reason()
     }

@@ -77,7 +77,6 @@ pub(super) fn execute_prepared_scalar_path_execution(
 // structural page boundary in the common non-attributed path.
 
 /// Execute one prepared scalar plan while retaining its authoritative scan count.
-#[cfg(feature = "query")]
 pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_scan_count(
     prepared: PreparedScalarRouteRuntime,
 ) -> Result<(StructuralCursorPage, usize), InternalError> {

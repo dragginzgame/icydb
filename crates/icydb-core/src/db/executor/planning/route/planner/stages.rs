@@ -3,7 +3,7 @@
 //! Does not own: stage derivation orchestration or route execution assembly.
 //! Boundary: exposes the typed stage bundles consumed by planner entrypoint, intent, feasibility, and execution modules.
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::executor::{
     aggregate::AggregateFoldMode,
     route::{AggregateSeekSpec, RouteExplainFacts},
@@ -40,7 +40,7 @@ pub(super) struct RouteDerivationContext {
     pub(super) scan_hints: ScanHintPlan,
     pub(super) top_n_seek_spec: Option<TopNSeekSpec>,
     pub(super) aggregate_physical_fetch_hint: Option<usize>,
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(super) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(super) grouped_execution_mode: Option<GroupedExecutionMode>,
 }
@@ -118,10 +118,10 @@ pub(super) struct RouteFeasibilityStage {
 ///
 
 pub(super) struct RouteExecutionStage {
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(super) route_shape_kind: RouteShapeKind,
     pub(super) execution_mode: RouteExecutionMode,
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(super) aggregate_fold_mode: AggregateFoldMode,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
 }
@@ -172,7 +172,7 @@ pub(super) fn assemble_execution_route_plan(
     } = feasibility_stage;
     debug_assert_grouped_route_plan_alignment(&intent_stage, &derivation);
 
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     let explain = RouteExplainFacts::new(
         execution_stage.route_shape_kind,
         derivation.aggregate_seek_spec,
@@ -180,7 +180,7 @@ pub(super) fn assemble_execution_route_plan(
         intent_stage.grouped_plan_strategy,
         load_terminal_fast_path,
     );
-    #[cfg(not(feature = "sql-explain"))]
+    #[cfg(not(feature = "sql"))]
     let _ = load_terminal_fast_path;
 
     ExecutionRoutePlan {
@@ -195,7 +195,7 @@ pub(super) fn assemble_execution_route_plan(
         top_n_seek_spec: derivation.top_n_seek_spec,
         scan_hints: derivation.scan_hints,
         grouped_execution_mode: derivation.grouped_execution_mode,
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         explain,
     }
 }

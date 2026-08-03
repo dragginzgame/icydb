@@ -1,0 +1,7 @@
+error: source migration declarations require the `icydb/migration` Cargo feature
+ --> tests/fail-migration/missing_capability.rs:1:1
+  |
+1 | icydb::__icydb_require_migration_capability!();
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `icydb::__icydb_require_migration_capability` (in Nightly builds, run with -Z macro-backtrace for more info)

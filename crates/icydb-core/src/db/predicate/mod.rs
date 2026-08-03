@@ -3,20 +3,18 @@
 //! Does not own: query routing, index key encoding, or executor commit behavior.
 //! Boundary: query/executor/index consume this as predicate authority.
 
-#[cfg(any(test, feature = "query"))]
 mod capability;
 mod coercion;
 mod encoding;
-#[cfg(any(test, feature = "query"))]
 mod fingerprint;
 mod membership;
 mod model;
 mod normalize;
 mod parser;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql", feature = "migration"))]
 mod render;
 mod resolved;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql", feature = "migration"))]
 mod rewrite;
 mod row_policy;
 mod runtime;
@@ -26,7 +24,6 @@ pub use coercion::CoercionId;
 pub use model::{CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate};
 pub use row_policy::MissingRowPolicy;
 
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use capability::{
     IndexCompileTarget, IndexCompileTargetKind, IndexPredicateCapability,
     PredicateCapabilityContext, PredicateCapabilityProfile, ScalarPredicateCapability,
@@ -35,31 +32,25 @@ pub(in crate::db) use capability::{
     lower_index_compare_literal_for_target, lower_index_starts_with_prefix_for_target,
 };
 pub(in crate::db) use coercion::CoercionSpec;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use coercion::supports_coercion;
 pub(in crate::db) use normalize::normalize;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use normalize::normalize_enum_literals;
 pub(in crate::db) use parser::parse_sql_predicate;
-#[cfg(any(test, feature = "query"))]
-pub(in crate::db) use render::{
-    relabel_sql_predicate_field_root, sql_predicate_references_field_root,
-};
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql", feature = "migration"))]
+pub(in crate::db) use render::relabel_sql_predicate_field_root;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use render::sql_predicate_references_field_root;
+#[cfg(any(test, feature = "sql", feature = "migration"))]
 pub(in crate::db) use rewrite::rewrite_field_identifiers;
 
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use fingerprint::hash_predicate;
-#[cfg(feature = "query")]
 pub(in crate::db) use fingerprint::predicate_fingerprint_normalized;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use membership::canonical_membership_value_list;
 pub(in crate::db) use membership::{MembershipCompareLeaf, collapse_membership_compare_leaves};
 pub(in crate::db) use resolved::{
     ExecutableCompareOperand, ExecutableComparePredicate, ExecutablePredicate,
 };
 pub(in crate::db) use runtime::PredicateProgram;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use semantics::canonical_cmp;
 pub(in crate::db) use semantics::{TextOp, compare_eq, compare_order, compare_text};
 pub(in crate::db::predicate) use semantics::{

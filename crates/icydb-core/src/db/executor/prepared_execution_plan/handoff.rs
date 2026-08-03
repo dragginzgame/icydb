@@ -1,5 +1,4 @@
 use super::contracts::AccessPlannedQuery;
-#[cfg(feature = "query")]
 use crate::db::executor::prepared_execution_plan::build_prepared_execution_plan_core_with_lowered_access;
 use crate::db::executor::{
     EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -32,7 +31,6 @@ impl PreparedScalarRuntimeHandoff {
     /// DISTINCT projection materialization needs this execution-only shape so
     /// route planning and ordered windows do not bound the stream before the
     /// final projected-row DISTINCT window runs.
-    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn into_scalar_page_suppressed(self) -> Self {
         let Self {
             authority,
@@ -85,7 +83,6 @@ pub(in crate::db::executor) struct PreparedAccessPlanHandoff {
 /// accessor calls.
 ///
 
-#[cfg(feature = "query")]
 pub(in crate::db::executor) struct SharedPreparedProjectionRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) prepared_projection_contract:

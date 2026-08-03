@@ -7,9 +7,7 @@
 //! typed session helpers for query, SQL, catalog, and write adapters.
 
 use super::DbSession;
-#[cfg(feature = "query")]
 use crate::db::executor::EntityAuthority;
-#[cfg(feature = "query")]
 use crate::db::schema::{
     AcceptedRowLayoutRuntimeContract, AcceptedSchemaAuthority, SchemaInfo, SchemaStore,
     SchemaVersion,
@@ -27,7 +25,6 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-#[cfg(feature = "query")]
 use std::cell::OnceCell;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -41,7 +38,6 @@ type AcceptedSchemaQueryCacheKey = (usize, Rc<str>);
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedSchemaCatalogContext {
     inspection_plan: AcceptedInspectionPlan,
-    #[cfg(feature = "query")]
     schema_info: OnceCell<SchemaInfo>,
 }
 
@@ -65,7 +61,6 @@ impl AcceptedSchemaCatalogContext {
     const fn new(inspection_plan: AcceptedInspectionPlan) -> Self {
         Self {
             inspection_plan,
-            #[cfg(feature = "query")]
             schema_info: OnceCell::new(),
         }
     }
@@ -86,7 +81,6 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) const fn schema_version(&self) -> SchemaVersion {
         self.inspection_plan
             .identity_ref()
@@ -120,7 +114,6 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) const fn fingerprint_method_version(&self) -> u8 {
         self.inspection_plan
             .identity_ref()
@@ -133,7 +126,6 @@ impl AcceptedSchemaCatalogContext {
     }
 
     /// Build executor authority directly from accepted catalog state.
-    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_entity_authority(
         &self,
     ) -> Result<EntityAuthority, InternalError> {
@@ -159,7 +151,6 @@ impl AcceptedSchemaCatalogContext {
         ))
     }
 
-    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_or_provided_entity_authority(
         &self,
         accepted_authority: Option<&EntityAuthority>,
@@ -172,7 +163,6 @@ impl AcceptedSchemaCatalogContext {
 
     /// Project schema metadata from the accepted snapshot only.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn accepted_schema_info(&self) -> SchemaInfo {
         self.schema_info
             .get_or_init(|| {
@@ -435,7 +425,6 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Verify accepted authority for a schema-resolved structural operation.
-    #[cfg(feature = "query")]
     pub(in crate::db::session) fn ensure_accepted_schema_authority_is_current_for_store_path(
         &self,
         store_path: &'static str,
@@ -456,7 +445,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    #[cfg(feature = "query")]
     pub(in crate::db::session) fn invalidate_accepted_schema_query_cache(&self, entity_path: &str) {
         let cache_key = self.accepted_schema_query_cache_key(entity_path);
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {

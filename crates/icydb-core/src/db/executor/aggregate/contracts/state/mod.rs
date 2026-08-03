@@ -9,7 +9,7 @@ mod factory;
 mod grouped;
 mod reducer;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use control::AggregateFoldMode;
 pub(in crate::db::executor::aggregate::contracts::state) use control::ExtremumKind;
 pub(in crate::db::executor) use control::FoldControl;

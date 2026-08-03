@@ -3,7 +3,6 @@
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::index::{IndexId, IndexKeyKind};
 use crate::db::{
     direction::Direction,
@@ -260,7 +259,6 @@ impl IndexStore {
     /// Return an exact user-index prefix count when the index metadata is
     /// synchronized with the caller's authoritative row-store generation.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn exact_prefix_cardinality(
         &self,
         data_generation: u64,
@@ -275,7 +273,6 @@ impl IndexStore {
     /// Return the sum of exact prefix counts for prefixes on the same index
     /// when synchronized metadata can prove all requested counts.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn exact_prefix_cardinality_sum<'a>(
         &self,
         data_generation: u64,
@@ -296,7 +293,6 @@ impl IndexStore {
     /// Return non-empty exact child prefixes under a sparse set of already-encoded
     /// parent prefixes when synchronized metadata can prove the bounded child set.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn exact_child_prefixes_for_parent_set<'a>(
         &self,
         data_generation: u64,

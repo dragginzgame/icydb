@@ -31,7 +31,7 @@ pub enum SqlStatementResult {
         row_count: u32,
         next_cursor: Option<String>,
     },
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     Explain(String),
     Describe(crate::db::EntitySchemaDescription),
     ShowConstraints(Vec<crate::db::EntityConstraintDescription>),

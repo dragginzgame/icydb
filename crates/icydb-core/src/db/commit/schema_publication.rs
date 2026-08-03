@@ -3,7 +3,6 @@
 //! Does not own: candidate construction, schema compatibility, or root codecs.
 //! Boundary: schema reconciliation -> commit marker/journal -> schema live projection.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::index::{IndexEntryValue, IndexKey, RawIndexStoreKey};
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -16,8 +15,8 @@ use crate::db::{
 use crate::{
     db::{
         commit::{
-            CommitMarker, begin_commit, database_incarnation_id, finish_commit, generate_commit_id,
-            generate_marker_batch_id,
+            CommitMarker, DatabaseControlOp, begin_commit, database_incarnation_id, finish_commit,
+            generate_commit_id, generate_marker_batch_id,
         },
         journal::{JournalBatch, JournalRecord, JournalSequence},
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
@@ -84,7 +83,6 @@ impl<'a> AcceptedSchemaPublication<'a> {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn publish_accepted_schema_candidate(
     store_path: &'static str,
     store: StoreHandle,
@@ -106,11 +104,10 @@ pub(in crate::db) fn publish_accepted_schema_candidate(
 /// candidate in database-control memory under the same marker. Recovery can
 /// therefore restore accepted catalog authority without consulting authored
 /// or generated proposal material.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn publish_accepted_schema_candidates_atomically(
     publications: Vec<AcceptedSchemaPublication<'_>>,
 ) -> Result<(), InternalError> {
-    publish_accepted_schema_candidates_with_optional_application_record(publications, None)
+    publish_accepted_schema_candidates_with_database_control(publications, Vec::new())
 }
 
 /// Publish zero or more accepted candidates and one terminal application
@@ -119,21 +116,25 @@ pub(in crate::db) fn publish_accepted_schema_candidates_with_application_record(
     publications: Vec<AcceptedSchemaPublication<'_>>,
     application_record: SchemaApplicationRecordOp,
 ) -> Result<(), InternalError> {
-    publish_accepted_schema_candidates_with_optional_application_record(
+    publish_accepted_schema_candidates_with_database_control(
         publications,
-        Some(application_record),
+        vec![DatabaseControlOp::SchemaApplication(application_record)],
     )
 }
 
-fn publish_accepted_schema_candidates_with_optional_application_record(
+/// Publish accepted candidates and one bounded database-control transaction
+/// through the same marker boundary.
+pub(in crate::db) fn publish_accepted_schema_candidates_with_database_control(
     mut publications: Vec<AcceptedSchemaPublication<'_>>,
-    application_record: Option<SchemaApplicationRecordOp>,
+    database_control: Vec<DatabaseControlOp>,
 ) -> Result<(), InternalError> {
     if publications.is_empty() {
-        let application_record = application_record.ok_or_else(InternalError::store_invariant)?;
-        return publish_application_record_atomically(application_record);
+        if database_control.is_empty() {
+            return Err(InternalError::store_invariant());
+        }
+        return publish_database_control_atomically(database_control);
     }
-    publications.sort_by_key(|publication| publication.store_path);
+    publications.sort_unstable_by_key(|publication| publication.store_path);
     if publications
         .windows(2)
         .any(|pair| pair[0].store_path == pair[1].store_path)
@@ -165,7 +166,7 @@ fn publish_accepted_schema_candidates_with_optional_application_record(
         })
         .collect::<Result<Vec<_>, _>>()?;
     if already_current.iter().all(|current| *current) {
-        return if application_record.is_none() {
+        return if database_control.is_empty() {
             Ok(())
         } else {
             Err(InternalError::store_invariant())
@@ -188,7 +189,7 @@ fn publish_accepted_schema_candidates_with_optional_application_record(
         }
     }
 
-    publish_candidates_atomically(publications.as_slice(), application_record)
+    publish_candidates_atomically(publications.as_slice(), database_control)
 }
 
 /// Publish one accepted candidate and the exact validation job its new
@@ -292,7 +293,6 @@ pub(in crate::db) fn publish_constraint_validation_job(
 
 /// Advance one unique-index validation page and its isolated candidate writes
 /// through the same marker-owned checkpoint boundary.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entries(
     store_path: &'static str,
     store: StoreHandle,
@@ -487,7 +487,7 @@ fn publish_journaled_candidate(
 
 fn publish_candidates_atomically(
     publications: &[AcceptedSchemaPublication<'_>],
-    application_record: Option<SchemaApplicationRecordOp>,
+    database_control: Vec<DatabaseControlOp>,
 ) -> Result<(), InternalError> {
     let incarnation = database_incarnation_id()?;
     let marker_id = generate_commit_id()?;
@@ -515,10 +515,10 @@ fn publish_candidates_atomically(
             vec![record],
         )?);
     }
-    let marker = CommitMarker::from_parts_with_schema_application(
+    let marker = CommitMarker::from_parts_with_database_control(
         marker_id,
         batches.clone(),
-        application_record.clone(),
+        database_control.clone(),
     )?;
     let commit = begin_commit(marker)?;
 
@@ -564,26 +564,43 @@ fn publish_candidates_atomically(
                 }
             })?;
         }
-        if let Some(operation) = application_record.as_ref() {
-            apply_schema_application_record_op(operation)?;
-        }
+        apply_database_control_ops(database_control.as_slice())?;
         Ok(())
     })
 }
 
-fn publish_application_record_atomically(
-    application_record: SchemaApplicationRecordOp,
+fn publish_database_control_atomically(
+    database_control: Vec<DatabaseControlOp>,
 ) -> Result<(), InternalError> {
     let marker_id = generate_commit_id()?;
-    let marker = CommitMarker::from_parts_with_schema_application(
+    let marker = CommitMarker::from_parts_with_database_control(
         marker_id,
         Vec::new(),
-        Some(application_record.clone()),
+        database_control.clone(),
     )?;
     let commit = begin_commit(marker)?;
     finish_commit(commit, |_guard| {
-        apply_schema_application_record_op(&application_record)
+        apply_database_control_ops(&database_control)
     })
+}
+
+fn apply_database_control_ops(operations: &[DatabaseControlOp]) -> Result<(), InternalError> {
+    for operation in operations {
+        match operation {
+            DatabaseControlOp::SchemaApplication(operation) => {
+                apply_schema_application_record_op(operation)?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::EntitySourceLineage(operation) => {
+                crate::db::schema::apply_entity_source_lineage_catalog_op(operation)?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            DatabaseControlOp::SchemaMigration(operation) => {
+                crate::db::schema::apply_schema_migration_record_op(operation)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn publish_journaled_constraint_validation_job(
@@ -608,7 +625,6 @@ fn publish_journaled_constraint_validation_job(
     })
 }
 
-#[cfg(any(test, feature = "query"))]
 fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     store_path: &'static str,
     store: StoreHandle,
@@ -637,7 +653,6 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     })
 }
 
-#[cfg(any(test, feature = "query"))]
 fn validate_candidate_index_entries(
     bundle: &crate::db::schema::AcceptedSchemaRevisionBundle,
     job: &ConstraintValidationJob,
@@ -871,14 +886,15 @@ mod tests {
     use super::{
         AcceptedSchemaPublication, publish_accepted_schema_candidate,
         publish_accepted_schema_candidates_with_application_record,
+        publish_database_control_atomically,
     };
     use crate::{
         db::{
             Db,
             commit::recovery::forget_recovered_domain_for_tests,
             commit::{
-                CommitMarker, begin_commit, ensure_recovered, generate_commit_id,
-                generate_marker_batch_id,
+                CommitMarker, DatabaseControlOp, begin_commit, ensure_recovered,
+                generate_commit_id, generate_marker_batch_id,
             },
             data::DataStore,
             index::IndexStore,
@@ -891,8 +907,11 @@ mod tests {
                 SchemaApplicationRecordOp, SchemaChangeOutcome, SchemaChangeReceipt,
                 SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault, SchemaRowLayout,
                 SchemaStore, SchemaVersion, accepted_schema_candidate_for_tests,
-                empty_accepted_schema_candidate_for_tests, load_live_schema_checkpoint,
-                with_schema_application_store,
+                empty_accepted_schema_candidate_for_tests, entity_source_lineage_matches_for_tests,
+                load_live_schema_checkpoint, prepared_schema_migration_record_op_for_tests,
+                schema_migration_record_lifecycle_ops_for_tests,
+                schema_migration_record_matches_for_tests,
+                unadopted_entity_source_lineage_op_for_tests, with_schema_application_store,
             },
         },
         traits::{CanisterKind, Path},
@@ -900,7 +919,7 @@ mod tests {
     };
     use icydb_schema::{
         ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
-        TargetDatabaseIdentity,
+        TargetDatabaseIdentity, TargetStoreIdentity,
     };
     use std::cell::RefCell;
 
@@ -1174,6 +1193,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the interrupted compound publication and recovery assertions form one scenario"
+    )]
     fn interrupted_live_only_application_recovers_candidate_and_receipt_from_marker() {
         let db = Db::<RecoveryCanister>::new(&RECOVERY_REGISTRY);
         ensure_recovered(&db).expect("test database format should initialize");
@@ -1207,8 +1230,21 @@ mod tests {
             RECOVERY_ENTITY_PATH,
         );
         let record = applied_record(&candidate, 0x61, "single-live-recovery");
-        let operation =
+        let lineage = unadopted_entity_source_lineage_op_for_tests(
+            TargetStoreIdentity::from_bytes([0x62; 32]),
+            entity_tag,
+            ExpectedAcceptedHead::Exact {
+                revision: candidate.revision().get(),
+                fingerprint: ExpectedSchemaFingerprint::from_bytes(
+                    candidate.root().fingerprint().as_bytes(),
+                ),
+            },
+        )
+        .expect("lineage effect should prepare");
+        let application =
             SchemaApplicationRecordOp::insert(&record).expect("record insertion should prepare");
+        let migration = prepared_schema_migration_record_op_for_tests()
+            .expect("migration operation should prepare");
         let marker_id = generate_commit_id().expect("marker id should generate");
         let batch = JournalBatch::new(
             generate_marker_batch_id(marker_id, 0).expect("batch id should derive"),
@@ -1225,13 +1261,29 @@ mod tests {
             ],
         )
         .expect("schema journal batch should admit");
-        let marker = CommitMarker::from_parts_with_schema_application(
+        let marker = CommitMarker::from_parts_with_database_control(
             marker_id,
             vec![batch],
-            Some(operation),
+            vec![
+                DatabaseControlOp::SchemaApplication(application.clone()),
+                DatabaseControlOp::EntitySourceLineage(lineage.clone()),
+                DatabaseControlOp::SchemaMigration(migration.clone()),
+            ],
         )
         .expect("application marker should admit");
         let _interrupted = begin_commit(marker).expect("marker should persist before interruption");
+        with_schema_application_store(|store| store.apply(&application))
+            .expect("interruption should leave only the receipt applied");
+        assert!(
+            !entity_source_lineage_matches_for_tests(&lineage)
+                .expect("lineage state should remain readable"),
+            "receipt-first interruption must not imply lineage publication",
+        );
+        assert!(
+            !schema_migration_record_matches_for_tests(&migration)
+                .expect("migration state should remain readable"),
+            "receipt-first interruption must not imply migration progress publication",
+        );
 
         RECOVERY_DATA.with(|store| *store.borrow_mut() = DataStore::init_heap());
         RECOVERY_INDEX.with(|store| *store.borrow_mut() = IndexStore::init_heap());
@@ -1246,6 +1298,37 @@ mod tests {
         ensure_recovered(&db).expect("marker recovery should complete the application");
 
         assert_candidate_and_record_published(store, &candidate, &record);
+        assert!(
+            entity_source_lineage_matches_for_tests(&lineage)
+                .expect("recovered lineage should remain readable"),
+            "marker recovery must complete the exact lineage effect",
+        );
+        assert!(
+            schema_migration_record_matches_for_tests(&migration)
+                .expect("recovered migration state should remain readable"),
+            "marker recovery must complete the exact migration progress effect",
+        );
+        let (_, validating, aborted) = schema_migration_record_lifecycle_ops_for_tests()
+            .expect("test migration lifecycle should prepare");
+        publish_database_control_atomically(vec![DatabaseControlOp::SchemaMigration(validating)])
+            .expect("validation gate should publish");
+        let blocked = db
+            .recovered_store(RECOVERY_STORE_PATH)
+            .expect_err("ordinary store routing must fail while validation owns the gate");
+        assert_eq!(
+            blocked.diagnostic().detail(),
+            Some(&icydb_diagnostic_code::DiagnosticDetail::SchemaMigration {
+                reason: icydb_diagnostic_code::SchemaMigrationCode::MigrationInProgress,
+            }),
+        );
+        db.ensure_recovered_control_state()
+            .expect("control-plane recovery should remain available");
+        db.store_handle(RECOVERY_STORE_PATH)
+            .expect("control-plane inspection should remain available while gated");
+        publish_database_control_atomically(vec![DatabaseControlOp::SchemaMigration(aborted)])
+            .expect("pre-rewrite abort should publish");
+        db.recovered_store(RECOVERY_STORE_PATH)
+            .expect("terminal abort should clear the ordinary-operation gate");
         let recovered_entity = db
             .accepted_runtime_entity_for_path(RECOVERY_ENTITY_PATH)
             .expect("recovered accepted entity should supply its runtime route");
@@ -1253,5 +1336,9 @@ mod tests {
         assert_eq!(recovered_entity.store_path(), RECOVERY_STORE_PATH);
         ensure_recovered(&db).expect("completed recovery should remain idempotent");
         assert_candidate_and_record_published(store, &candidate, &record);
+        assert!(
+            entity_source_lineage_matches_for_tests(&lineage)
+                .expect("idempotent lineage should remain readable"),
+        );
     }
 }

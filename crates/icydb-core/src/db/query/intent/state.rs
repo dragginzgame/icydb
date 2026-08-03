@@ -61,13 +61,6 @@ impl FilterPredicateCoverage {
 #[derive(Clone, Debug)]
 enum FilterSemanticAuthority {
     ExpressionBacked(Expr),
-    #[cfg_attr(
-        not(any(test, feature = "query")),
-        expect(
-            dead_code,
-            reason = "predicate-only filters are constructed by query frontends"
-        )
-    )]
     PredicateOnly,
 }
 
@@ -102,7 +95,6 @@ impl NormalizedFilter {
     /// predicate subset, used by SQL lowering after it has canonicalized both
     /// views through the same semantic pass.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::query::intent) fn from_normalized_expr_and_predicate_subset(
         expr: Expr,
         predicate_subset: Predicate,
@@ -121,7 +113,6 @@ impl NormalizedFilter {
 
     /// Build one invisible filter from an already-normalized runtime predicate.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::query::intent) const fn from_normalized_predicate(
         predicate: Predicate,
     ) -> Self {
@@ -403,7 +394,6 @@ impl QueryIntent {
     /// Re-express one delete target as a load selection without changing its
     /// predicate, ordering, offset, or limit.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db::query::intent) fn into_load_selection(self) -> Self {
         match self {
             Self::Load(load) => Self::Load(load),

@@ -6,6 +6,10 @@ version = { workspace = true }
 publish = false
 description = "Small schema fixture crate for lightweight SQL smoke canisters"
 
+[features]
+default = []
+migration-v2 = []
+
 [package.metadata.cargo-machete]
 ignored = ["candid"]
 

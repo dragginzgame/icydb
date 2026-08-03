@@ -9,7 +9,7 @@ fn main() {
         Err(err) => {
             eprintln!("{err}");
             eprintln!(
-                "usage: build_fixture_canister [canister] [--build-profile local|production] [--profile debug|release|wasm-release] [--sql-mode on|off] [--candid-export auto|on|off]"
+                "usage: build_fixture_canister [canister] [--build-profile local|production] [--profile debug|release|wasm-release|wasm-attribution] [--sql-mode on|off] [--candid-export auto|on|off]"
             );
             std::process::exit(2);
         }

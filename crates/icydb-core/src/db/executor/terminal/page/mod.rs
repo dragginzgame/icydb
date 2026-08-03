@@ -14,7 +14,6 @@ mod scan;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "query")]
 use crate::db::executor::pipeline::contracts::{
     ExecutionOutcomeMetrics, KernelRowsExecutionAttempt,
 };
@@ -281,7 +280,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
 
 /// Materialize one ordered key stream through scalar post-access phases and
 /// return kernel rows before structural page payload shaping.
-#[cfg(feature = "query")]
 pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
     request: KernelPageMaterializationRequest<'a>,
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,

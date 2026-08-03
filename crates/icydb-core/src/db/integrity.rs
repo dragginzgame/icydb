@@ -155,7 +155,7 @@ fn validate_quick_identity_control<C: CanisterKind>(
     incarnation: DatabaseIncarnationId,
 ) -> Result<(), InternalError> {
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
-    stores.sort_by_key(|(store_path, _)| *store_path);
+    stores.sort_unstable_by_key(|(store_path, _)| *store_path);
 
     let mut owners = BTreeMap::new();
     let mut state_count = 0usize;

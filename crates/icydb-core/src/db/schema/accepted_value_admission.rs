@@ -3,9 +3,7 @@
 //! Does not own: row codecs, field lookup, recursive value semantics, or schema publication.
 //! Boundary: accepted catalog/value/nullability facts -> admitted canonical value proof.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::schema::{AcceptedFieldKind, enum_catalog::normalize_and_admit_nullable_value};
-#[cfg(any(test, feature = "query"))]
 use crate::value::Value;
 use crate::{
     db::schema::{
@@ -63,14 +61,12 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
 
     /// Borrow the accepted top-level value kind.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn kind(&self) -> &AcceptedFieldKind {
         self.value_contract().kind()
     }
 
     /// Derive a non-null collection-element admission contract under the same catalog.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn collection_element_contract(&self) -> Option<Self> {
         Some(Self::owned(
             self.catalogs,
@@ -80,7 +76,6 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
     }
 
     /// Normalize authored input into an owned value pinned to this accepted authority.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn normalize_and_admit(
         &self,
         input: InputValue,
@@ -111,7 +106,6 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
     }
 
     /// Normalize authored input into the runtime value domain.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn normalize_input_to_runtime(
         &self,
         input: InputValue,

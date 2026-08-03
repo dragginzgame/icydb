@@ -130,6 +130,43 @@ pub enum SchemaContractError {
     #[error("schema targeted durable-rule target is invalid")]
     InvalidRuleTarget,
 
+    /// A declared entity source version is zero.
+    #[error("schema entity source version must be positive")]
+    InvalidEntityVersion,
+
+    /// A coordinated source migration is empty or otherwise malformed.
+    #[error("schema migration plan is invalid")]
+    InvalidMigrationPlan,
+
+    /// One migration selector does not resolve in the current proposal.
+    #[error("schema migration target reference is invalid")]
+    InvalidMigrationReference,
+
+    /// More than one migration operation claims the same predecessor object.
+    #[error("schema migration contains a duplicate source selector")]
+    DuplicateMigrationSource,
+
+    /// More than one migration operation claims the same current target.
+    #[error("schema migration contains a duplicate target selector")]
+    DuplicateMigrationTarget,
+
+    /// An entity migration does not describe the immediate predecessor.
+    #[error("schema migration entity versions are not contiguous")]
+    MigrationVersionGap,
+
+    /// A migration transform is outside the closed current vocabulary.
+    #[error("schema migration transform is invalid")]
+    InvalidMigrationTransform,
+
+    /// The migration program version is not the maintained current version.
+    #[error("schema migration program version is unsupported")]
+    UnsupportedMigrationProgramVersion {
+        /// Version carried by the plan.
+        found: u16,
+        /// Sole current version understood by this crate.
+        supported: u16,
+    },
+
     /// The proposal contract version is not the maintained current version.
     #[error("schema proposal contract version is unsupported")]
     UnsupportedVersion {

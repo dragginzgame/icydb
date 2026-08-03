@@ -24,7 +24,7 @@ pub(crate) enum SqlStatement {
     Insert(SqlInsertStatement),
     Update(SqlUpdateStatement),
     Ddl(SqlDdlStatement),
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     Explain(SqlExplainStatement),
     Describe(SqlDescribeStatement),
     ShowConstraints(SqlShowConstraintsStatement),
@@ -1230,7 +1230,7 @@ pub(crate) struct SqlUpdateStatement {
     pub(crate) returning: Option<SqlReturningProjection>,
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 ///
 /// SqlExplainMode
 ///
@@ -1244,7 +1244,7 @@ pub(crate) enum SqlExplainMode {
     Json,
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 ///
 /// SqlExplainTarget
 ///
@@ -1256,7 +1256,7 @@ pub(crate) enum SqlExplainTarget {
     Delete(SqlDeleteStatement),
 }
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 ///
 /// SqlExplainStatement
 ///

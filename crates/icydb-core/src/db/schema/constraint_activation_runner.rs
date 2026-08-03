@@ -12,7 +12,6 @@ use crate::{
     },
     error::{ConstraintDiagnostic, ConstraintDiagnosticKind},
 };
-#[cfg(any(test, feature = "query"))]
 use crate::{
     db::{
         Db,
@@ -56,7 +55,6 @@ use std::ops::Bound;
 const MAX_VALIDATION_ROWS_PER_PAGE: usize = 256;
 const MAX_VALIDATION_DECODED_BYTES_PER_PAGE: usize = 4 * 1024 * 1024;
 const MAX_VALIDATION_FINDINGS_PER_PAGE: usize = 64;
-#[cfg(any(test, feature = "query"))]
 const MAX_VALIDATION_STAGED_BYTES_PER_PAGE: usize = 4 * 1024 * 1024;
 
 /// Result of one bounded activation lifecycle step.
@@ -91,7 +89,6 @@ pub(in crate::db) enum UnpublishedRowLocalValidation {
 }
 
 /// Advance one generated or SQL-owned check activation by at most one bounded page.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn advance_check_constraint_activation<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
@@ -181,7 +178,6 @@ pub(in crate::db) fn advance_accepted_row_local_constraint_activation(
 }
 
 /// Advance one not-null activation by at most one bounded page.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn advance_not_null_constraint_activation<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
@@ -198,7 +194,6 @@ pub(in crate::db) fn advance_not_null_constraint_activation<C: CanisterKind>(
 }
 
 /// Advance one unique-index activation by at most one bounded page.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
@@ -425,7 +420,6 @@ enum RowLocalActivationKind {
     /// Evaluate one accepted check expression.
     Check,
     /// Evaluate one accepted field's not-null contract.
-    #[cfg(any(test, feature = "query"))]
     NotNull,
     /// Evaluate one source-bound targeted durable rule.
     TargetedRule,
@@ -435,11 +429,8 @@ impl RowLocalActivationKind {
     fn from_activation(kind: &ConstraintActivationKind) -> Result<Self, InternalError> {
         match kind {
             ConstraintActivationKind::Check { .. } => Ok(Self::Check),
-            #[cfg(any(test, feature = "query"))]
             ConstraintActivationKind::NotNull { .. } => Ok(Self::NotNull),
             ConstraintActivationKind::TargetedRule { .. } => Ok(Self::TargetedRule),
-            #[cfg(not(any(test, feature = "query")))]
-            ConstraintActivationKind::NotNull { .. } => Err(InternalError::store_unsupported()),
             ConstraintActivationKind::Unique { .. } | ConstraintActivationKind::Relation { .. } => {
                 Err(InternalError::store_unsupported())
             }
@@ -447,7 +438,6 @@ impl RowLocalActivationKind {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn advance_row_local_constraint_activation<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
@@ -520,16 +510,17 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 impl RowLocalActivationKind {
     const fn matches(self, kind: &ConstraintActivationKind) -> bool {
-        match (self, kind) {
-            (Self::Check, ConstraintActivationKind::Check { .. }) => true,
-            #[cfg(any(test, feature = "query"))]
-            (Self::NotNull, ConstraintActivationKind::NotNull { .. }) => true,
-            (Self::TargetedRule, ConstraintActivationKind::TargetedRule { .. }) => true,
-            _ => false,
-        }
+        matches!(
+            (self, kind),
+            (Self::Check, ConstraintActivationKind::Check { .. })
+                | (Self::NotNull, ConstraintActivationKind::NotNull { .. })
+                | (
+                    Self::TargetedRule,
+                    ConstraintActivationKind::TargetedRule { .. }
+                )
+        )
     }
 }
 
@@ -575,7 +566,6 @@ fn start_journaled_row_local_validation(
     Ok(ConstraintValidationProgress::Started)
 }
 
-#[cfg(any(test, feature = "query"))]
 fn start_journaled_staged_validation(
     store: StoreHandle,
     store_path: &'static str,
@@ -630,7 +620,6 @@ fn start_journaled_staged_validation(
     clippy::too_many_arguments,
     reason = "unique activation keeps accepted identity, candidate owner, and job inputs explicit"
 )]
-#[cfg(any(test, feature = "query"))]
 fn resume_journaled_unique_validation(
     store: StoreHandle,
     store_path: &'static str,
@@ -850,7 +839,6 @@ fn resume_journaled_row_local_validation(
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn validate_exact_heap_row_local_activation(
     store: StoreHandle,
     constraint_id: ConstraintId,
@@ -925,7 +913,6 @@ fn promote_row_local_activation(
     )
 }
 
-#[cfg(any(test, feature = "query"))]
 fn promote_unique_activation(
     store: StoreHandle,
     store_path: &'static str,
@@ -984,7 +971,6 @@ fn compile_row_local_activation(
             fingerprint,
             constraint_id,
         ),
-        #[cfg(any(test, feature = "query"))]
         RowLocalActivationKind::NotNull => {
             CompiledAcceptedRowConstraints::compile_not_null_activation(
                 accepted,
@@ -1340,7 +1326,6 @@ fn map_row_constraint_program_error(_error: AcceptedRowConstraintEvaluationError
     InternalError::accepted_row_constraint_program_corrupt()
 }
 
-#[cfg(any(test, feature = "query"))]
 fn unique_candidate_for_activation(
     accepted: &AcceptedSchemaSnapshot,
     constraint_id: ConstraintId,
@@ -1372,7 +1357,6 @@ fn unique_candidate_for_activation(
 /// Whether one unique page builds isolated state or proves it read-only.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "query"))]
 enum UniqueValidationMode {
     Forward,
     Verify,
@@ -1380,7 +1364,6 @@ enum UniqueValidationMode {
 
 /// Bounded result of scanning one unique-activation page.
 
-#[cfg(any(test, feature = "query"))]
 struct UniqueValidationPageScan {
     checkpoint: Option<RawDataStoreKey>,
     rows_scanned: usize,
@@ -1389,7 +1372,6 @@ struct UniqueValidationPageScan {
     exhausted: bool,
 }
 
-#[cfg(any(test, feature = "query"))]
 fn scan_unique_validation_page(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -1481,7 +1463,6 @@ fn scan_unique_validation_page(
     })
 }
 
-#[cfg(any(test, feature = "query"))]
 fn unique_index_key_fields(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     candidate: &PersistedIndexSnapshot,
@@ -1501,7 +1482,6 @@ fn unique_index_key_fields(
     Ok(fields)
 }
 
-#[cfg(any(test, feature = "query"))]
 fn candidate_unique_key_conflicts(
     store: StoreHandle,
     candidate_raw: &RawIndexStoreKey,

@@ -93,7 +93,7 @@ pub(super) fn derive_load_route_intent_stage() -> RouteIntentStage<'static> {
 /// Derive the canonical staged aggregate intent.
 ///
 /// This includes the one preparation-owned materialization forcing policy input.
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(super) fn derive_aggregate_route_intent_stage<'a>(
     aggregate: AggregateRouteShape<'a>,
     execution_preparation: &ExecutionPreparation,

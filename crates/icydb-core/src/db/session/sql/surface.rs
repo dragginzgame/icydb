@@ -4,7 +4,7 @@
 //! Does not own: SQL execution, SQL compilation cache, or DDL publication.
 //! Boundary: keeps query/mutation/DDL surface gating out of the SQL facade.
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::sql::parser::SqlExplainTarget;
 use crate::{
     db::{
@@ -128,7 +128,7 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementSurface::Query,
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatement::Explain(_) => SqlStatementSurface::Query,
     }
 }
@@ -149,14 +149,14 @@ const fn sql_statement_shell_surface_from_statement(
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementShellSurface::Query,
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatement::Explain(_) => SqlStatementShellSurface::Query,
     }
 }
 
 const fn sql_statement_requires_introspection_from_statement(statement: &SqlStatement) -> bool {
     match statement {
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatement::Explain(_) => true,
         SqlStatement::Describe(_)
         | SqlStatement::ShowConstraints(_)
@@ -207,7 +207,7 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::Ddl(SqlDdlStatement::AlterTableValidateConstraint(statement)) => {
             Some(statement.entity.as_str())
         }
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatement::Explain(statement) => match &statement.statement {
             SqlExplainTarget::Select(statement) => Some(statement.entity.as_str()),
             SqlExplainTarget::Delete(statement) => Some(statement.entity.as_str()),
@@ -242,7 +242,7 @@ impl<C: CanisterKind> DbSession<C> {
                 | SqlStatement::ShowStores(_)
                 | SqlStatement::ShowMemory(_),
             ) => Ok(()),
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             (SqlCompiledCommandSurface::Query, SqlStatement::Explain(_)) => Ok(()),
             (
                 SqlCompiledCommandSurface::Mutation,
@@ -263,7 +263,7 @@ impl<C: CanisterKind> DbSession<C> {
             (SqlCompiledCommandSurface::Mutation, SqlStatement::Select(_)) => Err(
                 QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsSelect),
             ),
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             (SqlCompiledCommandSurface::Mutation, SqlStatement::Explain(_)) => Err(
                 QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::MutationRejectsExplain),
             ),
@@ -325,7 +325,7 @@ mod tests {
         assert!(!select.requires_introspection());
     }
 
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     #[test]
     fn explain_requires_introspection() {
         let dispatch = sql_statement_dispatch("EXPLAIN SELECT id FROM Example")

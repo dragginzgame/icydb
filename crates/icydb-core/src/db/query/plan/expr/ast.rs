@@ -4,7 +4,6 @@
 //! Boundary: defines canonical expression tree structures consumed by planner validation/lowering.
 
 use crate::{db::query::builder::aggregate::AggregateExpr, value::Value};
-#[cfg(feature = "query")]
 use std::collections::BTreeSet;
 
 ///
@@ -61,7 +60,6 @@ pub(in crate::db) struct PathSpec {
 impl PathSpec {
     /// Build one nested field path from a root field and non-empty path tail.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
         debug_assert!(
             !segments.is_empty(),
@@ -110,7 +108,6 @@ pub(in crate::db) struct FieldPath {
 impl FieldPath {
     /// Build one nested field path from a root field and non-empty path tail.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
         Self {
             path: PathSpec::new(root, segments),
@@ -155,7 +152,6 @@ impl Alias {
 
     /// Borrow the alias as text.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn as_str(&self) -> &str {
         self.0.as_str()
     }
@@ -221,13 +217,6 @@ impl BinaryOp {
 /// expressions.
 /// This intentionally stays limited to the shipped scalar-function surface.
 ///
-#[cfg_attr(
-    all(not(test), not(feature = "query")),
-    expect(
-        dead_code,
-        reason = "query frontends construct the full scalar-function taxonomy; non-query builds retain only the shared subset"
-    )
-)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[remain::sorted]
 pub(in crate::db) enum Function {
@@ -364,13 +353,6 @@ impl CaseWhenArm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum Expr {
     Field(FieldId),
-    #[cfg_attr(
-        all(not(test), not(feature = "query")),
-        expect(
-            dead_code,
-            reason = "nested field-path expressions are constructed by SQL lowering and tests"
-        )
-    )]
     FieldPath(FieldPath),
     Literal(Value),
     FunctionCall {
@@ -403,7 +385,6 @@ pub(in crate::db) enum Expr {
 /// Returns `false` for expression variants that cannot belong to a resumable
 /// scalar scope. Callers must reject that result rather than treating an
 /// unknown dependency shape as an empty dependency set.
-#[cfg(feature = "query")]
 pub(in crate::db) fn collect_scalar_expr_field_roots(
     expr: &Expr,
     roots: &mut BTreeSet<String>,
@@ -445,7 +426,6 @@ impl Expr {
     /// Return true when this planner expression tree still contains any raw
     /// searched `CASE` node after owner-local canonicalization.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn contains_case(&self) -> bool {
         self.any_tree_expr(&mut |expr| matches!(expr, Self::Case { .. }))
     }
@@ -453,7 +433,6 @@ impl Expr {
     /// Return true when any visited planner expression node satisfies the
     /// supplied predicate.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn any_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
         if predicate(self) {
             return true;
@@ -549,7 +528,6 @@ impl Expr {
 
     /// Visit every planner expression node in this tree through the owner-local
     /// child traversal contract.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
         match self {
             Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {

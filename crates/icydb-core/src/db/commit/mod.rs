@@ -39,8 +39,8 @@ pub(in crate::db) use marker::{
     encode_commit_marker_payload,
 };
 pub(in crate::db) use marker::{
-    CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES, generate_commit_id,
-    generate_marker_batch_id,
+    CommitMarker, CommitRowOp, CommitSchemaFingerprint, DatabaseControlOp, MAX_COMMIT_BYTES,
+    generate_commit_id, generate_marker_batch_id,
 };
 pub(in crate::db) use memory::{
     CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
@@ -54,14 +54,13 @@ pub(in crate::db) use recovery::ensure_recovered;
 #[cfg(test)]
 pub(in crate::db) use recovery::forget_recovered_domain_for_tests;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 #[cfg(feature = "sql")]
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use schema_publication::publish_constraint_validation_job_with_candidate_index_entries;
 pub(in crate::db) use schema_publication::{
     AcceptedSchemaPublication, publish_accepted_schema_candidates_with_application_record,
+    publish_accepted_schema_candidates_with_database_control,
 };
 pub(in crate::db) use schema_publication::{
     publish_accepted_schema_candidate_with_constraint_validation_job,

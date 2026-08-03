@@ -3,8 +3,10 @@
 //! Does not own: startup reconciliation, stable-memory storage, or generated model metadata.
 //! Boundary: schema-owned DTOs that can become the `icydb_schema` payload.
 
-#[cfg(any(test, feature = "query"))]
-use crate::db::predicate::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
+#[cfg(any(test, feature = "sql", feature = "migration"))]
+use crate::db::predicate::relabel_sql_predicate_field_root;
+#[cfg(any(test, feature = "sql"))]
+use crate::db::predicate::sql_predicate_references_field_root;
 use crate::{
     db::schema::{
         AcceptedConstraintCatalog, AcceptedConstraintIdentity, AcceptedConstraintKind,
@@ -334,7 +336,6 @@ impl PersistedSchemaSnapshot {
     }
 
     /// Reserve one planner-invisible unique-index owner and its activation.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn with_added_unique_activation(
         mut self,
         candidate: PersistedIndexSnapshot,
@@ -472,7 +473,9 @@ impl PersistedSchemaSnapshot {
             .candidate_indexes
             .retain(|index| index.schema_id() != *index_id);
         after.indexes.push(candidate);
-        after.indexes.sort_by_key(PersistedIndexSnapshot::ordinal);
+        after
+            .indexes
+            .sort_unstable_by_key(PersistedIndexSnapshot::ordinal);
         if !after.has_valid_integrity() {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         }
@@ -553,7 +556,7 @@ impl PersistedSchemaSnapshot {
         after.relations.push(candidate);
         after
             .relations
-            .sort_by_key(PersistedRelationEdgeSnapshot::id);
+            .sort_unstable_by_key(PersistedRelationEdgeSnapshot::id);
         if !after.has_valid_integrity() {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         }
@@ -823,7 +826,6 @@ impl PersistedSchemaSnapshot {
     /// DDL callers supply the version from source intent; storage must never
     /// synthesize it.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
         Self::new_with_primary_key_fields_and_indexes(
             version,
@@ -896,6 +898,24 @@ impl PersistedRelationEdgeSnapshot {
             physical_generation,
             name: self.name.clone(),
             target_path: self.target_path.clone(),
+            local_field_ids: self.local_field_ids.clone(),
+        }
+    }
+
+    /// Clone this relation with current display/target metadata while
+    /// preserving accepted identity and physical generation.
+    #[cfg(any(test, feature = "migration"))]
+    #[must_use]
+    pub(in crate::db::schema) fn clone_with_metadata(
+        &self,
+        name: String,
+        target_path: String,
+    ) -> Self {
+        Self {
+            id: self.id,
+            physical_generation: self.physical_generation,
+            name,
+            target_path,
             local_field_ids: self.local_field_ids.clone(),
         }
     }
@@ -1098,7 +1118,7 @@ impl PersistedIndexSnapshot {
     /// Both key components and filtered-index predicates participate. A
     /// malformed accepted predicate fails closed as a dependency because a
     /// metadata-only field mutation must not risk stale physical index state.
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn references_field(&self, field_id: FieldId, field_name: &str) -> bool {
         self.key.references_field(field_id)
             || self.predicate_sql().is_some_and(|predicate_sql| {
@@ -1108,7 +1128,7 @@ impl PersistedIndexSnapshot {
 
     /// Clone this accepted index with display metadata updated for a renamed
     /// accepted field. Physical index identity and key shape remain unchanged.
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
     #[must_use]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
@@ -1206,7 +1226,7 @@ impl PersistedIndexKeySnapshot {
     /// Clone this key with direct field-path root labels renamed for the
     /// supplied durable field ID.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
@@ -1273,7 +1293,7 @@ impl PersistedIndexKeyItemSnapshot {
 
     /// Clone this item with direct field-path root labels renamed.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
@@ -1374,7 +1394,7 @@ impl PersistedIndexFieldPathSnapshot {
     /// Clone this key item with a renamed top-level accepted field label when
     /// it targets the supplied durable field ID.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
     pub(in crate::db) fn clone_with_renamed_root(&self, field_id: FieldId, new_name: &str) -> Self {
         let mut path = self.path.clone();
         if self.field_id == field_id
@@ -1476,7 +1496,7 @@ impl PersistedIndexExpressionSnapshot {
     /// Clone this expression with its accepted source field-path root label
     /// renamed and canonical expression text regenerated from the new path.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
     pub(in crate::db) fn clone_with_renamed_source_root(
         &self,
         field_id: FieldId,
@@ -1508,7 +1528,7 @@ impl PersistedIndexExpressionSnapshot {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql", feature = "migration"))]
 fn canonical_expression_text_for_path(op: PersistedIndexExpressionOp, path: &[String]) -> String {
     let path = path.join(".");
     match op {
@@ -1784,7 +1804,6 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated future insertion default.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn clone_with_insert_default(
         &self,
         insert_default: SchemaInsertDefault,
@@ -1808,7 +1827,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated accepted SQL/catalog name.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_name(&self, name: String) -> Self {
         Self {
             id: self.id,
@@ -1816,6 +1835,32 @@ impl PersistedFieldSnapshot {
             slot: self.slot,
             kind: self.kind.clone(),
             nested_leaves: self.nested_leaves.clone(),
+            nullable: self.nullable,
+            introduced_in_layout: self.introduced_in_layout,
+            insert_default: self.insert_default.clone(),
+            historical_fill: self.historical_fill.clone(),
+            write_policy: self.write_policy,
+            origin: self.origin,
+            storage_decode: self.storage_decode,
+            leaf_codec: self.leaf_codec,
+        }
+    }
+
+    /// Return a copy with current display and nested-path metadata while
+    /// preserving the accepted field identity and physical contract.
+    #[cfg(any(test, feature = "migration"))]
+    #[must_use]
+    pub(in crate::db::schema) fn clone_with_migration_metadata(
+        &self,
+        name: String,
+        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+    ) -> Self {
+        Self {
+            id: self.id,
+            name,
+            slot: self.slot,
+            kind: self.kind.clone(),
+            nested_leaves,
             nullable: self.nullable,
             introduced_in_layout: self.introduced_in_layout,
             insert_default: self.insert_default.clone(),
@@ -1960,7 +2005,6 @@ pub(in crate::db) enum SchemaInsertDefault {
 impl SchemaInsertDefault {
     /// Return whether this field declares no future insertion default.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }

@@ -66,6 +66,7 @@ mod tests {
             254,
             254,
             253,
+            None,
         )));
         schema.insert_node(SchemaNode::Store(Store::new_journaled(
             Def::new(module_path, store_ident),

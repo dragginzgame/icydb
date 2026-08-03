@@ -31,13 +31,12 @@ use mode::{derive_aggregate_route_direction, derive_load_route_direction};
 use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
 use pushdown::secondary_order_contract_active;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use capability_facts::explain_access_order_satisfied_for_model;
 pub(in crate::db::executor) use capability_facts::{
     branch_set_page_keep_cap_shape_supported, count_pushdown_shape_supported,
     primary_key_stream_window_shape_supported, primary_scan_fetch_hint_shape_supported,
 };
-#[cfg(feature = "query")]
 pub(in crate::db::executor) use capability_facts::{
     index_prefix_set_page_fetch_hint_shape_supported, top_n_seek_lookahead_required_for_shape,
 };
@@ -49,11 +48,10 @@ pub(in crate::db::executor) use fast_path::verify_pk_stream_fast_path_access;
 pub(in crate::db::executor) use guard::*;
 pub(in crate::db::executor) use hints::widened_residual_filter_predicate_pushdown_fetch;
 pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPushdownRejection};
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use planner::build_aggregate_execution_route_plan_for_explain;
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_mode;
-#[cfg(feature = "query")]
 pub(in crate::db::executor) use pushdown::access_preserves_primary_key_order_without_child_expansion;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::index_prefix_child_expansion_hint_for_access_window;

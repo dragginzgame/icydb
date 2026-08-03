@@ -3,10 +3,8 @@
 //! Does not own: planner phase orchestration, executor runtime behavior, or execution routing.
 //! Boundary: stores entity-bound query intent consumed by the planner pipeline.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::predicate::Predicate;
 use crate::db::query::intent::{StructuralQueryCacheKey, state::GroupedIntent};
-#[cfg(feature = "query")]
 use crate::db::query::{expr::FilterExpr, plan::expr::FieldId};
 use crate::db::{
     predicate::MissingRowPolicy,
@@ -84,7 +82,6 @@ impl QueryModel {
 
     // Return the normalized predicate only when this complete query intent can
     // use direct COUNT prefix cardinality without changing visible semantics.
-    #[cfg(feature = "query")]
     pub(in crate::db::query) fn direct_count_cardinality_prefix_predicate(
         &self,
     ) -> Result<Option<&Predicate>, QueryError> {
@@ -195,7 +192,6 @@ impl QueryModel {
 
     /// Append one predicate that has already been normalized by the caller.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::query) fn filter_normalized_predicate(
         mut self,
         predicate: Predicate,
@@ -205,7 +201,6 @@ impl QueryModel {
     }
 
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db::query) fn filter_for_schema(
         self,
         schema: &SchemaInfo,
@@ -225,7 +220,6 @@ impl QueryModel {
     }
 
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn filter_expr_with_normalized_predicate(
         mut self,
         expr: Expr,
@@ -246,7 +240,6 @@ impl QueryModel {
     }
 
     /// Set a fully-specified order spec (validated before reaching this boundary).
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db::query) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.intent.set_order_spec(order);
         self
@@ -261,7 +254,6 @@ impl QueryModel {
 
     /// Select one explicit scalar field projection list for internal SQL and
     /// planning tests that compare fluent and structural query shapes.
-    #[cfg(feature = "query")]
     #[must_use]
     pub(in crate::db::query) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
@@ -279,7 +271,6 @@ impl QueryModel {
     }
 
     /// Override scalar projection selection with one already-lowered planner contract.
-    #[cfg(feature = "query")]
     #[must_use]
     pub(in crate::db::query::intent) fn projection_selection(
         mut self,
@@ -336,7 +327,6 @@ impl QueryModel {
     // Append one widened grouped HAVING expression while preserving the
     // caller-owned grouped semantic shape instead of re-running grouped
     // searched-CASE canonicalization at append time.
-    #[cfg(feature = "query")]
     pub(in crate::db::query::intent) fn push_having_expr_preserving_shape(
         mut self,
         expr: Expr,
@@ -357,7 +347,6 @@ impl QueryModel {
 
     /// Re-express a delete target as a load selection for structural mutation staging.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db::query) fn into_load_selection(mut self) -> Self {
         self.intent = self.intent.into_load_selection();
         self

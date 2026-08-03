@@ -286,7 +286,6 @@ impl InternalError {
     /// contract drift.
     #[cold]
     #[inline(never)]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn planner_executor_invariant() -> Self {
         Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Planner)
     }
@@ -303,7 +302,6 @@ impl InternalError {
     /// contract drift.
     #[cold]
     #[inline(never)]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn cursor_executor_invariant() -> Self {
         Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Cursor)
     }
@@ -412,37 +410,31 @@ impl InternalError {
     }
 
     /// Construct a query-origin scalar page invariant for missing order at the cursor boundary.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn scalar_page_cursor_boundary_order_required() -> Self {
         Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scalar page invariant for cursor-before-ordering drift.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn scalar_page_cursor_boundary_after_ordering_required() -> Self {
         Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scalar page invariant for pagination-before-ordering drift.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn scalar_page_pagination_after_ordering_required() -> Self {
         Self::query_executor_invariant()
     }
 
     /// Construct a query-origin fast-stream invariant for route kind/request mismatch.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn fast_stream_route_kind_request_match_required() -> Self {
         Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scan invariant for missing index-prefix executable specs.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn secondary_index_prefix_spec_required() -> Self {
         Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scan invariant for missing index-range executable specs.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn index_range_limit_spec_required() -> Self {
         Self::query_executor_invariant()
     }
@@ -508,13 +500,11 @@ impl InternalError {
     /// Construct a planner-origin invariant violation.
     #[cold]
     #[inline(never)]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn planner_invariant() -> Self {
         Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Planner)
     }
 
     /// Construct a planner-origin invalid-logical-plan invariant.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn query_invalid_logical_plan() -> Self {
         Self::planner_invariant()
     }
@@ -645,7 +635,6 @@ impl InternalError {
     /// Construct a query-origin unsupported error.
     #[cold]
     #[inline(never)]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn query_unsupported() -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Query)
     }
@@ -654,7 +643,6 @@ impl InternalError {
     /// accepted schema revision.
     #[cold]
     #[inline(never)]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn query_stale_accepted_schema_revision(
         _expected_revision: u64,
         _current_revision: Option<u64>,
@@ -683,7 +671,6 @@ impl InternalError {
     /// Construct a query-origin numeric overflow error with structured detail.
     #[cold]
     #[inline(never)]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn query_numeric_overflow() -> Self {
         Self {
             class: ErrorClass::Unsupported,
@@ -696,7 +683,6 @@ impl InternalError {
     /// structured detail.
     #[cold]
     #[inline(never)]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn query_numeric_not_representable() -> Self {
         Self {
             class: ErrorClass::Unsupported,
@@ -824,25 +810,21 @@ impl InternalError {
     }
 
     /// Construct the canonical index-only predicate missing-component invariant.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn index_only_predicate_component_required() -> Self {
         Self::index_invariant()
     }
 
     /// Construct the canonical index-scan continuation-envelope invariant.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn index_scan_continuation_anchor_within_envelope_required() -> Self {
         Self::index_invariant()
     }
 
     /// Construct the canonical index-scan continuation-advancement invariant.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn index_scan_continuation_advancement_required() -> Self {
         Self::index_invariant()
     }
 
     /// Construct the canonical index-scan key-decode corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn index_scan_key_corrupted_during(
         _context: &'static str,
         _err: impl Sized,
@@ -851,7 +833,6 @@ impl InternalError {
     }
 
     /// Construct the canonical index-scan missing projection-component invariant.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn index_projection_component_required(
         _index_name: &str,
         _component_index: usize,
@@ -860,7 +841,6 @@ impl InternalError {
     }
 
     /// Construct the canonical scan-time index-entry decode corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn index_entry_decode_failed() -> Self {
         Self::index_corruption()
     }
@@ -1058,55 +1038,46 @@ impl InternalError {
     }
 
     /// Construct the canonical covering-component empty-payload corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_component_payload_empty() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component truncated bool corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_bool_payload_truncated() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component invalid-length corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_component_payload_invalid_length() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component invalid-bool corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_bool_payload_invalid_value() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component invalid text terminator corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_text_payload_invalid_terminator() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component trailing-text corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_text_payload_trailing_bytes() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component invalid-UTF-8 text corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_text_payload_invalid_utf8() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component invalid text escape corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_text_payload_invalid_escape_byte() -> Self {
         Self::index_corruption()
     }
 
     /// Construct the canonical covering-component missing text terminator corruption error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn bytes_covering_text_payload_missing_terminator() -> Self {
         Self::index_corruption()
     }
@@ -1153,8 +1124,22 @@ impl InternalError {
         Self::new(ErrorClass::Conflict, ErrorOrigin::Store)
     }
 
+    /// Construct one typed source-migration lifecycle or planning result.
+    pub(crate) fn schema_migration(reason: diagnostic_code::SchemaMigrationCode) -> Self {
+        let class = match reason.diagnostic_code() {
+            diagnostic_code::DiagnosticCode::RuntimeConflict => ErrorClass::Conflict,
+            diagnostic_code::DiagnosticCode::RuntimeCorruption => ErrorClass::Corruption,
+            diagnostic_code::DiagnosticCode::RuntimeUnsupported => ErrorClass::Unsupported,
+            _ => ErrorClass::Internal,
+        };
+        Self {
+            class,
+            origin: ErrorOrigin::Store,
+            detail: Some(ErrorDetail::Store(StoreError::SchemaMigration { reason })),
+        }
+    }
+
     /// Construct the canonical schema DDL publication race error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn schema_ddl_publication_race_lost(_entity_path: &str) -> Self {
         Self {
             class: ErrorClass::Unsupported,
@@ -1228,7 +1213,6 @@ impl InternalError {
     }
 
     /// Construct a cursor-origin invalid-continuation error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn cursor_invalid_continuation() -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Cursor)
     }
@@ -1267,7 +1251,6 @@ impl InternalError {
 
     /// Construct a query-origin unsupported projection error preserving one
     /// compact projection reason in structured error detail.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn query_unsupported_projection(
         reason: diagnostic_code::QueryProjectionCode,
     ) -> Self {
@@ -1281,7 +1264,6 @@ impl InternalError {
     }
 
     /// Construct a query-origin unsupported aggregate target-field error.
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn query_unknown_aggregate_target_field() -> Self {
         Self {
             class: ErrorClass::Unsupported,
@@ -1912,6 +1894,10 @@ pub enum StoreError {
 
     SchemaDdlRewriteRequiresMigration,
 
+    SchemaMigration {
+        reason: diagnostic_code::SchemaMigrationCode,
+    },
+
     SchemaRowLayoutVersionExhausted,
 
     JournalMutationRevisionExhausted,
@@ -2338,6 +2324,7 @@ impl StoreError {
             Self::SchemaGeneratedConstraintActivationStale => {
                 diagnostic_code::DiagnosticCode::RuntimeConflict
             }
+            Self::SchemaMigration { reason } => reason.diagnostic_code(),
         }
     }
 
@@ -2354,6 +2341,9 @@ impl StoreError {
                 Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::SchemaRewriteRequiresMigration,
                 })
+            }
+            Self::SchemaMigration { reason } => {
+                Some(diagnostic_code::DiagnosticDetail::SchemaMigration { reason: *reason })
             }
             Self::SchemaRowLayoutVersionExhausted => {
                 Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {

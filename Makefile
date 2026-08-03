@@ -101,7 +101,7 @@ help:
 	@echo "Development:"
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
 	@echo "  test-canister-artifact-contract"
-	@echo "                  Build and inspect all 18 maintained production/local canister artifacts"
+	@echo "                  Build and inspect all 20 maintained production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
 	@echo "                  Run the live generated SQL canister endpoint matrix"
 	@echo "  test-sql-tier-c-shard TIER_C_SHARD=0"
@@ -143,6 +143,7 @@ help:
 	@echo "  clean            Clean build artifacts"
 	@echo "  wasm-size-report Build and report wasm sizes for default_empty + one/ten entity audit canisters"
 	@echo "  wasm-audit-report Build wasm + write Twiggy audit reports for default_empty + one/ten entity audit canisters"
+	@echo "  wasm-query-attribution Build symbol-bearing typed/dynamic/SQL query attribution artifacts"
 	@echo "  lint-workflows   Lint GitHub Actions workflows with pinned actionlint"
 	@echo ""
 	@echo "Utilities:"
@@ -271,7 +272,7 @@ test-canister-artifact-contract:
 		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
-	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister --features icydb/sql-explain -- --nocapture
+	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister -- --nocapture
 
 test-sql-tier-c-shard:
 	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
@@ -415,6 +416,9 @@ wasm-size-report:
 
 wasm-audit-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-audit-report.sh $(AUDIT_REPORT_ARGS)
+
+wasm-query-attribution:
+	$(CARGO_WORK_ENV) bash scripts/ci/wasm-query-attribution.sh $(ATTRIBUTION_ARGS)
 
 #
 # Development commands

@@ -1,0 +1,16 @@
+use icydb_model::canister;
+
+#[canister(
+    migrations(entity_migration(
+        entity = "Account",
+        from = 1,
+        transforms(rewrite(from = "age", to = "age", arbitrary))
+    )),
+    memory_namespace = "test",
+    memory_min = 100,
+    memory_max = 110,
+    commit_memory_id = 109
+)]
+pub struct ApplicationCanister;
+
+fn main() {}

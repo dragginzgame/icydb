@@ -8,7 +8,10 @@ use std::path::Path;
 use clap::Parser;
 
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, DEFAULT_ENVIRONMENT, SchemaCommand},
+    cli::{
+        CanisterCommand, CliArgs, CliCommand, DEFAULT_ENVIRONMENT, SchemaCommand,
+        SchemaMigrationCommand,
+    },
     shell::test_support::sql_shell_config_inputs,
 };
 
@@ -18,6 +21,7 @@ fn clap_help_exposes_target_environment_flags() {
         ["icydb", "snapshot", "--help"].as_slice(),
         ["icydb", "metrics", "--help"].as_slice(),
         ["icydb", "schema", "show", "--help"].as_slice(),
+        ["icydb", "schema", "migration", "status", "--help"].as_slice(),
         ["icydb", "canister", "refresh", "--help"].as_slice(),
     ] {
         let help = clap_help_text(args);
@@ -249,6 +253,63 @@ fn cli_args_group_schema_under_top_level_keyword() {
 
     assert_eq!(target.canister_name(), "demo_rpg");
     assert_eq!(target.environment(), "test");
+}
+
+#[test]
+fn cli_args_expose_deployed_schema_migration_operations() {
+    for operation in ["status", "advance", "run"] {
+        let args = CliArgs::try_parse_from([
+            "icydb",
+            "schema",
+            "migration",
+            operation,
+            "demo_rpg",
+            "--environment",
+            "test",
+        ])
+        .expect("deployed migration operation should parse");
+        let CliCommand::Schema(SchemaCommand::Migration(command)) = args.into_command() else {
+            panic!("expected schema migration command");
+        };
+        let target = match command {
+            SchemaMigrationCommand::Status(target)
+            | SchemaMigrationCommand::Advance(target)
+            | SchemaMigrationCommand::Run(target) => target,
+            SchemaMigrationCommand::Abort(_) | SchemaMigrationCommand::Adopt(_) => {
+                panic!("expected non-destructive migration command")
+            }
+        };
+        assert_eq!(target.canister_name(), "demo_rpg");
+        assert_eq!(target.environment(), "test");
+    }
+}
+
+#[test]
+fn cli_args_require_explicit_confirmation_for_destructive_migration_operations() {
+    for operation in ["abort", "adopt"] {
+        let args = CliArgs::try_parse_from([
+            "icydb",
+            "schema",
+            "migration",
+            operation,
+            "demo_rpg",
+            "--yes",
+        ])
+        .expect("confirmed migration operation should parse");
+        let CliCommand::Schema(SchemaCommand::Migration(command)) = args.into_command() else {
+            panic!("expected schema migration command");
+        };
+        let confirmed = match command {
+            SchemaMigrationCommand::Abort(args) | SchemaMigrationCommand::Adopt(args) => args,
+            SchemaMigrationCommand::Status(_)
+            | SchemaMigrationCommand::Advance(_)
+            | SchemaMigrationCommand::Run(_) => {
+                panic!("expected destructive migration command")
+            }
+        };
+        assert!(confirmed.confirmed());
+        assert_eq!(confirmed.target().canister_name(), "demo_rpg");
+    }
 }
 
 #[test]

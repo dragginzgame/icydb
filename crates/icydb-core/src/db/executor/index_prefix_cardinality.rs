@@ -70,7 +70,6 @@ impl ExpandedIndexPrefixFamily {
     }
 
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn into_specs(self) -> Vec<LoweredIndexPrefixSpec> {
         self.specs
     }
@@ -179,7 +178,6 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
     )))
 }
 
-#[cfg(feature = "query")]
 pub(in crate::db) fn user_index_prefix_cardinality_keys_from_plan(
     plan: LoweredIndexPrefixCardinalityPlan<'_>,
 ) -> Option<Vec<UserIndexPrefixCardinalityKey>> {

@@ -24,7 +24,6 @@ use crate::db::{
 ///
 
 pub(super) enum ScalarRouteTerminal {
-    #[cfg(feature = "query")]
     KernelRows,
     MaterializedPage,
 }

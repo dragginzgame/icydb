@@ -6,7 +6,6 @@
 //! Boundary: keeps public write semantics and row-returning projection payloads
 //! above the core save pipeline.
 
-#[cfg(feature = "query")]
 use crate::db::RowProjectionOutput;
 use crate::{
     db::{DynamicMutationResult, session::DbSession},
@@ -227,12 +226,10 @@ impl TypedEntityBinding {
         Self { inner }
     }
 
-    #[cfg(feature = "query")]
     pub(crate) const fn inner(&self) -> &core::db::DynamicTypedEntityBinding {
         &self.inner
     }
 
-    #[cfg(feature = "query")]
     pub(crate) const fn entity(&self) -> &str {
         self.inner.entity()
     }
@@ -921,7 +918,6 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Project one accepted dynamic-query row through a current opaque binding.
-    #[cfg(feature = "query")]
     pub fn typed_query_row(
         &self,
         binding: &TypedEntityBinding,

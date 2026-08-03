@@ -18,11 +18,11 @@ candid-export = []
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false, features = ["query"] }
+icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-ten-simple-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false, features = ["query"] }
+icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-ten-simple-fixtures = { workspace = true }
 
 [lints]

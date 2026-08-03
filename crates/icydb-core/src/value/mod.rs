@@ -12,7 +12,6 @@ mod canonical;
 mod canonical_enum;
 mod coercion;
 mod compare;
-#[cfg(any(test, feature = "query"))]
 mod hash;
 mod input;
 mod map;
@@ -36,7 +35,6 @@ pub(crate) use canonical_enum::{CanonicalEnumBody, CanonicalEnumValue, EnumTypeI
 pub use coercion::CoercionFamily;
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;
-#[cfg(any(test, feature = "query"))]
 pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value, hash_value};
 pub use input::{InputValue, InputValueEnum};
 pub use map::{MapValueError, SchemaInvariantError};
@@ -288,7 +286,6 @@ impl Value {
 
     /// Return whether this runtime value contains canonical enum identity.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(crate) fn contains_enum(&self) -> bool {
         match self {
             Self::Enum(_) => true,

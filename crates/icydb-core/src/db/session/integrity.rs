@@ -40,6 +40,7 @@ impl<C: CanisterKind> DbSession<C> {
         request: IntegrityCheckRequest,
         owner: IntegrityJobOwner,
     ) -> Result<IntegrityCheckResult, IntegrityDeepError> {
+        self.db.ensure_recovered_control_state()?;
         owner.validate()?;
         let result = match request {
             IntegrityCheckRequest::Quick { entity } => self
@@ -105,7 +106,7 @@ impl<C: CanisterKind> DbSession<C> {
         {
             return Err(IntegrityJobError::EntityIdentityMismatch.into());
         }
-        let store = self.db.recovered_store(runtime_entity.store_path())?;
+        let store = self.db.store_handle(runtime_entity.store_path())?;
 
         Ok((runtime_entity, store))
     }
@@ -155,7 +156,7 @@ impl<C: CanisterKind> DbSession<C> {
         Self::validate_integrity_plan_identity(entity, &first_plan)?;
         let proof_a = capture_integrity_proof_vector(&self.db, &first_plan)?;
 
-        let store = self.db.recovered_store(runtime_entity.store_path())?;
+        let store = self.db.store_handle(runtime_entity.store_path())?;
         let second_plan = load_plan(runtime_entity, store)
             .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &second_plan)?;
@@ -205,7 +206,7 @@ impl<C: CanisterKind> DbSession<C> {
             acknowledged_sequence,
             |entity_path| {
                 let runtime_entity = self.db.accepted_runtime_entity_for_path(entity_path)?;
-                let store = self.db.recovered_store(runtime_entity.store_path())?;
+                let store = self.db.store_handle(runtime_entity.store_path())?;
                 self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store)
                     .map_err(AcceptedInspectionPlanLoadError::into_internal)
             },

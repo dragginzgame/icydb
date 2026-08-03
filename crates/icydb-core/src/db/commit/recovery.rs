@@ -16,11 +16,16 @@
 //! unconditional invariant-restoration step. Recovery must not be
 //! interleaved with read logic or mutation planning/apply phases.
 
+#[cfg(any(test, feature = "migration"))]
+use crate::db::index::{IndexEntryValue, IndexKey};
+#[cfg(any(test, feature = "migration"))]
+use crate::db::schema::{apply_schema_migration_record_op, verify_schema_migration_record_op};
 use crate::{
     db::{
         Db,
         commit::{
             CommitMarker, CommitRowOp, CommitSchemaFingerprint, database_incarnation_id,
+            marker::DatabaseControlOp,
             memory::{
                 CommitMemoryAllocation, configure_commit_memory_id,
                 current_commit_memory_allocation,
@@ -64,6 +69,18 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
     static RECOVERY_IN_PROGRESS_KEYS: RefCell<Vec<RecoveryDomainKey>> =
         const { RefCell::new(Vec::new()) };
+}
+
+#[cfg(any(test, feature = "migration"))]
+fn validate_schema_migration_journal_plan(
+    plan_digest: icydb_schema::SchemaMigrationPlanDigest,
+) -> Result<(), InternalError> {
+    let record = crate::db::schema::load_schema_migration_record()?
+        .ok_or_else(InternalError::store_corruption)?;
+    if !record.permits_private_physical_journal(plan_digest) {
+        return Err(InternalError::store_corruption());
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -152,41 +169,57 @@ fn perform_recovery<C: CanisterKind>(
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
         publish_marker_bound_journal_batches(db, marker)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-        if let Some(operation) = marker.schema_application() {
-            apply_schema_application_record_op(operation)
-                .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        for operation in marker.database_control() {
+            match operation {
+                DatabaseControlOp::SchemaApplication(operation) => {
+                    apply_schema_application_record_op(operation)
+                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                }
+                #[cfg(any(test, feature = "migration"))]
+                DatabaseControlOp::EntitySourceLineage(operation) => {
+                    crate::db::schema::apply_entity_source_lineage_catalog_op(operation)
+                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                }
+                #[cfg(any(test, feature = "migration"))]
+                DatabaseControlOp::SchemaMigration(operation) => {
+                    apply_schema_migration_record_op(operation)
+                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                }
+            }
         }
     }
 
     // Phase 1: fold committed journal-tail records into the canonical stable
     // base, then use the fold watermark as the replay boundary.
-    if let Err(err) = fold_journaled_tails(db) {
-        return Err(err.with_origin(ErrorOrigin::Recovery));
-    }
+    fold_journaled_tails(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     // Phase 2: rebuild journaled live projections from durable base + any
     // committed tail that remains above the fold watermark.
-    if let Err(err) = rebuild_journaled_live_projections(db) {
-        return Err(err.with_origin(ErrorOrigin::Recovery));
-    }
+    rebuild_journaled_live_projections(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 3: rebuild secondary indexes from authoritative data rows.
-    if let Err(err) = rebuild_secondary_indexes_from_rows(db) {
+    // Phase 3: a partially rewritten migration deliberately contains both
+    // predecessor and candidate row layouts. Its marker-owned private index
+    // generations must survive until final publication; ordinary accepted
+    // rebuild resumes once the migration becomes terminal.
+    #[cfg(any(test, feature = "migration"))]
+    let private_migration_state = migration_retains_private_physical_authority()
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    #[cfg(not(any(test, feature = "migration")))]
+    let private_migration_state = false;
+    if !private_migration_state && let Err(err) = rebuild_secondary_indexes_from_rows(db) {
         return Err(err.with_origin(ErrorOrigin::Recovery));
     }
 
     // Phase 4: fold rebuilt journaled index materializations into canonical
     // index storage. Indexes are derived state, not independent journal truth.
-    if let Err(err) = fold_journaled_index_materialized_views(db) {
-        return Err(err.with_origin(ErrorOrigin::Recovery));
-    }
+    fold_journaled_index_materialized_views(db)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     // Phase 5: verify only marker-owned effects and terminal fold state before
     // clearing marker authority. Whole-database integrity is an explicit
     // bounded inspection workflow, not a recovery side effect.
-    if let Err(err) = verify_recovered_effects(db, marker.as_ref()) {
-        return Err(err.with_origin(ErrorOrigin::Recovery));
-    }
+    verify_recovered_effects(db, marker.as_ref())
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     // Phase 6: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
@@ -196,10 +229,18 @@ fn perform_recovery<C: CanisterKind>(
 
     // Phase 7: authoritative rebuild succeeded, so every registered index is
     // query-visible again.
-    db.mark_all_registered_index_stores_ready();
+    if !private_migration_state {
+        db.mark_all_registered_index_stores_ready();
+    }
     mark_commit_marker_verified_absent();
 
     Ok(())
+}
+
+#[cfg(any(test, feature = "migration"))]
+fn migration_retains_private_physical_authority() -> Result<bool, InternalError> {
+    crate::db::schema::load_schema_migration_record()
+        .map(|record| record.is_some_and(|record| record.retains_private_physical_authority()))
 }
 
 fn restore_live_schema_checkpoints<C: CanisterKind>(
@@ -415,7 +456,7 @@ fn sorted_journaled_store_handles<C: CanisterKind>(db: &Db<C>) -> Vec<(&'static 
         handle.storage_capabilities().recovery()
             == StoreRecoveryCapability::StableBasePlusJournalReplay
     });
-    stores.sort_by_key(|(path, _)| *path);
+    stores.sort_unstable_by_key(|(path, _)| *path);
     stores
 }
 
@@ -680,9 +721,55 @@ fn apply_journal_record<C: CanisterKind>(
                 }),
             }
         }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut {
+            store_path,
+            primary_key,
+            row_bytes,
+            plan_digest,
+            ..
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption());
+            }
+            validate_schema_migration_journal_plan(*plan_digest)?;
+            let row =
+                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            expected_handle.with_data_mut(|store| match mode {
+                JournalRecordApplyMode::Replay => store
+                    .apply_recovered_journal_put(primary_key.clone(), row)
+                    .map(|_| ()),
+                JournalRecordApplyMode::Fold => store
+                    .fold_recovered_journal_put(primary_key.clone(), row)
+                    .map(|_| ()),
+            })
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationIndexPut {
+            store_path,
+            key,
+            plan_digest,
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption());
+            }
+            validate_schema_migration_journal_plan(*plan_digest)?;
+            expected_handle.with_index_mut(|store| match store.get(key) {
+                None => {
+                    store.insert(key.clone(), IndexEntryValue::presence());
+                    Ok(())
+                }
+                Some(value) if value == IndexEntryValue::presence() => Ok(()),
+                Some(_) => Err(InternalError::store_corruption()),
+            })
+        }
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the exhaustive current journal record validator keeps store routing and apply-mode closure in one match"
+)]
 fn validate_journal_batch_records<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -764,6 +851,34 @@ fn validate_journal_batch_records<C: CanisterKind>(
                 if commit_state.materialized_high_water() > commit_state.committed_high_water() {
                     return Err(InternalError::identity_state_corruption());
                 }
+            }
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut {
+                store_path,
+                primary_key,
+                row_bytes,
+                plan_digest,
+                ..
+            } => {
+                if store_path != expected_store_path {
+                    return Err(InternalError::store_corruption());
+                }
+                validate_schema_migration_journal_plan(*plan_digest)?;
+                DecodedDataStoreKey::try_from_raw(primary_key)
+                    .map_err(|_| InternalError::store_corruption())?;
+                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            }
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationIndexPut {
+                store_path,
+                key,
+                plan_digest,
+            } => {
+                if store_path != expected_store_path {
+                    return Err(InternalError::store_corruption());
+                }
+                validate_schema_migration_journal_plan(*plan_digest)?;
+                IndexKey::try_from_raw(key).map_err(|_| InternalError::store_corruption())?;
             }
         }
     }
@@ -915,6 +1030,9 @@ fn journal_batch_schema_candidate(
             | JournalRecord::ConstraintValidationJobPut { .. }
             | JournalRecord::ConstraintValidationJobDelete { .. }
             | JournalRecord::IdentityRangeAdvance { .. } => {}
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut { .. }
+            | JournalRecord::SchemaMigrationIndexPut { .. } => {}
         }
     }
 
@@ -1281,6 +1399,11 @@ fn journal_record_store_handle<C: CanisterKind>(
                 .map_err(|_| InternalError::store_corruption())?;
             registry_store_handle_for_path(db, runtime_entity.store_path())
         }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut { store_path, .. }
+        | JournalRecord::SchemaMigrationIndexPut { store_path, .. } => {
+            registry_store_handle_for_path(db, store_path)
+        }
     }
 }
 
@@ -1404,6 +1527,11 @@ enum RecoveredEffectIdentity {
         entity_tag: u64,
         field_id: u32,
     },
+    #[cfg(any(test, feature = "migration"))]
+    Index {
+        store_path: String,
+        raw_key: Vec<u8>,
+    },
 }
 
 // Verify the bounded final effect set owned by the recovered marker.
@@ -1419,8 +1547,20 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
     let mut verified = BTreeSet::new();
 
     if let Some(marker) = marker {
-        if let Some(operation) = marker.schema_application() {
-            verify_schema_application_record_op(operation)?;
+        for operation in marker.database_control() {
+            match operation {
+                DatabaseControlOp::SchemaApplication(operation) => {
+                    verify_schema_application_record_op(operation)?;
+                }
+                #[cfg(any(test, feature = "migration"))]
+                DatabaseControlOp::EntitySourceLineage(operation) => {
+                    crate::db::schema::verify_entity_source_lineage_catalog_op(operation)?;
+                }
+                #[cfg(any(test, feature = "migration"))]
+                DatabaseControlOp::SchemaMigration(operation) => {
+                    verify_schema_migration_record_op(operation)?;
+                }
+            }
         }
         for batch in marker.journal_batches().iter().rev() {
             let (_, handle) = journal_batch_store_handle(db, batch)?;
@@ -1454,6 +1594,10 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the exhaustive marker-effect verifier binds every current journal variant to its exact durable postcondition"
+)]
 fn verify_recovered_record<C: CanisterKind>(
     db: &Db<C>,
     batch: &JournalBatch,
@@ -1543,6 +1687,47 @@ fn verify_recovered_record<C: CanisterKind>(
                         *range,
                         advance_id,
                     )?;
+                }
+            }
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut {
+            store_path,
+            primary_key,
+            row_bytes,
+            plan_digest,
+            ..
+        } => {
+            validate_schema_migration_journal_plan(*plan_digest)?;
+            let identity = RecoveredEffectIdentity::Row {
+                entity_path: store_path.clone(),
+                primary_key: primary_key.as_bytes().to_vec(),
+            };
+            if verified.insert(identity) {
+                let (_, handle) = registry_store_handle_for_path(db, store_path)?;
+                let matches = handle
+                    .with_data(|store| store.get(primary_key))
+                    .is_some_and(|row| row.as_bytes() == row_bytes);
+                if !matches {
+                    return Err(InternalError::recovery_effect_verification_failed());
+                }
+            }
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationIndexPut {
+            store_path,
+            key,
+            plan_digest,
+        } => {
+            validate_schema_migration_journal_plan(*plan_digest)?;
+            let identity = RecoveredEffectIdentity::Index {
+                store_path: store_path.clone(),
+                raw_key: key.as_bytes().to_vec(),
+            };
+            if verified.insert(identity) {
+                let (_, handle) = registry_store_handle_for_path(db, store_path)?;
+                if handle.with_index(|store| store.get(key)) != Some(IndexEntryValue::presence()) {
+                    return Err(InternalError::recovery_effect_verification_failed());
                 }
             }
         }

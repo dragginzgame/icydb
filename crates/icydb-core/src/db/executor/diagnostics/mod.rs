@@ -3,7 +3,7 @@
 //! Does not own: explain rendering, metrics sink persistence, or route behavior.
 //! Boundary: projects executor access and direction into diagnostics-owned trace types.
 
-#[cfg(all(test, feature = "sql-explain"))]
+#[cfg(all(test, feature = "sql"))]
 mod node;
 
 use crate::db::{

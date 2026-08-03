@@ -1459,7 +1459,6 @@ mod typed_adapter_tests {
         )
     }
 
-    #[cfg(feature = "query")]
     fn assert_query_diagnostic(
         error: crate::db::QueryError,
         code: icydb_diagnostic_code::DiagnosticCode,
@@ -1726,7 +1725,6 @@ mod typed_adapter_tests {
             .expect("second typed insert should use the accepted mutation pipeline")
             .expect("replacement binding should remain current");
 
-        #[cfg(feature = "query")]
         {
             let query = crate::db::DynamicQuery::new("RenamedEntity")
                 .select(["id", "value"])
@@ -1734,7 +1732,7 @@ mod typed_adapter_tests {
                 .limit(1);
             let result = session
                 .execute_trusted_dynamic_query(&query)
-                .expect("query-only dynamic execution should use accepted authority");
+                .expect("SQL-free dynamic execution should use accepted authority");
             assert_eq!(result.entity, "RenamedEntity");
             assert_eq!(result.columns, vec!["id".to_string(), "value".to_string()]);
             assert_eq!(
@@ -1776,7 +1774,7 @@ mod typed_adapter_tests {
                 .limit(1);
             let grouped = session
                 .execute_public_dynamic_grouped_query(&grouped_query)
-                .expect("query-only grouped execution should use accepted authority");
+                .expect("SQL-free grouped execution should use accepted authority");
             let typed_grouped = session
                 .execute_public_dynamic_grouped_query_for_typed_binding(
                     &replacement,
@@ -1879,7 +1877,7 @@ mod typed_adapter_tests {
             );
             let first_page = session
                 .execute_trusted_dynamic_grouped_query(&paged_query)
-                .expect("query-only grouped first page should execute");
+                .expect("SQL-free grouped first page should execute");
             assert_eq!(first_page.row_count, 1);
             assert_eq!(
                 first_page.rows[0].group_key(),
@@ -1902,7 +1900,7 @@ mod typed_adapter_tests {
             );
             let second_page = session
                 .execute_trusted_dynamic_grouped_query(&paged_query.cursor(cursor))
-                .expect("query-only grouped continuation should execute");
+                .expect("SQL-free grouped continuation should execute");
             assert_eq!(second_page.row_count, 1);
             assert_eq!(
                 second_page.rows[0].group_key(),

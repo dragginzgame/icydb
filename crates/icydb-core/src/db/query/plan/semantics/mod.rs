@@ -12,7 +12,7 @@ mod identity;
 mod logical;
 mod pushdown;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use access_projection::access_plan_label;
 pub(in crate::db) use access_projection::{
     AccessPlanProjection, explain_access_strategy_label, project_access_plan,

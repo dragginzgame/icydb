@@ -3,9 +3,7 @@
 //! Does not own: mutable metrics state storage or report window construction.
 //! Boundary: keeps public operation counter payload shape separate from state.
 
-#[cfg(any(test, feature = "metrics-extended"))]
 use candid::CandidType;
-#[cfg(any(test, feature = "metrics-extended"))]
 use serde::Deserialize;
 
 ///
@@ -15,14 +13,12 @@ use serde::Deserialize;
 /// denominator pair. Callers can choose their own decimal rendering policy
 /// without losing precision inside the canister metrics layer.
 ///
-#[cfg(any(test, feature = "metrics-extended"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MetricRatio {
     numerator: u64,
     denominator: u64,
 }
 
-#[cfg(any(test, feature = "metrics-extended"))]
 impl MetricRatio {
     /// Returns the ratio numerator.
     #[must_use]
@@ -46,7 +42,6 @@ impl MetricRatio {
 // Convert raw counter pairs into optional ratio values without encoding a
 // sentinel for "no activity". Consumers can distinguish absent denominators
 // from legitimate zero-valued work.
-#[cfg(any(test, feature = "metrics-extended"))]
 pub(in crate::metrics) const fn ratio(numerator: u64, denominator: u64) -> Option<MetricRatio> {
     if denominator == 0 {
         return None;
@@ -59,12 +54,7 @@ pub(in crate::metrics) const fn ratio(numerator: u64, denominator: u64) -> Optio
 }
 
 #[cfg_attr(doc, doc = "EventOps\n\nOperation counters.")]
-#[derive(Clone, Debug, Default)]
-#[cfg_attr(
-    any(test, feature = "metrics-extended"),
-    derive(CandidType, Deserialize)
-)]
-#[cfg_attr(not(any(test, feature = "metrics-extended")), allow(unreachable_pub))]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventOps {
     // Executor entrypoints
     pub(crate) load_calls: u64,
@@ -210,7 +200,6 @@ pub struct EventOps {
     pub(crate) non_atomic_partial_rows_committed: u64,
 }
 
-#[cfg(any(test, feature = "metrics-extended"))]
 impl EventOps {
     #[must_use]
     pub const fn load_calls(&self) -> u64 {

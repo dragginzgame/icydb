@@ -68,7 +68,7 @@ impl AggregateExplainPreparation {
 // Assemble one canonical scalar aggregate EXPLAIN descriptor from one
 // aggregate shape plus preselected aggregation semantics.
 #[inline(never)]
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn assemble_scalar_aggregate_execution_descriptor_with_projection(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,

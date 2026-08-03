@@ -19,3 +19,5 @@ pub(crate) const METRICS_ENDPOINT: Endpoint = Endpoint("icydb_metrics");
 pub(crate) const METRICS_EXTENDED_ENDPOINT: Endpoint = Endpoint("icydb_metrics_extended");
 pub(crate) const METRICS_RESET_ENDPOINT: Endpoint = Endpoint("icydb_metrics_reset");
 pub(crate) const SCHEMA_ENDPOINT: Endpoint = Endpoint("icydb_schema");
+pub(crate) const SCHEMA_MIGRATE_ENDPOINT: Endpoint = Endpoint("icydb_schema_migrate");
+pub(crate) const SCHEMA_MIGRATION_ENDPOINT: Endpoint = Endpoint("icydb_schema_migration");

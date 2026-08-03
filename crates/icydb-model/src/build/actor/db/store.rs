@@ -69,6 +69,35 @@ pub(super) fn generate_store_wiring(
 
 fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
     let fragment_bytes = &builder.schema_fragment_bytes;
+    let migration_capability = builder.schema_migration_plan_bytes.as_ref().map_or_else(
+        TokenStream::new,
+        |_| quote!(::icydb::__icydb_require_migration_capability!();),
+    );
+    let migration_bytes = builder
+        .schema_migration_plan_bytes
+        .as_ref()
+        .map_or_else(|| quote!(None), |bytes| quote!(Some(&[#(#bytes),*])));
+    let apply_generated_schema = if builder.schema_migration_plan_bytes.is_some() {
+        quote! {
+            session.ensure_generated_schema_fragment(
+                ICYDB_SCHEMA_FRAGMENT,
+                ICYDB_SCHEMA_MIGRATION_PLAN,
+                ICYDB_SCHEMA_SUBMISSION_KEY,
+                ICYDB_SCHEMA_ENTITY_STORES,
+            )
+        }
+    } else {
+        quote! {
+            session
+                .apply_generated_schema_fragment(
+                    ICYDB_SCHEMA_FRAGMENT,
+                    ICYDB_SCHEMA_MIGRATION_PLAN,
+                    ICYDB_SCHEMA_SUBMISSION_KEY,
+                    ICYDB_SCHEMA_ENTITY_STORES,
+                )
+                .map(|_receipt| ())
+        }
+    };
     let submission_key = &builder.schema_submission_key;
     let entity_stores = builder
         .get_entities()
@@ -79,28 +108,22 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
     let store_paths = entity_stores.iter().map(|(_, store)| store);
 
     quote! {
-        const ICYDB_SCHEMA_FRAGMENT: &[u8] = &[#(#fragment_bytes),*];
-        const ICYDB_SCHEMA_ENTITY_STORES: &[(&str, &str)] = &[
+        #migration_capability
+        pub(super) const ICYDB_SCHEMA_FRAGMENT: &[u8] = &[#(#fragment_bytes),*];
+        pub(super) const ICYDB_SCHEMA_MIGRATION_PLAN: ::std::option::Option<&[u8]> = #migration_bytes;
+        pub(super) const ICYDB_SCHEMA_SUBMISSION_KEY: &str = #submission_key;
+        pub(super) const ICYDB_SCHEMA_ENTITY_STORES: &[(&str, &str)] = &[
             #((#entity_names, #store_paths)),*
         ];
 
         fn apply_generated_schema(
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<(), ::icydb::Error> {
-            session
-                .apply_generated_schema_fragment(
-                    ICYDB_SCHEMA_FRAGMENT,
-                    #submission_key,
-                    ICYDB_SCHEMA_ENTITY_STORES,
-                )
-                .map(|_receipt| ())
+            #apply_generated_schema
         }
 
         thread_local! {
-            static SCHEMA_APPLICATION:
-                ::std::cell::OnceCell<
-                    ::std::result::Result<(), ::icydb::Error>
-                > =
+            static SCHEMA_APPLICATION: ::std::cell::OnceCell<()> =
                     const { ::std::cell::OnceCell::new() };
         }
 
@@ -108,9 +131,13 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<(), ::icydb::Error> {
             SCHEMA_APPLICATION.with(|application| {
-                application
-                    .get_or_init(|| apply_generated_schema(session))
-                    .clone()
+                if application.get().is_some() {
+                    return Ok(());
+                }
+                apply_generated_schema(session)?;
+                match application.set(()) {
+                    Ok(()) | Err(()) => Ok(()),
+                }
             })
         }
     }
@@ -571,9 +598,10 @@ mod tests {
     fn actor_builder() -> ActorBuilder {
         ActorBuilder::new(
             Arc::new(Schema::new()),
-            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3),
+            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3, None),
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
+            None,
         )
     }
 

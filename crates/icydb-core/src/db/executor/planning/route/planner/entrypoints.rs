@@ -4,9 +4,9 @@
 //! Does not own: intent/feasibility/execution stage semantics.
 //! Boundary: consumes staged planner contracts and assembles execution route plans.
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::executor::planning::route::AggregateRouteShape;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::executor::planning::route::planner::derive_aggregate_route_intent_stage;
 use crate::db::executor::planning::route::planner::{
     build_execution_route_plan_from_stages, derive_execution_feasibility_stage_for_model,
@@ -94,7 +94,7 @@ fn build_load_execution_route_plan(
 }
 
 /// Build canonical aggregate EXPLAIN routing from planner-frozen query metadata.
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,

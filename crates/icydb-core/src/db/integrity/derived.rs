@@ -178,8 +178,8 @@ pub(in crate::db) fn execute_index_integrity_page<C: CanisterKind>(
     let domain = plan
         .index_inspection()
         .domain(index_ordinal, identity.entity_tag())?;
-    let index_store = db.recovered_store(domain.store_path())?;
-    let source_store = db.recovered_store(identity.store_path())?;
+    let index_store = db.store_handle(domain.store_path())?;
+    let source_store = db.store_handle(identity.store_path())?;
     let bounds = domain.raw_bounds()?;
     let checkpoint_key = checkpoint.raw_index_key()?;
     validate_checkpoint_in_bounds(checkpoint_key.as_ref(), &bounds)?;
@@ -254,7 +254,7 @@ pub(in crate::db) fn execute_reverse_integrity_page<C: CanisterKind>(
     let relation = relations
         .get(relation_ordinal)
         .ok_or_else(InternalError::store_invariant)?;
-    let source_store = db.recovered_store(identity.store_path())?;
+    let source_store = db.store_handle(identity.store_path())?;
     let bounds = relation.raw_bounds()?;
     let checkpoint_key = checkpoint.raw_index_key()?;
     validate_checkpoint_in_bounds(checkpoint_key.as_ref(), &bounds)?;

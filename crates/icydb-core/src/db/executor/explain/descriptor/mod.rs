@@ -3,12 +3,12 @@
 //! Does not own: route-capability derivation or explain rendering output.
 //! Boundary: project immutable execution contracts into stable descriptor fields.
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 mod aggregate;
 mod load;
 pub(in crate::db::executor::explain::descriptor) mod shared;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db) use self::aggregate::assemble_scalar_aggregate_execution_descriptor_with_projection;
 pub(in crate::db::executor) use self::load::assemble_load_execution_verbose_diagnostics_from_route_facts;
 pub(in crate::db) use self::load::{

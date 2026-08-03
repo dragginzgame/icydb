@@ -10,7 +10,7 @@
 use crate::db::schema::SchemaInfo;
 #[cfg(feature = "sql")]
 use crate::db::schema::show_indexes_for_schema_info_with_runtime_state;
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
@@ -27,6 +27,9 @@ use crate::{
     traits::CanisterKind,
 };
 use icydb_schema::{SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity};
+
+#[cfg(feature = "migration")]
+use crate::db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest};
 
 fn relation_field_count(fields: &[PersistedFieldSnapshot]) -> usize {
     fields
@@ -46,6 +49,38 @@ fn persisted_kind_is_relation_field(kind: &AcceptedFieldKind) -> bool {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Return whether exact prepared migration authority deliberately defers
+    /// generated schema application while predecessor runtime state stays live.
+    #[cfg(feature = "migration")]
+    pub fn defer_generated_schema_application_for_prepared_migration(
+        &self,
+        proposal: &SchemaProposal,
+    ) -> Result<bool, InternalError> {
+        crate::db::schema::defer_generated_schema_application_for_prepared_migration(
+            &self.db, proposal,
+        )
+    }
+
+    /// Execute one explicit metadata source-migration operation.
+    #[cfg(feature = "migration")]
+    pub fn migrate_schema(
+        &self,
+        proposal: &SchemaProposal,
+        command: SchemaMigrationCommand,
+    ) -> Result<SchemaMigrationStatusPage, InternalError> {
+        crate::db::schema::migrate_schema(&self.db, proposal, command)
+    }
+
+    /// Return one bounded source-migration status page.
+    #[cfg(feature = "migration")]
+    pub fn schema_migration_status(
+        &self,
+        proposal: &SchemaProposal,
+        request: &SchemaMigrationStatusRequest,
+    ) -> Result<SchemaMigrationStatusPage, InternalError> {
+        crate::db::schema::schema_migration_status(&self.db, proposal, request)
+    }
+
     /// Apply one exact source-keyed schema proposal through accepted catalog
     /// authority and return its durable idempotent receipt.
     pub fn apply_schema(
@@ -158,7 +193,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve the exact secondary-index set that is visible to planner-owned
     // query planning for one recovered store and accepted schema pair.
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::session) fn visible_indexes_for_store_accepted_schema(
         &self,
         store_path: &str,

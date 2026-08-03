@@ -6,9 +6,9 @@
 use crate::db::schema::PersistedFieldSnapshot;
 
 mod budget;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use budget::MAX_SCHEMA_PROJECTION_ENTRIES;
-#[cfg(any(test, feature = "query"))]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use budget::SchemaTransitionSourceBudget;
 pub(in crate::db) use budget::{MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES};
 
@@ -101,6 +101,8 @@ mod relation_removal;
 pub(in crate::db::schema) use relation_removal::derive_relation_removal_candidate;
 
 mod user_index_domain;
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) use user_index_domain::MigrationIndexProjection;
 pub(in crate::db::schema) use user_index_domain::prove_empty_user_index_domain;
 #[cfg(feature = "sql")]
 pub(in crate::db) use user_index_domain::{
@@ -119,7 +121,7 @@ pub(in crate::db) use user_index_domain::{StagedUserIndexDomainError, UniqueCons
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(
-    not(any(test, feature = "query")),
+    not(any(test, feature = "sql")),
     expect(
         dead_code,
         reason = "catalog mutation vocabulary is shared with SQL reconciliation"

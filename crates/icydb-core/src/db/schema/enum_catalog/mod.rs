@@ -22,7 +22,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(in crate::db) use crate::value::{EnumTypeId, EnumVariantId};
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db::schema) use admission::normalize_and_admit_nullable_value;
 pub(in crate::db) use admission::normalize_candidate_value;
 pub(in crate::db) use admission::validate_decoded_persisted_field_value_in_catalog;
@@ -216,6 +215,58 @@ fn variant_payload_matches(
 }
 
 impl AcceptedEnumCatalog {
+    /// Rename one accepted enum type path without changing its identity or
+    /// value contract. Source-migration planning applies this only after an
+    /// explicit old/new binding has resolved.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn with_renamed_type(
+        mut self,
+        type_id: EnumTypeId,
+        new_path: String,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        if new_path.is_empty() || self.id_by_path.contains_key(&new_path) {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        let definition = self
+            .by_id
+            .get_mut(&type_id)
+            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+        if self.id_by_path.remove(definition.path.as_str()) != Some(type_id) {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        definition.path.clone_from(&new_path);
+        self.id_by_path.insert(new_path, type_id);
+        Ok(self)
+    }
+
+    /// Rename one accepted enum variant without changing its accepted ID or
+    /// payload contract.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn with_renamed_variant(
+        mut self,
+        type_id: EnumTypeId,
+        variant_id: EnumVariantId,
+        new_name: String,
+    ) -> Result<Self, EnumCatalogBuildError> {
+        let definition = self
+            .by_id
+            .get_mut(&type_id)
+            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+        if new_name.is_empty() || definition.variant_id_by_name.contains_key(&new_name) {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        let variant = definition
+            .variants_by_id
+            .get_mut(&variant_id)
+            .ok_or(EnumCatalogBuildError::LookupMapInvariant)?;
+        if definition.variant_id_by_name.remove(variant.name.as_str()) != Some(variant_id) {
+            return Err(EnumCatalogBuildError::LookupMapInvariant);
+        }
+        variant.name.clone_from(&new_name);
+        definition.variant_id_by_name.insert(new_name, variant_id);
+        Ok(self)
+    }
+
     /// Construct one initial enum catalog from already allocated store-local
     /// identities and exact payload contracts.
     pub(in crate::db::schema) fn from_initial_definitions(
@@ -568,7 +619,6 @@ impl AcceptedValueContract {
 
     /// Derive the accepted element contract for a list or set value.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn collection_element_contract(&self) -> Option<Self> {
         match &self.kind {
             AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => Some(Self {

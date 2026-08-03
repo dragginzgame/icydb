@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::sql::lowering::lower_sql_explain_command_from_prepared_statement_with_schema;
 use crate::{
     db::{
@@ -54,7 +54,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Ddl(_) => Err(QueryError::sql_lowering(
                 SqlLoweringCode::SqlDdlExecutionUnsupported,
             )),
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             SqlStatement::Explain(_) => Self::compile_explain(statement, entity_name, schema),
             SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
             SqlStatement::ShowConstraints(_) => {
@@ -280,7 +280,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Compile EXPLAIN by lowering its prepared target but deliberately not
     // binding it into an executable query, matching the explain-only contract.
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     fn compile_explain(
         statement: &SqlStatement,
         entity_name: &str,

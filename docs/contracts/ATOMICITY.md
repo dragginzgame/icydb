@@ -263,6 +263,24 @@ Fully consistent point:
 * The system is fully consistent immediately after the first guarded recovery
   pass completes successfully (startup read-side recovery or write-side marker
   check plus journal publication/fold).
+* A nonterminal offline schema migration restores its database-wide gate before
+  ordinary routing. Migration and integrity control operations may inspect the
+  recovered gated state; ordinary reads, writes, relations, schema mutation,
+  and DDL remain unavailable until a terminal publication or pre-rewrite abort.
+* One offline validation page may durably stage planner-invisible candidate
+  index or reverse-relation keys before its progress marker. The cursor remains
+  unchanged until that marker publishes, so interruption repeats the exact page
+  and raw-key set idempotently. A finding page stages nothing, and no validation
+  page changes accepted rows, accepted schema, lineage, or visible generations.
+* One offline rewrite page publishes its complete candidate rows, candidate
+  index/reverse effects, and next durable cursor through one marker. Recovery
+  completes the exact page at marker-persisted, journal-published, and
+  physical-effect interruption boundaries before another page may run.
+* Candidate schema, source lineage, application receipt, and terminal migration
+  state become authoritative in one final marker only after bounded candidate
+  validation. A pre-rewrite abort removes staged generations in bounded pages
+  and cannot report terminal success until cleanup and the terminal record are
+  both durable.
 
 ---
 

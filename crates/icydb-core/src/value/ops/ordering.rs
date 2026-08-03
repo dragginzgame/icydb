@@ -5,7 +5,6 @@
 //! Boundary: map-entry and strict-order helpers shared by runtime consumers.
 
 use crate::value::{Value, compare};
-#[cfg(any(test, feature = "query"))]
 use crate::value::{ops::numeric, semantics};
 use std::cmp::Ordering;
 
@@ -26,7 +25,9 @@ fn canonical_cmp_map_entry(
 #[must_use]
 fn ordered_map_entries(entries: &[(Value, Value)]) -> Vec<&(Value, Value)> {
     let mut ordered = entries.iter().collect::<Vec<_>>();
-    ordered.sort_by(|left, right| canonical_cmp_map_entry(&left.0, &left.1, &right.0, &right.1));
+    ordered.sort_unstable_by(|left, right| {
+        canonical_cmp_map_entry(&left.0, &left.1, &right.0, &right.1)
+    });
 
     ordered
 }
@@ -39,7 +40,6 @@ pub(crate) fn strict_order_cmp(left: &Value, right: &Value) -> Option<Ordering> 
 
 /// Compare two values for projection-style equality.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn eq(left: &Value, right: &Value) -> Option<bool> {
     let numeric_widen_enabled =
         semantics::supports_numeric_coercion(left) || semantics::supports_numeric_coercion(right);
@@ -53,14 +53,12 @@ pub(crate) fn eq(left: &Value, right: &Value) -> Option<bool> {
 
 /// Compare two values for projection-style inequality.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn ne(left: &Value, right: &Value) -> Option<bool> {
     eq(left, right).map(|equal| !equal)
 }
 
 /// Compare two values under projection-style ordering semantics.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn order(left: &Value, right: &Value) -> Option<Ordering> {
     let numeric_widen_enabled =
         semantics::supports_numeric_coercion(left) || semantics::supports_numeric_coercion(right);
@@ -73,28 +71,24 @@ pub(crate) fn order(left: &Value, right: &Value) -> Option<Ordering> {
 
 /// Return whether `left < right` under projection-style ordering semantics.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn lt(left: &Value, right: &Value) -> Option<bool> {
     order(left, right).map(Ordering::is_lt)
 }
 
 /// Return whether `left <= right` under projection-style ordering semantics.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn lte(left: &Value, right: &Value) -> Option<bool> {
     order(left, right).map(Ordering::is_le)
 }
 
 /// Return whether `left > right` under projection-style ordering semantics.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn gt(left: &Value, right: &Value) -> Option<bool> {
     order(left, right).map(Ordering::is_gt)
 }
 
 /// Return whether `left >= right` under projection-style ordering semantics.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(crate) fn gte(left: &Value, right: &Value) -> Option<bool> {
     order(left, right).map(Ordering::is_ge)
 }

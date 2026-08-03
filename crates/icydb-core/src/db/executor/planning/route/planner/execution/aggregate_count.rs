@@ -7,7 +7,7 @@ use crate::db::executor::route::{
     RouteExecutionMode,
     planner::{RouteExecutionStage, RouteFeasibilityStage},
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::executor::{aggregate::AggregateFoldMode, route::RouteShapeKind};
 
 /// Derive the execution mode for scalar aggregate `COUNT` routes.
@@ -39,7 +39,7 @@ pub(super) const fn build_execution_stage_for_aggregate_count(
             feasibility_stage,
             execution_mode,
         );
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     let aggregate_fold_mode = match (
         feasibility_stage
             .derivation
@@ -53,7 +53,7 @@ pub(super) const fn build_execution_stage_for_aggregate_count(
         (true, _) | (false, false) => AggregateFoldMode::KeysOnly,
         (false, true) => AggregateFoldMode::ExistingRows,
     };
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     debug_assert!(
         !matches!(execution_mode, RouteExecutionMode::Streaming)
             || matches!(
@@ -64,10 +64,10 @@ pub(super) const fn build_execution_stage_for_aggregate_count(
     );
 
     RouteExecutionStage {
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         route_shape_kind: RouteShapeKind::AggregateCount,
         execution_mode,
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         aggregate_fold_mode,
         index_range_limit_spec,
     }

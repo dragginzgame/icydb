@@ -38,7 +38,6 @@ use std::{borrow::Cow, cell::OnceCell};
 
 // Materialize one borrowed scalar slot view when a caller reaches a boundary
 // that still requires owned runtime `Value` cells.
-#[cfg(any(test, feature = "query"))]
 fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
     match value {
         ScalarSlotValueRef::Null => Value::Null,
@@ -131,7 +130,6 @@ impl<'a> StructuralSlotReader<'a> {
 
     /// Return the declared structural field count for this reader contract.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn field_count(&self) -> usize {
         self.contract.field_count()
     }
@@ -338,7 +336,6 @@ impl<'a> StructuralSlotReader<'a> {
     }
 
     /// Materialize one slot for a direct projection with a scalar value-storage fast path.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn required_direct_projection_value(
         &self,
         slot: usize,
@@ -580,7 +577,6 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         self.contract.field_leaf_codec(slot)
     }
 
-    #[cfg(any(test, feature = "query"))]
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
         let field_name = self.contract.field_name(slot)?;
 

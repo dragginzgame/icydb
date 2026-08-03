@@ -209,7 +209,7 @@ impl QueryError {
             SqlLoweringError::Parse(SqlParseError::UnsupportedFeature { feature }) => {
                 Self::unsupported_sql_feature(feature)
             }
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             SqlLoweringError::UnexpectedQueryLaneStatement => {
                 Self::unsupported_query_lane_sql_statement()
             }
@@ -272,7 +272,7 @@ impl QueryError {
     }
 
     /// Construct one unsupported query-lane SQL statement error.
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn unsupported_query_lane_sql_statement() -> Self {
         Self::unsupported_query()
     }

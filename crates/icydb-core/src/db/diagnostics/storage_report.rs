@@ -330,7 +330,7 @@ fn build_storage_report<C: CanisterKind>(
     db.with_store_registry(|reg| {
         // Keep diagnostics snapshots deterministic by traversing stores in path order.
         let mut stores = reg.iter().collect::<Vec<_>>();
-        stores.sort_by_key(|(path, _)| *path);
+        stores.sort_unstable_by_key(|(path, _)| *path);
 
         for (path, store_handle) in stores {
             let data_allocation = store_handle.data_allocation();

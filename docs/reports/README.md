@@ -37,6 +37,14 @@ inputs, not documentation reports. Temporary benchmark output under
 `artifacts/` is not committed report history until it is deliberately captured
 beneath an owning report run.
 
+Query Wasm attribution uses `make wasm-query-attribution`. It builds the
+matched typed, dynamic, SQL, and ten-entity audit canisters with the
+symbol-bearing `wasm-attribution` profile and writes Twiggy working output to
+`artifacts/wasm-attribution/`. Those artifacts are deliberately audit-only
+measurement aids, not deployment artifacts: production size comparisons must
+continue to use raw, non-gzipped `wasm-release` artifacts from
+`make wasm-size-report`.
+
 ## Retention
 
 Reports and structured findings are append-only. Do not overwrite, delete,

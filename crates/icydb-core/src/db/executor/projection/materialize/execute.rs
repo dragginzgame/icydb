@@ -67,9 +67,9 @@ pub(super) fn project_data_row(
     }
 
     let compiled_fields = prepared_projection.compiled_exprs();
-    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+    #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask = prepared_projection.projected_slot_mask();
-    #[cfg(not(any(test, all(feature = "query", feature = "diagnostics"))))]
+    #[cfg(not(any(test, feature = "diagnostics")))]
     let projected_slot_mask = &[];
 
     metrics.record_data_rows_scalar_fallback_hit();
@@ -99,9 +99,9 @@ pub(super) fn visit_data_row_views(
     }
 
     let compiled_fields = prepared_projection.compiled_exprs();
-    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+    #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask = prepared_projection.projected_slot_mask();
-    #[cfg(not(any(test, all(feature = "query", feature = "diagnostics"))))]
+    #[cfg(not(any(test, feature = "diagnostics")))]
     let projected_slot_mask = &[];
 
     metrics.record_data_rows_scalar_fallback_hit();

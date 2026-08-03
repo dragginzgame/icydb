@@ -105,7 +105,7 @@ impl AccessAdmissionPolicy {
         materialized_sort_allowed: false,
     };
 
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     const DIAGNOSTIC_EXPLAIN: Self = Self {
         index_required: false,
         full_scan_allowed: true,
@@ -170,7 +170,7 @@ impl QueryAdmissionPolicy {
 
     /// Build an EXPLAIN-only policy that cannot execute rows.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn diagnostic_explain() -> Self {
         Self {
             lane: QueryAdmissionLane::DiagnosticExplain,
@@ -403,7 +403,7 @@ mod tests {
         assert!(!policy.allow_materialized_sort());
     }
 
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     #[test]
     fn diagnostic_explain_keeps_non_executing_access_permissions() {
         let policy = QueryAdmissionPolicy::diagnostic_explain();

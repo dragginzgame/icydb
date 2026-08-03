@@ -365,11 +365,11 @@ impl JournalTailStore {
         }
         let raw = RawJournalBatch::from_batch(batch)?;
         self.append_raw_batch(key, raw.as_bytes())?;
-        if batch.records().iter().any(|record| {
-            matches!(
-                record,
-                JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. }
-            )
+        if batch.records().iter().any(|record| match record {
+            JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => true,
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut { .. } => true,
+            _ => false,
         }) {
             self.persist_data_mutation_revision(key)?;
         }

@@ -13,6 +13,87 @@ use crate::node::{
 };
 use crate::prelude::*;
 use std::collections::BTreeMap;
+use std::str::FromStr;
+
+/// Build-time constructor for one source-declared coordinated migration plan.
+pub type MigrationPlanConstructor =
+    fn() -> Result<icydb_schema::SchemaMigrationPlan, icydb_schema::SchemaContractError>;
+
+/// Parse one macro-validated textual migration literal into its exact public atom.
+#[doc(hidden)]
+pub fn migration_literal_from_text(
+    kind: &str,
+    value: &str,
+) -> Result<icydb_schema::ScalarLiteral, icydb_schema::SchemaContractError> {
+    use icydb_schema::{
+        Account, Blob, Date, Decimal, Duration, IntBig, NatBig, Principal, ScalarLiteral,
+        Subaccount, Timestamp, Ulid,
+    };
+
+    let invalid = || icydb_schema::SchemaContractError::InvalidLiteral;
+    match kind {
+        "account" => Account::from_str(value)
+            .map(ScalarLiteral::Account)
+            .map_err(|_| invalid()),
+        "blob" => decode_migration_hex(value)
+            .map(Blob::from)
+            .map(ScalarLiteral::Blob),
+        "date" => Date::parse(value)
+            .map(ScalarLiteral::Date)
+            .ok_or_else(invalid),
+        "decimal" => Decimal::from_str(value)
+            .map(ScalarLiteral::Decimal)
+            .map_err(|_| invalid()),
+        "duration" => Duration::parse_flexible(value)
+            .map(ScalarLiteral::Duration)
+            .map_err(|_| invalid()),
+        "int_big" => IntBig::from_str(value)
+            .map(ScalarLiteral::IntBig)
+            .map_err(|_| invalid()),
+        "nat_big" => NatBig::from_str(value)
+            .map(ScalarLiteral::NatBig)
+            .map_err(|_| invalid()),
+        "principal" => Principal::from_str(value)
+            .map(ScalarLiteral::Principal)
+            .map_err(|_| invalid()),
+        "subaccount" => {
+            let bytes = decode_migration_hex(value)?;
+            let bytes: [u8; 32] = bytes.try_into().map_err(|_| invalid())?;
+            Ok(ScalarLiteral::Subaccount(Subaccount::from_array(bytes)))
+        }
+        "timestamp" => Timestamp::parse_flexible(value)
+            .map(ScalarLiteral::Timestamp)
+            .map_err(|_| invalid()),
+        "ulid" => Ulid::from_str(value)
+            .map(ScalarLiteral::Ulid)
+            .map_err(|_| invalid()),
+        _ => Err(invalid()),
+    }
+}
+
+fn decode_migration_hex(value: &str) -> Result<Vec<u8>, icydb_schema::SchemaContractError> {
+    if !value.len().is_multiple_of(2) {
+        return Err(icydb_schema::SchemaContractError::InvalidLiteral);
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = decode_hex_nibble(pair[0])?;
+            let low = decode_hex_nibble(pair[1])?;
+            Ok((high << 4) | low)
+        })
+        .collect()
+}
+
+const fn decode_hex_nibble(value: u8) -> Result<u8, icydb_schema::SchemaContractError> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => Err(icydb_schema::SchemaContractError::InvalidLiteral),
+    }
+}
 
 ///
 /// Canister
@@ -26,6 +107,8 @@ pub struct Canister {
     memory_max: u8,
     commit_memory_id: u8,
     integrity_progress_memory_id: u8,
+    #[serde(skip)]
+    migration_plan: Option<MigrationPlanConstructor>,
 }
 
 impl Canister {
@@ -37,6 +120,7 @@ impl Canister {
         memory_max: u8,
         commit_memory_id: u8,
         integrity_progress_memory_id: u8,
+        migration_plan: Option<MigrationPlanConstructor>,
     ) -> Self {
         Self {
             def,
@@ -45,6 +129,7 @@ impl Canister {
             memory_max,
             commit_memory_id,
             integrity_progress_memory_id,
+            migration_plan,
         }
     }
 
@@ -76,6 +161,19 @@ impl Canister {
     #[must_use]
     pub const fn integrity_progress_memory_id(&self) -> u8 {
         self.integrity_progress_memory_id
+    }
+
+    /// Construct the optional source-declared migration plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns the schema-contract error produced by the bounded declaration.
+    pub fn migration_plan(
+        &self,
+    ) -> Result<Option<icydb_schema::SchemaMigrationPlan>, icydb_schema::SchemaContractError> {
+        self.migration_plan
+            .map(|constructor| constructor())
+            .transpose()
     }
 
     #[must_use]

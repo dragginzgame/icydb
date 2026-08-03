@@ -5,10 +5,6 @@
 
 mod crate_path;
 mod db;
-#[allow(
-    dead_code,
-    reason = "0.217 stages the private declaration compiler before the atomic Patch 5 authority cut"
-)]
 mod endpoint;
 
 use std::sync::Arc;
@@ -17,7 +13,7 @@ use crate::{
     build::get_schema,
     node::{Canister, Entity, Schema, Store},
 };
-use icydb_schema::encode_schema_fragment;
+use icydb_schema::{SchemaMigrationPlan, encode_schema_fragment, encode_schema_migration_plan};
 use proc_macro2::TokenStream;
 use quote::quote;
 use sha2::{Digest, Sha256};
@@ -43,9 +39,17 @@ fn generate_with_crate_path(canister_path: &str, icydb_crate_path: Option<&str>)
     let fragment = schema
         .schema_fragment_for_canister(canister_path)
         .expect("sealed canister database closure must lower into a schema fragment");
+    let migration_plan = canister
+        .migration_plan()
+        .expect("source migration plan must satisfy the public schema contract");
 
     // Render the canister actor glue from the schema-owned metadata.
-    let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone(), fragment);
+    let code = ActorBuilder::new(
+        Arc::new(schema.clone()),
+        canister.clone(),
+        fragment,
+        migration_plan,
+    );
     drop(schema);
     let tokens = crate_path::rewrite_icydb_path(code.generate(), icydb_crate_path);
 
@@ -63,6 +67,7 @@ pub(crate) struct ActorBuilder {
     pub(crate) schema: Arc<Schema>,
     pub(crate) canister: Canister,
     pub(crate) schema_fragment_bytes: Vec<u8>,
+    pub(crate) schema_migration_plan_bytes: Option<Vec<u8>>,
     pub(crate) schema_submission_key: String,
 }
 
@@ -73,16 +78,31 @@ impl ActorBuilder {
         schema: Arc<Schema>,
         canister: Canister,
         fragment: icydb_schema::SchemaFragment,
+        migration_plan: Option<SchemaMigrationPlan>,
     ) -> Self {
         let schema_fragment_bytes =
             encode_schema_fragment(&fragment).expect("sealed schema fragment must encode");
-        let digest = Sha256::digest(schema_fragment_bytes.as_slice());
+        let schema_migration_plan_bytes = migration_plan.as_ref().map(|plan| {
+            encode_schema_migration_plan(plan).expect("sealed migration plan must encode")
+        });
+        let mut hasher = Sha256::new();
+        hasher.update(b"icydb.generated-schema-submission.v2");
+        hasher.update((schema_fragment_bytes.len() as u64).to_be_bytes());
+        hasher.update(schema_fragment_bytes.as_slice());
+        if let Some(bytes) = &schema_migration_plan_bytes {
+            hasher.update((bytes.len() as u64).to_be_bytes());
+            hasher.update(bytes);
+        } else {
+            hasher.update(0_u64.to_be_bytes());
+        }
+        let digest = hasher.finalize();
         let schema_submission_key = format!("generated/{}", hex_bytes(digest.as_slice()));
 
         Self {
             schema,
             canister,
             schema_fragment_bytes,
+            schema_migration_plan_bytes,
             schema_submission_key,
         }
     }
@@ -167,6 +187,34 @@ fn generate_endpoint_runtime() -> TokenStream {
                 pub(crate) use super::__icydb_endpoint_handler_sql_update_primary_key as sql_update_primary_key;
             }
 
+            ::icydb::__icydb_with_migration_items! {
+                pub(crate) fn schema_migrate(
+                    command: ::icydb::db::SchemaMigrationCommand,
+                ) -> Result<::icydb::db::SchemaMigrationStatusPage, ::icydb::Error> {
+                    let session = ::icydb::db::DbSession::new(super::core_db()?);
+                    session.migrate_generated_schema(
+                        super::ICYDB_SCHEMA_FRAGMENT,
+                        super::ICYDB_SCHEMA_MIGRATION_PLAN,
+                        super::ICYDB_SCHEMA_SUBMISSION_KEY,
+                        super::ICYDB_SCHEMA_ENTITY_STORES,
+                        command,
+                    )
+                }
+
+                pub(crate) fn schema_migration(
+                    request: &::icydb::db::SchemaMigrationStatusRequest,
+                ) -> Result<::icydb::db::SchemaMigrationStatusPage, ::icydb::Error> {
+                    let session = ::icydb::db::DbSession::new(super::core_db()?);
+                    session.generated_schema_migration_status(
+                        super::ICYDB_SCHEMA_FRAGMENT,
+                        super::ICYDB_SCHEMA_MIGRATION_PLAN,
+                        super::ICYDB_SCHEMA_SUBMISSION_KEY,
+                        super::ICYDB_SCHEMA_ENTITY_STORES,
+                        request,
+                    )
+                }
+            }
+
             #[allow(clippy::unnecessary_wraps)]
             pub(crate) fn metrics(
                 window_start_ms: Option<u64>,
@@ -174,13 +222,11 @@ fn generate_endpoint_runtime() -> TokenStream {
                 Ok(::icydb::metrics::compact_metrics_report(window_start_ms))
             }
 
-            ::icydb::__icydb_with_metrics_extended_items! {
-                #[allow(clippy::unnecessary_wraps)]
-                pub(crate) fn metrics_extended(
-                    window_start_ms: Option<u64>,
-                ) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
-                    Ok(::icydb::metrics::metrics_report(window_start_ms))
-                }
+            #[allow(clippy::unnecessary_wraps)]
+            pub(crate) fn metrics_extended(
+                window_start_ms: Option<u64>,
+            ) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
+                Ok(::icydb::metrics::metrics_report(window_start_ms))
             }
 
             #[allow(clippy::unnecessary_wraps)]
@@ -216,9 +262,40 @@ mod tests {
     fn actor_builder() -> ActorBuilder {
         ActorBuilder::new(
             Arc::new(Schema::new()),
-            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3),
+            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3, None),
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
+            None,
+        )
+    }
+
+    fn actor_builder_with_migration() -> ActorBuilder {
+        use icydb_schema::{
+            DeclaredEntityVersion, EntityMigration, EntitySourceKey, FieldSourceKey,
+            SchemaMigrationPlan, SchemaMigrationRename,
+        };
+
+        let migration = SchemaMigrationPlan::try_new(vec![
+            EntityMigration::try_new(
+                EntitySourceKey::try_new("Account").expect("entity source should admit"),
+                DeclaredEntityVersion::try_new(1).expect("version should admit"),
+                Some(EntitySourceKey::try_new("User").expect("entity source should admit")),
+                vec![SchemaMigrationRename::Field {
+                    from: FieldSourceKey::try_new("email").expect("field source should admit"),
+                    to: FieldSourceKey::try_new("primary_email")
+                        .expect("field source should admit"),
+                }],
+                Vec::new(),
+            )
+            .expect("transition should admit"),
+        ])
+        .expect("plan should admit");
+        ActorBuilder::new(
+            Arc::new(Schema::new()),
+            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3, None),
+            icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
+                .expect("empty test fragment should admit"),
+            Some(migration),
         )
     }
 
@@ -232,6 +309,8 @@ mod tests {
             "metrics_reset",
             "snapshot",
             "schema",
+            "schema_migrate",
+            "schema_migration",
             "sql_query",
         ] {
             assert!(surface.contains(handler));
@@ -260,5 +339,23 @@ mod tests {
         ] {
             assert!(!surface.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn source_migration_plan_is_bound_into_private_actor_bootstrap_and_submission_identity() {
+        let without = actor_builder();
+        let without_key = without.schema_submission_key.clone();
+        let without_surface = compact_tokens(without.generate());
+        let with = actor_builder_with_migration();
+        let with_key = with.schema_submission_key.clone();
+        let with_surface = compact_tokens(with.generate());
+
+        assert_ne!(with_key, without_key);
+        assert!(!without_surface.contains("__icydb_require_migration_capability"));
+        assert!(with_surface.contains("__icydb_require_migration_capability"));
+        assert!(with_surface.contains("ICYDB_SCHEMA_MIGRATION_PLAN"));
+        assert!(without_surface.contains("apply_generated_schema_fragment"));
+        assert!(!without_surface.contains("ensure_generated_schema_fragment"));
+        assert!(with_surface.contains("ensure_generated_schema_fragment"));
     }
 }

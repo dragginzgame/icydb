@@ -41,7 +41,7 @@ pub(crate) use model::{
     SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
     SqlWriteValue,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(crate) use model::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 ///
 /// SqlParsePhaseAttribution

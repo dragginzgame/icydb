@@ -1,14 +1,13 @@
 //! Module: index::expression_contract
 //! Responsibility: accepted index-expression identity shared by rebuild and query paths.
 //! Does not own: SQL parsing, planner access selection, or index-value encoding.
-//! Boundary: carries one accepted scalar expression independently of query features.
+//! Boundary: carries one accepted scalar expression independently of query frontends.
 
 use crate::db::schema::PersistedIndexExpressionOp;
 
 /// Return whether an accepted expression key has exactly the same transform
 /// as the current text-casefold predicate contract.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) const fn index_expression_supports_text_casefold_lookup(
     op: PersistedIndexExpressionOp,
 ) -> bool {
@@ -45,7 +44,6 @@ impl SemanticIndexExpression {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn supports_text_casefold_lookup(&self) -> bool {
         index_expression_supports_text_casefold_lookup(self.op)
     }

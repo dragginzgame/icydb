@@ -12,12 +12,13 @@ use std::{
 };
 
 use icydb_schema::{
-    Account, Blob, ConstraintFragment, DEFAULT_BIG_INT_MAX_BYTES, Date, Decimal, Duration,
-    EntityFragment, EntitySourceKey, EnumTypeFragment, EnumVariantFragment, FieldFragment,
-    FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey, FieldType, Float32, Float64,
-    IndexFragment, IndexKeyFragment, IntBig, MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, NatBig,
-    Principal, RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment,
-    RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaName,
+    Account, Blob, ConstraintFragment, DEFAULT_BIG_INT_MAX_BYTES, Date, Decimal,
+    DeclaredEntityVersion, Duration, EntityFragment, EntitySourceKey, EnumTypeFragment,
+    EnumVariantFragment, FieldFragment, FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey,
+    FieldType, Float32, Float64, IndexFragment, IndexKeyFragment, IntBig,
+    MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, NatBig, Principal, RecordFieldFragment,
+    RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey, ScalarLiteral,
+    ScalarType, SchemaContractError, SchemaFragment, SchemaName,
     SourceRuleOperation as ProposalSourceRuleOperation, Subaccount, TargetedRuleFragment,
     Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
 };
@@ -195,6 +196,7 @@ fn lower_entity(
 
     EntityFragment::try_new(
         SchemaName::try_new(entity.name())?,
+        DeclaredEntityVersion::try_new(entity.schema_version())?,
         fields,
         primary_key,
         indexes,
@@ -1385,6 +1387,7 @@ mod tests {
             10,
             9,
             8,
+            None,
         )));
         schema.insert_node(SchemaNode::Store(Store::new_heap(
             Def::new("test", "Store"),
@@ -1743,6 +1746,7 @@ mod tests {
             10,
             9,
             8,
+            None,
         )));
         schema.insert_node(SchemaNode::Store(Store::new_heap(
             Def::new("test", "Store"),

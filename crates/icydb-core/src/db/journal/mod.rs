@@ -13,6 +13,8 @@ pub(in crate::db) use codec::{
     JournalBatch, JournalSequence, decode_journal_batch, encode_journal_batch,
     journal_batch_encoded_len,
 };
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) use codec::{MAX_JOURNAL_BATCH_RECORDS, journal_record_payload_len};
 #[cfg(feature = "sql")]
 pub(in crate::db) use codec::{
     journal_batch_encoded_len_for_record_payloads, journal_row_delete_record_payload_len,

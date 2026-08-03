@@ -165,20 +165,6 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
     compile_scalar_projection_expr_with_schema_authority(schema, expr)
 }
 
-/// Compile one scalar projection expression using only schema authority.
-///
-/// Runtime consumers use this explicit entrypoint when the surrounding call
-/// site wants to document that generated model metadata is outside the
-/// projection compiler boundary.
-#[must_use]
-#[cfg(feature = "query")]
-pub(in crate::db) fn compile_scalar_projection_expr_from_schema(
-    schema: &SchemaInfo,
-    expr: &Expr,
-) -> Option<ScalarProjectionExpr> {
-    compile_scalar_projection_expr_with_schema_authority(schema, expr)
-}
-
 fn compile_scalar_projection_expr_with_schema_authority(
     schema: &SchemaInfo,
     expr: &Expr,

@@ -47,7 +47,7 @@ pub(super) fn sql_output_blob_attribution(result: &SqlStatementResult) -> SqlOut
         | SqlStatementResult::ShowStores { .. }
         | SqlStatementResult::ShowMemory(_)
         | SqlStatementResult::Ddl(_) => {}
-        #[cfg(feature = "sql-explain")]
+        #[cfg(feature = "sql")]
         SqlStatementResult::Explain(_) => {}
     }
 

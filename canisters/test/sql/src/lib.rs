@@ -37,6 +37,10 @@ icydb::endpoints! {
     icydb_metrics_reset;
     icydb_snapshot;
     icydb_schema(authorization = controller);
+    #[cfg(feature = "schema-migration-api")]
+    icydb_schema_migrate;
+    #[cfg(feature = "schema-migration-api")]
+    icydb_schema_migration;
     #[cfg(feature = "test-admin-api")]
     icydb_fixtures_reset;
     #[cfg(feature = "test-admin-api")]
@@ -136,11 +140,20 @@ fn sql_user_patches() -> Vec<StructuralPatch> {
 }
 
 #[cfg(feature = "test-admin-api")]
-fn sql_user_patch(name: &str, age: i32, rank: i32) -> StructuralPatch {
-    StructuralPatch::new()
+fn sql_user_patch(name: &str, age: u16, rank: i32) -> StructuralPatch {
+    #[cfg(not(feature = "schema-migration-v2"))]
+    let patch = StructuralPatch::new()
+        .field("name", WriteCell::Value(InputValue::Text(name.to_string())))
+        .field("age", WriteCell::Value(InputValue::from(i32::from(age))))
+        .field("rank", WriteCell::Value(InputValue::from(rank)));
+
+    #[cfg(feature = "schema-migration-v2")]
+    let patch = StructuralPatch::new()
         .field("name", WriteCell::Value(InputValue::Text(name.to_string())))
         .field("age", WriteCell::Value(InputValue::from(age)))
-        .field("rank", WriteCell::Value(InputValue::from(rank)))
+        .field("score", WriteCell::Value(InputValue::from(rank)));
+
+    patch
 }
 
 /// Seed one runtime-built oversized unindexed payload for generated endpoint

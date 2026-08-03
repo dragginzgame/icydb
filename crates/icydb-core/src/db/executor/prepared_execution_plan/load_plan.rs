@@ -62,7 +62,6 @@ impl PreparedLoadPlan {
 
     /// Consume one typed prepared execution plan into scalar runtime handoff
     /// while using a caller-owned retained-slot layout for this execution only.
-    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn into_scalar_runtime_handoff_with_retained_slot_layout(
         self,
         projection_materialization: ProjectionMaterializationMode,

@@ -9,7 +9,7 @@ mod labels;
 mod payload;
 mod runtime;
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::session::sql) use crate::db::session::sql::projection::labels::annotate_sql_projection_debug_on_execution_descriptor;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db::session::sql) use crate::db::session::sql::projection::runtime::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;

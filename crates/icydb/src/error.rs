@@ -10,7 +10,6 @@ mod tests;
 use std::fmt;
 
 use candid::CandidType;
-#[cfg(feature = "query")]
 use icydb_core::db::QueryError;
 use icydb_core::error::{ErrorOrigin as CoreErrorOrigin, InternalError};
 use serde::Deserialize;
@@ -143,7 +142,6 @@ impl From<InternalError> for Error {
     }
 }
 
-#[cfg(feature = "query")]
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
         if let QueryError::Execute(execute) = &err {

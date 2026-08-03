@@ -26,7 +26,7 @@ struct FixtureCanister {
     local_wasm_bytes: OnceLock<Vec<u8>>,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 9] = [
+static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
@@ -50,6 +50,11 @@ static FIXTURE_CANISTERS: [FixtureCanister; 9] = [
     FixtureCanister {
         name: "default_empty_metrics",
         package: "canister_audit_default_empty_metrics",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "one_entity_dynamic_query",
+        package: "canister_audit_one_entity_dynamic_query",
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
@@ -83,6 +88,8 @@ pub enum CanisterWasmProfile {
     Release,
     /// Workspace-defined wasm release profile.
     WasmRelease,
+    /// Audit-only wasm profile retaining symbol attribution.
+    WasmAttribution,
 }
 
 impl CanisterWasmProfile {
@@ -92,8 +99,9 @@ impl CanisterWasmProfile {
             "debug" => Ok(Self::Debug),
             "release" => Ok(Self::Release),
             "wasm-release" => Ok(Self::WasmRelease),
+            "wasm-attribution" => Ok(Self::WasmAttribution),
             other => Err(format!(
-                "invalid canister wasm profile '{other}', expected 'debug', 'release', or 'wasm-release'"
+                "invalid canister wasm profile '{other}', expected 'debug', 'release', 'wasm-release', or 'wasm-attribution'"
             )),
         }
     }
@@ -105,6 +113,7 @@ impl CanisterWasmProfile {
             Self::Debug => "debug",
             Self::Release => "release",
             Self::WasmRelease => "wasm-release",
+            Self::WasmAttribution => "wasm-attribution",
         }
     }
 }
@@ -161,7 +170,10 @@ impl CanisterCandidExportMode {
 
     const fn enabled_for_profile(self, profile: CanisterWasmProfile) -> bool {
         match self {
-            Self::Auto => !matches!(profile, CanisterWasmProfile::WasmRelease),
+            Self::Auto => !matches!(
+                profile,
+                CanisterWasmProfile::WasmRelease | CanisterWasmProfile::WasmAttribution
+            ),
             Self::Enabled => true,
             Self::Disabled => false,
         }
@@ -389,7 +401,10 @@ fn build_canister_package(
     } else if profile != "debug" {
         cargo.args(["--profile", profile]);
     }
-    if profile == "wasm-release" {
+    if matches!(
+        options.profile,
+        CanisterWasmProfile::WasmRelease | CanisterWasmProfile::WasmAttribution
+    ) {
         append_rustflags(&mut cargo, &wasm_release_path_trim_flags(&root));
     }
 

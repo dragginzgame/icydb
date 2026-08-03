@@ -87,7 +87,7 @@ impl ExtremumKind {
 /// inspects existing rows or can use decoded key streams only.
 ///
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum AggregateFoldMode {
     ExistingRows,

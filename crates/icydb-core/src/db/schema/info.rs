@@ -15,7 +15,6 @@ use crate::db::schema::{
 };
 #[cfg(feature = "sql")]
 use crate::db::schema::{SqlCapabilities, sql_capabilities_with_enum_catalog};
-#[cfg(feature = "query")]
 use crate::{
     db::schema::{
         canonicalize_filter_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
@@ -32,10 +31,6 @@ fn accepted_sql_capabilities(
     sql_capabilities_with_enum_catalog(kind, value_catalog.enum_catalog())
 }
 
-#[cfg_attr(
-    not(any(test, feature = "query")),
-    expect(dead_code, reason = "field lookup is query-owned")
-)]
 fn schema_field_info<'a>(
     fields: &'a [SchemaFieldEntry],
     name: &str,
@@ -92,13 +87,6 @@ fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
 ///
 
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    not(any(test, feature = "query")),
-    expect(
-        dead_code,
-        reason = "field metadata is retained by the shared commit schema view"
-    )
-)]
 struct SchemaFieldInfo {
     slot: usize,
     ty: FieldType,
@@ -106,7 +94,6 @@ struct SchemaFieldInfo {
     leaf_codec: LeafCodec,
     #[cfg(feature = "sql")]
     sql_capabilities: SqlCapabilities,
-    #[cfg(feature = "query")]
     persisted_kind: AcceptedFieldKind,
     accepted_value_contract: Option<AcceptedValueContract>,
     indexed: bool,
@@ -399,13 +386,6 @@ impl SchemaIndexFieldPathInfo {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    not(any(test, feature = "query")),
-    expect(
-        dead_code,
-        reason = "field and identity metadata share the commit schema view with query planning"
-    )
-)]
 pub(crate) struct SchemaInfo {
     fields: Vec<SchemaFieldEntry>,
     indexes: Vec<SchemaIndexInfo>,
@@ -415,13 +395,6 @@ pub(crate) struct SchemaInfo {
     primary_key_names: Vec<String>,
 }
 
-#[cfg_attr(
-    not(any(test, feature = "query")),
-    expect(
-        dead_code,
-        reason = "query-only accessors share the commit schema view"
-    )
-)]
 impl SchemaInfo {
     #[must_use]
     pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
@@ -481,7 +454,6 @@ impl SchemaInfo {
 
     /// Borrow the accepted entity name.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn entity_name(&self) -> Option<&str> {
         self.entity_name.as_deref()
     }
@@ -619,7 +591,6 @@ impl SchemaInfo {
     /// Canonicalize one string-backed public filter literal against this
     /// schema's accepted field authority.
     #[must_use]
-    #[cfg(feature = "query")]
     pub(in crate::db) fn canonicalize_filter_literal(
         &self,
         field_name: &str,
@@ -688,7 +659,6 @@ impl SchemaInfo {
                         leaf_codec: field.leaf_codec(),
                         #[cfg(feature = "sql")]
                         sql_capabilities: accepted_sql_capabilities(field.kind(), &value_catalog),
-                        #[cfg(feature = "query")]
                         persisted_kind: field.kind().clone(),
                         accepted_value_contract,
                         indexed: indexed_field_ids.contains(&field.id()),

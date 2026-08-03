@@ -3,9 +3,7 @@
 //! Does not own: recovery, write-path mutation, or query planning semantics.
 //! Boundary: consumes `Db`/store read APIs and returns DTO snapshots.
 
-#[cfg(any(test, feature = "query"))]
 mod execution_trace;
-#[cfg(any(feature = "diagnostics", feature = "query"))]
 mod local_instructions;
 mod model;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -13,12 +11,10 @@ mod sql_structural;
 mod storage_report;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 mod store_counters;
-#[cfg(any(test, feature = "query"))]
 pub use execution_trace::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,
 };
-#[cfg(feature = "query")]
 pub(in crate::db) use local_instructions::measure_local_instruction_delta;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use local_instructions::read_local_instruction_counter;

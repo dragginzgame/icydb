@@ -913,7 +913,6 @@ pub(in crate::db::executor) fn decode_covering_projection_component(
 
 // Decode one ordered component vector into runtime values while keeping
 // unsupported component kinds fail-closed at the caller boundary.
-#[cfg(feature = "query")]
 fn decode_covering_projection_components(
     components: IndexComponentValues,
 ) -> Result<Option<Vec<Value>>, InternalError> {
@@ -975,7 +974,6 @@ where
 
 // Decode one covering projection stream under the existing-row contract and
 // let the caller map the decoded value vector into its terminal payload.
-#[cfg(feature = "query")]
 pub(in crate::db::executor) fn decode_covering_projection_pairs<T, F>(
     raw_pairs: IndexComponentRows,
     store: StoreHandle,

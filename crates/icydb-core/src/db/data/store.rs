@@ -412,7 +412,6 @@ impl DataStore {
     }
 
     /// Visit raw row entries in reverse order whose keys belong to the provided storage range.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn visit_range_rev<E>(
         &self,
         key_range: impl RangeBounds<RawDataStoreKey>,

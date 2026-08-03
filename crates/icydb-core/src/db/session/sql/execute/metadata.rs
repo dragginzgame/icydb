@@ -160,7 +160,7 @@ impl<C: CanisterKind> DbSession<C> {
             | CompiledSqlCommand::GlobalAggregate { .. }
             | CompiledSqlCommand::Insert(_)
             | CompiledSqlCommand::Update(_) => return None,
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             CompiledSqlCommand::Explain(_) => return None,
         };
 

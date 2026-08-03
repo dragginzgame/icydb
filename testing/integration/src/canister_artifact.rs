@@ -14,7 +14,8 @@ use candid::{
 use icydb::{
     Error,
     db::{
-        EntitySchemaDescription, IntegrityCheckResult, SqlIntegrityError, StorageReport,
+        EntitySchemaDescription, IntegrityCheckResult, SchemaMigrationCommand,
+        SchemaMigrationStatusPage, SchemaMigrationStatusRequest, SqlIntegrityError, StorageReport,
         sql::{SqlQueryPerfResult, SqlQueryResult},
     },
     metrics::{CompactMetricsReport, EventReport},
@@ -139,7 +140,7 @@ const RPG_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_snapshot", CanisterMethodMode::Query),
 ];
 
-/// Frozen build and pre-cut export policy for all nine maintained actors.
+/// Frozen build and pre-cut export policy for all ten maintained actors.
 pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "default_empty",
@@ -156,6 +157,14 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_features: &["candid-export"],
         production_icydb_methods: METRICS_METHODS,
         local_test_icydb_methods: METRICS_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "one_entity_dynamic_query",
+        package: "canister_audit_one_entity_dynamic_query",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export"],
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "one_entity_sql_query",
@@ -176,14 +185,8 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "sql_perf",
         package: "canister_audit_sql_perf",
-        production_features: &["candid-export", "diagnostics", "sql", "sql-explain"],
-        local_test_features: &[
-            "candid-export",
-            "diagnostics",
-            "sql",
-            "sql-explain",
-            "test-admin-api",
-        ],
+        production_features: &["candid-export", "diagnostics", "sql"],
+        local_test_features: &["candid-export", "diagnostics", "sql", "test-admin-api"],
         production_icydb_methods: METRICS_METHODS,
         local_test_icydb_methods: SQL_PERF_METHODS,
     },
@@ -488,6 +491,26 @@ pub fn render_endpoint_abi_foundation() -> String {
     format!("{}\n", compile(&container.env, &Some(actor)))
 }
 
+/// Render the normative 0.218 migration endpoint ABI from public Rust DTOs.
+#[must_use]
+pub fn render_schema_migration_endpoint_abi() -> String {
+    let mut container = TypeContainer::new();
+    let methods = vec![
+        endpoint_method::<SchemaMigrationCommand, Result<SchemaMigrationStatusPage, Error>>(
+            &mut container,
+            "icydb_schema_migrate",
+            CanisterMethodMode::Update,
+        ),
+        endpoint_method::<SchemaMigrationStatusRequest, Result<SchemaMigrationStatusPage, Error>>(
+            &mut container,
+            "icydb_schema_migration",
+            CanisterMethodMode::Query,
+        ),
+    ];
+    let actor: Type = TypeInner::Service(methods).into();
+    format!("{}\n", compile(&container.env, &Some(actor)))
+}
+
 fn endpoint_method<A: CandidType + 'static, R: CandidType>(
     container: &mut TypeContainer,
     name: &str,
@@ -636,7 +659,7 @@ mod tests {
 
     use super::{
         CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES, inspect_candid_methods,
-        inspect_wasm_methods, render_endpoint_abi_foundation,
+        inspect_wasm_methods, render_endpoint_abi_foundation, render_schema_migration_endpoint_abi,
     };
 
     #[test]
@@ -679,7 +702,7 @@ mod tests {
 
     #[test]
     fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 9);
+        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 10);
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)
@@ -703,6 +726,14 @@ mod tests {
         assert_eq!(
             render_endpoint_abi_foundation(),
             include_str!("contracts/0.217/endpoint-abi-foundation.did")
+        );
+    }
+
+    #[test]
+    fn schema_migration_endpoint_abi_matches_golden() {
+        assert_eq!(
+            render_schema_migration_endpoint_abi(),
+            include_str!("contracts/0.218/schema-migration-endpoints.did")
         );
     }
 

@@ -68,7 +68,7 @@ same canister-owned features:
 ```toml
 [features]
 default = []
-local-sql-query = ["icydb/sql", "icydb/sql-explain"]
+local-sql-query = ["icydb/sql"]
 test-admin-api = ["icydb/sql"]
 ```
 
@@ -107,7 +107,8 @@ Hand-written public read endpoint guidance is in
 Current generated endpoint surfaces:
 
 - `icydb_query` for controller-gated read SQL
-  - `introspection = true` requires the `icydb/sql-explain` capability
+  - `introspection = true` admits `EXPLAIN`, `DESCRIBE`, and `SHOW`; these are
+    included by the `icydb/sql` capability
 - `icydb_ddl` for supported accepted-catalog SQL DDL
 - `icydb_update` with declared `primary_key_only` or `bounded_deterministic`
   admission; both policies are controller-gated and narrower than the
@@ -136,6 +137,10 @@ make install
 
 The CLI calls fixed method names on the deployed canister. If a declaration is
 absent, the replica's ordinary method-not-found response is authoritative.
+
+For a canister that enables the optional `migration` capability, see
+[Schema Migrations](docs/guides/schema-migrations.md) for the explicit
+version-1 adoption, adjacent deployment, bounded run/resume, and abort flow.
 
 ## Maintainer Workstation Setup
 

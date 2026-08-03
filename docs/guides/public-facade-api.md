@@ -7,9 +7,9 @@ admission, storage, or recovery inputs.
 
 ## Read Surfaces
 
-Typed reads require the engine-neutral `query` feature. The `sql` feature
-depends on `query`, but typed and dynamic reads do not depend on SQL parser or
-response types:
+Typed and dynamic reads are part of base IcyDB and do not depend on SQL parser
+or response types. The optional `sql` feature adds a frontend over the same
+engine-neutral query runtime:
 
 ```rust
 let rows = db()?
@@ -21,9 +21,9 @@ let rows = db()?
 ```
 
 `query::<E>()` is generated automatically for entities declared in a crate
-that depends on the `icydb` runtime facade. The generated adapter binds
-immutable entity and field source keys to the current accepted snapshot. It
-then decodes returned public values; it never supplies query semantics.
+that depends on the `icydb` runtime facade. The generated adapter resolves the
+authored entity and field names through the current accepted source bindings.
+It then decodes returned public values; it never supplies query semantics.
 
 Every named enum, record, newtype, list, set, map, or tuple implements the
 model-owned conversion traits automatically, including IcyDB's built-in model
@@ -36,9 +36,9 @@ before crossing the existing `InputValue` / `OutputValue` boundary.
 `execute_trusted_dynamic_query` only after application-owned admin
 authorization.
 
-Grouped reads use the same `query` feature, accepted-schema planner, plan
-cache, executor, and public-value conversion as SQL. They do not require the
-SQL parser or SQL response types:
+Grouped reads use the same accepted-schema planner, plan cache, executor, and
+public-value conversion as SQL. They do not require the SQL parser or SQL
+response types:
 
 ```rust
 let page = db()?

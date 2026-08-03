@@ -33,6 +33,7 @@ pub(in crate::db) fn relabel_sql_predicate_field_root(
 ///
 /// The check parses the predicate and visits structural field operands, so
 /// schema dependency checks never rely on substring matching.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn sql_predicate_references_field_root(
     predicate_sql: &str,
     field_root: &str,

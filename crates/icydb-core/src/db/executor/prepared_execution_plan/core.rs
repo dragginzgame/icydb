@@ -33,7 +33,6 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-#[cfg(feature = "query")]
 use crate::db::executor::planning::preparation::covering_strict_predicate_compatible_for_plan;
 
 ///
@@ -228,7 +227,6 @@ impl PreparedScalarPlanCore {
         self.core.get_or_init_initial_scalar_route_plan(authority)
     }
 
-    #[cfg(feature = "query")]
     pub(in crate::db::executor) fn get_or_init_scalar_layout(
         &self,
         authority: EntityAuthority,
@@ -301,7 +299,6 @@ impl PreparedExecutionPlanCore {
         Ok(prepared)
     }
 
-    #[cfg(feature = "query")]
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_covering_read_execution_plan(
         &self,
         authority: EntityAuthority,
@@ -319,7 +316,6 @@ impl PreparedExecutionPlanCore {
             .clone()
     }
 
-    #[cfg(feature = "query")]
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_hybrid_covering_read_plan(
         &self,
         authority: EntityAuthority,

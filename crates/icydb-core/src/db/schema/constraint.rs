@@ -675,6 +675,18 @@ impl AcceptedConstraintSnapshot {
         &self.kind
     }
 
+    /// Clone this accepted constraint with display metadata only changed.
+    #[cfg(any(test, feature = "migration"))]
+    #[must_use]
+    pub(in crate::db::schema) fn clone_with_name(&self, name: String) -> Self {
+        Self {
+            id: self.id,
+            name,
+            origin: self.origin,
+            kind: self.kind.clone(),
+        }
+    }
+
     fn clone_with_kind(&self, kind: AcceptedConstraintKind) -> Self {
         Self {
             id: self.id,
@@ -977,12 +989,11 @@ impl AcceptedConstraintCatalog {
             activation_epoch,
         ));
         self.activations
-            .sort_by_key(ConstraintActivationSnapshot::id);
+            .sort_unstable_by_key(ConstraintActivationSnapshot::id);
         Ok(self)
     }
 
     /// Reserve one not-null activation while the accepted field remains nullable.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn with_added_not_null_activation(
         self,
         field: &PersistedFieldSnapshot,
@@ -1004,7 +1015,6 @@ impl AcceptedConstraintCatalog {
     }
 
     /// Reserve one unique-index activation beside its planner-invisible owner.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn with_added_unique_activation(
         self,
         index: &PersistedIndexSnapshot,
@@ -1146,7 +1156,8 @@ impl AcceptedConstraintCatalog {
             activation.origin,
             kind,
         ));
-        self.constraints.sort_by_key(AcceptedConstraintSnapshot::id);
+        self.constraints
+            .sort_unstable_by_key(AcceptedConstraintSnapshot::id);
         Ok(self)
     }
 
@@ -1325,7 +1336,7 @@ impl AcceptedConstraintCatalog {
         Ok(self)
     }
 
-    fn with_added_relation(
+    pub(in crate::db::schema) fn with_added_relation(
         mut self,
         relation: &PersistedRelationEdgeSnapshot,
     ) -> Result<Self, AcceptedConstraintCatalogError> {

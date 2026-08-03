@@ -786,6 +786,80 @@ impl fmt::Debug for SchemaDdlAdmissionCode {
     }
 }
 
+/// Machine-readable source-migration rejection or lifecycle finding.
+#[repr(u16)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub enum SchemaMigrationCode {
+    Unadopted,
+    MissingMigration,
+    VersionGap,
+    Downgrade,
+    EmptyEntityVersionBump,
+    DuplicateEntityTransition,
+    StaleAcceptedHead,
+    PlanChanged,
+    DuplicateRenameSource,
+    DuplicateRenameTarget,
+    UnknownFromObject,
+    UnknownToObject,
+    KindMismatch,
+    IdentityConflict,
+    IncompleteRenameCoverage,
+    UnexplainedSchemaDifference,
+    UnsupportedTransform,
+    TransformFinding,
+    UniqueIndexFinding,
+    RelationFinding,
+    ConstraintFinding,
+    PhysicalRunnerMissing,
+    MigrationInProgress,
+    AbortTooLate,
+    ProgressCorrupt,
+    CandidateMismatch,
+    PublicationRaceLost,
+}
+
+impl SchemaMigrationCode {
+    /// Return the broad diagnostic category for this migration result.
+    #[must_use]
+    pub const fn diagnostic_code(self) -> DiagnosticCode {
+        match self {
+            Self::StaleAcceptedHead
+            | Self::PlanChanged
+            | Self::IdentityConflict
+            | Self::MigrationInProgress
+            | Self::AbortTooLate
+            | Self::PublicationRaceLost => DiagnosticCode::RuntimeConflict,
+            Self::ProgressCorrupt | Self::CandidateMismatch => DiagnosticCode::RuntimeCorruption,
+            Self::Unadopted
+            | Self::MissingMigration
+            | Self::VersionGap
+            | Self::Downgrade
+            | Self::EmptyEntityVersionBump
+            | Self::DuplicateEntityTransition
+            | Self::DuplicateRenameSource
+            | Self::DuplicateRenameTarget
+            | Self::UnknownFromObject
+            | Self::UnknownToObject
+            | Self::KindMismatch
+            | Self::IncompleteRenameCoverage
+            | Self::UnexplainedSchemaDifference
+            | Self::UnsupportedTransform
+            | Self::TransformFinding
+            | Self::UniqueIndexFinding
+            | Self::RelationFinding
+            | Self::ConstraintFinding
+            | Self::PhysicalRunnerMissing => DiagnosticCode::RuntimeUnsupported,
+        }
+    }
+}
+
+impl fmt::Debug for SchemaMigrationCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
 ///
 /// DiagnosticDetail
 ///
@@ -802,6 +876,7 @@ pub enum DiagnosticDetail {
     RuntimeBoundary { boundary: RuntimeBoundaryCode },
     RuntimeKind { kind: RuntimeErrorKind },
     SchemaDdlAdmission { reason: SchemaDdlAdmissionCode },
+    SchemaMigration { reason: SchemaMigrationCode },
     SqlLowering { reason: SqlLoweringCode },
     SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode },
     SqlWriteBoundary { boundary: SqlWriteBoundaryCode },
@@ -989,7 +1064,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 241);
+        assert_eq!(last, 268);
     }
 
     #[test]
@@ -1021,7 +1096,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 242, u16::MAX] {
+        for raw in [0, 269, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

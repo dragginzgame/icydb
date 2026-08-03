@@ -30,14 +30,19 @@ non-persisted execution plans are not persisted format.
 ## Current Compatibility Posture
 
 Before `1.0.0`, IcyDB keeps one active internal persisted format for each
-durable surface. Every active format uses version 1.
+durable surface. New replacement profiles normally restart at version 1. The
+sole current exception is the commit-marker envelope: the accepted 0.218
+migration contract replaces version 1 with version 2 and retains no version-1
+decoder.
 
 The default posture is a pre-1.0 hard cut:
 
-- an incompatible format change replaces the current version-1 form instead
-  of introducing a version 2 reader or writer;
-- the replacement receives a new magic or profile identity while its version
-  restarts at 1, so retired version-1 bytes fail before current-form decoding;
+- an incompatible format change replaces the retired form rather than adding
+  a compatibility reader;
+- the replacement normally receives a new magic or profile identity and
+  restarts at version 1; an accepted design may instead advance the sole
+  current version only when the prior decoder is deleted and the exact
+  exception is recorded in the persisted-format inventory and release notes;
 - the current form either decodes exactly or fails closed; old internal forms
   do not receive compatibility decoders;
 - unknown future versions fail closed;

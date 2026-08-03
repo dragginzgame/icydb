@@ -5,7 +5,7 @@ use super::cache::{
     SqlCompiledSchemaFingerprint, SqlGlobalAggregateCountPlanCacheEntry,
     SqlGlobalAggregatePlanCacheEntry, SqlSelectPlanCacheEntry,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::sql::lowering::LoweredSqlCommand;
 use crate::db::{
     executor::SharedPreparedExecutionPlan,
@@ -44,7 +44,7 @@ pub(in crate::db) enum CompiledSqlCommand {
         plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregatePlanCacheEntry>>>,
         count_plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     Explain(Box<LoweredSqlCommand>),
     Insert(CompiledSqlInsertCommand),
     Update(SqlUpdateStatement),
@@ -130,7 +130,7 @@ impl CompiledSqlCommand {
             Self::Delete { returning, .. } => returning.is_some(),
             Self::Insert(command) => command.statement().returning.is_some(),
             Self::Update(statement) => statement.returning.is_some(),
-            #[cfg(feature = "sql-explain")]
+            #[cfg(feature = "sql")]
             Self::Explain(_) => false,
             Self::DescribeEntity
             | Self::ShowConstraintsEntity

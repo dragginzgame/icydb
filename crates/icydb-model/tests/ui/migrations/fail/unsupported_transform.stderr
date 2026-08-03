@@ -1,0 +1,5 @@
+error: rewrite(...) accepts exactly one of copy, checked_cast(...), or coalesce(literal(...))
+ --> tests/ui/migrations/fail/unsupported_transform.rs:4:5
+  |
+4 |     migrations(entity_migration(
+  |     ^^^^^^^^^^

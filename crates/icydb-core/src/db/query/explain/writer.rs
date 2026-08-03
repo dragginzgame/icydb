@@ -3,7 +3,7 @@
 //! Does not own: explain DTO semantics or access/execution projection policy.
 //! Boundary: lightweight string JSON emit primitives used by explain modules.
 
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 use crate::db::query::explain::ExplainPropertyMap;
 use std::fmt::{self, Debug, Write as _};
 
@@ -106,7 +106,7 @@ impl<'a> JsonWriter<'a> {
         });
     }
 
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db::query::explain) fn field_debug_map(
         &mut self,
         key: &str,

@@ -91,6 +91,72 @@ pub(in crate::db) struct AcceptedTypedAdapterNames {
     pub(in crate::db) named_types: Vec<(String, String)>,
 }
 
+#[cfg(any(test, feature = "migration"))]
+fn rekey_exact<K, V>(
+    bindings: &mut BTreeMap<K, V>,
+    from: &K,
+    to: K,
+    expected: V,
+) -> Result<(), InternalError>
+where
+    K: Ord,
+    V: Copy + Eq,
+{
+    if from == &to || bindings.contains_key(&to) {
+        return Err(InternalError::store_unsupported());
+    }
+    match bindings.get(from) {
+        Some(actual) if *actual == expected => {}
+        Some(_) | None => return Err(InternalError::store_unsupported()),
+    }
+    if bindings
+        .iter()
+        .any(|(key, actual)| key != from && *actual == expected)
+    {
+        return Err(InternalError::store_invariant());
+    }
+    let _ = bindings.remove(from);
+    if bindings.insert(to, expected).is_some() {
+        return Err(InternalError::store_invariant());
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "migration"))]
+fn rekey_scoped_exact<S, K, V>(
+    bindings: &mut BTreeMap<(S, K), V>,
+    scope: S,
+    from: &K,
+    to: K,
+    expected: V,
+) -> Result<(), InternalError>
+where
+    S: Copy + Ord,
+    K: Clone + Ord,
+    V: Copy + Eq,
+{
+    let from_key = (scope, from.clone());
+    let to_key = (scope, to);
+    if from_key == to_key || bindings.contains_key(&to_key) {
+        return Err(InternalError::store_unsupported());
+    }
+    match bindings.get(&from_key) {
+        Some(actual) if *actual == expected => {}
+        Some(_) | None => return Err(InternalError::store_unsupported()),
+    }
+    if bindings
+        .iter()
+        .any(|(key, actual)| key != &from_key && key.0 == scope && *actual == expected)
+    {
+        return Err(InternalError::store_invariant());
+    }
+    let _ = bindings.remove(&from_key);
+    if bindings.insert(to_key, expected).is_some() {
+        return Err(InternalError::store_invariant());
+    }
+    Ok(())
+}
+
 impl AcceptedSourceBindingCatalog {
     /// Construct the exact source-addressable identity closure for one initial
     /// catalog-native proposal.
@@ -173,6 +239,17 @@ impl AcceptedSourceBindingCatalog {
         self.entities.get(source).copied()
     }
 
+    /// Replace one entity source key while preserving its exact accepted ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_entity(
+        &mut self,
+        from: &EntitySourceKey,
+        to: EntitySourceKey,
+        expected: EntityTag,
+    ) -> Result<(), InternalError> {
+        rekey_exact(&mut self.entities, from, to, expected)
+    }
+
     /// Remove one exact entity binding and every entity-scoped child binding.
     pub(in crate::db::schema) fn remove_entity(
         &mut self,
@@ -200,6 +277,40 @@ impl AcceptedSourceBindingCatalog {
         source: &FieldSourceKey,
     ) -> Option<FieldId> {
         self.fields.get(&(entity, source.clone())).copied()
+    }
+
+    /// Add one exact generated-field binding allocated by a physical source
+    /// migration. Ordinary reconciliation never calls this path.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn insert_migration_field(
+        &mut self,
+        entity: EntityTag,
+        source: FieldSourceKey,
+        field: FieldId,
+    ) -> Result<(), InternalError> {
+        let key = (entity, source);
+        if self.fields.contains_key(&key)
+            || self
+                .fields
+                .iter()
+                .any(|((bound_entity, _), accepted)| *bound_entity == entity && *accepted == field)
+        {
+            return Err(InternalError::store_invariant());
+        }
+        self.fields.insert(key, field);
+        Ok(())
+    }
+
+    /// Replace one entity-local field source key while preserving its ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_field(
+        &mut self,
+        entity: EntityTag,
+        from: &FieldSourceKey,
+        to: FieldSourceKey,
+        expected: FieldId,
+    ) -> Result<(), InternalError> {
+        rekey_scoped_exact(&mut self.fields, entity, from, to, expected)
     }
 
     /// Derive the accepted editable names needed by an opaque typed adapter.
@@ -297,6 +408,17 @@ impl AcceptedSourceBindingCatalog {
         self.types.get(source).copied()
     }
 
+    /// Replace one named-type source key while preserving its catalog ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_named_type(
+        &mut self,
+        from: &TypeSourceKey,
+        to: TypeSourceKey,
+        expected: AcceptedNamedTypeIdentity,
+    ) -> Result<(), InternalError> {
+        rekey_exact(&mut self.types, from, to, expected)
+    }
+
     /// Remove one exact named-type binding and its child identity closure.
     pub(in crate::db::schema) fn remove_named_type(
         &mut self,
@@ -332,6 +454,18 @@ impl AcceptedSourceBindingCatalog {
             .copied()
     }
 
+    /// Replace one enum-variant source key while preserving its accepted ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_enum_variant(
+        &mut self,
+        enum_type: EnumTypeId,
+        from: &TypeSourceKey,
+        to: TypeSourceKey,
+        expected: EnumVariantId,
+    ) -> Result<(), InternalError> {
+        rekey_scoped_exact(&mut self.enum_variants, enum_type, from, to, expected)
+    }
+
     /// Resolve one immutable member source identity inside an accepted record.
     #[must_use]
     pub(in crate::db::schema) fn composite_field(
@@ -344,6 +478,24 @@ impl AcceptedSourceBindingCatalog {
             .copied()
     }
 
+    /// Replace one record-member source key while preserving its accepted ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_composite_field(
+        &mut self,
+        composite_type: CompositeTypeId,
+        from: &FieldSourceKey,
+        to: FieldSourceKey,
+        expected: CompositeFieldId,
+    ) -> Result<(), InternalError> {
+        rekey_scoped_exact(
+            &mut self.composite_fields,
+            composite_type,
+            from,
+            to,
+            expected,
+        )
+    }
+
     /// Resolve one immutable accepted-check source identity.
     #[must_use]
     pub(in crate::db::schema) fn constraint(
@@ -352,6 +504,18 @@ impl AcceptedSourceBindingCatalog {
         source: &ConstraintSourceKey,
     ) -> Option<ConstraintId> {
         self.constraints.get(&(entity, source.clone())).copied()
+    }
+
+    /// Replace one entity-local constraint source key while preserving its ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_constraint(
+        &mut self,
+        entity: EntityTag,
+        from: &ConstraintSourceKey,
+        to: ConstraintSourceKey,
+        expected: ConstraintId,
+    ) -> Result<(), InternalError> {
+        rekey_scoped_exact(&mut self.constraints, entity, from, to, expected)
     }
 
     /// Add one exact source binding for a newly reserved accepted check.
@@ -421,6 +585,51 @@ impl AcceptedSourceBindingCatalog {
         self.indexes.get(&(entity, source.clone())).copied()
     }
 
+    /// Replace one entity-local index source key while preserving its ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_index(
+        &mut self,
+        entity: EntityTag,
+        from: &IndexSourceKey,
+        to: IndexSourceKey,
+        expected: SchemaIndexId,
+    ) -> Result<(), InternalError> {
+        rekey_scoped_exact(&mut self.indexes, entity, from, to, expected)
+    }
+
+    /// Add one exact generated-index binding reserved by a physical source
+    /// migration. The candidate catalog remains unpublished until completion.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn insert_migration_index(
+        &mut self,
+        entity: EntityTag,
+        source: IndexSourceKey,
+        index: SchemaIndexId,
+    ) -> Result<(), InternalError> {
+        let key = (entity, source);
+        if self.indexes.contains_key(&key)
+            || self
+                .indexes
+                .iter()
+                .any(|((bound_entity, _), accepted)| *bound_entity == entity && *accepted == index)
+        {
+            return Err(InternalError::store_invariant());
+        }
+        self.indexes.insert(key, index);
+        Ok(())
+    }
+
+    /// Return canonical index bindings for planner-local rename inference.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn index_bindings(
+        &self,
+        entity: EntityTag,
+    ) -> impl Iterator<Item = (&IndexSourceKey, SchemaIndexId)> {
+        self.indexes
+            .iter()
+            .filter_map(move |((owner, source), id)| (*owner == entity).then_some((source, *id)))
+    }
+
     /// Remove one exact accepted secondary-index source binding.
     pub(in crate::db::schema) fn remove_index(
         &mut self,
@@ -442,6 +651,39 @@ impl AcceptedSourceBindingCatalog {
         source: &RelationSourceKey,
     ) -> Option<RelationId> {
         self.relations.get(&(entity, source.clone())).copied()
+    }
+
+    /// Replace one entity-local relation source key while preserving its ID.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn rekey_relation(
+        &mut self,
+        entity: EntityTag,
+        from: &RelationSourceKey,
+        to: RelationSourceKey,
+        expected: RelationId,
+    ) -> Result<(), InternalError> {
+        rekey_scoped_exact(&mut self.relations, entity, from, to, expected)
+    }
+
+    /// Add one exact generated-relation binding reserved by a physical source
+    /// migration. The candidate catalog remains unpublished until completion.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn insert_migration_relation(
+        &mut self,
+        entity: EntityTag,
+        source: RelationSourceKey,
+        relation: RelationId,
+    ) -> Result<(), InternalError> {
+        let key = (entity, source);
+        if self.relations.contains_key(&key)
+            || self.relations.iter().any(|((bound_entity, _), accepted)| {
+                *bound_entity == entity && *accepted == relation
+            })
+        {
+            return Err(InternalError::store_invariant());
+        }
+        self.relations.insert(key, relation);
+        Ok(())
     }
 
     /// Remove one exact accepted relation source binding.
@@ -1225,7 +1467,7 @@ mod tests {
         },
         types::EntityTag,
     };
-    use icydb_schema::{ConstraintSourceKey, FieldSourceKey};
+    use icydb_schema::{ConstraintSourceKey, EntitySourceKey, FieldSourceKey};
 
     fn status_enum_definition() -> TestEnumDefinition {
         TestEnumDefinition::new(
@@ -1320,6 +1562,64 @@ mod tests {
         assert_eq!(catalog.field(entity, &first), Some(FieldId::new(1)));
         assert_eq!(catalog.field(entity, &retained), Some(FieldId::new(2)));
         assert_eq!(catalog.field(entity, &removed), None);
+    }
+
+    #[test]
+    fn field_rekey_uniqueness_is_entity_scoped() {
+        let first_entity = EntityTag::new(7);
+        let second_entity = EntityTag::new(8);
+        let field_id = FieldId::new(1);
+        let old = FieldSourceKey::try_new("old").expect("source should admit");
+        let new = FieldSourceKey::try_new("new").expect("source should admit");
+        let other = FieldSourceKey::try_new("other").expect("source should admit");
+        let alias = FieldSourceKey::try_new("alias").expect("source should admit");
+        let mut catalog = AcceptedSourceBindingCatalog::default();
+        catalog.fields.insert((first_entity, old.clone()), field_id);
+        catalog
+            .fields
+            .insert((second_entity, other.clone()), field_id);
+
+        catalog
+            .rekey_field(first_entity, &old, new.clone(), field_id)
+            .expect("the same entity-local ID in another entity must not conflict");
+        assert_eq!(catalog.field(first_entity, &new), Some(field_id));
+        assert_eq!(catalog.field(second_entity, &other), Some(field_id));
+
+        catalog.fields.insert((first_entity, alias), field_id);
+        assert!(
+            catalog
+                .rekey_field(
+                    first_entity,
+                    &new,
+                    FieldSourceKey::try_new("newer").expect("source should admit"),
+                    field_id,
+                )
+                .is_err(),
+            "two source keys in one entity must not alias one field ID",
+        );
+        assert_eq!(catalog.field(first_entity, &new), Some(field_id));
+    }
+
+    #[test]
+    fn entity_rekey_conflict_retains_the_predecessor_binding() {
+        let entity = EntityTag::new(7);
+        let old = EntitySourceKey::try_new("old").expect("source should admit");
+        let alias = EntitySourceKey::try_new("alias").expect("source should admit");
+        let mut catalog = AcceptedSourceBindingCatalog::default();
+        catalog.entities.insert(old.clone(), entity);
+        catalog.entities.insert(alias, entity);
+
+        assert!(
+            catalog
+                .rekey_entity(
+                    &old,
+                    EntitySourceKey::try_new("new").expect("source should admit"),
+                    entity,
+                )
+                .is_err(),
+            "one accepted entity ID must not acquire two source bindings",
+        );
+        assert_eq!(catalog.entity(&old), Some(entity));
     }
 
     #[test]

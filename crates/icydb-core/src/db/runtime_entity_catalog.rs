@@ -126,7 +126,7 @@ pub(in crate::db) fn accepted_runtime_entities<C: CanisterKind>(
             store.with_schema(|schema| schema.current_accepted_runtime_entities(store_path))?,
         );
     }
-    entities.sort_by(|left, right| {
+    entities.sort_unstable_by(|left, right| {
         left.store_path()
             .cmp(right.store_path())
             .then_with(|| left.entity_tag().cmp(&right.entity_tag()))

@@ -8,7 +8,7 @@ use crate::{
             EntityAuthority,
             aggregate::{
                 AccessPlannedQuery, AggregateKind, CompiledExpr, Expr, FieldId, FieldSlot,
-                GroupedAggregateExecutionSpec, compile_scalar_projection_expr_from_schema,
+                GroupedAggregateExecutionSpec, compile_scalar_projection_expr_with_schema,
                 scalar_terminals::expr_cache::intern_scalar_terminal_expr,
             },
             pipeline::{
@@ -481,7 +481,7 @@ fn compile_structural_aggregate_expr(
         return Err(InternalError::query_executor_invariant());
     }
 
-    let scalar = compile_scalar_projection_expr_from_schema(schema, expr)
+    let scalar = compile_scalar_projection_expr_with_schema(schema, expr)
         .ok_or_else(InternalError::query_executor_invariant)?;
 
     Ok(CompiledExpr::compile(&scalar))

@@ -251,7 +251,7 @@ pub(in crate::db) fn execute_row_integrity_page<C: CanisterKind>(
 ) -> Result<RowIntegrityPage, InternalError> {
     let limits = limits.validate()?;
     let identity = plan.identity();
-    let store = db.recovered_store(identity.store_path())?;
+    let store = db.store_handle(identity.store_path())?;
     let identity_high_water = plan
         .identity_inspection()
         .map(|identity_inspection| {
@@ -654,7 +654,7 @@ fn inspect_row_atom<C: CanisterKind>(
             else {
                 return Ok(RowAtomOutcome::Clean);
             };
-            let index_store = db.recovered_store(witness.store_path())?;
+            let index_store = db.store_handle(witness.store_path())?;
             let actual = index_store.with_index(|store| store.get(witness.raw_key()));
             match actual {
                 None => Ok(RowAtomOutcome::Finding(index_finding(

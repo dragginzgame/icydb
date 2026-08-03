@@ -78,8 +78,9 @@ rollback as normal control flow:
   row-op preparation happen before durable mutation;
 - after the commit marker is durable, recovery authority belongs to the marker
   and journal protocol;
-- a marker carrying a schema-application receipt owns its exact
-  compare-and-replace effect in the disjoint database-control record region;
+- a marker carries at most four canonically ordered exact database-control
+  compare-and-replace effects for application receipts, source lineage, and
+  migration progress;
 - guarded reentry must converge to the marker-authorized final state;
 - reads and writes must not observe partial durable state through guarded
   entrypoints.
@@ -129,20 +130,52 @@ reverse generations never become delete-safety authority. A retained finding
 receipt remains stable until its exact sequence is acknowledged; recovery does
 not discard it or independently rescan policy.
 
+Offline schema-migration validation uses the same ordering rule without
+publishing candidate authority. A bounded page decodes rows under the exact
+accepted-before contract and may write only candidate-generation index keys.
+Those keys are folded in their journaled store before the migration-progress
+compare-and-replace is marker-published. Interruption before that marker leaves
+the old cursor authoritative, so reentry repeats the same accepted-ID program
+and exact raw keys; identical keys are idempotent and any different prior value
+fails closed. A page with a transform, constraint, relation, or uniqueness
+finding stages nothing. Validation never rewrites accepted rows or advances
+source lineage.
+
+After a clean validation reaches `ReadyToRewrite`, each physical rewrite page
+binds its complete candidate row bytes, candidate index/reverse keys, and next
+accepted-ID cursor to one commit marker and the exact migration-plan digest.
+The page is bounded by rows, row bytes, derived-key bytes, journal record count,
+and journal payload bytes. Recovery may observe the predecessor page or replay
+the complete marker-authorized page; it cannot authorize a row/index effect
+under a different plan or advance progress without those effects. While the
+database is gated, recovery preserves the mixed predecessor/candidate row
+domain and planner-invisible candidate generations instead of rebuilding them
+through predecessor accepted authority.
+
+Final validation reopens every rewritten row under candidate authority and
+checks primary-key binding, accepted constraints, relations, and every expected
+candidate generation. Candidate accepted snapshots, source lineage, the
+application receipt, and terminal migration state then publish in one marker.
+The old source binding is absent immediately after publication. Old physical
+index generations remain inert for explicit later cleanup; they are not a
+fallback authority. A pre-rewrite abort scans and removes only exact candidate
+generation identities in bounded pages, leaves all rows unchanged, and clears
+the gate only with its terminal record.
+
 Schema-application receipts use a checksummed BTreeMap region after the
 bounded commit-control region in the same database-control allocation. The
-restricted regions cannot overlap. A marker carries at most one exact
-before/after record effect; normal apply and recovery both accept only the
-recorded compare value or the already-applied final bytes. Receipt lookup runs
-guarded recovery first, so it cannot observe a receipt ahead of the
-marker-authorized schema transition.
+restricted regions cannot overlap. Marker version 2 carries at most four
+canonically ordered exact before/after database-control effects. Normal apply
+and recovery accept only each recorded compare value or its already-applied
+final bytes. Receipt, lineage, and migration progress therefore cannot become
+independent publication authorities.
 
 Recovery does not run Quick, Deep, or a whole-database integrity report.
 After journal fold and canonical derived-state rebuild, it verifies only the
 bounded final effect set already carried by the recovered commit marker:
 exact final row state, rebuilt derived effects for recovered row puts, schema
-and validation-job publication identity, schema-application record identity,
-marker-batch fold coverage, and empty physical journal tails. The effect walk
+and validation-job publication identity, database-control transaction
+identity, marker-batch fold coverage, and empty physical journal tails. The effect walk
 is bounded by the existing 16 MiB marker limit, and journal closure costs one
 ordered-map lookup per registered journaled store. Marker authority is cleared
 only after these postconditions hold. This recovered-effect proof is not a

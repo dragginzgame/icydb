@@ -28,6 +28,8 @@ pub(in crate::db) use canonical::{
     decode_validated_check_literal_payload, encode_input_value_for_candidate_field_contract,
 };
 pub(in crate::db) use codec::{ScalarSlotValueRef, ScalarValueRef};
+#[cfg(feature = "migration")]
+pub(in crate::db) use contract::canonical_row_from_runtime_value_source_with_accepted_contract;
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
@@ -42,7 +44,6 @@ pub(in crate::db) use patch::{
     resolve_update_structural_patch_with_accepted_contract,
 };
 pub(in crate::db) use reader::StructuralSlotReader;
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) use reader::{
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,

@@ -3,7 +3,7 @@ mod __icydb_generated {
 }
 
 icydb::endpoints! {
-    icydb_metrics_extended(authorization = public);
+    icydb_schema_migrate;
 }
 
 fn main() {}

@@ -12,7 +12,7 @@ pub(crate) fn canonicalize_value_set(values: &mut Vec<Value>) {
         return;
     }
 
-    values.sort_by(Value::canonical_cmp);
+    values.sort_unstable_by(Value::canonical_cmp);
     values.dedup();
 }
 

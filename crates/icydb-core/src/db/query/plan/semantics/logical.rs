@@ -3,7 +3,6 @@
 //! Does not own: access-path index selection internals or runtime execution behavior.
 //! Boundary: derives planner-owned execution semantics, shape signatures, and continuation policy.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::predicate::MissingRowPolicy;
 use crate::{
     db::{
@@ -75,7 +74,6 @@ impl AccessPlannedQuery {
     /// Borrow scalar missing-row consistency without exposing the full scalar
     /// plan to executor owners that only need row-presence policy.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) const fn scalar_consistency(&self) -> MissingRowPolicy {
         self.scalar_plan().consistency
     }
@@ -181,14 +179,14 @@ impl AccessPlannedQuery {
     /// Return the planner-owned predicate pushdown label consumed by verbose
     /// execution diagnostics.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn predicate_pushdown_label(&self) -> String {
         self.predicate_pushdown_diagnostics().label()
     }
 
     /// Return planner-owned predicate-pushdown diagnostics.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn predicate_pushdown_diagnostics(&self) -> PredicatePushdownDiagnostics {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
             return static_contract.predicate_pushdown_diagnostics;
@@ -199,14 +197,14 @@ impl AccessPlannedQuery {
 
     /// Return the planner-owned predicate-pushdown outcome label.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn predicate_pushdown_outcome_label(&self) -> &'static str {
         self.predicate_pushdown_diagnostics().outcome_label()
     }
 
     /// Return the planner-owned predicate-pushdown reason label.
     #[must_use]
-    #[cfg(feature = "sql-explain")]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn predicate_pushdown_reason_label(&self) -> &'static str {
         self.predicate_pushdown_diagnostics().reason_label()
     }
@@ -359,7 +357,7 @@ impl AccessPlannedQuery {
     }
 
     /// Borrow the planner-frozen mask for direct projected output slots.
-    #[cfg(any(test, all(feature = "query", feature = "diagnostics")))]
+    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn projected_slot_mask(&self) -> Result<&[bool], InternalError> {
         Ok(self
             .require_static_execution_planning_contract()?
@@ -427,7 +425,6 @@ impl AccessPlannedQuery {
 
     /// Borrow the frozen direct projection slots without reopening model ownership.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn frozen_direct_projection_slots(&self) -> Option<&[usize]> {
         self.static_execution_planning_contract()?
             .projection_direct_slots
@@ -436,7 +433,6 @@ impl AccessPlannedQuery {
 
     /// Borrow duplicate-preserving direct projection slots for raw data-row readers.
     #[must_use]
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn frozen_data_row_direct_projection_slots(&self) -> Option<&[usize]> {
         self.static_execution_planning_contract()?
             .projection_data_row_direct_slots

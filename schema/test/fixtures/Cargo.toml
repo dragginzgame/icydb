@@ -17,8 +17,5 @@ candid = { workspace = true }
 icydb = { workspace = true }
 icydb-model = { workspace = true }
 
-[dev-dependencies]
-icydb-core = { workspace = true }
-
 [lints]
 workspace = true

@@ -511,14 +511,22 @@ mod tests {
         encode_application_header, encode_application_record,
     };
     use crate::{
+        db::schema::migration_lineage::{
+            AcceptedEntitySourceLineage, AcceptedEntitySourceLineageCatalog,
+        },
         db::{
-            commit::{CommitMarker, decode_commit_marker_payload, encode_commit_marker_payload},
+            commit::{
+                CommitMarker, DatabaseControlOp, decode_commit_marker_payload,
+                encode_commit_marker_payload,
+            },
             schema::{
-                SchemaApplicationRecord, SchemaChangeActivation, SchemaChangeJob,
-                SchemaChangeOutcome, SchemaChangeReceipt, derive_schema_change_job_id,
+                EntitySourceLineageCatalogOp, SchemaApplicationRecord, SchemaChangeActivation,
+                SchemaChangeJob, SchemaChangeOutcome, SchemaChangeReceipt,
+                derive_schema_change_job_id,
             },
         },
         testing::test_memory,
+        types::EntityTag,
     };
     use ic_stable_structures::RestrictedMemory;
     use icydb_schema::{
@@ -636,6 +644,61 @@ mod tests {
             .expect("encoded record should contain a payload");
         *last ^= 0x80;
         assert!(decode_application_record(&corrupted, key).is_err());
+    }
+
+    #[test]
+    fn marker_round_trip_binds_application_receipt_and_lineage_effect() {
+        let record = pending_record("lineage-marker");
+        let lineage =
+            AcceptedEntitySourceLineageCatalog::try_new(std::collections::BTreeMap::from([(
+                (
+                    TargetStoreIdentity::from_bytes([0x44; 32]),
+                    EntityTag::new(7),
+                ),
+                AcceptedEntitySourceLineage::unadopted(ExpectedAcceptedHead::Exact {
+                    revision: 1,
+                    fingerprint: ExpectedSchemaFingerprint::from_bytes([0x33; 32]),
+                })
+                .expect("lineage should admit"),
+            )]))
+            .expect("lineage catalog should admit");
+        let application = SchemaApplicationRecordOp::insert(&record)
+            .expect("application operation should prepare");
+        let lineage = EntitySourceLineageCatalogOp::replace(None, &lineage)
+            .expect("lineage operation should prepare");
+        let marker = CommitMarker::from_parts_with_database_control(
+            [0x55; 16],
+            Vec::new(),
+            vec![
+                DatabaseControlOp::SchemaApplication(application.clone()),
+                DatabaseControlOp::EntitySourceLineage(lineage.clone()),
+            ],
+        )
+        .expect("marker should admit");
+        let encoded = encode_commit_marker_payload(&marker).expect("marker should encode");
+        let decoded = decode_commit_marker_payload(&encoded).expect("marker should decode");
+        decoded
+            .schema_application()
+            .expect("application operation should remain");
+        assert_eq!(
+            decoded
+                .entity_source_lineage()
+                .expect("lineage effect should remain")
+                .after_bytes(),
+            lineage.after_bytes(),
+        );
+        assert!(
+            CommitMarker::from_parts_with_database_control(
+                [0x56; 16],
+                Vec::new(),
+                vec![
+                    DatabaseControlOp::EntitySourceLineage(lineage),
+                    DatabaseControlOp::SchemaApplication(application),
+                ],
+            )
+            .is_err(),
+            "database-control operations must remain in canonical target order",
+        );
     }
 
     #[test]

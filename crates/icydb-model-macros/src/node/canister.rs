@@ -24,6 +24,9 @@ pub struct Canister {
     commit_memory_id: u8,
     #[darling(default)]
     integrity_progress_memory_id: Option<u8>,
+
+    #[darling(default)]
+    migrations: Option<MigrationPlan>,
 }
 
 impl HasDef for Canister {
@@ -102,6 +105,10 @@ impl HasSchemaPart for Canister {
         let memory_max = self.memory_max;
         let commit_memory_id = self.commit_memory_id;
         let integrity_progress_memory_id = self.integrity_progress_memory_id();
+        let migration_plan = self
+            .migrations
+            .as_ref()
+            .map_or_else(|| quote!(None), MigrationPlan::constructor_tokens);
 
         // quote
         quote! {
@@ -112,6 +119,7 @@ impl HasSchemaPart for Canister {
                 #memory_max,
                 #commit_memory_id,
                 #integrity_progress_memory_id,
+                #migration_plan,
             )
         }
     }
@@ -182,6 +190,7 @@ mod tests {
             memory_max: 254,
             commit_memory_id: 254,
             integrity_progress_memory_id: Some(253),
+            migrations: None,
         };
         assert_eq!(
             canister.commit_stable_key(),

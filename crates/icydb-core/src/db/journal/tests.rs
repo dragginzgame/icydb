@@ -13,6 +13,7 @@ use crate::{
     db::{
         commit::CommitMarker,
         data::{DecodedDataStoreKey, RawDataStoreKey},
+        index::{IndexId, IndexKey, IndexKeyKind},
         integrity::DatabaseIncarnationId,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
@@ -30,6 +31,7 @@ use ic_stable_structures::{
     Memory, Storable, VectorMemory,
     memory_manager::{MemoryId, MemoryManager},
 };
+use icydb_schema::SchemaMigrationPlanDigest;
 use std::borrow::Cow;
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
@@ -215,6 +217,45 @@ fn journal_batch_codec_round_trips_validation_job_replacement_and_removal() {
     assert_eq!(
         decode_journal_batch(&encoded).expect("validation job removal should decode"),
         removal,
+    );
+}
+
+#[test]
+fn journal_batch_codec_round_trips_exact_migration_row_and_index_effects() {
+    let primary_key = PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(9));
+    let index_key = IndexKey::new_from_components_with_primary_key_value(
+        &IndexId::new_with_generation(EntityTag::new(1), 2, 7),
+        IndexKeyKind::User,
+        &[b"candidate"],
+        &primary_key,
+    )
+    .expect("migration index key should build")
+    .to_raw()
+    .expect("migration index key should encode");
+    let plan = SchemaMigrationPlanDigest::from_bytes([0x71; 32]);
+    let batch = JournalBatch::new(
+        [0x39; 16],
+        [0x49; 16],
+        JournalSequence::new(8),
+        vec![
+            JournalRecord::schema_migration_row_put(
+                "test::Store",
+                raw_data_store_key(9),
+                vec![0x59; 8],
+                [0x69; 16],
+                plan,
+            )
+            .expect("migration row effect should build"),
+            JournalRecord::schema_migration_index_put("test::Store", index_key, plan)
+                .expect("migration index effect should build"),
+        ],
+    )
+    .expect("migration journal batch should build");
+
+    let encoded = encode_journal_batch(&batch).expect("migration journal batch should encode");
+    assert_eq!(
+        decode_journal_batch(&encoded).expect("migration journal batch should decode"),
+        batch,
     );
 }
 
@@ -413,6 +454,32 @@ fn validation_job_appends_do_not_change_the_durable_data_revision() {
             .data_mutation_revision()
             .expect("job removal must not change data revision"),
         3,
+    );
+
+    let migration_batch = JournalBatch::new(
+        [0x54; 16],
+        [0x64; 16],
+        JournalSequence::new(4),
+        vec![
+            JournalRecord::schema_migration_row_put(
+                "test::Store",
+                raw_data_store_key(4),
+                vec![0x74; 8],
+                [0x84; 16],
+                SchemaMigrationPlanDigest::from_bytes([0x94; 32]),
+            )
+            .expect("migration row effect should build"),
+        ],
+    )
+    .expect("migration row batch should build");
+    store
+        .append_batch(&migration_batch)
+        .expect("migration row batch should append");
+    assert_eq!(
+        store
+            .data_mutation_revision()
+            .expect("migration row data revision should load"),
+        5,
     );
 }
 

@@ -5,11 +5,11 @@
 
 pub(in crate::db::executor) mod capability;
 mod contracts;
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 mod count_terminal;
 pub(in crate::db::executor) mod field;
 pub(in crate::db::executor) mod runtime;
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 mod scalar_terminals;
 #[cfg(feature = "diagnostics")]
 mod terminal_attribution;
@@ -19,11 +19,11 @@ pub(in crate::db::executor) use capability::{
     AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
     field_target_is_tie_free_probe_target,
 };
-#[cfg(feature = "sql-explain")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::AggregateFoldMode;
-#[cfg(all(test, feature = "query"))]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db::executor) use contracts::BinaryOp;
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::FieldId;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use contracts::GroupedRuntimeStats;
@@ -33,10 +33,10 @@ pub(in crate::db::executor) use contracts::{
     GroupError, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, OrderDirection,
     PlannedProjectionLayout, ProjectionSpec,
 };
-#[cfg(feature = "query")]
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::{
     Expr, PageSpec, ProjectionField, admit_true_only_boolean_value,
-    compile_scalar_projection_expr_from_schema,
+    compile_scalar_projection_expr_with_schema,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use count_terminal::execute_direct_count_index_prefix_cardinality_for_canister;

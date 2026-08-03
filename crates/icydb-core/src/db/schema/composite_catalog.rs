@@ -82,6 +82,64 @@ pub(in crate::db) struct AcceptedCompositeCatalog {
 }
 
 impl AcceptedCompositeCatalog {
+    /// Rename one accepted composite path without changing its identity or
+    /// structural contract.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn with_renamed_type(
+        mut self,
+        type_id: CompositeTypeId,
+        new_path: String,
+    ) -> Result<Self, CompositeCatalogBuildError> {
+        if new_path.is_empty() || self.id_by_path.contains_key(&new_path) {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        let definition = self
+            .by_id
+            .get_mut(&type_id)
+            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
+        if self.id_by_path.remove(definition.path.as_str()) != Some(type_id) {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        definition.path.clone_from(&new_path);
+        self.id_by_path.insert(new_path, type_id);
+        Ok(self)
+    }
+
+    /// Rename one accepted record member without changing its ID, ordering
+    /// semantics, or value contract.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db::schema) fn with_renamed_record_field(
+        mut self,
+        type_id: CompositeTypeId,
+        field_id: CompositeFieldId,
+        new_name: String,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<Self, CompositeCatalogBuildError> {
+        if new_name.is_empty() {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        let definition = self
+            .by_id
+            .get_mut(&type_id)
+            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
+        let AcceptedCompositeShape::Record(fields) = &mut definition.shape else {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        };
+        if fields.iter().any(|field| field.name == new_name) {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        let field = fields
+            .iter_mut()
+            .find(|field| field.id == field_id)
+            .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
+        field.name = new_name;
+        fields.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+        if !self.validate(enum_catalog) {
+            return Err(CompositeCatalogBuildError::FieldKindResolution);
+        }
+        Ok(self)
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn empty() -> Self {

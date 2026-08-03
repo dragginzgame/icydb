@@ -4,9 +4,7 @@
 //! Boundary: planner/cursor paths call this module to build raw bounds.
 
 use crate::db::index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey};
-#[cfg(any(test, feature = "query"))]
 use crate::{db::index::EncodedValue, value::Value};
-#[cfg(any(test, feature = "query"))]
 use std::ops::Bound;
 
 ///
@@ -17,7 +15,6 @@ use std::ops::Bound;
 /// index-key bounds without changing ordered-component encoding semantics.
 ///
 
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) enum IndexBoundsSpec<'a> {
     /// Component range lookup after zero or more exact prefix components.
     ComponentRange {
@@ -33,7 +30,6 @@ pub(in crate::db) enum IndexBoundsSpec<'a> {
     },
 }
 
-#[cfg(any(test, feature = "query"))]
 impl<'a> IndexBoundsSpec<'a> {
     /// Build a component-range spec, preserving canonical text-prefix shape
     /// when the semantic bounds match one of the starts-with envelopes.
@@ -69,7 +65,6 @@ impl<'a> IndexBoundsSpec<'a> {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) enum TextPrefixBoundMode {
     /// Emit `[prefix, next_prefix)` when a strict lexical successor exists.
     Strict,
@@ -86,11 +81,8 @@ pub(in crate::db) enum TextPrefixBoundMode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum IndexRangeBoundEncodeError {
-    #[cfg(any(test, feature = "query"))]
     Prefix,
-    #[cfg(any(test, feature = "query"))]
     Lower,
-    #[cfg(any(test, feature = "query"))]
     Upper,
     RawKey,
 }
@@ -102,14 +94,12 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
 /// produced while lowering those bounds.
 ///
 
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) struct IndexBoundsLowering {
     lower: Bound<RawIndexStoreKey>,
     upper: Bound<RawIndexStoreKey>,
     encoded_prefix: Vec<EncodedValue>,
 }
 
-#[cfg(any(test, feature = "query"))]
 impl IndexBoundsLowering {
     const fn new(
         lower: Bound<RawIndexStoreKey>,
@@ -150,7 +140,6 @@ impl IndexBoundsLowering {
 
 /// Build raw index-key bounds and return the encoded equality-prefix bytes
 /// produced by the same canonical lowering pass.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn build_index_bounds_lowering_for_arity(
     index_id: &IndexId,
     index_len: usize,
@@ -182,7 +171,6 @@ pub(in crate::db) fn build_index_bounds_lowering_for_arity(
 
 /// Build the semantic component interval for one starts-with predicate.
 #[must_use]
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn starts_with_component_bounds(
     prefix: &str,
     mode: TextPrefixBoundMode,
@@ -193,7 +181,6 @@ pub(in crate::db) fn starts_with_component_bounds(
 // Build the text-specific starts-with interval. Keeping this helper private
 // leaves callers on the semantic starts-with API while this module retains the
 // exact Unicode successor ownership.
-#[cfg(any(test, feature = "query"))]
 fn text_prefix_component_bounds(
     prefix: &str,
     mode: TextPrefixBoundMode,
@@ -212,7 +199,6 @@ fn text_prefix_component_bounds(
     Some((lower, upper))
 }
 
-#[cfg(any(test, feature = "query"))]
 fn text_prefix_mode_for_component_bounds<'a>(
     lower: &'a Bound<Value>,
     upper: &Bound<Value>,
@@ -240,7 +226,6 @@ fn text_prefix_mode_for_component_bounds<'a>(
 /// Build canonical exact-prefix raw key-space bounds from already-encoded
 /// index components.
 ///
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn build_index_prefix_bounds_for_encoded_components(
     index_id: &IndexId,
     key_kind: IndexKeyKind,
@@ -271,7 +256,6 @@ pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
 /// Build raw key-space bounds from pre-encoded index components.
 ///
 
-#[cfg(any(test, feature = "query"))]
 fn raw_bounds_for_encoded_index_component_range(
     index_id: &IndexId,
     index_len: usize,
@@ -294,7 +278,6 @@ fn raw_bounds_for_encoded_index_component_range(
 
 /// Lower one ordered range after its equality prefix has already been encoded
 /// against accepted index contracts.
-#[cfg(any(test, feature = "query"))]
 pub(in crate::db) fn build_index_component_range_with_encoded_prefix(
     index_id: &IndexId,
     index_len: usize,
@@ -322,7 +305,6 @@ pub(in crate::db) fn build_index_component_range_with_encoded_prefix(
 /// This is the semantic-to-physical lowering boundary for index-range access.
 ///
 
-#[cfg(any(test, feature = "query"))]
 fn raw_bounds_for_semantic_index_component_range(
     index_id: &IndexId,
     index_len: usize,
@@ -350,7 +332,6 @@ fn raw_bounds_for_semantic_index_component_range(
 
 /// Return the smallest strict lexical successor prefix, or `None` when the
 /// input is already at the terminal Unicode scalar boundary.
-#[cfg(any(test, feature = "query"))]
 fn next_text_prefix(prefix: &str) -> Option<String> {
     let mut chars = prefix.chars().collect::<Vec<_>>();
     for index in (0..chars.len()).rev() {
@@ -365,7 +346,6 @@ fn next_text_prefix(prefix: &str) -> Option<String> {
     None
 }
 
-#[cfg(any(test, feature = "query"))]
 const fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<&[u8]> {
     match bound {
         Bound::Unbounded => Bound::Unbounded,
@@ -374,7 +354,6 @@ const fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<&[u8]> {
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn encode_semantic_component_bound(
     bound: &Bound<Value>,
     kind: IndexRangeBoundEncodeError,
@@ -390,7 +369,6 @@ fn encode_semantic_component_bound(
     }
 }
 
-#[cfg(any(test, feature = "query"))]
 fn next_unicode_scalar(value: char) -> Option<char> {
     if value == char::MAX {
         return None;

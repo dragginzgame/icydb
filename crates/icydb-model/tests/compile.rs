@@ -24,3 +24,10 @@ fn typed_durable_rule_grammar() {
     tests.pass("tests/ui/rules/pass/*.rs");
     tests.compile_fail("tests/ui/rules/fail/*.rs");
 }
+
+#[test]
+fn source_migration_plan_grammar() {
+    let tests = trybuild::TestCases::new();
+    tests.pass("tests/ui/migrations/pass/*.rs");
+    tests.compile_fail("tests/ui/migrations/fail/*.rs");
+}

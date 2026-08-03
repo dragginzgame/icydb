@@ -3,7 +3,6 @@
 //! Does not own: typed response reconstruction or access-path iteration policy.
 //! Boundary: scalar runtime row production consumes this structural decode contract.
 
-#[cfg(any(test, feature = "query"))]
 use crate::db::data::SlotReader;
 use crate::{
     db::{
@@ -120,7 +119,6 @@ impl RowLayout {
     /// boundary. Composite-key callers use this path so row validation and
     /// primary-key component materialization do not reopen the scalar
     /// scalar-key accessor.
-    #[cfg(any(test, feature = "query"))]
     pub(in crate::db) fn decode_full_value_row_from_data_key_into(
         &self,
         data_key: &DecodedDataStoreKey,
