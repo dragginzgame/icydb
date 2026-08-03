@@ -251,7 +251,7 @@ pub(in crate::db) use live_schema_checkpoint::{
     apply_schema_migration_record_op, preflight_schema_migration_record_op,
     verify_schema_migration_record_op,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "migration"))]
 pub(in crate::db::schema) use migration_execution::{
     MigrationRewriteInterruption, interrupt_next_migration_rewrite_at,
 };
@@ -261,14 +261,16 @@ pub(in crate::db) use migration_lineage::EntitySourceLineageCatalogOp;
 pub(in crate::db) use migration_lineage::unadopted_entity_source_lineage_op_for_tests;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use migration_record::SchemaMigrationRecordOp;
+#[cfg(feature = "migration")]
+pub(in crate::db::schema) use migration_record::{
+    PersistedSchemaMigrationEntity, PersistedSchemaMigrationIndex, PersistedSchemaMigrationPhase,
+    PersistedSchemaMigrationTransition, SchemaMigrationRecord,
+};
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db::schema) use migration_record::{
-    PersistedSchemaMigrationEntity, PersistedSchemaMigrationFinding,
-    PersistedSchemaMigrationFindingKind, PersistedSchemaMigrationIndex,
-    PersistedSchemaMigrationIndexCursor, PersistedSchemaMigrationPhase,
-    PersistedSchemaMigrationProgress, PersistedSchemaMigrationRowCursor,
-    PersistedSchemaMigrationTransformReason, PersistedSchemaMigrationTransition,
-    SchemaMigrationRecord,
+    PersistedSchemaMigrationFinding, PersistedSchemaMigrationFindingKind,
+    PersistedSchemaMigrationIndexCursor, PersistedSchemaMigrationProgress,
+    PersistedSchemaMigrationRowCursor, PersistedSchemaMigrationTransformReason,
 };
 #[cfg(test)]
 pub(in crate::db) use migration_record::{

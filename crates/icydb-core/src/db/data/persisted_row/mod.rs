@@ -28,7 +28,7 @@ pub(in crate::db) use canonical::{
     decode_validated_check_literal_payload, encode_input_value_for_candidate_field_contract,
 };
 pub(in crate::db) use codec::{ScalarSlotValueRef, ScalarValueRef};
-#[cfg(feature = "migration")]
+#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use contract::canonical_row_from_runtime_value_source_with_accepted_contract;
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,

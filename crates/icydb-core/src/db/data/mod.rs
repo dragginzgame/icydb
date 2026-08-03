@@ -19,7 +19,7 @@ pub(in crate::db) use key::primary_key_value_from_structural_value;
 pub(in crate::db) use key::{DecodedDataStoreKey, DecodedDataStoreKeyDecodeError};
 #[cfg(feature = "sql")]
 pub(in crate::db) use persisted_row::AcceptedFixedUpdatePatch;
-#[cfg(feature = "migration")]
+#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use persisted_row::canonical_row_from_runtime_value_source_with_accepted_contract;
 pub(in crate::db) use persisted_row::decode_admitted_value_from_accepted_field_contract;
 pub(in crate::db) use persisted_row::encode_accepted_value_ref_for_accepted_field_contract;

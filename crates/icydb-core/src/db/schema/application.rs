@@ -2979,7 +2979,7 @@ mod tests {
     };
     use crate::{
         db::{
-            Db, DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell,
+            Db,
             commit::forget_recovered_domain_for_tests,
             data::DataStore,
             index::IndexStore,
@@ -2993,26 +2993,37 @@ mod tests {
                 CandidateSchemaRevision, ConstraintOrigin, ConstraintValidationJob,
                 ExistingProposalStore, ProposalStoreTarget, SchemaApplicationRecord,
                 SchemaApplicationRecordOp, SchemaChangeActivation, SchemaChangeJob,
-                SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaChangeReceipt, SchemaStore,
+                SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
             },
         },
         error::{ErrorClass, ErrorOrigin},
         testing::test_memory,
         traits::{CanisterKind, Path},
-        value::InputValue,
     };
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
-        EntityMigration, EntitySourceKey, EntityStoreAssignment, ExpectedAcceptedHead,
-        ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
-        IndexFragment, IndexKeyFragment, NamedTypeFragment, RelationDeleteAction, RelationFragment,
-        RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment,
-        SchemaMigrationPlan, SchemaMigrationTransform, SchemaName, SchemaProposal,
-        SchemaProposalDigest, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
+        EntitySourceKey, EntityStoreAssignment, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
+        FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType, NamedTypeFragment,
+        RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability, SchemaFragment, SchemaName,
+        SchemaProposal, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
         SourceRuleOperation, TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment,
         TypeSourceKey,
     };
     use std::cell::RefCell;
+
+    #[cfg(feature = "migration")]
+    use crate::{
+        db::{
+            DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell,
+            schema::SchemaChangeReceipt,
+        },
+        value::InputValue,
+    };
+    #[cfg(feature = "migration")]
+    use icydb_schema::{
+        EntityMigration, IndexFragment, IndexKeyFragment, RelationDeleteAction, RelationFragment,
+        SchemaMigrationPlan, SchemaMigrationTransform, SchemaProposalDigest,
+    };
 
     fn version_one() -> DeclaredEntityVersion {
         DeclaredEntityVersion::try_new(1).expect("fixture version should admit")
