@@ -971,7 +971,7 @@ mod tests {
         let mut baseline = complete_p1_samples();
         baseline[0].total_local_instructions = 2_000_000;
         let mut current = baseline.clone();
-        current[0].total_local_instructions = 2_100_000;
+        current[0].total_local_instructions = 2_010_000;
         let baseline_environment = identity();
         let mut current_environment = baseline_environment.clone();
         current_environment.subject.source_revision = "66".repeat(20);
@@ -989,7 +989,7 @@ mod tests {
             Vec::new(),
         );
 
-        current[0].total_local_instructions = 2_200_000;
+        current[0].total_local_instructions = 2_020_000;
         assert_eq!(
             discover_p1_threshold_crossings(
                 SQL_PERFORMANCE_PROFILE,
@@ -1070,8 +1070,8 @@ mod tests {
         );
         assert!(comparison.deltas.iter().any(|delta| {
             delta.metric == P2BaselineMetric::Instruction(P2RawMetric::Total)
-                && delta.gate.absolute_threshold == 100_000
-                && delta.gate.relative_threshold_basis_points == 1_000
+                && delta.gate.absolute_threshold == 10_000
+                && delta.gate.relative_threshold_basis_points == 100
         }));
         assert!(comparison.deltas.iter().any(|delta| {
             matches!(delta.metric, P2BaselineMetric::PhaseResidual(_))
