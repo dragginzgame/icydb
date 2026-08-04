@@ -20,7 +20,7 @@ use serde::Deserialize;
 
 pub(in crate::db) const MAX_INTEGRITY_OWNER_BYTES: usize = 256;
 pub(in crate::db) const MAX_INTEGRITY_SUBMISSION_KEY_BYTES: usize = 256;
-const MAX_INTEGRITY_RECEIPT_FINDINGS: usize = 64;
+pub(super) const MAX_INTEGRITY_RECEIPT_FINDINGS: usize = 64;
 pub(in crate::db) const MAX_INTEGRITY_IN_PROGRESS_PAGES: u64 = u64::MAX - 1;
 
 /// Opaque lookup identity for one retained Deep inspection job.
@@ -167,7 +167,7 @@ impl IntegritySubmissionKey {
 }
 
 /// Exact private continuation for the current Deep phase.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum IntegrityCheckpoint {
     /// Bounded accepted metadata and control closure.
     QuickMetadata,
@@ -238,7 +238,7 @@ pub enum IntegrityTerminalOutcome {
 }
 
 /// Durable job lifecycle state.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum IntegrityJobState {
     /// Physical advancement remains permitted.
     InProgress,
@@ -395,7 +395,7 @@ impl IntegrityJobReceipt {
 }
 
 /// Request identity that produced the cached receipt.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum IntegrityReceiptReplayKey {
     /// Initial Deep start.
     Start,
@@ -404,14 +404,14 @@ pub(in crate::db) enum IntegrityReceiptReplayKey {
 }
 
 /// One cached bounded receipt and its exact replay request.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IntegrityReceiptEnvelope {
     pub(super) replay_key: IntegrityReceiptReplayKey,
     pub(super) receipt: IntegrityJobReceipt,
 }
 
 /// Current invariant-bearing durable Deep record.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IntegrityJob {
     pub(super) id: IntegrityJobId,
     pub(super) database_incarnation_id: DatabaseIncarnationId,

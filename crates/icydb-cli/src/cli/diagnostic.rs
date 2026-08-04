@@ -30,6 +30,10 @@ pub(crate) struct DiagnosticArgs {
     #[arg(long, value_name = "PATH")]
     artifact: Option<PathBuf>,
 
+    /// Resolve accepted schema identities from exact fingerprint-bound source metadata.
+    #[arg(long, value_name = "PATH")]
+    source_metadata: Option<PathBuf>,
+
     /// Resolve accepted schema identities from this canister's explicit schema endpoint.
     #[arg(long, value_name = "CANISTER")]
     canister: Option<String>,
@@ -50,6 +54,10 @@ impl DiagnosticArgs {
 
     pub(crate) fn artifact(&self) -> Option<&Path> {
         self.artifact.as_deref()
+    }
+
+    pub(crate) fn source_metadata(&self) -> Option<&Path> {
+        self.source_metadata.as_deref()
     }
 
     pub(crate) fn canister_name(&self) -> Option<&str> {

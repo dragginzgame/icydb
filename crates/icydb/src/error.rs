@@ -132,7 +132,17 @@ impl Error {
         diagnostic: icydb_diagnostic_code::Diagnostic,
         facts: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
     ) -> Self {
-        debug_assert!(facts.len() <= icydb_diagnostic_code::MAX_PUBLIC_DIAGNOSTIC_FACTS);
+        if icydb_diagnostic_code::validate_known_diagnostic_fact_schema(
+            diagnostic.error_code(),
+            facts.as_slice(),
+        )
+        .is_err()
+        {
+            return Self::from_kind(
+                ErrorKind::Runtime(RuntimeErrorKind::InvariantViolation),
+                diagnostic.origin().into(),
+            );
+        }
 
         let mut error = Self::from_diagnostic(diagnostic);
         error.facts = facts

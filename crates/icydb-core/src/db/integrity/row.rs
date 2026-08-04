@@ -27,8 +27,6 @@ use crate::{
     error::{ErrorClass, InternalError},
     traits::CanisterKind,
 };
-use candid::CandidType;
-use serde::Deserialize;
 use std::ops::Bound;
 
 const MAX_ROW_INSPECTION_ROWS_PER_PAGE: usize = 32;
@@ -41,7 +39,7 @@ const MAX_ROW_INSPECTION_BYTES_PER_PAGE: usize = MAX_ROW_BYTES as usize;
 /// Public callers never author this value. The durable Deep job owner added in
 /// Patch 5 will encode and validate it inside the current job profile.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PhysicalUnitCheckpoint {
     /// No physical key has been classified.
     BeforeFirst,

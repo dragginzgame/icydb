@@ -224,7 +224,7 @@ fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
 
 fn measure_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> IntegritySqlPerfResult {
     let result: Result<IntegritySqlPerfResult, SqlIntegrityError> = fixture
-        .update_call("measure_integrity_sql_perf", (sql.to_string(),))
+        .update_candid("measure_integrity_sql_perf", (sql.to_string(),))
         .expect("integrity perf result should decode");
 
     result.expect("integrity perf operation should succeed")
@@ -240,19 +240,19 @@ fn integrity_page_phase(receipt: &IntegrityJobReceipt) -> IntegrityPhase {
 
 fn activate_journaled_user_perf_check(fixture: &StandaloneCanisterFixture) {
     let activation: Result<ConstraintActivationPerfResult, Error> = fixture
-        .update_call("measure_journaled_user_constraint_write_perf", ())
+        .update_candid("measure_journaled_user_constraint_write_perf", ())
         .expect("constraint activation perf result should decode");
     activation.expect("constraint activation should publish");
 
     let validation: Result<(), Error> = fixture
-        .update_call("validate_journaled_user_perf_check", ())
+        .update_candid("validate_journaled_user_perf_check", ())
         .expect("constraint validation result should decode");
     validation.expect("constraint validation should promote");
 }
 
 fn load_user_scale_integrity_fixture(fixture: &StandaloneCanisterFixture, row_count: u32) {
     let result: Result<ScaleFixtureFacts, Error> = fixture
-        .update_call("load_user_scale_fixture", (row_count,))
+        .update_candid("load_user_scale_fixture", (row_count,))
         .expect("user scale fixture facts should decode");
     let facts = result.expect("user scale fixture should load");
 
@@ -262,7 +262,7 @@ fn load_user_scale_integrity_fixture(fixture: &StandaloneCanisterFixture, row_co
 
 fn load_relation_integrity_fixture(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
-        .update_call("load_relation_integrity_fixture", ())
+        .update_candid("load_relation_integrity_fixture", ())
         .expect("relation integrity fixture result should decode");
 
     result.expect("relation integrity fixture should load");
@@ -398,7 +398,7 @@ fn assert_clean_integrity_perf_stays_bounded(
 
 fn load_journaled_reentry_probe_fixture(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
-        .update_call("load_journaled_reentry_probe_fixture", ())
+        .update_candid("load_journaled_reentry_probe_fixture", ())
         .expect("journaled reentry probe fixture load should decode");
 
     result.expect("journaled reentry probe fixture load should succeed");
@@ -406,7 +406,7 @@ fn load_journaled_reentry_probe_fixture(fixture: &StandaloneCanisterFixture) {
 
 fn load_journal_tail_integrity_fixture(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
-        .update_call("load_journal_tail_integrity_fixture", ())
+        .update_candid("load_journal_tail_integrity_fixture", ())
         .expect("journal-tail integrity fixture result should decode");
 
     result.expect("journal-tail integrity fixture should load");
@@ -420,10 +420,10 @@ fn query_surface_with_perf(
 ) -> Result<SqlQueryPerfResult, Error> {
     match surface {
         SqlPerfSurface::User if query_loop_count == 1 => fixture
-            .query_call("query_user_with_perf", (sql.to_string(),))
+            .query_candid("query_user_with_perf", (sql.to_string(),))
             .expect("query_user_with_perf should decode"),
         SqlPerfSurface::User => fixture
-            .query_call(
+            .query_candid(
                 "query_user_loop_with_perf",
                 (
                     sql.to_string(),
@@ -433,10 +433,10 @@ fn query_surface_with_perf(
             )
             .expect("query_user_loop_with_perf should decode"),
         SqlPerfSurface::Account if query_loop_count == 1 => fixture
-            .query_call("query_account_with_perf", (sql.to_string(),))
+            .query_candid("query_account_with_perf", (sql.to_string(),))
             .expect("query_account_with_perf should decode"),
         SqlPerfSurface::Account => fixture
-            .query_call(
+            .query_candid(
                 "query_account_loop_with_perf",
                 (
                     sql.to_string(),
@@ -446,10 +446,10 @@ fn query_surface_with_perf(
             )
             .expect("query_account_loop_with_perf should decode"),
         SqlPerfSurface::Blob if query_loop_count == 1 => fixture
-            .query_call("query_blob_with_perf", (sql.to_string(),))
+            .query_candid("query_blob_with_perf", (sql.to_string(),))
             .expect("query_blob_with_perf should decode"),
         SqlPerfSurface::Blob => fixture
-            .query_call(
+            .query_candid(
                 "query_blob_loop_with_perf",
                 (
                     sql.to_string(),
@@ -459,10 +459,10 @@ fn query_surface_with_perf(
             )
             .expect("query_blob_loop_with_perf should decode"),
         SqlPerfSurface::Token if query_loop_count == 1 => fixture
-            .query_call("query_token_with_perf", (sql.to_string(),))
+            .query_candid("query_token_with_perf", (sql.to_string(),))
             .expect("query_token_with_perf should decode"),
         SqlPerfSurface::Token => fixture
-            .query_call(
+            .query_candid(
                 "query_token_loop_with_perf",
                 (
                     sql.to_string(),
@@ -481,16 +481,16 @@ fn warm_query_surface_with_perf(
 ) -> Result<SqlQueryPerfResult, Error> {
     match surface {
         SqlPerfSurface::User => fixture
-            .update_call("warm_user_query_with_perf", (sql.to_string(),))
+            .update_candid("warm_user_query_with_perf", (sql.to_string(),))
             .expect("warm_user_query_with_perf should decode"),
         SqlPerfSurface::Account => fixture
-            .update_call("warm_account_query_with_perf", (sql.to_string(),))
+            .update_candid("warm_account_query_with_perf", (sql.to_string(),))
             .expect("warm_account_query_with_perf should decode"),
         SqlPerfSurface::Blob => fixture
-            .update_call("warm_blob_query_with_perf", (sql.to_string(),))
+            .update_candid("warm_blob_query_with_perf", (sql.to_string(),))
             .expect("warm_blob_query_with_perf should decode"),
         SqlPerfSurface::Token => fixture
-            .update_call("warm_token_query_with_perf", (sql.to_string(),))
+            .update_candid("warm_token_query_with_perf", (sql.to_string(),))
             .expect("warm_token_query_with_perf should decode"),
     }
 }
@@ -1096,7 +1096,7 @@ fn query_sql_limit_one_with_perf(
     success_expectation: &str,
 ) -> SqlQueryPerfResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call(method, (sql.to_string(),))
+        .query_candid(method, (sql.to_string(),))
         .expect(decode_expectation);
 
     result.expect(success_expectation)
@@ -1111,7 +1111,7 @@ fn query_sql_loop_limit_one_with_perf(
     success_expectation: &str,
 ) -> SqlQueryPerfResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call(method, (sql.to_string(), query_loop_count))
+        .query_candid(method, (sql.to_string(), query_loop_count))
         .expect(decode_expectation);
 
     result.expect(success_expectation)
@@ -1125,7 +1125,7 @@ fn warm_sql_limit_one_with_perf(
     success_expectation: &str,
 ) {
     let result: Result<SqlQueryPerfResult, Error> = fixture
-        .update_call(method, (sql.to_string(),))
+        .update_candid(method, (sql.to_string(),))
         .expect(decode_expectation);
 
     result.expect(success_expectation);
@@ -1330,7 +1330,7 @@ fn query_journaled_total_only_limit_one_perf(
     sql: &str,
 ) -> SqlTotalOnlyPerfResult {
     let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
-        .query_call("query_journaled_user_total_only_perf", (sql.to_string(),))
+        .query_candid("query_journaled_user_total_only_perf", (sql.to_string(),))
         .expect("journaled total-only LIMIT 1 perf query should decode");
 
     result.expect("journaled total-only LIMIT 1 perf query should succeed")
@@ -1341,7 +1341,7 @@ fn query_heap_total_only_limit_one_perf(
     sql: &str,
 ) -> SqlTotalOnlyPerfResult {
     let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
-        .query_call("query_heap_user_total_only_perf", (sql.to_string(),))
+        .query_candid("query_heap_user_total_only_perf", (sql.to_string(),))
         .expect("heap total-only LIMIT 1 perf query should decode");
 
     result.expect("heap total-only LIMIT 1 perf query should succeed")
@@ -1408,7 +1408,7 @@ fn measure_journaled_guarded_reentry_total_only_perf(
     fixture: &StandaloneCanisterFixture,
 ) -> ReadTotalOnlyPerfResult {
     let result: Result<ReadTotalOnlyPerfResult, Error> = fixture
-        .update_call("measure_journaled_reentry_perf", ())
+        .update_candid("measure_journaled_reentry_perf", ())
         .expect("journaled guarded reentry perf update should decode");
 
     result.expect("journaled guarded reentry perf update should succeed")
@@ -1420,7 +1420,7 @@ fn measure_storage_write_matrix(
     label: &str,
 ) -> StorageWritePerfResult {
     let result: Result<StorageWritePerfResult, Error> = fixture
-        .update_call(method, ())
+        .update_candid(method, ())
         .unwrap_or_else(|err| panic!("{label} write matrix perf result should decode: {err}"));
 
     result.unwrap_or_else(|err| panic!("{label} write matrix perf endpoint should succeed: {err}"))
@@ -1499,7 +1499,7 @@ fn measure_sql_write_materialization_matrix(
     label: &str,
 ) -> SqlWriteMaterializationPerfResult {
     let result: Result<SqlWriteMaterializationPerfResult, Error> =
-        fixture.update_call(method, ()).unwrap_or_else(|err| {
+        fixture.update_candid(method, ()).unwrap_or_else(|err| {
             panic!("{label} SQL write materialization result should decode: {err}")
         });
 
@@ -1570,7 +1570,7 @@ fn assert_sql_write_materialization_matrix_reports(fixture: &StandaloneCanisterF
 
 fn measure_resumable_update(fixture: &StandaloneCanisterFixture) -> ResumableUpdatePerfResult {
     let result: Result<ResumableUpdatePerfResult, Error> = fixture
-        .update_call("measure_journaled_user_resumable_update_perf", ())
+        .update_candid("measure_journaled_user_resumable_update_perf", ())
         .expect("resumable update perf result should decode");
 
     result.expect("resumable update perf endpoint should succeed")
@@ -1783,11 +1783,11 @@ fn sql_perf_journaled_check_write_cost_is_measured() {
     reset_sql_perf_fixtures(&fixture);
 
     let result: Result<ConstraintActivationPerfResult, Error> = fixture
-        .update_call("measure_journaled_user_constraint_write_perf", ())
+        .update_candid("measure_journaled_user_constraint_write_perf", ())
         .expect("constraint write perf result should decode");
     let result = result.expect("constraint write perf endpoint should succeed");
     let checked: Result<StorageWritePerfResult, Error> = fixture
-        .update_call("measure_journaled_user_checked_write_perf", ())
+        .update_candid("measure_journaled_user_checked_write_perf", ())
         .expect("checked write perf result should decode");
     let checked = checked.expect("checked write perf endpoint should succeed");
 

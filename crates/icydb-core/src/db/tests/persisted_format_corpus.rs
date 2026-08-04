@@ -171,7 +171,7 @@ fn database_boot_record_malformed_corpus_fails_closed() {
     corrupt_checksum[DATABASE_BOOT_RECORD_BYTES - 1] ^= 0xff;
     let cases = [
         (
-            "retired database format identity",
+            "wrong database format identity",
             database_boot_record(*b"ICYDBNOW", 1, 1),
             vec![(
                 DiagnosticFactTag::DecodeReason,

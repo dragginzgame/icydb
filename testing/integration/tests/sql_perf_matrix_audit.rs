@@ -2746,7 +2746,7 @@ fn query_surface_with_perf(
     scenario: &MatrixScenario,
 ) -> Result<SqlQueryPerfResult, Error> {
     fixture
-        .query_call(scenario.surface.query_method(), (scenario.sql.clone(),))
+        .query_candid(scenario.surface.query_method(), (scenario.sql.clone(),))
         .unwrap_or_else(|err| panic!("{} should decode: {err}", scenario.surface.query_method()))
 }
 
@@ -2755,7 +2755,7 @@ fn warm_surface_with_perf(
     scenario: &MatrixScenario,
 ) -> Result<SqlQueryPerfResult, Error> {
     fixture
-        .update_call(scenario.surface.warm_method(), (scenario.sql.clone(),))
+        .update_candid(scenario.surface.warm_method(), (scenario.sql.clone(),))
         .unwrap_or_else(|err| panic!("{} should decode: {err}", scenario.surface.warm_method()))
 }
 
@@ -2763,7 +2763,7 @@ fn accepted_schema_descriptions(
     fixture: &StandaloneCanisterFixture,
 ) -> Result<Vec<EntitySchemaDescription>, Error> {
     fixture
-        .query_call("accepted_schema_descriptions", ())
+        .query_candid("accepted_schema_descriptions", ())
         .unwrap_or_else(|error| panic!("accepted schema descriptions should decode: {error}"))
 }
 
@@ -2809,7 +2809,7 @@ fn sample_isolated_attributed_instrumentation(
     let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
     reset_icydb_fixtures(&fixture);
     let perf: Result<SqlTotalOnlyPerfResult, Error> = fixture
-        .query_call("query_user_attributed_total_perf", (scenario.sql.clone(),))
+        .query_candid("query_user_attributed_total_perf", (scenario.sql.clone(),))
         .unwrap_or_else(|error| {
             panic!("attributed instrumentation sentinel should decode: {error}")
         });
@@ -2833,7 +2833,7 @@ fn sample_isolated_total_only_instrumentation(
     let fixture = install_prebuilt_fixture_canister("sql_perf", wasm_bytes.to_vec());
     reset_icydb_fixtures(&fixture);
     let perf: Result<SqlTotalOnlyPerfResult, Error> = fixture
-        .query_call("query_user_total_only_perf", (scenario.sql.clone(),))
+        .query_candid("query_user_total_only_perf", (scenario.sql.clone(),))
         .unwrap_or_else(|error| {
             panic!("total-only instrumentation sentinel should decode: {error}")
         });
@@ -2895,7 +2895,7 @@ fn load_scale_fixture(
     declaration: &ScaleScenarioDeclaration,
 ) -> Result<ScaleFixtureFacts, Error> {
     fixture
-        .update_call(
+        .update_candid(
             declaration.spec.surface.scale_load_method(),
             (declaration.fixture_rows,),
         )

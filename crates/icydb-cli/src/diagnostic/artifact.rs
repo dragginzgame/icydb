@@ -21,15 +21,20 @@ const MAX_DIAGNOSTIC_ARTIFACT_BYTES: usize = icydb_schema::MAX_SCHEMA_PROPOSAL_B
 pub(crate) struct DiagnosticSchemaArtifact {
     format: String,
     version: u8,
-    provenance: DiagnosticArtifactProvenance,
+    provenance: DiagnosticArtifactOwner,
     entities: Vec<DiagnosticArtifactEntity>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-struct DiagnosticArtifactProvenance {
-    environment: String,
-    canister: String,
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+enum DiagnosticArtifactOwner {
+    Deployment {
+        environment: String,
+        canister: String,
+    },
+    Source {
+        source: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -90,7 +95,7 @@ impl DiagnosticSchemaArtifact {
         let artifact = Self {
             format: DIAGNOSTIC_ARTIFACT_FORMAT.to_string(),
             version: DIAGNOSTIC_ARTIFACT_VERSION,
-            provenance: DiagnosticArtifactProvenance {
+            provenance: DiagnosticArtifactOwner::Deployment {
                 environment: environment.to_string(),
                 canister: canister.to_string(),
             },
@@ -100,7 +105,41 @@ impl DiagnosticSchemaArtifact {
         Ok(artifact)
     }
 
-    pub(crate) fn read(path: &Path) -> Result<Self, String> {
+    pub(crate) fn read_deployment(path: &Path) -> Result<Self, String> {
+        let artifact = Self::read(path)?;
+        if !matches!(
+            &artifact.provenance,
+            DiagnosticArtifactOwner::Deployment { .. }
+        ) {
+            return Err(format!(
+                "diagnostic artifact '{}' is source metadata, not a deployment artifact",
+                path.display()
+            ));
+        }
+        Ok(artifact)
+    }
+
+    pub(crate) fn read_source_metadata(path: &Path) -> Result<Self, String> {
+        let artifact = Self::read(path)?;
+        if !matches!(&artifact.provenance, DiagnosticArtifactOwner::Source { .. }) {
+            return Err(format!(
+                "diagnostic source metadata '{}' is a deployment artifact",
+                path.display()
+            ));
+        }
+        Ok(artifact)
+    }
+
+    pub(crate) fn bind_to_source(mut self, source: &str) -> Result<Self, String> {
+        validate_text("source", source)?;
+        self.provenance = DiagnosticArtifactOwner::Source {
+            source: source.to_string(),
+        };
+        self.validate()?;
+        Ok(self)
+    }
+
+    fn read(path: &Path) -> Result<Self, String> {
         let file = File::open(path).map_err(|err| {
             format!(
                 "failed to open diagnostic artifact '{}': {err}",
@@ -174,7 +213,13 @@ impl DiagnosticSchemaArtifact {
     }
 
     pub(crate) fn provenance_matches(&self, environment: &str, canister: &str) -> bool {
-        self.provenance.environment == environment && self.provenance.canister == canister
+        matches!(
+            &self.provenance,
+            DiagnosticArtifactOwner::Deployment {
+                environment: artifact_environment,
+                canister: artifact_canister,
+            } if artifact_environment == environment && artifact_canister == canister
+        )
     }
 
     pub(crate) fn resolve(
@@ -189,7 +234,10 @@ impl DiagnosticSchemaArtifact {
                 && entity.fingerprint == fingerprint
                 && entity.entity_tag == entity_tag
         })?;
-        let constraint = constraint_id.and_then(|constraint_id| entity.constraint(constraint_id));
+        let constraint = match constraint_id {
+            Some(constraint_id) => Some(entity.constraint(constraint_id)?),
+            None => None,
+        };
         Some(ResolvedDiagnosticEntity { entity, constraint })
     }
 
@@ -201,8 +249,18 @@ impl DiagnosticSchemaArtifact {
                 self.format, self.version, DIAGNOSTIC_ARTIFACT_FORMAT, DIAGNOSTIC_ARTIFACT_VERSION
             ));
         }
-        validate_text("environment", self.provenance.environment.as_str())?;
-        validate_text("canister", self.provenance.canister.as_str())?;
+        match &self.provenance {
+            DiagnosticArtifactOwner::Deployment {
+                environment,
+                canister,
+            } => {
+                validate_text("environment", environment.as_str())?;
+                validate_text("canister", canister.as_str())?;
+            }
+            DiagnosticArtifactOwner::Source { source } => {
+                validate_text("source", source.as_str())?;
+            }
+        }
         validate_count(
             "entities",
             self.entities.len(),
@@ -232,7 +290,7 @@ impl DiagnosticSchemaArtifact {
         Self {
             format: DIAGNOSTIC_ARTIFACT_FORMAT.to_string(),
             version: DIAGNOSTIC_ARTIFACT_VERSION,
-            provenance: DiagnosticArtifactProvenance {
+            provenance: DiagnosticArtifactOwner::Deployment {
                 environment: "demo".to_string(),
                 canister: "app".to_string(),
             },
@@ -255,6 +313,18 @@ impl DiagnosticSchemaArtifact {
                 relations: vec![],
             }],
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_source_fixture() -> Self {
+        let mut artifact = Self::test_fixture();
+        artifact.provenance = DiagnosticArtifactOwner::Source {
+            source: "schema/account.rs".to_string(),
+        };
+        artifact.entities[0].entity_name = "SourceAccount".to_string();
+        artifact.entities[0].entity_path = "schema::source::Account".to_string();
+        artifact.entities[0].constraints[0].name = "source_account_name_unique".to_string();
+        artifact
     }
 }
 
@@ -494,7 +564,7 @@ mod tests {
         let wrong_version = br#"{
             "format":"icydb-diagnostic-schema",
             "version":2,
-            "provenance":{"environment":"demo","canister":"app"},
+            "provenance":{"kind":"deployment","environment":"demo","canister":"app"},
             "entities":[]
         }"#;
         let artifact: DiagnosticSchemaArtifact =
@@ -504,7 +574,7 @@ mod tests {
         let unknown_field = br#"{
             "format":"icydb-diagnostic-schema",
             "version":1,
-            "provenance":{"environment":"demo","canister":"app"},
+            "provenance":{"kind":"deployment","environment":"demo","canister":"app"},
             "entities":[],
             "legacy":true
         }"#;
@@ -519,6 +589,7 @@ mod tests {
         assert!(artifact.resolve(2, [7; 16], 42, Some(3)).is_none());
         assert!(artifact.resolve(1, [8; 16], 42, Some(3)).is_none());
         assert!(artifact.resolve(1, [7; 16], 43, Some(3)).is_none());
+        assert!(artifact.resolve(1, [7; 16], 42, Some(4)).is_none());
     }
 
     #[test]
@@ -564,11 +635,70 @@ mod tests {
             .write_new(path.as_path())
             .expect("current artifact should write");
         assert_eq!(
-            DiagnosticSchemaArtifact::read(path.as_path()).expect("current artifact should read"),
+            DiagnosticSchemaArtifact::read_deployment(path.as_path())
+                .expect("current artifact should read"),
             artifact
         );
         assert!(artifact.write_new(path.as_path()).is_err());
 
         std::fs::remove_file(path).expect("test artifact should be removable");
+    }
+
+    #[test]
+    fn deployment_and_source_provenance_are_not_interchangeable() {
+        let deployment = DiagnosticSchemaArtifact::test_fixture();
+        let source = DiagnosticSchemaArtifact::test_source_fixture();
+        let deployment_path = std::env::temp_dir().join(format!(
+            "icydb-diagnostic-deployment-{}.json",
+            std::process::id()
+        ));
+        let source_path = std::env::temp_dir().join(format!(
+            "icydb-diagnostic-source-{}.json",
+            std::process::id()
+        ));
+        for path in [&deployment_path, &source_path] {
+            if path.exists() {
+                std::fs::remove_file(path).expect("stale test artifact should be removable");
+            }
+        }
+
+        deployment
+            .write_new(deployment_path.as_path())
+            .expect("deployment artifact should write");
+        source
+            .write_new(source_path.as_path())
+            .expect("source metadata should write");
+
+        assert!(
+            DiagnosticSchemaArtifact::read_deployment(source_path.as_path()).is_err(),
+            "source metadata must not impersonate a deployment artifact"
+        );
+        assert!(
+            DiagnosticSchemaArtifact::read_source_metadata(deployment_path.as_path()).is_err(),
+            "deployment provenance must not impersonate source metadata"
+        );
+        assert_eq!(
+            DiagnosticSchemaArtifact::read_source_metadata(source_path.as_path())
+                .expect("source metadata should read"),
+            source
+        );
+
+        std::fs::remove_file(deployment_path).expect("test artifact should be removable");
+        std::fs::remove_file(source_path).expect("test artifact should be removable");
+    }
+
+    #[test]
+    fn source_binding_preserves_the_exact_accepted_artifact_mapping() {
+        let deployment = DiagnosticSchemaArtifact::test_fixture();
+        let source = deployment
+            .clone()
+            .bind_to_source("schema/account.rs")
+            .expect("valid source identity should bind");
+
+        assert!(!source.provenance_matches("demo", "app"));
+        assert_eq!(source.entities, deployment.entities);
+        assert!(source.resolve(1, [7; 16], 42, Some(3)).is_some());
+        assert!(source.resolve(1, [7; 16], 42, Some(4)).is_none());
+        assert!(deployment.bind_to_source("").is_err());
     }
 }

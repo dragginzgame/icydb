@@ -528,6 +528,22 @@ fn query_sql_write_boundary_with_facts_preserves_the_exact_public_code() {
 
 #[cfg(feature = "sql")]
 #[test]
+fn invalid_fact_projection_fails_compactly_without_partial_facts() {
+    let err = InternalError::with_diagnostic_facts(
+        ErrorClass::Unsupported,
+        ErrorOrigin::Query,
+        Some(icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+            boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::UnknownReturningField,
+        }),
+        vec![(icydb_diagnostic_code::DiagnosticFactTag::Limit, 4_096)],
+    );
+
+    assert_runtime_invariant(&err, ErrorOrigin::Query);
+    assert!(err.diagnostic_facts().is_empty());
+}
+
+#[cfg(feature = "sql")]
+#[test]
 fn query_schema_ddl_admission_exposes_compact_diagnostic_detail() {
     let err =
         InternalError::query_schema_ddl_admission(SchemaDdlAdmissionError::PublicationRaceLost);

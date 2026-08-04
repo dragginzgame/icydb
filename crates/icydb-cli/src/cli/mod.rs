@@ -14,7 +14,8 @@ pub(crate) use canister::CanisterCommand;
 pub(crate) use diagnostic::DiagnosticArgs;
 pub(crate) use metrics::MetricsArgs;
 pub(crate) use schema::{
-    ConfirmedMigrationTarget, DiagnosticArtifactArgs, SchemaCommand, SchemaMigrationCommand,
+    ConfirmedMigrationTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs, SchemaCommand,
+    SchemaMigrationCommand,
 };
 pub(crate) use sql::{SqlArgs, SqlShellFields};
 pub(crate) use target::{CanisterTarget, EnvironmentTarget};

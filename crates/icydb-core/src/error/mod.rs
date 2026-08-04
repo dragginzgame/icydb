@@ -342,18 +342,20 @@ impl InternalError {
             Some(detail) => detail.diagnostic_code(),
             None => class.diagnostic_code(origin),
         };
+        let diagnostic = diagnostic_code::Diagnostic::new(code, origin.diagnostic_origin(), detail);
+        if diagnostic_code::validate_known_diagnostic_fact_schema(
+            diagnostic.error_code(),
+            facts.as_slice(),
+        )
+        .is_err()
+        {
+            return Self::new(ErrorClass::InvariantViolation, origin);
+        }
         Self {
             class,
             origin,
             detail: Some(ErrorDetail::DiagnosticFacts(Box::new(
-                DiagnosticFactDetail {
-                    diagnostic: diagnostic_code::Diagnostic::new(
-                        code,
-                        origin.diagnostic_origin(),
-                        detail,
-                    ),
-                    facts,
-                },
+                DiagnosticFactDetail { diagnostic, facts },
             ))),
         }
     }

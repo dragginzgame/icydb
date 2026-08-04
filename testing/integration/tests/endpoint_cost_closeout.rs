@@ -39,19 +39,19 @@ fn install(variable: &str) -> StandaloneCanisterFixture {
 
 fn measure_sql_queries(fixture: &StandaloneCanisterFixture) -> u64 {
     let loaded: Result<(), Error> = fixture
-        .update_call("icydb_fixtures_load", ())
+        .update_candid("icydb_fixtures_load", ())
         .expect("fixture load response should decode");
     loaded.expect("fixture load should succeed");
 
     let warm: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call("icydb_query", (SQL.to_string(),))
+        .query_candid("icydb_query", (SQL.to_string(),))
         .expect("warm SQL response should decode");
     warm.expect("warm SQL query should succeed");
 
     let mut instructions = 0_u64;
     for _ in 0..SAMPLE_CALLS {
         let result: Result<SqlQueryPerfResult, Error> = fixture
-            .query_call("icydb_query", (SQL.to_string(),))
+            .query_candid("icydb_query", (SQL.to_string(),))
             .expect("SQL response should decode");
         let result = result.expect("SQL query should succeed");
         instructions = instructions

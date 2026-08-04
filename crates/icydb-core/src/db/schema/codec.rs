@@ -26,7 +26,6 @@ use std::cell::Cell;
 
 const SCHEMA_SNAPSHOT_MAGIC: [u8; 8] = *b"ICYUSNP\0";
 const SCHEMA_SNAPSHOT_FORMAT_VERSION: u8 = 1;
-const RETIRED_CANDID_MAGIC: &[u8; 4] = b"DIDL";
 /// Maximum canonical bytes for one persisted entity-schema snapshot.
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 
@@ -160,9 +159,6 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
 
     let mut reader = SnapshotReader::new(bytes);
     if reader.read_array::<8>()? != SCHEMA_SNAPSHOT_MAGIC {
-        if bytes.starts_with(RETIRED_CANDID_MAGIC) {
-            return Err(InternalError::serialize_incompatible_persisted_format());
-        }
         return Err(InternalError::store_corruption());
     }
     if reader.read_u8()? != SCHEMA_SNAPSHOT_FORMAT_VERSION {

@@ -6,6 +6,8 @@
 
 use std::fmt;
 
+use crate::ErrorCode;
+
 /// Maximum number of numeric facts carried by one public error.
 pub const MAX_PUBLIC_DIAGNOSTIC_FACTS: usize = 80;
 
@@ -434,14 +436,620 @@ pub const fn unpack_u32_pair(value: u64) -> (u32, u32) {
     )
 }
 
+/// Why one numeric fact sequence does not satisfy its owning E-code schema.
+///
+/// This taxonomy intentionally carries no prose. Host tooling owns rendering.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DiagnosticFactSchemaMismatch {
+    /// The sequence exceeds the global public fact ceiling.
+    GlobalMaximumExceeded,
+    /// The sequence exceeds the tighter ceiling for its E-code.
+    CodeMaximumExceeded,
+    /// Required, allowed, repeated, or ordered tags do not match the E-code.
+    InvalidSequence,
+    /// One known compact tag carries a value outside its frozen numeric registry.
+    InvalidValue,
+}
+
+/// Validate facts already expressed with known production tag identities.
+///
+/// The validator allocates nothing. It is the runtime-side entry point used
+/// immediately before facts cross the public facade.
+pub fn validate_known_diagnostic_fact_schema(
+    code: ErrorCode,
+    facts: &[(DiagnosticFactTag, u64)],
+) -> Result<(), DiagnosticFactSchemaMismatch> {
+    validate_diagnostic_fact_schema(code, facts.len(), |index| {
+        let (tag, value) = facts[index];
+        (tag.raw(), value)
+    })
+}
+
+/// Validate raw host/tooling facts against their owning E-code schema.
+///
+/// Unknown tags remain renderable by callers, but make a known E-code context
+/// invalid instead of being heuristically reinterpreted.
+pub fn validate_raw_diagnostic_fact_schema(
+    code: ErrorCode,
+    facts: &[(u8, u64)],
+) -> Result<(), DiagnosticFactSchemaMismatch> {
+    validate_diagnostic_fact_schema(code, facts.len(), |index| facts[index])
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the frozen E-code schema registry keeps every numeric owner visible in one exhaustive dispatch"
+)]
+fn validate_diagnostic_fact_schema(
+    code: ErrorCode,
+    fact_count: usize,
+    fact_at: impl Fn(usize) -> (u8, u64),
+) -> Result<(), DiagnosticFactSchemaMismatch> {
+    if fact_count > MAX_PUBLIC_DIAGNOSTIC_FACTS {
+        return Err(DiagnosticFactSchemaMismatch::GlobalMaximumExceeded);
+    }
+
+    let maximum = diagnostic_fact_maximum(code);
+    if fact_count > maximum {
+        return Err(DiagnosticFactSchemaMismatch::CodeMaximumExceeded);
+    }
+
+    let valid_sequence = match code.raw() {
+        3 => query_plan_schema(fact_count, &fact_at),
+        6 => cursor_schema(fact_count, &fact_at),
+        16 => store_corruption_schema(fact_count, &fact_at),
+        18 => runtime_corruption_schema(fact_count, &fact_at),
+        19 => incompatible_format_schema(fact_count, &fact_at),
+        20 => runtime_invariant_schema(fact_count, &fact_at),
+        21 => runtime_conflict_schema(fact_count, &fact_at),
+        23 => runtime_unsupported_schema(fact_count, &fact_at),
+        24 => runtime_internal_schema(fact_count, &fact_at),
+        138 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::ExpectedArity,
+                DiagnosticFactTag::ActualArity,
+            ],
+        ),
+        141 | 142 | 169 | 170 => {
+            tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ProjectionIndex])
+        }
+        175 => tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ParameterIndex]),
+        177 | 237 => {
+            tags_match(fact_count, &fact_at, &[DiagnosticFactTag::Limit])
+                || tags_match(
+                    fact_count,
+                    &fact_at,
+                    &[DiagnosticFactTag::ActualLength, DiagnosticFactTag::Limit],
+                )
+        }
+        178 | 180 | 202 | 203 | 205 | 236 => tags_match(
+            fact_count,
+            &fact_at,
+            &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Limit],
+        ),
+        196 | 234 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::FieldId,
+                DiagnosticFactTag::MutationOperation,
+                DiagnosticFactTag::BatchPosition,
+            ],
+        ),
+        197 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::RowLayout,
+                DiagnosticFactTag::HistoryFloor,
+                DiagnosticFactTag::CurrentLayout,
+            ],
+        ),
+        198 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::RowLayout,
+                DiagnosticFactTag::ExpectedSlotCount,
+                DiagnosticFactTag::ActualSlotCount,
+            ],
+        ),
+        201 => tags_match(
+            fact_count,
+            &fact_at,
+            &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Minimum],
+        ),
+        223 => constraint_schema(fact_count, &fact_at, true),
+        225 => constraint_schema(fact_count, &fact_at, false),
+        233 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::MutationOperation,
+                DiagnosticFactTag::BatchPosition,
+            ],
+        ),
+        235 => {
+            tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ActualCount]) && fact_at(0).1 == 0
+        }
+        238 => tags_match(
+            fact_count,
+            &fact_at,
+            &[DiagnosticFactTag::ActualLength, DiagnosticFactTag::Limit],
+        ),
+        239 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::BatchPosition,
+                DiagnosticFactTag::ExpectedEntityTag,
+                DiagnosticFactTag::ActualEntityTag,
+            ],
+        ),
+        240 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::FirstBatchPosition,
+                DiagnosticFactTag::DuplicateBatchPosition,
+            ],
+        ),
+        _ => fact_count == 0,
+    };
+    if !valid_sequence {
+        return Err(DiagnosticFactSchemaMismatch::InvalidSequence);
+    }
+
+    for index in 0..fact_count {
+        let (raw_tag, value) = fact_at(index);
+        let Some(tag) = DiagnosticFactTag::known(raw_tag) else {
+            return Err(DiagnosticFactSchemaMismatch::InvalidSequence);
+        };
+        if !diagnostic_fact_value_is_valid(tag, value) {
+            return Err(DiagnosticFactSchemaMismatch::InvalidValue);
+        }
+    }
+    Ok(())
+}
+
+const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
+    match code.raw() {
+        6 | 16 | 18 | 24 | 197 | 198 | 233 | 239 | 240 => 3,
+        141 | 142 | 169 | 170 | 175 | 235 => 1,
+        19 | 21 | 138 | 177 | 178 | 180 | 201 | 202 | 203 | 205 | 236 | 237 | 238 => 2,
+        3 | 20 => 5,
+        23 => 6,
+        196 | 234 => 4,
+        223 => 73,
+        225 => 9,
+        _ => 0,
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the query-plan E-code deliberately owns several exact finite fact sequences"
+)]
+fn query_plan_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    fact_count == 0
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::TermIndex])
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::ComponentIndex])
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::GroupIndex])
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::ClauseIndex])
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::AggregateIndex])
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::AggregateKind])
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::ProjectionIndex])
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::FirstTermIndex,
+                DiagnosticFactTag::DuplicateTermIndex,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ClauseIndex,
+                DiagnosticFactTag::OperatorKind,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::AggregateIndex,
+                DiagnosticFactTag::AggregateKind,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::AggregateKind,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::OperatorKind,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::BranchIndex,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[DiagnosticFactTag::TypeFamily, DiagnosticFactTag::TypeFamily],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ClauseIndex,
+                DiagnosticFactTag::AggregateIndex,
+                DiagnosticFactTag::ActualCount,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::FunctionKind,
+                DiagnosticFactTag::ExpectedArity,
+                DiagnosticFactTag::ActualArity,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::FunctionKind,
+                DiagnosticFactTag::ArgumentIndex,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::OperatorKind,
+                DiagnosticFactTag::TypeFamily,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::BranchIndex,
+                DiagnosticFactTag::TypeFamily,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::TypeFamily,
+                DiagnosticFactTag::BranchIndex,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::BranchIndex,
+                DiagnosticFactTag::TypeFamily,
+                DiagnosticFactTag::BranchIndex,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::FunctionKind,
+                DiagnosticFactTag::ArgumentIndex,
+                DiagnosticFactTag::TypeFamily,
+                DiagnosticFactTag::ArgumentIndex,
+                DiagnosticFactTag::TypeFamily,
+            ],
+        )
+}
+
+fn cursor_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    if fact_count == 0 {
+        return true;
+    }
+    if tags_match(fact_count, fact_at, &[DiagnosticFactTag::DecodeReason]) {
+        return matches!(fact_at(0).1, 1 | 3 | 5 | 6 | 7);
+    }
+    if tags_match(
+        fact_count,
+        fact_at,
+        &[
+            DiagnosticFactTag::ActualLength,
+            DiagnosticFactTag::Maximum,
+            DiagnosticFactTag::DecodeReason,
+        ],
+    ) {
+        return fact_at(2).1 == DiagnosticDecodeReason::CursorTooLong.raw();
+    }
+    if tags_match(
+        fact_count,
+        fact_at,
+        &[
+            DiagnosticFactTag::ComponentIndex,
+            DiagnosticFactTag::DecodeReason,
+        ],
+    ) {
+        return matches!(fact_at(1).1, 4 | 6 | 7);
+    }
+    tags_match(
+        fact_count,
+        fact_at,
+        &[
+            DiagnosticFactTag::ExpectedSignaturePrefix,
+            DiagnosticFactTag::ActualSignaturePrefix,
+        ],
+    ) || tags_match(
+        fact_count,
+        fact_at,
+        &[
+            DiagnosticFactTag::ExpectedOffset,
+            DiagnosticFactTag::ActualOffset,
+        ],
+    )
+}
+
+fn store_corruption_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    fact_count == 0
+        || (tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ComponentKind,
+                DiagnosticFactTag::ActualLength,
+                DiagnosticFactTag::Limit,
+            ],
+        ) && fact_at(0).1 == DiagnosticComponentKind::CommitDataKey.raw())
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ExpectedEntityTag,
+                DiagnosticFactTag::ActualEntityTag,
+            ],
+        )
+}
+
+fn runtime_corruption_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    store_corruption_schema(fact_count, fact_at)
+        || (tags_match(fact_count, fact_at, &[DiagnosticFactTag::DecodeReason])
+            && matches!(fact_at(0).1, 8..=10))
+}
+
+fn incompatible_format_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    fact_count == 0
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::ExpectedVersion])
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ExpectedVersion,
+                DiagnosticFactTag::ActualVersion,
+            ],
+        )
+}
+
+fn runtime_invariant_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    fact_count == 0
+        || (tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::PhysicalGeneration,
+                DiagnosticFactTag::ComponentKind,
+                DiagnosticFactTag::ActualArity,
+                DiagnosticFactTag::Maximum,
+            ],
+        ) && fact_at(2).1 == DiagnosticComponentKind::IndexKey.raw())
+}
+
+fn runtime_conflict_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    fact_count == 0
+        || tags_match(fact_count, fact_at, &[DiagnosticFactTag::ExpectedRevision])
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ExpectedRevision,
+                DiagnosticFactTag::CurrentRevision,
+            ],
+        )
+}
+
+fn runtime_unsupported_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    fact_count == 0
+        || (tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::PhysicalGeneration,
+                DiagnosticFactTag::ComponentIndex,
+                DiagnosticFactTag::ComponentKind,
+                DiagnosticFactTag::ActualLength,
+                DiagnosticFactTag::Limit,
+            ],
+        ) && fact_at(3).1 == DiagnosticComponentKind::IndexKeyComponent.raw())
+}
+
+fn runtime_internal_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    fact_count == 0
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ExpectedMemoryId,
+                DiagnosticFactTag::ActualMemoryId,
+            ],
+        )
+        || (tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::ComponentKind,
+                DiagnosticFactTag::ExpectedArity,
+                DiagnosticFactTag::ActualArity,
+            ],
+        ) && fact_at(0).1 == DiagnosticComponentKind::RelationTargetPrimaryKey.raw())
+}
+
+fn constraint_schema(
+    fact_count: usize,
+    fact_at: &impl Fn(usize) -> (u8, u64),
+    allow_targeted_path: bool,
+) -> bool {
+    const COMMON: &[DiagnosticFactTag] = &[
+        DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+        DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+        DiagnosticFactTag::AcceptedSchemaFingerprintLow,
+        DiagnosticFactTag::EntityTag,
+        DiagnosticFactTag::ConstraintId,
+        DiagnosticFactTag::ConstraintKind,
+        DiagnosticFactTag::ConstraintContext,
+    ];
+    if fact_count < COMMON.len()
+        || !tags_prefix_matches(fact_count, fact_at, COMMON)
+        || fact_at(6).1 != DiagnosticConstraintContext::WriteAdmission.raw()
+    {
+        return false;
+    }
+
+    let constraint_kind = fact_at(5).1;
+    if DiagnosticConstraintKind::known(constraint_kind).is_none() {
+        return false;
+    }
+    let mut index = COMMON.len();
+    if index < fact_count && fact_at(index).0 == DiagnosticFactTag::MutationOperation.raw() {
+        index += 1;
+        if index < fact_count && fact_at(index).0 == DiagnosticFactTag::BatchPosition.raw() {
+            index += 1;
+        }
+    }
+
+    let path_len = fact_count - index;
+    if path_len == 0 {
+        return !allow_targeted_path
+            || constraint_kind != DiagnosticConstraintKind::TargetedRule.raw();
+    }
+    allow_targeted_path
+        && constraint_kind == DiagnosticConstraintKind::TargetedRule.raw()
+        && path_len <= 64
+        && (index..fact_count).all(|position| {
+            DiagnosticFactTag::known(fact_at(position).0).is_some_and(is_value_path_tag)
+        })
+}
+
+fn tags_match(
+    fact_count: usize,
+    fact_at: &impl Fn(usize) -> (u8, u64),
+    expected: &[DiagnosticFactTag],
+) -> bool {
+    fact_count == expected.len() && tags_prefix_matches(fact_count, fact_at, expected)
+}
+
+fn tags_prefix_matches(
+    fact_count: usize,
+    fact_at: &impl Fn(usize) -> (u8, u64),
+    expected: &[DiagnosticFactTag],
+) -> bool {
+    fact_count >= expected.len()
+        && expected
+            .iter()
+            .enumerate()
+            .all(|(index, tag)| fact_at(index).0 == tag.raw())
+}
+
+const fn is_value_path_tag(tag: DiagnosticFactTag) -> bool {
+    matches!(
+        tag,
+        DiagnosticFactTag::RootField
+            | DiagnosticFactTag::RecordMember
+            | DiagnosticFactTag::TupleElement
+            | DiagnosticFactTag::Newtype
+            | DiagnosticFactTag::EnumVariant
+            | DiagnosticFactTag::ListElement
+            | DiagnosticFactTag::SetElement
+            | DiagnosticFactTag::MapEntryKey
+            | DiagnosticFactTag::MapEntryValue
+    )
+}
+
+const fn diagnostic_fact_value_is_valid(tag: DiagnosticFactTag, value: u64) -> bool {
+    match tag {
+        DiagnosticFactTag::AcceptedSchemaFingerprintMethod
+        | DiagnosticFactTag::ExpectedMemoryId
+        | DiagnosticFactTag::ActualMemoryId => value <= u8::MAX as u64,
+        DiagnosticFactTag::ConstraintId
+        | DiagnosticFactTag::FieldId
+        | DiagnosticFactTag::IndexId
+        | DiagnosticFactTag::RelationId
+        | DiagnosticFactTag::BatchPosition
+        | DiagnosticFactTag::FirstBatchPosition
+        | DiagnosticFactTag::DuplicateBatchPosition
+        | DiagnosticFactTag::RowLayout
+        | DiagnosticFactTag::HistoryFloor
+        | DiagnosticFactTag::CurrentLayout
+        | DiagnosticFactTag::RootField
+        | DiagnosticFactTag::Newtype
+        | DiagnosticFactTag::ListElement
+        | DiagnosticFactTag::SetElement
+        | DiagnosticFactTag::MapEntryKey
+        | DiagnosticFactTag::MapEntryValue => value <= u32::MAX as u64,
+        DiagnosticFactTag::ConstraintKind => DiagnosticConstraintKind::known(value).is_some(),
+        DiagnosticFactTag::ConstraintContext => DiagnosticConstraintContext::known(value).is_some(),
+        DiagnosticFactTag::TypeFamily => DiagnosticTypeFamily::known(value).is_some(),
+        DiagnosticFactTag::FunctionKind => DiagnosticFunctionKind::known(value).is_some(),
+        DiagnosticFactTag::OperatorKind => DiagnosticOperatorKind::known(value).is_some(),
+        DiagnosticFactTag::AggregateKind => DiagnosticAggregateKind::known(value).is_some(),
+        DiagnosticFactTag::ComponentKind => DiagnosticComponentKind::known(value).is_some(),
+        DiagnosticFactTag::DecodeReason => DiagnosticDecodeReason::known(value).is_some(),
+        DiagnosticFactTag::MutationOperation => DiagnosticMutationOperation::known(value).is_some(),
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         DiagnosticAggregateKind, DiagnosticComponentKind, DiagnosticConstraintContext,
-        DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticFactTag,
-        DiagnosticFunctionKind, DiagnosticMutationOperation, DiagnosticOperatorKind,
-        DiagnosticTypeFamily, ORDERED_FACT_TAGS, pack_u32_pair, unpack_u32_pair,
+        DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticFactSchemaMismatch,
+        DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation,
+        DiagnosticOperatorKind, DiagnosticTypeFamily, ORDERED_FACT_TAGS, pack_u32_pair,
+        unpack_u32_pair, validate_known_diagnostic_fact_schema,
+        validate_raw_diagnostic_fact_schema,
     };
+    use crate::ErrorCode;
 
     #[test]
     fn fact_tag_registry_is_fixed_unique_and_contiguous() {
@@ -588,5 +1196,118 @@ mod tests {
         }
         assert_eq!(DiagnosticAggregateKind::known(0), None);
         assert_eq!(DiagnosticAggregateKind::known(9), None);
+    }
+
+    #[test]
+    fn per_code_schema_rejects_missing_disallowed_and_noncanonical_tags() {
+        let valid = [
+            (DiagnosticFactTag::ActualCount, 5),
+            (DiagnosticFactTag::Limit, 4),
+        ];
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS,
+                &valid,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS,
+                &valid[..1],
+            ),
+            Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+        );
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS,
+                &[valid[1], valid[0]],
+            ),
+            Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+        );
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(ErrorCode::QUERY_VALIDATE, &valid),
+            Err(DiagnosticFactSchemaMismatch::CodeMaximumExceeded)
+        );
+    }
+
+    #[test]
+    fn raw_schema_keeps_unknown_context_numeric_but_marks_it_invalid() {
+        assert_eq!(
+            validate_raw_diagnostic_fact_schema(
+                ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
+                &[(u8::MAX, 17)],
+            ),
+            Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+        );
+        assert_eq!(
+            validate_raw_diagnostic_fact_schema(
+                ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
+                &[(DiagnosticFactTag::DecodeReason.raw(), u64::MAX)],
+            ),
+            Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+        );
+    }
+
+    #[test]
+    fn constraint_schema_enforces_authority_operation_and_bounded_path_suffix() {
+        let mut targeted = vec![
+            (DiagnosticFactTag::AcceptedSchemaFingerprintMethod, 1),
+            (DiagnosticFactTag::AcceptedSchemaFingerprintHigh, 2),
+            (DiagnosticFactTag::AcceptedSchemaFingerprintLow, 3),
+            (DiagnosticFactTag::EntityTag, 17),
+            (DiagnosticFactTag::ConstraintId, 4),
+            (
+                DiagnosticFactTag::ConstraintKind,
+                DiagnosticConstraintKind::TargetedRule.raw(),
+            ),
+            (
+                DiagnosticFactTag::ConstraintContext,
+                DiagnosticConstraintContext::WriteAdmission.raw(),
+            ),
+            (
+                DiagnosticFactTag::MutationOperation,
+                DiagnosticMutationOperation::Insert.raw(),
+            ),
+            (DiagnosticFactTag::BatchPosition, 0),
+        ];
+        targeted.extend((0..64).map(|index| (DiagnosticFactTag::ListElement, index)));
+        assert_eq!(targeted.len(), 73);
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+                targeted.as_slice(),
+            ),
+            Ok(())
+        );
+
+        let mut overlong = targeted.clone();
+        overlong.push((DiagnosticFactTag::ListElement, 64));
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+                overlong.as_slice(),
+            ),
+            Err(DiagnosticFactSchemaMismatch::CodeMaximumExceeded)
+        );
+
+        let mut non_targeted_path = targeted;
+        non_targeted_path[5].1 = DiagnosticConstraintKind::Unique.raw();
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+                non_targeted_path.as_slice(),
+            ),
+            Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+        );
+    }
+
+    #[test]
+    fn schema_enforces_global_ceiling_before_per_code_ceiling() {
+        let facts = vec![(DiagnosticFactTag::ActualCount.raw(), 0); 81];
+        assert_eq!(
+            validate_raw_diagnostic_fact_schema(ErrorCode::QUERY_PLAN, facts.as_slice()),
+            Err(DiagnosticFactSchemaMismatch::GlobalMaximumExceeded)
+        );
     }
 }

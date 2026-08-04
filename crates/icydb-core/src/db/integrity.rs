@@ -6,6 +6,7 @@
 mod deep;
 mod derived;
 mod job;
+mod progress_codec;
 mod progress_store;
 mod proof;
 mod row;

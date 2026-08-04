@@ -157,7 +157,9 @@ format_version_matches="$(
 )"
 unexpected_format_versions="$(
   printf '%s\n' "$format_version_matches" |
-    rg -v '^crates/icydb-core/src/db/commit/marker\.rs:[0-9]+:pub\(in crate::db\) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;$' || true
+    rg -v \
+      -e '^crates/icydb-core/src/db/commit/marker\.rs:[0-9]+:pub\(in crate::db\) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;$' \
+      -e '^crates/icydb-core/src/db/integrity/progress_store\.rs:[0-9]+:const JOB_RECORD_VERSION: u8 = 2;$' || true
 )"
 if [[ -n "$unexpected_format_versions" ]]
 then

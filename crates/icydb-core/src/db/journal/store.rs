@@ -10,12 +10,10 @@ use crate::{
     },
     error::{ErrorClass, InternalError},
 };
-use candid::CandidType;
 use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound as StorableBound,
 };
-use serde::Deserialize;
 use std::ops::Bound::{Included, Unbounded};
 use std::{borrow::Cow, collections::BTreeSet};
 
@@ -38,7 +36,7 @@ const MAX_JOURNAL_INSPECTION_BYTES_PER_PAGE: usize =
 /// Duplicate batch IDs require comparing a newly decoded batch with every
 /// earlier live tail batch. `CheckingBatchIdentity` makes that proof resumable
 /// without retaining an unbounded set of IDs.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum JournalInspectionCheckpoint {
     /// No live tail batch has been classified.
     BeforeFirst,
@@ -107,7 +105,7 @@ impl JournalInspectionLimits {
 }
 
 /// Stable proof inputs for one physical journal tail.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct JournalTailProofIdentity {
     data_mutation_revision: u64,
     fold_sequence: u64,
@@ -117,9 +115,26 @@ pub(in crate::db) struct JournalTailProofIdentity {
 }
 
 impl JournalTailProofIdentity {
+    /// Reconstruct one current-form proof from bounded persisted components.
+    #[must_use]
+    pub(in crate::db) const fn from_persisted_parts(
+        data_mutation_revision: u64,
+        fold_sequence: u64,
+        fold_epoch: u64,
+        next_append_sequence: u64,
+        physical_record_count: u64,
+    ) -> Self {
+        Self {
+            data_mutation_revision,
+            fold_sequence,
+            fold_epoch,
+            next_append_sequence,
+            physical_record_count,
+        }
+    }
+
     /// Return the durable logical row-mutation revision.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn data_mutation_revision(self) -> u64 {
         self.data_mutation_revision
     }
@@ -132,7 +147,6 @@ impl JournalTailProofIdentity {
 
     /// Return the fold topology epoch.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn fold_epoch(self) -> u64 {
         self.fold_epoch
     }
@@ -145,7 +159,6 @@ impl JournalTailProofIdentity {
 
     /// Return the complete physical map-record count, including control records.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn physical_record_count(self) -> u64 {
         self.physical_record_count
     }

@@ -84,7 +84,7 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
 fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
     let fixture = install_sql_canister_fixture();
     let response: Result<Vec<EntitySchemaDescription>, Error> = fixture
-        .query_call("icydb_schema", ())
+        .query_candid("icydb_schema", ())
         .expect("schema endpoint response should decode");
     let report = response.expect("controller schema endpoint should succeed");
     assert!(
@@ -130,7 +130,7 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
 fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     let fixture = install_sql_canister_fixture();
     let result: Result<IdentityCloseoutPerfResult, Error> = fixture
-        .update_call("measure_identity_closeout_perf", ())
+        .update_candid("measure_identity_closeout_perf", ())
         .expect("Identity closeout perf result should decode");
     let result = result.expect("Identity closeout perf endpoint should succeed");
 
@@ -157,7 +157,7 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
 fn application_behavior_reports_separate_and_composed_instruction_costs() {
     let fixture = install_sql_canister_fixture();
     let result: Result<ApplicationBehaviorPerfResult, String> = fixture
-        .query_call("measure_application_behavior_perf", ())
+        .query_candid("measure_application_behavior_perf", ())
         .expect("application behavior perf result should decode");
     let result = result.expect("application behavior perf endpoint should succeed");
 
@@ -181,7 +181,7 @@ fn application_behavior_reports_separate_and_composed_instruction_costs() {
 
 fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
-        .update_call("seed_oversized_sql_group_name", ())
+        .update_candid("seed_oversized_sql_group_name", ())
         .expect("oversized SQL group-name seed call should decode");
 
     result.expect("oversized SQL group-name seed should succeed");
@@ -189,7 +189,7 @@ fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     let response: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call("icydb_query", (sql.to_string(),))
+        .query_candid("icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode");
 
     response.map(|payload| payload.result)
@@ -204,19 +204,19 @@ fn query_numeric_types(
 
 fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
-        .update_call("icydb_ddl", (sql.to_string(),))
+        .update_candid("icydb_ddl", (sql.to_string(),))
         .expect("sql DDL canister call should decode")
 }
 
 fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
-        .update_call("icydb_update", (sql.to_string(),))
+        .update_candid("icydb_update", (sql.to_string(),))
         .expect("sql update canister call should decode")
 }
 
 fn expect_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> IntegrityCheckResult {
     let result: Result<IntegrityCheckResult, SqlIntegrityError> = fixture
-        .update_call("icydb_integrity", (sql.to_string(),))
+        .update_candid("icydb_integrity", (sql.to_string(),))
         .expect("integrity canister call should decode");
 
     result.expect("integrity canister call should succeed")
@@ -2412,7 +2412,7 @@ fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
 
     let outsider = Principal::self_authenticating([7_u8; 32]);
     let rejected: Result<IntegrityCheckResult, SqlIntegrityError> = fixture
-        .update_call_as(
+        .update_candid_as(
             outsider,
             "icydb_integrity",
             ("CHECK INTEGRITY SqlTestUser QUICK".to_string(),),
@@ -2445,25 +2445,25 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     );
 
     let query: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call_as(outsider, "icydb_query", ("not valid SQL".to_string(),))
+        .query_candid_as(outsider, "icydb_query", ("not valid SQL".to_string(),))
         .expect("non-controller SQL query response should decode");
     assert_eq!(query, Err(sql_error.clone()));
 
     for method in ["icydb_ddl", "icydb_update"] {
         let result: Result<SqlQueryResult, Error> = fixture
-            .update_call_as(outsider, method, ("not valid SQL".to_string(),))
+            .update_candid_as(outsider, method, ("not valid SQL".to_string(),))
             .expect("non-controller SQL update response should decode");
         assert_eq!(result, Err(sql_error.clone()), "{method}");
     }
     for method in ["icydb_fixtures_reset", "icydb_fixtures_load"] {
         let result: Result<(), Error> = fixture
-            .update_call_as(outsider, method, ())
+            .update_candid_as(outsider, method, ())
             .expect("non-controller fixture response should decode");
         assert_eq!(result, Err(sql_error.clone()), "{method}");
     }
 
     let metrics: Result<CompactMetricsReport, Error> = fixture
-        .query_call_as(outsider, "icydb_metrics", (None::<u64>,))
+        .query_candid_as(outsider, "icydb_metrics", (None::<u64>,))
         .expect("public metrics response should decode");
     assert!(
         metrics.is_ok(),
@@ -2471,18 +2471,18 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     );
 
     let metrics_reset: Result<(), Error> = fixture
-        .update_call_as(outsider, "icydb_metrics_reset", ())
+        .update_candid_as(outsider, "icydb_metrics_reset", ())
         .expect("non-controller metrics reset response should decode");
     assert_eq!(metrics_reset, Err(operational_error.clone()));
     let snapshot: Result<StorageReport, Error> = fixture
-        .query_call_as(outsider, "icydb_snapshot", ())
+        .query_candid_as(outsider, "icydb_snapshot", ())
         .expect("non-controller snapshot response should decode");
     assert_eq!(
         snapshot.expect_err("a non-controller snapshot must fail before its handler"),
         operational_error,
     );
     let schema: Result<Vec<EntitySchemaDescription>, Error> = fixture
-        .query_call_as(outsider, "icydb_schema", ())
+        .query_candid_as(outsider, "icydb_schema", ())
         .expect("non-controller schema response should decode");
     assert_eq!(schema, Err(schema_error));
 }

@@ -8,8 +8,9 @@ use crate::{
     diagnostic::run_diagnostic_command,
     icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
     observability::{
-        run_diagnostic_artifact_command, run_metrics_command, run_schema_migration_command,
-        run_schema_show_command, run_snapshot_command,
+        run_diagnostic_artifact_command, run_diagnostic_source_metadata_command,
+        run_metrics_command, run_schema_migration_command, run_schema_show_command,
+        run_snapshot_command,
     },
     shell::run_sql_command,
 };
@@ -30,6 +31,9 @@ fn run_schema_command(command: SchemaCommand) -> Result<(), String> {
     match command {
         SchemaCommand::Show(target) => run_schema_show_command(target),
         SchemaCommand::DiagnosticArtifact(args) => run_diagnostic_artifact_command(args),
+        SchemaCommand::DiagnosticSourceMetadata(args) => {
+            run_diagnostic_source_metadata_command(args)
+        }
         SchemaCommand::Migration(command) => run_schema_migration_command(command),
     }
 }

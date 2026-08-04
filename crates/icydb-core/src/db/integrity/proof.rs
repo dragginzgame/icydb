@@ -15,8 +15,6 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use candid::CandidType;
-use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,12 +25,12 @@ thread_local! {
 }
 
 /// Exact physical state read for one participating journaled store.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IntegrityStoreProof {
-    store_path: String,
-    data_generation: u64,
-    index_generation: u64,
-    journal: JournalTailProofIdentity,
+    pub(super) store_path: String,
+    pub(super) data_generation: u64,
+    pub(super) index_generation: u64,
+    pub(super) journal: JournalTailProofIdentity,
 }
 
 impl IntegrityStoreProof {
@@ -53,19 +51,19 @@ impl IntegrityStoreProof {
 }
 
 /// Exact active forward-index generation read by the selected plan.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct IntegrityIndexGenerationProof {
-    store_path: String,
-    schema_index_id: u32,
-    physical_generation: u64,
+    pub(super) store_path: String,
+    pub(super) schema_index_id: u32,
+    pub(super) physical_generation: u64,
 }
 
 /// Exact active source-owned reverse generation read by the selected plan.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct IntegrityRelationGenerationProof {
-    target_store_path: String,
-    relation_id: u32,
-    physical_generation: u64,
+    pub(super) target_store_path: String,
+    pub(super) relation_id: u32,
+    pub(super) physical_generation: u64,
 }
 
 /// Canonical proof vector captured before and after every Deep page.
@@ -73,17 +71,17 @@ pub(in crate::db) struct IntegrityRelationGenerationProof {
 /// Progress-store bytes are intentionally absent. Equality is the only
 /// advancement authority; no generic "store changed" flag can stand in for
 /// one of these typed components.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IntegrityProofVector {
-    database_incarnation_id: DatabaseIncarnationId,
-    accepted_schema_version: u32,
-    accepted_schema_fingerprint: [u8; 16],
-    inspection_plan_fingerprint: [u8; 32],
-    database_control_fingerprint: [u8; 32],
-    allocation_registry_generation: u64,
-    stores: Vec<IntegrityStoreProof>,
-    index_generations: Vec<IntegrityIndexGenerationProof>,
-    relation_generations: Vec<IntegrityRelationGenerationProof>,
+    pub(super) database_incarnation_id: DatabaseIncarnationId,
+    pub(super) accepted_schema_version: u32,
+    pub(super) accepted_schema_fingerprint: [u8; 16],
+    pub(super) inspection_plan_fingerprint: [u8; 32],
+    pub(super) database_control_fingerprint: [u8; 32],
+    pub(super) allocation_registry_generation: u64,
+    pub(super) stores: Vec<IntegrityStoreProof>,
+    pub(super) index_generations: Vec<IntegrityIndexGenerationProof>,
+    pub(super) relation_generations: Vec<IntegrityRelationGenerationProof>,
 }
 
 impl IntegrityProofVector {

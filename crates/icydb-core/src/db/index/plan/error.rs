@@ -94,6 +94,11 @@ mod tests {
             23,
         )
         .into_internal_error();
+        assert_eq!(error.origin(), crate::error::ErrorOrigin::Executor);
+        assert_eq!(
+            error.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+        );
         let facts = error.diagnostic_facts();
         assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::EntityTag, 23)));
         assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::ConstraintId, 17)));
@@ -106,5 +111,6 @@ mod tests {
             icydb_diagnostic_code::DiagnosticMutationOperation::Replace.raw(),
         )));
         assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 4,)));
+        assert_eq!(facts.len(), 9);
     }
 }

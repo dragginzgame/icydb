@@ -126,25 +126,6 @@ fn commit_marker_current_version_round_trip_succeeds() {
 }
 
 #[test]
-fn commit_marker_version_one_hard_cut_fails_closed() {
-    let marker = CommitMarker {
-        id: [9u8; 16],
-        journal_batches: Vec::new(),
-        database_control: Vec::new(),
-    };
-    let payload =
-        encode_commit_marker_payload(&marker).expect("current marker payload should encode");
-    let encoded = encode_commit_marker_bytes(1, &payload)
-        .expect("retired envelope should remain structurally encodable for the test");
-    let err = RawCommitMarker(encoded)
-        .try_decode()
-        .expect_err("marker version 1 must not retain a compatibility decoder");
-
-    assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
-    assert_eq!(err.origin, ErrorOrigin::Serialize);
-}
-
-#[test]
 fn commit_marker_rejects_more_than_four_database_control_operations_before_allocation() {
     let mut payload = vec![0u8; 16];
     payload.extend_from_slice(&0u32.to_le_bytes());

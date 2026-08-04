@@ -36,7 +36,11 @@ struct DiagnosticSchemaIdentity {
 
 /// Resolve and print one compact diagnostic entirely from host-side authority.
 pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String> {
-    if args.facts().is_empty() && args.artifact().is_none() && args.canister_name().is_none() {
+    if args.facts().is_empty()
+        && args.artifact().is_none()
+        && args.source_metadata().is_none()
+        && args.canister_name().is_none()
+    {
         println!("{}", render_error_code_report(args.code())?);
         return Ok(());
     }
@@ -44,7 +48,11 @@ pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String>
     let facts = parse_facts(args.facts())?;
     let explicit_artifact = args
         .artifact()
-        .map(DiagnosticSchemaArtifact::read)
+        .map(DiagnosticSchemaArtifact::read_deployment)
+        .transpose()?;
+    let source_metadata = args
+        .source_metadata()
+        .map(DiagnosticSchemaArtifact::read_source_metadata)
         .transpose()?;
 
     let mut notes = Vec::new();
@@ -61,7 +69,11 @@ pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String>
         }
         matches
     });
-    let identity = DiagnosticSchemaIdentity::from_facts(facts.as_slice());
+    let fact_schema_is_valid =
+        diagnostic_fact_schema_mismatch(args.code(), facts.as_slice())?.is_none();
+    let identity = fact_schema_is_valid
+        .then(|| DiagnosticSchemaIdentity::from_facts(facts.as_slice()))
+        .flatten();
     let exact_artifact_found = identity.is_some_and(|identity| {
         explicit_artifact.is_some_and(|artifact| {
             artifact
@@ -74,7 +86,7 @@ pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String>
                 .is_some()
         })
     });
-    let live_artifact = if exact_artifact_found {
+    let live_artifact = if !fact_schema_is_valid || exact_artifact_found {
         None
     } else if let Some(canister) = args.canister_name() {
         match load_schema_report(args.environment(), canister) {
@@ -85,7 +97,7 @@ pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String>
             )?),
             Err(err) => {
                 notes.push(format!(
-                    "live schema introspection unavailable ({err}); using numeric fallback"
+                    "live schema introspection unavailable ({err}); continuing with offline resolvers"
                 ));
                 None
             }
@@ -93,7 +105,26 @@ pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String>
     } else {
         None
     };
-    let artifacts = [explicit_artifact, live_artifact.as_ref()]
+    let source_metadata = source_metadata.as_ref().filter(|metadata| {
+        let exact = identity.is_some_and(|identity| {
+            metadata
+                .resolve(
+                    identity.fingerprint_method,
+                    identity.fingerprint,
+                    identity.entity_tag,
+                    identity.constraint_id,
+                )
+                .is_some()
+        });
+        if identity.is_some() && !exact {
+            notes.push(
+                "source metadata does not prove the exact accepted fingerprint and entity identity; names withheld"
+                    .to_string(),
+            );
+        }
+        exact
+    });
+    let artifacts = [explicit_artifact, live_artifact.as_ref(), source_metadata]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
@@ -147,7 +178,11 @@ fn render_error_code_report_with_facts(
     }
 
     if !facts.is_empty() {
-        let identity = DiagnosticSchemaIdentity::from_facts(facts);
+        let schema_mismatch = diagnostic_fact_schema_mismatch(input, facts)?;
+        let identity = schema_mismatch
+            .is_none()
+            .then(|| DiagnosticSchemaIdentity::from_facts(facts))
+            .flatten();
         let resolved = identity.and_then(|identity| {
             artifacts.iter().find_map(|artifact| {
                 artifact.resolve(
@@ -162,6 +197,12 @@ fn render_error_code_report_with_facts(
             "facts: {}",
             render_raw_facts(facts, resolved.as_ref())
         ));
+        if let Some(mismatch) = schema_mismatch {
+            notes.push(format!(
+                "fact context mismatch: {}",
+                fact_schema_mismatch_text(mismatch)
+            ));
+        }
         if let Some(identity) = identity {
             lines.push(format!(
                 "accepted schema identity: method={} fingerprint={} entity_tag={}",
@@ -176,7 +217,7 @@ fn render_error_code_report_with_facts(
                     .to_string(),
             ),
             (true, Some(_), _) => notes.push(
-                "numeric fallback: supply --artifact or --canister for exact schema labels"
+                "numeric fallback: supply --artifact, --canister, or --source-metadata for exact schema labels"
                     .to_string(),
             ),
             (false, Some(_), None) => notes.push(
@@ -193,6 +234,38 @@ fn render_error_code_report_with_facts(
     lines.extend(notes.iter().map(|note| format!("note: {note}")));
 
     Ok(lines.join("\n"))
+}
+
+fn diagnostic_fact_schema_mismatch(
+    input: &str,
+    facts: &[RawDiagnosticFact],
+) -> Result<Option<icydb::diagnostic::DiagnosticFactSchemaMismatch>, String> {
+    let code = ErrorCode::from_raw(parse_error_code(input)?);
+    let raw = facts
+        .iter()
+        .map(|fact| (fact.tag, fact.value))
+        .collect::<Vec<_>>();
+    Ok(icydb::diagnostic::validate_raw_diagnostic_fact_schema(code, raw.as_slice()).err())
+}
+
+const fn fact_schema_mismatch_text(
+    mismatch: icydb::diagnostic::DiagnosticFactSchemaMismatch,
+) -> &'static str {
+    use icydb::diagnostic::DiagnosticFactSchemaMismatch;
+    match mismatch {
+        DiagnosticFactSchemaMismatch::GlobalMaximumExceeded => {
+            "fact count exceeds the global maximum"
+        }
+        DiagnosticFactSchemaMismatch::CodeMaximumExceeded => {
+            "fact count exceeds the E-code maximum"
+        }
+        DiagnosticFactSchemaMismatch::InvalidSequence => {
+            "required, allowed, repeated, or ordered tags do not match the E-code"
+        }
+        DiagnosticFactSchemaMismatch::InvalidValue => {
+            "a known tag carries an invalid compact value"
+        }
+    }
 }
 
 fn render_fingerprint(fingerprint: [u8; 16]) -> String {
@@ -413,6 +486,18 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         })
         .collect::<Vec<_>>();
     let rendered = render_raw_facts(raw_facts.as_slice(), None);
+    let raw_pairs = raw_facts
+        .iter()
+        .map(|fact| (fact.tag, fact.value))
+        .collect::<Vec<_>>();
+    if let Err(mismatch) =
+        icydb::diagnostic::validate_raw_diagnostic_fact_schema(err.code(), raw_pairs.as_slice())
+    {
+        return format!(
+            "{summary}; facts {rendered}; fact context mismatch: {}",
+            fact_schema_mismatch_text(mismatch)
+        );
+    }
 
     format!("{summary}; facts {rendered}")
 }
@@ -1409,7 +1494,7 @@ mod tests {
 
         assert_eq!(
             render_error(&err),
-            "E_RUNTIME_UNSUPPORTED: structural mutation batch exceeds the operation-count bound; facts actual_count=5000 limit=4096 tag#250=7",
+            "E_RUNTIME_UNSUPPORTED: structural mutation batch exceeds the operation-count bound; facts actual_count=5000 limit=4096 tag#250=7; fact context mismatch: fact count exceeds the E-code maximum",
         );
     }
 
@@ -1442,6 +1527,10 @@ mod tests {
             RawDiagnosticFact {
                 tag: DiagnosticFactTag::ConstraintKind.raw(),
                 value: 5,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintContext.raw(),
+                value: icydb::diagnostic::DiagnosticConstraintContext::WriteAdmission.raw(),
             },
             RawDiagnosticFact {
                 tag: DiagnosticFactTag::MutationOperation.raw(),
@@ -1481,6 +1570,19 @@ mod tests {
         .expect("stale diagnostic should render numerically");
         assert!(!report.contains("Account"), "{report}");
         assert!(report.contains("names withheld"), "{report}");
+
+        let mut malformed_facts = facts;
+        malformed_facts.swap(4, 5);
+        let mut notes = Vec::new();
+        let report = render_error_code_report_with_facts(
+            "E223",
+            malformed_facts.as_slice(),
+            &[&artifact],
+            &mut notes,
+        )
+        .expect("malformed known context should remain numerically renderable");
+        assert!(!report.contains("Account"), "{report}");
+        assert!(report.contains("fact context mismatch"), "{report}");
     }
 
     #[test]
@@ -1504,6 +1606,18 @@ mod tests {
                 tag: DiagnosticFactTag::EntityTag.raw(),
                 value: 3,
             },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintId.raw(),
+                value: 4,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintKind.raw(),
+                value: icydb::diagnostic::DiagnosticConstraintKind::Unique.raw(),
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintContext.raw(),
+                value: icydb::diagnostic::DiagnosticConstraintContext::WriteAdmission.raw(),
+            },
         ];
         let mut notes = Vec::new();
         let report = render_error_code_report_with_facts("E223", facts.as_slice(), &[], &mut notes)
@@ -1511,9 +1625,82 @@ mod tests {
 
         assert!(report.contains("entity_tag=3"), "{report}");
         assert!(
-            report.contains("supply --artifact or --canister"),
+            report.contains("supply --artifact, --canister, or --source-metadata"),
             "{report}"
         );
+    }
+
+    #[test]
+    fn exact_source_metadata_humanizes_only_its_bound_schema_identity() {
+        use icydb::diagnostic::DiagnosticFactTag;
+
+        let high = u64::from_be_bytes([7; 8]);
+        let facts = [
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintMethod.raw(),
+                value: 1,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintHigh.raw(),
+                value: high,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintLow.raw(),
+                value: high,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::EntityTag.raw(),
+                value: 42,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintId.raw(),
+                value: 3,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintKind.raw(),
+                value: icydb::diagnostic::DiagnosticConstraintKind::Unique.raw(),
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintContext.raw(),
+                value: icydb::diagnostic::DiagnosticConstraintContext::WriteAdmission.raw(),
+            },
+        ];
+        let metadata = DiagnosticSchemaArtifact::test_source_fixture();
+        let mut notes = Vec::new();
+        let report =
+            render_error_code_report_with_facts("E223", facts.as_slice(), &[&metadata], &mut notes)
+                .expect("exact source-bound diagnostic should render");
+
+        assert!(report.contains("entity_tag=42(SourceAccount)"), "{report}");
+        assert!(
+            report.contains("constraint_id=3(source_account_name_unique)"),
+            "{report}"
+        );
+
+        let deployment = DiagnosticSchemaArtifact::test_fixture();
+        let mut notes = Vec::new();
+        let report = render_error_code_report_with_facts(
+            "E223",
+            facts.as_slice(),
+            &[&deployment, &metadata],
+            &mut notes,
+        )
+        .expect("higher-priority deployment metadata should render");
+        assert!(report.contains("entity_tag=42(Account)"), "{report}");
+        assert!(!report.contains("SourceAccount"), "{report}");
+
+        let mut stale_facts = facts;
+        stale_facts[2].value = u64::from_be_bytes([8; 8]);
+        let mut notes = Vec::new();
+        let report = render_error_code_report_with_facts(
+            "E223",
+            stale_facts.as_slice(),
+            &[&metadata],
+            &mut notes,
+        )
+        .expect("stale source metadata should fall back numerically");
+        assert!(!report.contains("SourceAccount"), "{report}");
+        assert!(report.contains("names withheld"), "{report}");
     }
 
     #[test]

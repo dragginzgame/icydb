@@ -15,9 +15,10 @@ mod fact;
 
 pub use fact::{
     DiagnosticAggregateKind, DiagnosticComponentKind, DiagnosticConstraintContext,
-    DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticFactTag, DiagnosticFunctionKind,
-    DiagnosticMutationOperation, DiagnosticOperatorKind, DiagnosticTypeFamily,
-    MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
+    DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticFactSchemaMismatch,
+    DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation, DiagnosticOperatorKind,
+    DiagnosticTypeFamily, MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
+    validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
 };
 
 ///

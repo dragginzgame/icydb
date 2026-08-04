@@ -8,7 +8,7 @@ use candid::Decode;
 mod render;
 
 use crate::{
-    cli::{CanisterTarget, DiagnosticArtifactArgs},
+    cli::{CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs},
     diagnostic::artifact::DiagnosticSchemaArtifact,
     endpoint::SCHEMA_ENDPOINT,
     icp::require_created_canister,
@@ -31,6 +31,16 @@ pub(super) fn run_diagnostic_artifact_command(args: DiagnosticArtifactArgs) -> R
         report.as_slice(),
     )?;
     artifact.write_new(args.output())?;
+    println!("wrote {}", args.output().display());
+    Ok(())
+}
+
+pub(super) fn run_diagnostic_source_metadata_command(
+    args: DiagnosticSourceMetadataArgs,
+) -> Result<(), String> {
+    let metadata = DiagnosticSchemaArtifact::read_deployment(args.artifact())?
+        .bind_to_source(args.source())?;
+    metadata.write_new(args.output())?;
     println!("wrote {}", args.output().display());
     Ok(())
 }

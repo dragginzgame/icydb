@@ -3,7 +3,7 @@ use icydb_testing_integration::install_fixture_canister;
 
 fn typed_query_row_count(fixture: &StandaloneCanisterFixture, method: &str) -> u32 {
     fixture
-        .query_call(method, ())
+        .query_candid(method, ())
         .expect("typed query endpoint response should decode")
 }
 

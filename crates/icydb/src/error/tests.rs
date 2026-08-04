@@ -483,6 +483,28 @@ fn core_numeric_facts_cross_the_public_facade_once_in_order() {
 }
 
 #[test]
+fn malformed_numeric_facts_fail_compactly_at_the_public_facade() {
+    let diagnostic = icydb_diagnostic_code::Diagnostic::new(
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary,
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        Some(icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+            boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::UnknownReturningField,
+        }),
+    );
+    let error = Error::from_diagnostic_and_facts(
+        diagnostic,
+        vec![(icydb_diagnostic_code::DiagnosticFactTag::Limit, 1)],
+    );
+
+    assert_eq!(
+        error.code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION
+    );
+    assert_eq!(error.origin(), ErrorOrigin::Query);
+    assert!(error.facts().is_empty());
+}
+
+#[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
     let cause: RuntimeBootstrapError<std::convert::Infallible> =
         RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess);

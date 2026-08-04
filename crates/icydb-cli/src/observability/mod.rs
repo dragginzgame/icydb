@@ -9,7 +9,10 @@ mod render;
 mod schema;
 mod snapshot;
 
-use crate::cli::{CanisterTarget, DiagnosticArtifactArgs, MetricsArgs, SchemaMigrationCommand};
+use crate::cli::{
+    CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs, MetricsArgs,
+    SchemaMigrationCommand,
+};
 use crate::icp::{call_query_hex, call_update_hex};
 
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
@@ -22,6 +25,12 @@ pub(crate) fn run_schema_show_command(target: CanisterTarget) -> Result<(), Stri
 
 pub(crate) fn run_diagnostic_artifact_command(args: DiagnosticArtifactArgs) -> Result<(), String> {
     schema::run_diagnostic_artifact_command(args)
+}
+
+pub(crate) fn run_diagnostic_source_metadata_command(
+    args: DiagnosticSourceMetadataArgs,
+) -> Result<(), String> {
+    schema::run_diagnostic_source_metadata_command(args)
 }
 
 pub(crate) fn load_schema_report(

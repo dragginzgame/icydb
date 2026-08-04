@@ -74,6 +74,8 @@ fn cli_args_accept_exact_diagnostic_resolver_inputs() {
         "entity_tag=42",
         "--artifact",
         "schema.diagnostic.json",
+        "--source-metadata",
+        "schema.source.json",
         "--canister",
         "app",
         "--environment",
@@ -87,6 +89,10 @@ fn cli_args_accept_exact_diagnostic_resolver_inputs() {
     assert_eq!(args.code(), "E223");
     assert_eq!(args.facts().len(), 2);
     assert_eq!(args.artifact(), Some(Path::new("schema.diagnostic.json")));
+    assert_eq!(
+        args.source_metadata(),
+        Some(Path::new("schema.source.json"))
+    );
     assert_eq!(args.canister_name(), Some("app"));
     assert_eq!(args.environment(), "test");
 }
@@ -108,6 +114,30 @@ fn cli_args_group_diagnostic_artifact_export_under_schema() {
 
     assert_eq!(args.target().canister_name(), "app");
     assert_eq!(args.output(), Path::new("schema.diagnostic.json"));
+}
+
+#[test]
+fn cli_args_group_exact_source_metadata_binding_under_schema() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "schema",
+        "diagnostic-source-metadata",
+        "--artifact",
+        "schema.diagnostic.json",
+        "--source",
+        "schema/account.rs",
+        "--output",
+        "schema.source.json",
+    ])
+    .expect("diagnostic source metadata binding should parse");
+    let CliCommand::Schema(SchemaCommand::DiagnosticSourceMetadata(args)) = args.into_command()
+    else {
+        panic!("expected schema diagnostic source metadata command");
+    };
+
+    assert_eq!(args.artifact(), Path::new("schema.diagnostic.json"));
+    assert_eq!(args.source(), "schema/account.rs");
+    assert_eq!(args.output(), Path::new("schema.source.json"));
 }
 
 fn clap_help_text(args: &[&str]) -> String {

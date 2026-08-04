@@ -74,6 +74,39 @@ artifact names and prints numeric identities. When `--artifact` and
 `--canister` are combined, artifact provenance must also match the selected
 deployment; an exact live introspection result is the next resolver.
 
+## Generated/source metadata
+
+Bind an exact accepted artifact to the generated package or source tree that
+will carry its diagnostic labels:
+
+```console
+icydb schema diagnostic-source-metadata \
+  --artifact app.diagnostic.json \
+  --source schema/app \
+  --output app.source-diagnostic.json
+```
+
+The command preserves every accepted fingerprint, entity tag, numeric ID, and
+label from the validated deployment artifact. It changes only the bounded
+host-side provenance. Source declarations alone cannot create this file
+because they do not own accepted database identities.
+
+Use the bound metadata when neither an exact deployment artifact nor live
+schema introspection is available:
+
+```console
+icydb diagnostic E223 --source-metadata app.source-diagnostic.json \
+  --fact accepted_schema_fingerprint_method=1 \
+  --fact accepted_schema_fingerprint_high=123 \
+  --fact accepted_schema_fingerprint_low=456 \
+  --fact entity_tag=17 \
+  --fact constraint_id=4
+```
+
+Resolution order is exact deployment artifact, explicit live introspection,
+exact source metadata, then numeric fallback. Deployment and source provenance
+are not interchangeable, and any identity mismatch withholds names.
+
 The JSON artifact is a tooling format, not database state. It cannot authorize
 a write, apply a schema, recover data, or replace accepted schema authority.
 Only the current pre-1.0 artifact shape is accepted.

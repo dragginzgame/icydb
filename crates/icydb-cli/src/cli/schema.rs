@@ -23,6 +23,9 @@ pub(crate) enum SchemaCommand {
     /// Export bounded accepted-schema identity for offline diagnostics.
     DiagnosticArtifact(DiagnosticArtifactArgs),
 
+    /// Bind an accepted diagnostic artifact to generated/source metadata.
+    DiagnosticSourceMetadata(DiagnosticSourceMetadataArgs),
+
     /// Inspect or operate an explicit deployed source migration.
     #[command(subcommand)]
     Migration(SchemaMigrationCommand),
@@ -42,6 +45,36 @@ pub(crate) struct DiagnosticArtifactArgs {
 impl DiagnosticArtifactArgs {
     pub(crate) const fn target(&self) -> &CanisterTarget {
         &self.target
+    }
+
+    pub(crate) fn output(&self) -> &Path {
+        self.output.as_path()
+    }
+}
+
+/// Exact accepted artifact and source label for one host-only metadata binding.
+#[derive(Args, Debug)]
+pub(crate) struct DiagnosticSourceMetadataArgs {
+    /// Existing exact accepted-schema diagnostic artifact.
+    #[arg(long, value_name = "PATH")]
+    artifact: PathBuf,
+
+    /// Generated package or source path that owns this metadata.
+    #[arg(long, value_name = "SOURCE")]
+    source: String,
+
+    /// New metadata path; an existing file is never overwritten.
+    #[arg(short, long, value_name = "PATH")]
+    output: PathBuf,
+}
+
+impl DiagnosticSourceMetadataArgs {
+    pub(crate) fn artifact(&self) -> &Path {
+        self.artifact.as_path()
+    }
+
+    pub(crate) const fn source(&self) -> &str {
+        self.source.as_str()
     }
 
     pub(crate) fn output(&self) -> &Path {

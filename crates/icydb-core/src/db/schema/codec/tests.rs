@@ -108,15 +108,6 @@ fn decode_persisted_schema_snapshot_rejects_corrupt_format_magic() {
 }
 
 #[test]
-fn decode_persisted_schema_snapshot_hard_cuts_retired_candid_format() {
-    let error = decode_persisted_schema_snapshot(b"DIDLretired")
-        .expect_err("retired Candid schema snapshots must fail closed");
-
-    assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
-    assert_eq!(error.origin(), ErrorOrigin::Serialize);
-}
-
-#[test]
 fn persisted_schema_snapshot_rejects_unknown_tags_and_trailing_bytes() {
     let mut kind_reader = super::SnapshotReader::new(&[u8::MAX]);
     let kind_error = super::field::decode_kind(&mut kind_reader, 0)

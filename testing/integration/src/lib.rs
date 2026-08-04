@@ -578,12 +578,12 @@ fn canister_build_label(fixture: &FixtureCanister, options: CanisterBuildOptions
 /// Panics if the reset or load calls fail to decode or return fixture errors.
 pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
     let reset: Result<(), Error> = fixture
-        .update_call("icydb_fixtures_reset", ())
+        .update_candid("icydb_fixtures_reset", ())
         .expect("icydb_fixtures_reset should decode");
     reset.expect("icydb_fixtures_reset should succeed");
 
     let load: Result<(), Error> = fixture
-        .update_call("icydb_fixtures_load", ())
+        .update_candid("icydb_fixtures_load", ())
         .expect("icydb_fixtures_load should decode");
     load.expect("icydb_fixtures_load should succeed");
 }

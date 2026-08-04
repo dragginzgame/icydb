@@ -112,7 +112,7 @@ fn read_wasm(variable: &str) -> Vec<u8> {
 
 fn load_fixtures(fixture: &StandaloneCanisterFixture) {
     let loaded: Result<(), Error> = fixture
-        .update_call("icydb_fixtures_load", ())
+        .update_candid("icydb_fixtures_load", ())
         .expect("fixture load response should decode");
     loaded.expect("fixture load should succeed");
 }
@@ -127,7 +127,7 @@ fn upgrade(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
 
 fn migration_status(fixture: &StandaloneCanisterFixture) -> SchemaMigrationStatusPage {
     let result: Result<SchemaMigrationStatusPage, Error> = fixture
-        .query_call(
+        .query_candid(
             "icydb_schema_migration",
             (SchemaMigrationStatusRequest::default(),),
         )
@@ -140,7 +140,7 @@ fn migration_command(
     command: SchemaMigrationCommand,
 ) -> SchemaMigrationStatusPage {
     let result: Result<SchemaMigrationStatusPage, Error> = fixture
-        .update_call("icydb_schema_migrate", (command,))
+        .update_candid("icydb_schema_migrate", (command,))
         .expect("migration command response should decode");
     result.expect("migration command should succeed")
 }
@@ -164,7 +164,7 @@ fn advance(
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     let result: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call("icydb_query", (sql.to_string(),))
+        .query_candid("icydb_query", (sql.to_string(),))
         .expect("SQL query response should decode");
     result.map(|response| response.result)
 }

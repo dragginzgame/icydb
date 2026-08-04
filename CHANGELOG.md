@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Preserve exact public leaf error codes when typed diagnostic details also
-  carry bounded numeric facts.
-- Update the host integration harness to `ic-testkit` 0.3.0, adopting its
-  fallible retry-policy contract without changing IcyDB test behavior.
-
 ## [0.219.x] 🩺 - 2026-08-03 - Compact Structured Diagnostics
 
 Detailed notes: [docs/changelog/0.219.md](docs/changelog/0.219.md)
+
+- `0.219.2` closes numeric diagnostic validation and exact host resolution,
+  then hard-cuts Deep-job persistence to one bounded direct format; retained
+  development progress state must be recreated.
 
 - `0.219.1` completes bounded numeric diagnostics and exact host-side schema
   resolution in a breaking pre-1.0 hard cut, while simplifying scalar metadata

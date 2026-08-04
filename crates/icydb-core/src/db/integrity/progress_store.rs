@@ -6,18 +6,22 @@
 use crate::{
     db::{
         database_format::crc32c,
-        integrity::{IntegrityJob, IntegrityJobError, IntegrityJobId, IntegrityJobOwner},
+        integrity::{
+            IntegrityJob, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
+            progress_codec::{
+                MAX_INTEGRITY_JOB_PAYLOAD_BYTES, decode_integrity_job_payload,
+                encode_integrity_job_payload,
+            },
+        },
     },
     traits::CanisterKind,
 };
-use candid::{CandidType, Decode, Encode};
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
 use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound,
 };
-use serde::Deserialize;
 use std::borrow::Cow;
 #[cfg(test)]
 use std::cell::RefCell;
@@ -28,7 +32,7 @@ const PROGRESS_HEADER_MAGIC: &[u8; 8] = b"ICYIPROG";
 const PROGRESS_HEADER_VERSION: u8 = 1;
 const PROGRESS_HEADER_BYTES: usize = 8 + 1 + 4;
 const JOB_RECORD_MAGIC: &[u8; 8] = b"ICYIJPTH";
-const JOB_RECORD_VERSION: u8 = 1;
+const JOB_RECORD_VERSION: u8 = 2;
 const JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const MAX_PROGRESS_RECORD_BYTES: u32 = 512 * 1024;
 const MAX_PROGRESS_JOBS_GLOBAL: u64 = 64;
@@ -86,11 +90,6 @@ impl Storable for ProgressRecordBytes {
         max_size: MAX_PROGRESS_RECORD_BYTES,
         is_fixed_size: false,
     };
-}
-
-#[derive(CandidType, Deserialize)]
-struct IntegrityJobWireV1 {
-    job: IntegrityJob,
 }
 
 pub(super) enum InsertJobResult {
@@ -267,8 +266,8 @@ fn decode_progress_header(bytes: &[u8]) -> Result<(), IntegrityJobError> {
 }
 
 fn encode_job_record(job: &IntegrityJob) -> Result<Vec<u8>, IntegrityJobError> {
-    let payload = Encode!(&IntegrityJobWireV1 { job: job.clone() })
-        .map_err(|_| IntegrityJobError::Internal)?;
+    let payload =
+        encode_integrity_job_payload(job).map_err(|_| IntegrityJobError::CapacityExceeded)?;
     let total_len = JOB_RECORD_HEADER_BYTES
         .checked_add(payload.len())
         .ok_or(IntegrityJobError::CapacityExceeded)?;
@@ -313,13 +312,15 @@ fn decode_job_record(
     if u32::from_be_bytes(checksum) != crc32c(payload) {
         return Err(IntegrityJobError::CorruptProgressRecord);
     }
-    let wire = Decode!(payload, IntegrityJobWireV1)
-        .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
-    if wire.job.id != expected_id {
+    if payload.len() > MAX_INTEGRITY_JOB_PAYLOAD_BYTES {
         return Err(IntegrityJobError::CorruptProgressRecord);
     }
-    wire.job.validate()?;
-    Ok(wire.job)
+    let job = decode_integrity_job_payload(payload)
+        .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
+    if job.id != expected_id {
+        return Err(IntegrityJobError::CorruptProgressRecord);
+    }
+    Ok(job)
 }
 
 pub(super) fn with_progress_store<C: CanisterKind, R>(
@@ -369,6 +370,7 @@ fn progress_memory<C: CanisterKind>() -> Result<VirtualMemory<DefaultMemoryImpl>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::integrity::progress_codec::current_job_codec_fixture;
 
     #[test]
     fn progress_header_rejects_future_version_and_checksum_corruption() {
@@ -387,6 +389,36 @@ mod tests {
         assert_eq!(
             decode_progress_header(&corrupt),
             Err(IntegrityJobError::CorruptProgressHeader),
+        );
+    }
+
+    #[test]
+    fn current_job_record_uses_only_the_direct_version_two_payload() {
+        let job = current_job_codec_fixture();
+        let encoded = encode_job_record(&job).expect("current job should encode");
+
+        assert_eq!(encoded[JOB_RECORD_MAGIC.len()], 2);
+        assert!(!encoded[JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
+        assert_eq!(
+            decode_job_record(&encoded, job.id).expect("current job should decode"),
+            job,
+        );
+
+        let mut retired_version = encoded.clone();
+        retired_version[JOB_RECORD_MAGIC.len()] = 1;
+        assert_eq!(
+            decode_job_record(&retired_version, job.id),
+            Err(IntegrityJobError::IncompatibleProgressFormat),
+        );
+
+        let mut corrupt = encoded;
+        let last = corrupt
+            .last_mut()
+            .expect("current job record has a payload");
+        *last ^= 0xff;
+        assert_eq!(
+            decode_job_record(&corrupt, job.id),
+            Err(IntegrityJobError::CorruptProgressRecord),
         );
     }
 }
