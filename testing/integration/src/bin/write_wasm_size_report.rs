@@ -12,11 +12,14 @@ use icydb_testing_integration::{
         WASM_MEASUREMENT_PROFILE_VERSION, WASM_MEASUREMENT_SUBJECTS, WASM_PATCH_BUDGETS,
         WasmComparison, WasmLineBudget, WasmPatchBudget, validate_wasm_measurement_contract,
     },
+    wasm_optimizer::{
+        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_SHA256, WASM_OPT_VERSION,
+    },
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const SIZE_REPORT_FORMAT_VERSION: u32 = 2;
+const SIZE_REPORT_FORMAT_VERSION: u32 = 3;
 
 const GENERATED_EXPORTS: &[&str] = &[
     "icydb_query",
@@ -39,13 +42,11 @@ struct Args {
     profile: String,
     sql_variant: String,
     did: PathBuf,
-    raw_wasm: PathBuf,
-    raw_gz: PathBuf,
-    raw_gz_emitted: PathBuf,
-    analysis_shrunk_wasm: PathBuf,
-    analysis_shrunk_gz: PathBuf,
-    raw_info: PathBuf,
-    analysis_shrunk_info: PathBuf,
+    compiler_wasm: PathBuf,
+    final_wasm: PathBuf,
+    final_gz: PathBuf,
+    compiler_info: PathBuf,
+    final_info: PathBuf,
     report_json: PathBuf,
     summary_md: PathBuf,
     ic_wasm_bin: PathBuf,
@@ -111,11 +112,9 @@ struct Pipeline {
 struct Artifacts {
     did: Option<FileMeta>,
     candid_export: &'static str,
-    icp_built_wasm: FileMeta,
-    icp_built_wasm_gz_deterministic: FileMeta,
-    icp_built_wasm_gz_emitted: Option<FileMeta>,
-    analysis_shrunk_wasm: FileMeta,
-    analysis_shrunk_wasm_gz: FileMeta,
+    compiler_emitted_wasm: FileMeta,
+    final_deployable_wasm: FileMeta,
+    final_deployable_wasm_gz: FileMeta,
 }
 
 #[derive(Clone, Serialize)]
@@ -127,8 +126,9 @@ struct FileMeta {
 
 #[derive(Serialize)]
 struct Analysis {
-    icp_built: WasmInfo,
-    analysis_shrunk: WasmInfo,
+    compiler_emitted: WasmInfo,
+    final_deployable: WasmInfo,
+    enabled_wasm_features: Vec<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -167,8 +167,8 @@ struct GeneratedEndpointSurface {
 
 #[derive(Serialize)]
 struct Deltas {
-    analysis_shrink_wasm_bytes: i64,
-    analysis_shrink_wasm_gz_bytes: i64,
+    post_link_wasm_bytes: i64,
+    post_link_reduction_basis_points: u16,
 }
 
 fn main() {
@@ -191,22 +191,34 @@ fn run() -> Result<(), String> {
     let workspace_root = workspace_root()?;
     let provenance = capture_provenance(&workspace_root)?;
     let tools = capture_tools(&workspace_root, &args.ic_wasm_bin, &args.wasm_opt_bin)?;
+    if tools.wasm_opt_version != WASM_OPT_VERSION || tools.wasm_opt_sha256 != WASM_OPT_SHA256 {
+        return Err(format!(
+            "size report optimizer does not match the deployable pipeline: version='{}', sha256='{}'",
+            tools.wasm_opt_version, tools.wasm_opt_sha256
+        ));
+    }
 
-    let raw_wasm = file_meta(&args.raw_wasm)?;
-    let raw_gz = file_meta(&args.raw_gz)?;
-    let raw_gz_emitted = optional_file_meta(&args.raw_gz_emitted)?;
-    let analysis_shrunk_wasm = file_meta(&args.analysis_shrunk_wasm)?;
-    let analysis_shrunk_gz = file_meta(&args.analysis_shrunk_gz)?;
+    let compiler_wasm = file_meta(&args.compiler_wasm)?;
+    let final_wasm = file_meta(&args.final_wasm)?;
+    let final_gz = file_meta(&args.final_gz)?;
     let did = optional_file_meta(&args.did)?;
-    let raw_info = parse_info(&args.raw_info)?;
-    let analysis_shrunk_info = parse_info(&args.analysis_shrunk_info)?;
+    let compiler_info = parse_info(&args.compiler_info)?;
+    let final_info = parse_info(&args.final_info)?;
+    let enabled_wasm_features =
+        validate_final_wasm_features(&workspace_root, &args.wasm_opt_bin, &args.final_wasm)?;
 
     let candid_export = if did.is_some() {
         "available"
     } else {
         "unavailable"
     };
-    let build = endpoint_surface(&args.canister, &args.sql_variant, &raw_info)?;
+    let (build, post_link_reduction_basis_points) = validate_post_link_contract(
+        &args,
+        &compiler_wasm,
+        &final_wasm,
+        &compiler_info,
+        &final_info,
+    )?;
     let report = SizeReport {
         format_version: SIZE_REPORT_FORMAT_VERSION,
         measurement_profile: MeasurementProfile {
@@ -219,9 +231,9 @@ fn run() -> Result<(), String> {
         provenance,
         tools,
         pipeline: Pipeline {
-            compiler_emitted_stage: "icp_built_wasm",
-            post_link_transform: "identity",
-            final_deployable_stage: "icp_built_wasm",
+            compiler_emitted_stage: "cargo_wasm",
+            post_link_transform: POST_LINK_PIPELINE_IDENTITY,
+            final_deployable_stage: "binaryen_oz_wasm",
             candid_metadata: "enabled",
             build_profile: "production",
             no_default_features: true,
@@ -233,20 +245,19 @@ fn run() -> Result<(), String> {
         artifacts: Artifacts {
             did,
             candid_export,
-            icp_built_wasm: raw_wasm.clone(),
-            icp_built_wasm_gz_deterministic: raw_gz.clone(),
-            icp_built_wasm_gz_emitted: raw_gz_emitted,
-            analysis_shrunk_wasm: analysis_shrunk_wasm.clone(),
-            analysis_shrunk_wasm_gz: analysis_shrunk_gz.clone(),
+            compiler_emitted_wasm: compiler_wasm.clone(),
+            final_deployable_wasm: final_wasm.clone(),
+            final_deployable_wasm_gz: final_gz,
         },
         analysis: Analysis {
-            icp_built: raw_info,
-            analysis_shrunk: analysis_shrunk_info,
+            compiler_emitted: compiler_info,
+            final_deployable: final_info,
+            enabled_wasm_features,
         },
         build,
         deltas: Deltas {
-            analysis_shrink_wasm_bytes: delta_bytes(&raw_wasm, &analysis_shrunk_wasm)?,
-            analysis_shrink_wasm_gz_bytes: delta_bytes(&raw_gz, &analysis_shrunk_gz)?,
+            post_link_wasm_bytes: delta_bytes(&compiler_wasm, &final_wasm)?,
+            post_link_reduction_basis_points,
         },
     };
 
@@ -284,19 +295,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--profile" => parsed.profile = Some(required_value(&arg, &mut args)?),
             "--sql-variant" => parsed.sql_variant = Some(required_value(&arg, &mut args)?),
             "--did" => parsed.did = Some(required_path(&arg, &mut args)?),
-            "--raw-wasm" => parsed.raw_wasm = Some(required_path(&arg, &mut args)?),
-            "--raw-gz" => parsed.raw_gz = Some(required_path(&arg, &mut args)?),
-            "--raw-gz-emitted" => parsed.raw_gz_emitted = Some(required_path(&arg, &mut args)?),
-            "--analysis-shrunk-wasm" => {
-                parsed.analysis_shrunk_wasm = Some(required_path(&arg, &mut args)?);
-            }
-            "--analysis-shrunk-gz" => {
-                parsed.analysis_shrunk_gz = Some(required_path(&arg, &mut args)?);
-            }
-            "--raw-info" => parsed.raw_info = Some(required_path(&arg, &mut args)?),
-            "--analysis-shrunk-info" => {
-                parsed.analysis_shrunk_info = Some(required_path(&arg, &mut args)?);
-            }
+            "--compiler-wasm" => parsed.compiler_wasm = Some(required_path(&arg, &mut args)?),
+            "--final-wasm" => parsed.final_wasm = Some(required_path(&arg, &mut args)?),
+            "--final-gz" => parsed.final_gz = Some(required_path(&arg, &mut args)?),
+            "--compiler-info" => parsed.compiler_info = Some(required_path(&arg, &mut args)?),
+            "--final-info" => parsed.final_info = Some(required_path(&arg, &mut args)?),
             "--report-json" => parsed.report_json = Some(required_path(&arg, &mut args)?),
             "--summary-md" => parsed.summary_md = Some(required_path(&arg, &mut args)?),
             "--ic-wasm-bin" => parsed.ic_wasm_bin = Some(required_path(&arg, &mut args)?),
@@ -315,13 +318,11 @@ struct ParsedArgs {
     profile: Option<String>,
     sql_variant: Option<String>,
     did: Option<PathBuf>,
-    raw_wasm: Option<PathBuf>,
-    raw_gz: Option<PathBuf>,
-    raw_gz_emitted: Option<PathBuf>,
-    analysis_shrunk_wasm: Option<PathBuf>,
-    analysis_shrunk_gz: Option<PathBuf>,
-    raw_info: Option<PathBuf>,
-    analysis_shrunk_info: Option<PathBuf>,
+    compiler_wasm: Option<PathBuf>,
+    final_wasm: Option<PathBuf>,
+    final_gz: Option<PathBuf>,
+    compiler_info: Option<PathBuf>,
+    final_info: Option<PathBuf>,
     report_json: Option<PathBuf>,
     summary_md: Option<PathBuf>,
     ic_wasm_bin: Option<PathBuf>,
@@ -335,13 +336,11 @@ impl ParsedArgs {
             profile: require_arg(self.profile, "--profile")?,
             sql_variant: require_arg(self.sql_variant, "--sql-variant")?,
             did: require_arg(self.did, "--did")?,
-            raw_wasm: require_arg(self.raw_wasm, "--raw-wasm")?,
-            raw_gz: require_arg(self.raw_gz, "--raw-gz")?,
-            raw_gz_emitted: require_arg(self.raw_gz_emitted, "--raw-gz-emitted")?,
-            analysis_shrunk_wasm: require_arg(self.analysis_shrunk_wasm, "--analysis-shrunk-wasm")?,
-            analysis_shrunk_gz: require_arg(self.analysis_shrunk_gz, "--analysis-shrunk-gz")?,
-            raw_info: require_arg(self.raw_info, "--raw-info")?,
-            analysis_shrunk_info: require_arg(self.analysis_shrunk_info, "--analysis-shrunk-info")?,
+            compiler_wasm: require_arg(self.compiler_wasm, "--compiler-wasm")?,
+            final_wasm: require_arg(self.final_wasm, "--final-wasm")?,
+            final_gz: require_arg(self.final_gz, "--final-gz")?,
+            compiler_info: require_arg(self.compiler_info, "--compiler-info")?,
+            final_info: require_arg(self.final_info, "--final-info")?,
             report_json: require_arg(self.report_json, "--report-json")?,
             summary_md: require_arg(self.summary_md, "--summary-md")?,
             ic_wasm_bin: require_arg(self.ic_wasm_bin, "--ic-wasm-bin")?,
@@ -364,7 +363,7 @@ fn require_arg<T>(value: Option<T>, flag: &str) -> Result<T, String> {
 }
 
 fn usage() -> String {
-    "usage: write_wasm_size_report --canister name --profile profile --sql-variant sql-on|sql-off --did path --raw-wasm path --raw-gz path --raw-gz-emitted path --analysis-shrunk-wasm path --analysis-shrunk-gz path --raw-info path --analysis-shrunk-info path --report-json path --summary-md path --ic-wasm-bin path --wasm-opt-bin path".to_string()
+    "usage: write_wasm_size_report --canister name --profile profile --sql-variant sql-on|sql-off --did path --compiler-wasm path --final-wasm path --final-gz path --compiler-info path --final-info path --report-json path --summary-md path --ic-wasm-bin path --wasm-opt-bin path".to_string()
 }
 
 fn workspace_root() -> Result<PathBuf, String> {
@@ -443,6 +442,46 @@ fn command_text(current_dir: &Path, program: &Path, args: &[&str]) -> Result<Str
     String::from_utf8(output.stdout)
         .map(|text| text.trim().to_string())
         .map_err(|error| format!("{} emitted non-UTF-8 output: {error}", program.display()))
+}
+
+fn validate_final_wasm_features(
+    workspace_root: &Path,
+    wasm_opt_bin: &Path,
+    final_wasm: &Path,
+) -> Result<Vec<String>, String> {
+    let output = Command::new(wasm_opt_bin)
+        .current_dir(workspace_root)
+        .arg(final_wasm)
+        .args(&WASM_OPT_FLAGS[1..])
+        .arg("--print-features")
+        .output()
+        .map_err(|error| format!("failed to validate final Wasm features: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "final Wasm feature validation failed with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        ));
+    }
+    let mut features = String::from_utf8(output.stdout)
+        .map_err(|error| format!("wasm-opt emitted non-UTF-8 feature output: {error}"))?
+        .lines()
+        .filter(|line| line.starts_with("--enable-"))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    features.sort();
+    let mut expected = WASM_OPT_FLAGS[1..]
+        .iter()
+        .filter(|feature| feature.starts_with("--enable-"))
+        .map(|feature| (*feature).to_string())
+        .collect::<Vec<_>>();
+    expected.sort();
+    if features != expected {
+        return Err(format!(
+            "final Wasm feature set drifted: expected {expected:?}, observed {features:?}"
+        ));
+    }
+    Ok(features)
 }
 
 fn file_meta(path: &Path) -> Result<FileMeta, String> {
@@ -563,11 +602,7 @@ fn endpoint_surface(canister: &str, sql_variant: &str, info: &WasmInfo) -> Resul
         .filter(|feature| *feature == "candid-export" || sql_variant == "sql-on")
         .map(str::to_string)
         .collect();
-    let names = info
-        .exported_methods
-        .iter()
-        .map(|export| export_name(export))
-        .collect::<Vec<_>>();
+    let names = exported_method_names(info);
     let generated_endpoint_surface = GeneratedEndpointSurface {
         sql_readonly: names.contains(&"icydb_query"),
         sql_ddl: names.contains(&"icydb_ddl"),
@@ -593,6 +628,43 @@ fn endpoint_surface(canister: &str, sql_variant: &str, info: &WasmInfo) -> Resul
     })
 }
 
+fn validate_post_link_contract(
+    args: &Args,
+    compiler_wasm: &FileMeta,
+    final_wasm: &FileMeta,
+    compiler_info: &WasmInfo,
+    final_info: &WasmInfo,
+) -> Result<(Build, u16), String> {
+    let compiler_exports = exported_method_names(compiler_info);
+    let final_exports = exported_method_names(final_info);
+    if compiler_exports != final_exports {
+        return Err(format!(
+            "post-link export drift for {}: compiler={compiler_exports:?}, final={final_exports:?}",
+            args.canister
+        ));
+    }
+    let build = endpoint_surface(&args.canister, &args.sql_variant, final_info)?;
+    let reduction = reduction_basis_points(compiler_wasm, final_wasm)?;
+    let patch_two_budget = WASM_PATCH_BUDGETS
+        .iter()
+        .find(|budget| budget.patch == 2)
+        .ok_or_else(|| "Patch 2 Wasm budget is missing".to_string())?;
+    if reduction < patch_two_budget.minimum_selected_raw_reduction_basis_points {
+        return Err(format!(
+            "Patch 2 raw-Wasm budget failed for {}: observed={}bp, required={}bp",
+            args.canister, reduction, patch_two_budget.minimum_selected_raw_reduction_basis_points
+        ));
+    }
+    Ok((build, reduction))
+}
+
+fn exported_method_names(info: &WasmInfo) -> Vec<&str> {
+    info.exported_methods
+        .iter()
+        .map(|export| export_name(export))
+        .collect()
+}
+
 fn export_name(export: &str) -> &str {
     if let Some(rest) = export.strip_prefix("canister_query ") {
         return rest.split_whitespace().next().unwrap_or(rest);
@@ -608,7 +680,23 @@ fn delta_bytes(before: &FileMeta, after: &FileMeta) -> Result<i64, String> {
         .map_err(|_| format!("file too large to diff: {}", before.path))?;
     let after = i64::try_from(after.bytes)
         .map_err(|_| format!("file too large to diff: {}", after.path))?;
-    Ok(before - after)
+    Ok(after - before)
+}
+
+fn reduction_basis_points(before: &FileMeta, after: &FileMeta) -> Result<u16, String> {
+    if before.bytes == 0 || after.bytes > before.bytes {
+        return Err(format!(
+            "post-link artifact did not reduce compiler output: before={}, after={}",
+            before.bytes, after.bytes
+        ));
+    }
+    let reduction = before.bytes - after.bytes;
+    let basis_points = reduction
+        .checked_mul(10_000)
+        .ok_or_else(|| "post-link reduction basis-point arithmetic overflowed".to_string())?
+        / before.bytes;
+    u16::try_from(basis_points)
+        .map_err(|_| format!("post-link reduction basis points exceed u16: {basis_points}"))
 }
 
 fn render_summary(report: &SizeReport, report_path: &Path) -> String {
@@ -621,34 +709,26 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
         String::new(),
         "| Artifact | Bytes |".to_string(),
         "| --- | ---: |".to_string(),
-        format!("| icp-built `.wasm` | {} |", artifacts.icp_built_wasm.bytes),
         format!(
-            "| icp-built deterministic `.wasm.gz` | {} |",
-            artifacts.icp_built_wasm_gz_deterministic.bytes
+            "| compiler-emitted `.wasm` | {} |",
+            artifacts.compiler_emitted_wasm.bytes
         ),
-    ];
-
-    if let Some(emitted) = &artifacts.icp_built_wasm_gz_emitted {
-        lines.push(format!("| icp-emitted `.wasm.gz` | {} |", emitted.bytes));
-    }
-
-    lines.extend([
+        format!(
+            "| final deployable `.wasm` | {} |",
+            artifacts.final_deployable_wasm.bytes
+        ),
+        format!(
+            "| final deployable deterministic `.wasm.gz` | {} |",
+            artifacts.final_deployable_wasm_gz.bytes
+        ),
         format!("| candid export | {} |", artifacts.candid_export),
         format!(
-            "| analysis-only shrunk `.wasm` | {} |",
-            artifacts.analysis_shrunk_wasm.bytes
+            "| Post-link delta `.wasm` | {} |",
+            report.deltas.post_link_wasm_bytes
         ),
         format!(
-            "| analysis-only shrunk `.wasm.gz` | {} |",
-            artifacts.analysis_shrunk_wasm_gz.bytes
-        ),
-        format!(
-            "| Analysis shrink delta `.wasm` | {} |",
-            report.deltas.analysis_shrink_wasm_bytes
-        ),
-        format!(
-            "| Analysis shrink delta `.wasm.gz` | {} |",
-            report.deltas.analysis_shrink_wasm_gz_bytes
+            "| Post-link reduction | {} basis points |",
+            report.deltas.post_link_reduction_basis_points
         ),
         String::new(),
         format!(
@@ -671,7 +751,7 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
         String::new(),
         "| Option | Enabled |".to_string(),
         "| --- | --- |".to_string(),
-    ]);
+    ];
 
     let surface = &report.build.generated_endpoint_surface;
     let surface_rows = [
@@ -710,7 +790,7 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
         String::new(),
         format!(
             "Exports (final deployable): {}",
-            report.analysis.icp_built.exported_method_count
+            report.analysis.final_deployable.exported_method_count
         ),
         String::new(),
         format!("JSON report: `{}`", report_path.display()),

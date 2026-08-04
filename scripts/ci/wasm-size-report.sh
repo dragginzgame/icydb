@@ -81,6 +81,10 @@ if ! command -v wasm-opt >/dev/null 2>&1; then
     exit 1
 fi
 WASM_OPT_BIN="$(command -v wasm-opt)"
+if ! command -v candid-extractor >/dev/null 2>&1; then
+    echo "[wasm-size] missing required tool: candid-extractor" >&2
+    exit 1
+fi
 
 # The wasm size report consumes locally staged canister artifacts under
 # `.icp/local/canisters/<name>/`, but the staging step is owned by
@@ -118,42 +122,44 @@ build_variant() {
     )
 
     ICP_DIR="$ROOT/.icp/local/canisters/$canister_name"
-    RAW_WASM="$ICP_DIR/$canister_name.wasm"
-    RAW_GZ_EMITTED="$ICP_DIR/$canister_name.wasm.gz"
+    FINAL_WASM="$ICP_DIR/$canister_name.wasm"
+    COMPILER_WASM="$ICP_DIR/$canister_name.compiler.wasm"
     RAW_DID="$ICP_DIR/$canister_name.did"
 
-    if [[ ! -f "$RAW_WASM" ]]; then
-        echo "[wasm-size] expected wasm missing: $RAW_WASM" >&2
+    if [[ ! -f "$FINAL_WASM" ]]; then
+        echo "[wasm-size] expected final deployable wasm missing: $FINAL_WASM" >&2
+        exit 1
+    fi
+    if [[ ! -f "$COMPILER_WASM" ]]; then
+        echo "[wasm-size] expected compiler-emitted wasm missing: $COMPILER_WASM" >&2
         exit 1
     fi
 
-    RAW_COPY="$out_dir/${stem}.icp-built.wasm"
-    RAW_GZ_DETERMINISTIC="$out_dir/${stem}.icp-built.wasm.gz"
-    RAW_GZ_EMITTED_COPY="$out_dir/${stem}.icp-emitted.wasm.gz"
+    COMPILER_COPY="$out_dir/${stem}.compiler-emitted.wasm"
+    FINAL_COPY="$out_dir/${stem}.final-deployable.wasm"
+    FINAL_GZ="$out_dir/${stem}.final-deployable.wasm.gz"
     DID_COPY="$out_dir/${stem}.did"
-    SHRUNK_WASM="$out_dir/${stem}.analysis-shrunk.wasm"
-    SHRUNK_GZ="$out_dir/${stem}.analysis-shrunk.wasm.gz"
-    RAW_INFO="$out_dir/${stem}.icp-built.info.txt"
-    SHRUNK_INFO="$out_dir/${stem}.analysis-shrunk.info.txt"
+    COMPILER_DID="$out_dir/${stem}.compiler-emitted.did"
+    COMPILER_INFO="$out_dir/${stem}.compiler-emitted.info.txt"
+    FINAL_INFO="$out_dir/${stem}.final-deployable.info.txt"
     REPORT_JSON="$out_dir/${stem}.report.json"
     SUMMARY_MD="$out_dir/${stem}.summary.md"
 
-    cp "$RAW_WASM" "$RAW_COPY"
+    cp "$COMPILER_WASM" "$COMPILER_COPY"
+    cp "$FINAL_WASM" "$FINAL_COPY"
     rm -f "$DID_COPY"
     if [[ -f "$RAW_DID" ]]; then
         cp "$RAW_DID" "$DID_COPY"
     fi
-    gzip -n -9 -c "$RAW_COPY" > "$RAW_GZ_DETERMINISTIC"
-
-    if [[ -f "$RAW_GZ_EMITTED" ]]; then
-        cp "$RAW_GZ_EMITTED" "$RAW_GZ_EMITTED_COPY"
+    candid-extractor "$COMPILER_COPY" > "$COMPILER_DID"
+    if ! cmp -s "$COMPILER_DID" "$DID_COPY"; then
+        echo "[wasm-size] Candid drifted between compiler and final Wasm for '$canister_name'" >&2
+        exit 1
     fi
+    gzip -n -9 -c "$FINAL_COPY" > "$FINAL_GZ"
 
-    ic-wasm "$RAW_COPY" -o "$SHRUNK_WASM" shrink
-    gzip -n -9 -c "$SHRUNK_WASM" > "$SHRUNK_GZ"
-
-    ic-wasm "$RAW_COPY" info > "$RAW_INFO"
-    ic-wasm "$SHRUNK_WASM" info > "$SHRUNK_INFO"
+    ic-wasm "$COMPILER_COPY" info > "$COMPILER_INFO"
+    ic-wasm "$FINAL_COPY" info > "$FINAL_INFO"
 
     (
         cd "$ROOT"
@@ -162,13 +168,11 @@ build_variant() {
             --profile "$profile" \
             --sql-variant "$sql_variant" \
             --did "$DID_COPY" \
-            --raw-wasm "$RAW_COPY" \
-            --raw-gz "$RAW_GZ_DETERMINISTIC" \
-            --raw-gz-emitted "$RAW_GZ_EMITTED_COPY" \
-            --analysis-shrunk-wasm "$SHRUNK_WASM" \
-            --analysis-shrunk-gz "$SHRUNK_GZ" \
-            --raw-info "$RAW_INFO" \
-            --analysis-shrunk-info "$SHRUNK_INFO" \
+            --compiler-wasm "$COMPILER_COPY" \
+            --final-wasm "$FINAL_COPY" \
+            --final-gz "$FINAL_GZ" \
+            --compiler-info "$COMPILER_INFO" \
+            --final-info "$FINAL_INFO" \
             --report-json "$REPORT_JSON" \
             --summary-md "$SUMMARY_MD" \
             --ic-wasm-bin "$IC_WASM_BIN" \

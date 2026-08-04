@@ -3,6 +3,7 @@
 pub mod canister_artifact;
 pub mod sql_performance_contract;
 pub mod wasm_measurement;
+pub mod wasm_optimizer;
 
 use std::{
     env, fs,
@@ -22,6 +23,11 @@ struct FixtureCanister {
     name: &'static str,
     package: &'static str,
     local_wasm_bytes: OnceLock<Vec<u8>>,
+}
+
+struct BuiltCanisterArtifacts {
+    compiler_emitted: PathBuf,
+    final_deployable: PathBuf,
 }
 
 static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
@@ -352,11 +358,11 @@ fn append_rustflags(command: &mut Command, extra_flags: &[String]) {
     command.env("RUSTFLAGS", combined);
 }
 
-fn build_canister_package(
+fn build_canister_package_artifacts(
     package_name: &str,
     options: CanisterBuildOptions,
     context_label: &str,
-) -> Result<PathBuf, String> {
+) -> Result<BuiltCanisterArtifacts, String> {
     let root = workspace_root();
     let mut cargo = Command::new("cargo");
     let profile = options.profile.as_str();
@@ -418,7 +424,33 @@ fn build_canister_package(
         ));
     }
 
-    Ok(built_wasm_path)
+    if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
+        return Ok(BuiltCanisterArtifacts {
+            compiler_emitted: built_wasm_path.clone(),
+            final_deployable: built_wasm_path,
+        });
+    }
+
+    let final_deployable_path = canister_target_dir
+        .join("icydb-final")
+        .join(profile)
+        .join(format!("{package_name}.wasm"));
+    wasm_optimizer::optimize_deployable_wasm(&built_wasm_path, &final_deployable_path)
+        .map_err(|error| format!("{context_label}: {error}"))?;
+
+    Ok(BuiltCanisterArtifacts {
+        compiler_emitted: built_wasm_path,
+        final_deployable: final_deployable_path,
+    })
+}
+
+fn build_canister_package(
+    package_name: &str,
+    options: CanisterBuildOptions,
+    context_label: &str,
+) -> Result<PathBuf, String> {
+    build_canister_package_artifacts(package_name, options, context_label)
+        .map(|artifacts| artifacts.final_deployable)
 }
 
 ///
@@ -445,6 +477,46 @@ pub fn build_fixture_canister_wasm_bytes_with_options(
     options: CanisterBuildOptions,
 ) -> Vec<u8> {
     local_fixture_wasm_bytes_with_options(canister_name, options)
+}
+
+/// Build one fixture canister and return compiler-emitted plus final deployable Wasm bytes.
+///
+/// This audit boundary exists to prove upgrades from the pre-optimization
+/// compiler artifact to the canonical post-link artifact. Normal callers must
+/// install [`build_fixture_canister_wasm_bytes_with_options`] instead.
+///
+/// # Panics
+///
+/// Panics if the canister name is unsupported, either build stage fails, or
+/// either Wasm artifact cannot be read.
+#[must_use]
+pub fn build_fixture_canister_wasm_stages_with_options(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+) -> (Vec<u8>, Vec<u8>) {
+    let fixture = fixture_for_canister_name(canister_name)
+        .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
+    let artifacts = build_canister_package_artifacts(
+        fixture.package,
+        options,
+        &canister_build_label(fixture, options),
+    )
+    .unwrap_or_else(|error| panic!("{} canister should build: {error}", fixture.name));
+    let compiler_emitted = fs::read(&artifacts.compiler_emitted).unwrap_or_else(|error| {
+        panic!(
+            "failed to read compiler-emitted {} canister wasm at {}: {error}",
+            fixture.name,
+            artifacts.compiler_emitted.display()
+        )
+    });
+    let final_deployable = fs::read(&artifacts.final_deployable).unwrap_or_else(|error| {
+        panic!(
+            "failed to read final deployable {} canister wasm at {}: {error}",
+            fixture.name,
+            artifacts.final_deployable.display()
+        )
+    });
+    (compiler_emitted, final_deployable)
 }
 
 /// Install already-built fixture WASM into one fresh standalone PocketIC instance.
@@ -641,7 +713,7 @@ pub fn stage_canister_for_icp_with_options(
 ) -> Result<(PathBuf, Option<PathBuf>), String> {
     let root = workspace_root();
     let package_name = package_for_canister_name(canister_name)?;
-    let built_wasm_path = build_canister_package(
+    let artifacts = build_canister_package_artifacts(
         package_name,
         options,
         &format!(
@@ -659,11 +731,19 @@ pub fn stage_canister_for_icp_with_options(
     })?;
 
     let staged_wasm_path = icp_canister_dir.join(format!("{canister_name}.wasm"));
-    fs::copy(&built_wasm_path, &staged_wasm_path).map_err(|err| {
+    fs::copy(&artifacts.final_deployable, &staged_wasm_path).map_err(|err| {
         format!(
             "failed to copy built wasm from {} to {}: {err}",
-            built_wasm_path.display(),
+            artifacts.final_deployable.display(),
             staged_wasm_path.display()
+        )
+    })?;
+    let staged_compiler_wasm_path = icp_canister_dir.join(format!("{canister_name}.compiler.wasm"));
+    fs::copy(&artifacts.compiler_emitted, &staged_compiler_wasm_path).map_err(|err| {
+        format!(
+            "failed to copy compiler-emitted wasm from {} to {}: {err}",
+            artifacts.compiler_emitted.display(),
+            staged_compiler_wasm_path.display()
         )
     })?;
 

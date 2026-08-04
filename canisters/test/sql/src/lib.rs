@@ -52,6 +52,14 @@ const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
 const IDENTITY_MAX_BATCH_ROWS: u32 = 16 * 1024 - 1;
 const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
 
+#[cfg(feature = "metrics-context-audit")]
+#[query]
+fn audit_query_metrics_context_trap() -> Result<(), icydb::Error> {
+    icydb::__macro::with_query_metrics_context(|| {
+        ic_cdk::trap("intentional query-context rollback probe")
+    })
+}
+
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 struct IdentityCloseoutPerfResult {
     caller_nat64_instructions: u64,

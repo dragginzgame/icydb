@@ -7,12 +7,19 @@ use crate::{
     db::access::{AccessPathKind, AccessPlan},
     db::executor::planning::route::GroupedExecutionMode,
     db::query::plan::{AccessChoiceSelectedReason, AccessPlannedQuery},
-    metrics::sink::{GroupedPlanExecutionMode, MetricsEvent, PlanChoiceReason, PlanKind, record},
+    metrics::sink::{
+        GroupedPlanExecutionMode, MetricsEvent, PlanChoiceReason, PlanKind, event_is_observable,
+        record,
+    },
 };
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
 pub(super) fn record_plan_metrics(entity_path: &str, plan: &AccessPlannedQuery) {
+    if !event_is_observable() {
+        return;
+    }
+
     let kind = access_plan_kind(&plan.access);
 
     record(MetricsEvent::Plan {
@@ -30,6 +37,10 @@ pub(super) fn record_grouped_plan_metrics(
     plan: &AccessPlannedQuery,
     grouped_execution_mode: GroupedExecutionMode,
 ) {
+    if !event_is_observable() {
+        return;
+    }
+
     let kind = access_plan_kind(&plan.access);
     let grouped_execution_mode = match grouped_execution_mode {
         GroupedExecutionMode::HashMaterialized => GroupedPlanExecutionMode::HashMaterialized,
@@ -127,6 +138,10 @@ const fn plan_choice_reason(reason: AccessChoiceSelectedReason) -> Option<PlanCh
 
 /// Record per-request rows scanned metrics for one structural entity path.
 pub(super) fn record_rows_scanned_for_path(entity_path: &str, rows_scanned: usize) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::RowsScanned {
         entity_path: entity_path.into(),
         rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
@@ -135,6 +150,10 @@ pub(super) fn record_rows_scanned_for_path(entity_path: &str, rows_scanned: usiz
 
 /// Record per-request rows filtered metrics for one structural entity path.
 pub(super) fn record_rows_filtered_for_path(entity_path: &str, rows_filtered: usize) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::RowsFiltered {
         entity_path: entity_path.into(),
         rows_filtered: u64::try_from(rows_filtered).unwrap_or(u64::MAX),
@@ -143,6 +162,10 @@ pub(super) fn record_rows_filtered_for_path(entity_path: &str, rows_filtered: us
 
 /// Record per-request rows aggregated metrics for one structural entity path.
 pub(super) fn record_rows_aggregated_for_path(entity_path: &str, rows_aggregated: usize) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::RowsAggregated {
         entity_path: entity_path.into(),
         rows_aggregated: u64::try_from(rows_aggregated).unwrap_or(u64::MAX),
@@ -151,6 +174,10 @@ pub(super) fn record_rows_aggregated_for_path(entity_path: &str, rows_aggregated
 
 /// Record per-request rows emitted metrics for one structural entity path.
 pub(super) fn record_rows_emitted_for_path(entity_path: &str, rows_emitted: usize) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::RowsEmitted {
         entity_path: entity_path.into(),
         rows_emitted: u64::try_from(rows_emitted).unwrap_or(u64::MAX),
@@ -164,6 +191,10 @@ pub(super) fn record_load_row_efficiency_for_path(
     candidate_rows_filtered: usize,
     result_rows_emitted: usize,
 ) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::LoadRowEfficiency {
         entity_path: entity_path.into(),
         candidate_rows_scanned: u64::try_from(candidate_rows_scanned).unwrap_or(u64::MAX),

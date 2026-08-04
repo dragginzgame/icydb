@@ -6,7 +6,8 @@
 #[cfg(feature = "sql")]
 use super::SqlCompileRejectPhase;
 use super::{
-    CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, MetricsEvent, record,
+    CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, MetricsEvent,
+    event_is_observable, record,
 };
 use std::rc::Rc;
 
@@ -20,7 +21,7 @@ use std::rc::Rc;
 
 pub(crate) struct PathSpan {
     kind: ExecKind,
-    entity_path: Rc<str>,
+    entity_path: Option<Rc<str>>,
     start: u64,
     rows: u64,
     outcome: ExecOutcome,
@@ -51,6 +52,10 @@ pub(crate) fn record_cache_event_for_path(
     outcome: CacheOutcome,
     entity_path: &str,
 ) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::Cache {
         entity_path: entity_path.into(),
         kind,
@@ -64,6 +69,10 @@ pub(crate) fn record_cache_miss_reason_for_path(
     reason: CacheMissReason,
     entity_path: &str,
 ) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::CacheMissReason {
         entity_path: entity_path.into(),
         kind,
@@ -74,6 +83,10 @@ pub(crate) fn record_cache_miss_reason_for_path(
 /// Record one SQL compile rejection for a command already scoped to an entity.
 #[cfg(feature = "sql")]
 pub(crate) fn record_sql_compile_reject_for_path(phase: SqlCompileRejectPhase, entity_path: &str) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::SqlCompileReject {
         entity_path: entity_path.into(),
         phase,
@@ -82,6 +95,10 @@ pub(crate) fn record_sql_compile_reject_for_path(phase: SqlCompileRejectPhase, e
 
 /// Record that executor authority received an already-finalized prepared shape.
 pub(crate) fn record_prepared_shape_already_finalized_for_path(entity_path: &str) {
+    if !event_is_observable() {
+        return;
+    }
+
     record(MetricsEvent::PreparedShapeAlreadyFinalized {
         entity_path: entity_path.into(),
     });
@@ -89,6 +106,10 @@ pub(crate) fn record_prepared_shape_already_finalized_for_path(entity_path: &str
 
 /// Record the latest observed entry count for one cache family.
 pub(crate) fn record_cache_entries(kind: CacheKind, entries: usize) {
+    if !event_is_observable() {
+        return;
+    }
+
     let entries = u64::try_from(entries).unwrap_or(u64::MAX);
 
     record(MetricsEvent::CacheEntries { kind, entries });
@@ -98,6 +119,17 @@ impl PathSpan {
     /// Start a metrics span for one structural entity path and executor kind.
     #[must_use]
     pub(crate) fn new(kind: ExecKind, entity_path: &str) -> Self {
+        if !event_is_observable() {
+            return Self {
+                kind,
+                entity_path: None,
+                start: 0,
+                rows: 0,
+                outcome: ExecOutcome::Aborted,
+                finished: true,
+            };
+        }
+
         record(MetricsEvent::ExecStart {
             kind,
             entity_path: entity_path.into(),
@@ -105,7 +137,7 @@ impl PathSpan {
 
         Self {
             kind,
-            entity_path: entity_path.into(),
+            entity_path: Some(entity_path.into()),
             start: read_perf_counter(),
             rows: 0,
             outcome: ExecOutcome::Aborted,
@@ -118,13 +150,26 @@ impl PathSpan {
         self.outcome = ExecOutcome::Success;
     }
 
+    #[cfg(test)]
+    pub(super) const fn owns_entity_path(&self) -> bool {
+        self.entity_path.is_some()
+    }
+
+    #[cfg(test)]
+    pub(super) const fn is_finished(&self) -> bool {
+        self.finished
+    }
+
     fn finish_inner(&self) {
+        let Some(entity_path) = self.entity_path.as_ref() else {
+            return;
+        };
         let now = read_perf_counter();
         let delta = now.saturating_sub(self.start);
 
         record(MetricsEvent::ExecFinish {
             kind: self.kind,
-            entity_path: self.entity_path.clone(),
+            entity_path: Rc::clone(entity_path),
             rows_touched: self.rows,
             inst_delta: delta,
             outcome: self.outcome,

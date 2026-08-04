@@ -38,6 +38,13 @@ then
   status=1
 fi
 
+query_wrappers="$(rg -c '#\[\$crate::__reexports::ic_cdk::query\(name' crates/icydb/src/lib.rs)"
+query_contexts="$(rg -c '\$crate::__macro::with_query_metrics_context' crates/icydb/src/lib.rs)"
+if [[ "$query_wrappers" == "0" || "$query_wrappers" != "$query_contexts" ]]; then
+  echo "[ERROR] every generated query wrapper must own exactly one synchronous metrics context." >&2
+  status=1
+fi
+
 if [[ $status -ne 0 ]]; then
   exit 1
 fi

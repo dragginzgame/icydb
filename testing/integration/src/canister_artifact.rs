@@ -206,6 +206,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
             "candid-export",
             "diagnostics",
             "local-sql-query",
+            "metrics-context-audit",
             "test-admin-api",
         ],
         production_icydb_methods: TEST_SQL_PRODUCTION_METHODS,

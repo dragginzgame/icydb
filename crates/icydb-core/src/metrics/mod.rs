@@ -9,6 +9,8 @@ mod state;
 
 // re-exports
 pub use sink::metrics_report;
+#[doc(hidden)]
+pub use sink::with_query_metrics_context;
 pub use sink::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
     MetricsEvent, MetricsSink, MutationCommitClass, PlanChoiceReason, PlanKind, SaveMutationKind,

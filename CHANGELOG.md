@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Hard-cut Wasm and SQL performance evidence to exact current profiles with
-  fail-closed provenance, explicit deployed-byte authority, lifecycle probes,
-  and cumulative optimization budgets; production behavior and formats are
-  unchanged.
+## [0.220.x] 📉 - 2026-08-04 - Measured Runtime Footprint And Query Cost Contraction
+
+Detailed notes: [docs/changelog/0.220.md](docs/changelog/0.220.md)
+
+- `0.220.0` makes complexity-bounded Binaryen output the sole deployable Wasm
+  and suppresses non-durable query-side metrics work, reducing maintained raw
+  Wasm by 11.84–13.44% and the selected SQL query cost by 7.22%.
 
 ## [0.219.x] 🩺 - 2026-08-03 - Compact Structured Diagnostics
 

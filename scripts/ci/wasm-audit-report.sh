@@ -176,14 +176,15 @@ write_summary_report() {
             canister_list+=", $canister_name"
         fi
 
-        current_final="$(jq -er '.artifacts.icp_built_wasm.bytes' "$size_report_path")"
-        current_gz="$(jq -er '.artifacts.icp_built_wasm_gz_deterministic.bytes' "$size_report_path")"
+        current_final="$(jq -er '.artifacts.final_deployable_wasm.bytes' "$size_report_path")"
+        current_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$size_report_path")"
         if ! jq -e '
-            .format_version == 2
+            .format_version == 3
             and .measurement_profile.identity == "icydb-wasm-footprint/0.220/v1"
             and .pipeline.build_profile == "production"
             and .pipeline.candid_metadata == "enabled"
-            and .pipeline.final_deployable_stage == "icp_built_wasm"
+            and .pipeline.post_link_transform == "binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2"
+            and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
             and .pipeline.path_remapping == "workspace=/w;cargo-registry=/c;rust-library=/r"
             and (.tools.ic_wasm_sha256 | length) == 64
             and (.tools.wasm_opt_sha256 | length) == 64
@@ -200,12 +201,12 @@ write_summary_report() {
             baseline_artifact="$ROOT/${baseline_path%/*}/artifacts/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
             if [[ -f "$baseline_artifact" ]] \
                 && jq -e --slurpfile current "$size_report_path" '
-                    .format_version == 2
+                    .format_version == 3
                     and .measurement_profile.identity == "icydb-wasm-footprint/0.220/v1"
                     and .provenance.source_dirty == false
-                    and .pipeline.final_deployable_stage == "icp_built_wasm"
-                    and .artifacts.icp_built_wasm.bytes
-                    and .artifacts.icp_built_wasm_gz_deterministic.bytes
+                    and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
+                    and .artifacts.final_deployable_wasm.bytes
+                    and .artifacts.final_deployable_wasm_gz.bytes
                     and .provenance.workspace_root == $current[0].provenance.workspace_root
                     and .provenance.cargo_target_dir == $current[0].provenance.cargo_target_dir
                     and .provenance.rust_toolchain == $current[0].provenance.rust_toolchain
@@ -215,8 +216,8 @@ write_summary_report() {
                     and .sql_variant == $current[0].sql_variant
                     and .build.exact_features == $current[0].build.exact_features
                 ' "$baseline_artifact" >/dev/null; then
-                previous_final="$(jq -er '.artifacts.icp_built_wasm.bytes' "$baseline_artifact")"
-                previous_gz="$(jq -er '.artifacts.icp_built_wasm_gz_deterministic.bytes' "$baseline_artifact")"
+                previous_final="$(jq -er '.artifacts.final_deployable_wasm.bytes' "$baseline_artifact")"
+                previous_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$baseline_artifact")"
                 status="PASS"
             else
                 all_baselines_available=0
@@ -255,7 +256,7 @@ write_summary_report() {
         printf -- '- scope: recurring wasm footprint audit for `%s` with profile `%s` and SQL variant `%s`\n' "$canister_list" "$profile" "$SQL_VARIANT"
         printf -- '- compared baseline report path: `%s`\n' "$baseline_path"
         printf -- '- code snapshot identifier: `%s`\n' "$snapshot"
-        printf -- '- method tag/version: `WASM-2.0`\n'
+        printf -- '- method tag/version: `WASM-3.0`\n'
         printf -- '- comparability status: `%s`\n\n' "$comparability"
         printf '## Checklist Results\n\n'
         printf '| Requirement | Status | Evidence |\n'
@@ -333,7 +334,7 @@ write_canister_artifacts() {
     local artifact_dir="$ROOT/artifacts/wasm-size"
     local size_report_json="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.report.json"
     local size_summary_md="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.summary.md"
-    local final_wasm="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.icp-built.wasm"
+    local final_wasm="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.final-deployable.wasm"
     local report_stem="$REPORT_SCOPE"
     local size_report_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-report.json"
     local size_summary_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-summary.md"

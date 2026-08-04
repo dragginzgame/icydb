@@ -37,6 +37,14 @@ name = "schema_application_cost"
 path = "tests/schema_application_cost.rs"
 
 [[test]]
+name = "wasm_post_link"
+path = "tests/wasm_post_link.rs"
+
+[[test]]
+name = "metrics_query_context"
+path = "tests/metrics_query_context.rs"
+
+[[test]]
 name = "sql_correctness"
 path = "tests/sql_correctness.rs"
 

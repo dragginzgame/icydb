@@ -18,7 +18,7 @@ pub(crate) use instrumentation::{PathSpan, record_prepared_shape_already_finaliz
 pub(crate) use instrumentation::{
     record_cache_entries, record_cache_event_for_path, record_cache_miss_reason_for_path,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 #[cfg(test)]
 use std::rc::Rc;
 
@@ -30,6 +30,7 @@ pub use events::{
 
 thread_local! {
     static SINK_OVERRIDE: RefCell<Vec<MetricsSinkOverride>> = const { RefCell::new(Vec::new()) };
+    static QUERY_CONTEXT_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 ///
@@ -67,7 +68,50 @@ pub(crate) fn record(event: MetricsEvent) {
             return;
         }
     }
+
+    if query_context_is_active() {
+        return;
+    }
+
     GLOBAL_METRICS_SINK.record(event);
+}
+
+// Query instrumentation is worth constructing only when an explicit scoped
+// sink owns it. The default global sink would mutate heap state that the IC
+// discards when the query call returns.
+pub(crate) fn event_is_observable() -> bool {
+    SINK_OVERRIDE.with(|stack| !stack.borrow().is_empty()) || !query_context_is_active()
+}
+
+fn query_context_is_active() -> bool {
+    QUERY_CONTEXT_DEPTH.with(|depth| depth.get() != 0)
+}
+
+/// Run one synchronous generated query handler without the durable global
+/// metrics sink.
+///
+/// Explicit scoped sinks retain precedence. The context ends when `f` returns,
+/// including when the returned value is a future that has not yet been polled.
+#[doc(hidden)]
+pub fn with_query_metrics_context<T>(f: impl FnOnce() -> T) -> T {
+    struct Guard {
+        depth_before_enter: usize,
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            QUERY_CONTEXT_DEPTH.with(|depth| depth.set(self.depth_before_enter));
+        }
+    }
+
+    let depth_before_enter = QUERY_CONTEXT_DEPTH.with(|depth| {
+        let previous = depth.get();
+        depth.set(previous.saturating_add(1));
+        previous
+    });
+    let _guard = Guard { depth_before_enter };
+
+    f()
 }
 
 /// Snapshot the current metrics state for endpoint/test plumbing.

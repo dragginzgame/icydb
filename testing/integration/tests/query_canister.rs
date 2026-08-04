@@ -11,7 +11,13 @@ fn audited_typed_query_row_count(
 }
 
 #[test]
-fn query_only_typed_canisters_execute_without_sql() {
+fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
+    let dynamic_fixture = install_fixture_canister("one_entity_dynamic_query");
+    let dynamic_row_count: u32 = dynamic_fixture
+        .query_candid("query_one_entity_dynamic_rows", ())
+        .expect("dynamic query endpoint response should decode");
+    assert_eq!(dynamic_row_count, 0);
+
     let audited_fixture = install_fixture_canister("one_entity_typed_query");
     let audited_row_count =
         audited_typed_query_row_count(&audited_fixture, "query_one_entity_typed_rows")

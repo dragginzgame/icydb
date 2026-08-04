@@ -486,6 +486,7 @@ check-invariants:
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/check-schema-model-boundary-invariants.sh
 	bash scripts/ci/check-sql-branch-ownership-invariants.sh
+	bash scripts/ci/check-wasm-post-link-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
 
 check-feature-matrix:

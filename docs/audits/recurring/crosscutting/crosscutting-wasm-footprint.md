@@ -14,10 +14,10 @@ It is not a feature-design audit.
 
 Measure and report:
 
-- compiler-emitted and currently deployed `icp-built` wasm size (`.wasm`
-  primary, deterministic `.wasm.gz` secondary)
-- analysis-only `ic-wasm shrink` output and its delta from the deployed bytes;
-  this copy is opportunity evidence and is never labeled deployable
+- compiler-emitted Wasm and canonical Binaryen-transformed final deployable
+  size (`.wasm` primary, deterministic `.wasm.gz` secondary)
+- exact post-link raw-byte and basis-point reduction from compiler output to
+  final deployed bytes
 - `ic-wasm info` structure snapshots (function/data/export counts)
 - Twiggy breakdowns (`top`, `dominators`, `monos`) for size attribution
 
@@ -50,8 +50,9 @@ evidence rather than extrapolating from small query fixtures.
 
 Every report carries source revision/tree/dirty state, lockfile identity,
 build and target roots, exact features, Rust identity, `ic-wasm` version/hash,
-Candid identity, exports, and final raw artifact identity. Dirty reports remain
-useful locally but cannot become a baseline or satisfy a regression verdict.
+the pinned Binaryen version/hash and flags, Candid identity, exports, accepted
+Wasm features, and final raw artifact identity. Dirty reports remain useful
+locally but cannot become a baseline or satisfy a regression verdict.
 
 The checked-in comparison ledger currently classifies the metrics, typed, SQL,
 and entity-scale subtractions as directional only because their maintained
@@ -76,9 +77,9 @@ For each run, explicitly mark `PASS` / `PARTIAL` / `FAIL` with concrete evidence
 Decision rule:
 
 - Raw non-gzipped final deployable wasm is the optimization authority.
-- Until the post-link pipeline changes explicitly, the staged `icp-built`
-  `.wasm` is that final artifact. The analysis-only shrunk copy cannot supply a
-  baseline, delta verdict, runtime proof, or installed-byte identity.
+- The staged Binaryen `-Oz` output is the final artifact. Compiler output and
+  any separately experimented shrink output cannot supply a baseline, delta
+  verdict, runtime proof, or installed-byte identity.
 - Record deterministic gzip artifacts for transport continuity, but treat them as secondary context rather than the deciding metric for optimization work.
 
 ---

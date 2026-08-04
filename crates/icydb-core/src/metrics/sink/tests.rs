@@ -1,8 +1,11 @@
 use super::*;
 use crate::error::ErrorClass;
+use std::cell::Cell;
+use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll, Waker};
 
 struct CountingSink {
     calls: Rc<AtomicUsize>,
@@ -116,6 +119,104 @@ fn with_metrics_sink_restores_override_on_panic() {
         grouped_execution_mode: None,
     });
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn query_context_suppresses_only_the_default_global_sink_and_restores_nesting() {
+    metrics_reset_all();
+    SINK_OVERRIDE.with(|stack| stack.borrow_mut().clear());
+    QUERY_CONTEXT_DEPTH.with(|depth| depth.set(0));
+
+    assert!(event_is_observable());
+    with_query_metrics_context(|| {
+        assert!(!event_is_observable());
+        with_query_metrics_context(|| assert!(!event_is_observable()));
+        assert!(!event_is_observable());
+        record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Suppressed".into(),
+            kind: PlanKind::ByKey,
+            grouped_execution_mode: None,
+        });
+    });
+
+    assert!(event_is_observable());
+    let report = metrics_report(None);
+    let counters = report
+        .counters()
+        .expect("unfiltered metrics report should contain global counters");
+    assert_eq!(counters.ops.plan_by_key, 0);
+}
+
+#[test]
+fn query_context_avoids_path_span_ownership_without_a_scoped_sink() {
+    SINK_OVERRIDE.with(|stack| stack.borrow_mut().clear());
+    QUERY_CONTEXT_DEPTH.with(|depth| depth.set(0));
+
+    with_query_metrics_context(|| {
+        let span = PathSpan::new(ExecKind::Load, "metrics::tests::SuppressedSpan");
+        assert!(!span.owns_entity_path());
+        assert!(span.is_finished());
+    });
+}
+
+#[test]
+fn scoped_sink_retains_precedence_inside_query_context() {
+    SINK_OVERRIDE.with(|stack| stack.borrow_mut().clear());
+    QUERY_CONTEXT_DEPTH.with(|depth| depth.set(0));
+
+    let calls = Rc::new(AtomicUsize::new(0));
+    let sink = Rc::new(CountingSink {
+        calls: Rc::clone(&calls),
+    });
+
+    with_query_metrics_context(|| {
+        assert!(!event_is_observable());
+        with_shared_metrics_sink(sink, || {
+            assert!(event_is_observable());
+            record(MetricsEvent::Plan {
+                entity_path: "metrics::tests::ScopedQuery".into(),
+                kind: PlanKind::IndexPrefix,
+                grouped_execution_mode: None,
+            });
+        });
+        assert!(!event_is_observable());
+    });
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(event_is_observable());
+}
+
+#[test]
+fn query_context_restores_after_host_unwind() {
+    QUERY_CONTEXT_DEPTH.with(|depth| depth.set(0));
+
+    let panicked = catch_unwind(AssertUnwindSafe(|| {
+        with_query_metrics_context(|| {
+            assert!(!event_is_observable());
+            panic!("intentional panic for query-context guard test");
+        });
+    }))
+    .is_err();
+
+    assert!(panicked);
+    assert!(event_is_observable());
+}
+
+#[test]
+fn query_context_ends_before_a_returned_future_is_polled() {
+    QUERY_CONTEXT_DEPTH.with(|depth| depth.set(0));
+
+    let observed_inside_closure = Cell::new(false);
+    let future = with_query_metrics_context(|| {
+        observed_inside_closure.set(query_context_is_active());
+        async { query_context_is_active() }
+    });
+
+    assert!(observed_inside_closure.get());
+    assert!(!query_context_is_active());
+    let mut future = std::pin::pin!(future);
+    let mut context = Context::from_waker(Waker::noop());
+    assert_eq!(future.as_mut().poll(&mut context), Poll::Ready(false));
 }
 
 struct ReentrantSink {
