@@ -1377,7 +1377,7 @@ pub(crate) mod tests {
                 sample.shared_query_plan_hits = 0;
                 sample.shared_query_plan_misses = 1;
             }
-            P2SampleMode::Warm => {
+            P2SampleMode::ProvenWarmAtEntry => {
                 sample.sql_compiled_command_hits = 1;
                 sample.sql_compiled_command_misses = 0;
                 sample.shared_query_plan_hits = 1;
@@ -1412,7 +1412,7 @@ pub(crate) mod tests {
         let warm = match scenario.metadata.statement {
             StatementFamily::Select => P2WarmSampleInput::Required(
                 (0..5)
-                    .map(|_| test_sample(scenario, P2SampleMode::Warm, 80_000))
+                    .map(|_| test_sample(scenario, P2SampleMode::ProvenWarmAtEntry, 80_000))
                     .collect(),
             ),
             StatementFamily::Delete

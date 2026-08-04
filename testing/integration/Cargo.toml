@@ -33,6 +33,10 @@ name = "query_canister"
 path = "tests/query_canister.rs"
 
 [[test]]
+name = "schema_application_cost"
+path = "tests/schema_application_cost.rs"
+
+[[test]]
 name = "sql_correctness"
 path = "tests/sql_correctness.rs"
 

@@ -14,18 +14,21 @@ It is not a feature-design audit.
 
 Measure and report:
 
-- `icp-built` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
-- canonical `icp-shrunk` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
-- shrink deltas between built and shrunk artifacts
+- compiler-emitted and currently deployed `icp-built` wasm size (`.wasm`
+  primary, deterministic `.wasm.gz` secondary)
+- analysis-only `ic-wasm shrink` output and its delta from the deployed bytes;
+  this copy is opportunity evidence and is never labeled deployable
 - `ic-wasm info` structure snapshots (function/data/export counts)
 - Twiggy breakdowns (`top`, `dominators`, `monos`) for size attribution
 
-Default targets:
+The exact default targets are:
 
 - canisters: `default_empty`, `default_empty_metrics`,
-  `one_entity_typed_query`, `one_entity_sql_query`, and
-  `ten_entity_typed_query`
+  `one_entity_dynamic_query`, `one_entity_typed_query`,
+  `one_entity_sql_query`, `ten_entity_typed_query`, `sql_perf`, and `sql`
 - profile: `wasm-release`
+- build profile: production, `--no-default-features`, exact maintained
+  production features, and Candid metadata enabled
 
 Default target roles:
 
@@ -41,10 +44,19 @@ Default target roles:
 - `ten_entity_typed_query` measures entity-count scale against the one-entity
   typed-query baseline.
 
-The `sql_perf` audit canister is deliberately excluded from the default
-footprint matrix. It is a broad instruction-sampling and access-shape fixture,
-not a small attribution fixture, and should be measured explicitly when a perf
-scenario needs it.
+`sql_perf` and the mutation-capable `sql` actor are deliberately included so
+the footprint matrix covers the exact actors used by instruction and mutation
+evidence rather than extrapolating from small query fixtures.
+
+Every report carries source revision/tree/dirty state, lockfile identity,
+build and target roots, exact features, Rust identity, `ic-wasm` version/hash,
+Candid identity, exports, and final raw artifact identity. Dirty reports remain
+useful locally but cannot become a baseline or satisfy a regression verdict.
+
+The checked-in comparison ledger currently classifies the metrics, typed, SQL,
+and entity-scale subtractions as directional only because their maintained
+actors do not share one source and one schema. Those deltas may rank follow-up
+attribution work but cannot independently select a production owner.
 
 ---
 
@@ -63,8 +75,10 @@ For each run, explicitly mark `PASS` / `PARTIAL` / `FAIL` with concrete evidence
 
 Decision rule:
 
-- Raw non-gzipped wasm is the optimization authority.
-- Use built `.wasm` and shrunk `.wasm` as the primary pass/fail and trend metrics.
+- Raw non-gzipped final deployable wasm is the optimization authority.
+- Until the post-link pipeline changes explicitly, the staged `icp-built`
+  `.wasm` is that final artifact. The analysis-only shrunk copy cannot supply a
+  baseline, delta verdict, runtime proof, or installed-byte identity.
 - Record deterministic gzip artifacts for transport continuity, but treat them as secondary context rather than the deciding metric for optimization work.
 
 ---

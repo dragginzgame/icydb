@@ -66,6 +66,16 @@ struct ReadTotalOnlyPerfResult {
     instructions: u64,
 }
 
+/// Exact schema-application work observed inside one IC message.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+struct SchemaApplicationPerfResult {
+    local_instructions: u64,
+    reconcile_checks: u64,
+    first_create: u64,
+    exact_match: u64,
+}
+
 ///
 /// ScalePayloadProfile
 ///
@@ -1055,6 +1065,45 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
         session.try_describe_entity_by_name("PerfAuditToken")?,
         session.try_describe_entity_by_name("PerfAuditUser")?,
     ])
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Error> {
+    let session = icydb::db::DbSession::new(crate::__icydb_generated::core_db()?);
+    let target = session.schema_application_target()?;
+    let (first_create, exact_match) = match target.accepted_head() {
+        icydb::db::ExpectedAcceptedHead::Empty => (1, 0),
+        icydb::db::ExpectedAcceptedHead::Exact { .. } => (0, 1),
+    };
+    let start = ic_cdk::api::performance_counter(1);
+    session.apply_generated_schema_fragment(
+        crate::__icydb_generated::ICYDB_SCHEMA_FRAGMENT,
+        crate::__icydb_generated::ICYDB_SCHEMA_MIGRATION_PLAN,
+        crate::__icydb_generated::ICYDB_SCHEMA_SUBMISSION_KEY,
+        crate::__icydb_generated::ICYDB_SCHEMA_ENTITY_STORES,
+    )?;
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    Ok(SchemaApplicationPerfResult {
+        local_instructions,
+        reconcile_checks: 1,
+        first_create,
+        exact_match,
+    })
+}
+
+/// Measure schema application inside a rollback-scoped query message.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[query]
+fn measure_schema_application_query() -> Result<SchemaApplicationPerfResult, icydb::Error> {
+    measure_schema_application()
+}
+
+/// Measure and persist schema application through an update message.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, icydb::Error> {
+    measure_schema_application()
 }
 
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry

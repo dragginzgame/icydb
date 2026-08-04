@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 [features]
 default = []
 candid-export = []
+lifecycle-audit = []
 
 [dependencies]
 candid = { workspace = true }

@@ -25,6 +25,7 @@ const FIXTURE_GENERATOR_VERSION: u32 = 1;
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 2;
 const DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID: &str = "icydb-sql-attribution/0.215/v2";
+const POCKET_IC_VERSION: &str = "pocket-ic-server 15.0.0";
 
 ///
 /// PerfFixtureSurfaceIdentity
@@ -117,8 +118,8 @@ pub(crate) struct PerfCanisterBuildIdentity {
     /// Cargo profile used for measurement.
     pub(crate) cargo_profile: String,
 
-    /// Target-sensitive generation mode.
-    pub(crate) build_target: String,
+    /// Exact maintained canister build profile.
+    pub(crate) build_profile: String,
 
     /// Whether SQL package defaults remain enabled.
     pub(crate) sql_mode: String,
@@ -139,8 +140,8 @@ pub(crate) struct PerfCanisterBuildIdentity {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PerfCacheModePolicy {
-    /// P1 is cold; P2 uses isolated cold and typed-hit-proven warm samples.
-    IsolatedColdAndTypedWarmV1,
+    /// Cold, update-proven warm-at-entry, and same-message reuse stay distinct.
+    ColdWarmAtEntryAndLoopLocalV2,
 }
 
 ///
@@ -226,6 +227,9 @@ pub(crate) struct PerfComparableEnvironmentIdentity {
 pub(crate) struct PerfSubjectIdentity {
     /// Source revision measured by the run.
     pub(crate) source_revision: String,
+
+    /// Committed Git tree measured by the run.
+    pub(crate) source_tree: String,
 
     /// Whether tracked or untracked source state differs from the revision.
     pub(crate) source_dirty: bool,
@@ -325,6 +329,7 @@ pub(crate) fn capture_perf_environment(
     let rust_toolchain = command_text(workspace_root, "rustc", &["-vV"])?;
     let pocket_ic_version = command_path_text(workspace_root, pocket_ic_binary, &["--version"])?;
     let source_revision = command_text(workspace_root, "git", &["rev-parse", "HEAD"])?;
+    let source_tree = command_text(workspace_root, "git", &["rev-parse", "HEAD^{tree}"])?;
     let source_status = command_text(
         workspace_root,
         "git",
@@ -339,14 +344,14 @@ pub(crate) fn capture_perf_environment(
             fixture: current_fixture_profile(profile)?,
             canister_build: PerfCanisterBuildIdentity {
                 cargo_profile: wasm_profile.to_string(),
-                build_target: "local".to_string(),
+                build_profile: "local_test".to_string(),
                 sql_mode: "enabled".to_string(),
                 candid_export: false,
                 path_trimming: true,
             },
             rust_toolchain,
             wasm_target: WASM_TARGET.to_string(),
-            feature_set: ["diagnostics", "sql"]
+            feature_set: ["diagnostics", "sql", "test-admin-api"]
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
@@ -355,12 +360,13 @@ pub(crate) fn capture_perf_environment(
             diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,
             diagnostics_attribution_schema_identity: DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID.to_string(),
             phase_ownership_version: PERFORMANCE_PHASE_OWNERSHIP_VERSION,
-            cache_mode_policy: PerfCacheModePolicy::IsolatedColdAndTypedWarmV1,
+            cache_mode_policy: PerfCacheModePolicy::ColdWarmAtEntryAndLoopLocalV2,
             instruction_counter_policy:
                 PerfInstructionCounterPolicy::IcPerformanceCounter1LocalDeltaV1,
         },
         subject: PerfSubjectIdentity {
             source_revision,
+            source_tree,
             source_dirty: !source_status.is_empty(),
             lockfile_sha256: sha256_hex(&lockfile_bytes),
             raw_wasm_sha256: sha256_hex(wasm_bytes),
@@ -392,7 +398,7 @@ pub(crate) fn validate_perf_environment(
         || comparable.p1_scenario_set_hash != profile.expected_scenario_set_hash()
         || comparable.fixture.scale_scenario_set_hash != profile.expected_scale_scenario_set_hash()
         || comparable.canister_build.cargo_profile != "wasm-release"
-        || comparable.canister_build.build_target != "local"
+        || comparable.canister_build.build_profile != "local_test"
         || comparable.canister_build.sql_mode != "enabled"
         || comparable.canister_build.candid_export
         || !comparable.canister_build.path_trimming
@@ -401,6 +407,7 @@ pub(crate) fn validate_perf_environment(
             != DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION
         || comparable.diagnostics_attribution_schema_identity != DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID
         || comparable.phase_ownership_version != PERFORMANCE_PHASE_OWNERSHIP_VERSION
+        || comparable.pocket_ic_version != POCKET_IC_VERSION
     {
         return Err(PerfEnvironmentError::InvalidIdentity(
             "fixed environment contract drifted",
@@ -414,6 +421,7 @@ pub(crate) fn validate_perf_environment(
         comparable.pocket_ic_version.as_str(),
         comparable.pocket_ic_sha256.as_str(),
         identity.subject.source_revision.as_str(),
+        identity.subject.source_tree.as_str(),
         identity.subject.lockfile_sha256.as_str(),
         identity.subject.raw_wasm_sha256.as_str(),
     ];
@@ -941,26 +949,31 @@ pub(crate) mod tests {
                     .expect("fixture identity should build"),
                 canister_build: PerfCanisterBuildIdentity {
                     cargo_profile: "wasm-release".to_string(),
-                    build_target: "local".to_string(),
+                    build_profile: "local_test".to_string(),
                     sql_mode: "enabled".to_string(),
                     candid_export: false,
                     path_trimming: true,
                 },
                 rust_toolchain: "rustc test".to_string(),
                 wasm_target: WASM_TARGET.to_string(),
-                feature_set: vec!["diagnostics".to_string(), "sql".to_string()],
-                pocket_ic_version: "pocket-ic-server test".to_string(),
+                feature_set: vec![
+                    "diagnostics".to_string(),
+                    "sql".to_string(),
+                    "test-admin-api".to_string(),
+                ],
+                pocket_ic_version: POCKET_IC_VERSION.to_string(),
                 pocket_ic_sha256: "33".repeat(32),
                 diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,
                 diagnostics_attribution_schema_identity: DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID
                     .to_string(),
                 phase_ownership_version: PERFORMANCE_PHASE_OWNERSHIP_VERSION,
-                cache_mode_policy: PerfCacheModePolicy::IsolatedColdAndTypedWarmV1,
+                cache_mode_policy: PerfCacheModePolicy::ColdWarmAtEntryAndLoopLocalV2,
                 instruction_counter_policy:
                     PerfInstructionCounterPolicy::IcPerformanceCounter1LocalDeltaV1,
             },
             subject: PerfSubjectIdentity {
                 source_revision: "44".repeat(20),
+                source_tree: "66".repeat(20),
                 source_dirty: false,
                 lockfile_sha256: "22".repeat(32),
                 raw_wasm_sha256: "55".repeat(32),

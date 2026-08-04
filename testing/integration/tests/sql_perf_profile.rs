@@ -17,9 +17,9 @@ use icydb_testing_sql_generator::{
 use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
 
 /// Current checked-in SQL performance profile version.
-pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 2;
-/// Stable identity of the post-0.214 SQL performance authority.
-pub(crate) const SQL_PERFORMANCE_PROFILE_ID: &str = "icydb-sql-performance/0.215/v2";
+pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 3;
+/// Stable identity of the PocketIC 15 SQL performance authority.
+pub(crate) const SQL_PERFORMANCE_PROFILE_ID: &str = "icydb-sql-performance/0.220/v3";
 
 const EXPECTED_SCENARIO_COUNT: usize = 1_787;
 const EXPECTED_SCENARIO_SET_HASH: &str =
@@ -126,6 +126,10 @@ pub(crate) struct PerformanceProfile {
     max_artifact_bytes: usize,
     stability_threshold: PerformanceThreshold,
     total_instruction_regression_threshold: PerformanceThreshold,
+    minimum_final_aggregate_reduction_basis_points: u16,
+    minimum_final_hotspot_reduction_basis_points: u16,
+    maximum_final_sentinel_regression_basis_points: u16,
+    maximum_final_scale_regression_basis_points: u16,
 }
 
 impl PerformanceProfile {
@@ -234,6 +238,26 @@ impl PerformanceProfile {
         self.total_instruction_regression_threshold
     }
 
+    /// Return the cumulative final reduction required across the complete P1 matrix.
+    pub(crate) const fn minimum_final_aggregate_reduction_basis_points(self) -> u16 {
+        self.minimum_final_aggregate_reduction_basis_points
+    }
+
+    /// Return the cumulative final reduction required for the selected hotspot cohort.
+    pub(crate) const fn minimum_final_hotspot_reduction_basis_points(self) -> u16 {
+        self.minimum_final_hotspot_reduction_basis_points
+    }
+
+    /// Return the maximum cumulative regression permitted for any final sentinel.
+    pub(crate) const fn maximum_final_sentinel_regression_basis_points(self) -> u16 {
+        self.maximum_final_sentinel_regression_basis_points
+    }
+
+    /// Return the maximum cumulative normalized scale regression.
+    pub(crate) const fn maximum_final_scale_regression_basis_points(self) -> u16 {
+        self.maximum_final_scale_regression_basis_points
+    }
+
     /// Return the reviewed non-total instruction-phase regression threshold.
     pub(crate) const fn phase_instruction_regression_threshold() -> PerformanceThreshold {
         PHASE_INSTRUCTION_REGRESSION_THRESHOLD
@@ -330,9 +354,13 @@ impl PerformanceProfile {
                 })
             || self.total_instruction_regression_threshold
                 != (PerformanceThreshold {
-                    absolute_increase: 100_000,
-                    relative_increase_basis_points: 1_000,
+                    absolute_increase: 10_000,
+                    relative_increase_basis_points: 100,
                 })
+            || self.minimum_final_aggregate_reduction_basis_points != 300
+            || self.minimum_final_hotspot_reduction_basis_points != 500
+            || self.maximum_final_sentinel_regression_basis_points != 0
+            || self.maximum_final_scale_regression_basis_points != 0
             || Self::phase_instruction_regression_threshold()
                 != (PerformanceThreshold {
                     absolute_increase: 10_000,
@@ -356,7 +384,7 @@ impl PerformanceProfile {
                 })
         {
             return Err(PerformanceProfileError::InvalidContract(
-                "fixed performance budgets drifted from the 0.215 contract",
+                "fixed performance budgets drifted from the 0.220 contract",
             ));
         }
 
@@ -483,9 +511,13 @@ pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfil
         relative_increase_basis_points: 100,
     },
     total_instruction_regression_threshold: PerformanceThreshold {
-        absolute_increase: 100_000,
-        relative_increase_basis_points: 1_000,
+        absolute_increase: 10_000,
+        relative_increase_basis_points: 100,
     },
+    minimum_final_aggregate_reduction_basis_points: 300,
+    minimum_final_hotspot_reduction_basis_points: 500,
+    maximum_final_sentinel_regression_basis_points: 0,
+    maximum_final_scale_regression_basis_points: 0,
 };
 
 /// Typed failure while validating checked-in performance-profile authority.
@@ -648,8 +680,15 @@ mod tests {
         assert_eq!(profile.max_artifact_bytes(), 128 * 1024 * 1024);
         assert_eq!(stability.absolute_increase(), 10_000);
         assert_eq!(stability.relative_increase_basis_points(), 100);
-        assert_eq!(total.absolute_increase(), 100_000);
-        assert_eq!(total.relative_increase_basis_points(), 1_000);
+        assert_eq!(total.absolute_increase(), 10_000);
+        assert_eq!(total.relative_increase_basis_points(), 100);
+        assert_eq!(
+            profile.minimum_final_aggregate_reduction_basis_points(),
+            300
+        );
+        assert_eq!(profile.minimum_final_hotspot_reduction_basis_points(), 500);
+        assert_eq!(profile.maximum_final_sentinel_regression_basis_points(), 0);
+        assert_eq!(profile.maximum_final_scale_regression_basis_points(), 0);
         assert_eq!(phase.absolute_increase(), 10_000);
         assert_eq!(phase.relative_increase_basis_points(), 100);
         assert_eq!(residual.absolute_increase(), 10_000);
@@ -679,8 +718,8 @@ mod tests {
     #[test]
     fn reviewed_thresholds_are_inclusive_and_fail_closed_from_zero() {
         let total = SQL_PERFORMANCE_PROFILE.total_instruction_regression_threshold();
-        assert!(!total.reached(1_000_000, 1_099_999));
-        assert!(total.reached(1_000_000, 1_100_000));
+        assert!(!total.reached(1_000_000, 1_009_999));
+        assert!(total.reached(1_000_000, 1_010_000));
 
         let counter = PerformanceProfile::exact_counter_regression_threshold();
         assert!(!counter.reached(0, 0));

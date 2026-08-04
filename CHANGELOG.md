@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Hard-cut Wasm and SQL performance evidence to exact current profiles with
+  fail-closed provenance, explicit deployed-byte authority, lifecycle probes,
+  and cumulative optimization budgets; production behavior and formats are
+  unchanged.
+
 ## [0.219.x] 🩺 - 2026-08-03 - Compact Structured Diagnostics
 
 Detailed notes: [docs/changelog/0.219.md](docs/changelog/0.219.md)

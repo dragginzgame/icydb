@@ -60,12 +60,27 @@ for canister_name in "${canister_names[@]}"; do
         echo "[wasm-size] --canister requires a value" >&2
         exit 1
     fi
+    if ! wasm_report_canister_is_maintained_subject "$canister_name"; then
+        echo "[wasm-size] canister '$canister_name' is outside the 0.220 measurement contract" >&2
+        exit 1
+    fi
 done
 if [[ "${#canister_names[@]}" -eq 0 ]]; then
     mapfile -t canister_names < <(wasm_report_default_canisters)
 fi
 
 mkdir -p "$out_dir"
+
+if ! command -v ic-wasm >/dev/null 2>&1; then
+    echo "[wasm-size] missing required tool: ic-wasm" >&2
+    exit 1
+fi
+IC_WASM_BIN="$(command -v ic-wasm)"
+if ! command -v wasm-opt >/dev/null 2>&1; then
+    echo "[wasm-size] missing required tool: wasm-opt" >&2
+    exit 1
+fi
+WASM_OPT_BIN="$(command -v wasm-opt)"
 
 # The wasm size report consumes locally staged canister artifacts under
 # `.icp/local/canisters/<name>/`, but the staging step is owned by
@@ -96,8 +111,10 @@ build_variant() {
         cd "$ROOT"
         cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- \
             "$canister_name" \
+            --build-profile production \
             --profile "$profile" \
-            --sql-mode "$sql_mode"
+            --sql-mode "$sql_mode" \
+            --candid-export on
     )
 
     ICP_DIR="$ROOT/.icp/local/canisters/$canister_name"
@@ -114,10 +131,10 @@ build_variant() {
     RAW_GZ_DETERMINISTIC="$out_dir/${stem}.icp-built.wasm.gz"
     RAW_GZ_EMITTED_COPY="$out_dir/${stem}.icp-emitted.wasm.gz"
     DID_COPY="$out_dir/${stem}.did"
-    SHRUNK_WASM="$out_dir/${stem}.icp-shrunk.wasm"
-    SHRUNK_GZ="$out_dir/${stem}.icp-shrunk.wasm.gz"
+    SHRUNK_WASM="$out_dir/${stem}.analysis-shrunk.wasm"
+    SHRUNK_GZ="$out_dir/${stem}.analysis-shrunk.wasm.gz"
     RAW_INFO="$out_dir/${stem}.icp-built.info.txt"
-    SHRUNK_INFO="$out_dir/${stem}.icp-shrunk.info.txt"
+    SHRUNK_INFO="$out_dir/${stem}.analysis-shrunk.info.txt"
     REPORT_JSON="$out_dir/${stem}.report.json"
     SUMMARY_MD="$out_dir/${stem}.summary.md"
 
@@ -148,12 +165,14 @@ build_variant() {
             --raw-wasm "$RAW_COPY" \
             --raw-gz "$RAW_GZ_DETERMINISTIC" \
             --raw-gz-emitted "$RAW_GZ_EMITTED_COPY" \
-            --shrunk-wasm "$SHRUNK_WASM" \
-            --shrunk-gz "$SHRUNK_GZ" \
+            --analysis-shrunk-wasm "$SHRUNK_WASM" \
+            --analysis-shrunk-gz "$SHRUNK_GZ" \
             --raw-info "$RAW_INFO" \
-            --shrunk-info "$SHRUNK_INFO" \
+            --analysis-shrunk-info "$SHRUNK_INFO" \
             --report-json "$REPORT_JSON" \
-            --summary-md "$SUMMARY_MD"
+            --summary-md "$SUMMARY_MD" \
+            --ic-wasm-bin "$IC_WASM_BIN" \
+            --wasm-opt-bin "$WASM_OPT_BIN"
     )
 
     echo "[wasm-size] Wrote report: $REPORT_JSON"

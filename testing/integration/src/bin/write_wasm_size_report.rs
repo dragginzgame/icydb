@@ -2,10 +2,21 @@ use std::{
     env, fs,
     io::Read,
     path::{Path, PathBuf},
+    process::Command,
 };
 
+use icydb_testing_integration::{
+    canister_artifact::MAINTAINED_CANISTER_POLICIES,
+    wasm_measurement::{
+        WASM_LINE_BUDGETS, WASM_MEASUREMENT_COMPARISONS, WASM_MEASUREMENT_PROFILE_ID,
+        WASM_MEASUREMENT_PROFILE_VERSION, WASM_MEASUREMENT_SUBJECTS, WASM_PATCH_BUDGETS,
+        WasmComparison, WasmLineBudget, WasmPatchBudget, validate_wasm_measurement_contract,
+    },
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+
+const SIZE_REPORT_FORMAT_VERSION: u32 = 2;
 
 const GENERATED_EXPORTS: &[&str] = &[
     "icydb_query",
@@ -31,16 +42,23 @@ struct Args {
     raw_wasm: PathBuf,
     raw_gz: PathBuf,
     raw_gz_emitted: PathBuf,
-    shrunk_wasm: PathBuf,
-    shrunk_gz: PathBuf,
+    analysis_shrunk_wasm: PathBuf,
+    analysis_shrunk_gz: PathBuf,
     raw_info: PathBuf,
-    shrunk_info: PathBuf,
+    analysis_shrunk_info: PathBuf,
     report_json: PathBuf,
     summary_md: PathBuf,
+    ic_wasm_bin: PathBuf,
+    wasm_opt_bin: PathBuf,
 }
 
 #[derive(Serialize)]
 struct SizeReport {
+    format_version: u32,
+    measurement_profile: MeasurementProfile,
+    provenance: Provenance,
+    tools: Tools,
+    pipeline: Pipeline,
     canister: String,
     profile: String,
     sql_variant: String,
@@ -51,14 +69,53 @@ struct SizeReport {
 }
 
 #[derive(Serialize)]
+struct MeasurementProfile {
+    version: u32,
+    identity: &'static str,
+    comparisons: &'static [WasmComparison],
+    patch_budgets: &'static [WasmPatchBudget],
+    line_budgets: &'static [WasmLineBudget],
+}
+
+#[derive(Serialize)]
+struct Provenance {
+    source_revision: String,
+    source_tree: String,
+    source_dirty: bool,
+    lockfile_sha256: String,
+    workspace_root: String,
+    cargo_target_dir: String,
+    rust_toolchain: String,
+}
+
+#[derive(Serialize)]
+struct Tools {
+    ic_wasm_version: String,
+    ic_wasm_sha256: String,
+    wasm_opt_version: String,
+    wasm_opt_sha256: String,
+}
+
+#[derive(Serialize)]
+struct Pipeline {
+    compiler_emitted_stage: &'static str,
+    post_link_transform: &'static str,
+    final_deployable_stage: &'static str,
+    candid_metadata: &'static str,
+    build_profile: &'static str,
+    no_default_features: bool,
+    path_remapping: &'static str,
+}
+
+#[derive(Serialize)]
 struct Artifacts {
     did: Option<FileMeta>,
     candid_export: &'static str,
     icp_built_wasm: FileMeta,
     icp_built_wasm_gz_deterministic: FileMeta,
     icp_built_wasm_gz_emitted: Option<FileMeta>,
-    icp_shrunk_wasm: FileMeta,
-    icp_shrunk_wasm_gz: FileMeta,
+    analysis_shrunk_wasm: FileMeta,
+    analysis_shrunk_wasm_gz: FileMeta,
 }
 
 #[derive(Clone, Serialize)]
@@ -71,7 +128,7 @@ struct FileMeta {
 #[derive(Serialize)]
 struct Analysis {
     icp_built: WasmInfo,
-    icp_shrunk: WasmInfo,
+    analysis_shrunk: WasmInfo,
 }
 
 #[derive(Clone, Serialize)]
@@ -86,6 +143,7 @@ struct WasmInfo {
 
 #[derive(Serialize)]
 struct Build {
+    exact_features: Vec<String>,
     generated_endpoint_surface: GeneratedEndpointSurface,
     custom_exports: Vec<String>,
 }
@@ -109,8 +167,8 @@ struct GeneratedEndpointSurface {
 
 #[derive(Serialize)]
 struct Deltas {
-    shrink_wasm_bytes: i64,
-    shrink_wasm_gz_bytes: i64,
+    analysis_shrink_wasm_bytes: i64,
+    analysis_shrink_wasm_gz_bytes: i64,
 }
 
 fn main() {
@@ -122,23 +180,53 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = parse_args(env::args().skip(1))?;
+    validate_wasm_measurement_contract().map_err(str::to_string)?;
+    if !WASM_MEASUREMENT_SUBJECTS.contains(&args.canister.as_str()) {
+        return Err(format!(
+            "canister '{}' is outside the 0.220 Wasm measurement contract",
+            args.canister
+        ));
+    }
+
+    let workspace_root = workspace_root()?;
+    let provenance = capture_provenance(&workspace_root)?;
+    let tools = capture_tools(&workspace_root, &args.ic_wasm_bin, &args.wasm_opt_bin)?;
 
     let raw_wasm = file_meta(&args.raw_wasm)?;
     let raw_gz = file_meta(&args.raw_gz)?;
     let raw_gz_emitted = optional_file_meta(&args.raw_gz_emitted)?;
-    let shrunk_wasm = file_meta(&args.shrunk_wasm)?;
-    let shrunk_gz = file_meta(&args.shrunk_gz)?;
+    let analysis_shrunk_wasm = file_meta(&args.analysis_shrunk_wasm)?;
+    let analysis_shrunk_gz = file_meta(&args.analysis_shrunk_gz)?;
     let did = optional_file_meta(&args.did)?;
     let raw_info = parse_info(&args.raw_info)?;
-    let shrunk_info = parse_info(&args.shrunk_info)?;
+    let analysis_shrunk_info = parse_info(&args.analysis_shrunk_info)?;
 
     let candid_export = if did.is_some() {
         "available"
     } else {
         "unavailable"
     };
-    let build = endpoint_surface(&shrunk_info);
+    let build = endpoint_surface(&args.canister, &args.sql_variant, &raw_info)?;
     let report = SizeReport {
+        format_version: SIZE_REPORT_FORMAT_VERSION,
+        measurement_profile: MeasurementProfile {
+            version: WASM_MEASUREMENT_PROFILE_VERSION,
+            identity: WASM_MEASUREMENT_PROFILE_ID,
+            comparisons: WASM_MEASUREMENT_COMPARISONS,
+            patch_budgets: WASM_PATCH_BUDGETS,
+            line_budgets: WASM_LINE_BUDGETS,
+        },
+        provenance,
+        tools,
+        pipeline: Pipeline {
+            compiler_emitted_stage: "icp_built_wasm",
+            post_link_transform: "identity",
+            final_deployable_stage: "icp_built_wasm",
+            candid_metadata: "enabled",
+            build_profile: "production",
+            no_default_features: true,
+            path_remapping: "workspace=/w;cargo-registry=/c;rust-library=/r",
+        },
         canister: args.canister,
         profile: args.profile,
         sql_variant: args.sql_variant,
@@ -148,17 +236,17 @@ fn run() -> Result<(), String> {
             icp_built_wasm: raw_wasm.clone(),
             icp_built_wasm_gz_deterministic: raw_gz.clone(),
             icp_built_wasm_gz_emitted: raw_gz_emitted,
-            icp_shrunk_wasm: shrunk_wasm.clone(),
-            icp_shrunk_wasm_gz: shrunk_gz.clone(),
+            analysis_shrunk_wasm: analysis_shrunk_wasm.clone(),
+            analysis_shrunk_wasm_gz: analysis_shrunk_gz.clone(),
         },
         analysis: Analysis {
             icp_built: raw_info,
-            icp_shrunk: shrunk_info,
+            analysis_shrunk: analysis_shrunk_info,
         },
         build,
         deltas: Deltas {
-            shrink_wasm_bytes: delta_bytes(&raw_wasm, &shrunk_wasm)?,
-            shrink_wasm_gz_bytes: delta_bytes(&raw_gz, &shrunk_gz)?,
+            analysis_shrink_wasm_bytes: delta_bytes(&raw_wasm, &analysis_shrunk_wasm)?,
+            analysis_shrink_wasm_gz_bytes: delta_bytes(&raw_gz, &analysis_shrunk_gz)?,
         },
     };
 
@@ -199,12 +287,20 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--raw-wasm" => parsed.raw_wasm = Some(required_path(&arg, &mut args)?),
             "--raw-gz" => parsed.raw_gz = Some(required_path(&arg, &mut args)?),
             "--raw-gz-emitted" => parsed.raw_gz_emitted = Some(required_path(&arg, &mut args)?),
-            "--shrunk-wasm" => parsed.shrunk_wasm = Some(required_path(&arg, &mut args)?),
-            "--shrunk-gz" => parsed.shrunk_gz = Some(required_path(&arg, &mut args)?),
+            "--analysis-shrunk-wasm" => {
+                parsed.analysis_shrunk_wasm = Some(required_path(&arg, &mut args)?);
+            }
+            "--analysis-shrunk-gz" => {
+                parsed.analysis_shrunk_gz = Some(required_path(&arg, &mut args)?);
+            }
             "--raw-info" => parsed.raw_info = Some(required_path(&arg, &mut args)?),
-            "--shrunk-info" => parsed.shrunk_info = Some(required_path(&arg, &mut args)?),
+            "--analysis-shrunk-info" => {
+                parsed.analysis_shrunk_info = Some(required_path(&arg, &mut args)?);
+            }
             "--report-json" => parsed.report_json = Some(required_path(&arg, &mut args)?),
             "--summary-md" => parsed.summary_md = Some(required_path(&arg, &mut args)?),
+            "--ic-wasm-bin" => parsed.ic_wasm_bin = Some(required_path(&arg, &mut args)?),
+            "--wasm-opt-bin" => parsed.wasm_opt_bin = Some(required_path(&arg, &mut args)?),
             "--help" | "-h" => return Err(usage()),
             value => return Err(format!("unknown option '{value}'\n{}", usage())),
         }
@@ -222,12 +318,14 @@ struct ParsedArgs {
     raw_wasm: Option<PathBuf>,
     raw_gz: Option<PathBuf>,
     raw_gz_emitted: Option<PathBuf>,
-    shrunk_wasm: Option<PathBuf>,
-    shrunk_gz: Option<PathBuf>,
+    analysis_shrunk_wasm: Option<PathBuf>,
+    analysis_shrunk_gz: Option<PathBuf>,
     raw_info: Option<PathBuf>,
-    shrunk_info: Option<PathBuf>,
+    analysis_shrunk_info: Option<PathBuf>,
     report_json: Option<PathBuf>,
     summary_md: Option<PathBuf>,
+    ic_wasm_bin: Option<PathBuf>,
+    wasm_opt_bin: Option<PathBuf>,
 }
 
 impl ParsedArgs {
@@ -240,12 +338,14 @@ impl ParsedArgs {
             raw_wasm: require_arg(self.raw_wasm, "--raw-wasm")?,
             raw_gz: require_arg(self.raw_gz, "--raw-gz")?,
             raw_gz_emitted: require_arg(self.raw_gz_emitted, "--raw-gz-emitted")?,
-            shrunk_wasm: require_arg(self.shrunk_wasm, "--shrunk-wasm")?,
-            shrunk_gz: require_arg(self.shrunk_gz, "--shrunk-gz")?,
+            analysis_shrunk_wasm: require_arg(self.analysis_shrunk_wasm, "--analysis-shrunk-wasm")?,
+            analysis_shrunk_gz: require_arg(self.analysis_shrunk_gz, "--analysis-shrunk-gz")?,
             raw_info: require_arg(self.raw_info, "--raw-info")?,
-            shrunk_info: require_arg(self.shrunk_info, "--shrunk-info")?,
+            analysis_shrunk_info: require_arg(self.analysis_shrunk_info, "--analysis-shrunk-info")?,
             report_json: require_arg(self.report_json, "--report-json")?,
             summary_md: require_arg(self.summary_md, "--summary-md")?,
+            ic_wasm_bin: require_arg(self.ic_wasm_bin, "--ic-wasm-bin")?,
+            wasm_opt_bin: require_arg(self.wasm_opt_bin, "--wasm-opt-bin")?,
         })
     }
 }
@@ -264,7 +364,85 @@ fn require_arg<T>(value: Option<T>, flag: &str) -> Result<T, String> {
 }
 
 fn usage() -> String {
-    "usage: write_wasm_size_report --canister name --profile profile --sql-variant sql-on|sql-off --did path --raw-wasm path --raw-gz path --raw-gz-emitted path --shrunk-wasm path --shrunk-gz path --raw-info path --shrunk-info path --report-json path --summary-md path".to_string()
+    "usage: write_wasm_size_report --canister name --profile profile --sql-variant sql-on|sql-off --did path --raw-wasm path --raw-gz path --raw-gz-emitted path --analysis-shrunk-wasm path --analysis-shrunk-gz path --raw-info path --analysis-shrunk-info path --report-json path --summary-md path --ic-wasm-bin path --wasm-opt-bin path".to_string()
+}
+
+fn workspace_root() -> Result<PathBuf, String> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "integration crate should live two levels below workspace root".to_string())
+}
+
+fn capture_provenance(workspace_root: &Path) -> Result<Provenance, String> {
+    let lockfile = workspace_root.join("Cargo.lock");
+    let cargo_target_dir = env::var_os("CARGO_TARGET_DIR")
+        .map_or_else(|| workspace_root.join("target"), PathBuf::from);
+
+    Ok(Provenance {
+        source_revision: command_text(workspace_root, Path::new("git"), &["rev-parse", "HEAD"])?,
+        source_tree: command_text(
+            workspace_root,
+            Path::new("git"),
+            &["rev-parse", "HEAD^{tree}"],
+        )?,
+        source_dirty: !command_text(
+            workspace_root,
+            Path::new("git"),
+            &["status", "--porcelain=v1", "--untracked-files=normal"],
+        )?
+        .is_empty(),
+        lockfile_sha256: sha256_hex(&lockfile)?,
+        workspace_root: workspace_root.display().to_string(),
+        cargo_target_dir: cargo_target_dir.display().to_string(),
+        rust_toolchain: command_text(workspace_root, Path::new("rustc"), &["-vV"])?,
+    })
+}
+
+fn capture_tools(
+    workspace_root: &Path,
+    ic_wasm_bin: &Path,
+    wasm_opt_bin: &Path,
+) -> Result<Tools, String> {
+    if !ic_wasm_bin.is_file() {
+        return Err(format!(
+            "ic-wasm binary is missing: {}",
+            ic_wasm_bin.display()
+        ));
+    }
+
+    if !wasm_opt_bin.is_file() {
+        return Err(format!(
+            "wasm-opt binary is missing: {}",
+            wasm_opt_bin.display()
+        ));
+    }
+
+    Ok(Tools {
+        ic_wasm_version: command_text(workspace_root, ic_wasm_bin, &["--version"])?,
+        ic_wasm_sha256: sha256_hex(ic_wasm_bin)?,
+        wasm_opt_version: command_text(workspace_root, wasm_opt_bin, &["--version"])?,
+        wasm_opt_sha256: sha256_hex(wasm_opt_bin)?,
+    })
+}
+
+fn command_text(current_dir: &Path, program: &Path, args: &[&str]) -> Result<String, String> {
+    let output = Command::new(program)
+        .current_dir(current_dir)
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to run {}: {error}", program.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{} exited with status {}",
+            program.display(),
+            output.status
+        ));
+    }
+    String::from_utf8(output.stdout)
+        .map(|text| text.trim().to_string())
+        .map_err(|error| format!("{} emitted non-UTF-8 output: {error}", program.display()))
 }
 
 fn file_meta(path: &Path) -> Result<FileMeta, String> {
@@ -373,7 +551,18 @@ fn parse_export_line(line: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn endpoint_surface(info: &WasmInfo) -> Build {
+fn endpoint_surface(canister: &str, sql_variant: &str, info: &WasmInfo) -> Result<Build, String> {
+    let policy = MAINTAINED_CANISTER_POLICIES
+        .iter()
+        .find(|policy| policy.canister == canister)
+        .ok_or_else(|| format!("no maintained canister policy exists for '{canister}'"))?;
+    let exact_features = policy
+        .production_features
+        .iter()
+        .copied()
+        .filter(|feature| *feature == "candid-export" || sql_variant == "sql-on")
+        .map(str::to_string)
+        .collect();
     let names = info
         .exported_methods
         .iter()
@@ -397,10 +586,11 @@ fn endpoint_surface(info: &WasmInfo) -> Build {
         .map(ToOwned::to_owned)
         .collect();
 
-    Build {
+    Ok(Build {
+        exact_features,
         generated_endpoint_surface,
         custom_exports,
-    }
+    })
 }
 
 fn export_name(export: &str) -> &str {
@@ -445,20 +635,34 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
     lines.extend([
         format!("| candid export | {} |", artifacts.candid_export),
         format!(
-            "| icp-shrunk `.wasm` (canonical) | {} |",
-            artifacts.icp_shrunk_wasm.bytes
+            "| analysis-only shrunk `.wasm` | {} |",
+            artifacts.analysis_shrunk_wasm.bytes
         ),
         format!(
-            "| icp-shrunk `.wasm.gz` (canonical) | {} |",
-            artifacts.icp_shrunk_wasm_gz.bytes
+            "| analysis-only shrunk `.wasm.gz` | {} |",
+            artifacts.analysis_shrunk_wasm_gz.bytes
         ),
         format!(
-            "| Shrink delta `.wasm` | {} |",
-            report.deltas.shrink_wasm_bytes
+            "| Analysis shrink delta `.wasm` | {} |",
+            report.deltas.analysis_shrink_wasm_bytes
         ),
         format!(
-            "| Shrink delta `.wasm.gz` | {} |",
-            report.deltas.shrink_wasm_gz_bytes
+            "| Analysis shrink delta `.wasm.gz` | {} |",
+            report.deltas.analysis_shrink_wasm_gz_bytes
+        ),
+        String::new(),
+        format!(
+            "Measurement profile: `{}` (v{})",
+            report.measurement_profile.identity, report.measurement_profile.version
+        ),
+        String::new(),
+        format!("Source revision: `{}`", report.provenance.source_revision),
+        String::new(),
+        format!("Source dirty: `{}`", report.provenance.source_dirty),
+        String::new(),
+        format!(
+            "Exact features: `{}`",
+            report.build.exact_features.join(",")
         ),
         String::new(),
         format!("SQL variant: `{}`", report.sql_variant),
@@ -505,8 +709,8 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
         format!("Custom exports: {custom_exports}"),
         String::new(),
         format!(
-            "Exports (shrunk): {}",
-            report.analysis.icp_shrunk.exported_method_count
+            "Exports (final deployable): {}",
+            report.analysis.icp_built.exported_method_count
         ),
         String::new(),
         format!("JSON report: `{}`", report_path.display()),
@@ -547,12 +751,17 @@ mod tests {
 
     #[test]
     fn endpoint_surface_reports_absent_generated_sql_update_endpoint() {
-        let build = endpoint_surface(&wasm_info(&[
-            "canister_query icydb_query",
-            "canister_update icydb_ddl",
-            "canister_update icydb_fixtures_reset",
-            "canister_update icydb_fixtures_load",
-        ]));
+        let build = endpoint_surface(
+            "sql",
+            "sql-on",
+            &wasm_info(&[
+                "canister_query icydb_query",
+                "canister_update icydb_ddl",
+                "canister_update icydb_fixtures_reset",
+                "canister_update icydb_fixtures_load",
+            ]),
+        )
+        .expect("maintained SQL policy should resolve");
 
         assert!(build.generated_endpoint_surface.sql_readonly);
         assert!(build.generated_endpoint_surface.sql_ddl);
@@ -564,14 +773,33 @@ mod tests {
 
     #[test]
     fn endpoint_surface_reports_generated_sql_update_endpoint() {
-        let build = endpoint_surface(&wasm_info(&[
-            "canister_query icydb_query",
-            "canister_update icydb_update",
-            "canister_update icydb_integrity",
-        ]));
+        let build = endpoint_surface(
+            "sql",
+            "sql-on",
+            &wasm_info(&[
+                "canister_query icydb_query",
+                "canister_update icydb_update",
+                "canister_update icydb_integrity",
+            ]),
+        )
+        .expect("maintained SQL policy should resolve");
 
         assert!(build.generated_endpoint_surface.sql_update);
         assert!(build.generated_endpoint_surface.sql_integrity);
         assert!(build.custom_exports.is_empty());
+    }
+
+    #[test]
+    fn production_feature_identity_is_exact_and_variant_sensitive() {
+        let sql_on = endpoint_surface("sql_perf", "sql-on", &wasm_info(&[]))
+            .expect("maintained SQL perf policy should resolve");
+        assert_eq!(
+            sql_on.exact_features,
+            ["candid-export", "diagnostics", "sql"]
+        );
+
+        let sql_off = endpoint_surface("sql_perf", "sql-off", &wasm_info(&[]))
+            .expect("maintained SQL perf policy should resolve");
+        assert_eq!(sql_off.exact_features, ["candid-export"]);
     }
 }

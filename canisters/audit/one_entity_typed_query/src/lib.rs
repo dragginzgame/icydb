@@ -8,6 +8,7 @@ use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 icydb::start!();
 
 #[ic_cdk::query]
+#[cfg(not(feature = "lifecycle-audit"))]
 fn query_one_entity_typed_rows() -> u32 {
     let Ok(database) = db() else {
         return 0;
@@ -23,6 +24,24 @@ fn query_one_entity_typed_rows() -> u32 {
     };
 
     u32::try_from(rows.len()).unwrap_or(u32::MAX)
+}
+
+#[ic_cdk::query]
+#[cfg(feature = "lifecycle-audit")]
+fn query_one_entity_typed_rows() -> Result<u32, u16> {
+    let database = db().map_err(|error| error.code().raw())?;
+    let query = database
+        .query::<OneSimpleEntity01>()
+        .map_err(|_error| u16::MAX - 1)?;
+    let rows = query
+        .filter(FieldRef::new("id").eq(icydb::types::Ulid::MIN))
+        .execute_rows()
+        .map_err(|error| match error {
+            icydb::db::query::TypedQueryError::Database(error) => error.code().raw(),
+            icydb::db::query::TypedQueryError::Row(_) => u16::MAX,
+        })?;
+
+    Ok(u32::try_from(rows.len()).unwrap_or(u32::MAX))
 }
 
 #[cfg(feature = "candid-export")]

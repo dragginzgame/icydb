@@ -1,7 +1,10 @@
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_integration::install_fixture_canister;
 
-fn typed_query_row_count(fixture: &StandaloneCanisterFixture, method: &str) -> u32 {
+fn audited_typed_query_row_count(
+    fixture: &StandaloneCanisterFixture,
+    method: &str,
+) -> Result<u32, u16> {
     fixture
         .query_candid(method, ())
         .expect("typed query endpoint response should decode")
@@ -9,16 +12,15 @@ fn typed_query_row_count(fixture: &StandaloneCanisterFixture, method: &str) -> u
 
 #[test]
 fn query_only_typed_canisters_execute_without_sql() {
-    for (canister, method) in [
-        ("one_entity_typed_query", "query_one_entity_typed_rows"),
-        ("ten_entity_typed_query", "query_ten_entity_typed_rows"),
-    ] {
-        let fixture = install_fixture_canister(canister);
-        let row_count = typed_query_row_count(&fixture, method);
+    let audited_fixture = install_fixture_canister("one_entity_typed_query");
+    let audited_row_count =
+        audited_typed_query_row_count(&audited_fixture, "query_one_entity_typed_rows")
+            .unwrap_or_else(|error| panic!("typed schema/query initialization failed: {error}"));
+    assert_eq!(audited_row_count, 0);
 
-        assert_eq!(
-            row_count, 0,
-            "{canister} should execute its accepted-schema query over the empty initial store",
-        );
-    }
+    let ten_entity_fixture = install_fixture_canister("ten_entity_typed_query");
+    let ten_entity_row_count: u32 = ten_entity_fixture
+        .query_candid("query_ten_entity_typed_rows", ())
+        .expect("ten-entity typed query endpoint response should decode");
+    assert_eq!(ten_entity_row_count, 0);
 }

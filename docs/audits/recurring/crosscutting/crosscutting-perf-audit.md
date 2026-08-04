@@ -580,6 +580,11 @@ records that binary's reported version and SHA-256; an automatically resolved
 binary is sufficient for ordinary correctness tests but is not sufficiently
 explicit for durable performance evidence.
 
+The current measurement identity is
+`icydb-sql-performance/0.220/v3` under PocketIC 15.0.0. Evidence carrying an
+older profile identity or another PocketIC version is historical and is not
+decoded or compared as current evidence.
+
 Deterministic P1 shard commands:
 
 - run `make build-sql-perf-wasm` once to create the exact subject shared by the
@@ -606,6 +611,13 @@ fresh-canister cold observations and five independently update-warmed
 observations; cache counters prove each mode, and every stable receipt is
 required. Missing, duplicate, tampered, semantically drifting, or unstable
 evidence fails the P2 merge.
+
+`cold` means the measured cache identities were absent at method entry.
+`proven_warm_at_entry` requires an earlier successful update to populate the
+same in-heap identity and a later measured call whose counters prove hits.
+`loop_local_reuse` is repeated execution within one message and is recorded
+separately; sequential query calls cannot establish warm-at-entry state because
+query-created heap state rolls back.
 
 Every current measured P1, P2, scale, comparison, and calibration artifact
 carries the same validated `measurement_coverage` projection. Instruction

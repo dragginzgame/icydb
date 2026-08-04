@@ -135,6 +135,7 @@ write_summary_report() {
     local baseline_path
     local snapshot
     local all_baselines_available=1
+    local all_current_sources_clean=1
     local rows=()
     local canister_list=""
 
@@ -164,8 +165,8 @@ write_summary_report() {
         local size_summary_path="$artifact_scope_dir/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-summary.md"
         local baseline_artifact=""
         local status="PARTIAL"
-        local previous_shrunk="N/A"
-        local current_shrunk
+        local previous_final="N/A"
+        local current_final
         local previous_gz="N/A"
         local current_gz
 
@@ -175,15 +176,47 @@ write_summary_report() {
             canister_list+=", $canister_name"
         fi
 
-        current_shrunk="$(jq -er '.artifacts.icp_shrunk_wasm.bytes' "$size_report_path")"
-        current_gz="$(jq -er '.artifacts.icp_shrunk_wasm_gz.bytes' "$size_report_path")"
+        current_final="$(jq -er '.artifacts.icp_built_wasm.bytes' "$size_report_path")"
+        current_gz="$(jq -er '.artifacts.icp_built_wasm_gz_deterministic.bytes' "$size_report_path")"
+        if ! jq -e '
+            .format_version == 2
+            and .measurement_profile.identity == "icydb-wasm-footprint/0.220/v1"
+            and .pipeline.build_profile == "production"
+            and .pipeline.candid_metadata == "enabled"
+            and .pipeline.final_deployable_stage == "icp_built_wasm"
+            and .pipeline.path_remapping == "workspace=/w;cargo-registry=/c;rust-library=/r"
+            and (.tools.ic_wasm_sha256 | length) == 64
+            and (.tools.wasm_opt_sha256 | length) == 64
+        ' "$size_report_path" >/dev/null; then
+            echo "[wasm-audit] current-format measurement contract failed: $size_report_path" >&2
+            exit 1
+        fi
+        if ! jq -e '.provenance.source_dirty == false' "$size_report_path" >/dev/null; then
+            all_current_sources_clean=0
+            status="PARTIAL"
+        fi
 
-        if [[ "$baseline_path" != "N/A" ]]; then
+        if [[ "$baseline_path" != "N/A" && "$all_current_sources_clean" == "1" ]]; then
             baseline_artifact="$ROOT/${baseline_path%/*}/artifacts/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
             if [[ -f "$baseline_artifact" ]] \
-                && jq -e '.artifacts.icp_shrunk_wasm.bytes and .artifacts.icp_shrunk_wasm_gz.bytes' "$baseline_artifact" >/dev/null; then
-                previous_shrunk="$(jq -er '.artifacts.icp_shrunk_wasm.bytes' "$baseline_artifact")"
-                previous_gz="$(jq -er '.artifacts.icp_shrunk_wasm_gz.bytes' "$baseline_artifact")"
+                && jq -e --slurpfile current "$size_report_path" '
+                    .format_version == 2
+                    and .measurement_profile.identity == "icydb-wasm-footprint/0.220/v1"
+                    and .provenance.source_dirty == false
+                    and .pipeline.final_deployable_stage == "icp_built_wasm"
+                    and .artifacts.icp_built_wasm.bytes
+                    and .artifacts.icp_built_wasm_gz_deterministic.bytes
+                    and .provenance.workspace_root == $current[0].provenance.workspace_root
+                    and .provenance.cargo_target_dir == $current[0].provenance.cargo_target_dir
+                    and .provenance.rust_toolchain == $current[0].provenance.rust_toolchain
+                    and .tools == $current[0].tools
+                    and .pipeline == $current[0].pipeline
+                    and .profile == $current[0].profile
+                    and .sql_variant == $current[0].sql_variant
+                    and .build.exact_features == $current[0].build.exact_features
+                ' "$baseline_artifact" >/dev/null; then
+                previous_final="$(jq -er '.artifacts.icp_built_wasm.bytes' "$baseline_artifact")"
+                previous_gz="$(jq -er '.artifacts.icp_built_wasm_gz_deterministic.bytes' "$baseline_artifact")"
                 status="PASS"
             else
                 all_baselines_available=0
@@ -192,13 +225,17 @@ write_summary_report() {
             all_baselines_available=0
         fi
 
-        rows+=("$canister_name"$'\t'"$status"$'\t'"$previous_shrunk"$'\t'"$current_shrunk"$'\t'"$previous_gz"$'\t'"$current_gz"$'\t'"$(display_path "$size_summary_path")")
+        rows+=("$canister_name"$'\t'"$status"$'\t'"$previous_final"$'\t'"$current_final"$'\t'"$previous_gz"$'\t'"$current_gz"$'\t'"$(display_path "$size_summary_path")")
     done
 
     local comparability
     local baseline_status_row
     local pass_counts
-    if [[ "$baseline_path" == "N/A" ]]; then
+    if [[ "$all_current_sources_clean" != "1" ]]; then
+        comparability="non-comparable (current artifacts were built from a dirty source tree)"
+        baseline_status_row="| Baseline delta availability | PARTIAL | current artifacts record dirty source state and cannot become baseline authority |"
+        pass_counts="PASS=4, PARTIAL=1, FAIL=0"
+    elif [[ "$baseline_path" == "N/A" ]]; then
         comparability="non-comparable (first tracked summary-layout run)"
         baseline_status_row="| Baseline delta availability | PARTIAL | first tracked summary-layout run; establishes new baseline layout |"
         pass_counts="PASS=4, PARTIAL=1, FAIL=0"
@@ -218,7 +255,7 @@ write_summary_report() {
         printf -- '- scope: recurring wasm footprint audit for `%s` with profile `%s` and SQL variant `%s`\n' "$canister_list" "$profile" "$SQL_VARIANT"
         printf -- '- compared baseline report path: `%s`\n' "$baseline_path"
         printf -- '- code snapshot identifier: `%s`\n' "$snapshot"
-        printf -- '- method tag/version: `WASM-1.0`\n'
+        printf -- '- method tag/version: `WASM-2.0`\n'
         printf -- '- comparability status: `%s`\n\n' "$comparability"
         printf '## Checklist Results\n\n'
         printf '| Requirement | Status | Evidence |\n'
@@ -230,18 +267,20 @@ write_summary_report() {
         printf '%s\n\n' "$baseline_status_row"
         printf '%s\n\n' "$pass_counts"
         printf '## Per-Canister Size Snapshot\n\n'
-        printf '| Canister | Baseline Status | Previous shrunk `.wasm` | Current shrunk `.wasm` | Previous shrunk `.wasm.gz` | Current shrunk `.wasm.gz` | Size Summary |\n'
+        printf '| Canister | Baseline Status | Previous final `.wasm` | Current final `.wasm` | Previous final `.wasm.gz` | Current final `.wasm.gz` | Size Summary |\n'
         printf '| --- | --- | ---: | ---: | ---: | ---: | --- |\n'
 
-        local row canister_name status previous_shrunk current_shrunk previous_gz current_gz size_summary_path
+        local row canister_name status previous_final current_final previous_gz current_gz size_summary_path
         for row in "${rows[@]}"; do
-            IFS=$'\t' read -r canister_name status previous_shrunk current_shrunk previous_gz current_gz size_summary_path <<<"$row"
+            IFS=$'\t' read -r canister_name status previous_final current_final previous_gz current_gz size_summary_path <<<"$row"
             printf '| `%s` | %s | %s | %s | %s | %s | `%s` |\n' \
-                "$canister_name" "$status" "$previous_shrunk" "$current_shrunk" "$previous_gz" "$current_gz" "$size_summary_path"
+                "$canister_name" "$status" "$previous_final" "$current_final" "$previous_gz" "$current_gz" "$size_summary_path"
         done
 
         printf '\n## Follow-Up Actions\n\n'
-        if [[ "$baseline_path" == "N/A" ]]; then
+        if [[ "$all_current_sources_clean" != "1" ]]; then
+            printf -- '- owner boundary: `wasm-audit provenance`; action: rebuild the complete matrix from one clean source identity before accepting a baseline or delta.\n'
+        elif [[ "$baseline_path" == "N/A" ]]; then
             printf -- '- owner boundary: `wasm-audit`; action: treat this report as the baseline for the consolidated summary layout and compare deltas on the next run.\n'
         elif [[ "$all_baselines_available" == "1" ]]; then
             printf -- '- No follow-up actions required for this run.\n'
@@ -294,7 +333,7 @@ write_canister_artifacts() {
     local artifact_dir="$ROOT/artifacts/wasm-size"
     local size_report_json="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.report.json"
     local size_summary_md="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.summary.md"
-    local shrunk_wasm="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.icp-shrunk.wasm"
+    local final_wasm="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.icp-built.wasm"
     local report_stem="$REPORT_SCOPE"
     local size_report_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-report.json"
     local size_summary_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-summary.md"
@@ -312,7 +351,7 @@ write_canister_artifacts() {
         echo "[wasm-audit] skipping wasm build and size capture (--skip-build)"
     fi
 
-    for required in "$size_report_json" "$size_summary_md" "$shrunk_wasm"; do
+    for required in "$size_report_json" "$size_summary_md" "$final_wasm"; do
         if [[ ! -f "$required" ]]; then
             echo "[wasm-audit] expected artifact missing: $required" >&2
             exit 1
@@ -322,10 +361,10 @@ write_canister_artifacts() {
     cp "$size_report_json" "$size_report_copy"
     cp "$size_summary_md" "$size_summary_copy"
 
-    write_twiggy_artifact "$twiggy_top_txt" twiggy top -n 40 "$shrunk_wasm"
-    write_twiggy_artifact "$twiggy_dominators_txt" twiggy dominators -r 160 "$shrunk_wasm"
-    write_twiggy_artifact "$twiggy_retained_csv" twiggy top --retained -n 40 -f csv "$shrunk_wasm"
-    write_twiggy_artifact "$twiggy_monos_txt" twiggy monos "$shrunk_wasm"
+    write_twiggy_artifact "$twiggy_top_txt" twiggy top -n 40 "$final_wasm"
+    write_twiggy_artifact "$twiggy_dominators_txt" twiggy dominators -r 160 "$final_wasm"
+    write_twiggy_artifact "$twiggy_retained_csv" twiggy top --retained -n 40 -f csv "$final_wasm"
+    write_twiggy_artifact "$twiggy_monos_txt" twiggy monos "$final_wasm"
 
     echo "[wasm-audit] Wrote artifacts for $canister_name"
 }

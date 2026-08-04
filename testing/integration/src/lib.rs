@@ -2,6 +2,7 @@
 
 pub mod canister_artifact;
 pub mod sql_performance_contract;
+pub mod wasm_measurement;
 
 use std::{
     env, fs,

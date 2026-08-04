@@ -30,7 +30,7 @@ pub(crate) enum P2SampleMode {
     Cold,
 
     /// A query after the same SQL was committed through the update warming boundary.
-    Warm,
+    ProvenWarmAtEntry,
 }
 
 ///
@@ -175,7 +175,7 @@ pub(crate) fn build_p2_sample_set(
         .map_err(P2ConfirmationError::InvalidProfile)?;
     let expected_count = match mode {
         P2SampleMode::Cold => profile.cold_samples_per_confirmation(),
-        P2SampleMode::Warm => profile.warm_samples_per_confirmation(),
+        P2SampleMode::ProvenWarmAtEntry => profile.warm_samples_per_confirmation(),
     };
     if samples.len() != usize::from(expected_count) {
         return Err(P2ConfirmationError::SampleCount {
@@ -228,7 +228,12 @@ pub(crate) fn build_p2_confirmation(
     let cold = build_p2_sample_set(profile, &candidate, P2SampleMode::Cold, cold_samples)?;
     let warm = match warm_input {
         P2WarmSampleInput::Required(warm_samples) => {
-            let warm = build_p2_sample_set(profile, &candidate, P2SampleMode::Warm, warm_samples)?;
+            let warm = build_p2_sample_set(
+                profile,
+                &candidate,
+                P2SampleMode::ProvenWarmAtEntry,
+                warm_samples,
+            )?;
             if !same_semantic_result(&cold.samples[0], &warm.samples[0]) {
                 return Err(P2ConfirmationError::ModeSemanticDrift(
                     candidate.scenario_id,
@@ -350,7 +355,7 @@ fn cache_proof(
 ) -> Result<P2CacheProof, P2ConfirmationError> {
     let expected = match mode {
         P2SampleMode::Cold => (0, 1),
-        P2SampleMode::Warm => (1, 0),
+        P2SampleMode::ProvenWarmAtEntry => (1, 0),
     };
     if samples.iter().any(|sample| {
         (
@@ -590,7 +595,7 @@ mod tests {
                 sample.shared_query_plan_hits = 0;
                 sample.shared_query_plan_misses = 1;
             }
-            P2SampleMode::Warm => {
+            P2SampleMode::ProvenWarmAtEntry => {
                 sample.sql_compiled_command_hits = 1;
                 sample.sql_compiled_command_misses = 0;
                 sample.shared_query_plan_hits = 1;
@@ -619,7 +624,7 @@ mod tests {
                 [100_000, 102_000, 101_000, 99_000, 100_500],
             ),
             P2WarmSampleInput::Required(samples(
-                P2SampleMode::Warm,
+                P2SampleMode::ProvenWarmAtEntry,
                 [80_000, 81_000, 79_500, 80_500, 80_250],
             )),
         )
@@ -705,7 +710,7 @@ mod tests {
                 P2SampleMode::Cold,
                 [100_000, 100_000, 100_000, 100_000, 110_001],
             ),
-            P2WarmSampleInput::Required(samples(P2SampleMode::Warm, [80_000; 5])),
+            P2WarmSampleInput::Required(samples(P2SampleMode::ProvenWarmAtEntry, [80_000; 5])),
         )
         .expect("instability should remain reportable evidence");
 
