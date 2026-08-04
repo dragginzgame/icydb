@@ -1,0 +1,79 @@
+# Compact diagnostics
+
+IcyDB errors carry a stable numeric E-code and a bounded list of numeric facts.
+They deliberately omit schema names, SQL text, keys, rows, and values so normal
+canisters do not retain a large diagnostic prose catalog.
+
+The CLI can always explain a code:
+
+```console
+icydb diagnostic E223
+```
+
+Pass the facts printed by the caller as repeated `--fact TAG=VALUE` arguments.
+Tags may use their numeric identity or maintained CLI label:
+
+```console
+icydb diagnostic E223 \
+  --fact accepted_schema_fingerprint_method=1 \
+  --fact accepted_schema_fingerprint_high=123 \
+  --fact accepted_schema_fingerprint_low=456 \
+  --fact entity_tag=17 \
+  --fact constraint_id=4 \
+  --fact constraint_kind=5 \
+  --fact mutation_operation=1 \
+  --fact batch_position=0
+```
+
+Without exact accepted-schema metadata, this remains a complete numeric report.
+Categorical values such as constraint kind and mutation operation still receive
+host-owned labels.
+
+## Live schema resolution
+
+When the deployed canister explicitly exports `icydb_schema`, add its canister
+name. The CLI uses the selected environment and the deployed endpoint only:
+
+```console
+icydb diagnostic E223 --canister app --environment production \
+  --fact accepted_schema_fingerprint_method=1 \
+  --fact accepted_schema_fingerprint_high=123 \
+  --fact accepted_schema_fingerprint_low=456 \
+  --fact entity_tag=17 \
+  --fact constraint_id=4
+```
+
+Method-not-found, authorization, and replica failures are authoritative. They
+do not cause the CLI to infer names from local source.
+
+## Offline diagnostic artifact
+
+Export a bounded host-only artifact while the explicit schema endpoint is
+available:
+
+```console
+icydb schema diagnostic-artifact app --environment production \
+  --output app.diagnostic.json
+```
+
+The output path must be new. Use the artifact later without deploying a schema
+endpoint:
+
+```console
+icydb diagnostic E223 --artifact app.diagnostic.json \
+  --fact accepted_schema_fingerprint_method=1 \
+  --fact accepted_schema_fingerprint_high=123 \
+  --fact accepted_schema_fingerprint_low=456 \
+  --fact entity_tag=17 \
+  --fact constraint_id=4
+```
+
+Names are used only when the fingerprint method, complete 128-bit accepted
+fingerprint, and entity tag match exactly. If they do not, the CLI withholds
+artifact names and prints numeric identities. When `--artifact` and
+`--canister` are combined, artifact provenance must also match the selected
+deployment; an exact live introspection result is the next resolver.
+
+The JSON artifact is a tooling format, not database state. It cannot authorize
+a write, apply a schema, recover data, or replace accepted schema authority.
+Only the current pre-1.0 artifact shape is accepted.

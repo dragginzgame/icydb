@@ -116,6 +116,254 @@ fn serialize_incompatible_persisted_format_uses_serialize_origin() {
 }
 
 #[test]
+fn recovery_format_version_facts_preserve_required_and_optional_found_versions() {
+    let err = InternalError::recovery_unsupported_database_format(Some(7), 9);
+    assert_eq!(
+        err.diagnostic_facts(),
+        vec![
+            (icydb_diagnostic_code::DiagnosticFactTag::ExpectedVersion, 9,),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualVersion, 7,),
+        ],
+    );
+
+    let missing = InternalError::recovery_unsupported_database_format(None, 9);
+    assert_eq!(
+        missing.diagnostic_facts(),
+        vec![(icydb_diagnostic_code::DiagnosticFactTag::ExpectedVersion, 9,)],
+    );
+}
+
+#[test]
+fn recovery_format_marker_facts_preserve_only_the_bounded_reason() {
+    let cases = [
+        (
+            RecoveryFormatMarkerError::Magic,
+            icydb_diagnostic_code::DiagnosticDecodeReason::RecoveryMarkerMagic,
+        ),
+        (
+            RecoveryFormatMarkerError::Checksum,
+            icydb_diagnostic_code::DiagnosticDecodeReason::RecoveryMarkerChecksum,
+        ),
+        (
+            RecoveryFormatMarkerError::State,
+            icydb_diagnostic_code::DiagnosticDecodeReason::RecoveryMarkerState,
+        ),
+    ];
+
+    for (marker_error, expected) in cases {
+        let err = InternalError::recovery_malformed_database_format_marker(marker_error);
+        assert_eq!(
+            err.diagnostic_facts(),
+            vec![(
+                icydb_diagnostic_code::DiagnosticFactTag::DecodeReason,
+                expected.raw(),
+            )],
+        );
+    }
+}
+
+#[test]
+fn persisted_row_layout_facts_preserve_only_the_accepted_window() {
+    let outside = InternalError::persisted_row_layout_outside_accepted_window(3, 4, 7);
+    assert_eq!(
+        outside.diagnostic_facts(),
+        vec![
+            (icydb_diagnostic_code::DiagnosticFactTag::RowLayout, 3),
+            (icydb_diagnostic_code::DiagnosticFactTag::HistoryFloor, 4),
+            (icydb_diagnostic_code::DiagnosticFactTag::CurrentLayout, 7),
+        ],
+    );
+
+    let slots = InternalError::persisted_row_slot_count_mismatch(6, 9, 8);
+    assert_eq!(
+        slots.diagnostic_facts(),
+        vec![
+            (icydb_diagnostic_code::DiagnosticFactTag::RowLayout, 6),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ExpectedSlotCount,
+                9,
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualSlotCount, 8,),
+        ],
+    );
+}
+
+#[test]
+fn storage_index_and_relation_facts_keep_only_safe_numeric_context() {
+    let memory = InternalError::commit_memory_id_mismatch(12, 30);
+    assert_eq!(
+        memory.diagnostic_facts(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
+                12,
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualMemoryId, 30,),
+        ],
+    );
+
+    let component = InternalError::commit_component_length_invalid(513, 512);
+    assert_eq!(
+        component.diagnostic_facts(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ComponentKind,
+                icydb_diagnostic_code::DiagnosticComponentKind::CommitDataKey.raw(),
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualLength, 513,),
+            (icydb_diagnostic_code::DiagnosticFactTag::Limit, 512),
+        ],
+    );
+
+    let index = InternalError::index_component_exceeds_max_size_at(23, 5, 2, 257, 256);
+    assert_eq!(
+        index.diagnostic_facts(),
+        vec![
+            (icydb_diagnostic_code::DiagnosticFactTag::EntityTag, 23),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
+                5,
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ComponentIndex, 2),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ComponentKind,
+                icydb_diagnostic_code::DiagnosticComponentKind::IndexKeyComponent.raw(),
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualLength, 257,),
+            (icydb_diagnostic_code::DiagnosticFactTag::Limit, 256),
+        ],
+    );
+
+    let relation = InternalError::relation_target_primary_key_arity_mismatch(2, 1);
+    assert_eq!(
+        relation.diagnostic_facts(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ComponentKind,
+                icydb_diagnostic_code::DiagnosticComponentKind::RelationTargetPrimaryKey.raw(),
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ExpectedArity, 2),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualArity, 1),
+        ],
+    );
+
+    let entity = InternalError::relation_target_entity_mismatch(
+        "decode", "Source", "relation", "Target", "Target", 31, 37,
+    );
+    assert_eq!(
+        entity.diagnostic_facts(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
+                31,
+            ),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ActualEntityTag,
+                37,
+            ),
+        ],
+    );
+}
+
+#[test]
+fn accepted_constraint_facts_bind_exact_authority_operation_and_path() {
+    let fingerprint = [
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18,
+    ];
+    let context = AcceptedConstraintFactContext::write_admission(
+        3,
+        fingerprint,
+        29,
+        41,
+        icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule,
+        Some(MutationDiagnosticContext::new(
+            29,
+            icydb_diagnostic_code::DiagnosticMutationOperation::Update,
+            7,
+        )),
+        Some(ConstraintValuePath::new(vec![
+            ConstraintValuePathComponent::RootField { field_id: 5 },
+            ConstraintValuePathComponent::RecordMember {
+                composite_type_id: 9,
+                member_id: 11,
+            },
+            ConstraintValuePathComponent::ListElement { index: 13 },
+        ])),
+    );
+    let error = InternalError::mutation_constraint_violation(context);
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+    );
+    assert_eq!(
+        error.diagnostic().error_code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+    );
+    assert_eq!(
+        error.diagnostic_facts(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+                3,
+            ),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+                0x0102_0304_0506_0708,
+            ),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintLow,
+                0x1112_1314_1516_1718,
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::EntityTag, 29),
+            (icydb_diagnostic_code::DiagnosticFactTag::ConstraintId, 41),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+                icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule.raw(),
+            ),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ConstraintContext,
+                icydb_diagnostic_code::DiagnosticConstraintContext::WriteAdmission.raw(),
+            ),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+                icydb_diagnostic_code::DiagnosticMutationOperation::Update.raw(),
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 7),
+            (icydb_diagnostic_code::DiagnosticFactTag::RootField, 5),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::RecordMember,
+                icydb_diagnostic_code::pack_u32_pair(9, 11),
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ListElement, 13),
+        ],
+    );
+}
+
+#[test]
+fn accepted_constraint_activation_block_uses_e225_with_the_same_authority_schema() {
+    let context = AcceptedConstraintFactContext::write_admission(
+        1,
+        [0xA5; 16],
+        8,
+        12,
+        icydb_diagnostic_code::DiagnosticConstraintKind::Unique,
+        None,
+        None,
+    );
+    let error = InternalError::mutation_constraint_activation_write_blocked(context);
+
+    assert_eq!(error.class(), ErrorClass::Conflict);
+    assert_eq!(error.origin(), ErrorOrigin::Executor);
+    assert_eq!(
+        error.diagnostic().error_code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED,
+    );
+    assert_eq!(error.diagnostic_facts().len(), 7);
+}
+
+#[test]
 fn index_plan_store_invariant_uses_store_origin() {
     let err = InternalError::index_plan_store_invariant();
     assert_eq!(err.class, ErrorClass::InvariantViolation);
@@ -331,6 +579,7 @@ fn plan_policy_error_mapping_uses_runtime_invariant_code() {
 #[test]
 fn group_plan_error_mapping_uses_runtime_invariant_code() {
     let err = from_group_plan_error(PlanError::from(GroupPlanError::UnknownGroupField {
+        group_index: None,
         field: "tenant".to_string(),
     }));
 
@@ -397,6 +646,23 @@ fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
 }
 
 #[test]
+fn query_error_preserves_cursor_window_facts_without_internal_error_conversion() {
+    let query_error = crate::db::QueryError::Plan(Box::new(PlanError::from(cursor_window_error())));
+
+    assert_eq!(
+        query_error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+    );
+    assert_eq!(
+        query_error.diagnostic_facts(),
+        vec![
+            (icydb_diagnostic_code::DiagnosticFactTag::ExpectedOffset, 4,),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualOffset, 2,),
+        ],
+    );
+}
+
+#[test]
 fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
     let err = CursorPlanError::ContinuationCursorInvariantViolation.into_internal_error();
 
@@ -434,6 +700,26 @@ fn classification_integrity_helpers_preserve_error_class() {
             "class must be preserved across helper relabeling operations",
         );
     }
+}
+
+#[test]
+fn recovery_reorigining_preserves_safe_numeric_facts() {
+    let base = InternalError::commit_component_length_invalid(513, 512);
+    let reorigined = base.with_origin(ErrorOrigin::Recovery);
+
+    assert_eq!(reorigined.class, ErrorClass::Corruption);
+    assert_eq!(reorigined.origin, ErrorOrigin::Recovery);
+    assert_eq!(
+        reorigined.diagnostic_facts(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ComponentKind,
+                icydb_diagnostic_code::DiagnosticComponentKind::CommitDataKey.raw(),
+            ),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualLength, 513,),
+            (icydb_diagnostic_code::DiagnosticFactTag::Limit, 512),
+        ],
+    );
 }
 
 #[test]
@@ -522,5 +808,98 @@ fn mutation_unknown_field_uses_compact_executor_invariant() {
     assert_eq!(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+    );
+}
+
+#[test]
+fn mutation_error_details_project_exact_bounded_numeric_facts() {
+    use icydb_diagnostic_code::{
+        DiagnosticFactTag as Tag, DiagnosticMutationOperation as Operation,
+    };
+
+    let context = MutationDiagnosticContext::new(17, Operation::Insert, 3);
+    let required = InternalError::mutation_required_field_missing(context, 9);
+    assert_eq!(
+        required.diagnostic_facts(),
+        vec![
+            (Tag::EntityTag, 17),
+            (Tag::FieldId, 9),
+            (Tag::MutationOperation, Operation::Insert.raw()),
+            (Tag::BatchPosition, 3),
+        ],
+    );
+
+    let explicit = InternalError::mutation_database_owned_field_explicit(context, 11);
+    assert_eq!(
+        explicit.diagnostic_facts(),
+        vec![
+            (Tag::EntityTag, 17),
+            (Tag::FieldId, 11),
+            (Tag::MutationOperation, Operation::Insert.raw()),
+            (Tag::BatchPosition, 3),
+        ],
+    );
+
+    let managed = InternalError::mutation_managed_timestamp_regression(
+        MutationDiagnosticContext::new(17, Operation::Update, 5),
+    );
+    assert_eq!(
+        managed.diagnostic_facts(),
+        vec![
+            (Tag::EntityTag, 17),
+            (Tag::MutationOperation, Operation::Update.raw()),
+            (Tag::BatchPosition, 5),
+        ],
+    );
+
+    assert_eq!(
+        InternalError::mutation_batch_empty().diagnostic_facts(),
+        vec![(Tag::ActualCount, 0)],
+    );
+    assert_eq!(
+        InternalError::mutation_batch_too_many_items(5_000, 4_096).diagnostic_facts(),
+        vec![(Tag::ActualCount, 5_000), (Tag::Limit, 4_096)],
+    );
+    assert_eq!(
+        InternalError::mutation_batch_staged_bytes_exceeded(Some(101), 100).diagnostic_facts(),
+        vec![(Tag::ActualLength, 101), (Tag::Limit, 100)],
+    );
+    assert_eq!(
+        InternalError::mutation_batch_staged_bytes_exceeded(None, 100).diagnostic_facts(),
+        vec![(Tag::Limit, 100)],
+    );
+    assert_eq!(
+        InternalError::mutation_batch_result_bytes_exceeded(101, 100).diagnostic_facts(),
+        vec![(Tag::ActualLength, 101), (Tag::Limit, 100)],
+    );
+    assert_eq!(
+        InternalError::mutation_batch_entity_mismatch(2, 17, 18).diagnostic_facts(),
+        vec![
+            (Tag::BatchPosition, 2),
+            (Tag::ExpectedEntityTag, 17),
+            (Tag::ActualEntityTag, 18),
+        ],
+    );
+    assert_eq!(
+        InternalError::mutation_atomic_save_duplicate_key(17, 1, 4).diagnostic_facts(),
+        vec![
+            (Tag::EntityTag, 17),
+            (Tag::FirstBatchPosition, 1),
+            (Tag::DuplicateBatchPosition, 4),
+        ],
+    );
+}
+
+#[test]
+fn stale_accepted_authority_projects_expected_and_optional_current_revision() {
+    use icydb_diagnostic_code::DiagnosticFactTag as Tag;
+
+    assert_eq!(
+        InternalError::query_stale_accepted_schema_revision(7, Some(9)).diagnostic_facts(),
+        vec![(Tag::ExpectedRevision, 7), (Tag::CurrentRevision, 9)],
+    );
+    assert_eq!(
+        InternalError::query_stale_accepted_schema_revision(7, None).diagnostic_facts(),
+        vec![(Tag::ExpectedRevision, 7)],
     );
 }

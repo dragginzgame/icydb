@@ -3,144 +3,41 @@
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
-use crate::db::schema::AcceptedFieldKind;
-#[cfg(any(test, feature = "sql"))]
 use crate::db::schema::{
-    AcceptedFieldKindCategory, AcceptedScalarClass, classify_accepted_field_kind,
+    AcceptedFieldKind, AcceptedFieldKindCategory, classify_accepted_field_kind,
 };
 use crate::types::{Account, Decimal, Float32, Float64, Principal};
 use crate::types::{IntBig, NatBig, Ulid};
 use crate::value::{CoercionFamily, Value};
 #[cfg(any(test, feature = "sql"))]
 use crate::value::{InputValue, InputValueEnum};
+use icydb_schema::{ScalarCoercionFamily, ScalarKind};
 use std::fmt;
 use std::str::FromStr;
 
-///
-/// ScalarType
-///
-/// Internal scalar classification used by predicate validation.
-/// This is deliberately *smaller* than the full schema/type system
-/// and exists only to support:
-/// - coercion rules
-/// - literal compatibility checks
-/// - operator validity (ordering, equality)
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ScalarType {
-    Account,
-    Blob,
-    Bool,
-    Date,
-    Decimal,
-    Duration,
-    Enum,
-    Float32,
-    Float64,
-    SignedNumeric,
-    Int128,
-    IntBig,
-    Principal,
-    Subaccount,
-    Text,
-    Timestamp,
-    UnsignedNumeric,
-    Nat128,
-    NatBig,
-    Ulid,
-    Unit,
+const fn scalar_coercion_family(kind: ScalarKind) -> CoercionFamily {
+    match kind.coercion_family() {
+        ScalarCoercionFamily::Numeric => CoercionFamily::Numeric,
+        ScalarCoercionFamily::Textual => CoercionFamily::Textual,
+        ScalarCoercionFamily::Identifier => CoercionFamily::Identifier,
+        ScalarCoercionFamily::Enum => CoercionFamily::Enum,
+        ScalarCoercionFamily::Blob => CoercionFamily::Blob,
+        ScalarCoercionFamily::Bool => CoercionFamily::Bool,
+        ScalarCoercionFamily::Unit => CoercionFamily::Unit,
+    }
 }
 
-// The scalar registry is keyed by runtime `Value` variant names. Keep that
-// value vocabulary local and project broad fixed-width schema families onto
-// explicit signed/unsigned predicate classifications.
-macro_rules! scalar_type_variant {
-    (Int) => {
-        ScalarType::SignedNumeric
-    };
-    (Nat) => {
-        ScalarType::UnsignedNumeric
-    };
-    ($scalar:ident) => {
-        ScalarType::$scalar
-    };
-}
-
-// Local helpers to expand the scalar registry into match arms.
-macro_rules! scalar_coercion_family_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
-        match $self {
-            $( scalar_type_variant!($scalar) => $coercion_family, )*
-        }
-    };
-}
-
-macro_rules! scalar_matches_value_from_registry {
-    ( @args $self:expr, $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
+macro_rules! scalar_kind_matches_value_from_registry {
+    ( @args $kind:expr, $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         matches!(
-            ($self, $value),
-            $( (scalar_type_variant!($scalar), $value_pat) )|*
+            ($kind, $value),
+            $( (ScalarKind::$scalar, $value_pat) )|*
         )
     };
 }
 
-macro_rules! scalar_supports_numeric_coercion_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
-        match $self {
-            $( scalar_type_variant!($scalar) => $supports_numeric_coercion, )*
-        }
-    };
-}
-
-macro_rules! scalar_is_keyable_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
-        match $self {
-            $( scalar_type_variant!($scalar) => $is_keyable, )*
-        }
-    };
-}
-
-macro_rules! scalar_supports_ordering_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
-        match $self {
-            $( scalar_type_variant!($scalar) => $supports_ordering, )*
-        }
-    };
-}
-
-impl ScalarType {
-    #[must_use]
-    pub(crate) const fn coercion_family(&self) -> CoercionFamily {
-        scalar_registry!(scalar_coercion_family_from_registry, self)
-    }
-
-    #[must_use]
-    pub(crate) const fn is_orderable(&self) -> bool {
-        // Predicate-level ordering gate.
-        // Delegates to registry-backed supports_ordering.
-        self.supports_ordering()
-    }
-
-    #[must_use]
-    pub(crate) const fn matches_value(&self, value: &Value) -> bool {
-        scalar_registry!(scalar_matches_value_from_registry, self, value)
-    }
-
-    #[must_use]
-    pub(crate) const fn supports_numeric_coercion(&self) -> bool {
-        scalar_registry!(scalar_supports_numeric_coercion_from_registry, self)
-    }
-
-    #[must_use]
-    pub(crate) const fn is_keyable(&self) -> bool {
-        scalar_registry!(scalar_is_keyable_from_registry, self)
-    }
-
-    #[must_use]
-    pub(crate) const fn supports_ordering(&self) -> bool {
-        scalar_registry!(scalar_supports_ordering_from_registry, self)
-    }
+const fn scalar_kind_matches_value(kind: ScalarKind, value: &Value) -> bool {
+    scalar_registry!(scalar_kind_matches_value_from_registry, kind, value)
 }
 
 ///
@@ -155,7 +52,7 @@ impl ScalarType {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum FieldType {
-    Scalar(ScalarType),
+    Scalar(ScalarKind),
     List(Box<Self>),
     Set(Box<Self>),
     Map { key: Box<Self>, value: Box<Self> },
@@ -171,7 +68,7 @@ impl FieldType {
     #[must_use]
     pub(crate) const fn coercion_family(&self) -> Option<CoercionFamily> {
         match self {
-            Self::Scalar(inner) => Some(inner.coercion_family()),
+            Self::Scalar(inner) => Some(scalar_coercion_family(*inner)),
             Self::List(_) | Self::Set(_) | Self::Map { .. } => Some(CoercionFamily::Collection),
             Self::Composite => None,
         }
@@ -179,12 +76,12 @@ impl FieldType {
 
     #[must_use]
     pub(crate) const fn is_text(&self) -> bool {
-        matches!(self, Self::Scalar(ScalarType::Text))
+        matches!(self, Self::Scalar(ScalarKind::Text))
     }
 
     #[must_use]
     pub(crate) const fn is_bool(&self) -> bool {
-        matches!(self, Self::Scalar(ScalarType::Bool))
+        matches!(self, Self::Scalar(ScalarKind::Bool))
     }
 
     #[must_use]
@@ -200,7 +97,7 @@ impl FieldType {
     #[must_use]
     pub(crate) const fn is_orderable(&self) -> bool {
         match self {
-            Self::Scalar(inner) => inner.is_orderable(),
+            Self::Scalar(inner) => inner.supports_ordering(),
             _ => false,
         }
     }
@@ -224,7 +121,7 @@ impl FieldType {
 
 pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> bool {
     match field_type {
-        FieldType::Scalar(inner) => inner.matches_value(literal),
+        FieldType::Scalar(inner) => scalar_kind_matches_value(*inner, literal),
         FieldType::List(element) | FieldType::Set(element) => match literal {
             Value::List(items) => items.iter().all(|item| literal_matches_type(item, element)),
             _ => false,
@@ -277,48 +174,48 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         },
         AcceptedFieldKindCategory::Composite
         | AcceptedFieldKindCategory::Scalar(
-            AcceptedScalarClass::Account
-            | AcceptedScalarClass::Blob
-            | AcceptedScalarClass::Bool
-            | AcceptedScalarClass::Date
-            | AcceptedScalarClass::Decimal
-            | AcceptedScalarClass::Duration
-            | AcceptedScalarClass::Enum
-            | AcceptedScalarClass::Float32
-            | AcceptedScalarClass::Float64
-            | AcceptedScalarClass::Principal
-            | AcceptedScalarClass::Subaccount
-            | AcceptedScalarClass::Text
-            | AcceptedScalarClass::Timestamp
-            | AcceptedScalarClass::Unit,
+            ScalarKind::Account
+            | ScalarKind::Blob
+            | ScalarKind::Bool
+            | ScalarKind::Date
+            | ScalarKind::Decimal
+            | ScalarKind::Duration
+            | ScalarKind::Enum
+            | ScalarKind::Float32
+            | ScalarKind::Float64
+            | ScalarKind::Principal
+            | ScalarKind::Subaccount
+            | ScalarKind::Text
+            | ScalarKind::Timestamp
+            | ScalarKind::Unit,
         ) => None,
-        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Signed64) => {
+        AcceptedFieldKindCategory::Scalar(ScalarKind::Int) => {
             canonicalize_signed64_persisted_literal(kind, value)
         }
-        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unsigned64) => {
+        AcceptedFieldKindCategory::Scalar(ScalarKind::Nat) => {
             canonicalize_unsigned64_persisted_literal(kind, value)
         }
-        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Signed128) => {
+        AcceptedFieldKindCategory::Scalar(ScalarKind::Int128) => {
             canonicalize_int128_persisted_literal(value)
         }
-        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::SignedBig) => {
+        AcceptedFieldKindCategory::Scalar(ScalarKind::IntBig) => {
             let AcceptedFieldKind::IntBig { max_bytes } = kind else {
                 return None;
             };
 
             canonicalize_int_big_persisted_literal(value, *max_bytes)
         }
-        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Unsigned128) => {
+        AcceptedFieldKindCategory::Scalar(ScalarKind::Nat128) => {
             canonicalize_nat128_persisted_literal(value)
         }
-        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::UnsignedBig) => {
+        AcceptedFieldKindCategory::Scalar(ScalarKind::NatBig) => {
             let AcceptedFieldKind::NatBig { max_bytes } = kind else {
                 return None;
             };
 
             canonicalize_nat_big_persisted_literal(value, *max_bytes)
         }
-        AcceptedFieldKindCategory::Scalar(AcceptedScalarClass::Ulid) => match value {
+        AcceptedFieldKindCategory::Scalar(ScalarKind::Ulid) => match value {
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
         },
@@ -630,34 +527,44 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
             value: Box::new(field_type_from_persisted_kind(value)),
         },
         AcceptedFieldKind::Composite { .. } => FieldType::Composite,
-        AcceptedFieldKind::Account => FieldType::Scalar(ScalarType::Account),
-        AcceptedFieldKind::Blob { .. } => FieldType::Scalar(ScalarType::Blob),
-        AcceptedFieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
-        AcceptedFieldKind::Date => FieldType::Scalar(ScalarType::Date),
-        AcceptedFieldKind::Decimal { .. } => FieldType::Scalar(ScalarType::Decimal),
-        AcceptedFieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
-        AcceptedFieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
-        AcceptedFieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
-        AcceptedFieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
-        AcceptedFieldKind::Int8
+        AcceptedFieldKind::Account
+        | AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Bool
+        | AcceptedFieldKind::Date
+        | AcceptedFieldKind::Decimal { .. }
+        | AcceptedFieldKind::Duration
+        | AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::Float32
+        | AcceptedFieldKind::Float64
+        | AcceptedFieldKind::Int8
         | AcceptedFieldKind::Int16
         | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64 => FieldType::Scalar(ScalarType::SignedNumeric),
-        AcceptedFieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
-        AcceptedFieldKind::IntBig { .. } => FieldType::Scalar(ScalarType::IntBig),
-        AcceptedFieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
-        AcceptedFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
-        AcceptedFieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
-        AcceptedFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Int64
+        | AcceptedFieldKind::Int128
+        | AcceptedFieldKind::IntBig { .. }
+        | AcceptedFieldKind::Principal
+        | AcceptedFieldKind::Subaccount
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Nat8
         | AcceptedFieldKind::Nat16
         | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64 => FieldType::Scalar(ScalarType::UnsignedNumeric),
-        AcceptedFieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
-        AcceptedFieldKind::NatBig { .. } => FieldType::Scalar(ScalarType::NatBig),
-        AcceptedFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
-        AcceptedFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
+        | AcceptedFieldKind::Nat64
+        | AcceptedFieldKind::Nat128
+        | AcceptedFieldKind::NatBig { .. }
+        | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Unit => scalar_field_type_from_persisted_kind(kind),
     }
+}
+
+fn scalar_field_type_from_persisted_kind(kind: &AcceptedFieldKind) -> FieldType {
+    let AcceptedFieldKindCategory::Scalar(kind) = classify_accepted_field_kind(kind).category()
+    else {
+        debug_assert!(false, "scalar accepted field kind must classify as scalar");
+        return FieldType::Composite;
+    };
+
+    FieldType::Scalar(kind)
 }
 
 #[cfg(any(test, feature = "sql"))]
@@ -774,6 +681,52 @@ mod tests {
             field_type_from_persisted_kind(&relation),
             FieldType::Composite,
         );
+    }
+
+    #[test]
+    fn persisted_scalar_field_types_reuse_accepted_scalar_classification() {
+        let kinds = [
+            AcceptedFieldKind::Account,
+            AcceptedFieldKind::Blob { max_len: Some(8) },
+            AcceptedFieldKind::Bool,
+            AcceptedFieldKind::Date,
+            AcceptedFieldKind::Decimal { scale: 2 },
+            AcceptedFieldKind::Duration,
+            enum_kind(),
+            AcceptedFieldKind::Float32,
+            AcceptedFieldKind::Float64,
+            AcceptedFieldKind::Int8,
+            AcceptedFieldKind::Int16,
+            AcceptedFieldKind::Int32,
+            AcceptedFieldKind::Int64,
+            AcceptedFieldKind::Int128,
+            AcceptedFieldKind::IntBig { max_bytes: 8 },
+            AcceptedFieldKind::Principal,
+            AcceptedFieldKind::Subaccount,
+            AcceptedFieldKind::Text { max_len: Some(8) },
+            AcceptedFieldKind::Timestamp,
+            AcceptedFieldKind::Nat8,
+            AcceptedFieldKind::Nat16,
+            AcceptedFieldKind::Nat32,
+            AcceptedFieldKind::Nat64,
+            AcceptedFieldKind::Nat128,
+            AcceptedFieldKind::NatBig { max_bytes: 8 },
+            AcceptedFieldKind::Ulid,
+            AcceptedFieldKind::Unit,
+        ];
+
+        for kind in kinds {
+            let AcceptedFieldKindCategory::Scalar(expected) =
+                classify_accepted_field_kind(&kind).category()
+            else {
+                panic!("scalar test kind must classify as scalar");
+            };
+
+            assert_eq!(
+                field_type_from_persisted_kind(&kind),
+                FieldType::Scalar(expected),
+            );
+        }
     }
 
     #[test]

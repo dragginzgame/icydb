@@ -278,7 +278,7 @@ fn canister_memory_bytes(fixture: &StandaloneCanisterFixture) -> (u64, u64) {
     }
 
     let status = fixture
-        .pic()
+        .pocket_ic()
         .canister_status(fixture.canister_id(), None)
         .expect("audit canister status should be available");
     let wasm = nat_u64(&status.memory_metrics.wasm_memory_size);

@@ -7,7 +7,7 @@ use crate::db::codec::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
     write_hash_u64,
 };
-use crate::error::{ConstraintDiagnostic, InternalError};
+use crate::error::{ConstraintValidationFindingOutput, InternalError};
 use candid::CandidType;
 use icydb_schema::{
     ExpectedAcceptedHead, SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity,
@@ -114,7 +114,7 @@ pub enum SchemaChangeProgressStatus {
         /// Exact sequence required to acknowledge this retained page.
         page_sequence: u64,
         /// Bounded accepted-constraint diagnostics for this page.
-        findings: Vec<ConstraintDiagnostic>,
+        findings: Vec<ConstraintValidationFindingOutput>,
     },
     /// Verify authority drifted and the canonical proof restarted at Forward.
     Restarted {

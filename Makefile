@@ -29,7 +29,8 @@ CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
-IC_TESTKIT_ENV := IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR="$(ROOT_DIR)/.cache"
+IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
+PERF_POCKET_IC_ENV := POCKET_IC_BIN="$(POCKET_IC_BIN)"
 ACTIONLINT_VERSION ?= 1.7.12
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
@@ -272,7 +273,7 @@ test-canister-artifact-contract:
 		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
-	IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister -- --nocapture
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister -- --nocapture
 
 test-sql-tier-c-shard:
 	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
@@ -323,11 +324,12 @@ build-canister-production:
 
 test-sql-perf-p1-shard:
 	@test -n "$(P1_SHARD)" || { echo "P1_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
 	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_P1_SHARD_INDEX="$(P1_SHARD)" \
 	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
 	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_p1_shard_reports_hotspots -- --ignored --nocapture
 
@@ -352,22 +354,24 @@ test-sql-perf-p1-merge:
 
 test-sql-perf-scale-shard:
 	@test -n "$(SCALE_SHARD)" || { echo "SCALE_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
 	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_SCALE_SHARD_INDEX="$(SCALE_SHARD)" \
 	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
 	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_scale_shard_measures_declared_ladders -- --ignored --nocapture
 
 test-sql-perf-p2-shard:
 	@test -n "$(P2_SHARD)" || { echo "P2_SHARD must be an index from 0 through 7" >&2; exit 1; }
+	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
 	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_P2_SHARD_INDEX="$(P2_SHARD)" \
 	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
 	ICYDB_SQL_PERF_P2_SHARD_DIR="$(P2_SHARD_DIR)" \
 	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_p2_shard_confirms_selected_candidates -- --ignored --nocapture
 
@@ -380,10 +384,11 @@ test-sql-perf-p2-merge:
 		sql_perf_p2_merges_saved_shards -- --ignored --nocapture
 
 test-sql-perf-instrumentation:
+	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
 	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
 	ICYDB_SQL_PERF_INSTRUMENTATION_REPORT_PATH="$(PERF_INSTRUMENTATION_PATH)" \
 	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_calibrates_attribution_overhead -- --ignored --nocapture
 

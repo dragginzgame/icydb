@@ -3,6 +3,8 @@
 //! Does not own: schema endpoint execution, endpoint publication, or report rendering.
 //! Boundary: exposes parsed schema command values to the observability owner.
 
+use std::path::{Path, PathBuf};
+
 use clap::{Args, Subcommand};
 
 use crate::cli::CanisterTarget;
@@ -18,9 +20,33 @@ pub(crate) enum SchemaCommand {
     /// Read accepted schema metadata from an IcyDB canister.
     Show(CanisterTarget),
 
+    /// Export bounded accepted-schema identity for offline diagnostics.
+    DiagnosticArtifact(DiagnosticArtifactArgs),
+
     /// Inspect or operate an explicit deployed source migration.
     #[command(subcommand)]
     Migration(SchemaMigrationCommand),
+}
+
+/// Target and new output path for one diagnostic schema artifact.
+#[derive(Args, Debug)]
+pub(crate) struct DiagnosticArtifactArgs {
+    #[command(flatten)]
+    target: CanisterTarget,
+
+    /// New artifact path; an existing file is never overwritten.
+    #[arg(short, long, value_name = "PATH")]
+    output: PathBuf,
+}
+
+impl DiagnosticArtifactArgs {
+    pub(crate) const fn target(&self) -> &CanisterTarget {
+        &self.target
+    }
+
+    pub(crate) fn output(&self) -> &Path {
+        self.output.as_path()
+    }
 }
 
 /// Deployed-only source migration operations.

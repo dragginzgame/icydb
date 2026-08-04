@@ -63,6 +63,7 @@ pub(in crate::db) struct CommitRowOp {
     pub(crate) before: Option<Vec<u8>>,
     pub(crate) after: Option<Vec<u8>>,
     pub(crate) schema_fingerprint: CommitSchemaFingerprint,
+    pub(crate) mutation_diagnostic_context: Option<crate::error::MutationDiagnosticContext>,
 }
 
 impl CommitRowOp {
@@ -81,7 +82,16 @@ impl CommitRowOp {
             before,
             after,
             schema_fingerprint,
+            mutation_diagnostic_context: None,
         }
+    }
+
+    pub(crate) const fn with_mutation_diagnostic_context(
+        mut self,
+        context: crate::error::MutationDiagnosticContext,
+    ) -> Self {
+        self.mutation_diagnostic_context = Some(context);
+        self
     }
 
     /// Construct one row-level commit operation from raw key bytes.
@@ -636,7 +646,7 @@ pub(in crate::db) fn decode_data_key(
     let len = bytes.len();
     let max = RawDataStoreKey::MAX_STORED_SIZE_USIZE;
     if len > max {
-        return Err(InternalError::commit_component_length_invalid());
+        return Err(InternalError::commit_component_length_invalid(len, max));
     }
 
     let raw = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(bytes));

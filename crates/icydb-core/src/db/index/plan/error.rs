@@ -3,7 +3,10 @@
 //! Does not own: metrics emission, commit materialization, or executor behavior.
 //! Boundary: index planning annotates outcomes; commit/executor boundaries observe them.
 
-use crate::error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError};
+use crate::{
+    db::commit::CommitSchemaFingerprint,
+    error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
+};
 use std::rc::Rc;
 
 ///
@@ -32,21 +35,22 @@ impl IndexPlanError {
     /// Build one accepted unique-constraint violation with catalog identity.
     #[must_use]
     pub(in crate::db) fn unique_violation(
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
+        mutation: Option<MutationDiagnosticContext>,
         constraint_id: u32,
-        constraint_name: &str,
         entity_path: &str,
-        primary_key: Vec<u8>,
-        index_fields: Vec<String>,
+        entity_tag: u64,
     ) -> Self {
         Self {
             error: InternalError::mutation_constraint_violation(
-                ConstraintDiagnostic::write_violation(
+                AcceptedConstraintFactContext::write_admission(
+                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                    accepted_schema_fingerprint,
+                    entity_tag,
                     constraint_id,
-                    constraint_name.to_string(),
-                    ConstraintDiagnosticKind::Unique,
-                    entity_path.to_string(),
-                    Some(primary_key),
-                    index_fields,
+                    icydb_diagnostic_code::DiagnosticConstraintKind::Unique,
+                    mutation,
+                    None,
                 ),
             ),
             unique_violation_entity_path: Some(entity_path.into()),
@@ -77,27 +81,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unique_violation_preserves_accepted_identity_and_fields() {
+    fn unique_violation_preserves_only_compact_accepted_identity() {
         let error = IndexPlanError::unique_violation(
+            [0xAB; 16],
+            Some(MutationDiagnosticContext::new(
+                23,
+                icydb_diagnostic_code::DiagnosticMutationOperation::Replace,
+                4,
+            )),
             17,
-            "unique_email",
             "tests::User",
-            vec![0x01, 0x02],
-            vec!["email".to_string()],
+            23,
         )
         .into_internal_error();
-        let diagnostic = error
-            .constraint_diagnostic()
-            .expect("unique violation should retain accepted diagnostic");
-
-        assert_eq!(diagnostic.constraint_id(), 17);
-        assert_eq!(diagnostic.constraint_name(), "unique_email");
-        assert_eq!(
-            diagnostic.constraint_kind(),
-            ConstraintDiagnosticKind::Unique
-        );
-        assert_eq!(diagnostic.entity(), "tests::User");
-        assert_eq!(diagnostic.primary_key(), Some([0x01, 0x02].as_slice()));
-        assert_eq!(diagnostic.field_paths(), &["email".to_string()]);
+        let facts = error.diagnostic_facts();
+        assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::EntityTag, 23)));
+        assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::ConstraintId, 17)));
+        assert!(facts.contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+            icydb_diagnostic_code::DiagnosticConstraintKind::Unique.raw()
+        )));
+        assert!(facts.contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+            icydb_diagnostic_code::DiagnosticMutationOperation::Replace.raw(),
+        )));
+        assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 4,)));
     }
 }

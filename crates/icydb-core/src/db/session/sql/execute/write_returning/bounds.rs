@@ -12,7 +12,7 @@ use crate::{
     value::{OutputValue, Value},
 };
 use candid::{CandidType, Encode};
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
+use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
 use super::projection::{
     SqlReturningFieldProjection, SqlReturningProjectionRows, query_error_to_internal_invariant,
@@ -54,16 +54,21 @@ pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_
 
     if let Some(max_response_bytes) = bounds.max_response_bytes {
         let max_response_bytes = usize::try_from(max_response_bytes).unwrap_or(usize::MAX);
-        if encoded_sql_materialized_returning_projection_response_len_exceeds_max(
-            entity_name,
-            columns,
-            rows,
-            row_count,
-            returning,
-            enum_catalog,
-            max_response_bytes,
-        )? {
-            return Err(sql_returning_response_too_large_error());
+        if let SqlReturningLengthCheck::Exceeded(actual_length) =
+            encoded_sql_materialized_returning_projection_response_len_check(
+                entity_name,
+                columns,
+                rows,
+                row_count,
+                returning,
+                enum_catalog,
+                max_response_bytes,
+            )?
+        {
+            return Err(sql_returning_response_too_large_error(
+                actual_length,
+                max_response_bytes,
+            ));
         }
 
         let projected = sql_materialized_returning_projection_rows(
@@ -75,7 +80,10 @@ pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_
         )?;
         let payload_len = encoded_sql_returning_projection_payload_len(entity_name, projected)?;
         if payload_len > max_response_bytes {
-            return Err(sql_returning_response_too_large_error());
+            return Err(sql_returning_response_too_large_error(
+                Some(payload_len),
+                max_response_bytes,
+            ));
         }
     }
 
@@ -94,16 +102,37 @@ fn validate_sql_returning_row_count(
         return Ok(());
     }
 
-    Err(InternalError::query_sql_write_boundary(
+    Err(InternalError::query_sql_write_boundary_with_facts(
         SqlWriteBoundaryCode::ReturningRowsTooMany,
+        vec![
+            (DiagnosticFactTag::ActualCount, row_count as u64),
+            (DiagnosticFactTag::Limit, max_rows as u64),
+        ],
     ))
 }
 
-fn sql_returning_response_too_large_error() -> InternalError {
-    InternalError::query_sql_write_boundary(SqlWriteBoundaryCode::ReturningResponseTooLarge)
+fn sql_returning_response_too_large_error(
+    actual_length: Option<usize>,
+    max_response_bytes: usize,
+) -> InternalError {
+    let mut facts = Vec::with_capacity(2);
+    if let Some(actual_length) = actual_length {
+        facts.push((DiagnosticFactTag::ActualLength, actual_length as u64));
+    }
+    facts.push((DiagnosticFactTag::Limit, max_response_bytes as u64));
+    InternalError::query_sql_write_boundary_with_facts(
+        SqlWriteBoundaryCode::ReturningResponseTooLarge,
+        facts,
+    )
 }
 
-fn encoded_sql_materialized_returning_projection_response_len_exceeds_max(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SqlReturningLengthCheck {
+    WithinLimit,
+    Exceeded(Option<usize>),
+}
+
+fn encoded_sql_materialized_returning_projection_response_len_check(
     entity_name: &str,
     columns: &[String],
     rows: &[Vec<Value>],
@@ -111,7 +140,7 @@ fn encoded_sql_materialized_returning_projection_response_len_exceeds_max(
     returning: &SqlReturningProjection,
     enum_catalog: &AcceptedEnumCatalog,
     max_response_bytes: usize,
-) -> Result<bool, InternalError> {
+) -> Result<SqlReturningLengthCheck, InternalError> {
     match returning {
         SqlReturningProjection::All => {
             let base_len = encoded_empty_sql_returning_projection_payload_len(
@@ -171,9 +200,11 @@ fn encoded_sql_returning_rows_len_exceeds_max(
     mut estimated_payload_len: usize,
     max_response_bytes: usize,
     rows: impl Iterator<Item = Result<Vec<OutputValue>, InternalError>>,
-) -> Result<bool, InternalError> {
+) -> Result<SqlReturningLengthCheck, InternalError> {
     if estimated_payload_len > max_response_bytes {
-        return Ok(true);
+        return Ok(SqlReturningLengthCheck::Exceeded(Some(
+            estimated_payload_len,
+        )));
     }
 
     for row in rows {
@@ -181,13 +212,18 @@ fn encoded_sql_returning_rows_len_exceeds_max(
         let row_len = Encode!(&row)
             .map_err(|_| InternalError::query_executor_invariant())?
             .len();
-        estimated_payload_len = estimated_payload_len.saturating_add(row_len);
+        let Some(next_payload_len) = estimated_payload_len.checked_add(row_len) else {
+            return Ok(SqlReturningLengthCheck::Exceeded(None));
+        };
+        estimated_payload_len = next_payload_len;
         if estimated_payload_len > max_response_bytes {
-            return Ok(true);
+            return Ok(SqlReturningLengthCheck::Exceeded(Some(
+                estimated_payload_len,
+            )));
         }
     }
 
-    Ok(false)
+    Ok(SqlReturningLengthCheck::WithinLimit)
 }
 
 fn encoded_sql_returning_projection_payload_len(
@@ -203,4 +239,37 @@ fn encoded_sql_returning_projection_payload_len(
     let encoded = Encode!(&payload).map_err(|_| InternalError::query_executor_invariant())?;
 
     Ok(encoded.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sql_returning_response_too_large_error, validate_sql_returning_row_count};
+    use icydb_diagnostic_code::DiagnosticFactTag;
+
+    #[test]
+    fn returning_row_limit_error_retains_actual_count_and_limit() {
+        let error = validate_sql_returning_row_count(3, Some(2))
+            .expect_err("row count above returning limit should reject");
+
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ActualCount, 3),
+                (DiagnosticFactTag::Limit, 2),
+            ],
+        );
+    }
+
+    #[test]
+    fn returning_byte_limit_error_retains_exact_length_and_limit() {
+        let error = sql_returning_response_too_large_error(Some(17), 16);
+
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ActualLength, 17),
+                (DiagnosticFactTag::Limit, 16),
+            ],
+        );
+    }
 }

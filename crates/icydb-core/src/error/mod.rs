@@ -129,6 +129,94 @@ const fn compact_message_for(_class: ErrorClass, origin: ErrorOrigin) -> &'stati
 //
 // ============================================================================
 
+/// Safe accepted mutation identity retained only when constructing a failure.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MutationDiagnosticContext {
+    entity_tag: u64,
+    operation: diagnostic_code::DiagnosticMutationOperation,
+    batch_position: Option<u32>,
+}
+
+impl MutationDiagnosticContext {
+    /// Bind one mutation failure to its accepted entity, operation, and input.
+    #[must_use]
+    pub(crate) const fn new(
+        entity_tag: u64,
+        operation: diagnostic_code::DiagnosticMutationOperation,
+        batch_position: u32,
+    ) -> Self {
+        Self {
+            entity_tag,
+            operation,
+            batch_position: Some(batch_position),
+        }
+    }
+
+    /// Bind a failure to an operation before any concrete input row is selected.
+    #[must_use]
+    pub(crate) const fn operation_only(
+        entity_tag: u64,
+        operation: diagnostic_code::DiagnosticMutationOperation,
+    ) -> Self {
+        Self {
+            entity_tag,
+            operation,
+            batch_position: None,
+        }
+    }
+
+    fn facts(self, field_id: Option<u32>) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
+        let mut facts = Vec::with_capacity(
+            2 + usize::from(field_id.is_some()) + usize::from(self.batch_position.is_some()),
+        );
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::EntityTag,
+            self.entity_tag,
+        ));
+        if let Some(field_id) = field_id {
+            facts.push((
+                diagnostic_code::DiagnosticFactTag::FieldId,
+                u64::from(field_id),
+            ));
+        }
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::MutationOperation,
+            self.operation.raw(),
+        ));
+        if let Some(batch_position) = self.batch_position {
+            facts.push((
+                diagnostic_code::DiagnosticFactTag::BatchPosition,
+                u64::from(batch_position),
+            ));
+        }
+        facts
+    }
+
+    #[must_use]
+    pub(crate) const fn entity_tag(self) -> u64 {
+        self.entity_tag
+    }
+
+    fn append_operation_facts(self, facts: &mut Vec<(diagnostic_code::DiagnosticFactTag, u64)>) {
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::MutationOperation,
+            self.operation.raw(),
+        ));
+        if let Some(batch_position) = self.batch_position {
+            facts.push((
+                diagnostic_code::DiagnosticFactTag::BatchPosition,
+                u64::from(batch_position),
+            ));
+        }
+    }
+}
+
+/// Numeric context retained behind one thin error-only allocation.
+pub struct DiagnosticFactDetail {
+    diagnostic: diagnostic_code::Diagnostic,
+    facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+}
+
 ///
 /// InternalError
 ///
@@ -198,21 +286,6 @@ impl InternalError {
         self.detail.as_ref()
     }
 
-    /// Borrow the accepted constraint diagnostic carried by this error.
-    #[must_use]
-    pub fn constraint_diagnostic(&self) -> Option<&ConstraintDiagnostic> {
-        match self.detail.as_ref() {
-            Some(ErrorDetail::Executor(detail)) => detail.constraint_diagnostic(),
-            Some(
-                ErrorDetail::Store(_)
-                | ErrorDetail::Query(_)
-                | ErrorDetail::Recovery(_)
-                | ErrorDetail::Serialize(_),
-            )
-            | None => None,
-        }
-    }
-
     /// Return compact diagnostic identity for this internal error.
     #[must_use]
     pub fn diagnostic(&self) -> diagnostic_code::Diagnostic {
@@ -223,6 +296,16 @@ impl InternalError {
                 .as_ref()
                 .and_then(ErrorDetail::diagnostic_detail),
         )
+    }
+
+    /// Project typed internal context into canonical public numeric facts.
+    #[must_use]
+    #[cold]
+    #[inline(never)]
+    pub fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
+        self.detail
+            .as_ref()
+            .map_or_else(Vec::new, ErrorDetail::diagnostic_facts)
     }
 
     /// Return the compact diagnostic code for this internal error.
@@ -247,13 +330,61 @@ impl InternalError {
         Self::new(class, origin)
     }
 
+    #[cold]
+    #[inline(never)]
+    fn with_diagnostic_facts(
+        class: ErrorClass,
+        origin: ErrorOrigin,
+        detail: Option<diagnostic_code::DiagnosticDetail>,
+        facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        Self {
+            class,
+            origin,
+            detail: Some(ErrorDetail::DiagnosticFacts(Box::new(
+                DiagnosticFactDetail {
+                    diagnostic: diagnostic_code::Diagnostic::new(
+                        class.diagnostic_code(origin),
+                        origin.diagnostic_origin(),
+                        detail,
+                    ),
+                    facts,
+                },
+            ))),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn mutation_boundary_with_facts(
+        class: ErrorClass,
+        boundary: diagnostic_code::RuntimeBoundaryCode,
+        facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            class,
+            ErrorOrigin::Executor,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }),
+            facts,
+        )
+    }
+
     /// Rebuild this error with a new origin while preserving class taxonomy.
     ///
-    /// Origin-scoped detail payloads are intentionally dropped when re-origining.
+    /// Numeric facts are origin-independent and remain safe after recovery
+    /// relabeling. Other origin-scoped detail payloads are dropped.
     #[cold]
     #[inline(never)]
     pub(crate) fn with_origin(self, origin: ErrorOrigin) -> Self {
-        Self::classified(self.class, origin)
+        match self.detail {
+            Some(ErrorDetail::DiagnosticFacts(detail)) => Self::with_diagnostic_facts(
+                self.class,
+                origin,
+                detail.diagnostic.detail().copied(),
+                detail.facts,
+            ),
+            _ => Self::classified(self.class, origin),
+        }
     }
 
     /// Construct an index-origin invariant violation.
@@ -265,11 +396,35 @@ impl InternalError {
 
     /// Construct the canonical index field-count invariant for key building.
     pub(crate) fn index_key_field_count_exceeds_max(
-        _index_name: &str,
-        _field_count: usize,
-        _max_fields: usize,
+        entity_tag: u64,
+        physical_generation: u64,
+        field_count: usize,
+        max_fields: usize,
     ) -> Self {
-        Self::index_invariant()
+        Self::with_diagnostic_facts(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Index,
+            None,
+            vec![
+                (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
+                (
+                    diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
+                    physical_generation,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ComponentKind,
+                    diagnostic_code::DiagnosticComponentKind::IndexKey.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualArity,
+                    field_count as u64,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::Maximum,
+                    max_fields as u64,
+                ),
+            ],
+        )
     }
 
     /// Construct the canonical index-expression source-type mismatch invariant.
@@ -328,54 +483,55 @@ impl InternalError {
     }
 
     /// Construct an executor-origin database-owned-field authorship rejection.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn mutation_database_owned_field_explicit(
-        _entity_path: &str,
-        _field_name: &str,
+        context: MutationDiagnosticContext,
+        field_id: u32,
     ) -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::MutationDatabaseOwnedFieldExplicit,
-            )),
-        }
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit,
+            context.facts(Some(field_id)),
+        )
     }
 
     /// Construct an executor-origin required-field omission rejection.
     #[must_use]
-    pub fn mutation_required_field_missing(_entity_path: &str, _field_names: &str) -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::MutationRequiredFieldMissing,
-            )),
-        }
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_required_field_missing(
+        context: MutationDiagnosticContext,
+        field_id: u32,
+    ) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
+            context.facts(Some(field_id)),
+        )
     }
 
     /// Construct an executor-origin managed-timestamp clock regression.
     #[must_use]
-    pub(crate) fn mutation_managed_timestamp_regression() -> Self {
-        Self {
-            class: ErrorClass::InvariantViolation,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::MutationManagedTimestampRegression,
-            )),
-        }
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_managed_timestamp_regression(
+        context: MutationDiagnosticContext,
+    ) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::InvariantViolation,
+            diagnostic_code::RuntimeBoundaryCode::MutationManagedTimestampRegression,
+            context.facts(None),
+        )
     }
 
     /// Construct an executor-origin accepted constraint or activation-gate violation.
-    pub(crate) fn mutation_constraint_violation(diagnostic: ConstraintDiagnostic) -> Self {
-        Self {
-            class: ErrorClass::InvariantViolation,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::ConstraintViolation {
-                    diagnostic: Box::new(diagnostic),
-                },
-            )),
-        }
+    pub(crate) fn mutation_constraint_violation(context: AcceptedConstraintFactContext) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::InvariantViolation,
+            diagnostic_code::RuntimeBoundaryCode::ConstraintViolation,
+            context.facts(),
+        )
     }
 
     /// Construct an executor-origin corruption failure for row-constraint authority.
@@ -391,17 +547,13 @@ impl InternalError {
 
     /// Construct one typed migration conflict for an incomplete activation gate.
     pub(crate) fn mutation_constraint_activation_write_blocked(
-        diagnostic: ConstraintDiagnostic,
+        context: AcceptedConstraintFactContext,
     ) -> Self {
-        Self {
-            class: ErrorClass::Conflict,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::ConstraintActivationWriteBlocked {
-                    diagnostic: Box::new(diagnostic),
-                },
-            )),
-        }
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Conflict,
+            diagnostic_code::RuntimeBoundaryCode::ConstraintActivationWriteBlocked,
+            context.facts(),
+        )
     }
 
     /// Construct an executor-origin mutation unknown-field invariant.
@@ -440,53 +592,123 @@ impl InternalError {
     }
 
     /// Construct an executor-origin mutation conflict for duplicate atomic save keys.
-    pub(crate) fn mutation_atomic_save_duplicate_key(_entity_path: &str, _key: impl Sized) -> Self {
-        Self {
-            class: ErrorClass::Conflict,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::MutationBatchDuplicateKey,
-            )),
-        }
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_atomic_save_duplicate_key(
+        entity_tag: u64,
+        first_position: u32,
+        duplicate_position: u32,
+    ) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Conflict,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey,
+            vec![
+                (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
+                (
+                    diagnostic_code::DiagnosticFactTag::FirstBatchPosition,
+                    u64::from(first_position),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::DuplicateBatchPosition,
+                    u64::from(duplicate_position),
+                ),
+            ],
+        )
     }
 
     /// Construct an executor-origin empty mixed-mutation batch rejection.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn mutation_batch_empty() -> Self {
-        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchEmpty)
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchEmpty,
+            vec![(diagnostic_code::DiagnosticFactTag::ActualCount, 0)],
+        )
     }
 
     /// Construct an executor-origin mixed-mutation item-bound rejection.
-    pub(crate) fn mutation_batch_too_many_items() -> Self {
-        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchTooManyItems)
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_batch_too_many_items(actual_count: usize, limit: usize) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyItems,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualCount,
+                    actual_count as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
     }
 
     /// Construct an executor-origin mixed-mutation staged-byte-bound rejection.
-    pub(crate) fn mutation_batch_staged_bytes_exceeded() -> Self {
-        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchStagedBytesExceeded)
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_batch_staged_bytes_exceeded(
+        actual_bytes: Option<usize>,
+        limit: usize,
+    ) -> Self {
+        let mut facts = Vec::with_capacity(1 + usize::from(actual_bytes.is_some()));
+        if let Some(actual_bytes) = actual_bytes {
+            facts.push((
+                diagnostic_code::DiagnosticFactTag::ActualLength,
+                actual_bytes as u64,
+            ));
+        }
+        facts.push((diagnostic_code::DiagnosticFactTag::Limit, limit as u64));
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchStagedBytesExceeded,
+            facts,
+        )
     }
 
     /// Construct an executor-origin mixed-mutation result-byte-bound rejection.
-    pub(crate) fn mutation_batch_result_bytes_exceeded() -> Self {
-        Self::mutation_batch_unsupported(ExecutorErrorDetail::MutationBatchResultBytesExceeded)
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_batch_result_bytes_exceeded(actual_bytes: usize, limit: usize) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualLength,
+                    actual_bytes as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
     }
 
     /// Construct an executor-origin mixed-entity batch rejection.
-    pub(crate) fn mutation_batch_entity_mismatch() -> Self {
-        Self {
-            class: ErrorClass::Conflict,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::MutationBatchEntityMismatch,
-            )),
-        }
-    }
-
-    fn mutation_batch_unsupported(detail: ExecutorErrorDetail) -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(detail)),
-        }
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_batch_entity_mismatch(
+        batch_position: u32,
+        expected_entity_tag: u64,
+        actual_entity_tag: u64,
+    ) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Conflict,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchEntityMismatch,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::BatchPosition,
+                    u64::from(batch_position),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
+                    expected_entity_tag,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualEntityTag,
+                    actual_entity_tag,
+                ),
+            ],
+        )
     }
 
     /// Construct an executor-origin mutation invariant for index-store generation drift.
@@ -532,8 +754,22 @@ impl InternalError {
     }
 
     /// Construct the canonical commit-memory id mismatch internal error.
-    pub(crate) fn commit_memory_id_mismatch(_cached_id: u8, _configured_id: u8) -> Self {
-        Self::store_internal()
+    pub(crate) fn commit_memory_id_mismatch(cached_id: u8, configured_id: u8) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Internal,
+            ErrorOrigin::Store,
+            None,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
+                    u64::from(cached_id),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualMemoryId,
+                    u64::from(configured_id),
+                ),
+            ],
+        )
     }
 
     /// Construct the canonical commit-memory stable-key mismatch internal error.
@@ -644,14 +880,21 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn query_stale_accepted_schema_revision(
-        _expected_revision: u64,
-        _current_revision: Option<u64>,
+        expected_revision: u64,
+        current_revision: Option<u64>,
     ) -> Self {
-        Self {
-            class: ErrorClass::Conflict,
-            origin: ErrorOrigin::Query,
-            detail: Some(ErrorDetail::Query(QueryErrorDetail::StaleSchemaRevision)),
+        let mut facts = Vec::with_capacity(1 + usize::from(current_revision.is_some()));
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::ExpectedRevision,
+            expected_revision,
+        ));
+        if let Some(current_revision) = current_revision {
+            facts.push((
+                diagnostic_code::DiagnosticFactTag::CurrentRevision,
+                current_revision,
+            ));
         }
+        Self::with_diagnostic_facts(ErrorClass::Conflict, ErrorOrigin::Query, None, facts)
     }
 
     /// Construct a query-origin SQL DDL admission error with structured detail.
@@ -743,8 +986,23 @@ impl InternalError {
     }
 
     /// Construct the canonical commit-marker component invalid-length corruption error.
-    pub(crate) fn commit_component_length_invalid() -> Self {
-        Self::commit_corruption()
+    pub(crate) fn commit_component_length_invalid(actual_length: usize, limit: usize) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            None,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ComponentKind,
+                    diagnostic_code::DiagnosticComponentKind::CommitDataKey.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualLength,
+                    actual_length as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
     }
 
     /// Construct the canonical commit-marker max-size corruption error.
@@ -856,25 +1114,62 @@ impl InternalError {
     }
 
     /// Construct a persisted-row layout-window corruption error.
-    pub(crate) fn persisted_row_layout_outside_accepted_window() -> Self {
-        Self {
-            class: ErrorClass::Corruption,
-            origin: ErrorOrigin::Serialize,
-            detail: Some(ErrorDetail::Serialize(
-                SerializeErrorDetail::PersistedRowLayoutOutsideAcceptedWindow,
-            )),
-        }
+    pub(crate) fn persisted_row_layout_outside_accepted_window(
+        row_layout: u32,
+        history_floor: u32,
+        current_layout: u32,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Corruption,
+            ErrorOrigin::Serialize,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary:
+                    diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow,
+            }),
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::RowLayout,
+                    u64::from(row_layout),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::HistoryFloor,
+                    u64::from(history_floor),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::CurrentLayout,
+                    u64::from(current_layout),
+                ),
+            ],
+        )
     }
 
     /// Construct a persisted-row stamped-layout slot-count corruption error.
-    pub(crate) fn persisted_row_slot_count_mismatch() -> Self {
-        Self {
-            class: ErrorClass::Corruption,
-            origin: ErrorOrigin::Serialize,
-            detail: Some(ErrorDetail::Serialize(
-                SerializeErrorDetail::PersistedRowSlotCountMismatch,
-            )),
-        }
+    pub(crate) fn persisted_row_slot_count_mismatch(
+        row_layout: u32,
+        expected_slot_count: usize,
+        actual_slot_count: usize,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Corruption,
+            ErrorOrigin::Serialize,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::PersistedRowSlotCountMismatch,
+            }),
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::RowLayout,
+                    u64::from(row_layout),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ExpectedSlotCount,
+                    expected_slot_count as u64,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualSlotCount,
+                    actual_slot_count as u64,
+                ),
+            ],
+        )
     }
 
     /// Construct the canonical persisted-row field decode corruption error.
@@ -989,6 +1284,32 @@ impl InternalError {
         Self::executor_internal()
     }
 
+    /// Construct one accepted relation target primary-key arity mismatch.
+    pub(crate) fn relation_target_primary_key_arity_mismatch(
+        expected_arity: usize,
+        actual_arity: usize,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Internal,
+            ErrorOrigin::Executor,
+            None,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ComponentKind,
+                    diagnostic_code::DiagnosticComponentKind::RelationTargetPrimaryKey.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ExpectedArity,
+                    expected_arity as u64,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualArity,
+                    actual_arity as u64,
+                ),
+            ],
+        )
+    }
+
     /// Construct the canonical relation-target key decode corruption error.
     pub(crate) fn relation_target_key_decode_failed(
         _context_label: &str,
@@ -1007,10 +1328,24 @@ impl InternalError {
         _field_name: &str,
         _target_path: &str,
         _target_entity_name: &str,
-        _expected_tag: impl Sized,
-        _actual_tag: impl Sized,
+        expected_tag: u64,
+        actual_tag: u64,
     ) -> Self {
-        Self::store_corruption()
+        Self::with_diagnostic_facts(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            None,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
+                    expected_tag,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualEntityTag,
+                    actual_tag,
+                ),
+            ],
+        )
     }
 
     /// Construct the canonical relation-source row decode corruption error.
@@ -1203,6 +1538,42 @@ impl InternalError {
     }
 
     /// Construct the canonical index-key component size-limit unsupported error.
+    pub(crate) fn index_component_exceeds_max_size_at(
+        entity_tag: u64,
+        physical_generation: u64,
+        component_index: usize,
+        actual_length: usize,
+        limit: usize,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Index,
+            None,
+            vec![
+                (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
+                (
+                    diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
+                    physical_generation,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ComponentIndex,
+                    component_index as u64,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ComponentKind,
+                    diagnostic_code::DiagnosticComponentKind::IndexKeyComponent.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualLength,
+                    actual_length as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
+    }
+
+    /// Construct the canonical index-key component size-limit error when the
+    /// generic caller has not retained one accepted index identity.
     pub(crate) fn index_component_exceeds_max_size() -> Self {
         Self::index_unsupported()
     }
@@ -1247,6 +1618,20 @@ impl InternalError {
             origin: ErrorOrigin::Query,
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlLowering { reason })),
         }
+    }
+
+    /// Construct one query-origin SQL lowering error with bounded numeric context.
+    #[cfg(feature = "sql")]
+    pub(crate) fn query_sql_lowering_with_facts(
+        reason: diagnostic_code::SqlLoweringCode,
+        facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            Some(diagnostic_code::DiagnosticDetail::SqlLowering { reason }),
+            facts,
+        )
     }
 
     /// Construct a query-origin unsupported projection error preserving one
@@ -1300,6 +1685,19 @@ impl InternalError {
                 boundary,
             })),
         }
+    }
+
+    /// Construct one query-origin SQL write-boundary error with bounded numeric context.
+    pub(crate) fn query_sql_write_boundary_with_facts(
+        boundary: diagnostic_code::SqlWriteBoundaryCode,
+        facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            Some(diagnostic_code::DiagnosticDetail::SqlWriteBoundary { boundary }),
+            facts,
+        )
     }
 
     pub fn store_not_found(_key: impl Sized) -> Self {
@@ -1357,7 +1755,7 @@ impl InternalError {
 
     /// Construct an index-origin conflict without claiming accepted identity.
     ///
-    /// Live accepted uniqueness violations use `ConstraintDiagnostic`.
+    /// Live accepted uniqueness violations use compact accepted-constraint facts.
     /// Schema-domain staging and activation findings use this compact
     /// classification before an accepted write-admission diagnostic exists.
     pub(crate) fn index_conflict() -> Self {
@@ -1396,45 +1794,6 @@ impl fmt::Display for InternalError {
 }
 
 impl std::error::Error for InternalError {}
-
-///
-/// ConstraintDiagnosticKind
-///
-/// Accepted constraint family attached to one bounded runtime diagnostic.
-/// Accepted schema owns the identity; this enum is its error-boundary projection.
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub enum ConstraintDiagnosticKind {
-    /// One accepted canonical check expression.
-    Check,
-
-    /// One accepted or activating not-null field contract.
-    NotNull,
-
-    /// One accepted or activating relation contract.
-    Relation,
-
-    /// One accepted durable rule over a nominal value below a persisted root.
-    TargetedRule,
-
-    /// One accepted or activating unique-index contract.
-    Unique,
-}
-
-impl ConstraintDiagnosticKind {
-    /// Borrow the stable public label for this constraint family.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Check => "check",
-            Self::NotNull => "not_null",
-            Self::Relation => "relation",
-            Self::TargetedRule => "targeted_rule",
-            Self::Unique => "unique",
-        }
-    }
-}
 
 ///
 /// ConstraintValuePathComponent
@@ -1543,175 +1902,57 @@ impl fmt::Display for ConstraintValuePath {
 }
 
 ///
-/// ConstraintDiagnosticContext
+/// ConstraintValidationFindingOutput
 ///
-/// Boundary at which one accepted constraint failure was observed.
-/// This distinguishes incoming write rejection from historical validation.
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub enum ConstraintDiagnosticContext {
-    /// Integrity verification found invalid already-accepted state.
-    Integrity,
-
-    /// Bounded activation validation found an incompatible historical row.
-    MigrationValidation,
-
-    /// A new mutation after-image violated accepted admission authority.
-    WriteAdmission,
-}
-
-impl ConstraintDiagnosticContext {
-    /// Borrow the stable public label for this diagnostic context.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Integrity => "integrity",
-            Self::MigrationValidation => "migration_validation",
-            Self::WriteAdmission => "write_admission",
-        }
-    }
-}
-
-///
-/// ConstraintDiagnostic
-///
-/// One bounded accepted-constraint failure carried through runtime and SQL
-/// boundaries. It is a projection of accepted identity, not a second schema
-/// authority, and its compact error code remains the classification owner.
+/// Bounded historical validation evidence returned only by explicit schema
+/// validation operations. Names are resolved by host tooling from the exact
+/// accepted fingerprint and immutable numeric identities.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct ConstraintDiagnostic {
+pub struct ConstraintValidationFindingOutput {
+    accepted_schema_fingerprint: [u8; 16],
+    entity_tag: u64,
     constraint_id: u32,
-    constraint_name: String,
-    constraint_kind: ConstraintDiagnosticKind,
-    entity: String,
-    primary_key: Option<Vec<u8>>,
-    field_paths: Vec<String>,
-    value_path: Option<Box<ConstraintValuePath>>,
-    context: ConstraintDiagnosticContext,
+    primary_key: Vec<u8>,
+    field_ids: Vec<u32>,
+    value_path: Option<ConstraintValuePath>,
     error_code: u16,
 }
 
-impl ConstraintDiagnostic {
-    /// Build one incoming-write accepted constraint violation.
+impl ConstraintValidationFindingOutput {
+    /// Build one already-bounded historical validation finding.
     #[must_use]
-    pub(crate) const fn write_violation(
+    pub(crate) const fn new(
+        accepted_schema_fingerprint: [u8; 16],
+        entity_tag: u64,
         constraint_id: u32,
-        constraint_name: String,
-        constraint_kind: ConstraintDiagnosticKind,
-        entity: String,
-        primary_key: Option<Vec<u8>>,
-        field_paths: Vec<String>,
-    ) -> Self {
-        Self {
-            constraint_id,
-            constraint_name,
-            constraint_kind,
-            entity,
-            primary_key,
-            field_paths,
-            value_path: None,
-            context: ConstraintDiagnosticContext::WriteAdmission,
-            error_code: diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
-        }
-    }
-
-    /// Build one incoming-write targeted-rule violation.
-    #[must_use]
-    pub(crate) fn write_targeted_rule_violation(
-        constraint_id: u32,
-        constraint_name: String,
-        entity: String,
-        primary_key: Option<Vec<u8>>,
-        field_paths: Vec<String>,
-        value_path: ConstraintValuePath,
-    ) -> Self {
-        Self {
-            constraint_id,
-            constraint_name,
-            constraint_kind: ConstraintDiagnosticKind::TargetedRule,
-            entity,
-            primary_key,
-            field_paths,
-            value_path: Some(Box::new(value_path)),
-            context: ConstraintDiagnosticContext::WriteAdmission,
-            error_code: diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
-        }
-    }
-
-    /// Build one incoming-write activation barrier rejection.
-    #[must_use]
-    pub(crate) const fn write_activation_blocked(
-        constraint_id: u32,
-        constraint_name: String,
-        constraint_kind: ConstraintDiagnosticKind,
-        entity: String,
-        primary_key: Option<Vec<u8>>,
-        field_paths: Vec<String>,
-    ) -> Self {
-        Self {
-            constraint_id,
-            constraint_name,
-            constraint_kind,
-            entity,
-            primary_key,
-            field_paths,
-            value_path: None,
-            context: ConstraintDiagnosticContext::WriteAdmission,
-            error_code:
-                diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED
-                    .raw(),
-        }
-    }
-
-    /// Build one historical activation finding from its durable compact code.
-    #[must_use]
-    pub(crate) const fn migration_validation(
-        constraint_id: u32,
-        constraint_name: String,
-        constraint_kind: ConstraintDiagnosticKind,
-        entity: String,
         primary_key: Vec<u8>,
-        field_paths: Vec<String>,
+        field_ids: Vec<u32>,
+        value_path: Option<ConstraintValuePath>,
         error_code: u16,
     ) -> Self {
         Self {
+            accepted_schema_fingerprint,
+            entity_tag,
             constraint_id,
-            constraint_name,
-            constraint_kind,
-            entity,
-            primary_key: Some(primary_key),
-            field_paths,
-            value_path: None,
-            context: ConstraintDiagnosticContext::MigrationValidation,
+            primary_key,
+            field_ids,
+            value_path,
             error_code,
         }
     }
 
-    /// Build one historical targeted-rule finding with durable path evidence.
+    /// Return the exact accepted-schema fingerprint that binds every numeric identity.
     #[must_use]
-    pub(crate) fn migration_targeted_rule_validation(
-        constraint_id: u32,
-        constraint_name: String,
-        entity: String,
-        primary_key: Vec<u8>,
-        field_paths: Vec<String>,
-        value_path: ConstraintValuePath,
-        error_code: u16,
-    ) -> Self {
-        Self {
-            constraint_id,
-            constraint_name,
-            constraint_kind: ConstraintDiagnosticKind::TargetedRule,
-            entity,
-            primary_key: Some(primary_key),
-            field_paths,
-            value_path: Some(Box::new(value_path)),
-            context: ConstraintDiagnosticContext::MigrationValidation,
-            error_code,
-        }
+    pub const fn accepted_schema_fingerprint(&self) -> [u8; 16] {
+        self.accepted_schema_fingerprint
+    }
+
+    /// Return the stable accepted entity identity.
+    #[must_use]
+    pub const fn entity_tag(&self) -> u64 {
+        self.entity_tag
     }
 
     /// Return the stable accepted constraint identity.
@@ -1720,46 +1961,22 @@ impl ConstraintDiagnostic {
         self.constraint_id
     }
 
-    /// Borrow the stable accepted constraint name.
+    /// Borrow the bounded canonical persisted primary-key locator.
     #[must_use]
-    pub const fn constraint_name(&self) -> &str {
-        self.constraint_name.as_str()
+    pub const fn primary_key(&self) -> &[u8] {
+        self.primary_key.as_slice()
     }
 
-    /// Return the accepted constraint family.
+    /// Borrow immutable accepted field identities implicated by the finding.
     #[must_use]
-    pub const fn constraint_kind(&self) -> ConstraintDiagnosticKind {
-        self.constraint_kind
-    }
-
-    /// Borrow the accepted entity identity.
-    #[must_use]
-    pub const fn entity(&self) -> &str {
-        self.entity.as_str()
-    }
-
-    /// Borrow the canonical persisted primary-key bytes when available.
-    #[must_use]
-    pub fn primary_key(&self) -> Option<&[u8]> {
-        self.primary_key.as_deref()
-    }
-
-    /// Borrow bounded accepted field paths implicated by the failure.
-    #[must_use]
-    pub const fn field_paths(&self) -> &[String] {
-        self.field_paths.as_slice()
+    pub const fn field_ids(&self) -> &[u32] {
+        self.field_ids.as_slice()
     }
 
     /// Borrow the typed concrete value path for a targeted-rule violation.
     #[must_use]
-    pub fn value_path(&self) -> Option<&ConstraintValuePath> {
-        self.value_path.as_deref()
-    }
-
-    /// Return the boundary that observed the failure.
-    #[must_use]
-    pub const fn context(&self) -> ConstraintDiagnosticContext {
-        self.context
+    pub const fn value_path(&self) -> Option<&ConstraintValuePath> {
+        self.value_path.as_ref()
     }
 
     /// Return the compact stable error code for this exact failure.
@@ -1775,6 +1992,158 @@ impl ConstraintDiagnostic {
     }
 }
 
+/// Complete bounded numeric authority needed to publish E223 or E225 facts.
+#[derive(Clone)]
+pub(crate) struct AcceptedConstraintFactContext {
+    fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
+    entity_tag: u64,
+    constraint_id: u32,
+    constraint_kind: diagnostic_code::DiagnosticConstraintKind,
+    mutation: Option<MutationDiagnosticContext>,
+    value_path: Option<ConstraintValuePath>,
+}
+
+impl AcceptedConstraintFactContext {
+    #[must_use]
+    pub(crate) fn write_admission(
+        fingerprint_method: u8,
+        accepted_schema_fingerprint: [u8; 16],
+        entity_tag: u64,
+        constraint_id: u32,
+        constraint_kind: diagnostic_code::DiagnosticConstraintKind,
+        mutation: Option<MutationDiagnosticContext>,
+        value_path: Option<ConstraintValuePath>,
+    ) -> Self {
+        debug_assert!(mutation.is_none_or(|context| context.entity_tag() == entity_tag));
+        Self {
+            fingerprint_method,
+            accepted_schema_fingerprint,
+            entity_tag,
+            constraint_id,
+            constraint_kind,
+            mutation,
+            value_path,
+        }
+    }
+
+    fn facts(self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
+        let high = u64::from_be_bytes([
+            self.accepted_schema_fingerprint[0],
+            self.accepted_schema_fingerprint[1],
+            self.accepted_schema_fingerprint[2],
+            self.accepted_schema_fingerprint[3],
+            self.accepted_schema_fingerprint[4],
+            self.accepted_schema_fingerprint[5],
+            self.accepted_schema_fingerprint[6],
+            self.accepted_schema_fingerprint[7],
+        ]);
+        let low = u64::from_be_bytes([
+            self.accepted_schema_fingerprint[8],
+            self.accepted_schema_fingerprint[9],
+            self.accepted_schema_fingerprint[10],
+            self.accepted_schema_fingerprint[11],
+            self.accepted_schema_fingerprint[12],
+            self.accepted_schema_fingerprint[13],
+            self.accepted_schema_fingerprint[14],
+            self.accepted_schema_fingerprint[15],
+        ]);
+        let path_len = self
+            .value_path
+            .as_ref()
+            .map_or(0, |path| path.components().len());
+        let mutation_fact_count = self.mutation.map_or(0, |mutation| {
+            1 + usize::from(mutation.batch_position.is_some())
+        });
+        let mut facts = Vec::with_capacity(7 + mutation_fact_count + path_len);
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+            u64::from(self.fingerprint_method),
+        ));
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+            high,
+        ));
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintLow,
+            low,
+        ));
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::EntityTag,
+            self.entity_tag,
+        ));
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::ConstraintId,
+            u64::from(self.constraint_id),
+        ));
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::ConstraintKind,
+            self.constraint_kind.raw(),
+        ));
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::ConstraintContext,
+            diagnostic_code::DiagnosticConstraintContext::WriteAdmission.raw(),
+        ));
+        if let Some(mutation) = self.mutation {
+            mutation.append_operation_facts(&mut facts);
+        }
+        if let Some(path) = self.value_path {
+            for component in path.components {
+                facts.push(constraint_value_path_fact(component));
+            }
+        }
+        debug_assert!(facts.len() <= diagnostic_code::MAX_PUBLIC_DIAGNOSTIC_FACTS);
+        facts
+    }
+}
+
+fn constraint_value_path_fact(
+    component: ConstraintValuePathComponent,
+) -> (diagnostic_code::DiagnosticFactTag, u64) {
+    use diagnostic_code::DiagnosticFactTag;
+    match component {
+        ConstraintValuePathComponent::RootField { field_id } => {
+            (DiagnosticFactTag::RootField, u64::from(field_id))
+        }
+        ConstraintValuePathComponent::RecordMember {
+            composite_type_id,
+            member_id,
+        } => (
+            DiagnosticFactTag::RecordMember,
+            diagnostic_code::pack_u32_pair(composite_type_id, member_id),
+        ),
+        ConstraintValuePathComponent::TupleElement {
+            composite_type_id,
+            ordinal,
+        } => (
+            DiagnosticFactTag::TupleElement,
+            diagnostic_code::pack_u32_pair(composite_type_id, ordinal),
+        ),
+        ConstraintValuePathComponent::Newtype { composite_type_id } => {
+            (DiagnosticFactTag::Newtype, u64::from(composite_type_id))
+        }
+        ConstraintValuePathComponent::EnumVariant {
+            enum_type_id,
+            variant_id,
+        } => (
+            DiagnosticFactTag::EnumVariant,
+            diagnostic_code::pack_u32_pair(enum_type_id, variant_id),
+        ),
+        ConstraintValuePathComponent::ListElement { index } => {
+            (DiagnosticFactTag::ListElement, u64::from(index))
+        }
+        ConstraintValuePathComponent::SetElement { index } => {
+            (DiagnosticFactTag::SetElement, u64::from(index))
+        }
+        ConstraintValuePathComponent::MapEntryKey { index } => {
+            (DiagnosticFactTag::MapEntryKey, u64::from(index))
+        }
+        ConstraintValuePathComponent::MapEntryValue { index } => {
+            (DiagnosticFactTag::MapEntryValue, u64::from(index))
+        }
+    }
+}
+
 ///
 /// ErrorDetail
 ///
@@ -1783,13 +2152,13 @@ impl ConstraintDiagnostic {
 ///
 
 pub enum ErrorDetail {
+    /// Compact code/detail plus safe numeric context for one public failure.
+    DiagnosticFacts(Box<DiagnosticFactDetail>),
     /// Executor-owned mutation and query execution details.
     Executor(ExecutorErrorDetail),
     Store(StoreError),
     Query(QueryErrorDetail),
     Recovery(RecoveryErrorDetail),
-    /// Persisted-row serialization and decoding details.
-    Serialize(SerializeErrorDetail),
     // Future-proofing:
     // Index(IndexError),
 }
@@ -1814,46 +2183,8 @@ pub enum ExecutorErrorDetail {
     MutationBatchEntityMismatch,
     /// More than one mixed structural operation targeted the same accepted key.
     MutationBatchDuplicateKey,
-    /// A final canonical after-image violated one accepted constraint or activation gate.
-    ConstraintViolation {
-        diagnostic: Box<ConstraintDiagnostic>,
-    },
     /// Accepted row-constraint metadata or compiled state was inconsistent.
     AcceptedRowConstraintProgramCorrupt,
-    /// A write would rely on one incomplete activation-owned physical proof.
-    ConstraintActivationWriteBlocked {
-        diagnostic: Box<ConstraintDiagnostic>,
-    },
-}
-
-impl ExecutorErrorDetail {
-    /// Borrow the accepted constraint diagnostic carried by this failure.
-    #[must_use]
-    pub fn constraint_diagnostic(&self) -> Option<&ConstraintDiagnostic> {
-        match self {
-            Self::ConstraintActivationWriteBlocked { diagnostic }
-            | Self::ConstraintViolation { diagnostic } => Some(diagnostic.as_ref()),
-            Self::MutationRequiredFieldMissing
-            | Self::MutationManagedTimestampRegression
-            | Self::MutationDatabaseOwnedFieldExplicit
-            | Self::MutationBatchEmpty
-            | Self::MutationBatchTooManyItems
-            | Self::MutationBatchStagedBytesExceeded
-            | Self::MutationBatchResultBytesExceeded
-            | Self::MutationBatchEntityMismatch
-            | Self::MutationBatchDuplicateKey
-            | Self::AcceptedRowConstraintProgramCorrupt => None,
-        }
-    }
-}
-
-/// Persisted-row serialization and decoding error detail.
-pub enum SerializeErrorDetail {
-    /// The row stamp is older or newer than the accepted layout window.
-    PersistedRowLayoutOutsideAcceptedWindow,
-
-    /// The physical slot count does not match the row's stamped layout.
-    PersistedRowSlotCountMismatch,
 }
 
 ///
@@ -1874,6 +2205,16 @@ pub enum RecoveryFormatMarkerError {
     Magic,
     Checksum,
     State,
+}
+
+impl RecoveryFormatMarkerError {
+    const fn diagnostic_decode_reason(self) -> diagnostic_code::DiagnosticDecodeReason {
+        match self {
+            Self::Magic => diagnostic_code::DiagnosticDecodeReason::RecoveryMarkerMagic,
+            Self::Checksum => diagnostic_code::DiagnosticDecodeReason::RecoveryMarkerChecksum,
+            Self::State => diagnostic_code::DiagnosticDecodeReason::RecoveryMarkerState,
+        }
+    }
 }
 
 ///
@@ -2087,12 +2428,6 @@ impl fmt::Debug for RecoveryErrorDetail {
     }
 }
 
-impl fmt::Debug for SerializeErrorDetail {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
-    }
-}
-
 impl fmt::Debug for RecoveryFormatMarkerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_compact_diagnostic(
@@ -2134,11 +2469,11 @@ impl ErrorDetail {
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
+            Self::DiagnosticFacts(detail) => detail.diagnostic.code(),
             Self::Executor(error) => error.diagnostic_code(),
             Self::Store(error) => error.diagnostic_code(),
             Self::Query(error) => error.diagnostic_code(),
             Self::Recovery(error) => error.diagnostic_code(),
-            Self::Serialize(error) => error.diagnostic_code(),
         }
     }
 
@@ -2146,11 +2481,25 @@ impl ErrorDetail {
     #[must_use]
     pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         match self {
+            Self::DiagnosticFacts(detail) => detail.diagnostic.detail().copied(),
             Self::Executor(error) => error.diagnostic_detail(),
             Self::Store(error) => error.diagnostic_detail(),
             Self::Query(error) => error.diagnostic_detail(),
             Self::Recovery(error) => error.diagnostic_detail(),
-            Self::Serialize(error) => error.diagnostic_detail(),
+        }
+    }
+
+    /// Project safe typed detail into canonical public numeric facts.
+    #[must_use]
+    #[cold]
+    #[inline(never)]
+    pub fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
+        match self {
+            Self::DiagnosticFacts(detail) => detail.facts.clone(),
+            Self::Executor(error) => error.diagnostic_facts(),
+            Self::Query(error) => error.diagnostic_facts(),
+            Self::Recovery(error) => error.diagnostic_facts(),
+            Self::Store(_) => Vec::new(),
         }
     }
 }
@@ -2173,10 +2522,6 @@ impl ExecutorErrorDetail {
             }
             Self::MutationManagedTimestampRegression => {
                 diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
-            }
-            Self::ConstraintViolation { diagnostic }
-            | Self::ConstraintActivationWriteBlocked { diagnostic } => {
-                diagnostic.error_code().diagnostic_code()
             }
             Self::AcceptedRowConstraintProgramCorrupt => {
                 diagnostic_code::DiagnosticCode::RuntimeCorruption
@@ -2235,10 +2580,6 @@ impl ExecutorErrorDetail {
                         diagnostic_code::RuntimeBoundaryCode::MutationManagedTimestampRegression,
                 })
             }
-            Self::ConstraintViolation { diagnostic }
-            | Self::ConstraintActivationWriteBlocked { diagnostic } => {
-                diagnostic.error_code().diagnostic_detail()
-            }
             Self::AcceptedRowConstraintProgramCorrupt => {
                 Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
                     boundary:
@@ -2246,6 +2587,14 @@ impl ExecutorErrorDetail {
                 })
             }
         }
+    }
+
+    /// Project safe mutation detail into canonical public numeric facts.
+    #[must_use]
+    #[cold]
+    #[inline(never)]
+    pub const fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
+        Vec::new()
     }
 }
 
@@ -2275,32 +2624,30 @@ impl RecoveryErrorDetail {
 
         Some(diagnostic_code::DiagnosticDetail::RuntimeKind { kind })
     }
-}
 
-impl SerializeErrorDetail {
-    /// Return the compact diagnostic code for this serialization detail.
+    /// Project database-format recovery context without retaining marker bytes.
     #[must_use]
-    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+    pub fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
         match self {
-            Self::PersistedRowLayoutOutsideAcceptedWindow | Self::PersistedRowSlotCountMismatch => {
-                diagnostic_code::DiagnosticCode::RuntimeCorruption
+            Self::UnsupportedFormatVersion { found, required } => {
+                let mut facts = Vec::with_capacity(usize::from(found.is_some()) + 1);
+                facts.push((
+                    diagnostic_code::DiagnosticFactTag::ExpectedVersion,
+                    u64::from(*required),
+                ));
+                if let Some(found) = found {
+                    facts.push((
+                        diagnostic_code::DiagnosticFactTag::ActualVersion,
+                        u64::from(*found),
+                    ));
+                }
+                facts
             }
+            Self::MalformedFormatMarker { reason } => vec![(
+                diagnostic_code::DiagnosticFactTag::DecodeReason,
+                reason.diagnostic_decode_reason().raw(),
+            )],
         }
-    }
-
-    /// Return compact structured diagnostic detail for this serialization detail.
-    #[must_use]
-    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
-        let boundary = match self {
-            Self::PersistedRowLayoutOutsideAcceptedWindow => {
-                diagnostic_code::RuntimeBoundaryCode::PersistedRowLayoutOutsideAcceptedWindow
-            }
-            Self::PersistedRowSlotCountMismatch => {
-                diagnostic_code::RuntimeBoundaryCode::PersistedRowSlotCountMismatch
-            }
-        };
-
-        Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary })
     }
 }
 
@@ -2448,6 +2795,14 @@ impl QueryErrorDetail {
             | Self::UnknownAggregateTargetField
             | Self::StaleSchemaRevision => None,
         }
+    }
+
+    /// Project safe query detail into canonical public numeric facts.
+    #[must_use]
+    #[cold]
+    #[inline(never)]
+    pub const fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
+        Vec::new()
     }
 }
 

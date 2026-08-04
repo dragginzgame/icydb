@@ -18,7 +18,7 @@ use crate::{
     },
     value::Value,
 };
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
+use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
 const SQL_WRITE_MUTATION_BATCH_INITIAL_RESERVE_ROWS: usize = 64;
 
@@ -165,7 +165,16 @@ impl SqlWriteCandidateBounds {
             return Ok(diagnostics);
         }
 
-        Err(QueryError::sql_write_boundary(self.overflow_boundary))
+        let facts = self.max_rows.map_or_else(Vec::new, |max_rows| {
+            vec![
+                (DiagnosticFactTag::ActualCount, candidate_rows.len() as u64),
+                (DiagnosticFactTag::Limit, u64::from(max_rows)),
+            ]
+        });
+        Err(QueryError::sql_write_boundary_with_facts(
+            self.overflow_boundary,
+            facts,
+        ))
     }
 }
 
@@ -350,7 +359,7 @@ mod tests {
         SqlWriteCandidateCollection, SqlWriteCandidateRows, SqlWriteProjectedSourceRows,
     };
     use crate::db::data::AcceptedMutationIntentPatch;
-    use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
+    use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, SqlWriteBoundaryCode};
 
     #[test]
     fn sql_write_candidate_row_bound_accepts_unbounded_and_within_limit() {
@@ -382,6 +391,13 @@ mod tests {
             Some(&DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::StagedRowsTooMany,
             }),
+        );
+        assert_eq!(
+            err.diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ActualCount, 2),
+                (DiagnosticFactTag::Limit, 1),
+            ],
         );
     }
 

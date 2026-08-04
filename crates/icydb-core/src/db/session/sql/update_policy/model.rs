@@ -60,6 +60,12 @@ impl SqlExactUpdatePolicy {
     pub(in crate::db) const fn scan_budget() -> usize {
         MAX_TRUSTED_EXACT_UPDATE_SCANNED_KEYS
     }
+
+    /// Return the engine-owned maximum accepted affected-row assertion.
+    #[must_use]
+    pub(in crate::db) const fn max_affected_rows() -> u32 {
+        MAX_TRUSTED_EXACT_UPDATE_ROWS
+    }
 }
 
 /// Admission rejection for one exact-update caller assertion.

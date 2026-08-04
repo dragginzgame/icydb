@@ -53,6 +53,9 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
             identity,
+            catalog.identity().entity_tag().value(),
+            catalog.fingerprint_method_version(),
+            catalog.fingerprint(),
         )
         .map(SqlStatementResult::Describe)
         .map_err(QueryError::execute)
@@ -70,6 +73,9 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
             None,
+            catalog.identity().entity_tag().value(),
+            catalog.fingerprint_method_version(),
+            catalog.fingerprint(),
         )
         .map(|description| SqlStatementResult::ShowConstraints(description.constraints().to_vec()))
         .map_err(QueryError::execute)

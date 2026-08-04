@@ -26,7 +26,7 @@ use crate::{
             ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
             ConstraintValidationJob, FieldId, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedSchemaSnapshot, SchemaVersion,
-            accepted_constraint_field_paths, accepted_schema_cache_fingerprint,
+            accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_constraint_validation_job,
             decode_persisted_schema_snapshot, encode_constraint_validation_job,
@@ -741,35 +741,26 @@ impl SchemaStoreAllocationMetadata {
 ///
 
 pub(in crate::db) struct PendingRelationActivationDeleteBarrier {
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    source_entity_tag: EntityTag,
     constraint_id: ConstraintId,
-    constraint_name: String,
-    source_entity_path: String,
-    field_paths: Vec<String>,
 }
 
 impl PendingRelationActivationDeleteBarrier {
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.accepted_schema_fingerprint
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn source_entity_tag(&self) -> EntityTag {
+        self.source_entity_tag
+    }
+
     /// Return the stable accepted constraint identity.
     #[must_use]
     pub(in crate::db) const fn constraint_id(&self) -> ConstraintId {
         self.constraint_id
-    }
-
-    /// Borrow the stable accepted constraint name.
-    #[must_use]
-    pub(in crate::db) const fn constraint_name(&self) -> &str {
-        self.constraint_name.as_str()
-    }
-
-    /// Borrow the accepted source entity that owns the relation.
-    #[must_use]
-    pub(in crate::db) const fn source_entity_path(&self) -> &str {
-        self.source_entity_path.as_str()
-    }
-
-    /// Borrow bounded local field paths owned by the relation.
-    #[must_use]
-    pub(in crate::db) const fn field_paths(&self) -> &[String] {
-        self.field_paths.as_slice()
     }
 }
 
@@ -1474,7 +1465,7 @@ impl SchemaStore {
         let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
             return Ok(None);
         };
-        for snapshot in bundle.entity_snapshots().values() {
+        for (entity_tag, snapshot) in bundle.entity_snapshots() {
             let Some(candidate) = snapshot
                 .candidate_relations()
                 .iter()
@@ -1494,13 +1485,10 @@ impl SchemaStore {
                 })
                 .ok_or_else(InternalError::store_corruption)?;
             return Ok(Some(PendingRelationActivationDeleteBarrier {
+                accepted_schema_fingerprint:
+                    accepted_schema_cache_fingerprint_for_persisted_snapshot(snapshot)?,
+                source_entity_tag: *entity_tag,
                 constraint_id: activation.id(),
-                constraint_name: activation.name().to_string(),
-                source_entity_path: snapshot.entity_path().to_string(),
-                field_paths: accepted_constraint_field_paths(
-                    snapshot,
-                    candidate.local_field_ids(),
-                )?,
             }));
         }
 

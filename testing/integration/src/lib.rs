@@ -11,10 +11,7 @@ use std::{
 };
 
 use ic_testkit::artifacts::wasm_path;
-use ic_testkit::pic::{
-    InstallSpec, StandaloneCanisterFixture, install_prebuilt_canister_from_spec,
-    try_ensure_pocket_ic_bin,
-};
+use ic_testkit::pic::{InstallSpec, PocketIc, StandaloneCanisterFixture};
 use icydb::Error;
 
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
@@ -462,7 +459,8 @@ pub fn install_prebuilt_fixture_canister(
 ) -> StandaloneCanisterFixture {
     fixture_for_canister_name(canister_name)
         .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
-    install_prebuilt_canister_from_spec(
+    StandaloneCanisterFixture::install(
+        PocketIc::new(),
         InstallSpec::new(
             wasm,
             candid::encode_args(()).expect("encode empty init args"),
@@ -502,16 +500,11 @@ fn install_fixture_canister_with_options_and_optional_progress(
             "{label}: local {canister_name} wasm ready ({} bytes)",
             wasm.len(),
         );
-        eprintln!("{label}: resolving PocketIC binary");
-        let pocket_ic_bin = try_ensure_pocket_ic_bin()
-            .unwrap_or_else(|err| panic!("{label}: failed to resolve PocketIC binary: {err}"));
-        eprintln!("{label}: PocketIC binary {}", pocket_ic_bin.display());
-    }
-    if let Some(label) = progress_label {
         eprintln!("{label}: handing off to PocketIC install/startup");
     }
 
-    let fixture = install_prebuilt_canister_from_spec(
+    let fixture = StandaloneCanisterFixture::install(
+        PocketIc::new(),
         InstallSpec::new(
             wasm,
             candid::encode_args(()).expect("encode empty init args"),
@@ -606,7 +599,7 @@ pub fn upgrade_fixture_canister(fixture: &StandaloneCanisterFixture, canister_na
     let args = candid::encode_args(()).expect("encode empty upgrade args");
 
     fixture
-        .pic()
+        .pocket_ic()
         .upgrade_canister(fixture.canister_id(), wasm, args, None)
         .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));
 }

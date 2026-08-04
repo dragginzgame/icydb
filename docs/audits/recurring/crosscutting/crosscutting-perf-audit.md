@@ -567,11 +567,18 @@ Then verify that harness compiles:
 
 * `cargo test -p icydb-testing-integration --test sql_perf_audit --no-run`
 
-Focused SQL contract and follow-up attribution commands:
+Focused SQL contract and follow-up attribution commands. PocketIC owns binary
+resolution and downloads; `TMPDIR` keeps its default cache inside the repository:
 
-* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_update_warm_persists_compiled_and_shared_cache_across_calls -- --nocapture`
-* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path -- --nocapture`
-* `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
+* `TMPDIR="$PWD/.cache" cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_update_warm_persists_compiled_and_shared_cache_across_calls -- --nocapture`
+* `TMPDIR="$PWD/.cache" cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path -- --nocapture`
+* `TMPDIR="$PWD/.cache" cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
+
+Comparable P1, P2, scale, and instrumentation evidence additionally requires
+`POCKET_IC_BIN` to identify the exact server binary. The environment capture
+records that binary's reported version and SHA-256; an automatically resolved
+binary is sufficient for ordinary correctness tests but is not sufficiently
+explicit for durable performance evidence.
 
 Deterministic P1 shard commands:
 

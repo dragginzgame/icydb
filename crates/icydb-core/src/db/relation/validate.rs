@@ -24,7 +24,7 @@ use crate::{
             },
         },
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
+    error::{AcceptedConstraintFactContext, InternalError},
     metrics::sink::{MetricsEvent, record},
     traits::CanisterKind,
     types::EntityTag,
@@ -52,7 +52,7 @@ where
     }
 
     let source_store = db.store_handle(source_store_path)?;
-    let source_row_contract =
+    let (source_row_contract, accepted_schema_fingerprint) =
         accepted_source_row_contract(source_store, source_tag, source_path, source_store_path)?;
     let relations = accepted_relations_for_row_contract(
         db,
@@ -69,6 +69,7 @@ where
         source_info,
         source_path,
         source_row_contract,
+        accepted_schema_fingerprint,
         relations,
         deleted_target_keys,
         source_reader,
@@ -91,13 +92,14 @@ pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: Canist
             schema_store.pending_relation_activation_for_target(target_path)
         })? {
             return Err(InternalError::mutation_constraint_activation_write_blocked(
-                ConstraintDiagnostic::write_activation_blocked(
+                AcceptedConstraintFactContext::write_admission(
+                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                    barrier.accepted_schema_fingerprint(),
+                    barrier.source_entity_tag().value(),
                     barrier.constraint_id().get(),
-                    barrier.constraint_name().to_string(),
-                    ConstraintDiagnosticKind::Relation,
-                    barrier.source_entity_path().to_string(),
+                    icydb_diagnostic_code::DiagnosticConstraintKind::Relation,
                     None,
-                    barrier.field_paths().to_vec(),
+                    None,
                 ),
             ));
         }
@@ -106,11 +108,16 @@ pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: Canist
 }
 
 /// Prove whether one delete would violate a source relation without `S`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "delete validation combines the established relation read view with exact accepted diagnostic authority"
+)]
 fn validate_delete_relations_structural<C>(
     db: &Db<C>,
     source_info: ReverseRelationSourceInfo,
     source_path: &str,
     source_row_contract: StructuralRowContract,
+    accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     relations: Vec<AcceptedRelationInfo>,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     source_reader: &dyn StructuralPrimaryRowReader,
@@ -167,7 +174,6 @@ where
                         {
                             let source_data_key =
                                 DecodedDataStoreKey::new(source_info.entity_tag(), &source_key);
-                            let source_raw_key = source_data_key.to_raw()?;
                             let source_raw_row = source_reader.read_primary_row(&source_data_key)?;
 
                             let Some(source_raw_row) = source_raw_row else {
@@ -206,12 +212,11 @@ where
                                     blocked_deletes: 1,
                                 });
 
-                                let source_primary_key = source_raw_key
-                                    .encoded_primary_key_bytes()
-                                    .ok_or_else(InternalError::store_invariant)?
-                                    .to_vec();
-                                return Err(relation
-                                    .write_violation(source_path, Some(source_primary_key)));
+                                return Err(relation.write_violation(
+                                    accepted_schema_fingerprint,
+                                    source_info.entity_tag(),
+                                    None,
+                                ));
                             }
                         }
 
@@ -236,7 +241,13 @@ fn accepted_source_row_contract(
     source_tag: EntityTag,
     source_path: &str,
     source_store_path: &'static str,
-) -> Result<StructuralRowContract, InternalError> {
+) -> Result<
+    (
+        StructuralRowContract,
+        crate::db::commit::CommitSchemaFingerprint,
+    ),
+    InternalError,
+> {
     let selection = source_store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
@@ -246,6 +257,8 @@ fn accepted_source_row_contract(
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    AcceptedStructuralRowAuthority::from_catalog_selection(source_path, &selection)
-        .map(AcceptedStructuralRowAuthority::into_row_contract)
+    let fingerprint = selection.identity().accepted_schema_fingerprint();
+    let contract = AcceptedStructuralRowAuthority::from_catalog_selection(source_path, &selection)
+        .map(AcceptedStructuralRowAuthority::into_row_contract)?;
+    Ok((contract, fingerprint))
 }

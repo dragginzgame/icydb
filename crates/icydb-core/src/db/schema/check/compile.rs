@@ -20,13 +20,13 @@ use crate::{
             AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintId,
         },
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
+    error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
     value::Value,
 };
 use std::{borrow::Cow, cmp::Ordering};
 
-type CheckConstraintSource<'a> = (ConstraintId, &'a str, &'a AcceptedCheckExprV1, bool);
-type NotNullConstraintSource<'a> = (ConstraintId, &'a str, crate::db::schema::FieldId, bool);
+type CheckConstraintSource<'a> = (ConstraintId, &'a AcceptedCheckExprV1, bool);
+type NotNullConstraintSource = (ConstraintId, crate::db::schema::FieldId, bool);
 
 /// SQL three-valued truth returned by accepted check evaluation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,15 +70,11 @@ pub(in crate::db) enum AcceptedRowConstraintEvaluationError {
     PathBudgetExceeded,
     TargetedRuleViolation {
         constraint_id: ConstraintId,
-        constraint_name: String,
-        field_path: String,
         path: AcceptedTargetPath,
     },
     Violation {
         constraint_id: ConstraintId,
-        constraint_name: String,
         kind: AcceptedRowConstraintViolationKind,
-        field_paths: Vec<String>,
     },
 }
 
@@ -110,8 +106,6 @@ enum CompiledCheckExprV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CompiledAcceptedCheck {
     id: ConstraintId,
-    name: String,
-    field_paths: Vec<String>,
     expression: CompiledCheckExprV1,
     validated: bool,
 }
@@ -122,9 +116,7 @@ struct CompiledAcceptedCheck {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CompiledUniqueWriteBarrier {
     id: ConstraintId,
-    name: String,
     dependency_slots: Vec<usize>,
-    field_paths: Vec<String>,
 }
 
 impl CompiledUniqueWriteBarrier {
@@ -132,18 +124,6 @@ impl CompiledUniqueWriteBarrier {
     #[must_use]
     pub(in crate::db) const fn constraint_id(&self) -> ConstraintId {
         self.id
-    }
-
-    /// Borrow the stable accepted constraint name.
-    #[must_use]
-    pub(in crate::db) const fn constraint_name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    /// Borrow bounded accepted field paths guarded by this activation.
-    #[must_use]
-    pub(in crate::db) const fn field_paths(&self) -> &[String] {
-        self.field_paths.as_slice()
     }
 }
 
@@ -155,9 +135,7 @@ enum CompiledAcceptedRowConstraint {
     /// One accepted or activating not-null rule.
     NotNull {
         id: ConstraintId,
-        name: String,
         slot: usize,
-        field_path: String,
         accepted: bool,
     },
 }
@@ -228,15 +206,13 @@ impl CompiledAcceptedRowConstraints {
             .constraint_activations()
             .iter()
             .filter_map(|activation| match activation.kind() {
-                ConstraintActivationKind::Unique { index_id } => {
-                    Some((activation.id(), activation.name(), *index_id))
-                }
+                ConstraintActivationKind::Unique { index_id } => Some((activation.id(), *index_id)),
                 ConstraintActivationKind::Check { .. }
                 | ConstraintActivationKind::NotNull { .. }
                 | ConstraintActivationKind::TargetedRule { .. }
                 | ConstraintActivationKind::Relation { .. } => None,
             })
-            .map(|(id, name, index_id)| {
+            .map(|(id, index_id)| {
                 let mut matching = snapshot
                     .candidate_indexes()
                     .iter()
@@ -254,8 +230,6 @@ impl CompiledAcceptedRowConstraints {
                 let dependency_slots = unique_index_dependency_slots(schema, value_catalog, index)?;
                 Ok(CompiledUniqueWriteBarrier {
                     id,
-                    name: name.to_string(),
-                    field_paths: field_paths_for_slots(snapshot, dependency_slots.as_slice())?,
                     dependency_slots,
                 })
             })
@@ -290,12 +264,7 @@ impl CompiledAcceptedRowConstraints {
             schema,
             value_catalog,
             fingerprint,
-            vec![(
-                activation.id(),
-                activation.name(),
-                expression.as_ref(),
-                false,
-            )],
+            vec![(activation.id(), expression.as_ref(), false)],
             Vec::new(),
             CompiledAcceptedTargetedRules::empty(),
         )
@@ -326,7 +295,7 @@ impl CompiledAcceptedRowConstraints {
             value_catalog,
             fingerprint,
             Vec::new(),
-            vec![(activation.id(), activation.name(), *field_id, false)],
+            vec![(activation.id(), *field_id, false)],
             CompiledAcceptedTargetedRules::empty(),
         )
     }
@@ -356,7 +325,7 @@ impl CompiledAcceptedRowConstraints {
         value_catalog: &AcceptedValueCatalogHandle,
         fingerprint: CommitSchemaFingerprint,
         check_sources: Vec<CheckConstraintSource<'_>>,
-        not_null_sources: Vec<NotNullConstraintSource<'_>>,
+        not_null_sources: Vec<NotNullConstraintSource>,
         targeted_rules: CompiledAcceptedTargetedRules,
     ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
         let snapshot = schema.persisted_snapshot();
@@ -409,30 +378,24 @@ impl CompiledAcceptedRowConstraints {
         if current_fingerprint != self.fingerprint {
             return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
         }
-        let Some(CompiledAcceptedRowConstraint::NotNull {
-            id,
-            name,
-            field_path,
-            ..
-        }) = self.constraints.iter().find(|constraint| {
-            matches!(
-                constraint,
-                CompiledAcceptedRowConstraint::NotNull {
-                    slot: constrained_slot,
-                    accepted: true,
-                    ..
-                } if *constrained_slot == slot
-            )
-        })
+        let Some(CompiledAcceptedRowConstraint::NotNull { id, .. }) =
+            self.constraints.iter().find(|constraint| {
+                matches!(
+                    constraint,
+                    CompiledAcceptedRowConstraint::NotNull {
+                        slot: constrained_slot,
+                        accepted: true,
+                        ..
+                    } if *constrained_slot == slot
+                )
+            })
         else {
             return Ok(());
         };
 
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: *id,
-            constraint_name: name.clone(),
             kind: AcceptedRowConstraintViolationKind::NotNull,
-            field_paths: vec![field_path.clone()],
         })
     }
 
@@ -481,9 +444,7 @@ impl CompiledAcceptedRowConstraints {
                 {
                     return Err(AcceptedRowConstraintEvaluationError::Violation {
                         constraint_id: check.id,
-                        constraint_name: check.name.clone(),
                         kind: AcceptedRowConstraintViolationKind::Check,
-                        field_paths: check.field_paths.clone(),
                     });
                 }
             }
@@ -573,19 +534,11 @@ impl CompiledAcceptedRowConstraints {
                     if truth == AcceptedCheckTruth::False {
                         return Err(AcceptedRowConstraintEvaluationError::Violation {
                             constraint_id: check.id,
-                            constraint_name: check.name.clone(),
                             kind: AcceptedRowConstraintViolationKind::Check,
-                            field_paths: check.field_paths.clone(),
                         });
                     }
                 }
-                CompiledAcceptedRowConstraint::NotNull {
-                    id,
-                    name,
-                    slot,
-                    field_path,
-                    ..
-                } => {
+                CompiledAcceptedRowConstraint::NotNull { id, slot, .. } => {
                     let value = values_by_slot
                         .get(*slot)
                         .and_then(Option::as_ref)
@@ -593,9 +546,7 @@ impl CompiledAcceptedRowConstraints {
                     if matches!(value, Value::Null) {
                         return Err(AcceptedRowConstraintEvaluationError::Violation {
                             constraint_id: *id,
-                            constraint_name: name.clone(),
                             kind: AcceptedRowConstraintViolationKind::NotNull,
-                            field_paths: vec![field_path.clone()],
                         });
                     }
                 }
@@ -636,28 +587,13 @@ fn compile_check_sources(
     sources
         .iter()
         .copied()
-        .map(|(id, name, expression, validated)| {
+        .map(|(id, expression, validated)| {
             expression
                 .validate(snapshot, value_catalog.composite_catalog())
                 .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
             Ok(CompiledAcceptedRowConstraint::Check(
                 CompiledAcceptedCheck {
                     id,
-                    name: name.to_string(),
-                    field_paths: expression
-                        .dependencies()
-                        .into_iter()
-                        .map(|field_id| {
-                            snapshot
-                                .fields()
-                                .iter()
-                                .find(|field| field.id() == field_id)
-                                .map(|field| field.name().to_string())
-                                .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                                    AcceptedCheckExprV1Error::UnknownField,
-                                ))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
                     expression: compile_expr(expression, snapshot, value_catalog)?,
                     validated,
                 },
@@ -668,26 +604,16 @@ fn compile_check_sources(
 
 fn compile_not_null_sources(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-    sources: &[NotNullConstraintSource<'_>],
+    sources: &[NotNullConstraintSource],
 ) -> Result<Vec<CompiledAcceptedRowConstraint>, AcceptedRowConstraintEvaluationError> {
     sources
         .iter()
-        .map(|(id, name, field_id, accepted)| {
+        .map(|(id, field_id, accepted)| {
             let slot = slot_for_field(snapshot, *field_id)
                 .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
-            let field_path = snapshot
-                .fields()
-                .iter()
-                .find(|field| field.id() == *field_id)
-                .map(|field| field.name().to_string())
-                .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                    AcceptedCheckExprV1Error::UnknownField,
-                ))?;
             Ok(CompiledAcceptedRowConstraint::NotNull {
                 id: *id,
-                name: (*name).to_string(),
                 slot: usize::from(slot.get()),
-                field_path,
                 accepted: *accepted,
             })
         })
@@ -732,18 +658,18 @@ fn compile_integrity_constraints(
 fn compile_required_slots(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     check_sources: &[CheckConstraintSource<'_>],
-    not_null_sources: &[NotNullConstraintSource<'_>],
+    not_null_sources: &[NotNullConstraintSource],
     targeted_rules: &CompiledAcceptedTargetedRules,
 ) -> Result<Vec<usize>, AcceptedRowConstraintEvaluationError> {
     let mut slots = check_sources
         .iter()
-        .flat_map(|(_, _, expression, _)| expression.dependencies())
+        .flat_map(|(_, expression, _)| expression.dependencies())
         .map(|field_id| {
             slot_for_field(snapshot, field_id)
                 .map(|slot| usize::from(slot.get()))
                 .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
         })
-        .chain(not_null_sources.iter().map(|(_, _, field_id, _)| {
+        .chain(not_null_sources.iter().map(|(_, field_id, _)| {
             slot_for_field(snapshot, *field_id)
                 .map(|slot| usize::from(slot.get()))
                 .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
@@ -760,8 +686,6 @@ fn targeted_rule_violation_error(
 ) -> AcceptedRowConstraintEvaluationError {
     AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
         constraint_id: violation.constraint_id,
-        constraint_name: violation.constraint_name,
-        field_path: violation.field_path,
         path: violation.path,
     }
 }
@@ -783,7 +707,6 @@ fn check_constraint_sources(
         .filter_map(|constraint| match constraint.kind() {
             AcceptedConstraintKind::Check { expression } => Some((
                 constraint.id(),
-                constraint.name(),
                 expression.as_ref(),
                 true,
             )),
@@ -799,12 +722,9 @@ fn check_constraint_sources(
                 .constraint_activations()
                 .iter()
                 .filter_map(|activation| match activation.kind() {
-                    ConstraintActivationKind::Check { expression } => Some((
-                        activation.id(),
-                        activation.name(),
-                        expression.as_ref(),
-                        false,
-                    )),
+                    ConstraintActivationKind::Check { expression } => {
+                        Some((activation.id(), expression.as_ref(), false))
+                    }
                     ConstraintActivationKind::NotNull { .. }
                     | ConstraintActivationKind::Unique { .. }
                     | ConstraintActivationKind::Relation { .. }
@@ -816,13 +736,13 @@ fn check_constraint_sources(
 
 fn not_null_constraint_sources(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-) -> Vec<NotNullConstraintSource<'_>> {
+) -> Vec<NotNullConstraintSource> {
     snapshot
         .constraints()
         .iter()
         .filter_map(|constraint| match constraint.kind() {
             AcceptedConstraintKind::NotNull { field_id } => {
-                Some((constraint.id(), constraint.name(), *field_id, true))
+                Some((constraint.id(), *field_id, true))
             }
             AcceptedConstraintKind::PrimaryKey
             | AcceptedConstraintKind::Unique { .. }
@@ -837,7 +757,7 @@ fn not_null_constraint_sources(
                 .iter()
                 .filter_map(|activation| match activation.kind() {
                     ConstraintActivationKind::NotNull { field_id } => {
-                        Some((activation.id(), activation.name(), *field_id, false))
+                        Some((activation.id(), *field_id, false))
                     }
                     ConstraintActivationKind::Unique { .. }
                     | ConstraintActivationKind::Relation { .. }
@@ -854,40 +774,46 @@ fn not_null_constraint_sources(
 /// evaluation both use this owner so frontend or physical representability
 /// cannot change accepted identity or error classification.
 pub(in crate::db) fn accepted_row_constraint_write_error(
-    entity_path: &str,
-    primary_key: Option<Vec<u8>>,
+    fingerprint_method: u8,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    entity_tag: u64,
+    mutation: Option<MutationDiagnosticContext>,
     error: AcceptedRowConstraintEvaluationError,
 ) -> InternalError {
     match error {
         AcceptedRowConstraintEvaluationError::Violation {
             constraint_id,
-            constraint_name,
             kind,
-            field_paths,
-        } => InternalError::mutation_constraint_violation(ConstraintDiagnostic::write_violation(
-            constraint_id.get(),
-            constraint_name,
-            match kind {
-                AcceptedRowConstraintViolationKind::Check => ConstraintDiagnosticKind::Check,
-                AcceptedRowConstraintViolationKind::NotNull => ConstraintDiagnosticKind::NotNull,
-            },
-            entity_path.to_string(),
-            primary_key,
-            field_paths,
-        )),
+        } => InternalError::mutation_constraint_violation(
+            AcceptedConstraintFactContext::write_admission(
+                fingerprint_method,
+                accepted_schema_fingerprint,
+                entity_tag,
+                constraint_id.get(),
+                match kind {
+                    AcceptedRowConstraintViolationKind::Check => {
+                        icydb_diagnostic_code::DiagnosticConstraintKind::Check
+                    }
+                    AcceptedRowConstraintViolationKind::NotNull => {
+                        icydb_diagnostic_code::DiagnosticConstraintKind::NotNull
+                    }
+                },
+                mutation,
+                None,
+            ),
+        ),
         AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
             constraint_id,
-            constraint_name,
-            field_path,
             path,
         } => InternalError::mutation_constraint_violation(
-            ConstraintDiagnostic::write_targeted_rule_violation(
+            AcceptedConstraintFactContext::write_admission(
+                fingerprint_method,
+                accepted_schema_fingerprint,
+                entity_tag,
                 constraint_id.get(),
-                constraint_name,
-                entity_path.to_string(),
-                primary_key,
-                vec![field_path],
-                path.into_constraint_value_path(),
+                icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule,
+                mutation,
+                Some(path.into_constraint_value_path()),
             ),
         ),
         AcceptedRowConstraintEvaluationError::InvalidExpression(_)
@@ -1207,30 +1133,6 @@ fn unique_index_dependency_slots(
         .enumerate()
         .filter_map(|(slot, required)| required.then_some(slot))
         .collect())
-}
-
-fn field_paths_for_slots(
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-    slots: &[usize],
-) -> Result<Vec<String>, AcceptedRowConstraintEvaluationError> {
-    slots
-        .iter()
-        .map(|slot| {
-            snapshot
-                .fields()
-                .iter()
-                .find(|field| {
-                    snapshot
-                        .row_layout()
-                        .slot_for_field(field.id())
-                        .is_some_and(|field_slot| usize::from(field_slot.get()) == *slot)
-                })
-                .map(|field| field.name().to_string())
-                .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                    AcceptedCheckExprV1Error::UnknownField,
-                ))
-        })
-        .collect()
 }
 
 pub(in crate::db::schema) fn validate_accepted_check_literals(

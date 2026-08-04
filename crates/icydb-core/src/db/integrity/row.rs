@@ -20,8 +20,8 @@ use crate::{
         key_taxonomy::{PrimaryKeyComponent, RawDataStoreKeyRange},
         relation::RelationConstraintProjection,
         schema::{
-            AcceptedFieldKind, AcceptedInspectionPlan, AcceptedRowConstraintEvaluationError,
-            identity_kind_maximum,
+            AcceptedConstraintKind, AcceptedFieldKind, AcceptedInspectionPlan,
+            AcceptedRowConstraintEvaluationError, ConstraintId, identity_kind_maximum,
         },
     },
     error::{ErrorClass, InternalError},
@@ -567,60 +567,61 @@ fn inspect_row_atom<C: CanisterKind>(
                 values,
             ) {
                 Ok(()) => Ok(RowAtomOutcome::Clean),
-                Err(AcceptedRowConstraintEvaluationError::Violation {
-                    constraint_id,
-                    constraint_name,
-                    field_paths,
-                    ..
-                }) => Ok(RowAtomOutcome::Finding(IntegrityFinding {
-                    diagnostic_code:
-                        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
-                            .raw(),
-                    class: IntegrityFindingClass::Corruption,
-                    severity: IntegritySeverity::Error,
-                    kind: IntegrityFindingKind::ConstraintViolation,
-                    entity: IntegrityEntityIdentity::from_plan(plan),
-                    store_path: plan.identity().store_path().to_string(),
-                    phase: IntegrityPhase::Rows,
-                    verifier_family: IntegrityVerifierFamily::ValidatedConstraints,
-                    physical_key: bounded_physical_key(raw_key)?,
-                    primary_key: primary_key_bytes(decoded_key.as_ref().ok(), raw_key),
-                    field_paths,
-                    value_path: None,
-                    constraint_id: Some(constraint_id.get()),
-                    constraint_name: Some(constraint_name),
-                    schema_index_id: None,
-                    relation_id: None,
-                    expected: Some("true_or_unknown".to_string()),
-                    observed: Some("false".to_string()),
-                })),
+                Err(AcceptedRowConstraintEvaluationError::Violation { constraint_id, .. }) => {
+                    let (constraint_name, field_paths) =
+                        accepted_constraint_finding_metadata(plan, constraint_id)?;
+                    Ok(RowAtomOutcome::Finding(IntegrityFinding {
+                        diagnostic_code:
+                            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
+                                .raw(),
+                        class: IntegrityFindingClass::Corruption,
+                        severity: IntegritySeverity::Error,
+                        kind: IntegrityFindingKind::ConstraintViolation,
+                        entity: IntegrityEntityIdentity::from_plan(plan),
+                        store_path: plan.identity().store_path().to_string(),
+                        phase: IntegrityPhase::Rows,
+                        verifier_family: IntegrityVerifierFamily::ValidatedConstraints,
+                        physical_key: bounded_physical_key(raw_key)?,
+                        primary_key: primary_key_bytes(decoded_key.as_ref().ok(), raw_key),
+                        field_paths,
+                        value_path: None,
+                        constraint_id: Some(constraint_id.get()),
+                        constraint_name: Some(constraint_name),
+                        schema_index_id: None,
+                        relation_id: None,
+                        expected: Some("true_or_unknown".to_string()),
+                        observed: Some("false".to_string()),
+                    }))
+                }
                 Err(AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
                     constraint_id,
-                    constraint_name,
-                    field_path,
                     path,
-                }) => Ok(RowAtomOutcome::Finding(IntegrityFinding {
-                    diagnostic_code:
-                        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
-                            .raw(),
-                    class: IntegrityFindingClass::Corruption,
-                    severity: IntegritySeverity::Error,
-                    kind: IntegrityFindingKind::ConstraintViolation,
-                    entity: IntegrityEntityIdentity::from_plan(plan),
-                    store_path: plan.identity().store_path().to_string(),
-                    phase: IntegrityPhase::Rows,
-                    verifier_family: IntegrityVerifierFamily::ValidatedConstraints,
-                    physical_key: bounded_physical_key(raw_key)?,
-                    primary_key: primary_key_bytes(decoded_key.as_ref().ok(), raw_key),
-                    field_paths: vec![field_path],
-                    value_path: Some(Box::new(path.into_constraint_value_path())),
-                    constraint_id: Some(constraint_id.get()),
-                    constraint_name: Some(constraint_name),
-                    schema_index_id: None,
-                    relation_id: None,
-                    expected: Some("targeted_rule_satisfied".to_string()),
-                    observed: Some("targeted_rule_violated".to_string()),
-                })),
+                }) => {
+                    let (constraint_name, field_paths) =
+                        accepted_constraint_finding_metadata(plan, constraint_id)?;
+                    Ok(RowAtomOutcome::Finding(IntegrityFinding {
+                        diagnostic_code:
+                            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
+                                .raw(),
+                        class: IntegrityFindingClass::Corruption,
+                        severity: IntegritySeverity::Error,
+                        kind: IntegrityFindingKind::ConstraintViolation,
+                        entity: IntegrityEntityIdentity::from_plan(plan),
+                        store_path: plan.identity().store_path().to_string(),
+                        phase: IntegrityPhase::Rows,
+                        verifier_family: IntegrityVerifierFamily::ValidatedConstraints,
+                        physical_key: bounded_physical_key(raw_key)?,
+                        primary_key: primary_key_bytes(decoded_key.as_ref().ok(), raw_key),
+                        field_paths,
+                        value_path: Some(Box::new(path.into_constraint_value_path())),
+                        constraint_id: Some(constraint_id.get()),
+                        constraint_name: Some(constraint_name),
+                        schema_index_id: None,
+                        relation_id: None,
+                        expected: Some("targeted_rule_satisfied".to_string()),
+                        observed: Some("targeted_rule_violated".to_string()),
+                    }))
+                }
                 Err(
                     AcceptedRowConstraintEvaluationError::InvalidExpression(_)
                     | AcceptedRowConstraintEvaluationError::LiteralCorrupt
@@ -1190,6 +1191,45 @@ fn field_paths_for_slots(
                 .map(ToString::to_string)
         })
         .collect()
+}
+
+/// Resolve human-readable integrity detail only after a corruption is found.
+///
+/// Write admission carries numeric accepted authority exclusively; Deep
+/// integrity may still enrich its durable finding from the same accepted
+/// snapshot without retaining names in the hot constraint program.
+fn accepted_constraint_finding_metadata(
+    plan: &AcceptedInspectionPlan,
+    constraint_id: ConstraintId,
+) -> Result<(String, Vec<String>), InternalError> {
+    let snapshot = plan.snapshot().persisted_snapshot();
+    let constraint = snapshot
+        .constraints()
+        .iter()
+        .find(|constraint| constraint.id() == constraint_id)
+        .ok_or_else(InternalError::store_invariant)?;
+    let field_ids = match constraint.kind() {
+        AcceptedConstraintKind::Check { expression } => expression.dependencies(),
+        AcceptedConstraintKind::TargetedRule { target, .. } => vec![target.root_field_id()],
+        AcceptedConstraintKind::PrimaryKey
+        | AcceptedConstraintKind::NotNull { .. }
+        | AcceptedConstraintKind::Unique { .. }
+        | AcceptedConstraintKind::Relation { .. } => {
+            return Err(InternalError::store_invariant());
+        }
+    };
+    let field_paths = field_ids
+        .into_iter()
+        .map(|field_id| {
+            snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == field_id)
+                .map(|field| field.name().to_string())
+                .ok_or_else(InternalError::store_invariant)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((constraint.name().to_string(), field_paths))
 }
 
 fn bounded_physical_key(raw_key: &RawDataStoreKey) -> Result<Vec<u8>, InternalError> {

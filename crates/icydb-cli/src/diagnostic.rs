@@ -3,16 +3,123 @@
 //! Does not own: canister wire shape, core error classification, or recovery policy.
 //! Boundary: keeps rich diagnostic prose out of production canister crates.
 
+pub(crate) mod artifact;
+
 use icydb::diagnostic::{
-    DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin, QueryErrorKind,
-    QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode, RuntimeBoundaryCode,
-    RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
-    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+    DiagnosticCode, DiagnosticComponentKind, DiagnosticConstraintContext, DiagnosticConstraintKind,
+    DiagnosticDetail, DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode,
+    ErrorOrigin, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
+    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode,
+    SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 use std::fmt::Write as _;
 
+use crate::{
+    cli::DiagnosticArgs,
+    diagnostic::artifact::{DiagnosticSchemaArtifact, ResolvedDiagnosticEntity},
+    observability::load_schema_report,
+};
+
+#[derive(Clone, Copy)]
+struct RawDiagnosticFact {
+    tag: u8,
+    value: u64,
+}
+
+#[derive(Clone, Copy)]
+struct DiagnosticSchemaIdentity {
+    fingerprint_method: u8,
+    fingerprint: [u8; 16],
+    entity_tag: u64,
+    constraint_id: Option<u32>,
+}
+
+/// Resolve and print one compact diagnostic entirely from host-side authority.
+pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String> {
+    if args.facts().is_empty() && args.artifact().is_none() && args.canister_name().is_none() {
+        println!("{}", render_error_code_report(args.code())?);
+        return Ok(());
+    }
+
+    let facts = parse_facts(args.facts())?;
+    let explicit_artifact = args
+        .artifact()
+        .map(DiagnosticSchemaArtifact::read)
+        .transpose()?;
+
+    let mut notes = Vec::new();
+    let explicit_artifact = explicit_artifact.as_ref().filter(|artifact| {
+        let Some(canister) = args.canister_name() else {
+            return true;
+        };
+        let matches = artifact.provenance_matches(args.environment(), canister);
+        if !matches {
+            notes.push(
+                "artifact provenance does not match the selected deployment; names withheld"
+                    .to_string(),
+            );
+        }
+        matches
+    });
+    let identity = DiagnosticSchemaIdentity::from_facts(facts.as_slice());
+    let exact_artifact_found = identity.is_some_and(|identity| {
+        explicit_artifact.is_some_and(|artifact| {
+            artifact
+                .resolve(
+                    identity.fingerprint_method,
+                    identity.fingerprint,
+                    identity.entity_tag,
+                    identity.constraint_id,
+                )
+                .is_some()
+        })
+    });
+    let live_artifact = if exact_artifact_found {
+        None
+    } else if let Some(canister) = args.canister_name() {
+        match load_schema_report(args.environment(), canister) {
+            Ok(report) => Some(DiagnosticSchemaArtifact::from_report(
+                args.environment(),
+                canister,
+                report.as_slice(),
+            )?),
+            Err(err) => {
+                notes.push(format!(
+                    "live schema introspection unavailable ({err}); using numeric fallback"
+                ));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let artifacts = [explicit_artifact, live_artifact.as_ref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let report = render_error_code_report_with_facts(
+        args.code(),
+        facts.as_slice(),
+        artifacts.as_slice(),
+        &mut notes,
+    )?;
+    println!("{report}");
+    Ok(())
+}
+
 /// Render one compact public IcyDB error code for CLI lookup.
 pub(crate) fn render_error_code_report(input: &str) -> Result<String, String> {
+    let mut notes = Vec::new();
+    render_error_code_report_with_facts(input, &[], &[], &mut notes)
+}
+
+fn render_error_code_report_with_facts(
+    input: &str,
+    facts: &[RawDiagnosticFact],
+    artifacts: &[&DiagnosticSchemaArtifact],
+    notes: &mut Vec<String>,
+) -> Result<String, String> {
     let raw = parse_error_code(input)?;
     let code = ErrorCode::from_raw(raw);
     let diagnostic_code = code.diagnostic_code();
@@ -39,7 +146,228 @@ pub(crate) fn render_error_code_report(input: &str) -> Result<String, String> {
         ));
     }
 
+    if !facts.is_empty() {
+        let identity = DiagnosticSchemaIdentity::from_facts(facts);
+        let resolved = identity.and_then(|identity| {
+            artifacts.iter().find_map(|artifact| {
+                artifact.resolve(
+                    identity.fingerprint_method,
+                    identity.fingerprint,
+                    identity.entity_tag,
+                    identity.constraint_id,
+                )
+            })
+        });
+        lines.push(format!(
+            "facts: {}",
+            render_raw_facts(facts, resolved.as_ref())
+        ));
+        if let Some(identity) = identity {
+            lines.push(format!(
+                "accepted schema identity: method={} fingerprint={} entity_tag={}",
+                identity.fingerprint_method,
+                render_fingerprint(identity.fingerprint),
+                identity.entity_tag
+            ));
+        }
+        match (artifacts.is_empty(), identity, resolved.as_ref()) {
+            (_, None, _) => notes.push(
+                "numeric fallback: exact fingerprint method, fingerprint, and entity tag facts are required"
+                    .to_string(),
+            ),
+            (true, Some(_), _) => notes.push(
+                "numeric fallback: supply --artifact or --canister for exact schema labels"
+                    .to_string(),
+            ),
+            (false, Some(_), None) => notes.push(
+                "numeric fallback: schema artifact has no exact fingerprint/entity match; names withheld"
+                    .to_string(),
+            ),
+            (false, Some(_), Some(resolved)) => lines.push(format!(
+                "accepted entity: {} ({})",
+                resolved.entity_name(),
+                resolved.entity_path()
+            )),
+        }
+    }
+    lines.extend(notes.iter().map(|note| format!("note: {note}")));
+
     Ok(lines.join("\n"))
+}
+
+fn render_fingerprint(fingerprint: [u8; 16]) -> String {
+    let mut rendered = String::with_capacity(32);
+    for byte in fingerprint {
+        let _ = write!(rendered, "{byte:02x}");
+    }
+    rendered
+}
+
+impl DiagnosticSchemaIdentity {
+    fn from_facts(facts: &[RawDiagnosticFact]) -> Option<Self> {
+        let fingerprint_method = u8::try_from(single_fact(
+            facts,
+            DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+        )?)
+        .ok()?;
+        let high = single_fact(facts, DiagnosticFactTag::AcceptedSchemaFingerprintHigh)?;
+        let low = single_fact(facts, DiagnosticFactTag::AcceptedSchemaFingerprintLow)?;
+        let entity_tag = single_fact(facts, DiagnosticFactTag::EntityTag)?;
+        let mut fingerprint = [0_u8; 16];
+        fingerprint[..8].copy_from_slice(high.to_be_bytes().as_slice());
+        fingerprint[8..].copy_from_slice(low.to_be_bytes().as_slice());
+        let constraint_id = optional_single_fact(facts, DiagnosticFactTag::ConstraintId)
+            .and_then(|value| u32::try_from(value).ok());
+        Some(Self {
+            fingerprint_method,
+            fingerprint,
+            entity_tag,
+            constraint_id,
+        })
+    }
+}
+
+fn parse_facts(inputs: &[String]) -> Result<Vec<RawDiagnosticFact>, String> {
+    if inputs.len() > icydb::diagnostic::MAX_PUBLIC_DIAGNOSTIC_FACTS {
+        return Err(format!(
+            "diagnostic input has {} facts; maximum is {}",
+            inputs.len(),
+            icydb::diagnostic::MAX_PUBLIC_DIAGNOSTIC_FACTS
+        ));
+    }
+    inputs.iter().map(|input| parse_fact(input)).collect()
+}
+
+fn parse_fact(input: &str) -> Result<RawDiagnosticFact, String> {
+    let (tag, value) = input
+        .split_once('=')
+        .ok_or_else(|| format!("invalid diagnostic fact `{input}`; expected TAG=VALUE"))?;
+    let tag = parse_fact_tag(tag)?;
+    let value = value.parse::<u64>().map_err(|_| {
+        format!("invalid diagnostic fact `{input}`; VALUE must be an unsigned integer")
+    })?;
+    Ok(RawDiagnosticFact { tag, value })
+}
+
+fn parse_fact_tag(input: &str) -> Result<u8, String> {
+    if let Ok(raw) = input.parse::<u8>() {
+        return Ok(raw);
+    }
+    for raw in u8::MIN..=u8::MAX {
+        let Some(tag) = DiagnosticFactTag::known(raw) else {
+            continue;
+        };
+        if fact_tag_text(tag) == input {
+            return Ok(raw);
+        }
+    }
+    Err(format!(
+        "unknown diagnostic fact tag `{input}`; use a numeric tag or maintained label"
+    ))
+}
+
+fn single_fact(facts: &[RawDiagnosticFact], tag: DiagnosticFactTag) -> Option<u64> {
+    let mut matching = facts.iter().filter(|fact| fact.tag == tag.raw());
+    let value = matching.next()?.value;
+    matching.next().is_none().then_some(value)
+}
+
+fn optional_single_fact(facts: &[RawDiagnosticFact], tag: DiagnosticFactTag) -> Option<u64> {
+    single_fact(facts, tag)
+}
+
+fn render_raw_facts(
+    facts: &[RawDiagnosticFact],
+    resolved: Option<&ResolvedDiagnosticEntity<'_>>,
+) -> String {
+    let mut rendered = String::new();
+    for (index, fact) in facts.iter().enumerate() {
+        if index != 0 {
+            rendered.push(' ');
+        }
+        let Some(tag) = DiagnosticFactTag::known(fact.tag) else {
+            let _ = write!(rendered, "tag#{}={}", fact.tag, fact.value);
+            continue;
+        };
+        let _ = write!(
+            rendered,
+            "{}={}",
+            fact_tag_text(tag),
+            render_fact_value(tag, fact.value, resolved)
+        );
+    }
+    rendered
+}
+
+fn render_fact_value(
+    tag: DiagnosticFactTag,
+    value: u64,
+    resolved: Option<&ResolvedDiagnosticEntity<'_>>,
+) -> String {
+    let label = match tag {
+        DiagnosticFactTag::EntityTag => resolved.map(ResolvedDiagnosticEntity::entity_name),
+        DiagnosticFactTag::ConstraintId => {
+            resolved.and_then(ResolvedDiagnosticEntity::constraint_name)
+        }
+        DiagnosticFactTag::FieldId | DiagnosticFactTag::RootField => u32::try_from(value)
+            .ok()
+            .and_then(|id| resolved.and_then(|resolved| resolved.field_name(id))),
+        DiagnosticFactTag::IndexId => u32::try_from(value)
+            .ok()
+            .and_then(|id| resolved.and_then(|resolved| resolved.index_name(id))),
+        DiagnosticFactTag::RelationId => u32::try_from(value)
+            .ok()
+            .and_then(|id| resolved.and_then(|resolved| resolved.relation_name(id))),
+        DiagnosticFactTag::ConstraintKind => constraint_kind_text(value)
+            .or_else(|| resolved.and_then(ResolvedDiagnosticEntity::constraint_kind)),
+        DiagnosticFactTag::ConstraintContext => constraint_context_text(value),
+        DiagnosticFactTag::MutationOperation => mutation_operation_text(value),
+        DiagnosticFactTag::ComponentKind => component_kind_text(value),
+        _ => None,
+    };
+    label.map_or_else(|| value.to_string(), |label| format!("{value}({label})"))
+}
+
+const fn component_kind_text(value: u64) -> Option<&'static str> {
+    match DiagnosticComponentKind::known(value) {
+        Some(DiagnosticComponentKind::CommitDataKey) => Some("commit-data-key"),
+        Some(DiagnosticComponentKind::IndexKey) => Some("index-key"),
+        Some(DiagnosticComponentKind::IndexKeyComponent) => Some("index-key-component"),
+        Some(DiagnosticComponentKind::RelationTargetPrimaryKey) => {
+            Some("relation-target-primary-key")
+        }
+        None => None,
+    }
+}
+
+const fn constraint_kind_text(value: u64) -> Option<&'static str> {
+    match DiagnosticConstraintKind::known(value) {
+        Some(DiagnosticConstraintKind::Check) => Some("check"),
+        Some(DiagnosticConstraintKind::NotNull) => Some("not-null"),
+        Some(DiagnosticConstraintKind::Relation) => Some("relation"),
+        Some(DiagnosticConstraintKind::TargetedRule) => Some("targeted-rule"),
+        Some(DiagnosticConstraintKind::Unique) => Some("unique"),
+        None => None,
+    }
+}
+
+const fn constraint_context_text(value: u64) -> Option<&'static str> {
+    match DiagnosticConstraintContext::known(value) {
+        Some(DiagnosticConstraintContext::Integrity) => Some("integrity"),
+        Some(DiagnosticConstraintContext::MigrationValidation) => Some("migration-validation"),
+        Some(DiagnosticConstraintContext::WriteAdmission) => Some("write-admission"),
+        None => None,
+    }
+}
+
+const fn mutation_operation_text(value: u64) -> Option<&'static str> {
+    match DiagnosticMutationOperation::known(value) {
+        Some(DiagnosticMutationOperation::Insert) => Some("insert"),
+        Some(DiagnosticMutationOperation::Replace) => Some("replace"),
+        Some(DiagnosticMutationOperation::Update) => Some("update"),
+        Some(DiagnosticMutationOperation::Delete) => Some("delete"),
+        None => None,
+    }
 }
 
 fn parse_error_code(input: &str) -> Result<u16, String> {
@@ -76,20 +404,15 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         return summary;
     }
 
-    let mut rendered = String::new();
-    for (index, fact) in err.facts().iter().enumerate() {
-        if index != 0 {
-            rendered.push(' ');
-        }
-        match icydb::diagnostic::DiagnosticFactTag::known(fact.tag()) {
-            Some(tag) => {
-                let _ = write!(rendered, "{}={}", fact_tag_text(tag), fact.value());
-            }
-            None => {
-                let _ = write!(rendered, "tag#{}={}", fact.tag(), fact.value());
-            }
-        }
-    }
+    let raw_facts = err
+        .facts()
+        .iter()
+        .map(|fact| RawDiagnosticFact {
+            tag: fact.tag(),
+            value: fact.value(),
+        })
+        .collect::<Vec<_>>();
+    let rendered = render_raw_facts(raw_facts.as_slice(), None);
 
     format!("{summary}; facts {rendered}")
 }
@@ -1045,7 +1368,10 @@ const fn sql_ddl_feature_text(feature: SqlFeatureCode) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_error_code, render_error, render_error_code_report};
+    use super::{
+        RawDiagnosticFact, artifact::DiagnosticSchemaArtifact, parse_error_code, render_error,
+        render_error_code_report, render_error_code_report_with_facts,
+    };
 
     #[test]
     fn renders_compact_query_not_found_code_report() {
@@ -1084,6 +1410,173 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_RUNTIME_UNSUPPORTED: structural mutation batch exceeds the operation-count bound; facts actual_count=5000 limit=4096 tag#250=7",
+        );
+    }
+
+    #[test]
+    fn exact_artifact_humanizes_constraint_facts_and_stale_artifact_does_not() {
+        use icydb::diagnostic::DiagnosticFactTag;
+
+        let high = u64::from_be_bytes([7; 8]);
+        let facts = [
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintMethod.raw(),
+                value: 1,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintHigh.raw(),
+                value: high,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintLow.raw(),
+                value: high,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::EntityTag.raw(),
+                value: 42,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintId.raw(),
+                value: 3,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ConstraintKind.raw(),
+                value: 5,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::MutationOperation.raw(),
+                value: 1,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::BatchPosition.raw(),
+                value: 0,
+            },
+        ];
+        let artifact = DiagnosticSchemaArtifact::test_fixture();
+        let mut notes = Vec::new();
+        let report =
+            render_error_code_report_with_facts("E223", facts.as_slice(), &[&artifact], &mut notes)
+                .expect("exact diagnostic should render");
+        assert!(report.contains("entity_tag=42(Account)"), "{report}");
+        assert!(
+            report.contains("constraint_id=3(account_name_unique)"),
+            "{report}"
+        );
+        assert!(report.contains("constraint_kind=5(unique)"), "{report}");
+        assert!(report.contains("mutation_operation=1(insert)"), "{report}");
+        assert!(
+            report.contains("accepted entity: Account (schema::Account)"),
+            "{report}"
+        );
+
+        let mut stale_facts = facts;
+        stale_facts[1].value = u64::from_be_bytes([8; 8]);
+        let mut notes = Vec::new();
+        let report = render_error_code_report_with_facts(
+            "E223",
+            stale_facts.as_slice(),
+            &[&artifact],
+            &mut notes,
+        )
+        .expect("stale diagnostic should render numerically");
+        assert!(!report.contains("Account"), "{report}");
+        assert!(report.contains("names withheld"), "{report}");
+    }
+
+    #[test]
+    fn exact_schema_facts_without_resolver_explain_numeric_fallback() {
+        use icydb::diagnostic::DiagnosticFactTag;
+
+        let facts = [
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintMethod.raw(),
+                value: 1,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintHigh.raw(),
+                value: 1,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::AcceptedSchemaFingerprintLow.raw(),
+                value: 2,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::EntityTag.raw(),
+                value: 3,
+            },
+        ];
+        let mut notes = Vec::new();
+        let report = render_error_code_report_with_facts("E223", facts.as_slice(), &[], &mut notes)
+            .expect("numeric diagnostic should render");
+
+        assert!(report.contains("entity_tag=3"), "{report}");
+        assert!(
+            report.contains("supply --artifact or --canister"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn renders_cursor_and_recovery_fact_tags_without_canister_prose() {
+        let cursor: icydb::Error = serde_json::from_value(serde_json::json!({
+            "code": icydb::ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR.raw(),
+            "class": icydb::diagnostic::ErrorClass::Unsupported.wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Cursor.wire_code(),
+            "facts": [
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ComponentIndex.raw(),
+                    "value": 1,
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::DecodeReason.raw(),
+                    "value": icydb::diagnostic::DiagnosticDecodeReason::CursorInvalidHex.raw(),
+                },
+            ],
+        }))
+        .expect("cursor fact error should decode");
+        assert!(render_error(&cursor).ends_with("facts component_index=1 decode_reason=4"),);
+
+        let recovery: icydb::Error = serde_json::from_value(serde_json::json!({
+            "code": icydb::ErrorCode::RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT.raw(),
+            "class": icydb::diagnostic::ErrorClass::IncompatiblePersistedFormat.wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Recovery.wire_code(),
+            "facts": [
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ExpectedVersion.raw(),
+                    "value": 9,
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ActualVersion.raw(),
+                    "value": 7,
+                },
+            ],
+        }))
+        .expect("recovery fact error should decode");
+        assert!(render_error(&recovery).ends_with("facts expected_version=9 actual_version=7"),);
+
+        let component: icydb::Error = serde_json::from_value(serde_json::json!({
+            "code": icydb::ErrorCode::STORE_CORRUPTION.raw(),
+            "class": icydb::diagnostic::ErrorClass::Corruption.wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Store.wire_code(),
+            "facts": [
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ComponentKind.raw(),
+                    "value": icydb::diagnostic::DiagnosticComponentKind::CommitDataKey.raw(),
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ActualLength.raw(),
+                    "value": 513,
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::Limit.raw(),
+                    "value": 512,
+                },
+            ],
+        }))
+        .expect("component fact error should decode");
+        assert!(
+            render_error(&component)
+                .ends_with("facts component_kind=1(commit-data-key) actual_length=513 limit=512"),
         );
     }
 

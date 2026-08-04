@@ -23,9 +23,9 @@ use crate::{
             empty_accepted_enum_catalog_for_tests,
         },
     },
-    error::{ConstraintDiagnosticKind, ConstraintValuePathComponent},
     value::{InputValue, Value},
 };
+use icydb_diagnostic_code::DiagnosticFactTag;
 use icydb_schema::{Decimal, IntBig, NatBig, ScalarLiteral};
 use std::collections::BTreeMap;
 
@@ -1074,9 +1074,7 @@ fn targeted_rules_share_stable_constraint_id_order() {
         fixture.program.evaluate(FINGERPRINT, &earlier_not_null),
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: bag_not_null.id(),
-            constraint_name: bag_not_null.name().to_string(),
             kind: AcceptedRowConstraintViolationKind::NotNull,
-            field_paths: vec!["bag".to_string()],
         }),
         "an earlier accepted constraint ID must win across families",
     );
@@ -1115,16 +1113,12 @@ fn targeted_rules_share_stable_constraint_id_order() {
         .expect_err("the earlier targeted rule should reject before the late check");
     let AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
         constraint_id,
-        constraint_name,
-        field_path,
         path,
     } = error
     else {
         panic!("expected the targeted rule to win stable accepted-ID ordering");
     };
     assert!(constraint_id < late_check_id);
-    assert_eq!(constraint_name, "degree_rule_2");
-    assert_eq!(field_path, "node");
     assert_eq!(
         path.components(),
         &[
@@ -1147,27 +1141,35 @@ fn targeted_rule_write_diagnostic_preserves_the_typed_occurrence_path() {
         .evaluate(FINGERPRINT, &values)
         .expect_err("invalid targeted value should reject");
     let write_error =
-        accepted_row_constraint_write_error("tests::Targeted", Some(vec![4, 2]), evaluation_error);
-    let diagnostic = write_error
-        .constraint_diagnostic()
-        .expect("targeted write failure should retain one public diagnostic");
+        accepted_row_constraint_write_error(1, FINGERPRINT, 41, None, evaluation_error);
+    let facts = write_error.diagnostic_facts();
     assert_eq!(
-        diagnostic.constraint_kind(),
-        ConstraintDiagnosticKind::TargetedRule
-    );
-    assert_eq!(diagnostic.field_paths(), &["node".to_string()]);
-    assert_eq!(diagnostic.primary_key(), Some([4, 2].as_slice()));
-    assert_eq!(
-        diagnostic
-            .value_path()
-            .expect("targeted write diagnostic should retain its typed path")
-            .components(),
-        &[
-            ConstraintValuePathComponent::RootField { field_id: 2 },
-            ConstraintValuePathComponent::RecordMember {
-                composite_type_id: fixture.node_type.get(),
-                member_id: 10,
-            },
+        facts,
+        vec![
+            (DiagnosticFactTag::AcceptedSchemaFingerprintMethod, 1),
+            (
+                DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+                u64::from_be_bytes([FINGERPRINT[0]; 8]),
+            ),
+            (
+                DiagnosticFactTag::AcceptedSchemaFingerprintLow,
+                u64::from_be_bytes([FINGERPRINT[0]; 8]),
+            ),
+            (DiagnosticFactTag::EntityTag, 41),
+            (DiagnosticFactTag::ConstraintId, 12),
+            (
+                DiagnosticFactTag::ConstraintKind,
+                icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule.raw(),
+            ),
+            (
+                DiagnosticFactTag::ConstraintContext,
+                icydb_diagnostic_code::DiagnosticConstraintContext::WriteAdmission.raw(),
+            ),
+            (DiagnosticFactTag::RootField, 2),
+            (
+                DiagnosticFactTag::RecordMember,
+                icydb_diagnostic_code::pack_u32_pair(fixture.node_type.get(), 10),
+            ),
         ],
     );
 }
@@ -1353,9 +1355,7 @@ fn compiled_checks_apply_sql_three_valued_semantics_and_stable_violation_identit
         error,
         AcceptedRowConstraintEvaluationError::Violation {
             constraint_id,
-            constraint_name: "score_policy".to_string(),
             kind: AcceptedRowConstraintViolationKind::Check,
-            field_paths: vec!["score".to_string(), "nickname".to_string()],
         }
     );
 }
@@ -1397,9 +1397,7 @@ fn compiled_checks_include_pending_check_activation_gates() {
         program.evaluate(FINGERPRINT, &values(-1, Value::Null, Vec::new()),),
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: activation_id,
-            constraint_name: "pending_score_policy".to_string(),
             kind: AcceptedRowConstraintViolationKind::Check,
-            field_paths: vec!["score".to_string()],
         }),
     );
 }
@@ -1515,7 +1513,6 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
         )
         .expect("not-null activation should reserve identity");
     let activation_id = constraint_catalog.activations()[0].id();
-    let activation_name = constraint_catalog.activations()[0].name().to_string();
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraint_catalog))
             .expect("not-null activation snapshot should close");
@@ -1527,9 +1524,7 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
         program.evaluate(FINGERPRINT, &values(1, Value::Null, Vec::new())),
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: activation_id,
-            constraint_name: activation_name,
             kind: AcceptedRowConstraintViolationKind::NotNull,
-            field_paths: vec!["nickname".to_string()],
         }),
     );
     program
@@ -1563,9 +1558,7 @@ fn compiled_row_constraints_include_accepted_not_null_identity_before_encoding()
         program.evaluate_accepted_not_null_before_encoding(FINGERPRINT, 1),
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: score_constraint.id(),
-            constraint_name: score_constraint.name().to_string(),
             kind: AcceptedRowConstraintViolationKind::NotNull,
-            field_paths: vec!["score".to_string()],
         }),
     );
     program
@@ -1618,8 +1611,6 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
         .expect("insert barrier should evaluate")
         .expect("insert should be blocked");
     assert_eq!(insert_barrier.constraint_id(), activation_id);
-    assert!(!insert_barrier.constraint_name().is_empty());
-    assert_eq!(insert_barrier.field_paths(), &["score".to_string()]);
     assert!(
         program
             .unique_activation_write_blocker(MutationMode::Update, &provenance)

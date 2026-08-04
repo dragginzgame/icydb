@@ -5,10 +5,11 @@ use crate::{
             expr::{FieldId, FieldPath, NumericSubtype, type_inference::ExprType},
             validate::ExprPlanError,
         },
-        schema::{FieldType, ScalarType, SchemaInfo},
+        schema::{FieldType, SchemaInfo},
     },
     value::Value,
 };
+use icydb_schema::ScalarKind;
 
 pub(super) fn infer_field_expr_type(
     field: &FieldId,
@@ -94,32 +95,32 @@ pub(super) const fn infer_literal_type(value: &Value) -> ExprType {
 
 pub(super) const fn expr_type_from_field_type(field_type: &FieldType) -> ExprType {
     match field_type {
-        FieldType::Scalar(ScalarType::Blob) => ExprType::Blob,
-        FieldType::Scalar(ScalarType::Bool) => ExprType::Bool,
+        FieldType::Scalar(ScalarKind::Blob) => ExprType::Blob,
+        FieldType::Scalar(ScalarKind::Bool) => ExprType::Bool,
         FieldType::Scalar(
-            ScalarType::Duration
-            | ScalarType::SignedNumeric
-            | ScalarType::Int128
-            | ScalarType::IntBig
-            | ScalarType::Timestamp
-            | ScalarType::UnsignedNumeric
-            | ScalarType::Nat128
-            | ScalarType::NatBig,
+            ScalarKind::Duration
+            | ScalarKind::Int
+            | ScalarKind::Int128
+            | ScalarKind::IntBig
+            | ScalarKind::Timestamp
+            | ScalarKind::Nat
+            | ScalarKind::Nat128
+            | ScalarKind::NatBig,
         ) => ExprType::Numeric(NumericSubtype::Integer),
-        FieldType::Scalar(ScalarType::Float32 | ScalarType::Float64) => {
+        FieldType::Scalar(ScalarKind::Float32 | ScalarKind::Float64) => {
             ExprType::Numeric(NumericSubtype::Float)
         }
-        FieldType::Scalar(ScalarType::Decimal) => ExprType::Numeric(NumericSubtype::Decimal),
-        FieldType::Scalar(ScalarType::Enum | ScalarType::Text) => ExprType::Text,
+        FieldType::Scalar(ScalarKind::Decimal) => ExprType::Numeric(NumericSubtype::Decimal),
+        FieldType::Scalar(ScalarKind::Enum | ScalarKind::Text) => ExprType::Text,
         FieldType::List(_) | FieldType::Set(_) | FieldType::Map { .. } => ExprType::Collection,
         FieldType::Composite => ExprType::Structured,
         FieldType::Scalar(
-            ScalarType::Account
-            | ScalarType::Date
-            | ScalarType::Principal
-            | ScalarType::Subaccount
-            | ScalarType::Ulid
-            | ScalarType::Unit,
+            ScalarKind::Account
+            | ScalarKind::Date
+            | ScalarKind::Principal
+            | ScalarKind::Subaccount
+            | ScalarKind::Ulid
+            | ScalarKind::Unit,
         ) => ExprType::Opaque,
     }
 }

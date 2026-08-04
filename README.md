@@ -474,6 +474,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - [docs/operations/DURABILITY_GUIDE.md](docs/operations/DURABILITY_GUIDE.md)
 - [docs/guides/public-facade-api.md](docs/guides/public-facade-api.md)
 - [docs/guides/read-intent.md](docs/guides/read-intent.md)
+- [docs/guides/diagnostics.md](docs/guides/diagnostics.md)
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
 - [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)

@@ -1,6 +1,6 @@
 use super::{BoundSqlDdlRequest, BoundSqlDdlStatement};
 use crate::db::sql::ddl::index::ddl_key_item_report;
-use crate::error::ConstraintDiagnostic;
+use crate::error::ConstraintValidationFindingOutput;
 
 ///
 /// SqlDdlPreparationReport
@@ -149,7 +149,7 @@ pub struct SqlConstraintValidationPage {
     state: SqlConstraintValidationState,
     revision_status: SqlConstraintValidationRevisionStatus,
     rows_scanned: u64,
-    findings: Vec<ConstraintDiagnostic>,
+    findings: Vec<ConstraintValidationFindingOutput>,
     complete: bool,
 }
 
@@ -193,7 +193,7 @@ impl SqlConstraintValidationPage {
     pub(in crate::db) fn with_findings(
         mut self,
         page_sequence: u64,
-        findings: Vec<ConstraintDiagnostic>,
+        findings: Vec<ConstraintValidationFindingOutput>,
     ) -> Self {
         self.page_sequence = Some(page_sequence);
         self.findings = findings;
@@ -238,7 +238,7 @@ impl SqlConstraintValidationPage {
 
     /// Borrow the retained bounded finding page.
     #[must_use]
-    pub const fn findings(&self) -> &[ConstraintDiagnostic] {
+    pub const fn findings(&self) -> &[ConstraintValidationFindingOutput] {
         self.findings.as_slice()
     }
 

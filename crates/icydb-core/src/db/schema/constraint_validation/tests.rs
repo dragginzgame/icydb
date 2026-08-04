@@ -93,6 +93,53 @@ fn raw_key(entity: EntityTag, value: u64) -> RawDataStoreKey {
 }
 
 #[test]
+fn historical_finding_output_retains_only_exact_numeric_repair_authority() {
+    let entity = EntityTag::new(41);
+    let activation = targeted_activation(FieldId::new(5));
+    let finding = ConstraintValidationFinding::new_targeted(
+        raw_key(entity, 9),
+        vec![FieldId::new(5), FieldId::new(7)],
+        AcceptedTargetPath::new(vec![
+            AcceptedTargetPathComponent::RootField(FieldId::new(5)),
+            AcceptedTargetPathComponent::RecordMember {
+                composite_type_id: CompositeTypeId::new(3)
+                    .expect("test composite identity should be non-zero"),
+                member_id: CompositeFieldId::new(2)
+                    .expect("test member identity should be non-zero"),
+            },
+        ]),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
+    );
+
+    let output = crate::db::schema::constraint_validation_finding_output(
+        [0xCC; 16],
+        entity,
+        &activation,
+        &finding,
+    )
+    .expect("bounded historical finding should project");
+
+    assert_eq!(output.accepted_schema_fingerprint(), [0xCC; 16]);
+    assert_eq!(output.entity_tag(), 41);
+    assert_eq!(output.constraint_id(), activation.id().get());
+    assert!(!output.primary_key().is_empty());
+    assert_eq!(output.field_ids(), &[5, 7]);
+    assert_eq!(
+        output
+            .value_path()
+            .expect("targeted finding should retain its bounded repair path")
+            .components(),
+        &[
+            crate::error::ConstraintValuePathComponent::RootField { field_id: 5 },
+            crate::error::ConstraintValuePathComponent::RecordMember {
+                composite_type_id: 3,
+                member_id: 2,
+            },
+        ],
+    );
+}
+
+#[test]
 fn validation_job_round_trips_current_forward_identity() {
     let entity = EntityTag::new(41);
     let activation = activation(ConstraintActivationState::Validating);

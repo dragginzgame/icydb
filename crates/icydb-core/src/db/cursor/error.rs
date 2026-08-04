@@ -7,15 +7,7 @@ use crate::{
     db::cursor::{ContinuationSignature, CursorDecodeError, TokenWireError},
     error::InternalError,
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CursorPayloadErrorCode(u8);
-
-impl CursorPayloadErrorCode {
-    pub(crate) const GROUPED_DIRECTION_MISMATCH: Self = Self(2);
-    pub(crate) const TOKEN_ENCODE: Self = Self(18);
-    pub(crate) const TOKEN_DECODE: Self = Self(19);
-}
+use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CursorSignaturePrefix(u32);
@@ -27,6 +19,10 @@ impl CursorSignaturePrefix {
     const fn from_signature(signature: &ContinuationSignature) -> Self {
         let bytes = (*signature).into_bytes();
         Self(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+
+    const fn raw(self) -> u64 {
+        self.0 as u64
     }
 }
 
@@ -43,7 +39,7 @@ pub enum CursorPlanError {
 
     /// Cursor token payload/semantics are invalid after token decode.
     InvalidContinuationCursorPayload {
-        reason: CursorPayloadErrorCode,
+        reason: DiagnosticDecodeReason,
         index: Option<usize>,
     },
 
@@ -83,7 +79,7 @@ impl CursorPlanError {
 
     /// Construct the canonical invalid-continuation payload error variant.
     pub(in crate::db) const fn invalid_continuation_cursor_payload(
-        reason: CursorPayloadErrorCode,
+        reason: DiagnosticDecodeReason,
     ) -> Self {
         Self::InvalidContinuationCursorPayload {
             reason,
@@ -94,7 +90,7 @@ impl CursorPlanError {
     /// Construct one grouped-cursor direction mismatch payload error.
     pub(crate) const fn grouped_continuation_cursor_direction_mismatch() -> Self {
         Self::invalid_continuation_cursor_payload(
-            CursorPayloadErrorCode::GROUPED_DIRECTION_MISMATCH,
+            DiagnosticDecodeReason::CursorGroupedDirectionMismatch,
         )
     }
 
@@ -135,11 +131,66 @@ impl CursorPlanError {
     pub(in crate::db) const fn from_token_wire_error(err: TokenWireError) -> Self {
         match err {
             TokenWireError::Encode => {
-                Self::invalid_continuation_cursor_payload(CursorPayloadErrorCode::TOKEN_ENCODE)
+                Self::invalid_continuation_cursor_payload(DiagnosticDecodeReason::CursorTokenEncode)
             }
             TokenWireError::Decode => {
-                Self::invalid_continuation_cursor_payload(CursorPayloadErrorCode::TOKEN_DECODE)
+                Self::invalid_continuation_cursor_payload(DiagnosticDecodeReason::CursorTokenDecode)
             }
+        }
+    }
+
+    /// Project already-owned cursor context into canonical numeric facts.
+    #[must_use]
+    pub(crate) fn diagnostic_facts(&self) -> Vec<(DiagnosticFactTag, u64)> {
+        match self {
+            Self::InvalidContinuationCursor { reason } => match reason {
+                CursorDecodeError::Empty => vec![(
+                    DiagnosticFactTag::DecodeReason,
+                    DiagnosticDecodeReason::CursorEmpty.raw(),
+                )],
+                CursorDecodeError::TooLong { len, max } => vec![
+                    (DiagnosticFactTag::ActualLength, *len as u64),
+                    (DiagnosticFactTag::Maximum, *max as u64),
+                    (
+                        DiagnosticFactTag::DecodeReason,
+                        DiagnosticDecodeReason::CursorTooLong.raw(),
+                    ),
+                ],
+                CursorDecodeError::OddLength => vec![(
+                    DiagnosticFactTag::DecodeReason,
+                    DiagnosticDecodeReason::CursorOddLength.raw(),
+                )],
+                CursorDecodeError::InvalidHex { position } => vec![
+                    (DiagnosticFactTag::ComponentIndex, *position as u64),
+                    (
+                        DiagnosticFactTag::DecodeReason,
+                        DiagnosticDecodeReason::CursorInvalidHex.raw(),
+                    ),
+                ],
+            },
+            Self::InvalidContinuationCursorPayload { reason, index } => {
+                let mut facts = Vec::with_capacity(usize::from(index.is_some()) + 1);
+                if let Some(index) = index {
+                    facts.push((DiagnosticFactTag::ComponentIndex, *index as u64));
+                }
+                facts.push((DiagnosticFactTag::DecodeReason, reason.raw()));
+                facts
+            }
+            Self::ContinuationCursorInvariantViolation => Vec::new(),
+            Self::ContinuationCursorSignatureMismatch { expected, actual } => vec![
+                (DiagnosticFactTag::ExpectedSignaturePrefix, expected.raw()),
+                (DiagnosticFactTag::ActualSignaturePrefix, actual.raw()),
+            ],
+            Self::ContinuationCursorWindowMismatch {
+                expected_offset,
+                actual_offset,
+            } => vec![
+                (
+                    DiagnosticFactTag::ExpectedOffset,
+                    u64::from(*expected_offset),
+                ),
+                (DiagnosticFactTag::ActualOffset, u64::from(*actual_offset)),
+            ],
         }
     }
 

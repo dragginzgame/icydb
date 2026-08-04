@@ -1104,18 +1104,15 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.1.11"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdfe3b9aafa4e779cd69fc0d92a6994ae57fbf6eb422ccea09d8fb3a4e028480"
+checksum = "9f95a81f8a37deeb54273553b9936b6baba31dbbf16906ccd9c06c6513775ee4"
 dependencies = [
  "candid",
- "flate2",
  "ic-cdk",
  "pocket-ic",
- "reqwest",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -1293,7 +1290,9 @@ dependencies = [
  "candid",
  "clap",
  "icydb",
+ "icydb-schema",
  "rustyline",
+ "serde",
  "serde_json",
 ]
 
@@ -1872,9 +1871,9 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "pocket-ic"
-version = "14.0.0"
+version = "15.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30ca4be8aebd68fe9f73cd539f99c5c46f7705fa9a6e4ed2eb1f297518c2ac8f"
+checksum = "4fe796a5fbeb08244338f5eb30f2de91fa12152ea2b5176f9da20fecd20b1ced"
 dependencies = [
  "backoff",
  "base64 0.13.1",

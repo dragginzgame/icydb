@@ -23,7 +23,7 @@ use crate::db::{
     query::intent::QueryError,
     sql::parser::{SqlParseError, SqlStatement},
 };
-use icydb_diagnostic_code::SqlLoweringCode;
+use icydb_diagnostic_code::{DiagnosticFactTag, SqlLoweringCode};
 
 ///
 /// SqlParameterPlacementReason
@@ -200,6 +200,39 @@ pub(crate) enum SqlLoweringError {
 }
 
 impl SqlLoweringError {
+    /// Project retained SQL positions into production-safe numeric facts.
+    pub(crate) fn diagnostic_facts(&self) -> Vec<(DiagnosticFactTag, u64)> {
+        match self {
+            Self::GroupedProjectionReferencesNonGroupField { index }
+            | Self::GroupedProjectionScalarAfterAggregate { index } => {
+                vec![(DiagnosticFactTag::ProjectionIndex, *index as u64)]
+            }
+            Self::UnsupportedParameterPlacement {
+                index: Some(index), ..
+            } => vec![(DiagnosticFactTag::ParameterIndex, *index as u64)],
+            Self::Parse(_)
+            | Self::Query(_)
+            | Self::EntityMismatch { .. }
+            | Self::UnsupportedSelectProjection
+            | Self::UnsupportedSelectDistinct
+            | Self::DistinctOrderByRequiresProjectedTuple
+            | Self::UnsupportedGlobalAggregateProjection
+            | Self::GlobalAggregateDoesNotSupportGroupBy
+            | Self::UnsupportedSelectGroupBy
+            | Self::GroupedProjectionRequiresExplicitList
+            | Self::GroupedProjectionRequiresAggregate
+            | Self::HavingRequiresGroupBy
+            | Self::UnsupportedSelectHaving
+            | Self::UnsupportedAggregateInputExpressions
+            | Self::UnsupportedWhereExpression
+            | Self::UnknownField { .. }
+            | Self::UnsupportedParameterPlacement { index: None, .. }
+            | Self::UnsupportedSqlDdl => Vec::new(),
+            #[cfg(feature = "sql")]
+            Self::UnexpectedQueryLaneStatement => Vec::new(),
+        }
+    }
+
     /// Construct one entity-mismatch SQL lowering error.
     fn entity_mismatch(sql_entity: impl Into<String>, expected_entity: impl Into<String>) -> Self {
         Self::EntityMismatch {
@@ -396,5 +429,45 @@ impl PreparedSqlStatement {
     #[must_use]
     pub(in crate::db) fn into_statement(self) -> SqlStatement {
         self.statement
+    }
+}
+
+#[cfg(all(test, feature = "sql"))]
+mod tests {
+    use super::{SqlLoweringError, SqlParameterPlacementReason};
+    use crate::db::QueryError;
+    use icydb_diagnostic_code::DiagnosticFactTag;
+
+    #[test]
+    fn lowering_projection_error_retains_projection_index() {
+        let error = SqlLoweringError::grouped_projection_references_non_group_field(4);
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![(DiagnosticFactTag::ProjectionIndex, 4)],
+        );
+
+        let query_error = QueryError::from_sql_lowering_error(error);
+        assert_eq!(
+            query_error.diagnostic_facts(),
+            vec![(DiagnosticFactTag::ProjectionIndex, 4)],
+        );
+    }
+
+    #[test]
+    fn lowering_parameter_error_retains_parameter_index_only_when_known() {
+        let known = SqlLoweringError::unsupported_parameter_placement(
+            Some(3),
+            SqlParameterPlacementReason::BindingUnsupported,
+        );
+        assert_eq!(
+            known.diagnostic_facts(),
+            vec![(DiagnosticFactTag::ParameterIndex, 3)],
+        );
+
+        let unknown = SqlLoweringError::unsupported_parameter_placement(
+            None,
+            SqlParameterPlacementReason::UnboundExpressionLowering,
+        );
+        assert!(unknown.diagnostic_facts().is_empty());
     }
 }

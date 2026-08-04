@@ -15,7 +15,7 @@ use crate::{
 };
 use candid::{Decode, Encode};
 use icydb::{
-    ConstraintDiagnostic,
+    ConstraintValidationFindingOutput,
     db::{
         RowProjectionOutput,
         sql::{SqlConstraintValidationOutput, SqlGroupedRowsOutput, SqlQueryResult},
@@ -328,18 +328,17 @@ fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
 
 #[test]
 fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
-    let diagnostic: ConstraintDiagnostic = serde_json::from_value(serde_json::json!({
+    let finding: ConstraintValidationFindingOutput = serde_json::from_value(serde_json::json!({
+        "accepted_schema_fingerprint": [17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17],
+        "entity_tag": 29,
         "constraint_id": 41,
-        "constraint_name": "adult_age",
-        "constraint_kind": "Check",
-        "entity": "example::Character",
         "primary_key": [1, 2, 3],
-        "field_paths": ["age"],
-        "context": "MigrationValidation",
+        "field_ids": [7],
+        "value_path": null,
         "error_code":
             icydb::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
     }))
-    .expect("test constraint diagnostic should decode");
+    .expect("test constraint finding should decode");
     let expected = SqlConstraintValidationOutput {
         constraint_id: 41,
         activation_epoch: Some(7),
@@ -347,7 +346,7 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
         state: "forward".to_string(),
         revision_status: "tracking".to_string(),
         rows_scanned: 9,
-        findings: vec![diagnostic],
+        findings: vec![finding],
         complete: false,
     };
     let response: Result<SqlQueryResult, icydb::Error> = Ok(SqlQueryResult::Ddl {
@@ -379,9 +378,9 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
     assert_eq!(constraint_validation, Some(expected));
     assert!(
         rendered.contains(
-            "constraint_finding id=41 name=adult_age kind=check entity=example::Character primary_key=010203 fields=age context=migration_validation class=invariant_violation code=E223"
+            "constraint_finding fingerprint=11111111111111111111111111111111 entity_tag=29 constraint_id=41 primary_key=010203 field_ids=7 class=invariant_violation code=E223"
         ),
-        "CLI SQL rendering should retain the complete constraint finding",
+        "CLI SQL rendering should retain the compact historical finding",
     );
 }
 

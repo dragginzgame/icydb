@@ -16,7 +16,9 @@ path = "src/main.rs"
 candid = { workspace = true }
 clap = { workspace = true }
 icydb = { workspace = true, features = ["migration", "sql"] }
+icydb-schema = { workspace = true }
 rustyline = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 [lints]

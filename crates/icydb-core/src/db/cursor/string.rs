@@ -72,11 +72,11 @@ pub(in crate::db) fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeE
     let bytes = token.as_bytes();
 
     for idx in (0..bytes.len()).step_by(2) {
-        let hi = decode_hex_nibble(bytes[idx])
-            .ok_or(CursorDecodeError::InvalidHex { position: idx + 1 })?;
+        let hi =
+            decode_hex_nibble(bytes[idx]).ok_or(CursorDecodeError::InvalidHex { position: idx })?;
 
         let lo = decode_hex_nibble(bytes[idx + 1])
-            .ok_or(CursorDecodeError::InvalidHex { position: idx + 2 })?;
+            .ok_or(CursorDecodeError::InvalidHex { position: idx + 1 })?;
 
         out.push((hi << 4) | lo);
     }
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn decode_cursor_rejects_invalid_hex_with_position() {
         let err = decode_cursor("0x").expect_err("invalid hex nibble should be rejected");
-        assert_eq!(err, CursorDecodeError::InvalidHex { position: 2 });
+        assert_eq!(err, CursorDecodeError::InvalidHex { position: 1 });
     }
 
     #[test]

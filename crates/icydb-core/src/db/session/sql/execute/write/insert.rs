@@ -34,7 +34,7 @@ use crate::{
     types::{CurrentTimestamp, Timestamp},
     value::Value,
 };
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
+use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
 const SQL_INSERT_VALUES_INITIAL_RESERVE_ROWS: usize = 64;
 
@@ -259,8 +259,9 @@ impl<C: CanisterKind> DbSession<C> {
             None,
             |row| {
                 if row.len() != columns.len() {
-                    return Err(QueryError::sql_write_boundary(
-                        SqlWriteBoundaryCode::InsertSelectWidthMismatch,
+                    return Err(sql_insert_select_width_mismatch_error(
+                        columns.len(),
+                        row.len(),
                     ));
                 }
 
@@ -412,5 +413,34 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             },
         )
+    }
+}
+
+fn sql_insert_select_width_mismatch_error(expected: usize, actual: usize) -> QueryError {
+    QueryError::sql_write_boundary_with_facts(
+        SqlWriteBoundaryCode::InsertSelectWidthMismatch,
+        vec![
+            (DiagnosticFactTag::ExpectedArity, expected as u64),
+            (DiagnosticFactTag::ActualArity, actual as u64),
+        ],
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sql_insert_select_width_mismatch_error;
+    use icydb_diagnostic_code::DiagnosticFactTag;
+
+    #[test]
+    fn insert_select_width_error_retains_expected_and_actual_arity() {
+        let error = sql_insert_select_width_mismatch_error(3, 2);
+
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ExpectedArity, 3),
+                (DiagnosticFactTag::ActualArity, 2),
+            ],
+        );
     }
 }

@@ -14,6 +14,47 @@ use crate::db::{
     },
     schema::ValidateError,
 };
+use icydb_diagnostic_code::{
+    DiagnosticAggregateKind, DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticOperatorKind,
+    DiagnosticTypeFamily,
+};
+
+type DiagnosticFacts = Vec<(DiagnosticFactTag, u64)>;
+
+const fn diagnostic_index(index: usize) -> u64 {
+    // IcyDB supports 32-bit Wasm and 64-bit native targets, so every `usize`
+    // position is represented exactly by one `u64` fact.
+    index as u64
+}
+
+const fn diagnostic_aggregate_kind(kind: AggregateKind) -> DiagnosticAggregateKind {
+    match kind {
+        AggregateKind::Count => DiagnosticAggregateKind::Count,
+        AggregateKind::Sum => DiagnosticAggregateKind::Sum,
+        AggregateKind::Avg => DiagnosticAggregateKind::Avg,
+        AggregateKind::Exists => DiagnosticAggregateKind::Exists,
+        AggregateKind::Min => DiagnosticAggregateKind::Min,
+        AggregateKind::Max => DiagnosticAggregateKind::Max,
+        AggregateKind::First => DiagnosticAggregateKind::First,
+        AggregateKind::Last => DiagnosticAggregateKind::Last,
+    }
+}
+
+const fn diagnostic_compare_op(op: CompareOp) -> DiagnosticOperatorKind {
+    match op {
+        CompareOp::Eq => DiagnosticOperatorKind::Eq,
+        CompareOp::Ne => DiagnosticOperatorKind::Ne,
+        CompareOp::Lt => DiagnosticOperatorKind::Lt,
+        CompareOp::Lte => DiagnosticOperatorKind::Lte,
+        CompareOp::Gt => DiagnosticOperatorKind::Gt,
+        CompareOp::Gte => DiagnosticOperatorKind::Gte,
+        CompareOp::In => DiagnosticOperatorKind::In,
+        CompareOp::NotIn => DiagnosticOperatorKind::NotIn,
+        CompareOp::Contains => DiagnosticOperatorKind::Contains,
+        CompareOp::StartsWith => DiagnosticOperatorKind::StartsWith,
+        CompareOp::EndsWith => DiagnosticOperatorKind::EndsWith,
+    }
+}
 
 ///
 /// PlanError
@@ -34,6 +75,15 @@ pub enum PlanError {
 }
 
 impl PlanError {
+    /// Project retained planner context into production-safe numeric facts.
+    pub(crate) fn diagnostic_facts(&self) -> DiagnosticFacts {
+        match self {
+            Self::User(error) => error.diagnostic_facts(),
+            Self::Policy(error) => error.diagnostic_facts(),
+            Self::Cursor(error) => error.diagnostic_facts(),
+        }
+    }
+
     /// Return whether this plan error carries invalid external continuation state.
     #[must_use]
     pub(crate) fn is_invalid_continuation_cursor(&self) -> bool {
@@ -79,6 +129,17 @@ pub enum PlanUserError {
     Expr(Box<ExprPlanError>),
 }
 
+impl PlanUserError {
+    fn diagnostic_facts(&self) -> DiagnosticFacts {
+        match self {
+            Self::Order(error) => error.diagnostic_facts(),
+            Self::Group(error) => error.diagnostic_facts(),
+            Self::Expr(error) => error.diagnostic_facts(),
+            Self::PredicateInvalid(_) | Self::Access(_) => Vec::new(),
+        }
+    }
+}
+
 ///
 /// PlanPolicyError
 ///
@@ -92,6 +153,15 @@ pub enum PlanPolicyError {
     Policy(Box<PolicyPlanError>),
 
     Group(Box<GroupPlanError>),
+}
+
+impl PlanPolicyError {
+    fn diagnostic_facts(&self) -> DiagnosticFacts {
+        match self {
+            Self::Group(error) => error.diagnostic_facts(),
+            Self::Policy(_) => Vec::new(),
+        }
+    }
 }
 
 ///
@@ -119,6 +189,31 @@ pub enum OrderPlanError {
 }
 
 impl OrderPlanError {
+    fn diagnostic_facts(&self) -> DiagnosticFacts {
+        match self {
+            Self::UnknownField { term_index } | Self::UnorderableField { term_index } => {
+                vec![(DiagnosticFactTag::TermIndex, diagnostic_index(*term_index))]
+            }
+            Self::DuplicateOrderField {
+                first_term_index,
+                duplicate_term_index,
+            } => vec![
+                (
+                    DiagnosticFactTag::FirstTermIndex,
+                    diagnostic_index(*first_term_index),
+                ),
+                (
+                    DiagnosticFactTag::DuplicateTermIndex,
+                    diagnostic_index(*duplicate_term_index),
+                ),
+            ],
+            Self::MissingPrimaryKeyTieBreak { primary_key_index } => vec![(
+                DiagnosticFactTag::ComponentIndex,
+                diagnostic_index(*primary_key_index),
+            )],
+        }
+    }
+
     /// Construct one unknown-field validation error.
     pub(in crate::db::query) const fn unknown_field(term_index: usize) -> Self {
         Self::UnknownField { term_index }
@@ -231,10 +326,13 @@ pub enum GroupPlanError {
     EmptyAggregates,
 
     /// GROUP BY references an unknown group field.
-    UnknownGroupField { field: String },
+    UnknownGroupField {
+        group_index: Option<usize>,
+        field: String,
+    },
 
     /// GROUP BY must not repeat the same resolved group slot.
-    DuplicateGroupField { field: String },
+    DuplicateGroupField { group_index: usize, field: String },
 
     /// GROUP BY does not accept DISTINCT unless adjacency eligibility is explicit.
     DistinctAdjacencyEligibilityRequired,
@@ -292,6 +390,84 @@ pub enum GroupPlanError {
 }
 
 impl GroupPlanError {
+    fn diagnostic_facts(&self) -> DiagnosticFacts {
+        match self {
+            Self::HavingUnsupportedCompareOp { index, op } => vec![
+                (DiagnosticFactTag::ClauseIndex, diagnostic_index(*index)),
+                (
+                    DiagnosticFactTag::OperatorKind,
+                    diagnostic_compare_op(*op).raw(),
+                ),
+            ],
+            Self::HavingNonGroupFieldReference { index, .. } => {
+                vec![(DiagnosticFactTag::ClauseIndex, diagnostic_index(*index))]
+            }
+            Self::HavingAggregateIndexOutOfBounds {
+                index,
+                aggregate_index,
+                aggregate_count,
+            } => vec![
+                (DiagnosticFactTag::ClauseIndex, diagnostic_index(*index)),
+                (
+                    DiagnosticFactTag::AggregateIndex,
+                    diagnostic_index(*aggregate_index),
+                ),
+                (
+                    DiagnosticFactTag::ActualCount,
+                    diagnostic_index(*aggregate_count),
+                ),
+            ],
+            Self::DistinctAggregateKindUnsupported { index, kind } => {
+                let mut facts = vec![(DiagnosticFactTag::AggregateIndex, diagnostic_index(*index))];
+                if let Some(kind) = kind {
+                    facts.push((
+                        DiagnosticFactTag::AggregateKind,
+                        diagnostic_aggregate_kind(*kind).raw(),
+                    ));
+                }
+                facts
+            }
+            Self::DistinctAggregateFieldTargetUnsupported { index, kind, .. }
+            | Self::FieldTargetAggregatesUnsupported { index, kind, .. } => vec![
+                (DiagnosticFactTag::AggregateIndex, diagnostic_index(*index)),
+                (
+                    DiagnosticFactTag::AggregateKind,
+                    diagnostic_aggregate_kind(*kind).raw(),
+                ),
+            ],
+            Self::UnknownAggregateTargetField { index, .. } => {
+                vec![(DiagnosticFactTag::AggregateIndex, diagnostic_index(*index))]
+            }
+            Self::UnknownGroupField {
+                group_index: Some(index),
+                ..
+            }
+            | Self::DuplicateGroupField {
+                group_index: index, ..
+            } => vec![(DiagnosticFactTag::GroupIndex, diagnostic_index(*index))],
+            Self::GlobalDistinctSumTargetNotNumeric { index, .. } => vec![
+                (DiagnosticFactTag::AggregateIndex, diagnostic_index(*index)),
+                (
+                    DiagnosticFactTag::AggregateKind,
+                    DiagnosticAggregateKind::Sum.raw(),
+                ),
+            ],
+            Self::HavingRequiresGroupBy
+            | Self::GroupedLogicalPlanRequired
+            | Self::EmptyGroupFields
+            | Self::GlobalDistinctAggregateShapeUnsupported
+            | Self::EmptyAggregates
+            | Self::UnknownGroupField {
+                group_index: None, ..
+            }
+            | Self::DistinctAdjacencyEligibilityRequired
+            | Self::OrderPrefixNotAlignedWithGroupKeys
+            | Self::OrderExpressionNotAdmissible { .. }
+            | Self::OrderRequiresLimit
+            | Self::DistinctHavingUnsupported => Vec::new(),
+        }
+    }
+
     /// Construct one grouped-logical-plan-required validation error.
     pub(in crate::db::query) const fn grouped_logical_plan_required() -> Self {
         Self::GroupedLogicalPlanRequired
@@ -315,13 +491,29 @@ impl GroupPlanError {
     /// Construct one unknown grouped-field validation error.
     pub(in crate::db::query) fn unknown_group_field(field: impl Into<String>) -> Self {
         Self::UnknownGroupField {
+            group_index: None,
+            field: field.into(),
+        }
+    }
+
+    /// Construct one unknown grouped-field error with its declaration index.
+    pub(in crate::db::query) fn unknown_group_field_at(
+        group_index: usize,
+        field: impl Into<String>,
+    ) -> Self {
+        Self::UnknownGroupField {
+            group_index: Some(group_index),
             field: field.into(),
         }
     }
 
     /// Construct one duplicate grouped-field validation error.
-    pub(in crate::db::query) fn duplicate_group_field(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn duplicate_group_field(
+        group_index: usize,
+        field: impl Into<String>,
+    ) -> Self {
         Self::DuplicateGroupField {
+            group_index,
             field: field.into(),
         }
     }
@@ -471,37 +663,56 @@ impl ExprPlanTypeClass {
             ExprType::Unknown => Self::Unknown,
         }
     }
+
+    const fn diagnostic_kind(self) -> DiagnosticTypeFamily {
+        match self {
+            Self::Blob => DiagnosticTypeFamily::Blob,
+            Self::Bool => DiagnosticTypeFamily::Bool,
+            Self::Collection => DiagnosticTypeFamily::Collection,
+            #[cfg(test)]
+            Self::Null => DiagnosticTypeFamily::Null,
+            Self::Numeric => DiagnosticTypeFamily::Numeric,
+            Self::Opaque => DiagnosticTypeFamily::Opaque,
+            Self::Structured => DiagnosticTypeFamily::Structured,
+            Self::Text => DiagnosticTypeFamily::Text,
+            Self::Unknown => DiagnosticTypeFamily::Unknown,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExprPlanUnaryOpCode(u8);
+pub struct ExprPlanUnaryOpCode(DiagnosticOperatorKind);
 
 impl ExprPlanUnaryOpCode {
-    pub const NOT: Self = Self(0);
+    pub const NOT: Self = Self(DiagnosticOperatorKind::Not);
 
     pub(in crate::db) const fn from_unary_op(op: UnaryOp) -> Self {
         match op {
             UnaryOp::Not => Self::NOT,
         }
     }
+
+    const fn diagnostic_kind(self) -> DiagnosticOperatorKind {
+        self.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExprPlanBinaryOpCode(u8);
+pub struct ExprPlanBinaryOpCode(DiagnosticOperatorKind);
 
 impl ExprPlanBinaryOpCode {
-    pub const ADD: Self = Self(0);
-    pub const AND: Self = Self(1);
-    pub const DIV: Self = Self(2);
-    pub const EQ: Self = Self(3);
-    pub const GT: Self = Self(4);
-    pub const GTE: Self = Self(5);
-    pub const LT: Self = Self(6);
-    pub const LTE: Self = Self(7);
-    pub const MUL: Self = Self(8);
-    pub const NE: Self = Self(9);
-    pub const OR: Self = Self(10);
-    pub const SUB: Self = Self(11);
+    pub const ADD: Self = Self(DiagnosticOperatorKind::Add);
+    pub const AND: Self = Self(DiagnosticOperatorKind::And);
+    pub const DIV: Self = Self(DiagnosticOperatorKind::Div);
+    pub const EQ: Self = Self(DiagnosticOperatorKind::Eq);
+    pub const GT: Self = Self(DiagnosticOperatorKind::Gt);
+    pub const GTE: Self = Self(DiagnosticOperatorKind::Gte);
+    pub const LT: Self = Self(DiagnosticOperatorKind::Lt);
+    pub const LTE: Self = Self(DiagnosticOperatorKind::Lte);
+    pub const MUL: Self = Self(DiagnosticOperatorKind::Mul);
+    pub const NE: Self = Self(DiagnosticOperatorKind::Ne);
+    pub const OR: Self = Self(DiagnosticOperatorKind::Or);
+    pub const SUB: Self = Self(DiagnosticOperatorKind::Sub);
 
     pub(in crate::db) const fn from_binary_op(op: BinaryOp) -> Self {
         match op {
@@ -519,51 +730,55 @@ impl ExprPlanBinaryOpCode {
             BinaryOp::Sub => Self::SUB,
         }
     }
+
+    const fn diagnostic_kind(self) -> DiagnosticOperatorKind {
+        self.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ExprPlanFunctionCode(u8);
+pub struct ExprPlanFunctionCode(DiagnosticFunctionKind);
 
 impl ExprPlanFunctionCode {
-    pub const ABS: Self = Self(0);
-    pub const CBRT: Self = Self(1);
-    pub const CEILING: Self = Self(2);
-    pub const COALESCE: Self = Self(3);
-    pub const COLLECTION_CONTAINS: Self = Self(4);
-    pub const CONTAINS: Self = Self(5);
-    pub const ENDS_WITH: Self = Self(6);
-    pub const EXP: Self = Self(7);
-    pub const FLOOR: Self = Self(8);
-    pub const IN_LIST: Self = Self(38);
-    pub const IS_EMPTY: Self = Self(9);
-    pub const IS_MISSING: Self = Self(10);
-    pub const IS_NOT_EMPTY: Self = Self(11);
-    pub const IS_NOT_NULL: Self = Self(12);
-    pub const IS_NULL: Self = Self(13);
-    pub const LEFT: Self = Self(14);
-    pub const LENGTH: Self = Self(15);
-    pub const LN: Self = Self(16);
-    pub const LOG: Self = Self(17);
-    pub const LOG2: Self = Self(18);
-    pub const LOG10: Self = Self(19);
-    pub const LOWER: Self = Self(20);
-    pub const LTRIM: Self = Self(21);
-    pub const MOD: Self = Self(22);
-    pub const NULLIF: Self = Self(23);
-    pub const OCTET_LENGTH: Self = Self(24);
-    pub const POSITION: Self = Self(25);
-    pub const POWER: Self = Self(26);
-    pub const REPLACE: Self = Self(27);
-    pub const RIGHT: Self = Self(28);
-    pub const ROUND: Self = Self(29);
-    pub const RTRIM: Self = Self(30);
-    pub const SIGN: Self = Self(31);
-    pub const SQRT: Self = Self(32);
-    pub const STARTS_WITH: Self = Self(33);
-    pub const SUBSTRING: Self = Self(34);
-    pub const TRIM: Self = Self(35);
-    pub const TRUNC: Self = Self(36);
-    pub const UPPER: Self = Self(37);
+    pub const ABS: Self = Self(DiagnosticFunctionKind::Abs);
+    pub const CBRT: Self = Self(DiagnosticFunctionKind::Cbrt);
+    pub const CEILING: Self = Self(DiagnosticFunctionKind::Ceiling);
+    pub const COALESCE: Self = Self(DiagnosticFunctionKind::Coalesce);
+    pub const COLLECTION_CONTAINS: Self = Self(DiagnosticFunctionKind::CollectionContains);
+    pub const CONTAINS: Self = Self(DiagnosticFunctionKind::Contains);
+    pub const ENDS_WITH: Self = Self(DiagnosticFunctionKind::EndsWith);
+    pub const EXP: Self = Self(DiagnosticFunctionKind::Exp);
+    pub const FLOOR: Self = Self(DiagnosticFunctionKind::Floor);
+    pub const IN_LIST: Self = Self(DiagnosticFunctionKind::InList);
+    pub const IS_EMPTY: Self = Self(DiagnosticFunctionKind::IsEmpty);
+    pub const IS_MISSING: Self = Self(DiagnosticFunctionKind::IsMissing);
+    pub const IS_NOT_EMPTY: Self = Self(DiagnosticFunctionKind::IsNotEmpty);
+    pub const IS_NOT_NULL: Self = Self(DiagnosticFunctionKind::IsNotNull);
+    pub const IS_NULL: Self = Self(DiagnosticFunctionKind::IsNull);
+    pub const LEFT: Self = Self(DiagnosticFunctionKind::Left);
+    pub const LENGTH: Self = Self(DiagnosticFunctionKind::Length);
+    pub const LN: Self = Self(DiagnosticFunctionKind::Ln);
+    pub const LOG: Self = Self(DiagnosticFunctionKind::Log);
+    pub const LOG2: Self = Self(DiagnosticFunctionKind::Log2);
+    pub const LOG10: Self = Self(DiagnosticFunctionKind::Log10);
+    pub const LOWER: Self = Self(DiagnosticFunctionKind::Lower);
+    pub const LTRIM: Self = Self(DiagnosticFunctionKind::Ltrim);
+    pub const MOD: Self = Self(DiagnosticFunctionKind::Mod);
+    pub const NULLIF: Self = Self(DiagnosticFunctionKind::NullIf);
+    pub const OCTET_LENGTH: Self = Self(DiagnosticFunctionKind::OctetLength);
+    pub const POSITION: Self = Self(DiagnosticFunctionKind::Position);
+    pub const POWER: Self = Self(DiagnosticFunctionKind::Power);
+    pub const REPLACE: Self = Self(DiagnosticFunctionKind::Replace);
+    pub const RIGHT: Self = Self(DiagnosticFunctionKind::Right);
+    pub const ROUND: Self = Self(DiagnosticFunctionKind::Round);
+    pub const RTRIM: Self = Self(DiagnosticFunctionKind::Rtrim);
+    pub const SIGN: Self = Self(DiagnosticFunctionKind::Sign);
+    pub const SQRT: Self = Self(DiagnosticFunctionKind::Sqrt);
+    pub const STARTS_WITH: Self = Self(DiagnosticFunctionKind::StartsWith);
+    pub const SUBSTRING: Self = Self(DiagnosticFunctionKind::Substring);
+    pub const TRIM: Self = Self(DiagnosticFunctionKind::Trim);
+    pub const TRUNC: Self = Self(DiagnosticFunctionKind::Trunc);
+    pub const UPPER: Self = Self(DiagnosticFunctionKind::Upper);
 
     pub(in crate::db) const fn from_function(function: Function) -> Self {
         match function {
@@ -607,6 +822,10 @@ impl ExprPlanFunctionCode {
             Function::Trunc => Self::TRUNC,
             Function::Upper => Self::UPPER,
         }
+    }
+
+    const fn diagnostic_kind(self) -> DiagnosticFunctionKind {
+        self.0
     }
 }
 
@@ -682,6 +901,108 @@ pub enum ExprPlanError {
 }
 
 impl ExprPlanError {
+    fn diagnostic_facts(&self) -> DiagnosticFacts {
+        match self {
+            Self::NonNumericAggregateTarget { kind, found } => vec![
+                (
+                    DiagnosticFactTag::AggregateKind,
+                    diagnostic_aggregate_kind(*kind).raw(),
+                ),
+                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+            ],
+            Self::AggregateTargetRequired { kind } => vec![(
+                DiagnosticFactTag::AggregateKind,
+                diagnostic_aggregate_kind(*kind).raw(),
+            )],
+            Self::InvalidFunctionArity {
+                function,
+                expected,
+                actual,
+            } => vec![
+                (
+                    DiagnosticFactTag::FunctionKind,
+                    function.diagnostic_kind().raw(),
+                ),
+                (
+                    DiagnosticFactTag::ExpectedArity,
+                    diagnostic_index(*expected),
+                ),
+                (DiagnosticFactTag::ActualArity, diagnostic_index(*actual)),
+            ],
+            Self::InvalidFunctionArgument {
+                function,
+                argument_index,
+                found,
+            } => vec![
+                (
+                    DiagnosticFactTag::FunctionKind,
+                    function.diagnostic_kind().raw(),
+                ),
+                (
+                    DiagnosticFactTag::ArgumentIndex,
+                    diagnostic_index(*argument_index),
+                ),
+                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+            ],
+            Self::IncompatibleFunctionArguments {
+                function,
+                left_argument_index,
+                right_argument_index,
+                left,
+                right,
+            } => vec![
+                (
+                    DiagnosticFactTag::FunctionKind,
+                    function.diagnostic_kind().raw(),
+                ),
+                (
+                    DiagnosticFactTag::ArgumentIndex,
+                    diagnostic_index(*left_argument_index),
+                ),
+                (DiagnosticFactTag::TypeFamily, left.diagnostic_kind().raw()),
+                (
+                    DiagnosticFactTag::ArgumentIndex,
+                    diagnostic_index(*right_argument_index),
+                ),
+                (DiagnosticFactTag::TypeFamily, right.diagnostic_kind().raw()),
+            ],
+            Self::InvalidUnaryOperand { op, found } => vec![
+                (DiagnosticFactTag::OperatorKind, op.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+            ],
+            Self::InvalidCaseConditionType { arm_index, found } => vec![
+                (DiagnosticFactTag::BranchIndex, diagnostic_index(*arm_index)),
+                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+            ],
+            Self::IncompatibleCaseBranchTypes {
+                left_branch_index,
+                right_branch_index,
+                left,
+                right,
+            } => {
+                let mut facts = Vec::with_capacity(4);
+                if let Some(index) = left_branch_index {
+                    facts.push((DiagnosticFactTag::BranchIndex, diagnostic_index(*index)));
+                }
+                facts.push((DiagnosticFactTag::TypeFamily, left.diagnostic_kind().raw()));
+                if let Some(index) = right_branch_index {
+                    facts.push((DiagnosticFactTag::BranchIndex, diagnostic_index(*index)));
+                }
+                facts.push((DiagnosticFactTag::TypeFamily, right.diagnostic_kind().raw()));
+                facts
+            }
+            Self::InvalidBinaryOperands { op, left, right } => vec![
+                (DiagnosticFactTag::OperatorKind, op.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, left.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, right.diagnostic_kind().raw()),
+            ],
+            Self::GroupedProjectionReferencesNonGroupField { index } => {
+                vec![(DiagnosticFactTag::ProjectionIndex, diagnostic_index(*index))]
+            }
+            Self::UnknownField { .. } | Self::UnknownExprField { .. } => Vec::new(),
+        }
+    }
+
     /// Construct one unknown-field planner error.
     pub(in crate::db::query) fn unknown_field(field: impl Into<String>) -> Self {
         Self::UnknownField {
@@ -959,5 +1280,179 @@ impl GroupPlanError {
                 | Self::DistinctAggregateFieldTargetUnsupported { .. }
                 | Self::FieldTargetAggregatesUnsupported { .. }
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ExprPlanError, ExprPlanTypeClass, GroupPlanError, OrderPlanError, PlanError,
+        diagnostic_index,
+    };
+    use crate::db::{
+        QueryError,
+        predicate::CompareOp,
+        query::plan::{
+            AggregateKind,
+            expr::{BinaryOp, Function},
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticAggregateKind, DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticOperatorKind,
+        DiagnosticTypeFamily,
+    };
+
+    #[test]
+    fn order_diagnostics_retain_exact_term_and_component_positions() {
+        assert_eq!(
+            OrderPlanError::duplicate_order_field(2, 5).diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::FirstTermIndex, 2),
+                (DiagnosticFactTag::DuplicateTermIndex, 5),
+            ],
+        );
+        assert_eq!(
+            OrderPlanError::missing_primary_key_tie_break(3).diagnostic_facts(),
+            vec![(DiagnosticFactTag::ComponentIndex, 3)],
+        );
+        assert_eq!(diagnostic_index(usize::MAX), usize::MAX as u64);
+
+        let query_error = QueryError::from(PlanError::from(OrderPlanError::unknown_field(7)));
+        assert_eq!(
+            query_error.diagnostic_facts(),
+            vec![(DiagnosticFactTag::TermIndex, 7)],
+        );
+    }
+
+    #[test]
+    fn group_diagnostics_retain_clause_aggregate_count_and_kind() {
+        assert_eq!(
+            GroupPlanError::having_aggregate_index_out_of_bounds(1, 4, 3).diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ClauseIndex, 1),
+                (DiagnosticFactTag::AggregateIndex, 4),
+                (DiagnosticFactTag::ActualCount, 3),
+            ],
+        );
+        assert_eq!(
+            GroupPlanError::having_unsupported_compare_op(2, CompareOp::NotIn).diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ClauseIndex, 2),
+                (
+                    DiagnosticFactTag::OperatorKind,
+                    DiagnosticOperatorKind::NotIn.raw(),
+                ),
+            ],
+        );
+        assert_eq!(
+            GroupPlanError::field_target_aggregates_unsupported(
+                6,
+                AggregateKind::Last,
+                "private-name",
+            )
+            .diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::AggregateIndex, 6),
+                (
+                    DiagnosticFactTag::AggregateKind,
+                    DiagnosticAggregateKind::Last.raw(),
+                ),
+            ],
+        );
+        assert_eq!(
+            GroupPlanError::unknown_group_field_at(3, "private-name").diagnostic_facts(),
+            vec![(DiagnosticFactTag::GroupIndex, 3)],
+        );
+        assert_eq!(
+            GroupPlanError::duplicate_group_field(4, "private-name").diagnostic_facts(),
+            vec![(DiagnosticFactTag::GroupIndex, 4)],
+        );
+    }
+
+    #[test]
+    fn expression_diagnostics_retain_function_arity_and_argument_types() {
+        assert_eq!(
+            ExprPlanError::invalid_function_arity(Function::InList, 2, 3).diagnostic_facts(),
+            vec![
+                (
+                    DiagnosticFactTag::FunctionKind,
+                    DiagnosticFunctionKind::InList.raw(),
+                ),
+                (DiagnosticFactTag::ExpectedArity, 2),
+                (DiagnosticFactTag::ActualArity, 3),
+            ],
+        );
+        assert_eq!(
+            ExprPlanError::incompatible_function_arguments(
+                Function::Coalesce,
+                0,
+                2,
+                ExprPlanTypeClass::Text,
+                ExprPlanTypeClass::Numeric,
+            )
+            .diagnostic_facts(),
+            vec![
+                (
+                    DiagnosticFactTag::FunctionKind,
+                    DiagnosticFunctionKind::Coalesce.raw(),
+                ),
+                (DiagnosticFactTag::ArgumentIndex, 0),
+                (
+                    DiagnosticFactTag::TypeFamily,
+                    DiagnosticTypeFamily::Text.raw(),
+                ),
+                (DiagnosticFactTag::ArgumentIndex, 2),
+                (
+                    DiagnosticFactTag::TypeFamily,
+                    DiagnosticTypeFamily::Numeric.raw(),
+                ),
+            ],
+        );
+    }
+
+    #[test]
+    fn expression_diagnostics_retain_operator_and_branch_positions() {
+        assert_eq!(
+            ExprPlanError::invalid_binary_operands(
+                BinaryOp::Add,
+                ExprPlanTypeClass::Text,
+                ExprPlanTypeClass::Bool,
+            )
+            .diagnostic_facts(),
+            vec![
+                (
+                    DiagnosticFactTag::OperatorKind,
+                    DiagnosticOperatorKind::Add.raw(),
+                ),
+                (
+                    DiagnosticFactTag::TypeFamily,
+                    DiagnosticTypeFamily::Text.raw(),
+                ),
+                (
+                    DiagnosticFactTag::TypeFamily,
+                    DiagnosticTypeFamily::Bool.raw(),
+                ),
+            ],
+        );
+        assert_eq!(
+            ExprPlanError::incompatible_case_branch_types(
+                Some(1),
+                None,
+                ExprPlanTypeClass::Blob,
+                ExprPlanTypeClass::Structured,
+            )
+            .diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::BranchIndex, 1),
+                (
+                    DiagnosticFactTag::TypeFamily,
+                    DiagnosticTypeFamily::Blob.raw(),
+                ),
+                (
+                    DiagnosticFactTag::TypeFamily,
+                    DiagnosticTypeFamily::Structured.raw(),
+                ),
+            ],
+        );
     }
 }

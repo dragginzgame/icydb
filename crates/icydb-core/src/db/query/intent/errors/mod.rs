@@ -61,6 +61,16 @@ impl QueryError {
         )
     }
 
+    /// Project typed query context into canonical public numeric facts.
+    #[must_use]
+    pub fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
+        match self {
+            Self::Plan(error) => error.diagnostic_facts(),
+            Self::Execute(error) => error.as_internal().diagnostic_facts(),
+            Self::Validate(_) | Self::Intent(_) => Vec::new(),
+        }
+    }
+
     /// Return the compact diagnostic code for this query error.
     #[must_use]
     pub fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
@@ -154,6 +164,21 @@ impl QueryError {
         Self::execute(InternalError::query_sql_write_boundary(boundary))
     }
 
+    /// Construct one query-origin SQL write-boundary error with numeric context.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn sql_write_boundary_with_facts(
+        boundary: diagnostic_code::SqlWriteBoundaryCode,
+        facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        if facts.is_empty() {
+            return Self::sql_write_boundary(boundary);
+        }
+
+        Self::execute(InternalError::query_sql_write_boundary_with_facts(
+            boundary, facts,
+        ))
+    }
+
     /// Construct one query execution error from a checked numeric evaluation failure.
     pub(in crate::db) fn from_numeric_eval_error(err: NumericEvalError) -> Self {
         Self::execute(err.into_internal_error())
@@ -179,6 +204,19 @@ impl QueryError {
     #[cfg(feature = "sql")]
     pub(in crate::db) fn sql_lowering(reason: diagnostic_code::SqlLoweringCode) -> Self {
         Self::execute(InternalError::query_sql_lowering(reason))
+    }
+
+    /// Construct one query-origin SQL lowering error with numeric context.
+    #[cfg(feature = "sql")]
+    fn sql_lowering_with_facts(
+        reason: diagnostic_code::SqlLoweringCode,
+        facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        if facts.is_empty() {
+            return Self::sql_lowering(reason);
+        }
+
+        Self::execute(InternalError::query_sql_lowering_with_facts(reason, facts))
     }
 
     /// Construct one query-origin unsupported projection error.
@@ -211,7 +249,10 @@ impl QueryError {
             SqlLoweringError::UnknownField { field } => {
                 Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
             }
-            err if let Some(reason) = err.compact_diagnostic_code() => Self::sql_lowering(reason),
+            err if let Some(reason) = err.compact_diagnostic_code() => {
+                let facts = err.diagnostic_facts();
+                Self::sql_lowering_with_facts(reason, facts)
+            }
             _ => Self::unsupported_query(),
         }
     }

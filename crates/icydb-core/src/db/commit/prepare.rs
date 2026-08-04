@@ -24,7 +24,7 @@ use crate::{
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, ErrorClass, InternalError},
+    error::{AcceptedConstraintFactContext, ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
     traits::CanisterKind,
     types::EntityTag,
@@ -59,8 +59,6 @@ struct AcceptedStorageConstraintSchedule {
 
 struct CandidateUniqueCommitContract {
     constraint_id: ConstraintId,
-    constraint_name: String,
-    field_paths: Vec<String>,
     projection: UniqueConstraintProjection,
     index_store: &'static LocalKey<RefCell<IndexStore>>,
 }
@@ -325,6 +323,7 @@ where
                 row_reader,
                 index_reader,
                 constraint_schedule,
+                op.mutation_diagnostic_context,
                 &structural.data_key,
                 &mut decoded,
             )?
@@ -334,7 +333,8 @@ where
         let mut forward_index_ops = materialize_forward_index_commit_ops(db, index_plan)?;
         forward_index_ops.extend(prepare_candidate_unique_index_commit_ops(
             constraint_schedule.candidate_unique.as_ref(),
-            authority.entity_path.as_ref(),
+            authority,
+            op.mutation_diagnostic_context,
             &structural.data_key,
             decoded.old_slots.as_ref(),
             decoded.new_slots.as_ref(),
@@ -349,6 +349,8 @@ where
         reverse_index_ops.extend(relation.prepare_source_transition(
             row_reader,
             context.mode.validate_relation_targets(),
+            authority.schema_fingerprint,
+            op.mutation_diagnostic_context,
             &source_primary_key,
             decoded.old_slots.as_ref(),
             decoded.new_slots.as_ref(),
@@ -377,12 +379,17 @@ const fn empty_forward_index_plan() -> IndexMutationPlan {
 
 // Decode only the structural row views required for forward-index planning and
 // produce structural-ready forward-index outputs.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the commit leaf receives one existing structural plan plus the per-operation diagnostic identity"
+)]
 fn prepare_forward_index_commit_leaf<C>(
     db: &Db<C>,
     authority: &CommitPrepareAuthority,
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
     constraint_schedule: &AcceptedStorageConstraintSchedule,
+    mutation: Option<crate::error::MutationDiagnosticContext>,
     data_key: &DecodedDataStoreKey,
     decoded: &mut DecodedCommitRows<'_>,
 ) -> Result<IndexMutationPlan, InternalError>
@@ -403,6 +410,8 @@ where
     match plan_index_mutation_for_slot_reader_structural(
         authority.entity_path.as_ref(),
         authority.entity_tag,
+        authority.schema_fingerprint,
+        mutation,
         schema_info,
         &read_view,
         &constraint_schedule.row_contract,
@@ -604,13 +613,6 @@ fn candidate_unique_commit_contract<C: CanisterKind>(
         .index_store();
     Ok(Some(CandidateUniqueCommitContract {
         constraint_id: activation.id(),
-        constraint_name: activation.name().to_string(),
-        field_paths: candidate
-            .key()
-            .field_paths()
-            .iter()
-            .map(|field_path| field_path.path().join("."))
-            .collect(),
         projection,
         index_store,
     }))
@@ -618,7 +620,8 @@ fn candidate_unique_commit_contract<C: CanisterKind>(
 
 fn prepare_candidate_unique_index_commit_ops(
     candidate: Option<&CandidateUniqueCommitContract>,
-    entity_path: &str,
+    authority: &CommitPrepareAuthority,
+    mutation: Option<crate::error::MutationDiagnosticContext>,
     data_key: &DecodedDataStoreKey,
     old_slots: Option<&StructuralSlotReader<'_>>,
     new_slots: Option<&StructuralSlotReader<'_>>,
@@ -643,18 +646,15 @@ fn prepare_candidate_unique_index_commit_ops(
         )]),
         (old_key, new_key) if old_slots.is_some() && new_slots.is_some() => {
             if old_key != new_key {
-                let raw_data_key = data_key.to_raw()?;
-                let primary_key = raw_data_key
-                    .encoded_primary_key_bytes()
-                    .ok_or_else(InternalError::store_invariant)?;
                 return Err(InternalError::mutation_constraint_activation_write_blocked(
-                    ConstraintDiagnostic::write_activation_blocked(
+                    AcceptedConstraintFactContext::write_admission(
+                        crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                        authority.schema_fingerprint,
+                        authority.entity_tag.value(),
                         candidate.constraint_id.get(),
-                        candidate.constraint_name.clone(),
-                        ConstraintDiagnosticKind::Unique,
-                        entity_path.to_string(),
-                        Some(primary_key.to_vec()),
-                        candidate.field_paths.clone(),
+                        icydb_diagnostic_code::DiagnosticConstraintKind::Unique,
+                        mutation,
+                        None,
                     ),
                 ));
             }

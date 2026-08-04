@@ -47,6 +47,7 @@ impl SchemaFieldPathIndexRebuildTarget {
         self.physical_generation
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()

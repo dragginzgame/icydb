@@ -13,7 +13,7 @@ use crate::{
     table::{ColumnAlign, append_indented_table},
 };
 
-type SchemaEntityRow = [String; 8];
+type SchemaEntityRow = [String; 11];
 type SchemaFieldRow = [String; 16];
 type SchemaIndexRow = [String; 5];
 type SchemaRelationRow = [String; 4];
@@ -74,6 +74,9 @@ pub(super) fn render_schema_report(report: &[EntitySchemaDescription]) -> String
 fn schema_entity_row(entity: &EntitySchemaDescription) -> SchemaEntityRow {
     [
         entity.entity_name().to_string(),
+        entity.entity_tag().to_string(),
+        entity.accepted_schema_fingerprint_method().to_string(),
+        render_fingerprint(entity.accepted_schema_fingerprint()),
         entity.fields().len().to_string(),
         entity.indexes().len().to_string(),
         entity.relations().len().to_string(),
@@ -141,6 +144,9 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
         "entities",
         &[
             "entity",
+            "tag",
+            "fingerprint method",
+            "accepted fingerprint",
             "fields",
             "indexes",
             "relations",
@@ -154,6 +160,9 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
             ColumnAlign::Left,
             ColumnAlign::Right,
             ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
             ColumnAlign::Right,
             ColumnAlign::Left,
             ColumnAlign::Right,
@@ -161,6 +170,16 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
             ColumnAlign::Left,
         ],
     );
+}
+
+fn render_fingerprint(fingerprint: [u8; 16]) -> String {
+    use std::fmt::Write as _;
+
+    let mut rendered = String::with_capacity(32);
+    for byte in fingerprint {
+        let _ = write!(rendered, "{byte:02x}");
+    }
+    rendered
 }
 
 fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {

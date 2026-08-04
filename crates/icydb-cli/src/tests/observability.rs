@@ -173,6 +173,9 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
     let report = [EntitySchemaDescription::new(
         "icydb_testing_demo_rpg_fixtures::schema::character::Character".to_string(),
         "Character".to_string(),
+        7,
+        1,
+        [0x11; 16],
         "id".to_string(),
         vec!["id".to_string()],
         fields,
@@ -194,14 +197,10 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
     assert!(text.contains("fields: 35"));
     assert!(text.contains("indexes: 2"));
     assert!(text.contains("relations: 1"));
-    assert!(text.contains(
-        "  entity      fields   indexes   relations   primary key   layout   history floor   path\n"
-    ));
-    assert!(
-        text.lines().any(
-            |line| line.starts_with("  ---------   ------   -------   ---------   -----------")
-        )
-    );
+    assert!(text.contains("fingerprint method"));
+    assert!(text.contains("accepted fingerprint"));
+    assert!(text.contains("11111111111111111111111111111111"));
+    assert!(text.lines().any(|line| line.starts_with("  ---------")));
     assert!(text.lines().any(|line| {
         line.contains("Character")
             && line.contains("35")
@@ -229,6 +228,9 @@ fn schema_report_renders_composite_primary_key_fields() {
     let report = [EntitySchemaDescription::new(
         "demo::Placement".to_string(),
         "Placement".to_string(),
+        8,
+        1,
+        [0x22; 16],
         "tenant_id, local_id".to_string(),
         vec!["tenant_id".to_string(), "local_id".to_string()],
         vec![

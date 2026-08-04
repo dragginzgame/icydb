@@ -6,15 +6,15 @@
 
 use crate::{
     db::{
+        commit::CommitSchemaFingerprint,
         data::{DecodedDataStoreKey, StructuralRowContract, StructuralSlotReader},
         index::{
-            IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
-            plan::{accepted_expression_key_item_label, error::IndexPlanError},
+            IndexId, IndexKey, IndexPlanReadView, IndexReadContract, plan::error::IndexPlanError,
         },
         key_taxonomy::PrimaryKeyValue,
-        schema::{SchemaExpressionIndexInfo, SchemaIndexFieldPathInfo, SchemaIndexInfo},
+        schema::{SchemaExpressionIndexInfo, SchemaIndexInfo},
     },
-    error::InternalError,
+    error::{InternalError, MutationDiagnosticContext},
     types::EntityTag,
 };
 use std::ops::Bound;
@@ -75,42 +75,22 @@ impl UniqueKeyAuthority<'_> {
 
     fn unique_violation(
         &self,
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
+        mutation: Option<MutationDiagnosticContext>,
         entity_path: &str,
         entity_tag: EntityTag,
-        primary_key: &PrimaryKeyValue,
     ) -> Result<IndexPlanError, InternalError> {
-        let (identity, fields) = match self {
-            Self::AcceptedFieldPath(index) => (
-                index.unique_constraint(),
-                index
-                    .fields()
-                    .iter()
-                    .map(SchemaIndexFieldPathInfo::field_name)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>(),
-            ),
-            Self::AcceptedExpression(index) => (
-                index.unique_constraint(),
-                index
-                    .key_items()
-                    .iter()
-                    .map(accepted_expression_key_item_label)
-                    .collect::<Vec<_>>(),
-            ),
+        let identity = match self {
+            Self::AcceptedFieldPath(index) => index.unique_constraint(),
+            Self::AcceptedExpression(index) => index.unique_constraint(),
         };
         let identity = identity.ok_or_else(InternalError::index_unique_validation_corruption)?;
-        let data_key = DecodedDataStoreKey::new_primary_key_value(entity_tag, primary_key);
-        let raw_data_key = data_key.to_raw()?;
-        let primary_key = raw_data_key
-            .encoded_primary_key_bytes()
-            .ok_or_else(InternalError::index_unique_validation_corruption)?
-            .to_vec();
         Ok(IndexPlanError::unique_violation(
+            accepted_schema_fingerprint,
+            mutation,
             identity.id().get(),
-            identity.name(),
             entity_path,
-            primary_key,
-            fields,
+            entity_tag.value(),
         ))
     }
 }
@@ -118,6 +98,8 @@ impl UniqueKeyAuthority<'_> {
 /// Validate one accepted field-path unique index constraint.
 #[expect(clippy::too_many_arguments)]
 pub(super) fn validate_unique_constraint_accepted_field_path_structural(
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    mutation: Option<MutationDiagnosticContext>,
     entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
@@ -129,6 +111,8 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
 ) -> Result<(), IndexPlanError> {
     validate_unique_constraint_structural_impl(
         entity_path,
+        accepted_schema_fingerprint,
+        mutation,
         entity_tag,
         read_view,
         row_contract,
@@ -142,6 +126,8 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
 /// Validate one accepted expression unique index constraint.
 #[expect(clippy::too_many_arguments)]
 pub(super) fn validate_unique_constraint_accepted_expression_structural(
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    mutation: Option<MutationDiagnosticContext>,
     entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
@@ -153,6 +139,8 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
 ) -> Result<(), IndexPlanError> {
     validate_unique_constraint_structural_impl(
         entity_path,
+        accepted_schema_fingerprint,
+        mutation,
         entity_tag,
         read_view,
         row_contract,
@@ -166,6 +154,8 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
 #[expect(clippy::too_many_arguments)]
 fn validate_unique_constraint_structural_impl(
     entity_path: &str,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    mutation: Option<MutationDiagnosticContext>,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -255,7 +245,12 @@ fn validate_unique_constraint_structural_impl(
         return Err(InternalError::index_unique_validation_corruption().into());
     }
 
-    Err(key_authority.unique_violation(entity_path, entity_tag, new_primary_key)?)
+    Err(key_authority.unique_violation(
+        accepted_schema_fingerprint,
+        mutation,
+        entity_path,
+        entity_tag,
+    )?)
 }
 
 // Decode one stored row through the canonical structural persisted-row scanner

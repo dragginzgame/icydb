@@ -10,7 +10,7 @@ use crate::db::{
     EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput,
     StoreCatalogDescription,
     sql::table_render::{
-        SqlDdlRenderInput, render_constraint_diagnostic_line, render_count_lines,
+        SqlDdlRenderInput, render_constraint_validation_finding_line, render_count_lines,
         render_describe_lines, render_grouped_lines, render_query_rows_lines,
         render_show_columns_lines, render_show_constraints_lines, render_show_entities_lines,
         render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
@@ -21,7 +21,7 @@ use crate::db::{
 use candid::CandidType;
 use serde::Deserialize;
 
-use crate::ConstraintDiagnostic;
+use crate::ConstraintValidationFindingOutput;
 
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -52,7 +52,7 @@ pub struct SqlConstraintValidationOutput {
     /// Cumulative classified-row count for this job.
     pub rows_scanned: u64,
     /// Bounded findings retained by this page.
-    pub findings: Vec<ConstraintDiagnostic>,
+    pub findings: Vec<ConstraintValidationFindingOutput>,
     /// Whether validation and accepted publication are complete.
     pub complete: bool,
 }
@@ -221,7 +221,7 @@ impl SqlQueryResult {
                         validation
                             .findings
                             .iter()
-                            .map(render_constraint_diagnostic_line),
+                            .map(render_constraint_validation_finding_line),
                     );
                 }
                 lines

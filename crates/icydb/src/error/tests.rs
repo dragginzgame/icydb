@@ -453,6 +453,36 @@ fn public_error_candid_preserves_bounded_numeric_facts() {
 }
 
 #[test]
+fn core_numeric_facts_cross_the_public_facade_once_in_order() {
+    let diagnostic = icydb_diagnostic_code::Diagnostic::new(
+        icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+        icydb_diagnostic_code::ErrorOrigin::Cursor,
+        None,
+    );
+    let error = Error::from_diagnostic_and_facts(
+        diagnostic,
+        vec![
+            (icydb_diagnostic_code::DiagnosticFactTag::ExpectedOffset, 4),
+            (icydb_diagnostic_code::DiagnosticFactTag::ActualOffset, 2),
+        ],
+    );
+
+    assert_eq!(
+        error.facts(),
+        &[
+            DiagnosticFact {
+                tag: icydb_diagnostic_code::DiagnosticFactTag::ExpectedOffset.raw(),
+                value: 4,
+            },
+            DiagnosticFact {
+                tag: icydb_diagnostic_code::DiagnosticFactTag::ActualOffset.raw(),
+                value: 2,
+            },
+        ],
+    );
+}
+
+#[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
     let cause: RuntimeBootstrapError<std::convert::Infallible> =
         RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess);

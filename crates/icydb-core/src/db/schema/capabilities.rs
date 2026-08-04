@@ -244,6 +244,18 @@ mod tests {
     }
 
     #[test]
+    fn sql_capabilities_admit_unit_ordering_without_group_or_numeric_semantics() {
+        let capabilities = sql_capabilities(&AcceptedFieldKind::Unit);
+
+        assert!(capabilities.selectable());
+        assert!(capabilities.orderable());
+        assert!(!capabilities.groupable());
+        assert!(!capabilities.aggregate_input().count());
+        assert!(!capabilities.aggregate_input().numeric());
+        assert!(capabilities.aggregate_input().extrema());
+    }
+
+    #[test]
     fn sql_capabilities_transport_collections_and_composites_without_scalar_operations() {
         let list = sql_capabilities(&AcceptedFieldKind::List(Box::new(
             AcceptedFieldKind::Text { max_len: None },

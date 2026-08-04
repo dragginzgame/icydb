@@ -41,6 +41,9 @@ const MAX_SCHEMA_VALUE_RENDER_CHARS: usize = 128;
 pub struct EntitySchemaDescription {
     pub(crate) entity_path: String,
     pub(crate) entity_name: String,
+    pub(crate) entity_tag: u64,
+    pub(crate) accepted_schema_fingerprint_method: u8,
+    pub(crate) accepted_schema_fingerprint: [u8; 16],
     pub(crate) primary_key: String,
     pub(crate) primary_key_fields: Vec<String>,
     pub(crate) identity: Option<Box<EntityIdentityDescription>>,
@@ -62,6 +65,9 @@ impl EntitySchemaDescription {
     pub const fn new(
         entity_path: String,
         entity_name: String,
+        entity_tag: u64,
+        accepted_schema_fingerprint_method: u8,
+        accepted_schema_fingerprint: [u8; 16],
         primary_key: String,
         primary_key_fields: Vec<String>,
         fields: Vec<EntityFieldDescription>,
@@ -74,6 +80,9 @@ impl EntitySchemaDescription {
         Self {
             entity_path,
             entity_name,
+            entity_tag,
+            accepted_schema_fingerprint_method,
+            accepted_schema_fingerprint,
             primary_key,
             primary_key_fields,
             identity: None,
@@ -96,6 +105,24 @@ impl EntitySchemaDescription {
     #[must_use]
     pub const fn entity_name(&self) -> &str {
         self.entity_name.as_str()
+    }
+
+    /// Return the accepted durable entity identity used by diagnostic facts.
+    #[must_use]
+    pub const fn entity_tag(&self) -> u64 {
+        self.entity_tag
+    }
+
+    /// Return the accepted schema-fingerprint method used by diagnostic facts.
+    #[must_use]
+    pub const fn accepted_schema_fingerprint_method(&self) -> u8 {
+        self.accepted_schema_fingerprint_method
+    }
+
+    /// Return the exact accepted entity-schema fingerprint.
+    #[must_use]
+    pub const fn accepted_schema_fingerprint(&self) -> [u8; 16] {
+        self.accepted_schema_fingerprint
     }
 
     /// Borrow the rendered primary-key field list.
@@ -778,8 +805,19 @@ pub(in crate::db) fn describe_accepted_entity_with_persisted_schema(
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
     identity: Option<EntityIdentityDescription>,
+    entity_tag: u64,
+    accepted_schema_fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
 ) -> Result<EntitySchemaDescription, InternalError> {
-    describe_entity_with_persisted_schema(schema, value_catalog, validation_jobs, identity)
+    describe_entity_with_persisted_schema(
+        schema,
+        value_catalog,
+        validation_jobs,
+        identity,
+        entity_tag,
+        accepted_schema_fingerprint_method,
+        accepted_schema_fingerprint,
+    )
 }
 
 fn describe_entity_with_persisted_schema(
@@ -787,6 +825,9 @@ fn describe_entity_with_persisted_schema(
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
     identity: Option<EntityIdentityDescription>,
+    entity_tag: u64,
+    accepted_schema_fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
 ) -> Result<EntitySchemaDescription, InternalError> {
     let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
     let fields = describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)?;
@@ -803,6 +844,9 @@ fn describe_entity_with_persisted_schema(
     Ok(describe_entity_model_from_description_rows(
         schema.entity_path(),
         schema.entity_name(),
+        entity_tag,
+        accepted_schema_fingerprint_method,
+        accepted_schema_fingerprint,
         primary_key.as_str(),
         primary_key_fields,
         fields,
@@ -826,6 +870,9 @@ fn describe_entity_with_persisted_schema(
 fn describe_entity_model_from_description_rows(
     entity_path: &str,
     entity_name: &str,
+    entity_tag: u64,
+    accepted_schema_fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
     primary_key: &str,
     primary_key_fields: Vec<String>,
     fields: Vec<EntityFieldDescription>,
@@ -838,6 +885,9 @@ fn describe_entity_model_from_description_rows(
     EntitySchemaDescription::new(
         entity_path.to_string(),
         entity_name.to_string(),
+        entity_tag,
+        accepted_schema_fingerprint_method,
+        accepted_schema_fingerprint,
         primary_key.to_string(),
         primary_key_fields,
         fields,

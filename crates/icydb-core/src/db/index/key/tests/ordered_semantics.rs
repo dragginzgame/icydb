@@ -636,6 +636,26 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
 }
 
 #[test]
+fn unit_ordered_encoding_matches_its_trivial_total_order() {
+    let dynamic = encode_canonical_index_component(&Value::Unit)
+        .expect("Unit should encode as an ordered component");
+    let primary_key =
+        encode_canonical_index_component_from_primary_key_value(PrimaryKeyComponent::Unit)
+            .expect("Unit should encode from primary-key authority");
+
+    assert_eq!(
+        Value::strict_order_cmp(&Value::Unit, &Value::Unit),
+        Some(Ordering::Equal),
+    );
+    assert_eq!(
+        compare_index_component_values(&Value::Unit, &Value::Unit),
+        Ordering::Equal,
+    );
+    assert_eq!(dynamic, vec![Value::Unit.canonical_tag().to_u8()]);
+    assert_eq!(dynamic, primary_key);
+}
+
+#[test]
 fn index_component_compare_requires_strict_variant_match_for_numeric_widening() {
     let left = Value::Int64(7);
     let right = Value::Nat64(7);

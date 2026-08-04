@@ -396,32 +396,27 @@ pub(in crate::db) enum AcceptedConstraintKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedConstraintIdentity {
     id: ConstraintId,
-    name: String,
 }
 
 impl AcceptedConstraintIdentity {
     /// Build one identity already proven by accepted catalog closure.
     #[must_use]
-    pub(in crate::db) const fn new(id: ConstraintId, name: String) -> Self {
-        Self { id, name }
+    pub(in crate::db) const fn new(id: ConstraintId) -> Self {
+        Self { id }
     }
 
     /// Project stable identity from one accepted constraint catalog entry.
     #[must_use]
-    pub(in crate::db::schema) fn from_constraint(constraint: &AcceptedConstraintSnapshot) -> Self {
-        Self::new(constraint.id(), constraint.name().to_string())
+    pub(in crate::db::schema) const fn from_constraint(
+        constraint: &AcceptedConstraintSnapshot,
+    ) -> Self {
+        Self::new(constraint.id())
     }
 
     /// Return the stable entity-local constraint identity.
     #[must_use]
     pub(in crate::db) const fn id(&self) -> ConstraintId {
         self.id
-    }
-
-    /// Borrow the stable accepted constraint name.
-    #[must_use]
-    pub(in crate::db) const fn name(&self) -> &str {
-        self.name.as_str()
     }
 }
 

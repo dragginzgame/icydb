@@ -7,10 +7,10 @@
 use crate::error::SchemaTransitionBudgetResource;
 use crate::{
     db::schema::{
-        AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, accepted_constraint_field_paths,
-        accepted_schema_cache_fingerprint, enum_catalog::AcceptedSchemaRevisionBundle,
+        AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, accepted_schema_cache_fingerprint,
+        enum_catalog::AcceptedSchemaRevisionBundle,
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind},
+    error::{AcceptedConstraintFactContext, ConstraintValidationFindingOutput},
 };
 use crate::{
     db::{
@@ -392,18 +392,18 @@ fn validate_unpublished_row_local_candidate_bounded_for_kind(
             .findings
             .first()
             .ok_or_else(InternalError::store_invariant)?;
-        let primary_key = finding
-            .primary_key()
-            .encoded_primary_key_bytes()
-            .ok_or_else(InternalError::store_invariant)?;
         return Err(InternalError::mutation_constraint_violation(
-            constraint_validation_finding_diagnostic(
-                accepted.persisted_snapshot(),
-                activation,
-                entity_path,
-                primary_key,
-                finding,
-            )?,
+            AcceptedConstraintFactContext::write_admission(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                fingerprint,
+                entity_tag.value(),
+                activation.id().get(),
+                constraint_kind_for_activation(activation.kind()),
+                None,
+                finding
+                    .value_path()
+                    .map(crate::db::schema::AcceptedTargetPath::to_constraint_value_path),
+            ),
         ));
     }
     if !scan.exhausted {
@@ -1149,9 +1149,7 @@ fn scan_row_local_validation_page(
                 Ok(()) => {}
                 Err(AcceptedRowConstraintEvaluationError::Violation {
                     constraint_id: violated,
-                    constraint_name: _,
                     kind: _,
-                    field_paths: _,
                 }) if violated == constraint_id => {
                     findings.push(ConstraintValidationFinding::new(
                         raw_key.clone(),
@@ -1162,8 +1160,6 @@ fn scan_row_local_validation_page(
                 }
                 Err(AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
                     constraint_id: violated,
-                    constraint_name: _,
-                    field_path: _,
                     path,
                 }) if violated == constraint_id => {
                     findings.push(ConstraintValidationFinding::new_targeted(
@@ -1191,60 +1187,75 @@ fn scan_row_local_validation_page(
     })
 }
 
-pub(in crate::db) fn constraint_validation_finding_diagnostic(
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+pub(in crate::db) fn constraint_validation_finding_output(
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    entity_tag: EntityTag,
     activation: &crate::db::schema::ConstraintActivationSnapshot,
-    entity_path: &str,
-    primary_key: &[u8],
     finding: &ConstraintValidationFinding,
-) -> Result<ConstraintDiagnostic, InternalError> {
-    let field_paths = accepted_constraint_field_paths(snapshot, finding.field_ids())?;
-    match activation.kind() {
-        ConstraintActivationKind::TargetedRule { .. } => {
-            let value_path = finding
-                .value_path()
-                .ok_or_else(InternalError::store_corruption)?
-                .to_constraint_value_path();
-            Ok(ConstraintDiagnostic::migration_targeted_rule_validation(
-                activation.id().get(),
-                activation.name().to_string(),
-                entity_path.to_string(),
-                primary_key.to_vec(),
-                field_paths,
-                value_path,
-                finding.error_code(),
-            ))
+) -> Result<ConstraintValidationFindingOutput, InternalError> {
+    let decoded_key = DecodedDataStoreKey::try_from_raw(finding.primary_key())
+        .map_err(|_| InternalError::store_corruption())?;
+    if decoded_key.entity_tag() != entity_tag {
+        return Err(InternalError::store_corruption());
+    }
+    let primary_key = finding
+        .primary_key()
+        .encoded_primary_key_bytes()
+        .ok_or_else(InternalError::store_corruption)?
+        .to_vec();
+    let value_path = match (activation.kind(), finding.value_path()) {
+        (ConstraintActivationKind::TargetedRule { .. }, Some(path)) => {
+            Some(path.to_constraint_value_path())
         }
+        (ConstraintActivationKind::TargetedRule { .. }, None)
+        | (
+            ConstraintActivationKind::Check { .. }
+            | ConstraintActivationKind::NotNull { .. }
+            | ConstraintActivationKind::Unique { .. }
+            | ConstraintActivationKind::Relation { .. },
+            Some(_),
+        ) => return Err(InternalError::store_corruption()),
+        (
+            ConstraintActivationKind::Check { .. }
+            | ConstraintActivationKind::NotNull { .. }
+            | ConstraintActivationKind::Unique { .. }
+            | ConstraintActivationKind::Relation { .. },
+            None,
+        ) => None,
+    };
+    Ok(ConstraintValidationFindingOutput::new(
+        accepted_schema_fingerprint,
+        entity_tag.value(),
+        activation.id().get(),
+        primary_key,
+        finding
+            .field_ids()
+            .iter()
+            .map(|field| field.get())
+            .collect(),
+        value_path,
+        finding.error_code(),
+    ))
+}
+
+const fn constraint_kind_for_activation(
+    kind: &ConstraintActivationKind,
+) -> icydb_diagnostic_code::DiagnosticConstraintKind {
+    match kind {
         ConstraintActivationKind::Check { .. } => {
-            if finding.value_path().is_some() {
-                return Err(InternalError::store_corruption());
-            }
-            Ok(ConstraintDiagnostic::migration_validation(
-                activation.id().get(),
-                activation.name().to_string(),
-                ConstraintDiagnosticKind::Check,
-                entity_path.to_string(),
-                primary_key.to_vec(),
-                field_paths,
-                finding.error_code(),
-            ))
+            icydb_diagnostic_code::DiagnosticConstraintKind::Check
         }
         ConstraintActivationKind::NotNull { .. } => {
-            if finding.value_path().is_some() {
-                return Err(InternalError::store_corruption());
-            }
-            Ok(ConstraintDiagnostic::migration_validation(
-                activation.id().get(),
-                activation.name().to_string(),
-                ConstraintDiagnosticKind::NotNull,
-                entity_path.to_string(),
-                primary_key.to_vec(),
-                field_paths,
-                finding.error_code(),
-            ))
+            icydb_diagnostic_code::DiagnosticConstraintKind::NotNull
         }
-        ConstraintActivationKind::Unique { .. } | ConstraintActivationKind::Relation { .. } => {
-            Err(InternalError::store_corruption())
+        ConstraintActivationKind::Relation { .. } => {
+            icydb_diagnostic_code::DiagnosticConstraintKind::Relation
+        }
+        ConstraintActivationKind::TargetedRule { .. } => {
+            icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule
+        }
+        ConstraintActivationKind::Unique { .. } => {
+            icydb_diagnostic_code::DiagnosticConstraintKind::Unique
         }
     }
 }

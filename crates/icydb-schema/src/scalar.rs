@@ -264,6 +264,18 @@ mod tests {
         assert!(!ScalarKind::Enum.is_keyable());
     }
 
+    #[test]
+    fn unit_capabilities_include_trivial_total_order() {
+        let metadata = ScalarKind::Unit.metadata();
+
+        assert!(metadata.supports_equality());
+        assert!(metadata.supports_ordering());
+        assert!(metadata.is_keyable());
+        assert!(metadata.is_primary_key_component_encodable());
+        assert!(!metadata.supports_numeric_coercion());
+        assert!(!metadata.supports_arithmetic());
+    }
+
     fn assert_variant_is_known(kind: ScalarKind) {
         match kind {
             ScalarKind::Account

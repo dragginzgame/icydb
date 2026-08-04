@@ -34,7 +34,7 @@ use crate::{
             SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
             SchemaChangeReceipt, SchemaChangeValidationPhase, StagedUserIndexDomainError,
             UnpublishedRowLocalValidation, advance_accepted_row_local_constraint_activation,
-            constraint_validation_finding_diagnostic, derive_schema_change_job_id,
+            constraint_validation_finding_output, derive_schema_change_job_id,
             lower_existing_schema_proposal, lower_initial_schema_proposal,
             prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
             with_schema_application_store,
@@ -386,7 +386,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
         constraint_id,
         acknowledged_receipt,
     )?;
-    let status = schema_change_progress_status(snapshot, constraint_id, progress)?;
+    let status = schema_change_progress_status(snapshot, entity_tag, constraint_id, progress)?;
     if status == SchemaChangeProgressStatus::Applied {
         finalize_schema_application(db, &record, candidate_head, status)
     } else {
@@ -2673,6 +2673,7 @@ fn final_candidates_for_pending_row_local_constraint(
 
 fn schema_change_progress_status(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    entity_tag: EntityTag,
     constraint_id: ConstraintId,
     progress: ConstraintValidationProgress,
 ) -> Result<SchemaChangeProgressStatus, InternalError> {
@@ -2694,19 +2695,18 @@ fn schema_change_progress_status(
                 .constraint_catalog()
                 .activation(constraint_id)
                 .ok_or_else(InternalError::store_corruption)?;
+            let fingerprint =
+                crate::db::schema::accepted_schema_cache_fingerprint_for_persisted_snapshot(
+                    snapshot,
+                )?;
             let findings = receipt
                 .findings()
                 .iter()
                 .map(|finding| {
-                    let primary_key = finding
-                        .primary_key()
-                        .encoded_primary_key_bytes()
-                        .ok_or_else(InternalError::store_invariant)?;
-                    constraint_validation_finding_diagnostic(
-                        snapshot,
+                    constraint_validation_finding_output(
+                        fingerprint,
+                        entity_tag,
                         activation,
-                        snapshot.entity_path(),
-                        primary_key,
                         finding,
                     )
                 })

@@ -98,14 +98,16 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
         .ok_or_else(|| PlanError::from(GroupPlanError::empty_aggregates()))?;
 
     let mut seen_accepted_group_slots = Vec::<usize>::with_capacity(group.group_fields.len());
-    for field_slot in &group.group_fields {
+    for (group_index, field_slot) in group.group_fields.iter().enumerate() {
         let Some(accepted_slot) = schema.field_slot_index(field_slot.field()) else {
-            return Err(PlanError::from(GroupPlanError::unknown_group_field(
+            return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
+                group_index,
                 field_slot.field(),
             )));
         };
         if accepted_slot != field_slot.index() {
-            return Err(PlanError::from(GroupPlanError::unknown_group_field(
+            return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
+                group_index,
                 field_slot.field(),
             )));
         }
@@ -120,6 +122,7 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
                 },
                 |()| {
                     Err(PlanError::from(GroupPlanError::duplicate_group_field(
+                        group_index,
                         field_slot.field(),
                     )))
                 },

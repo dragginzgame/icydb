@@ -120,7 +120,7 @@ fn load_fixtures(fixture: &StandaloneCanisterFixture) {
 fn upgrade(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
     let args = candid::encode_args(()).expect("empty upgrade arguments should encode");
     fixture
-        .pic()
+        .pocket_ic()
         .upgrade_canister(fixture.canister_id(), wasm, args, None)
         .expect("fixture upgrade should succeed");
 }

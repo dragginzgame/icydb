@@ -129,15 +129,9 @@ where
         accepted_relation_target_contract(db, source_path, relation_name, target_path)?;
     let target_kinds = target_contract.primary_key_kinds();
     if local_components.len() != target_kinds.len() {
-        return Err(InternalError::relation_target_identity_mismatch(
-            source_path,
-            relation_name,
-            target_path,
-            format!(
-                "relation edge local component count {} does not match accepted target primary-key component count {}",
-                local_components.len(),
-                target_kinds.len()
-            ),
+        return Err(InternalError::relation_target_primary_key_arity_mismatch(
+            target_kinds.len(),
+            local_components.len(),
         ));
     }
 

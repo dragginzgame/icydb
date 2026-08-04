@@ -51,6 +51,9 @@ fn render_describe_lines_output_contract_vector_is_stable() {
     let description = EntitySchemaDescription::new(
         "schema.public.ExampleEntity".to_string(),
         "ExampleEntity".to_string(),
+        9,
+        1,
+        [0x33; 16],
         "id".to_string(),
         vec!["id".to_string()],
         vec![

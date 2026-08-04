@@ -472,20 +472,27 @@ fn build_field_path_rebuild_target_key(
     let component_count = target.key_paths().len();
     if component_count > MAX_INDEX_FIELDS {
         return Err(InternalError::index_key_field_count_exceeds_max(
-            target.name(),
+            entity_tag.value(),
+            target.physical_generation(),
             component_count,
             MAX_INDEX_FIELDS,
         ));
     }
 
     let mut components = Vec::with_capacity(component_count);
-    for field in target.key_paths() {
+    for (component_index, field) in target.key_paths().iter().enumerate() {
         let Some(component) = component_bytes(field)? else {
             return Ok(None);
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size());
+            return Err(InternalError::index_component_exceeds_max_size_at(
+                entity_tag.value(),
+                target.physical_generation(),
+                component_index,
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
         }
         components.push(component);
     }
@@ -511,20 +518,27 @@ fn build_expression_rebuild_target_key(
     let component_count = target.key_items().len();
     if component_count > MAX_INDEX_FIELDS {
         return Err(InternalError::index_key_field_count_exceeds_max(
-            target.name(),
+            entity_tag.value(),
+            target.physical_generation(),
             component_count,
             MAX_INDEX_FIELDS,
         ));
     }
 
     let mut components = Vec::with_capacity(component_count);
-    for key_item in target.key_items() {
+    for (component_index, key_item) in target.key_items().iter().enumerate() {
         let Some(component) = component_bytes(key_item)? else {
             return Ok(None);
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size());
+            return Err(InternalError::index_component_exceeds_max_size_at(
+                entity_tag.value(),
+                target.physical_generation(),
+                component_index,
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
         }
         components.push(component);
     }
@@ -550,20 +564,27 @@ fn build_accepted_expression_index_key_from_components(
     let component_count = accepted_index.key_items().len();
     if component_count > MAX_INDEX_FIELDS {
         return Err(InternalError::index_key_field_count_exceeds_max(
-            accepted_index.name(),
+            entity_tag.value(),
+            accepted_index.physical_generation(),
             component_count,
             MAX_INDEX_FIELDS,
         ));
     }
 
     let mut components = Vec::with_capacity(component_count);
-    for key_item in accepted_index.key_items() {
+    for (component_index, key_item) in accepted_index.key_items().iter().enumerate() {
         let Some(component) = component_bytes(key_item)? else {
             return Ok(None);
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size());
+            return Err(InternalError::index_component_exceeds_max_size_at(
+                entity_tag.value(),
+                accepted_index.physical_generation(),
+                component_index,
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
         }
         components.push(component);
     }
@@ -589,20 +610,27 @@ fn build_accepted_field_path_index_key_from_components(
     let component_count = accepted_index.fields().len();
     if component_count > MAX_INDEX_FIELDS {
         return Err(InternalError::index_key_field_count_exceeds_max(
-            accepted_index.name(),
+            entity_tag.value(),
+            accepted_index.physical_generation(),
             component_count,
             MAX_INDEX_FIELDS,
         ));
     }
 
     let mut components = Vec::with_capacity(component_count);
-    for field in accepted_index.fields() {
+    for (component_index, field) in accepted_index.fields().iter().enumerate() {
         let Some(component) = component_bytes(accepted_index, field)? else {
             return Ok(None);
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size());
+            return Err(InternalError::index_component_exceeds_max_size_at(
+                entity_tag.value(),
+                accepted_index.physical_generation(),
+                component_index,
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
         }
         components.push(component);
     }

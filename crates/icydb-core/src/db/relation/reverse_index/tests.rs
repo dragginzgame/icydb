@@ -67,7 +67,6 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
     AcceptedRelationInfo {
         constraint: AcceptedConstraintIdentity::new(
             ConstraintId::new(3).expect("test constraint identity should be non-zero"),
-            "target_relation".to_string(),
         ),
         relation_name: "target_id".to_string(),
         relation_ordinal: field_index,
@@ -170,20 +169,27 @@ fn accepted_relation_info_carries_ordered_local_component_metadata() {
 #[test]
 fn accepted_relation_violation_preserves_catalog_identity() {
     let relation = relation(3, AcceptedFieldKind::Nat64);
-    let error = relation.write_violation("Source", Some(vec![1, 2, 3]));
-    let diagnostic = error
-        .constraint_diagnostic()
-        .expect("relation violation should retain accepted diagnostic");
-
-    assert_eq!(diagnostic.constraint_id(), 3);
-    assert_eq!(diagnostic.constraint_name(), "target_relation");
-    assert_eq!(
-        diagnostic.constraint_kind(),
-        crate::error::ConstraintDiagnosticKind::Relation,
+    let error = relation.write_violation(
+        [0x44; 16],
+        EntityTag::new(9),
+        Some(crate::error::MutationDiagnosticContext::new(
+            9,
+            icydb_diagnostic_code::DiagnosticMutationOperation::Delete,
+            6,
+        )),
     );
-    assert_eq!(diagnostic.entity(), "Source");
-    assert_eq!(diagnostic.primary_key(), Some([1, 2, 3].as_slice()));
-    assert_eq!(diagnostic.field_paths(), &["target_id".to_string()]);
+    let facts = error.diagnostic_facts();
+    assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::ConstraintId, 3,)));
+    assert!(facts.contains(&(
+        icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+        icydb_diagnostic_code::DiagnosticConstraintKind::Relation.raw(),
+    )));
+    assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::EntityTag, 9,)));
+    assert!(facts.contains(&(
+        icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+        icydb_diagnostic_code::DiagnosticMutationOperation::Delete.raw(),
+    )));
+    assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 6,)));
 }
 
 #[test]
@@ -318,7 +324,6 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
     let relation = AcceptedRelationInfo {
         constraint: AcceptedConstraintIdentity::new(
             ConstraintId::new(3).expect("test constraint identity should be non-zero"),
-            "target_relation".to_string(),
         ),
         relation_name: "target_id".to_string(),
         relation_ordinal: 3,

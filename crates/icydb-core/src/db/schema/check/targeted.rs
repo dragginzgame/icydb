@@ -197,7 +197,6 @@ impl CompiledAcceptedRuleOperation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CompiledAcceptedTargetedRule {
     id: ConstraintId,
-    name: String,
     target_type: AcceptedNamedTypeIdentity,
     operation: CompiledAcceptedRuleOperation,
 }
@@ -205,7 +204,6 @@ struct CompiledAcceptedTargetedRule {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CompiledAcceptedTargetedRoot {
     field_id: FieldId,
-    field_path: String,
     slot: usize,
     root_kind: AcceptedFieldKind,
     rules: Vec<CompiledAcceptedTargetedRule>,
@@ -238,12 +236,7 @@ impl CompiledAcceptedTargetedRules {
             else {
                 return None;
             };
-            Some((
-                constraint.id(),
-                constraint.name(),
-                *target,
-                operation.as_ref(),
-            ))
+            Some((constraint.id(), *target, operation.as_ref()))
         });
         let activating = snapshot
             .constraint_activations()
@@ -254,12 +247,7 @@ impl CompiledAcceptedTargetedRules {
                 else {
                     return None;
                 };
-                Some((
-                    activation.id(),
-                    activation.name(),
-                    *target,
-                    operation.as_ref(),
-                ))
+                Some((activation.id(), *target, operation.as_ref()))
             });
         Self::compile_sources(schema, value_catalog, accepted.chain(activating))
     }
@@ -281,30 +269,18 @@ impl CompiledAcceptedTargetedRules {
         Self::compile_sources(
             schema,
             value_catalog,
-            std::iter::once((
-                activation.id(),
-                activation.name(),
-                *target,
-                operation.as_ref(),
-            )),
+            std::iter::once((activation.id(), *target, operation.as_ref())),
         )
     }
 
     fn compile_sources<'a>(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
-        sources: impl Iterator<
-            Item = (
-                ConstraintId,
-                &'a str,
-                AcceptedRuleTarget,
-                &'a AcceptedRuleOperation,
-            ),
-        >,
+        sources: impl Iterator<Item = (ConstraintId, AcceptedRuleTarget, &'a AcceptedRuleOperation)>,
     ) -> Result<Self, AcceptedTargetedRuleEvaluationError> {
         let snapshot = schema.persisted_snapshot();
         let mut roots = BTreeMap::<FieldId, CompiledAcceptedTargetedRoot>::new();
-        for (constraint_id, constraint_name, target, operation) in sources {
+        for (constraint_id, target, operation) in sources {
             let field = snapshot
                 .fields()
                 .iter()
@@ -320,21 +296,16 @@ impl CompiledAcceptedTargetedRules {
                 .entry(field.id())
                 .or_insert_with(|| CompiledAcceptedTargetedRoot {
                     field_id: field.id(),
-                    field_path: field.name().to_string(),
                     slot: usize::from(slot.get()),
                     root_kind: field.kind().clone(),
                     rules: Vec::new(),
                     rule_ordinals_by_target: BTreeMap::new(),
                 });
-            if root.slot != usize::from(slot.get())
-                || root.root_kind != *field.kind()
-                || root.field_path != field.name()
-            {
+            if root.slot != usize::from(slot.get()) || root.root_kind != *field.kind() {
                 return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
             }
             root.rules.push(CompiledAcceptedTargetedRule {
                 id: constraint_id,
-                name: constraint_name.to_string(),
                 target_type: target.target_type(),
                 operation: compiled_operation,
             });
@@ -426,8 +397,6 @@ impl CompiledAcceptedTargetedRules {
                 };
                 let violation = AcceptedTargetedRuleViolation {
                     constraint_id: rule.id,
-                    constraint_name: rule.name.clone(),
-                    field_path: root.field_path.clone(),
                     path,
                 };
                 if first_violation
@@ -814,8 +783,6 @@ impl CompiledAcceptedTargetedRules {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct AcceptedTargetedRuleViolation {
     pub(super) constraint_id: ConstraintId,
-    pub(super) constraint_name: String,
-    pub(super) field_path: String,
     pub(super) path: AcceptedTargetPath,
 }
 

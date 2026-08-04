@@ -35,7 +35,7 @@ use crate::{
         },
         write_context::AcceptedWriteContext,
     },
-    error::InternalError,
+    error::{InternalError, MutationDiagnosticContext},
     types::{GenerateKey, Ulid},
     value::{InputValue, Value},
 };
@@ -49,20 +49,23 @@ const ACCEPTED_FIXED_UPDATE_PATCH_FINGERPRINT_DOMAIN: &[u8] =
 
 #[derive(Clone, Copy)]
 struct AcceptedRowConstraintWriteContext<'a> {
-    entity_path: &'a str,
     fingerprint: CommitSchemaFingerprint,
+    entity_tag: u64,
+    mutation: Option<MutationDiagnosticContext>,
     constraints: &'a CompiledAcceptedRowConstraints,
 }
 
 impl<'a> AcceptedRowConstraintWriteContext<'a> {
     const fn new(
-        entity_path: &'a str,
         fingerprint: CommitSchemaFingerprint,
+        entity_tag: u64,
+        mutation: Option<MutationDiagnosticContext>,
         constraints: &'a CompiledAcceptedRowConstraints,
     ) -> Self {
         Self {
-            entity_path,
             fingerprint,
+            entity_tag,
+            mutation,
             constraints,
         }
     }
@@ -142,14 +145,19 @@ impl AcceptedFixedUpdatePatch {
     /// Resolve one update intent into fixed accepted payloads.
     pub(in crate::db) fn from_update_intent(
         entity_path: &str,
+        entity_tag: u64,
         accepted_decode_contract: AcceptedRowDecodeContract,
         accepted_schema_fingerprint: CommitSchemaFingerprint,
         constraints: &CompiledAcceptedRowConstraints,
         patch: &AcceptedMutationIntentPatch,
     ) -> Result<Self, InternalError> {
         let constraint_context = AcceptedRowConstraintWriteContext::new(
-            entity_path,
             accepted_schema_fingerprint,
+            entity_tag,
+            Some(MutationDiagnosticContext::operation_only(
+                entity_tag,
+                icydb_diagnostic_code::DiagnosticMutationOperation::Update,
+            )),
             constraints,
         );
         let contract = StructuralRowContract::from_owned_accepted_decode_contract(
@@ -337,7 +345,13 @@ fn encode_authored_value_for_accepted_field_contract(
             .constraints
             .evaluate_accepted_not_null_before_encoding(constraint_context.fingerprint, slot)
             .map_err(|error| {
-                accepted_row_constraint_write_error(constraint_context.entity_path, None, error)
+                accepted_row_constraint_write_error(
+                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                    constraint_context.fingerprint,
+                    constraint_context.entity_tag,
+                    constraint_context.mutation,
+                    error,
+                )
             })?;
     }
     let field = encoding.field();
@@ -359,6 +373,7 @@ fn resolve_insert_active_slot(
     slot: usize,
     intent: Option<AcceptedMutationFieldWriteIntent>,
     write_context: AcceptedWriteContext,
+    mutation_context: MutationDiagnosticContext,
     identity_allocation: Option<&AcceptedIdentityAllocation>,
 ) -> Result<(Vec<u8>, AcceptedFieldWriteProvenance), InternalError> {
     let field = contract.required_accepted_field_contract(slot)?;
@@ -369,8 +384,8 @@ fn resolve_insert_active_slot(
                 || write_policy.write_management().is_some()
             {
                 return Err(InternalError::mutation_database_owned_field_explicit(
-                    constraint_context.entity_path,
-                    field.field_name(),
+                    mutation_context,
+                    field.field_id().get(),
                 ));
             }
             let encoding = contract.required_accepted_field_persistence_contract(slot)?;
@@ -446,8 +461,8 @@ fn resolve_insert_active_slot(
                 ));
             }
             return Err(InternalError::mutation_required_field_missing(
-                constraint_context.entity_path,
-                field.field_name(),
+                mutation_context,
+                field.field_id().get(),
             ));
         }
     };
@@ -460,6 +475,10 @@ fn resolve_insert_active_slot(
 /// Authored inputs remain distinct from omission, while accepted generation,
 /// management, default, and nullable policies produce canonical protected
 /// values before any typed entity projection can observe the after-image.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the accepted insert boundary keeps schema authority, authored intent, write time, diagnostic identity, and optional Identity allocation explicit"
+)]
 pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
     entity_path: &str,
     accepted_decode_contract: AcceptedRowDecodeContract,
@@ -467,11 +486,13 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
     constraints: &CompiledAcceptedRowConstraints,
     patch: &AcceptedMutationIntentPatch,
     write_context: AcceptedWriteContext,
+    mutation_context: MutationDiagnosticContext,
     identity_allocation: Option<&AcceptedIdentityAllocation>,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let constraint_context = AcceptedRowConstraintWriteContext::new(
-        entity_path,
         accepted_schema_fingerprint,
+        mutation_context.entity_tag(),
+        Some(mutation_context),
         constraints,
     );
     let contract = StructuralRowContract::from_owned_accepted_decode_contract(
@@ -506,6 +527,7 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
             slot,
             intents[slot].take(),
             write_context,
+            mutation_context,
             identity_allocation,
         )?;
         payloads[slot] = Some(payload);
@@ -531,6 +553,10 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
 /// historical fills, while update-managed fields resolve from the operation's
 /// stable write context before typed materialization.
 #[expect(
+    clippy::too_many_arguments,
+    reason = "the accepted update boundary keeps schema authority, before-image, authored intent, write time, and diagnostic identity explicit"
+)]
+#[expect(
     clippy::too_many_lines,
     reason = "the phased resolver keeps provenance, no-op detection, and managed-time ownership in one accepted-contract boundary"
 )]
@@ -542,10 +568,12 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     raw_row: &RawRow,
     patch: &AcceptedMutationIntentPatch,
     write_context: AcceptedWriteContext,
+    mutation_context: MutationDiagnosticContext,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let constraint_context = AcceptedRowConstraintWriteContext::new(
-        entity_path,
         accepted_schema_fingerprint,
+        mutation_context.entity_tag(),
+        Some(mutation_context),
         constraints,
     );
     let contract = StructuralRowContract::from_owned_accepted_decode_contract(
@@ -593,8 +621,8 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
                     || write_policy.write_management().is_some()
                 {
                     return Err(InternalError::mutation_database_owned_field_explicit(
-                        entity_path,
-                        field.field_name(),
+                        mutation_context,
+                        field.field_id().get(),
                     ));
                 }
                 let encoding = contract.required_accepted_field_persistence_contract(slot)?;
@@ -662,6 +690,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
             &contract,
             &baseline,
             write_context.operation_timestamp(),
+            mutation_context,
         )?;
         let value = Value::Timestamp(write_context.operation_timestamp());
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
@@ -670,7 +699,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
-        validate_existing_managed_timestamp_order(&contract, &baseline)?;
+        validate_existing_managed_timestamp_order(&contract, &baseline, mutation_context)?;
     }
 
     let slot_payloads = payloads
@@ -691,6 +720,10 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
 /// Ordinary omitted fields use current insert policy, while `CreatedAt`
 /// remains immutable and `UpdatedAt` is refreshed only when the resulting
 /// logical candidate differs from the accepted before-image.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the accepted replace boundary keeps schema authority, before-image, authored intent, write time, and diagnostic identity explicit"
+)]
 pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_contract(
     entity_path: &str,
     accepted_decode_contract: AcceptedRowDecodeContract,
@@ -699,6 +732,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
     raw_row: &RawRow,
     patch: &AcceptedMutationIntentPatch,
     write_context: AcceptedWriteContext,
+    mutation_context: MutationDiagnosticContext,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let inserted = resolve_insert_structural_patch_with_accepted_contract(
         entity_path,
@@ -707,6 +741,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         constraints,
         patch,
         write_context,
+        mutation_context,
         None,
     )?;
     let (inserted, mut provenance) = inserted.into_parts();
@@ -777,6 +812,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
             &contract,
             &baseline,
             write_context.operation_timestamp(),
+            mutation_context,
         )?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
@@ -785,7 +821,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
-        validate_existing_managed_timestamp_order(&contract, &baseline)?;
+        validate_existing_managed_timestamp_order(&contract, &baseline, mutation_context)?;
     }
 
     let slot_payloads = payloads
@@ -805,12 +841,15 @@ fn validate_managed_timestamp_progression(
     contract: &StructuralRowContract,
     baseline: &StructuralSlotReader<'_>,
     operation_timestamp: crate::types::Timestamp,
+    mutation_context: MutationDiagnosticContext,
 ) -> Result<(), InternalError> {
     let (created_at, updated_at) = managed_timestamp_values(contract, baseline)?;
     if created_at.is_some_and(|created_at| operation_timestamp < created_at)
         || updated_at.is_some_and(|updated_at| operation_timestamp < updated_at)
     {
-        return Err(InternalError::mutation_managed_timestamp_regression());
+        return Err(InternalError::mutation_managed_timestamp_regression(
+            mutation_context,
+        ));
     }
 
     Ok(())
@@ -819,10 +858,13 @@ fn validate_managed_timestamp_progression(
 fn validate_existing_managed_timestamp_order(
     contract: &StructuralRowContract,
     baseline: &StructuralSlotReader<'_>,
+    mutation_context: MutationDiagnosticContext,
 ) -> Result<(), InternalError> {
     let (created_at, updated_at) = managed_timestamp_values(contract, baseline)?;
     if matches!((created_at, updated_at), (Some(created), Some(updated)) if created > updated) {
-        return Err(InternalError::mutation_managed_timestamp_regression());
+        return Err(InternalError::mutation_managed_timestamp_regression(
+            mutation_context,
+        ));
     }
 
     Ok(())
@@ -945,7 +987,7 @@ mod tests {
         ScalarCodec, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         empty_accepted_enum_catalog_for_tests,
     };
-    use crate::error::ConstraintDiagnosticKind;
+    use crate::error::MutationDiagnosticContext;
 
     #[test]
     fn accepted_not_null_pre_encoding_failure_preserves_constraint_identity() {
@@ -991,13 +1033,15 @@ mod tests {
             &constraints,
             &patch,
             AcceptedWriteContext::new(crate::types::Timestamp::from_millis(1)),
+            MutationDiagnosticContext::new(
+                1,
+                icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
+                0,
+            ),
             None,
         ) else {
             panic!("explicit null should violate accepted not-null");
         };
-        let diagnostic = error
-            .constraint_diagnostic()
-            .expect("not-null violation should retain accepted diagnostic");
         let accepted_identity = accepted
             .persisted_snapshot()
             .constraints()
@@ -1011,13 +1055,18 @@ mod tests {
             })
             .expect("accepted not-null identity should exist");
 
-        assert_eq!(diagnostic.constraint_id(), accepted_identity.id().get());
-        assert_eq!(diagnostic.constraint_name(), accepted_identity.name());
-        assert_eq!(
-            diagnostic.constraint_kind(),
-            ConstraintDiagnosticKind::NotNull,
-        );
-        assert_eq!(diagnostic.entity(), "tests::User");
-        assert_eq!(diagnostic.field_paths(), &["id".to_string()]);
+        let facts = error.diagnostic_facts();
+        assert!(facts.contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::ConstraintId,
+            u64::from(accepted_identity.id().get()),
+        )));
+        assert!(facts.contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+            icydb_diagnostic_code::DiagnosticConstraintKind::NotNull.raw(),
+        )));
+        assert!(facts.contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+            icydb_diagnostic_code::DiagnosticMutationOperation::Insert.raw(),
+        )));
     }
 }

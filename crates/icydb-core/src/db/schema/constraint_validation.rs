@@ -11,7 +11,7 @@ use crate::{
             AcceptedSchemaFingerprint, AcceptedTargetPath, AcceptedTargetPathComponent,
             ConstraintActivationFingerprint, ConstraintActivationKind,
             ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId, FieldId,
-            MAX_ACCEPTED_TARGET_PATH_COMPONENTS, PersistedSchemaSnapshot,
+            MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
             composite_catalog::{CompositeFieldId, CompositeTypeId},
             enum_catalog::{EnumTypeId, EnumVariantId},
             wire::{SchemaWireReader, SchemaWireWriter},
@@ -47,24 +47,6 @@ type ConstraintValidationJobWriter = SchemaWireWriter<
     { MAX_CONSTRAINT_VALIDATION_JOB_BYTES - CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES },
 >;
 type ConstraintValidationJobReader<'a> = SchemaWireReader<'a>;
-
-/// Project durable accepted field identities into bounded diagnostic paths.
-pub(in crate::db) fn accepted_constraint_field_paths(
-    snapshot: &PersistedSchemaSnapshot,
-    field_ids: &[FieldId],
-) -> Result<Vec<String>, InternalError> {
-    field_ids
-        .iter()
-        .map(|field_id| {
-            snapshot
-                .fields()
-                .iter()
-                .find(|field| field.id() == *field_id)
-                .map(|field| field.name().to_string())
-                .ok_or_else(InternalError::store_corruption)
-        })
-        .collect()
-}
 
 /// Current bounded proof phase for one activation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

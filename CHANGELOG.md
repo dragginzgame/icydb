@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.219.md](docs/changelog/0.219.md)
 
+- `0.219.1` completes bounded numeric diagnostics and exact host-side schema
+  resolution in a breaking pre-1.0 hard cut, while simplifying scalar metadata
+  and preserving successful execution and persisted formats.
+
 - `0.219.0` hard-cuts public errors to bounded numeric facts and replaces
   private Candid/Serde schema-job codecs with direct bounded formats, requiring
   affected development state to be recreated while preserving successful

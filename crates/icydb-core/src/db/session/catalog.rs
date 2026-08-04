@@ -254,6 +254,9 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
             identity,
+            catalog.identity().entity_tag().value(),
+            catalog.fingerprint_method_version(),
+            catalog.fingerprint(),
         )
     }
 

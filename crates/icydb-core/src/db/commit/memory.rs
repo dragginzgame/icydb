@@ -174,6 +174,16 @@ mod tests {
             .expect_err("mismatched cache should fail");
         assert_eq!(err.class, ErrorClass::Internal);
         assert_eq!(err.origin, ErrorOrigin::Store);
+        assert_eq!(
+            err.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
+                    12,
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::ActualMemoryId, 30,),
+            ],
+        );
     }
 
     #[test]

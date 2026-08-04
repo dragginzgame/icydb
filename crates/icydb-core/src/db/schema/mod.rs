@@ -158,7 +158,7 @@ pub(in crate::db) use constraint_activation_runner::ConstraintValidationProgress
 pub(in crate::db) use constraint_activation_runner::validate_unpublished_check_candidate_exact;
 pub(in crate::db) use constraint_activation_runner::{
     UnpublishedRowLocalValidation, advance_accepted_row_local_constraint_activation,
-    constraint_validation_finding_diagnostic, validate_unpublished_row_local_candidate_bounded,
+    constraint_validation_finding_output, validate_unpublished_row_local_candidate_bounded,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use constraint_activation_runner::{
@@ -168,8 +168,7 @@ pub(in crate::db) use constraint_activation_runner::{
 pub(in crate::db) use constraint_validation::{
     ConstraintStoreRevision, ConstraintValidationFinding, ConstraintValidationJob,
     ConstraintValidationPhase, ConstraintValidationReceipt, MAX_CONSTRAINT_VALIDATION_JOB_BYTES,
-    accepted_constraint_field_paths, decode_constraint_validation_job,
-    encode_constraint_validation_job,
+    decode_constraint_validation_job, encode_constraint_validation_job,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use describe::describe_entity_fields_with_persisted_schema;
@@ -193,8 +192,6 @@ pub(in crate::db) use enum_catalog::{
 };
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use field_kind_semantics::AcceptedFieldKindSemantics;
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db) use field_kind_semantics::AcceptedScalarClass;
 pub(in crate::db) use field_kind_semantics::{
     AcceptedFieldKindCategory, classify_accepted_field_kind,
 };
@@ -466,4 +463,4 @@ pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
-pub(crate) use types::{ScalarType, literal_matches_type};
+pub(crate) use types::literal_matches_type;

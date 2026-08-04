@@ -4,7 +4,7 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
-use crate::ConstraintDiagnostic;
+use crate::ConstraintValidationFindingOutput;
 use crate::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
     EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput,
@@ -307,27 +307,27 @@ pub(in crate::db::sql) fn render_sql_ddl_lines(input: SqlDdlRenderInput<'_>) -> 
 }
 
 /// Render one typed constraint finding without reopening schema authority.
-pub(in crate::db::sql) fn render_constraint_diagnostic_line(
-    diagnostic: &ConstraintDiagnostic,
+pub(in crate::db::sql) fn render_constraint_validation_finding_line(
+    finding: &ConstraintValidationFindingOutput,
 ) -> String {
-    let primary_key = diagnostic
-        .primary_key()
-        .map_or_else(|| "-".to_string(), render_hex_bytes);
-    let value_path = diagnostic
+    let value_path = finding
         .value_path()
         .map_or_else(String::new, |path| format!(" value_path={path}"));
 
     format!(
-        "constraint_finding id={} name={} kind={} entity={} primary_key={} fields={} context={} class={} code=E{}{}",
-        diagnostic.constraint_id(),
-        diagnostic.constraint_name(),
-        diagnostic.constraint_kind().as_str(),
-        diagnostic.entity(),
-        primary_key,
-        diagnostic.field_paths().join(","),
-        diagnostic.context().as_str(),
-        error_class_label(diagnostic.error_class()),
-        diagnostic.error_code().raw(),
+        "constraint_finding fingerprint={} entity_tag={} constraint_id={} primary_key={} field_ids={} class={} code=E{}{}",
+        render_hex_bytes(&finding.accepted_schema_fingerprint()),
+        finding.entity_tag(),
+        finding.constraint_id(),
+        render_hex_bytes(finding.primary_key()),
+        finding
+            .field_ids()
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        error_class_label(finding.error_class()),
+        finding.error_code().raw(),
         value_path,
     )
 }

@@ -17,8 +17,7 @@ use serde::Deserialize;
 use crate::db::DatabaseBootstrapError;
 
 pub use icydb_core::error::{
-    ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind,
-    ConstraintValuePath, ConstraintValuePathComponent,
+    ConstraintValidationFindingOutput, ConstraintValuePath, ConstraintValuePathComponent,
 };
 
 //
@@ -36,6 +35,13 @@ pub struct DiagnosticFact {
 }
 
 impl DiagnosticFact {
+    const fn from_numeric(tag: icydb_diagnostic_code::DiagnosticFactTag, value: u64) -> Self {
+        Self {
+            tag: tag.raw(),
+            value,
+        }
+    }
+
     /// Return the stable numeric fact-tag identity.
     #[must_use]
     pub const fn tag(&self) -> u8 {
@@ -119,7 +125,21 @@ impl Error {
     }
 
     fn from_internal_error(err: &InternalError) -> Self {
-        Self::from_diagnostic(err.diagnostic())
+        Self::from_diagnostic_and_facts(err.diagnostic(), err.diagnostic_facts())
+    }
+
+    fn from_diagnostic_and_facts(
+        diagnostic: icydb_diagnostic_code::Diagnostic,
+        facts: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        debug_assert!(facts.len() <= icydb_diagnostic_code::MAX_PUBLIC_DIAGNOSTIC_FACTS);
+
+        let mut error = Self::from_diagnostic(diagnostic);
+        error.facts = facts
+            .into_iter()
+            .map(|(tag, value)| DiagnosticFact::from_numeric(tag, value))
+            .collect();
+        error
     }
 
     /// Return the compact diagnostic code.
@@ -170,11 +190,7 @@ impl From<InternalError> for Error {
 
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
-        if let QueryError::Execute(execute) = &err {
-            return Self::from_internal_error(execute.as_internal());
-        }
-
-        Self::from_diagnostic(err.diagnostic())
+        Self::from_diagnostic_and_facts(err.diagnostic(), err.diagnostic_facts())
     }
 }
 

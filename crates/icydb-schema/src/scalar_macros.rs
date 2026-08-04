@@ -1,7 +1,7 @@
 //! Module: macros
-//! Responsibility: scalar-kind registry macro definitions for primitive metadata.
+//! Responsibility: scalar-kind and authoring-primitive registry macro definitions.
 //! Does not own: scalar runtime behavior, query coercion, or storage encoding.
-//! Boundary: expands one canonical scalar-kind registry into generated metadata helpers.
+//! Boundary: expands canonical scalar catalogs into generated metadata helpers.
 
 #[doc(hidden)]
 #[macro_export]
@@ -239,7 +239,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
-                supports_ordering = false,
+                supports_ordering = true,
                 is_keyable = true,
                 is_primary_key_component_encodable = true
             ),
@@ -254,6 +254,48 @@ macro_rules! scalar_kind_registry {
     };
     ($macro:ident, $($args:tt)+) => {
         $crate::scalar_kind_registry_entries!($macro, @args $($args)+)
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+/// Expand the width-preserving application-authoring primitive catalog.
+///
+/// Each entry pairs an authoring primitive with its canonical runtime
+/// [`ScalarKind`](crate::ScalarKind). The registry deliberately excludes
+/// named enums because they are authored as named types rather than primitive
+/// Rust fields.
+macro_rules! authoring_primitive_registry {
+    ($macro:ident) => {
+        $macro! {
+            @entries
+            (Account, Account),
+            (Blob, Blob),
+            (Bool, Bool),
+            (Date, Date),
+            (Decimal, Decimal),
+            (Duration, Duration),
+            (Float32, Float32),
+            (Float64, Float64),
+            (Int8, Int),
+            (Int16, Int),
+            (Int32, Int),
+            (Int64, Int),
+            (Int128, Int128),
+            (IntBig, IntBig),
+            (Nat8, Nat),
+            (Nat16, Nat),
+            (Nat32, Nat),
+            (Nat64, Nat),
+            (Nat128, Nat128),
+            (NatBig, NatBig),
+            (Principal, Principal),
+            (Subaccount, Subaccount),
+            (Text, Text),
+            (Timestamp, Timestamp),
+            (Ulid, Ulid),
+            (Unit, Unit),
+        }
     };
 }
 

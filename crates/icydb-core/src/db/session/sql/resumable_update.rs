@@ -510,6 +510,7 @@ impl<C: CanisterKind> DbSession<C> {
         let patch = Self::sql_structural_patch(&descriptor, plan.statement())?;
         let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
             identity.entity_path(),
+            identity.entity_tag().value(),
             descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
             catalog.fingerprint(),
             catalog.accepted_row_constraints(),
@@ -616,6 +617,7 @@ where
     let patch = DbSession::<C>::sql_structural_patch(&descriptor, plan.statement())?;
     let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
         identity.entity_path(),
+        identity.entity_tag().value(),
         descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
         catalog.fingerprint(),
         catalog.accepted_row_constraints(),

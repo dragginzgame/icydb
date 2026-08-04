@@ -9,7 +9,7 @@ mod render;
 mod schema;
 mod snapshot;
 
-use crate::cli::{CanisterTarget, MetricsArgs, SchemaMigrationCommand};
+use crate::cli::{CanisterTarget, DiagnosticArtifactArgs, MetricsArgs, SchemaMigrationCommand};
 use crate::icp::{call_query_hex, call_update_hex};
 
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
@@ -18,6 +18,17 @@ pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
 
 pub(crate) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
     schema::run_schema_show_command(target)
+}
+
+pub(crate) fn run_diagnostic_artifact_command(args: DiagnosticArtifactArgs) -> Result<(), String> {
+    schema::run_diagnostic_artifact_command(args)
+}
+
+pub(crate) fn load_schema_report(
+    environment: &str,
+    canister: &str,
+) -> Result<Vec<icydb::db::EntitySchemaDescription>, String> {
+    schema::load_schema_report(environment, canister)
 }
 
 pub(crate) fn run_schema_migration_command(command: SchemaMigrationCommand) -> Result<(), String> {

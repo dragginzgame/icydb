@@ -12,8 +12,8 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintValidationProgress,
             SchemaDdlAcceptedSnapshotDerivation, SqlDdlFieldNullabilityOutcome,
-            accepted_constraint_field_paths, advance_check_constraint_activation,
-            advance_not_null_constraint_activation, advance_unique_constraint_activation,
+            advance_check_constraint_activation, advance_not_null_constraint_activation,
+            advance_unique_constraint_activation, constraint_validation_finding_output,
             execute_admin_sql_ddl_check_addition, execute_admin_sql_ddl_check_drop,
             execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
             execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
@@ -39,15 +39,14 @@ use crate::{
             parser::parse_sql_with_attribution,
         },
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
+    error::InternalError,
     traits::CanisterKind,
 };
 
 fn constraint_validation_report(
     constraint_id: u32,
-    constraint_name: &str,
-    constraint_kind: ConstraintDiagnosticKind,
-    entity_path: &str,
+    entity_tag: crate::types::EntityTag,
+    accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     accepted: &AcceptedSchemaSnapshot,
     activation_epoch: Option<u64>,
     progress: ConstraintValidationProgress,
@@ -85,33 +84,32 @@ fn constraint_validation_report(
             rows_scanned,
         } => {
             let (state, revision_status) = validation_phase_status(phase);
+            let constraint_id = crate::db::schema::ConstraintId::new(constraint_id)
+                .ok_or_else(InternalError::store_corruption)
+                .map_err(QueryError::execute)?;
+            let activation = accepted
+                .persisted_snapshot()
+                .constraint_catalog()
+                .activation(constraint_id)
+                .ok_or_else(InternalError::store_corruption)
+                .map_err(QueryError::execute)?;
             let findings = receipt
                 .findings()
                 .iter()
                 .map(|finding| {
-                    let primary_key = finding
-                        .primary_key()
-                        .encoded_primary_key_bytes()
-                        .ok_or_else(InternalError::store_invariant)?;
-                    Ok(ConstraintDiagnostic::migration_validation(
-                        constraint_id,
-                        constraint_name.to_string(),
-                        constraint_kind,
-                        entity_path.to_string(),
-                        primary_key.to_vec(),
-                        accepted_constraint_field_paths(
-                            accepted.persisted_snapshot(),
-                            finding.field_ids(),
-                        )?,
-                        finding.error_code(),
-                    ))
+                    constraint_validation_finding_output(
+                        accepted_schema_fingerprint,
+                        entity_tag,
+                        activation,
+                        finding,
+                    )
                 })
                 .collect::<Result<Vec<_>, InternalError>>()
                 .map_err(QueryError::execute)?;
             Ok((
                 SqlDdlExecutionStatus::ValidationFindings,
                 pending_constraint_validation_page(
-                    constraint_id,
+                    constraint_id.get(),
                     activation_epoch,
                     state,
                     revision_status,
@@ -436,13 +434,8 @@ impl<C: CanisterKind> DbSession<C> {
         } else {
             constraint_validation_report(
                 validate.constraint_id().get(),
-                validate.constraint_name(),
-                match validate.kind() {
-                    BoundSqlValidationConstraintKind::Check => ConstraintDiagnosticKind::Check,
-                    BoundSqlValidationConstraintKind::NotNull => ConstraintDiagnosticKind::NotNull,
-                    BoundSqlValidationConstraintKind::Unique => ConstraintDiagnosticKind::Unique,
-                },
-                accepted_before.identity().entity_path(),
+                accepted_before.identity().entity_tag(),
+                accepted_before.fingerprint(),
                 accepted_before.snapshot(),
                 validate.activation_epoch(),
                 match validate.kind() {

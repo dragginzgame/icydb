@@ -1,26 +1,12 @@
 type Account = record { owner : principal; subaccount : opt blob };
-type ConstraintDiagnostic = record {
-  entity : text;
+type ConstraintValidationFindingOutput = record {
   value_path : opt ConstraintValuePath;
-  context : ConstraintDiagnosticContext;
-  primary_key : opt blob;
-  constraint_kind : ConstraintDiagnosticKind;
-  constraint_name : text;
-  field_paths : vec text;
+  primary_key : blob;
+  accepted_schema_fingerprint : blob;
   constraint_id : nat32;
+  entity_tag : nat64;
   error_code : nat16;
-};
-type ConstraintDiagnosticContext = variant {
-  MigrationValidation;
-  WriteAdmission;
-  Integrity;
-};
-type ConstraintDiagnosticKind = variant {
-  NotNull;
-  Relation;
-  TargetedRule;
-  Unique;
-  Check;
+  field_ids : vec nat32;
 };
 type ConstraintValidationProgressDescription = record {
   findings_seen : nat64;
@@ -145,11 +131,14 @@ type EntityRelationDescription = record {
 type EntitySchemaDescription = record {
   constraints : vec EntityConstraintDescription;
   primary_key : text;
+  accepted_schema_fingerprint_method : nat8;
+  accepted_schema_fingerprint : blob;
   fields : vec EntityFieldDescription;
   entity_name : text;
   entity_path : text;
   identity : opt EntityIdentityDescription;
   row_layout_history_floor : nat32;
+  entity_tag : nat64;
   primary_key_fields : vec text;
   row_layout_current : nat32;
   indexes : vec EntityIndexDescription;
@@ -719,7 +708,7 @@ type SqlConstraintValidationOutput = record {
   state : text;
   revision_status : text;
   constraint_id : nat32;
-  findings : vec ConstraintDiagnostic;
+  findings : vec ConstraintValidationFindingOutput;
   activation_epoch : opt nat64;
   rows_scanned : nat64;
 };

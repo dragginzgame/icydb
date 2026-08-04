@@ -39,7 +39,7 @@ use crate::{
         },
     },
     error::{
-        ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError,
+        AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext,
         SchemaTransitionBudgetResource,
     },
     traits::CanisterKind,
@@ -185,21 +185,21 @@ impl AcceptedRelationInfo {
 
     pub(in crate::db::relation) fn write_violation(
         &self,
-        entity_path: &str,
-        primary_key: Option<Vec<u8>>,
+        accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+        entity_tag: EntityTag,
+        mutation: Option<MutationDiagnosticContext>,
     ) -> InternalError {
-        InternalError::mutation_constraint_violation(ConstraintDiagnostic::write_violation(
-            self.constraint.id().get(),
-            self.constraint.name().to_string(),
-            ConstraintDiagnosticKind::Relation,
-            entity_path.to_string(),
-            primary_key,
-            self.local_components
-                .components()
-                .iter()
-                .map(|component| component.field_name().to_string())
-                .collect(),
-        ))
+        InternalError::mutation_constraint_violation(
+            AcceptedConstraintFactContext::write_admission(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                accepted_schema_fingerprint,
+                entity_tag.value(),
+                self.constraint.id().get(),
+                icydb_diagnostic_code::DiagnosticConstraintKind::Relation,
+                mutation,
+                None,
+            ),
+        )
     }
 }
 
@@ -394,21 +394,30 @@ impl RelationConstraintProjection {
     pub(in crate::db) fn missing_target_error(
         &self,
         target_key: &RawDataStoreKey,
-        source_primary_key: Option<Vec<u8>>,
+        accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+        mutation: Option<MutationDiagnosticContext>,
     ) -> Result<InternalError, InternalError> {
         let _target = DecodedDataStoreKey::try_from_raw(target_key)
             .map_err(|_| InternalError::store_corruption())?;
-        Ok(self
-            .relation
-            .write_violation(self.source.path(), source_primary_key))
+        Ok(self.relation.write_violation(
+            accepted_schema_fingerprint,
+            self.source.entity_tag(),
+            mutation,
+        ))
     }
 
     /// Prepare reverse deltas for one live source-row transition against the
     /// mutation scheduler's authoritative target-row view.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the accepted relation transition requires both row views plus exact per-operation diagnostic authority"
+    )]
     pub(in crate::db) fn prepare_source_transition(
         &self,
         target_reader: &dyn StructuralPrimaryRowReader,
         validate_targets: bool,
+        accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+        mutation: Option<MutationDiagnosticContext>,
         source_primary_key: &PrimaryKeyValue,
         old_row: Option<&StructuralSlotReader<'_>>,
         new_row: Option<&StructuralSlotReader<'_>>,
@@ -434,13 +443,11 @@ impl RelationConstraintProjection {
             .as_ref()
             .and_then(|projection| projection.missing_targets().first())
         {
-            let source_key =
-                DecodedDataStoreKey::new(self.source.entity_tag(), source_primary_key).to_raw()?;
-            let source_primary_key = source_key
-                .encoded_primary_key_bytes()
-                .ok_or_else(InternalError::store_invariant)?
-                .to_vec();
-            return Err(self.missing_target_error(missing, Some(source_primary_key))?);
+            return Err(self.missing_target_error(
+                missing,
+                accepted_schema_fingerprint,
+                mutation,
+            )?);
         }
         let new_entries = new_projection
             .map(RelationConstraintRowProjection::into_entries)

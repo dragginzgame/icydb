@@ -21,7 +21,7 @@ use crate::{
     error::InternalError,
     value::{OutputValue, Value},
 };
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
+use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
 pub(super) struct SqlReturningProjectionRows {
     pub(super) columns: Vec<String>,
@@ -159,12 +159,15 @@ fn sql_returning_field_indices(
 ) -> Result<Vec<usize>, QueryError> {
     let mut indices = Vec::with_capacity(fields.len());
 
-    for field in fields {
+    for (projection_index, field) in fields.iter().enumerate() {
         let index = columns
             .iter()
             .position(|column| column == field)
             .ok_or_else(|| {
-                QueryError::sql_write_boundary(SqlWriteBoundaryCode::UnknownReturningField)
+                QueryError::sql_write_boundary_with_facts(
+                    SqlWriteBoundaryCode::UnknownReturningField,
+                    vec![(DiagnosticFactTag::ProjectionIndex, projection_index as u64)],
+                )
             })?;
         indices.push(index);
     }
@@ -221,8 +224,9 @@ fn sql_returning_field_selection(indices: &[usize]) -> Result<Vec<(usize, usize)
             .iter()
             .any(|(existing_index, _)| *existing_index == input_index)
         {
-            return Err(QueryError::sql_write_boundary(
+            return Err(QueryError::sql_write_boundary_with_facts(
                 SqlWriteBoundaryCode::DuplicateReturningField,
+                vec![(DiagnosticFactTag::ProjectionIndex, output_index as u64)],
             ));
         }
         selection.push((input_index, output_index));
@@ -324,4 +328,35 @@ fn sql_returning_project_owned_row(
 // Build the shared invariant for owned SQL RETURNING row/column mismatches.
 fn sql_returning_projection_alignment_error() -> QueryError {
     QueryError::invariant()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sql_returning_field_indices, sql_returning_field_selection};
+    use icydb_diagnostic_code::DiagnosticFactTag;
+
+    #[test]
+    fn unknown_returning_field_retains_projection_index() {
+        let error = sql_returning_field_indices(
+            &["id".to_string()],
+            &["id".to_string(), "missing".to_string()],
+        )
+        .expect_err("unknown returning field should reject");
+
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![(DiagnosticFactTag::ProjectionIndex, 1)],
+        );
+    }
+
+    #[test]
+    fn duplicate_returning_field_retains_duplicate_projection_index() {
+        let error = sql_returning_field_selection(&[0, 1, 0])
+            .expect_err("duplicate returning field should reject");
+
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![(DiagnosticFactTag::ProjectionIndex, 2)],
+        );
+    }
 }

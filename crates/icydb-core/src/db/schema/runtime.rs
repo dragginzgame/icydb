@@ -288,6 +288,7 @@ impl<'a> AcceptedFieldPersistenceContract<'a> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
+    field_id: FieldId,
     field_name: String,
     kind: AcceptedFieldKind,
     nullable: bool,
@@ -308,6 +309,7 @@ impl OwnedAcceptedFieldDecodeContract {
         let contract = field.decode_contract();
 
         Self {
+            field_id: field.field_id(),
             field_name: contract.field_name().to_string(),
             kind: contract.kind().clone(),
             nullable: contract.nullable(),
@@ -332,6 +334,12 @@ impl OwnedAcceptedFieldDecodeContract {
             self.storage_decode,
             self.leaf_codec,
         )
+    }
+
+    /// Return the durable accepted field identity.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
     }
 
     /// Return the accepted insertion-omission behavior for this field.
@@ -508,7 +516,11 @@ impl AcceptedRowDecodeContract {
         version: RowLayoutVersion,
     ) -> Result<usize, InternalError> {
         if version < self.history_floor || version > self.current_layout_version {
-            return Err(InternalError::persisted_row_layout_outside_accepted_window());
+            return Err(InternalError::persisted_row_layout_outside_accepted_window(
+                version.get(),
+                self.history_floor.get(),
+                self.current_layout_version.get(),
+            ));
         }
 
         Ok(self

@@ -115,19 +115,21 @@ pub mod diagnostic {
     //! Compact diagnostic identity for CLI and canister callers.
 
     pub use icydb_diagnostic_code::{
-        Diagnostic, DiagnosticCode, DiagnosticDetail, DiagnosticFactTag, ErrorClass, ErrorCode,
-        ErrorOrigin, MAX_PUBLIC_DIAGNOSTIC_FACTS, QueryErrorKind, QueryProjectionCode,
-        QueryReadAdmissionCode, QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind,
-        SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
-        SqlSurfaceMismatchCode, SqlWriteBoundaryCode, pack_u32_pair, unpack_u32_pair,
+        Diagnostic, DiagnosticAggregateKind, DiagnosticCode, DiagnosticComponentKind,
+        DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDecodeReason,
+        DiagnosticDetail, DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation,
+        DiagnosticOperatorKind, DiagnosticTypeFamily, ErrorClass, ErrorCode, ErrorOrigin,
+        MAX_PUBLIC_DIAGNOSTIC_FACTS, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode,
+        QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
+        SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
+        SqlWriteBoundaryCode, pack_u32_pair, unpack_u32_pair,
     };
 }
 mod error;
 pub mod traits;
 pub use error::{
-    ConstraintDiagnostic, ConstraintDiagnosticContext, ConstraintDiagnosticKind,
-    ConstraintValuePath, ConstraintValuePathComponent, DiagnosticFact, Error, ErrorKind,
-    ErrorOrigin, QueryErrorKind, RuntimeErrorKind,
+    ConstraintValidationFindingOutput, ConstraintValuePath, ConstraintValuePathComponent,
+    DiagnosticFact, Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind,
 };
 pub use icydb_diagnostic_code::ErrorCode;
 

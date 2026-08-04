@@ -27,6 +27,7 @@ use crate::{
     types::EntityTag,
 };
 use ic_stable_structures::{Memory, Storable, VectorMemory};
+use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag};
 use std::borrow::Cow;
 
 const VALUE_TAG_TEXT: u8 = 0x12;
@@ -147,9 +148,11 @@ fn canonical_enum_envelope(
 
 #[test]
 fn database_boot_record_malformed_corpus_fails_closed() {
-    assert_err(
-        "missing database boot record",
-        validate_current_boot_record(&VectorMemory::default()),
+    let missing = validate_current_boot_record(&VectorMemory::default())
+        .expect_err("missing database boot record should fail closed");
+    assert_eq!(
+        missing.diagnostic_facts(),
+        vec![(DiagnosticFactTag::ExpectedVersion, 1)],
     );
 
     assert!(
@@ -170,24 +173,49 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         (
             "retired database format identity",
             database_boot_record(*b"ICYDBNOW", 1, 1),
+            vec![(
+                DiagnosticFactTag::DecodeReason,
+                DiagnosticDecodeReason::RecoveryMarkerMagic.raw(),
+            )],
         ),
         (
             "unsupported database version",
             database_boot_record(*b"ICYDB001", 2, 1),
+            vec![
+                (DiagnosticFactTag::ExpectedVersion, 1),
+                (DiagnosticFactTag::ActualVersion, 2),
+            ],
         ),
         (
             "unknown database boot state",
             database_boot_record(*b"ICYDB001", 1, 0xff),
+            vec![(
+                DiagnosticFactTag::DecodeReason,
+                DiagnosticDecodeReason::RecoveryMarkerState.raw(),
+            )],
         ),
-        ("corrupt database boot magic", corrupt_magic),
-        ("corrupt database boot checksum", corrupt_checksum),
+        (
+            "corrupt database boot magic",
+            corrupt_magic,
+            vec![(
+                DiagnosticFactTag::DecodeReason,
+                DiagnosticDecodeReason::RecoveryMarkerMagic.raw(),
+            )],
+        ),
+        (
+            "corrupt database boot checksum",
+            corrupt_checksum,
+            vec![(
+                DiagnosticFactTag::DecodeReason,
+                DiagnosticDecodeReason::RecoveryMarkerChecksum.raw(),
+            )],
+        ),
     ];
 
-    for (label, bytes) in cases {
-        assert_err(
-            label,
-            validate_current_boot_record(&memory_with_prefix(&bytes)),
-        );
+    for (label, bytes, expected_facts) in cases {
+        let error = validate_current_boot_record(&memory_with_prefix(&bytes))
+            .expect_err("malformed database boot record should fail closed");
+        assert_eq!(error.diagnostic_facts(), expected_facts, "{label}");
     }
 }
 

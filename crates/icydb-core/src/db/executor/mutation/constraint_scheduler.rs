@@ -18,9 +18,10 @@ use crate::{
         },
         write_context::MutationMode,
     },
-    error::{ConstraintDiagnostic, ConstraintDiagnosticKind, InternalError},
+    error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
+    types::EntityTag,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[expect(
     clippy::too_many_arguments,
@@ -28,27 +29,28 @@ use std::collections::BTreeSet;
 )]
 fn validate_row_local_after_image(
     entity_path: &str,
+    entity_tag: EntityTag,
     mode: MutationMode,
-    data_key: &RawDataStoreKey,
+    _data_key: &RawDataStoreKey,
     row: &RawRow,
     provenance: &[Option<AcceptedFieldWriteProvenance>],
     accepted_row_decode_contract: AcceptedRowDecodeContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
+    fingerprint_method: u8,
     constraints: &CompiledAcceptedRowConstraints,
+    mutation: MutationDiagnosticContext,
 ) -> Result<(), InternalError> {
     match constraints.unique_activation_write_blocker(mode, provenance) {
         Ok(Some(barrier)) => {
-            let primary_key = data_key
-                .encoded_primary_key_bytes()
-                .ok_or_else(InternalError::store_invariant)?;
             return Err(InternalError::mutation_constraint_activation_write_blocked(
-                ConstraintDiagnostic::write_activation_blocked(
+                AcceptedConstraintFactContext::write_admission(
+                    fingerprint_method,
+                    accepted_schema_fingerprint,
+                    entity_tag.value(),
                     barrier.constraint_id().get(),
-                    barrier.constraint_name().to_string(),
-                    ConstraintDiagnosticKind::Unique,
-                    entity_path.to_string(),
-                    Some(primary_key.to_vec()),
-                    barrier.field_paths().to_vec(),
+                    icydb_diagnostic_code::DiagnosticConstraintKind::Unique,
+                    Some(mutation),
+                    None,
                 ),
             ));
         }
@@ -66,14 +68,16 @@ fn validate_row_local_after_image(
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)?;
     let values = row_fields.decode_selected_slot_values(constraints.required_slots())?;
-    let primary_key = data_key
-        .encoded_primary_key_bytes()
-        .ok_or_else(InternalError::store_invariant)?;
-
     constraints
         .evaluate(accepted_schema_fingerprint, values.as_slice())
         .map_err(|error| {
-            accepted_row_constraint_write_error(entity_path, Some(primary_key.to_vec()), error)
+            accepted_row_constraint_write_error(
+                fingerprint_method,
+                accepted_schema_fingerprint,
+                entity_tag.value(),
+                Some(mutation),
+                error,
+            )
         })
 }
 
@@ -116,10 +120,12 @@ impl AcceptedMutationConstraintBatch {
 
 pub(in crate::db) struct AcceptedMutationConstraintScheduler<'a> {
     entity_path: &'a str,
+    entity_tag: EntityTag,
     row_decode_contract: AcceptedRowDecodeContract,
     schema_fingerprint: CommitSchemaFingerprint,
+    fingerprint_method: u8,
     row_constraints: &'a CompiledAcceptedRowConstraints,
-    seen_keys: BTreeSet<RawDataStoreKey>,
+    seen_keys: BTreeMap<RawDataStoreKey, u32>,
     deleted_keys: BTreeSet<RawDataStoreKey>,
     rows: Vec<CommitRowOp>,
 }
@@ -129,17 +135,21 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
     /// after database-owned policy has resolved it.
     pub(in crate::db) fn new(
         entity_path: &'a str,
+        entity_tag: EntityTag,
         row_decode_contract: AcceptedRowDecodeContract,
         schema_fingerprint: CommitSchemaFingerprint,
+        fingerprint_method: u8,
         row_constraints: &'a CompiledAcceptedRowConstraints,
         row_capacity: usize,
     ) -> Self {
         Self {
             entity_path,
+            entity_tag,
             row_decode_contract,
             schema_fingerprint,
+            fingerprint_method,
             row_constraints,
-            seen_keys: BTreeSet::new(),
+            seen_keys: BTreeMap::new(),
             deleted_keys: BTreeSet::new(),
             rows: Vec::with_capacity(row_capacity),
         }
@@ -154,18 +164,33 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
         row: &RawRow,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
         row_op: Option<CommitRowOp>,
+        batch_position: u32,
     ) -> Result<(), InternalError> {
         let raw_key = data_key.to_raw()?;
-        self.record_target_key(data_key, &raw_key)?;
+        self.record_target_key(&raw_key, batch_position)?;
+        let mutation = MutationDiagnosticContext::new(
+            self.entity_tag.value(),
+            match mode {
+                MutationMode::Insert => icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
+                MutationMode::Replace => {
+                    icydb_diagnostic_code::DiagnosticMutationOperation::Replace
+                }
+                MutationMode::Update => icydb_diagnostic_code::DiagnosticMutationOperation::Update,
+            },
+            batch_position,
+        );
         validate_row_local_after_image(
             self.entity_path,
+            self.entity_tag,
             mode,
             &raw_key,
             row,
             provenance,
             self.row_decode_contract.clone(),
             self.schema_fingerprint,
+            self.fingerprint_method,
             self.row_constraints,
+            mutation,
         )?;
 
         if let Some(row_op) = row_op {
@@ -176,7 +201,8 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
             {
                 return Err(InternalError::query_executor_invariant());
             }
-            self.rows.push(row_op);
+            self.rows
+                .push(row_op.with_mutation_diagnostic_context(mutation));
         }
 
         Ok(())
@@ -202,6 +228,7 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
     pub(in crate::db) fn schedule_delete(
         &mut self,
         row_op: CommitRowOp,
+        batch_position: u32,
     ) -> Result<(), InternalError> {
         if row_op.entity_path.as_ref() != self.entity_path
             || row_op.before.is_none()
@@ -210,25 +237,33 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
         {
             return Err(InternalError::query_executor_invariant());
         }
-        let data_key = DecodedDataStoreKey::try_from_raw(&row_op.key)
+        let _ = DecodedDataStoreKey::try_from_raw(&row_op.key)
             .map_err(|_| InternalError::query_executor_invariant())?;
-        self.record_target_key(&data_key, &row_op.key)?;
+        self.record_target_key(&row_op.key, batch_position)?;
         self.deleted_keys.insert(row_op.key.clone());
-        self.rows.push(row_op);
+        self.rows.push(
+            row_op.with_mutation_diagnostic_context(MutationDiagnosticContext::new(
+                self.entity_tag.value(),
+                icydb_diagnostic_code::DiagnosticMutationOperation::Delete,
+                batch_position,
+            )),
+        );
         Ok(())
     }
 
     fn record_target_key(
         &mut self,
-        data_key: &DecodedDataStoreKey,
         raw_key: &RawDataStoreKey,
+        batch_position: u32,
     ) -> Result<(), InternalError> {
-        if !self.seen_keys.insert(raw_key.clone()) {
+        if let Some(first_position) = self.seen_keys.get(raw_key).copied() {
             return Err(InternalError::mutation_atomic_save_duplicate_key(
-                self.entity_path,
-                data_key.clone(),
+                self.entity_tag.value(),
+                first_position,
+                batch_position,
             ));
         }
+        self.seen_keys.insert(raw_key.clone(), batch_position);
         Ok(())
     }
 

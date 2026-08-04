@@ -30,7 +30,7 @@ use crate::{
         },
         write_context::{AcceptedWriteContext, MutationMode},
     },
-    error::InternalError,
+    error::{InternalError, MutationDiagnosticContext},
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
@@ -98,11 +98,17 @@ fn add_structural_mutation_staged_bytes(
     lengths: impl IntoIterator<Item = usize>,
 ) -> Result<(), InternalError> {
     for length in lengths {
-        *total = total
-            .checked_add(length)
-            .ok_or_else(InternalError::mutation_batch_staged_bytes_exceeded)?;
+        *total = total.checked_add(length).ok_or_else(|| {
+            InternalError::mutation_batch_staged_bytes_exceeded(
+                None,
+                MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
+            )
+        })?;
         if *total > MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES {
-            return Err(InternalError::mutation_batch_staged_bytes_exceeded());
+            return Err(InternalError::mutation_batch_staged_bytes_exceeded(
+                Some(*total),
+                MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
+            ));
         }
     }
     Ok(())
@@ -110,7 +116,10 @@ fn add_structural_mutation_staged_bytes(
 
 fn validate_structural_mutation_result_bytes(encoded_bytes: usize) -> Result<(), InternalError> {
     if encoded_bytes > MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES {
-        return Err(InternalError::mutation_batch_result_bytes_exceeded());
+        return Err(InternalError::mutation_batch_result_bytes_exceeded(
+            encoded_bytes,
+            MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES,
+        ));
     }
     Ok(())
 }
@@ -149,6 +158,28 @@ const fn dynamic_typed_mutation_mode(request: &DynamicTypedMutation) -> Mutation
     }
 }
 
+const fn diagnostic_mutation_operation(
+    mode: MutationMode,
+) -> icydb_diagnostic_code::DiagnosticMutationOperation {
+    match mode {
+        MutationMode::Insert => icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
+        MutationMode::Replace => icydb_diagnostic_code::DiagnosticMutationOperation::Replace,
+        MutationMode::Update => icydb_diagnostic_code::DiagnosticMutationOperation::Update,
+    }
+}
+
+const fn mutation_diagnostic_context(
+    entity_tag: crate::types::EntityTag,
+    mode: MutationMode,
+    batch_position: u32,
+) -> MutationDiagnosticContext {
+    MutationDiagnosticContext::new(
+        entity_tag.value(),
+        diagnostic_mutation_operation(mode),
+        batch_position,
+    )
+}
+
 const fn dynamic_write_context(operation_timestamp: Timestamp) -> AcceptedWriteContext {
     AcceptedWriteContext::new(operation_timestamp)
 }
@@ -177,6 +208,7 @@ fn lower_dynamic_patch(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &DynamicStructuralPatch,
     mode: MutationMode,
+    mutation_context: MutationDiagnosticContext,
 ) -> Result<AcceptedMutationIntentPatch, InternalError> {
     let mut lowered = AcceptedMutationIntentPatch::new();
     for (field_name, cell) in patch.fields() {
@@ -193,8 +225,8 @@ fn lower_dynamic_patch(
                 || field.write_policy().write_management().is_some())
         {
             return Err(InternalError::mutation_database_owned_field_explicit(
-                entity_path,
-                field.name(),
+                mutation_context,
+                field.field_id().get(),
             ));
         }
         let slot = FieldSlot::from_validated_index(slot);
@@ -218,16 +250,26 @@ fn lower_dynamic_mutation_intent(
     entity_path: &str,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     request: &DynamicMutation,
+    batch_position: u32,
 ) -> Result<(AcceptedStructuralMutation, Option<SaveMutationKind>), InternalError> {
     match request {
-        DynamicMutation::Insert { patch, .. } => Ok((
-            AcceptedStructuralMutation::save(
-                MutationMode::Insert,
-                AcceptedStructuralMutationTarget::ResolveFromAfterImage,
-                lower_dynamic_patch(entity_path, descriptor, patch, MutationMode::Insert)?,
-            ),
-            Some(SaveMutationKind::Insert),
-        )),
+        DynamicMutation::Insert { patch, .. } => {
+            let mode = MutationMode::Insert;
+            Ok((
+                AcceptedStructuralMutation::save(
+                    mode,
+                    AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                    lower_dynamic_patch(
+                        entity_path,
+                        descriptor,
+                        patch,
+                        mode,
+                        mutation_diagnostic_context(entity_tag, mode, batch_position),
+                    )?,
+                ),
+                Some(SaveMutationKind::Insert),
+            ))
+        }
         DynamicMutation::Update { key, patch, .. }
         | DynamicMutation::Replace { key, patch, .. } => {
             let mode =
@@ -241,7 +283,13 @@ fn lower_dynamic_mutation_intent(
                 AcceptedStructuralMutation::save(
                     mode,
                     AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
-                    lower_dynamic_patch(entity_path, descriptor, patch, mode)?,
+                    lower_dynamic_patch(
+                        entity_path,
+                        descriptor,
+                        patch,
+                        mode,
+                        mutation_diagnostic_context(entity_tag, mode, batch_position),
+                    )?,
                 ),
                 Some(kind),
             ))
@@ -254,10 +302,10 @@ fn lower_dynamic_mutation_intent(
 }
 
 fn lower_typed_patch(
-    entity_path: &str,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &DynamicTypedStructuralPatch,
     mode: MutationMode,
+    mutation_context: MutationDiagnosticContext,
 ) -> Result<AcceptedMutationIntentPatch, InternalError> {
     let mut lowered = AcceptedMutationIntentPatch::new();
     for (field_id, slot, cell) in patch.fields() {
@@ -273,8 +321,8 @@ fn lower_typed_patch(
                 || field.write_policy().write_management().is_some())
         {
             return Err(InternalError::mutation_database_owned_field_explicit(
-                entity_path,
-                field.name(),
+                mutation_context,
+                field.field_id().get(),
             ));
         }
         let slot = FieldSlot::from_validated_index(slot_index);
@@ -776,8 +824,12 @@ impl<C: CanisterKind> DbSession<C> {
             .as_ref()
             .map(|_| database_incarnation_id())
             .transpose()?;
-        if mutations.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
-            return Err(InternalError::mutation_batch_too_many_items());
+        let mutation_count = mutations.len();
+        if mutation_count > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+            return Err(InternalError::mutation_batch_too_many_items(
+                mutation_count,
+                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+            ));
         }
         let identity_candidate_count = mutations
             .iter()
@@ -797,17 +849,23 @@ impl<C: CanisterKind> DbSession<C> {
         let mut identity_insert_ordinal = 0_u32;
         let mut scheduler = AcceptedMutationConstraintScheduler::new(
             entity_path,
+            identity.entity_tag(),
             row_decode_contract.clone(),
             catalog.fingerprint(),
+            catalog.fingerprint_method_version(),
             catalog.accepted_row_constraints(),
-            mutations.len(),
+            mutation_count,
         );
-        let mut output = Vec::with_capacity(mutations.len());
+        let mut output = Vec::with_capacity(mutation_count);
         let mut staged_bytes = 0_usize;
 
         for (input_index, mutation) in mutations.into_iter().enumerate() {
-            let batch_input_ordinal = u32::try_from(input_index)
-                .map_err(|_| InternalError::mutation_batch_too_many_items())?;
+            let batch_input_ordinal = u32::try_from(input_index).map_err(|_| {
+                InternalError::mutation_batch_too_many_items(
+                    mutation_count,
+                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+                )
+            })?;
             let AcceptedStructuralMutation::Save {
                 mode,
                 target,
@@ -832,13 +890,16 @@ impl<C: CanisterKind> DbSession<C> {
                         canonical_before.as_raw_row().as_bytes().len(),
                     ],
                 )?;
-                scheduler.schedule_delete(CommitRowOp::new(
-                    entity_path,
-                    raw_key,
-                    Some(canonical_before.as_raw_row().as_bytes().to_vec()),
-                    None,
-                    catalog.fingerprint(),
-                ))?;
+                scheduler.schedule_delete(
+                    CommitRowOp::new(
+                        entity_path,
+                        raw_key,
+                        Some(canonical_before.as_raw_row().as_bytes().to_vec()),
+                        None,
+                        catalog.fingerprint(),
+                    ),
+                    batch_input_ordinal,
+                )?;
                 let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                     canonical_before.as_raw_row(),
                     &row_contract,
@@ -857,6 +918,8 @@ impl<C: CanisterKind> DbSession<C> {
                 });
                 continue;
             };
+            let mutation_context =
+                mutation_diagnostic_context(identity.entity_tag(), mode, batch_input_ordinal);
             let (expected_key, pre_key_insert, mut keyed_patch) = match target {
                 AcceptedStructuralMutationTarget::ResolveFromAfterImage => {
                     let candidate_ordinal =
@@ -917,10 +980,10 @@ impl<C: CanisterKind> DbSession<C> {
                 && before.is_none()
             {
                 let candidate = pre_key_insert.as_ref().ok_or_else(|| {
-                    let field_name = descriptor
-                        .field_for_slot_index(identity_field.field_slot)
-                        .map_or("", |field| field.name());
-                    InternalError::mutation_database_owned_field_explicit(entity_path, field_name)
+                    InternalError::mutation_database_owned_field_explicit(
+                        mutation_context,
+                        identity_field.field_id.get(),
+                    )
                 })?;
                 if identity_cursor.is_none() {
                     let incarnation = identity_incarnation
@@ -946,12 +1009,9 @@ impl<C: CanisterKind> DbSession<C> {
                 && matches!(mode, MutationMode::Replace)
                 && before.is_none()
             {
-                let field_name = descriptor
-                    .field_for_slot_index(identity_field.field_slot)
-                    .map_or("", |field| field.name());
                 return Err(InternalError::mutation_database_owned_field_explicit(
-                    entity_path,
-                    field_name,
+                    mutation_context,
+                    identity_field.field_id.get(),
                 ));
             } else {
                 None
@@ -966,6 +1026,7 @@ impl<C: CanisterKind> DbSession<C> {
                         catalog.accepted_row_constraints(),
                         patch,
                         write_context,
+                        mutation_context,
                         identity_allocation.as_ref(),
                     )?
                 }
@@ -978,6 +1039,7 @@ impl<C: CanisterKind> DbSession<C> {
                         before,
                         patch,
                         write_context,
+                        mutation_context,
                     )?
                 }
                 (MutationMode::Replace, Some(before)) => {
@@ -989,6 +1051,7 @@ impl<C: CanisterKind> DbSession<C> {
                         before,
                         patch,
                         write_context,
+                        mutation_context,
                     )?
                 }
                 (MutationMode::Insert, Some(_)) | (MutationMode::Update, None) => {
@@ -1074,6 +1137,7 @@ impl<C: CanisterKind> DbSession<C> {
                 after.as_raw_row(),
                 provenance.as_slice(),
                 row_op,
+                batch_input_ordinal,
             )?;
             if physical_changed {
                 #[cfg(feature = "sql")]
@@ -1193,7 +1257,10 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(InternalError::mutation_batch_empty());
         }
         if requests.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
-            return Err(InternalError::mutation_batch_too_many_items());
+            return Err(InternalError::mutation_batch_too_many_items(
+                requests.len(),
+                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+            ));
         }
         let first = requests
             .first()
@@ -1208,20 +1275,31 @@ impl<C: CanisterKind> DbSession<C> {
         let mut mutations = Vec::with_capacity(requests.len());
         let mut save_kinds = Vec::with_capacity(requests.len());
 
-        for request in &requests {
+        for (batch_position, request) in requests.iter().enumerate() {
+            let batch_position = u32::try_from(batch_position).map_err(|_| {
+                InternalError::mutation_batch_too_many_items(
+                    requests.len(),
+                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+                )
+            })?;
             if request.entity().is_empty() {
                 return Err(InternalError::executor_unsupported());
             }
             let item_catalog =
                 self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
             if item_catalog.identity() != accepted_identity {
-                return Err(InternalError::mutation_batch_entity_mismatch());
+                return Err(InternalError::mutation_batch_entity_mismatch(
+                    batch_position,
+                    accepted_identity.entity_tag().value(),
+                    item_catalog.identity().entity_tag().value(),
+                ));
             }
             let (mutation, save_kind) = lower_dynamic_mutation_intent(
                 accepted_identity.entity_tag(),
                 accepted_identity.entity_path(),
                 &descriptor,
                 request,
+                batch_position,
             )?;
             mutations.push(mutation);
             save_kinds.push(save_kind);
@@ -1294,7 +1372,12 @@ impl<C: CanisterKind> DbSession<C> {
         if !patch.is_bound_to(binding) {
             return Ok(None);
         }
-        let patch = lower_typed_patch(identity.entity_path(), &descriptor, patch, mode)?;
+        let patch = lower_typed_patch(
+            &descriptor,
+            patch,
+            mode,
+            mutation_diagnostic_context(identity.entity_tag(), mode, 0),
+        )?;
         self.execute_one_accepted_save_mutation(&catalog, &descriptor, mode, target, patch)
             .map(Some)
     }
@@ -1600,6 +1683,26 @@ mod typed_adapter_tests {
                     FieldId::new(1),
                 ),
             ]),
+        );
+
+        let stale_authority = session
+            .ensure_accepted_schema_authority_is_current_for_store_path(
+                STORE_PATH,
+                initial_catalog.value_catalog_handle().authority(),
+            )
+            .expect_err("the initial accepted authority must be stale after revision two");
+        assert_eq!(
+            stale_authority.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ExpectedRevision,
+                    AcceptedSchemaRevision::INITIAL.get(),
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::CurrentRevision,
+                    AcceptedSchemaRevision::new(2).get(),
+                ),
+            ],
         );
 
         assert!(
@@ -1928,7 +2031,7 @@ mod mixed_relation_batch_tests {
                 SchemaVersion, accepted_schema_candidate_with_field_bindings_for_tests,
             },
         },
-        error::{ConstraintDiagnosticKind, ErrorClass},
+        error::ErrorClass,
         traits::{CanisterKind, Path},
         types::EntityTag,
         value::{InputValue, OutputValue},
@@ -2244,13 +2347,10 @@ mod mixed_relation_batch_tests {
     }
 
     fn assert_relation_violation(error: &crate::error::InternalError) {
-        let diagnostic = error
-            .constraint_diagnostic()
-            .expect("relation violations should retain their accepted constraint");
-        assert_eq!(
-            diagnostic.constraint_kind(),
-            ConstraintDiagnosticKind::Relation,
-        );
+        assert!(error.diagnostic_facts().contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+            icydb_diagnostic_code::DiagnosticConstraintKind::Relation.raw(),
+        )));
     }
 
     #[test]
@@ -2347,6 +2447,20 @@ mod mixed_relation_batch_tests {
             ])
             .expect_err("one atomic batch must not cross accepted entities");
         assert_eq!(mixed_entity.class(), ErrorClass::Conflict);
+        assert_eq!(
+            mixed_entity.diagnostic_facts(),
+            vec![
+                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 1,),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
+                    ENTITY_TAG.value(),
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ActualEntityTag,
+                    OTHER_ENTITY_TAG.value(),
+                ),
+            ],
+        );
 
         let missing = session
             .execute_trusted_dynamic_mutation_batch(vec![update_code(1, 12), delete(99)])
@@ -2797,6 +2911,21 @@ mod identity_pre_key_tests {
             .expect_err("an invalid split output must reject the staged source update");
         assert_eq!(rejected_split.class(), ErrorClass::Unsupported);
         assert_eq!(rejected_split.origin(), ErrorOrigin::Executor);
+        assert_eq!(
+            rejected_split.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::EntityTag,
+                    ENTITY_TAG.value(),
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::FieldId, 2),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+                    icydb_diagnostic_code::DiagnosticMutationOperation::Insert.raw(),
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 1,),
+            ],
+        );
         assert_dynamic_payload(&session, 1, 60);
         assert_dynamic_payload(&session, 2, 40);
 
@@ -2915,6 +3044,23 @@ mod identity_pre_key_tests {
                 boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey,
             }),
         ));
+        assert_eq!(
+            duplicate.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::EntityTag,
+                    ENTITY_TAG.value(),
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::FirstBatchPosition,
+                    0,
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::DuplicateBatchPosition,
+                    1,
+                ),
+            ],
+        );
         assert_dynamic_payload(&session, 1, 100);
     }
 
@@ -2930,6 +3076,10 @@ mod identity_pre_key_tests {
                 boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchEmpty,
             }),
         ));
+        assert_eq!(
+            empty.diagnostic_facts(),
+            vec![(icydb_diagnostic_code::DiagnosticFactTag::ActualCount, 0,)],
+        );
 
         let requests = (0..=MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS)
             .map(|_| DynamicMutation::Delete {
@@ -2946,6 +3096,19 @@ mod identity_pre_key_tests {
                 boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyItems,
             }),
         ));
+        assert_eq!(
+            over_bound.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ActualCount,
+                    (MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS + 1) as u64,
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::Limit,
+                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS as u64,
+                ),
+            ],
+        );
     }
 
     #[test]
@@ -2967,6 +3130,19 @@ mod identity_pre_key_tests {
                     icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchStagedBytesExceeded,
             }),
         ));
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ActualLength,
+                    (MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES + 1) as u64,
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::Limit,
+                    MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES as u64,
+                ),
+            ],
+        );
 
         validate_structural_mutation_result_bytes(MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES)
             .expect("the exact result-byte boundary should admit");
@@ -2981,6 +3157,19 @@ mod identity_pre_key_tests {
                     icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
             }),
         ));
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ActualLength,
+                    (MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES + 1) as u64,
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::Limit,
+                    MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES as u64,
+                ),
+            ],
+        );
     }
 
     #[expect(
@@ -2998,6 +3187,18 @@ mod identity_pre_key_tests {
         let initial_description = session
             .try_describe_entity_by_name(ENTITY_NAME)
             .expect("accepted Identity description should resolve");
+        assert_eq!(
+            initial_description.entity_tag(),
+            catalog.identity().entity_tag().value()
+        );
+        assert_eq!(
+            initial_description.accepted_schema_fingerprint_method(),
+            catalog.fingerprint_method_version()
+        );
+        assert_eq!(
+            initial_description.accepted_schema_fingerprint(),
+            catalog.fingerprint()
+        );
         let initial_identity = initial_description
             .identity()
             .expect("accepted Identity policy should be described");
@@ -3051,34 +3252,55 @@ mod identity_pre_key_tests {
             .expect("dynamic omission should commit through shared Identity generation");
         assert_eq!(dynamic.affected_rows, 1);
 
-        for request in [
-            DynamicMutation::Insert {
-                entity: ENTITY_NAME.to_string(),
-                patch: DynamicStructuralPatch::new(vec![
-                    (
+        for (request, operation) in [
+            (
+                DynamicMutation::Insert {
+                    entity: ENTITY_NAME.to_string(),
+                    patch: DynamicStructuralPatch::new(vec![
+                        (
+                            "id".to_string(),
+                            DynamicWriteCell::Value(InputValue::Nat64(41)),
+                        ),
+                        (
+                            "payload".to_string(),
+                            DynamicWriteCell::Value(InputValue::Nat64(42)),
+                        ),
+                    ]),
+                },
+                icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
+            ),
+            (
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: DynamicStructuralPatch::new(vec![(
                         "id".to_string(),
-                        DynamicWriteCell::Value(InputValue::Nat64(41)),
-                    ),
-                    (
-                        "payload".to_string(),
-                        DynamicWriteCell::Value(InputValue::Nat64(42)),
-                    ),
-                ]),
-            },
-            DynamicMutation::Update {
-                entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(1),
-                patch: DynamicStructuralPatch::new(vec![(
-                    "id".to_string(),
-                    DynamicWriteCell::Default,
-                )]),
-            },
+                        DynamicWriteCell::Default,
+                    )]),
+                },
+                icydb_diagnostic_code::DiagnosticMutationOperation::Update,
+            ),
         ] {
             let error = session
                 .execute_trusted_dynamic_mutation(&request)
                 .expect_err("structural Identity authorship and regeneration must reject");
             assert_eq!(error.class(), ErrorClass::Unsupported);
             assert_eq!(error.origin(), ErrorOrigin::Executor);
+            assert_eq!(
+                error.diagnostic_facts(),
+                vec![
+                    (
+                        icydb_diagnostic_code::DiagnosticFactTag::EntityTag,
+                        ENTITY_TAG.value(),
+                    ),
+                    (icydb_diagnostic_code::DiagnosticFactTag::FieldId, 1),
+                    (
+                        icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+                        operation.raw(),
+                    ),
+                    (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 0,),
+                ],
+            );
         }
 
         let binding = session
@@ -3138,6 +3360,21 @@ mod identity_pre_key_tests {
             .expect_err("typed Identity authorship must reject before allocation");
         assert_eq!(explicit_typed_error.class(), ErrorClass::Unsupported);
         assert_eq!(explicit_typed_error.origin(), ErrorOrigin::Executor);
+        assert_eq!(
+            explicit_typed_error.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::EntityTag,
+                    ENTITY_TAG.value(),
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::FieldId, 1),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+                    icydb_diagnostic_code::DiagnosticMutationOperation::Insert.raw(),
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 0,),
+            ],
+        );
 
         let replace_error = session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Replace {
@@ -3471,10 +3708,7 @@ mod targeted_rule_mutation_tests {
                 empty_accepted_enum_catalog_for_tests, enum_catalog::ValueAdmissionBudget,
             },
         },
-        error::{
-            ConstraintDiagnostic, ConstraintDiagnosticKind, ConstraintValuePathComponent,
-            InternalError,
-        },
+        error::InternalError,
         traits::{CanisterKind, Path},
         types::EntityTag,
         value::InputValue,
@@ -3596,29 +3830,42 @@ mod targeted_rule_mutation_tests {
         )
     }
 
-    fn targeted_diagnostic(error: &InternalError) -> &ConstraintDiagnostic {
-        let diagnostic = error
-            .constraint_diagnostic()
-            .expect("targeted mutation should retain a public diagnostic");
+    fn targeted_constraint_id(error: &InternalError) -> u32 {
+        let facts = error.diagnostic_facts();
+        assert!(facts.contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
+            icydb_diagnostic_code::DiagnosticMutationOperation::Insert.raw(),
+        )));
+        assert!(facts.contains(&(icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 0,)));
+        assert!(facts.contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+            icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule.raw(),
+        )));
         assert_eq!(
-            diagnostic.constraint_kind(),
-            ConstraintDiagnosticKind::TargetedRule
+            facts
+                .iter()
+                .filter(|(tag, _)| matches!(
+                    tag,
+                    icydb_diagnostic_code::DiagnosticFactTag::RootField
+                        | icydb_diagnostic_code::DiagnosticFactTag::RecordMember
+                ))
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![
+                (icydb_diagnostic_code::DiagnosticFactTag::RootField, 2),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::RecordMember,
+                    icydb_diagnostic_code::pack_u32_pair(1, 1),
+                ),
+            ]
         );
-        assert_eq!(diagnostic.field_paths(), &["profile".to_string()]);
-        assert_eq!(
-            diagnostic
-                .value_path()
-                .expect("targeted mutation should retain its typed value path")
-                .components(),
-            &[
-                ConstraintValuePathComponent::RootField { field_id: 2 },
-                ConstraintValuePathComponent::RecordMember {
-                    composite_type_id: 1,
-                    member_id: 1,
-                },
-            ],
-        );
-        diagnostic
+        let value = facts
+            .iter()
+            .find_map(|(tag, value)| {
+                (*tag == icydb_diagnostic_code::DiagnosticFactTag::ConstraintId).then_some(*value)
+            })
+            .expect("targeted mutation should retain its accepted constraint ID");
+        u32::try_from(value).expect("accepted constraint ID fits u32")
     }
 
     #[expect(
@@ -3799,8 +4046,10 @@ mod targeted_rule_mutation_tests {
                 patch: structural_patch(1, 12),
             })
             .expect_err("dynamic write must enforce the targeted rule");
-        let dynamic_diagnostic = targeted_diagnostic(&dynamic_error);
-        assert_eq!(dynamic_diagnostic.constraint_id(), targeted_rule_id.get());
+        assert_eq!(
+            targeted_constraint_id(&dynamic_error),
+            targeted_rule_id.get()
+        );
 
         let binding = session
             .issue_typed_entity_binding(
@@ -3842,10 +4091,7 @@ mod targeted_rule_mutation_tests {
                 &DynamicTypedMutation::Insert { patch: typed_patch },
             )
             .expect_err("typed write must enforce the targeted rule");
-        assert_eq!(
-            targeted_diagnostic(&typed_error).constraint_id(),
-            targeted_rule_id.get()
-        );
+        assert_eq!(targeted_constraint_id(&typed_error), targeted_rule_id.get());
 
         #[cfg(feature = "sql")]
         {
@@ -3856,7 +4102,7 @@ mod targeted_rule_mutation_tests {
                 panic!("targeted SQL write should fail at shared execution admission");
             };
             assert_eq!(
-                targeted_diagnostic(execute.as_internal()).constraint_id(),
+                targeted_constraint_id(execute.as_internal()),
                 targeted_rule_id.get()
             );
         }

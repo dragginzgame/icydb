@@ -34,7 +34,35 @@ use crate::{
     types::{CurrentTimestamp, Timestamp},
     value::Value,
 };
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
+use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
+
+fn sql_exact_update_policy_error(
+    require_affected_at_most: u32,
+    rejection: SqlExactUpdatePolicyRejection,
+) -> QueryError {
+    let (boundary, bound_tag, bound) = match rejection {
+        SqlExactUpdatePolicyRejection::AssertionRequired => (
+            SqlWriteBoundaryCode::ExactUpdateAssertionRequired,
+            DiagnosticFactTag::Minimum,
+            1,
+        ),
+        SqlExactUpdatePolicyRejection::AssertionTooHigh => (
+            SqlWriteBoundaryCode::ExactUpdateAssertionTooHigh,
+            DiagnosticFactTag::Limit,
+            u64::from(SqlExactUpdatePolicy::max_affected_rows()),
+        ),
+    };
+    QueryError::sql_write_boundary_with_facts(
+        boundary,
+        vec![
+            (
+                DiagnosticFactTag::ActualCount,
+                u64::from(require_affected_at_most),
+            ),
+            (bound_tag, bound),
+        ],
+    )
+}
 
 fn require_sql_exact_update_plan(
     report: SqlUpdatePolicyReport,
@@ -409,19 +437,49 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlStatementResult, QueryError> {
         let policy =
             SqlExactUpdatePolicy::try_new(require_affected_at_most).map_err(|rejection| {
-                QueryError::sql_write_boundary(match rejection {
-                    SqlExactUpdatePolicyRejection::AssertionRequired => {
-                        SqlWriteBoundaryCode::ExactUpdateAssertionRequired
-                    }
-                    SqlExactUpdatePolicyRejection::AssertionTooHigh => {
-                        SqlWriteBoundaryCode::ExactUpdateAssertionTooHigh
-                    }
-                })
+                sql_exact_update_policy_error(require_affected_at_most, rejection)
             })?;
         let report = self
             .schema_derived_sql_update_report(sql, SqlUpdateExposurePolicy::TrustedExact(policy))?;
         let plan = require_sql_exact_update_plan(report)?;
 
         self.execute_validated_sql_trusted_exact_update(&plan)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, sql_exact_update_policy_error,
+    };
+    use icydb_diagnostic_code::DiagnosticFactTag;
+
+    #[test]
+    fn exact_update_assertion_errors_retain_requested_and_bound_counts() {
+        let required =
+            sql_exact_update_policy_error(0, SqlExactUpdatePolicyRejection::AssertionRequired);
+        assert_eq!(
+            required.diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ActualCount, 0),
+                (DiagnosticFactTag::Minimum, 1),
+            ],
+        );
+
+        let requested = SqlExactUpdatePolicy::max_affected_rows() + 1;
+        let too_high = sql_exact_update_policy_error(
+            requested,
+            SqlExactUpdatePolicyRejection::AssertionTooHigh,
+        );
+        assert_eq!(
+            too_high.diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ActualCount, u64::from(requested)),
+                (
+                    DiagnosticFactTag::Limit,
+                    u64::from(SqlExactUpdatePolicy::max_affected_rows()),
+                ),
+            ],
+        );
     }
 }

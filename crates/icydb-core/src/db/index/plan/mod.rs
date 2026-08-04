@@ -11,16 +11,14 @@ mod unique;
 
 use crate::{
     db::{
+        commit::CommitSchemaFingerprint,
         data::{CanonicalSlotReader, StructuralRowContract},
         index::{IndexKey, IndexReadContract, IndexRowIdentity},
         key_taxonomy::PrimaryKeyValue,
         predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
-        schema::{
-            SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
-            SchemaInfo,
-        },
+        schema::{SchemaExpressionIndexInfo, SchemaIndexInfo, SchemaInfo},
     },
-    error::InternalError,
+    error::{InternalError, MutationDiagnosticContext},
     types::EntityTag,
 };
 use error::IndexPlanError;
@@ -45,17 +43,6 @@ impl IndexKeyLane {
         match self {
             Self::Old => InternalError::structural_index_removal_entity_key_required(),
             Self::New => InternalError::structural_index_insertion_entity_key_required(),
-        }
-    }
-}
-
-pub(super) fn accepted_expression_key_item_label(
-    key_item: &SchemaExpressionIndexKeyItemInfo,
-) -> String {
-    match key_item {
-        SchemaExpressionIndexKeyItemInfo::FieldPath(field) => field.path().join("."),
-        SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
-            expression.canonical_text().to_string()
         }
     }
 }
@@ -208,6 +195,8 @@ fn validate_existing_old_index_membership(
 pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     entity_path: &str,
     entity_tag: EntityTag,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    mutation: Option<MutationDiagnosticContext>,
     schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -219,6 +208,8 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     plan_index_mutation_for_slot_reader_structural_impl(
         entity_path,
         entity_tag,
+        accepted_schema_fingerprint,
+        mutation,
         schema_info,
         read_view,
         row_contract,
@@ -235,6 +226,8 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
 fn plan_index_mutation_for_slot_reader_structural_impl(
     entity_path: &str,
     entity_tag: EntityTag,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    mutation: Option<MutationDiagnosticContext>,
     schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -255,6 +248,8 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             &mut groups,
             entity_path,
             entity_tag,
+            accepted_schema_fingerprint,
+            mutation,
             read_view,
             row_contract,
             accepted_index,
@@ -277,6 +272,8 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             &mut groups,
             entity_path,
             entity_tag,
+            accepted_schema_fingerprint,
+            mutation,
             read_view,
             row_contract,
             accepted_index,
@@ -300,6 +297,8 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     groups: &mut Vec<IndexDeltaGroup>,
     entity_path: &str,
     entity_tag: EntityTag,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    mutation: Option<MutationDiagnosticContext>,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaIndexInfo,
@@ -347,6 +346,8 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     )?;
 
     unique::validate_unique_constraint_accepted_field_path_structural(
+        accepted_schema_fingerprint,
+        mutation,
         entity_path,
         entity_tag,
         read_view,
@@ -374,6 +375,8 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     groups: &mut Vec<IndexDeltaGroup>,
     entity_path: &str,
     entity_tag: EntityTag,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    mutation: Option<MutationDiagnosticContext>,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaExpressionIndexInfo,
@@ -422,6 +425,8 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     )?;
 
     unique::validate_unique_constraint_accepted_expression_structural(
+        accepted_schema_fingerprint,
+        mutation,
         entity_path,
         entity_tag,
         read_view,

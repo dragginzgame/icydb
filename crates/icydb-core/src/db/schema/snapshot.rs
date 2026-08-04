@@ -751,9 +751,9 @@ impl PersistedSchemaSnapshot {
                 } if *activating == relation_id
             )
         });
-        let activating = activations.next().map(|activation| {
-            AcceptedConstraintIdentity::new(activation.id(), activation.name().to_string())
-        });
+        let activating = activations
+            .next()
+            .map(|activation| AcceptedConstraintIdentity::new(activation.id()));
         if activations.next().is_some() {
             return None;
         }

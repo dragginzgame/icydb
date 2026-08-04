@@ -4,14 +4,16 @@
 use crate::{
     db::{
         cursor::{
-            ContinuationSignature, CursorPlanError, GroupedContinuationToken,
-            prepare_grouped_cursor, validate_grouped_cursor_order_plan,
+            ContinuationSignature, CursorDecodeError, CursorPlanError, GroupedContinuationToken,
+            decode_optional_cursor_token, prepare_grouped_cursor,
+            validate_grouped_cursor_order_plan,
         },
         direction::Direction,
         query::plan::{OrderDirection, OrderSpec},
     },
     value::Value,
 };
+use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag};
 
 fn grouped_token_fixture(direction: Direction) -> GroupedContinuationToken {
     GroupedContinuationToken::new_with_direction(
@@ -43,8 +45,15 @@ fn prepare_grouped_cursor_rejects_direction_mismatch() {
     .expect_err("grouped cursor direction must match grouped execution direction");
 
     std::assert_matches!(
-        err,
+        &err,
         CursorPlanError::InvalidContinuationCursorPayload { .. }
+    );
+    assert_eq!(
+        err.diagnostic_facts(),
+        vec![(
+            DiagnosticFactTag::DecodeReason,
+            DiagnosticDecodeReason::CursorGroupedDirectionMismatch.raw(),
+        )],
     );
 }
 
@@ -86,8 +95,21 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
     .expect_err("grouped cursor signature mismatch must fail");
 
     std::assert_matches!(
-        err,
+        &err,
         CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+    );
+    assert_eq!(
+        err.diagnostic_facts(),
+        vec![
+            (
+                DiagnosticFactTag::ExpectedSignaturePrefix,
+                u64::from(u32::from_be_bytes([0x24; 4])),
+            ),
+            (
+                DiagnosticFactTag::ActualSignaturePrefix,
+                u64::from(u32::from_be_bytes([0x42; 4])),
+            ),
+        ],
     );
 }
 
@@ -108,8 +130,47 @@ fn prepare_grouped_cursor_rejects_offset_mismatch() {
     .expect_err("grouped cursor initial offset mismatch must fail");
 
     std::assert_matches!(
-        err,
+        &err,
         CursorPlanError::ContinuationCursorWindowMismatch { .. }
+    );
+    assert_eq!(
+        err.diagnostic_facts(),
+        vec![
+            (DiagnosticFactTag::ExpectedOffset, 5),
+            (DiagnosticFactTag::ActualOffset, 4),
+        ],
+    );
+}
+
+#[test]
+fn external_cursor_decode_facts_preserve_bounds_and_zero_based_positions() {
+    let err = decode_optional_cursor_token(Some("0x"))
+        .expect_err("invalid cursor hex should fail before token decode");
+    assert_eq!(
+        err.diagnostic_facts(),
+        vec![
+            (DiagnosticFactTag::ComponentIndex, 1),
+            (
+                DiagnosticFactTag::DecodeReason,
+                DiagnosticDecodeReason::CursorInvalidHex.raw(),
+            ),
+        ],
+    );
+
+    let err = CursorPlanError::invalid_continuation_cursor(CursorDecodeError::TooLong {
+        len: 16_386,
+        max: 16_384,
+    });
+    assert_eq!(
+        err.diagnostic_facts(),
+        vec![
+            (DiagnosticFactTag::ActualLength, 16_386),
+            (DiagnosticFactTag::Maximum, 16_384),
+            (
+                DiagnosticFactTag::DecodeReason,
+                DiagnosticDecodeReason::CursorTooLong.raw(),
+            ),
+        ],
     );
 }
 

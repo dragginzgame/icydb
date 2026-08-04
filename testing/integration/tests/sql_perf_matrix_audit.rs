@@ -37,8 +37,7 @@ use std::{
 
 use candid::{CandidType, decode_one, encode_one};
 use ic_testkit::pic::{
-    ControllerSnapshots, StandaloneCanisterFixture, try_acquire_pic_serial_guard,
-    try_ensure_pocket_ic_bin, try_pic,
+    ControllerSnapshots, PocketIc, PocketIcSnapshotExt, StandaloneCanisterFixture,
 };
 use icydb::{
     Error, ErrorOrigin,
@@ -2774,8 +2773,14 @@ fn capture_matrix_environment(
 ) -> PerfEnvironmentIdentity {
     let accepted = accepted_schema_descriptions(fixture)
         .unwrap_or_else(|error| panic!("accepted schema descriptions failed: {error}"));
-    let pocket_ic_binary = try_ensure_pocket_ic_bin()
-        .unwrap_or_else(|error| panic!("PocketIC binary should resolve: {error}"));
+    let pocket_ic_binary = env::var_os("POCKET_IC_BIN").map_or_else(
+        || {
+            panic!(
+                "POCKET_IC_BIN must identify the exact PocketIC binary for reproducible performance evidence"
+            )
+        },
+        PathBuf::from,
+    );
     let identity = capture_perf_environment(
         SQL_PERFORMANCE_PROFILE,
         &workspace_root(),
@@ -2857,9 +2862,11 @@ fn install_p2_snapshot_fixture(
     reset_icydb_fixtures(&fixture);
     let canister_id = fixture.canister_id();
     let snapshots = fixture
-        .pic()
+        .pocket_ic()
         .capture_controller_snapshots(canister_id, [canister_id])
-        .unwrap_or_else(|| panic!("P2 fixture baseline snapshot should be available"));
+        .unwrap_or_else(|error| {
+            panic!("P2 fixture baseline snapshot should be available: {error}")
+        });
 
     (fixture, snapshots)
 }
@@ -2872,8 +2879,9 @@ fn sample_snapshot_isolated_p2_scenario(
     warm_mode: bool,
 ) -> MatrixSample {
     fixture
-        .pic()
-        .restore_controller_snapshots(fixture.canister_id(), snapshots);
+        .pocket_ic()
+        .restore_controller_snapshots(fixture.canister_id(), snapshots)
+        .unwrap_or_else(|error| panic!("P2 fixture baseline should restore: {error}"));
     if warm_mode {
         warm_surface_with_perf(fixture, scenario)
             .unwrap_or_else(|error| panic!("P2 warm-up for {} failed: {error}", scenario.key));
@@ -6742,20 +6750,10 @@ fn sql_perf_matrix_reports_index_range_scan_hotspots() {
 #[test]
 #[ignore = "PocketIC startup diagnostic; run manually with --ignored --nocapture"]
 fn sql_perf_matrix_pocketic_startup_smoke() {
-    eprintln!("sql_perf_matrix: resolving PocketIC binary");
-    let pocket_ic_bin =
-        try_ensure_pocket_ic_bin().expect("PocketIC binary should resolve for matrix run");
-    eprintln!(
-        "sql_perf_matrix: PocketIC binary {}",
-        pocket_ic_bin.display()
-    );
-    eprintln!("sql_perf_matrix: acquiring PocketIC process lock");
-    let _guard = try_acquire_pic_serial_guard().expect("PocketIC process lock should be acquired");
-    eprintln!("sql_perf_matrix: PocketIC process lock acquired");
     eprintln!("sql_perf_matrix: starting fresh PocketIC instance");
-    let pic = try_pic().expect("fresh PocketIC instance should start");
+    let pocket_ic = PocketIc::new();
     eprintln!("sql_perf_matrix: fresh PocketIC instance started");
-    let canister_id = pic.create_canister();
+    let canister_id = pocket_ic.create_canister();
     eprintln!("sql_perf_matrix: created smoke canister {canister_id}");
 }
 

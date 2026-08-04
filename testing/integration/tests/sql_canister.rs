@@ -5,6 +5,8 @@
 )]
 mod sql_harness;
 
+use std::collections::BTreeSet;
+
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, EligibleProvider,
     EvidenceStrength, ExpectedAcceptance, MutationKind, NormalizedCell, NormalizedResult,
@@ -76,6 +78,51 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
     // Keep each test isolated by resetting and then loading the deterministic
     // baseline fixture set through the live canister update surface.
     reset_icydb_fixtures(fixture);
+}
+
+#[test]
+fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
+    let fixture = install_sql_canister_fixture();
+    let response: Result<Vec<EntitySchemaDescription>, Error> = fixture
+        .query_call("icydb_schema", ())
+        .expect("schema endpoint response should decode");
+    let report = response.expect("controller schema endpoint should succeed");
+    assert!(
+        !report.is_empty(),
+        "test schema should expose accepted entities"
+    );
+
+    let mut entity_tags = BTreeSet::new();
+    for entity in &report {
+        assert!(
+            entity_tags.insert(entity.entity_tag()),
+            "accepted entity tags must remain unique"
+        );
+        assert_ne!(
+            entity.accepted_schema_fingerprint_method(),
+            0,
+            "accepted fingerprint methods must be explicit"
+        );
+    }
+
+    let endpoint_entity = report
+        .iter()
+        .find(|entity| entity.entity_name() == "SqlTestUser")
+        .expect("schema endpoint should describe SqlTestUser");
+    let SqlQueryResult::Describe(sql_entity) =
+        query_sql(&fixture, "DESCRIBE SqlTestUser").expect("SQL DESCRIBE should succeed")
+    else {
+        panic!("SQL DESCRIBE should return one entity description");
+    };
+    assert_eq!(sql_entity.entity_tag(), endpoint_entity.entity_tag());
+    assert_eq!(
+        sql_entity.accepted_schema_fingerprint_method(),
+        endpoint_entity.accepted_schema_fingerprint_method()
+    );
+    assert_eq!(
+        sql_entity.accepted_schema_fingerprint(),
+        endpoint_entity.accepted_schema_fingerprint()
+    );
 }
 
 #[test]

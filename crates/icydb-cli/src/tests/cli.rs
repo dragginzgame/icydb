@@ -62,6 +62,54 @@ fn cli_args_group_diagnostic_lookup_under_top_level_keyword() {
     assert_eq!(args.code(), "E7");
 }
 
+#[test]
+fn cli_args_accept_exact_diagnostic_resolver_inputs() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "diagnostic",
+        "E223",
+        "--fact",
+        "accepted_schema_fingerprint_method=1",
+        "--fact",
+        "entity_tag=42",
+        "--artifact",
+        "schema.diagnostic.json",
+        "--canister",
+        "app",
+        "--environment",
+        "test",
+    ])
+    .expect("diagnostic resolver inputs should parse");
+    let CliCommand::Diagnostic(args) = args.into_command() else {
+        panic!("expected diagnostic command");
+    };
+
+    assert_eq!(args.code(), "E223");
+    assert_eq!(args.facts().len(), 2);
+    assert_eq!(args.artifact(), Some(Path::new("schema.diagnostic.json")));
+    assert_eq!(args.canister_name(), Some("app"));
+    assert_eq!(args.environment(), "test");
+}
+
+#[test]
+fn cli_args_group_diagnostic_artifact_export_under_schema() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "schema",
+        "diagnostic-artifact",
+        "app",
+        "--output",
+        "schema.diagnostic.json",
+    ])
+    .expect("diagnostic artifact export should parse");
+    let CliCommand::Schema(SchemaCommand::DiagnosticArtifact(args)) = args.into_command() else {
+        panic!("expected schema diagnostic artifact command");
+    };
+
+    assert_eq!(args.target().canister_name(), "app");
+    assert_eq!(args.output(), Path::new("schema.diagnostic.json"));
+}
+
 fn clap_help_text(args: &[&str]) -> String {
     let err = CliArgs::try_parse_from(args).expect_err("help invocation should exit through clap");
 

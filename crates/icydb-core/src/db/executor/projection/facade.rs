@@ -23,7 +23,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
+use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
 /// Enforced scanned-key ceiling for one structural projection execution.
 #[derive(Clone, Copy)]
@@ -55,6 +55,10 @@ impl StructuralProjectionScanBudget {
 
     const fn probe_limit(self) -> usize {
         self.probe_limit
+    }
+
+    const fn max_scanned_keys(self) -> usize {
+        self.max_scanned_keys
     }
 }
 
@@ -194,10 +198,10 @@ where
             distinct,
             scan_budget.map(StructuralProjectionScanBudget::probe_limit),
         )?;
-    if scan_budget.is_some_and(|budget| budget.exceeded_by(scanned_keys)) {
-        return Err(InternalError::query_sql_write_boundary(
-            SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded,
-        ));
+    if let Some(scan_budget) = scan_budget
+        && scan_budget.exceeded_by(scanned_keys)
+    {
+        return Err(sql_scan_budget_exceeded_error(scan_budget, scanned_keys));
     }
 
     let rows = if distinct {
@@ -218,4 +222,41 @@ where
     };
 
     Ok(rows)
+}
+
+fn sql_scan_budget_exceeded_error(
+    scan_budget: StructuralProjectionScanBudget,
+    scanned_keys: usize,
+) -> InternalError {
+    InternalError::query_sql_write_boundary_with_facts(
+        SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded,
+        vec![
+            (DiagnosticFactTag::ActualCount, scanned_keys as u64),
+            (
+                DiagnosticFactTag::Limit,
+                scan_budget.max_scanned_keys() as u64,
+            ),
+        ],
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StructuralProjectionScanBudget, sql_scan_budget_exceeded_error};
+    use icydb_diagnostic_code::DiagnosticFactTag;
+
+    #[test]
+    fn sql_scan_budget_error_retains_exact_usage_and_limit() {
+        let budget = StructuralProjectionScanBudget::try_new(4)
+            .expect("positive non-max scan budget should be valid");
+        let error = sql_scan_budget_exceeded_error(budget, 5);
+
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (DiagnosticFactTag::ActualCount, 5),
+                (DiagnosticFactTag::Limit, 4),
+            ],
+        );
+    }
 }
