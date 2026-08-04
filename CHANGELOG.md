@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Preserve exact public leaf error codes when typed diagnostic details also
+  carry bounded numeric facts.
+- Update the host integration harness to `ic-testkit` 0.3.0, adopting its
+  fallible retry-policy contract without changing IcyDB test behavior.
+
 ## [0.219.x] 🩺 - 2026-08-03 - Compact Structured Diagnostics
 
 Detailed notes: [docs/changelog/0.219.md](docs/changelog/0.219.md)

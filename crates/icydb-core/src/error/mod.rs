@@ -338,13 +338,17 @@ impl InternalError {
         detail: Option<diagnostic_code::DiagnosticDetail>,
         facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
     ) -> Self {
+        let code = match detail {
+            Some(detail) => detail.diagnostic_code(),
+            None => class.diagnostic_code(origin),
+        };
         Self {
             class,
             origin,
             detail: Some(ErrorDetail::DiagnosticFacts(Box::new(
                 DiagnosticFactDetail {
                     diagnostic: diagnostic_code::Diagnostic::new(
-                        class.diagnostic_code(origin),
+                        code,
                         origin.diagnostic_origin(),
                         detail,
                     ),
