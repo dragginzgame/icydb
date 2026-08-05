@@ -1,6 +1,6 @@
 //! Module: db::session::query::exact_key
 //! Responsibility: bounded planner-free typed primary-key batches.
-//! Does not own: generated row decoding, caller authorization, or request-wide budgets.
+//! Does not own: generated row decoding, caller authorization, or aggregate request scopes.
 //! Boundary: validates one accepted typed binding, charges caller positions,
 //! deduplicates canonical keys, and reads each distinct stored row at most once.
 
@@ -8,12 +8,20 @@ use crate::{
     db::{
         DbSession, DynamicTypedEntityBinding, ExactKeyBatchProjectionOutput, PrimaryKeyEncode,
         QueryError,
-        data::{DecodedDataStoreKey, StructuralSlotReader},
+        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow, StructuralSlotReader},
+        executor::budget::{
+            HardExecutionBudget, HardExecutionBudgetTracker, HardExecutionContext,
+            HardExecutionFailureHeadroom,
+        },
+        registry::StoreHandle,
         schema::output_value_from_runtime,
     },
     error::InternalError,
     traits::CanisterKind,
     value::OutputValue,
+};
+use icydb_diagnostic_code::{
+    DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
 };
 use std::collections::BTreeMap;
 
@@ -25,6 +33,72 @@ pub const MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES: usize = 256 * 1_024;
 pub const MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES: usize = 4 * 1_024 * 1_024;
 /// Maximum encoded logical projection bytes charged by caller position.
 pub const MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES: usize = 4 * 1_024 * 1_024;
+
+const EXACT_KEY_FAILURE_HEADROOM: HardExecutionFailureHeadroom =
+    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1_024);
+const EXACT_KEY_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
+    [
+        1,                 // query executions
+        0,                 // planning steps
+        0,                 // plan compilations
+        1_024,             // key/index entries visited
+        1_024,             // rows visited
+        4 * 1_024 * 1_024, // stored bytes read
+        0,                 // predicate/expression steps
+        256 * 1_024,       // nested value steps
+        4 * 1_024 * 1_024, // decoded bytes
+        4 * 1_024 * 1_024, // materialized bytes
+        0,                 // sort entries
+        0,                 // sort comparisons
+        0,                 // sort temporary bytes
+        0,                 // group/distinct entries
+        0,                 // group/distinct state bytes
+        0,                 // cursor steps
+        256 * 1_024,       // temporary bytes
+        0,                 // diagnostic steps
+        1_024,             // logical result rows
+        4 * 1_024 * 1_024, // logical result bytes
+        4_500_000_000,     // instruction units, instrumented by Patch 5
+    ],
+    EXACT_KEY_FAILURE_HEADROOM,
+);
+const EXACT_KEY_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_676b;
+
+struct LoweredExactKeys {
+    distinct: Vec<(DecodedDataStoreKey, RawDataStoreKey)>,
+    positions: Vec<u32>,
+}
+
+fn budget_error(error: impl Into<InternalError>) -> QueryError {
+    QueryError::execute(error.into())
+}
+
+fn usize_as_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+const fn exact_key_shape_fingerprint_prefix(binding: &DynamicTypedEntityBinding) -> u64 {
+    let fingerprint = binding.accepted_fingerprint;
+    u64::from_be_bytes([
+        fingerprint[0],
+        fingerprint[1],
+        fingerprint[2],
+        fingerprint[3],
+        fingerprint[4],
+        fingerprint[5],
+        fingerprint[6],
+        fingerprint[7],
+    ]) ^ binding.entity_tag.rotate_left(17)
+        ^ EXACT_KEY_SHAPE_DOMAIN
+}
+
+const fn exact_key_budget_context(binding: &DynamicTypedEntityBinding) -> HardExecutionContext {
+    HardExecutionContext::new(
+        DiagnosticExecutionBudgetScope::Execution,
+        DiagnosticExecutionLane::PublicRead,
+        exact_key_shape_fingerprint_prefix(binding),
+    )
+}
 
 fn checked_add_bytes(
     total: &mut usize,
@@ -56,7 +130,14 @@ fn project_distinct_row(
     data_key: &DecodedDataStoreKey,
     raw_row: &crate::db::data::RawRow,
     slots: &[usize],
+    budget: &mut HardExecutionBudgetTracker<'_>,
 ) -> Result<Vec<OutputValue>, InternalError> {
+    budget
+        .charge_periodic(
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            usize_as_u64(slots.len()),
+        )
+        .map_err(InternalError::from)?;
     let contract = catalog.inspection_plan().row_contract();
     let reader =
         StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
@@ -75,6 +156,7 @@ fn validate_logical_result_bytes(
     columns: &[String],
     distinct_rows: &[Option<Vec<OutputValue>>],
     positions: &[u32],
+    budget: &mut HardExecutionBudgetTracker<'_>,
 ) -> Result<(), InternalError> {
     let mut total = candid::encode_one((entity, columns))
         .map_err(|_| InternalError::query_executor_invariant())?
@@ -100,14 +182,133 @@ fn validate_logical_result_bytes(
             .get(index)
             .copied()
             .ok_or_else(InternalError::query_executor_invariant)?;
-        checked_add_bytes(
+        let exact_charge = checked_add_bytes(
             &mut total,
             bytes,
             MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES,
             InternalError::exact_key_batch_result_bytes_exceeded,
-        )?;
+        );
+        if let Err(error) = exact_charge {
+            let _ = budget.precharge(
+                DiagnosticExecutionBudgetResource::ResultBytes,
+                usize_as_u64(total),
+            );
+            return Err(error);
+        }
     }
+    budget
+        .precharge(
+            DiagnosticExecutionBudgetResource::ResultBytes,
+            usize_as_u64(total),
+        )
+        .map_err(InternalError::from)
+}
+
+fn charge_stored_row(
+    row: &RawRow,
+    stored_bytes: &mut usize,
+    budget: &mut HardExecutionBudgetTracker<'_>,
+) -> Result<(), InternalError> {
+    let exact_charge = checked_add_bytes(
+        stored_bytes,
+        row.len(),
+        MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
+        InternalError::exact_key_batch_stored_bytes_exceeded,
+    );
+    let row_bytes = usize_as_u64(row.len());
+    let row_charge = budget.charge_periodic(DiagnosticExecutionBudgetResource::RowsVisited, 1);
+    let stored_charge = budget.charge_periodic(
+        DiagnosticExecutionBudgetResource::StoredBytesRead,
+        row_bytes,
+    );
+    exact_charge?;
+    row_charge.map_err(InternalError::from)?;
+    stored_charge.map_err(InternalError::from)?;
+    budget
+        .charge_periodic(DiagnosticExecutionBudgetResource::DecodedBytes, row_bytes)
+        .map_err(InternalError::from)?;
+    budget
+        .charge_periodic(
+            DiagnosticExecutionBudgetResource::MaterializedBytes,
+            row_bytes,
+        )
+        .map_err(InternalError::from)?;
     Ok(())
+}
+
+fn load_distinct_raw_rows(
+    store: &StoreHandle,
+    distinct_keys: &[(DecodedDataStoreKey, RawDataStoreKey)],
+    budget: &mut HardExecutionBudgetTracker<'_>,
+) -> Result<Vec<Option<RawRow>>, InternalError> {
+    let mut stored_bytes = 0_usize;
+    distinct_keys
+        .iter()
+        .map(|(_, raw_key)| {
+            budget
+                .charge_periodic(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1)
+                .map_err(InternalError::from)?;
+            let row = store.with_data(|data| data.get(raw_key));
+            if let Some(row) = row.as_ref() {
+                charge_stored_row(row, &mut stored_bytes, budget)?;
+            }
+            Ok(row)
+        })
+        .collect()
+}
+
+fn lower_exact_keys<K: PrimaryKeyEncode>(
+    entity_tag: crate::types::EntityTag,
+    keys: &[K],
+    budget: &mut HardExecutionBudgetTracker<'_>,
+) -> Result<LoweredExactKeys, QueryError> {
+    let mut distinct_by_raw = BTreeMap::new();
+    let mut distinct_keys = Vec::new();
+    let mut positions = Vec::with_capacity(keys.len());
+    let mut input_bytes = 0_usize;
+    for key in keys {
+        let primary_key = key
+            .to_primary_key_value()
+            .map_err(InternalError::from)
+            .map_err(QueryError::execute)?;
+        let data_key = DecodedDataStoreKey::new(entity_tag, &primary_key);
+        let raw_key = data_key.to_raw().map_err(QueryError::execute)?;
+        let exact_charge = checked_add_bytes(
+            &mut input_bytes,
+            raw_key.as_bytes().len(),
+            MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES,
+            InternalError::exact_key_batch_input_bytes_exceeded,
+        );
+        if let Err(error) = exact_charge {
+            let _ = budget.precharge(
+                DiagnosticExecutionBudgetResource::TemporaryBytes,
+                usize_as_u64(input_bytes),
+            );
+            return Err(QueryError::execute(error));
+        }
+        let index = if let Some(index) = distinct_by_raw.get(&raw_key) {
+            *index
+        } else {
+            let index = distinct_keys.len();
+            distinct_by_raw.insert(raw_key.clone(), index);
+            distinct_keys.push((data_key, raw_key));
+            index
+        };
+        positions.push(
+            u32::try_from(index)
+                .map_err(|_| QueryError::execute(InternalError::query_executor_invariant()))?,
+        );
+    }
+    budget
+        .precharge(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            usize_as_u64(input_bytes),
+        )
+        .map_err(budget_error)?;
+    Ok(LoweredExactKeys {
+        distinct: distinct_keys,
+        positions,
+    })
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -124,7 +325,32 @@ impl<C: CanisterKind> DbSession<C> {
     where
         K: PrimaryKeyEncode,
     {
+        let mut budget = HardExecutionBudgetTracker::new(
+            &EXACT_KEY_HARD_BUDGET,
+            exact_key_budget_context(binding),
+        );
+        self.execute_exact_key_batch_with_budget(binding, keys, &mut budget)
+    }
+
+    fn execute_exact_key_batch_with_budget<K>(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        keys: &[K],
+        budget: &mut HardExecutionBudgetTracker<'_>,
+    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError>
+    where
+        K: PrimaryKeyEncode,
+    {
+        budget
+            .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1)
+            .map_err(budget_error)?;
         validate_exact_key_count(keys.len()).map_err(QueryError::execute)?;
+        budget
+            .precharge(
+                DiagnosticExecutionBudgetResource::ResultRows,
+                usize_as_u64(keys.len()),
+            )
+            .map_err(budget_error)?;
         let Some(catalog) = self
             .current_typed_entity_binding_catalog(binding)
             .map_err(QueryError::execute)?
@@ -132,61 +358,17 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
 
-        let entity_tag = catalog.identity().entity_tag();
-        let mut distinct_by_raw = BTreeMap::new();
-        let mut distinct_keys = Vec::new();
-        let mut positions = Vec::with_capacity(keys.len());
-        let mut input_bytes = 0_usize;
-        for key in keys {
-            let primary_key = key
-                .to_primary_key_value()
-                .map_err(InternalError::from)
-                .map_err(QueryError::execute)?;
-            let data_key = DecodedDataStoreKey::new(entity_tag, &primary_key);
-            let raw_key = data_key.to_raw().map_err(QueryError::execute)?;
-            checked_add_bytes(
-                &mut input_bytes,
-                raw_key.as_bytes().len(),
-                MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES,
-                InternalError::exact_key_batch_input_bytes_exceeded,
-            )
-            .map_err(QueryError::execute)?;
-            let index = if let Some(index) = distinct_by_raw.get(&raw_key) {
-                *index
-            } else {
-                let index = distinct_keys.len();
-                distinct_by_raw.insert(raw_key.clone(), index);
-                distinct_keys.push((data_key, raw_key));
-                index
-            };
-            positions.push(
-                u32::try_from(index)
-                    .map_err(|_| QueryError::execute(InternalError::query_executor_invariant()))?,
-            );
-        }
+        let lowered = lower_exact_keys(catalog.identity().entity_tag(), keys, budget)?;
+        let distinct_keys = lowered.distinct;
+        let positions = lowered.positions;
 
         let identity = catalog.identity();
         let store = self
             .db
             .recovered_store(identity.store_path())
             .map_err(QueryError::execute)?;
-        let mut stored_bytes = 0_usize;
-        let raw_rows = distinct_keys
-            .iter()
-            .map(|(_, raw_key)| {
-                let row = store.with_data(|data| data.get(raw_key));
-                if let Some(row) = row.as_ref() {
-                    checked_add_bytes(
-                        &mut stored_bytes,
-                        row.len(),
-                        MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
-                        InternalError::exact_key_batch_stored_bytes_exceeded,
-                    )?;
-                }
-                Ok(row)
-            })
-            .collect::<Result<Vec<_>, InternalError>>()
-            .map_err(QueryError::execute)?;
+        let raw_rows =
+            load_distinct_raw_rows(&store, &distinct_keys, budget).map_err(QueryError::execute)?;
 
         let schema = catalog.accepted_schema_info();
         let columns = schema
@@ -209,13 +391,15 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|((data_key, _), raw_row)| {
                 raw_row
                     .as_ref()
-                    .map(|raw_row| project_distinct_row(&catalog, data_key, raw_row, &slots))
+                    .map(|raw_row| {
+                        project_distinct_row(&catalog, data_key, raw_row, &slots, budget)
+                    })
                     .transpose()
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(QueryError::execute)?;
         let entity = catalog.snapshot().entity_name().to_string();
-        validate_logical_result_bytes(&entity, &columns, &distinct_rows, &positions)
+        validate_logical_result_bytes(&entity, &columns, &distinct_rows, &positions, budget)
             .map_err(QueryError::execute)?;
 
         Ok(Some(ExactKeyBatchProjectionOutput {
@@ -224,6 +408,21 @@ impl<C: CanisterKind> DbSession<C> {
             distinct_rows,
             positions,
         }))
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn execute_exact_key_batch_with_hard_budget_for_tests<K>(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        keys: &[K],
+        hard_budget: &HardExecutionBudget,
+    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError>
+    where
+        K: PrimaryKeyEncode,
+    {
+        let mut budget =
+            HardExecutionBudgetTracker::new(hard_budget, exact_key_budget_context(binding));
+        self.execute_exact_key_batch_with_budget(binding, keys, &mut budget)
     }
 }
 
@@ -297,9 +496,22 @@ mod tests {
             "x".repeat(MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES / 2),
         )]);
         let rows = vec![row];
-        let error =
-            validate_logical_result_bytes("Large", &["payload".to_string()], &rows, &[0, 0])
-                .expect_err("duplicate logical positions must each charge result bytes");
+        let mut budget = HardExecutionBudgetTracker::new(
+            &EXACT_KEY_HARD_BUDGET,
+            HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::PublicRead,
+                1,
+            ),
+        );
+        let error = validate_logical_result_bytes(
+            "Large",
+            &["payload".to_string()],
+            &rows,
+            &[0, 0],
+            &mut budget,
+        )
+        .expect_err("duplicate logical positions must each charge result bytes");
         assert!(matches!(
             error.diagnostic().detail(),
             Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
@@ -313,6 +525,11 @@ mod tests {
                 icydb_diagnostic_code::DiagnosticFactTag::Limit,
                 MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES as u64,
             ),
+        );
+        assert!(
+            budget.observed(DiagnosticExecutionBudgetResource::ResultBytes)
+                > MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES as u64,
+            "rejected result work remains charged even when the exact-key boundary is returned",
         );
     }
 }

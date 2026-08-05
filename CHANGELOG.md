@@ -11,9 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
 
-- `0.221.2` makes repeated filtered reads safer and cheaper through bounded
-  parameterized plan reuse and complete typed filter-literal rehydration,
-  while reducing host integration fixture churn.
+- `0.221.2` makes repeated reads safer and cheaper through bounded
+  parameterized plan reuse, complete typed filter-literal rehydration, and
+  monotonic hard execution budgets on the planner-free exact-key path, while
+  leaving successful results, Candid, and persisted formats unchanged.
 
 - `0.221.1` adds bounded planner-free typed `get` and `get_many` reads with
   explicit duplicate, missing-key, and resource-limit semantics; exhaustive

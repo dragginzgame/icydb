@@ -389,6 +389,46 @@ impl InternalError {
         )
     }
 
+    /// Construct an executor-origin hard execution-budget rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn execution_budget_exceeded(
+        resource: diagnostic_code::DiagnosticExecutionBudgetResource,
+        limit: u64,
+        observed: u64,
+        scope: diagnostic_code::DiagnosticExecutionBudgetScope,
+        lane: diagnostic_code::DiagnosticExecutionLane,
+        normalized_shape_fingerprint_prefix: u64,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Executor,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            }),
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::BudgetResource,
+                    resource.raw(),
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit),
+                (diagnostic_code::DiagnosticFactTag::Actual, observed),
+                (
+                    diagnostic_code::DiagnosticFactTag::ExecutionBudgetScope,
+                    scope.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ExecutionLane,
+                    lane.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::QueryShapeFingerprintPrefix,
+                    normalized_shape_fingerprint_prefix,
+                ),
+            ],
+        )
+    }
+
     /// Rebuild this error with a new origin while preserving class taxonomy.
     ///
     /// Numeric facts are origin-independent and remain safe after recovery

@@ -5,6 +5,7 @@
 
 mod aggregate;
 mod authority;
+pub(in crate::db) mod budget;
 mod covering;
 mod diagnostics;
 #[cfg(feature = "sql")]

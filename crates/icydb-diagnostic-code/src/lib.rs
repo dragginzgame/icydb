@@ -15,7 +15,8 @@ mod fact;
 
 pub use fact::{
     DiagnosticAggregateKind, DiagnosticComponentKind, DiagnosticConstraintContext,
-    DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticFactSchemaMismatch,
+    DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticExecutionBudgetResource,
+    DiagnosticExecutionBudgetScope, DiagnosticExecutionLane, DiagnosticFactSchemaMismatch,
     DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation, DiagnosticOperatorKind,
     DiagnosticTypeFamily, MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
     validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
@@ -542,6 +543,8 @@ pub enum RuntimeBoundaryCode {
     ExactKeyBatchStoredBytesExceeded,
     /// An exact-key batch exceeded its admitted logical result bytes.
     ExactKeyBatchResultBytesExceeded,
+    /// One charged execution resource exceeded its absolute safety ceiling.
+    ExecutionBudgetExceeded,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1082,7 +1085,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 272);
+        assert_eq!(last, 273);
     }
 
     #[test]
@@ -1114,7 +1117,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 273, u16::MAX] {
+        for raw in [0, 274, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

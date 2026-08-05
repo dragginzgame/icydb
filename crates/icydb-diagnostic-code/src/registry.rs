@@ -687,4 +687,6 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExactKeyBatchStoredBytesExceeded });
     RUNTIME_BOUNDARY_EXACT_KEY_BATCH_RESULT_BYTES_EXCEEDED = 272 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded });
+    RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED = 273 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded });
 }

@@ -140,6 +140,9 @@ define_fact_tag_registry! {
     SetElement = 87;
     MapEntryKey = 88;
     MapEntryValue = 89;
+    ExecutionBudgetScope = 90;
+    ExecutionLane = 91;
+    QueryShapeFingerprintPrefix = 92;
 }
 
 /// Compact reason carried by [`DiagnosticFactTag::DecodeReason`].
@@ -210,6 +213,79 @@ macro_rules! define_numeric_fact_value_registry {
             }
         }
     };
+}
+
+define_numeric_fact_value_registry! {
+    /// Compact hard-budget resource carried by [`DiagnosticFactTag::BudgetResource`].
+    pub enum DiagnosticExecutionBudgetResource {
+        QueryExecutions = 1;
+        PlanningSteps = 2;
+        PlanCompilations = 3;
+        KeyIndexEntriesVisited = 4;
+        RowsVisited = 5;
+        StoredBytesRead = 6;
+        PredicateExpressionSteps = 7;
+        NestedValueSteps = 8;
+        DecodedBytes = 9;
+        MaterializedBytes = 10;
+        SortEntries = 11;
+        SortComparisons = 12;
+        SortTemporaryBytes = 13;
+        GroupDistinctEntries = 14;
+        GroupDistinctStateBytes = 15;
+        CursorSteps = 16;
+        TemporaryBytes = 17;
+        DiagnosticSteps = 18;
+        ResultRows = 19;
+        ResultBytes = 20;
+        InstructionUnits = 21;
+    }
+}
+
+impl DiagnosticExecutionBudgetResource {
+    /// Every maintained hard-budget resource in stable numeric order.
+    pub const ALL: [Self; 21] = [
+        Self::QueryExecutions,
+        Self::PlanningSteps,
+        Self::PlanCompilations,
+        Self::KeyIndexEntriesVisited,
+        Self::RowsVisited,
+        Self::StoredBytesRead,
+        Self::PredicateExpressionSteps,
+        Self::NestedValueSteps,
+        Self::DecodedBytes,
+        Self::MaterializedBytes,
+        Self::SortEntries,
+        Self::SortComparisons,
+        Self::SortTemporaryBytes,
+        Self::GroupDistinctEntries,
+        Self::GroupDistinctStateBytes,
+        Self::CursorSteps,
+        Self::TemporaryBytes,
+        Self::DiagnosticSteps,
+        Self::ResultRows,
+        Self::ResultBytes,
+        Self::InstructionUnits,
+    ];
+}
+
+define_numeric_fact_value_registry! {
+    /// Compact counter owner carried by [`DiagnosticFactTag::ExecutionBudgetScope`].
+    pub enum DiagnosticExecutionBudgetScope {
+        Execution = 1;
+        Request = 2;
+    }
+}
+
+define_numeric_fact_value_registry! {
+    /// Compact execution lane carried by [`DiagnosticFactTag::ExecutionLane`].
+    pub enum DiagnosticExecutionLane {
+        PublicRead = 1;
+        TrustedRead = 2;
+        Diagnostic = 3;
+        Mutation = 4;
+        Recovery = 5;
+    }
 }
 
 define_numeric_fact_value_registry! {
@@ -581,6 +657,18 @@ fn validate_diagnostic_fact_schema(
             &fact_at,
             &[DiagnosticFactTag::ActualLength, DiagnosticFactTag::Limit],
         ),
+        273 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::BudgetResource,
+                DiagnosticFactTag::Limit,
+                DiagnosticFactTag::Actual,
+                DiagnosticFactTag::ExecutionBudgetScope,
+                DiagnosticFactTag::ExecutionLane,
+                DiagnosticFactTag::QueryShapeFingerprintPrefix,
+            ],
+        ),
         239 => tags_match(
             fact_count,
             &fact_at,
@@ -624,7 +712,7 @@ const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
         19 | 21 | 138 | 177 | 178 | 180 | 201 | 202 | 203 | 205 | 236 | 237 | 238 | 269 | 270
         | 271 | 272 => 2,
         3 | 20 => 5,
-        23 => 6,
+        23 | 273 => 6,
         196 | 234 => 4,
         223 => 73,
         225 => 9,
@@ -1035,6 +1123,13 @@ const fn diagnostic_fact_value_is_valid(tag: DiagnosticFactTag, value: u64) -> b
         DiagnosticFactTag::AggregateKind => DiagnosticAggregateKind::known(value).is_some(),
         DiagnosticFactTag::ComponentKind => DiagnosticComponentKind::known(value).is_some(),
         DiagnosticFactTag::DecodeReason => DiagnosticDecodeReason::known(value).is_some(),
+        DiagnosticFactTag::BudgetResource => {
+            DiagnosticExecutionBudgetResource::known(value).is_some()
+        }
+        DiagnosticFactTag::ExecutionBudgetScope => {
+            DiagnosticExecutionBudgetScope::known(value).is_some()
+        }
+        DiagnosticFactTag::ExecutionLane => DiagnosticExecutionLane::known(value).is_some(),
         DiagnosticFactTag::MutationOperation => DiagnosticMutationOperation::known(value).is_some(),
         _ => true,
     }
@@ -1044,7 +1139,8 @@ const fn diagnostic_fact_value_is_valid(tag: DiagnosticFactTag, value: u64) -> b
 mod tests {
     use super::{
         DiagnosticAggregateKind, DiagnosticComponentKind, DiagnosticConstraintContext,
-        DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticFactSchemaMismatch,
+        DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticExecutionBudgetResource,
+        DiagnosticExecutionBudgetScope, DiagnosticExecutionLane, DiagnosticFactSchemaMismatch,
         DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation,
         DiagnosticOperatorKind, DiagnosticTypeFamily, ORDERED_FACT_TAGS, pack_u32_pair,
         unpack_u32_pair, validate_known_diagnostic_fact_schema,
@@ -1061,8 +1157,37 @@ mod tests {
         }
 
         assert_eq!(DiagnosticFactTag::known(0), None);
-        assert_eq!(DiagnosticFactTag::known(90), None);
+        assert_eq!(DiagnosticFactTag::known(93), None);
         assert_eq!(DiagnosticFactTag::known(u8::MAX), None);
+    }
+
+    #[test]
+    fn execution_budget_fact_value_registries_are_fixed() {
+        for (index, resource) in DiagnosticExecutionBudgetResource::ALL
+            .iter()
+            .copied()
+            .enumerate()
+        {
+            let expected = u64::try_from(index + 1).expect("resource index fits u64");
+            assert_eq!(resource.raw(), expected);
+            assert_eq!(
+                DiagnosticExecutionBudgetResource::known(expected),
+                Some(resource)
+            );
+        }
+        assert_eq!(DiagnosticExecutionBudgetResource::known(0), None);
+        assert_eq!(DiagnosticExecutionBudgetResource::known(22), None);
+
+        assert_eq!(DiagnosticExecutionBudgetScope::Execution.raw(), 1);
+        assert_eq!(DiagnosticExecutionBudgetScope::Request.raw(), 2);
+        assert_eq!(DiagnosticExecutionBudgetScope::known(3), None);
+
+        assert_eq!(DiagnosticExecutionLane::PublicRead.raw(), 1);
+        assert_eq!(DiagnosticExecutionLane::TrustedRead.raw(), 2);
+        assert_eq!(DiagnosticExecutionLane::Diagnostic.raw(), 3);
+        assert_eq!(DiagnosticExecutionLane::Mutation.raw(), 4);
+        assert_eq!(DiagnosticExecutionLane::Recovery.raw(), 5);
+        assert_eq!(DiagnosticExecutionLane::known(6), None);
     }
 
     #[test]
@@ -1229,6 +1354,51 @@ mod tests {
         assert_eq!(
             validate_known_diagnostic_fact_schema(ErrorCode::QUERY_VALIDATE, &valid),
             Err(DiagnosticFactSchemaMismatch::CodeMaximumExceeded)
+        );
+    }
+
+    #[test]
+    fn execution_budget_schema_requires_complete_typed_attribution() {
+        let valid = [
+            (
+                DiagnosticFactTag::BudgetResource,
+                DiagnosticExecutionBudgetResource::StoredBytesRead.raw(),
+            ),
+            (DiagnosticFactTag::Limit, 4_096),
+            (DiagnosticFactTag::Actual, 4_097),
+            (
+                DiagnosticFactTag::ExecutionBudgetScope,
+                DiagnosticExecutionBudgetScope::Request.raw(),
+            ),
+            (
+                DiagnosticFactTag::ExecutionLane,
+                DiagnosticExecutionLane::TrustedRead.raw(),
+            ),
+            (DiagnosticFactTag::QueryShapeFingerprintPrefix, 17),
+        ];
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED,
+                &valid,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED,
+                &valid[..5],
+            ),
+            Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+        );
+
+        let mut invalid_resource = valid;
+        invalid_resource[0].1 = 0;
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED,
+                &invalid_resource,
+            ),
+            Err(DiagnosticFactSchemaMismatch::InvalidValue)
         );
     }
 

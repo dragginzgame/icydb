@@ -2553,6 +2553,8 @@ mod identity_pre_key_tests {
         add_structural_mutation_staged_bytes, checked_pre_key_candidate_count,
         insert_key_exists_after_generation, validate_structural_mutation_result_bytes,
     };
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    use crate::db::executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom};
     use crate::{
         db::{
             commit::{database_incarnation_id, forget_recovered_domain_for_tests},
@@ -2886,6 +2888,50 @@ mod identity_pre_key_tests {
     fn exact_key_batches_preserve_semantics_across_heap_and_journaled_stores() {
         assert_exact_key_batch(&initialize());
         assert_exact_key_batch(&initialize_journaled());
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn exact_key_batch_uses_typed_hard_execution_budget() {
+        let session = initialize();
+        let binding = exact_key_binding(&session);
+        let budget =
+            HardExecutionBudget::uniform_for_tests(0, HardExecutionFailureHeadroom::new(500, 256));
+        let error = session
+            .execute_exact_key_batch_with_hard_budget_for_tests(&binding, &[u64::MAX], &budget)
+            .expect_err("zero query budget should reject the exact-key route");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        let facts = error.diagnostic_facts();
+        assert_eq!(
+            &facts[..5],
+            &[
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                    icydb_diagnostic_code::DiagnosticExecutionBudgetResource::QueryExecutions.raw(),
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 0),
+                (icydb_diagnostic_code::DiagnosticFactTag::Actual, 1),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ExecutionBudgetScope,
+                    icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution.raw(),
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ExecutionLane,
+                    icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead.raw(),
+                ),
+            ],
+        );
+        assert_eq!(
+            facts[5].0,
+            icydb_diagnostic_code::DiagnosticFactTag::QueryShapeFingerprintPrefix,
+        );
+        assert_ne!(facts[5].1, 0);
     }
 
     fn assert_dynamic_payload(session: &DbSession<TestCanister>, key: u64, expected_payload: u64) {

@@ -7,7 +7,8 @@ pub(crate) mod artifact;
 
 use icydb::diagnostic::{
     DiagnosticCode, DiagnosticComponentKind, DiagnosticConstraintContext, DiagnosticConstraintKind,
-    DiagnosticDetail, DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode,
+    DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
+    DiagnosticExecutionLane, DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode,
     ErrorOrigin, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
     RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode,
     SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
@@ -396,9 +397,66 @@ fn render_fact_value(
         DiagnosticFactTag::ConstraintContext => constraint_context_text(value),
         DiagnosticFactTag::MutationOperation => mutation_operation_text(value),
         DiagnosticFactTag::ComponentKind => component_kind_text(value),
+        DiagnosticFactTag::BudgetResource => execution_budget_resource_text(value),
+        DiagnosticFactTag::ExecutionBudgetScope => execution_budget_scope_text(value),
+        DiagnosticFactTag::ExecutionLane => execution_lane_text(value),
         _ => None,
     };
     label.map_or_else(|| value.to_string(), |label| format!("{value}({label})"))
+}
+
+const fn execution_budget_resource_text(value: u64) -> Option<&'static str> {
+    match DiagnosticExecutionBudgetResource::known(value) {
+        Some(DiagnosticExecutionBudgetResource::QueryExecutions) => Some("query-executions"),
+        Some(DiagnosticExecutionBudgetResource::PlanningSteps) => Some("planning-steps"),
+        Some(DiagnosticExecutionBudgetResource::PlanCompilations) => Some("plan-compilations"),
+        Some(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited) => {
+            Some("key-index-entries-visited")
+        }
+        Some(DiagnosticExecutionBudgetResource::RowsVisited) => Some("rows-visited"),
+        Some(DiagnosticExecutionBudgetResource::StoredBytesRead) => Some("stored-bytes-read"),
+        Some(DiagnosticExecutionBudgetResource::PredicateExpressionSteps) => {
+            Some("predicate-expression-steps")
+        }
+        Some(DiagnosticExecutionBudgetResource::NestedValueSteps) => Some("nested-value-steps"),
+        Some(DiagnosticExecutionBudgetResource::DecodedBytes) => Some("decoded-bytes"),
+        Some(DiagnosticExecutionBudgetResource::MaterializedBytes) => Some("materialized-bytes"),
+        Some(DiagnosticExecutionBudgetResource::SortEntries) => Some("sort-entries"),
+        Some(DiagnosticExecutionBudgetResource::SortComparisons) => Some("sort-comparisons"),
+        Some(DiagnosticExecutionBudgetResource::SortTemporaryBytes) => Some("sort-temporary-bytes"),
+        Some(DiagnosticExecutionBudgetResource::GroupDistinctEntries) => {
+            Some("group-distinct-entries")
+        }
+        Some(DiagnosticExecutionBudgetResource::GroupDistinctStateBytes) => {
+            Some("group-distinct-state-bytes")
+        }
+        Some(DiagnosticExecutionBudgetResource::CursorSteps) => Some("cursor-steps"),
+        Some(DiagnosticExecutionBudgetResource::TemporaryBytes) => Some("temporary-bytes"),
+        Some(DiagnosticExecutionBudgetResource::DiagnosticSteps) => Some("diagnostic-steps"),
+        Some(DiagnosticExecutionBudgetResource::ResultRows) => Some("result-rows"),
+        Some(DiagnosticExecutionBudgetResource::ResultBytes) => Some("result-bytes"),
+        Some(DiagnosticExecutionBudgetResource::InstructionUnits) => Some("instruction-units"),
+        None => None,
+    }
+}
+
+const fn execution_budget_scope_text(value: u64) -> Option<&'static str> {
+    match DiagnosticExecutionBudgetScope::known(value) {
+        Some(DiagnosticExecutionBudgetScope::Execution) => Some("execution"),
+        Some(DiagnosticExecutionBudgetScope::Request) => Some("request"),
+        None => None,
+    }
+}
+
+const fn execution_lane_text(value: u64) -> Option<&'static str> {
+    match DiagnosticExecutionLane::known(value) {
+        Some(DiagnosticExecutionLane::PublicRead) => Some("public-read"),
+        Some(DiagnosticExecutionLane::TrustedRead) => Some("trusted-read"),
+        Some(DiagnosticExecutionLane::Diagnostic) => Some("diagnostic"),
+        Some(DiagnosticExecutionLane::Mutation) => Some("mutation"),
+        Some(DiagnosticExecutionLane::Recovery) => Some("recovery"),
+        None => None,
+    }
 }
 
 const fn component_kind_text(value: u64) -> Option<&'static str> {
@@ -595,6 +653,9 @@ const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static st
         DiagnosticFactTag::SetElement => "set_element",
         DiagnosticFactTag::MapEntryKey => "map_entry_key",
         DiagnosticFactTag::MapEntryValue => "map_entry_value",
+        DiagnosticFactTag::ExecutionBudgetScope => "execution_budget_scope",
+        DiagnosticFactTag::ExecutionLane => "execution_lane",
+        DiagnosticFactTag::QueryShapeFingerprintPrefix => "query_shape_fingerprint_prefix",
     }
 }
 
@@ -1019,6 +1080,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         }
         RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded => {
             "exact-key batch exceeds the logical result byte bound"
+        }
+        RuntimeBoundaryCode::ExecutionBudgetExceeded => {
+            "charged database work exceeds its hard execution budget"
         }
     }
 }
@@ -1507,6 +1571,41 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_RUNTIME_UNSUPPORTED: structural mutation batch exceeds the operation-count bound; facts actual_count=5000 limit=4096 tag#250=7; fact context mismatch: fact count exceeds the E-code maximum",
+        );
+    }
+
+    #[test]
+    fn renders_hard_execution_budget_attribution() {
+        let err: icydb::Error = serde_json::from_value(serde_json::json!({
+            "code": icydb::ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED.raw(),
+            "class": icydb::diagnostic::ErrorClass::Unsupported.wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Executor.wire_code(),
+            "facts": [
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::BudgetResource.raw(),
+                    "value": icydb::diagnostic::DiagnosticExecutionBudgetResource::StoredBytesRead.raw(),
+                },
+                { "tag": icydb::diagnostic::DiagnosticFactTag::Limit.raw(), "value": 4096 },
+                { "tag": icydb::diagnostic::DiagnosticFactTag::Actual.raw(), "value": 4097 },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ExecutionBudgetScope.raw(),
+                    "value": icydb::diagnostic::DiagnosticExecutionBudgetScope::Request.raw(),
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ExecutionLane.raw(),
+                    "value": icydb::diagnostic::DiagnosticExecutionLane::TrustedRead.raw(),
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::QueryShapeFingerprintPrefix.raw(),
+                    "value": 17,
+                },
+            ],
+        }))
+        .expect("execution budget fact error should decode");
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: charged database work exceeds its hard execution budget; facts budget_resource=6(stored-bytes-read) limit=4096 actual=4097 execution_budget_scope=2(request) execution_lane=2(trusted-read) query_shape_fingerprint_prefix=17",
         );
     }
 
@@ -2111,6 +2210,10 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded,
                 "E_RUNTIME_UNSUPPORTED: exact-key batch exceeds the logical result byte bound",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+                "E_RUNTIME_UNSUPPORTED: charged database work exceeds its hard execution budget",
             ),
         ];
 
