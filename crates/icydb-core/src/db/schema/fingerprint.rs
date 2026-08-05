@@ -15,13 +15,13 @@ use crate::{
     error::InternalError,
 };
 use sha2::{Digest, Sha256};
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 use std::cell::Cell;
 const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_DOMAIN: &[u8] = b"icydb.accepted-schema.runtime";
 const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION: u8 = 1;
 const ACCEPTED_SCHEMA_ADMISSION_FINGERPRINT_VERSION: u8 = 1;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 thread_local! {
     static ACCEPTED_SCHEMA_SNAPSHOT_FINGERPRINT_BUILDS: Cell<u64> = const { Cell::new(0) };
 }
@@ -56,7 +56,7 @@ pub(in crate::db) fn accepted_commit_schema_fingerprint(
 pub(in crate::db) fn accepted_schema_cache_fingerprint_for_persisted_snapshot(
     schema: &PersistedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
     ACCEPTED_SCHEMA_SNAPSHOT_FINGERPRINT_BUILDS.with(|builds| {
         builds.set(builds.get().saturating_add(1));
     });
@@ -69,12 +69,12 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint_for_persisted_snapshot(
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn reset_accepted_schema_snapshot_fingerprint_builds_for_tests() {
     ACCEPTED_SCHEMA_SNAPSHOT_FINGERPRINT_BUILDS.with(|builds| builds.set(0));
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 #[must_use]
 pub(in crate::db) fn accepted_schema_snapshot_fingerprint_builds_for_tests() -> u64 {
     ACCEPTED_SCHEMA_SNAPSHOT_FINGERPRINT_BUILDS.with(Cell::get)

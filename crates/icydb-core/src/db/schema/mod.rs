@@ -207,7 +207,7 @@ pub(in crate::db) use fingerprint::{
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use fingerprint::{
     accepted_schema_snapshot_fingerprint_builds_for_tests,
     reset_accepted_schema_snapshot_fingerprint_builds_for_tests,
