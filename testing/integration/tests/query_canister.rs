@@ -52,8 +52,7 @@ fn repeated_dynamic_point_query_instruction_measurement() {
         assert_eq!(rows, 0);
         assert!(local_instructions > 0);
         println!(
-            "icydb_0221_repeated_queries wasm={} shape={} executions={} local_instructions={}",
-            wasm_path, shape, executions, local_instructions,
+            "icydb_0221_repeated_queries wasm={wasm_path} shape={shape} executions={executions} local_instructions={local_instructions}",
         );
     }
 }
