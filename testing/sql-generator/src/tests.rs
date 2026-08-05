@@ -18,7 +18,7 @@ use crate::{
     generated_select_tier_c_declaration,
     rng::{SplitMix64, derive_select_witness_sub_seed},
     scheduled_mutation_witnesses, scheduled_select_witnesses, scheduled_sql_scenario_shard,
-    shrink_select_failure, structural_obligation_catalog_hash,
+    shrink_select_failure, structural_witness_schedule_hash,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,8 +40,8 @@ fn splitmix64_state_transition_has_fixed_golden_vector() {
 }
 
 #[test]
-fn witness_sub_seed_is_stable_and_independent_of_catalog_order() {
-    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+fn witness_sub_seed_is_stable_and_independent_of_schedule_order() {
+    let witnesses = scheduled_select_witnesses().expect("schedule should derive");
     let first = &witnesses[0];
     let sub_seed = derive_select_witness_sub_seed(
         SELECT_GENERATOR_VERSION,
@@ -57,7 +57,7 @@ fn witness_sub_seed_is_stable_and_independent_of_catalog_order() {
     let reversed = reverse
         .iter()
         .find(|candidate| candidate.witness_id() == first.witness_id())
-        .expect("reversed catalog should retain the witness");
+        .expect("reversed schedule should retain the witness");
     assert_eq!(
         derive_select_witness_sub_seed(
             SELECT_GENERATOR_VERSION,
@@ -71,12 +71,12 @@ fn witness_sub_seed_is_stable_and_independent_of_catalog_order() {
 }
 
 #[test]
-fn frozen_catalog_exposes_exact_select_witnesses_and_hash() {
-    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+fn code_owned_schedule_exposes_exact_select_witnesses_and_hash() {
+    let witnesses = scheduled_select_witnesses().expect("schedule should derive");
     assert_eq!(witnesses.len(), 17);
     assert_eq!(
-        structural_obligation_catalog_hash().expect("catalog hash should decode"),
-        "c273d1ce46eda26a1e664ceb47794c21c444d1d5ab90a9c19cc7b6185c92d74a",
+        structural_witness_schedule_hash().expect("schedule hash should derive"),
+        "787d66c237f92a2269ec0053fafee092dfe398952ac3fe1cbc726c8774beb246",
     );
     assert_eq!(
         witnesses
@@ -96,7 +96,7 @@ fn frozen_catalog_exposes_exact_select_witnesses_and_hash() {
 #[test]
 fn structural_signature_round_trip_equality_and_order_are_lossless() {
     let mut signatures = scheduled_select_witnesses()
-        .expect("catalog should decode")
+        .expect("schedule should derive")
         .into_iter()
         .map(|witness| {
             generate_scheduled_select_case(&witness, TIER_C_ROOT_SEEDS[0], 0, TIER_C_SELECT_BUDGETS)
@@ -124,7 +124,7 @@ fn structural_signature_round_trip_equality_and_order_are_lossless() {
 
 #[test]
 fn every_required_select_structure_generates_deterministically() {
-    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+    let witnesses = scheduled_select_witnesses().expect("schedule should derive");
     let mut identities = BTreeSet::new();
     let mut signature_counts = BTreeMap::new();
     let mut profile_counts = BTreeMap::new();
@@ -275,7 +275,7 @@ fn every_invalid_kind_is_singly_invalid_and_deterministic() {
     reason = "one end-to-end receipt test keeps declaration, shard, merge, and distribution proof together"
 )]
 fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
-    let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+    let witnesses = scheduled_select_witnesses().expect("schedule should derive");
     let cases = TIER_C_ROOT_SEEDS
         .iter()
         .flat_map(|root_seed| {
@@ -329,7 +329,7 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
                             )
                         } else {
                             scheduled_select_witnesses()
-                                .expect("catalog should decode")
+                                .expect("schedule should derive")
                                 .into_iter()
                                 .find(|witness| {
                                     witness.witness_id() == case.identity().witness_id()
@@ -350,9 +350,9 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
     let merged =
         TierCMergedReport::try_merge(&declared, reports).expect("exact receipts should merge");
     assert_eq!(
-        merged.obligation_catalog_hash(),
-        structural_obligation_catalog_hash()
-            .expect("catalog hash should decode")
+        merged.witness_schedule_hash(),
+        structural_witness_schedule_hash()
+            .expect("schedule hash should derive")
             .as_str(),
     );
     assert!(merged.is_clean());
@@ -401,7 +401,7 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
     reason = "one receipt test proves the complete mutation schedule and its distributions together"
 )]
 fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
-    let witnesses = scheduled_mutation_witnesses().expect("mutation catalog should decode");
+    let witnesses = scheduled_mutation_witnesses().expect("mutation schedule should derive");
     let sequences = TIER_C_ROOT_SEEDS
         .iter()
         .flat_map(|root_seed| {
@@ -454,7 +454,7 @@ fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
                             .structural_signature()
                             .expect("mutation signature should derive"),
                         scheduled_mutation_witnesses()
-                            .expect("catalog should decode")
+                            .expect("schedule should derive")
                             .into_iter()
                             .find(|witness| {
                                 witness.witness_id() == sequence.identity().witness_id()
@@ -545,7 +545,7 @@ fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
 #[test]
 fn mismatch_shrinks_and_round_trips_in_current_formats() {
     let witness = scheduled_select_witnesses()
-        .expect("catalog should decode")
+        .expect("schedule should derive")
         .into_iter()
         .find(|witness| witness.witness_id() == "tier_c.scalar.reference_full_window")
         .expect("full-window witness should exist");

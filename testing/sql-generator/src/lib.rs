@@ -85,5 +85,5 @@ pub use shrink::{SelectShrinkReport, shrink_select_failure};
 pub use structure::{
     ExecutionAccess, ExecutionCovering, ObservedExecutionFacts, RequiredExecutionFacts,
     ScheduledMutationWitness, ScheduledSelectWitness, StructuralSignature,
-    scheduled_mutation_witnesses, scheduled_select_witnesses, structural_obligation_catalog_hash,
+    scheduled_mutation_witnesses, scheduled_select_witnesses, structural_witness_schedule_hash,
 };

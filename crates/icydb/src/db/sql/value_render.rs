@@ -10,7 +10,6 @@ use icydb_core::value::render_output_value_text;
 use icydb_core::types::Decimal;
 
 pub(in crate::db::sql) fn sql_projection_output_rows(
-    columns: &[String],
     fixed_scales: &[Option<u32>],
     rows: Vec<Vec<OutputValue>>,
 ) -> Vec<Vec<OutputValue>> {
@@ -19,11 +18,7 @@ pub(in crate::db::sql) fn sql_projection_output_rows(
             row.into_iter()
                 .enumerate()
                 .map(|(index, value)| {
-                    sql_projection_output_value(
-                        columns.get(index),
-                        fixed_scales.get(index).copied().flatten(),
-                        value,
-                    )
+                    sql_projection_output_value(fixed_scales.get(index).copied().flatten(), value)
                 })
                 .collect()
         })
@@ -36,14 +31,8 @@ pub(in crate::db::sql) fn render_projection_rows(rows: &[Vec<OutputValue>]) -> V
         .collect()
 }
 
-fn sql_projection_output_value(
-    column: Option<&String>,
-    fixed_scale: Option<u32>,
-    value: OutputValue,
-) -> OutputValue {
-    let Some(scale) =
-        fixed_scale.or_else(|| column.and_then(|label| round_projection_scale(label.as_str())))
-    else {
+fn sql_projection_output_value(fixed_scale: Option<u32>, value: OutputValue) -> OutputValue {
+    let Some(scale) = fixed_scale else {
         return value;
     };
 
@@ -56,13 +45,10 @@ fn sql_projection_output_value(
 }
 
 pub(in crate::db::sql) fn render_projection_value_text(
-    column: Option<&String>,
     fixed_scale: Option<u32>,
     value: &OutputValue,
 ) -> String {
-    let Some(scale) =
-        fixed_scale.or_else(|| column.and_then(|label| round_projection_scale(label.as_str())))
-    else {
+    let Some(scale) = fixed_scale else {
         return render_output_value_text(value);
     };
 
@@ -70,17 +56,6 @@ pub(in crate::db::sql) fn render_projection_value_text(
         OutputValue::Decimal(decimal) => render_decimal_with_fixed_scale(decimal, scale),
         _ => render_output_value_text(value),
     }
-}
-
-fn round_projection_scale(column: &str) -> Option<u32> {
-    let body = column
-        .trim()
-        .strip_prefix("ROUND(")?
-        .strip_suffix(')')?
-        .trim();
-    let (_, scale) = body.rsplit_once(',')?;
-
-    scale.trim().parse::<u32>().ok()
 }
 
 fn render_decimal_with_fixed_scale(decimal: &Decimal, scale: u32) -> String {
@@ -133,12 +108,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn render_decimal_with_fixed_scale_clamps_zero_scale_width() {
-        let rendered = render_projection_value_text(
-            Some(&"ROUND(amount, 4000000000)".to_string()),
-            None,
-            &OutputValue::Decimal(Decimal::ZERO),
-        );
+    fn exact_fixed_scale_metadata_clamps_zero_scale_width() {
+        let rendered =
+            render_projection_value_text(Some(4_000_000_000), &OutputValue::Decimal(Decimal::ZERO));
 
         assert_eq!(rendered, "0.0000000000000000000000000000");
     }

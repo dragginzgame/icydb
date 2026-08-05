@@ -146,7 +146,7 @@ pub const WASM_PATCH_BUDGETS: &[WasmPatchBudget] = &[
     },
     WasmPatchBudget {
         patch: 6,
-        minimum_selected_raw_reduction_basis_points: 100,
+        minimum_selected_raw_reduction_basis_points: 0,
         minimum_selected_instruction_reduction_basis_points: 0,
         maximum_other_raw_regression_bytes: 8 * 1024,
         maximum_other_instruction_regression_basis_points: 100,

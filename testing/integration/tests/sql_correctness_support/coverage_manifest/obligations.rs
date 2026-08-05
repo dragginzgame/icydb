@@ -10,21 +10,14 @@ use icydb_testing_sql_generator::{
     TIER_A_MUTATION_BUDGETS, TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS,
     generate_scheduled_mutation_sequence, generate_scheduled_select_case,
     generated_mutation_tier_c_declaration, generated_select_tier_c_declaration,
-    scheduled_mutation_witnesses, scheduled_select_witnesses, structural_obligation_catalog_hash,
+    scheduled_mutation_witnesses, scheduled_select_witnesses,
     structural_signature_for_scheduled_mutation_witness,
-    structural_signature_for_scheduled_select_witness,
+    structural_signature_for_scheduled_select_witness, structural_witness_schedule_hash,
 };
 use serde::Serialize;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
-const CATALOG_FORMAT_VERSION: u32 = 3;
-const CATALOG_HASH_DOMAIN: &[u8] = b"icydb-sql-coverage-obligations/v3";
-const CATALOG_ARTIFACT: &str = include_str!(
-    "../../../../../docs/design/0.215-sql-structural-coverage-and-range-remediation/0.215-coverage-obligations.json"
-);
+const MAX_CODE_OWNED_CATALOG_BYTES: usize = 262_144;
 
 ///
 /// Disposition
@@ -1730,70 +1723,14 @@ fn no_interaction_reason(feature_id: &str) -> Option<&'static str> {
     None
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
-struct OpeningBaseline {
-    release: &'static str,
-    commit: &'static str,
-    manifest_features: usize,
-    deterministic_providers: usize,
-    raw_sql_perf_wasm_bytes: usize,
-    raw_sql_perf_wasm_sha256: &'static str,
-}
-
-const OPENING_BASELINE: OpeningBaseline = OpeningBaseline {
-    release: "v0.214.1",
-    commit: "420aeec1160780a4b11e6c111e07384acbc43ab7",
-    manifest_features: 106,
-    deterministic_providers: 102,
-    raw_sql_perf_wasm_bytes: 5_272_813,
-    raw_sql_perf_wasm_sha256: "80c9371ea616a9c0f37f7b0a77f7f54b506cba6584d6d5ce777248843092f381",
-};
+const REVIEWED_MANIFEST_FEATURE_COUNT: usize = 106;
 
 // The 0.217 endpoint hard cut retired five config-owned policy providers and
 // replaced them with one source-declaration feature-profile provider. Keep the
 // opening inventory historical while checking the exact current authority.
 const CURRENT_DETERMINISTIC_PROVIDERS: usize = 98;
 
-#[derive(Clone, Copy, Debug, Serialize)]
-struct OpeningInventory {
-    tier_c_top_level_declarations: usize,
-    valid_generated_select_declarations: usize,
-    invalid_generated_select_declarations: usize,
-    generated_mutation_sequence_declarations: usize,
-    deterministic_sqlite_declarations: usize,
-    regression_corpus_declarations: usize,
-    current_select_profiles: &'static [&'static str],
-    current_mutation_profiles: &'static [&'static str],
-    current_valid_select_template_slots: usize,
-    current_invalid_select_templates: usize,
-    current_mutation_structural_variants: usize,
-    current_structural_identities: usize,
-    p1_scenarios: usize,
-    scale_scenarios: usize,
-    accepted_p2_confirmations: usize,
-    focused_hotspot_scenarios: usize,
-    regression_sentinels: usize,
-}
-
-const OPENING_INVENTORY: OpeningInventory = OpeningInventory {
-    tier_c_top_level_declarations: 2_505,
-    valid_generated_select_declarations: 2_048,
-    invalid_generated_select_declarations: 320,
-    generated_mutation_sequence_declarations: 128,
-    deterministic_sqlite_declarations: 8,
-    regression_corpus_declarations: 1,
-    current_select_profiles: &["reference_scalar"],
-    current_mutation_profiles: &["authored_scalar"],
-    current_valid_select_template_slots: 64,
-    current_invalid_select_templates: 5,
-    current_mutation_structural_variants: 4,
-    current_structural_identities: 73,
-    p1_scenarios: 1_787,
-    scale_scenarios: 72,
-    accepted_p2_confirmations: 424,
-    focused_hotspot_scenarios: 15,
-    regression_sentinels: 351,
-};
+const REVIEWED_STRUCTURAL_IDENTITY_COUNT: usize = 73;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 struct OwnerMapEntry {
@@ -1964,8 +1901,8 @@ const GAP_LEDGER: &[GapLedgerEntry] = &[
     },
     GapLedgerEntry {
         id: "215-008",
-        finding: "Tier C receipts do not carry the frozen catalog hash, scheduled witness ID, or observed structural signature.",
-        evidence: "Current scheduled evidence format remains version 1 with the 0.204 manifest revision only.",
+        finding: "At the 0.215 opening boundary, Tier C receipts did not carry a schedule hash, scheduled witness ID, or observed structural signature.",
+        evidence: "The opening scheduled evidence format was version 1 with the 0.204 manifest revision only.",
         owning_slice: "slice_1",
         exclusion: "No compatibility decoder or dual current receipt format.",
     },
@@ -1998,7 +1935,7 @@ fn current_structural_identities() -> Vec<CurrentStructuralIdentity> {
         "unknown_field",
     ];
 
-    let mut identities = Vec::with_capacity(OPENING_INVENTORY.current_structural_identities);
+    let mut identities = Vec::with_capacity(REVIEWED_STRUCTURAL_IDENTITY_COUNT);
     for family in SELECT_FAMILIES {
         for slot in 0..8 {
             identities.push(CurrentStructuralIdentity {
@@ -2078,8 +2015,6 @@ struct RequirementProjection {
 #[derive(Debug, Serialize)]
 struct CatalogBody {
     design_line: &'static str,
-    opening_baseline: OpeningBaseline,
-    opening_inventory: OpeningInventory,
     current_structural_identities: Vec<CurrentStructuralIdentity>,
     interaction_groups: Vec<GroupProjection>,
     manifest_participation: Vec<ManifestParticipationProjection>,
@@ -2087,13 +2022,6 @@ struct CatalogBody {
     required_structural_obligations: Vec<RequirementProjection>,
     gap_ledger: &'static [GapLedgerEntry],
     owner_map: &'static [OwnerMapEntry],
-}
-
-#[derive(Debug, Serialize)]
-struct CatalogArtifact {
-    format_version: u32,
-    catalog_hash: String,
-    catalog: CatalogBody,
 }
 
 #[derive(Clone, Copy)]
@@ -2351,10 +2279,10 @@ fn validate_provider_target(
     reason = "one audit gate validates the complete finite obligation catalog before projection"
 )]
 fn validate_catalog() -> Result<(), String> {
-    if MANIFEST.len() != OPENING_BASELINE.manifest_features {
+    if MANIFEST.len() != REVIEWED_MANIFEST_FEATURE_COUNT {
         return Err(format!(
             "post-0.214 manifest drift: expected {}, observed {}",
-            OPENING_BASELINE.manifest_features,
+            REVIEWED_MANIFEST_FEATURE_COUNT,
             MANIFEST.len()
         ));
     }
@@ -2472,10 +2400,10 @@ fn validate_catalog() -> Result<(), String> {
     }
 
     let structural = current_structural_identities();
-    if structural.len() != OPENING_INVENTORY.current_structural_identities {
+    if structural.len() != REVIEWED_STRUCTURAL_IDENTITY_COUNT {
         return Err(format!(
             "current structural identity count drifted: expected {}, observed {}",
-            OPENING_INVENTORY.current_structural_identities,
+            REVIEWED_STRUCTURAL_IDENTITY_COUNT,
             structural.len()
         ));
     }
@@ -2595,8 +2523,6 @@ fn catalog_body() -> Result<CatalogBody, String> {
 
     Ok(CatalogBody {
         design_line: "0.215",
-        opening_baseline: OPENING_BASELINE,
-        opening_inventory: OPENING_INVENTORY,
         current_structural_identities: current_structural_identities(),
         interaction_groups: groups,
         manifest_participation,
@@ -2607,41 +2533,22 @@ fn catalog_body() -> Result<CatalogBody, String> {
     })
 }
 
-fn catalog_artifact() -> Result<(String, String), String> {
-    validate_catalog()?;
-    let catalog = catalog_body()?;
-    let catalog_bytes = serde_json::to_vec(&catalog)
-        .map_err(|error| format!("coverage obligation catalog serialization failed: {error}"))?;
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(CATALOG_HASH_DOMAIN);
-    hasher.update(&catalog_bytes);
-    let catalog_hash = hasher.finalize().to_hex().to_string();
-    let artifact = CatalogArtifact {
-        format_version: CATALOG_FORMAT_VERSION,
-        catalog_hash: catalog_hash.clone(),
-        catalog,
-    };
-    let mut rendered = serde_json::to_string_pretty(&artifact)
-        .map_err(|error| format!("coverage obligation artifact rendering failed: {error}"))?;
-    rendered.push('\n');
-
-    Ok((rendered, catalog_hash))
-}
-
 #[test]
-fn sql_coverage_obligation_catalog_is_complete_and_matches_checked_in_projection() {
-    let (rendered, catalog_hash) =
-        catalog_artifact().expect("0.215 coverage obligation catalog should be valid");
-    assert_eq!(
-        CATALOG_ARTIFACT, rendered,
-        "checked-in 0.215 coverage obligations drifted; reviewed code authority hash is {catalog_hash}"
+fn sql_coverage_obligation_catalog_is_complete() {
+    validate_catalog().expect("SQL coverage obligation catalog should be valid");
+    let catalog = catalog_body().expect("code-owned SQL obligation catalog should project");
+    let bytes = serde_json::to_vec(&catalog)
+        .expect("code-owned SQL obligation catalog should serialize deterministically");
+    assert!(
+        bytes.len() <= MAX_CODE_OWNED_CATALOG_BYTES,
+        "code-owned SQL obligation catalog exceeded its bounded inspection projection",
     );
 }
 
 #[test]
 fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
     let witnesses =
-        scheduled_select_witnesses().expect("frozen generated SELECT schedule should decode");
+        scheduled_select_witnesses().expect("code-owned generated SELECT schedule should derive");
     let observed = witnesses
         .iter()
         .map(|witness| {
@@ -2683,9 +2590,9 @@ fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
     assert_eq!(observed, expected);
     assert_eq!(observed.len(), 17);
     assert_eq!(
-        structural_obligation_catalog_hash()
-            .expect("generator should expose the frozen obligation catalog hash"),
-        "c273d1ce46eda26a1e664ceb47794c21c444d1d5ab90a9c19cc7b6185c92d74a",
+        structural_witness_schedule_hash()
+            .expect("generator should expose the code-owned witness schedule hash"),
+        "787d66c237f92a2269ec0053fafee092dfe398952ac3fe1cbc726c8774beb246",
     );
 
     let manifest_features = MANIFEST.iter().map(|cell| cell.id).collect::<BTreeSet<_>>();
@@ -2713,8 +2620,8 @@ fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
 
 #[test]
 fn generated_mutation_schedule_closes_the_frozen_matrix_exactly() {
-    let witnesses =
-        scheduled_mutation_witnesses().expect("frozen generated mutation schedule should decode");
+    let witnesses = scheduled_mutation_witnesses()
+        .expect("code-owned generated mutation schedule should derive");
     let observed = witnesses
         .iter()
         .map(|witness| {
@@ -2805,16 +2712,4 @@ fn interaction_axis(interaction: &InteractionObligation, axis: &str) -> &'static
         .find(|assignment| assignment.axis == axis)
         .map(|assignment| assignment.value)
         .expect("generated interaction should assign every frozen mutation axis")
-}
-
-#[test]
-#[ignore = "writes the reviewed deterministic catalog projection; run explicitly when freezing a revised catalog"]
-fn write_sql_coverage_obligation_catalog_projection() {
-    let (rendered, _) =
-        catalog_artifact().expect("0.215 coverage obligation catalog should be valid");
-    let path = super::repository_root()
-        .join("docs/design/0.215-sql-structural-coverage-and-range-remediation")
-        .join("0.215-coverage-obligations.json");
-    fs::write(&path, rendered)
-        .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
 }

@@ -1,21 +1,16 @@
 //! Module: sql_generator::structure
-//! Responsibility: one relationship-preserving structural signature and frozen obligations.
+//! Responsibility: one relationship-preserving structural signature and code-owned witness schedule.
 //! Does not own: SQL rendering, execution verdicts, or product route selection.
-//! Boundary: reads the reviewed obligation catalog and exposes only current generated witnesses.
+//! Boundary: exposes the reviewed current generated witnesses without reading historical artifacts.
 
 use crate::{SqlGeneratorError, SqlGeneratorErrorKind, replay::canonical_json_bytes};
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-const CATALOG_ARTIFACT: &str = include_str!(
-    "../../../docs/design/0.215-sql-structural-coverage-and-range-remediation/0.215-coverage-obligations.json"
-);
-const CATALOG_FORMAT_VERSION: u32 = 3;
-const MAX_CATALOG_BYTES: usize = 262_144;
+const MAX_WITNESS_SCHEDULE_BYTES: usize = 262_144;
 const MAX_SIGNATURE_BYTES: usize = 65_536;
-const GENERATED_SELECT_PROVIDER_PREFIX: &str = "generated.select.";
-const GENERATED_MUTATION_PROVIDER_PREFIX: &str = "generated.mutation.";
+const WITNESS_SCHEDULE_HASH_DOMAIN: &[u8] = b"icydb-sql-structural-witness-schedule/v1";
 
 ///
 /// ExecutionAccess
@@ -102,6 +97,283 @@ impl RequiredExecutionFacts {
         self.covering
     }
 }
+
+#[derive(Clone, Copy)]
+enum ScheduledWitnessKind {
+    Mutation,
+    Select,
+}
+
+#[derive(Clone, Copy)]
+struct ScheduledWitnessDeclaration {
+    kind: ScheduledWitnessKind,
+    requirement_id: &'static str,
+    provider_id: &'static str,
+    witness_id: &'static str,
+    required_execution_facts: RequiredExecutionFacts,
+}
+
+const FULL_SCAN_NON_COVERING: RequiredExecutionFacts =
+    RequiredExecutionFacts::new(ExecutionAccess::FullScan, ExecutionCovering::NonCovering);
+const SECONDARY_RANGE_NON_COVERING: RequiredExecutionFacts = RequiredExecutionFacts::new(
+    ExecutionAccess::SecondaryRange,
+    ExecutionCovering::NonCovering,
+);
+const COMPOSITE_PREFIX_NON_COVERING: RequiredExecutionFacts = RequiredExecutionFacts::new(
+    ExecutionAccess::CompositePrefix,
+    ExecutionCovering::NonCovering,
+);
+const MUTATION_SELECTION: RequiredExecutionFacts = RequiredExecutionFacts::new(
+    ExecutionAccess::MutationSelection,
+    ExecutionCovering::NotApplicable,
+);
+const EXECUTION_NOT_APPLICABLE: RequiredExecutionFacts = RequiredExecutionFacts::new(
+    ExecutionAccess::NotApplicable,
+    ExecutionCovering::NotApplicable,
+);
+
+const fn scheduled_witness(
+    kind: ScheduledWitnessKind,
+    requirement_id: &'static str,
+    provider_id: &'static str,
+    witness_id: &'static str,
+    required_execution_facts: RequiredExecutionFacts,
+) -> ScheduledWitnessDeclaration {
+    ScheduledWitnessDeclaration {
+        kind,
+        requirement_id,
+        provider_id,
+        witness_id,
+        required_execution_facts,
+    }
+}
+
+const SCHEDULED_WITNESS_DECLARATIONS: &[ScheduledWitnessDeclaration] = &[
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.cache.cold_sql_fluent",
+        "generated.select.reference_scalar",
+        "tier_c.cache.cold_sql_fluent",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.global.empty_filter",
+        "generated.select.reference_scalar",
+        "tier_c.global.empty_filter",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.global.nonempty_filter",
+        "generated.select.reference_scalar",
+        "tier_c.global.nonempty_filter",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.global.nonempty_multiple_projection",
+        "generated.select.reference_scalar",
+        "tier_c.global.nonempty_multiple_projection",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.grouped.hash_bounded",
+        "generated.select.reference_scalar",
+        "tier_c.grouped.hash_bounded",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.grouped.ordered_bounded",
+        "generated.select.indexed_nullable_reference",
+        "tier_c.grouped.ordered_bounded",
+        SECONDARY_RANGE_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.indexed.composite_prefix_non_covering",
+        "generated.select.indexed_nullable_reference",
+        "tier_c.indexed.composite_prefix_non_covering",
+        COMPOSITE_PREFIX_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.indexed.secondary_range_direct_compatible",
+        "generated.select.indexed_nullable_reference",
+        "tier_c.indexed.secondary_range_direct_compatible",
+        SECONDARY_RANGE_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.indexed.secondary_range_non_covering_incompatible",
+        "generated.select.indexed_nullable_reference",
+        "tier_c.indexed.secondary_range_non_covering_incompatible",
+        SECONDARY_RANGE_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.authored_insert",
+        "generated.mutation.authored_scalar",
+        "tier_c.mutation.authored_insert",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.authored_insert_from_query",
+        "generated.mutation.authored_scalar",
+        "tier_c.mutation.authored_insert_from_query",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.authored_windowed",
+        "generated.mutation.authored_scalar",
+        "tier_c.mutation.authored_windowed",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_delete_returning",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_delete_returning",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_insert_authored",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_insert_authored",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_insert_explicit",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_insert_explicit",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_insert_mixed_batch",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_insert_mixed_batch",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_insert_omitted",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_insert_omitted",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_no_match",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_no_match",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_reject_duplicate",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_reject_duplicate",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_reject_pk_default",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_reject_pk_default",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_reject_required",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_reject_required",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_update_authored",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_update_authored",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_update_default",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_update_default",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Mutation,
+        "required.mutation.default_update_preserve",
+        "generated.mutation.accepted_default",
+        "tier_c.mutation.default_update_preserve",
+        MUTATION_SELECTION,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.null.computed_aggregate",
+        "generated.select.reference_scalar",
+        "tier_c.null.computed_aggregate",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.null.computed_distinct",
+        "generated.select.reference_scalar",
+        "tier_c.null.computed_distinct",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.null.computed_ordering",
+        "generated.select.reference_scalar",
+        "tier_c.null.computed_ordering",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.null.stored_comparison_membership",
+        "generated.select.indexed_nullable_reference",
+        "tier_c.null.stored_comparison_membership",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.null.stored_ordering",
+        "generated.select.indexed_nullable_reference",
+        "tier_c.null.stored_ordering",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.scalar.indexed_computed_distinct_window",
+        "generated.select.indexed_nullable_reference",
+        "tier_c.scalar.indexed_computed_distinct_window",
+        SECONDARY_RANGE_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.scalar.reference_full_window",
+        "generated.select.reference_scalar",
+        "tier_c.scalar.reference_full_window",
+        FULL_SCAN_NON_COVERING,
+    ),
+    scheduled_witness(
+        ScheduledWitnessKind::Select,
+        "required.scalar.reference_unknown_alias_order",
+        "generated.select.reference_scalar",
+        "tier_c.scalar.reference_unknown_alias_order",
+        EXECUTION_NOT_APPLICABLE,
+    ),
+];
 
 ///
 /// ObservedExecutionFacts
@@ -344,7 +616,7 @@ impl StructuralSignature {
 ///
 /// ScheduledSelectWitness
 ///
-/// One generated SELECT obligation read directly from the frozen reviewed catalog.
+/// One generated SELECT obligation derived from the code-owned witness schedule.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -359,7 +631,7 @@ pub struct ScheduledSelectWitness {
 ///
 /// ScheduledMutationWitness
 ///
-/// One generated mutation obligation read directly from the frozen reviewed catalog.
+/// One generated mutation obligation derived from the code-owned witness schedule.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -435,147 +707,138 @@ impl ScheduledSelectWitness {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CatalogArtifact {
-    format_version: u32,
-    catalog_hash: String,
-    catalog: CatalogBody,
-}
-
-#[derive(Deserialize)]
-struct CatalogBody {
-    required_structural_obligations: Vec<CatalogRequirement>,
-}
-
-#[derive(Deserialize)]
-struct CatalogRequirement {
-    id: String,
-    expected_structural_signature: StructuralSignature,
+#[derive(Serialize)]
+struct ScheduledWitnessHashEntry<'a> {
+    kind: &'static str,
+    requirement_id: &'a str,
+    provider_id: &'a str,
+    witness_id: &'a str,
+    expected_structural_signature: &'a StructuralSignature,
     required_execution_facts: RequiredExecutionFacts,
-    provider_id: String,
-    witness_id: String,
 }
 
-/// Return the reviewed catalog hash carried by every current scheduled receipt.
+/// Return the reviewed schedule hash carried by every current scheduled receipt.
 ///
 /// # Errors
 ///
-/// Returns a typed error when the checked-in artifact is malformed or stale.
-pub fn structural_obligation_catalog_hash() -> Result<String, SqlGeneratorError> {
-    Ok(read_catalog()?.catalog_hash)
-}
-
-/// Return the exact stable-order generated SELECT witness set from the frozen catalog.
-///
-/// # Errors
-///
-/// Returns a typed error when the catalog is malformed, duplicated, or contains
-/// an unsupported generated SELECT profile.
-pub fn scheduled_select_witnesses() -> Result<Vec<ScheduledSelectWitness>, SqlGeneratorError> {
-    let artifact = read_catalog()?;
-    let mut witnesses = artifact
-        .catalog
-        .required_structural_obligations
-        .into_iter()
-        .filter(|requirement| {
-            requirement
-                .provider_id
-                .starts_with(GENERATED_SELECT_PROVIDER_PREFIX)
-        })
-        .map(|requirement| {
-            Ok(ScheduledSelectWitness {
-                requirement_id: requirement.id,
-                provider_id: requirement.provider_id,
-                witness_id: requirement.witness_id,
-                signature: requirement.expected_structural_signature,
-                required_execution_facts: requirement.required_execution_facts,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    witnesses.sort_by(|left, right| left.witness_id.cmp(&right.witness_id));
-    let unique = witnesses
+/// Returns a typed error when a scheduled declaration or derived signature is invalid.
+pub fn structural_witness_schedule_hash() -> Result<String, SqlGeneratorError> {
+    let select = scheduled_select_witnesses()?;
+    let mutation = scheduled_mutation_witnesses()?;
+    let mut entries = select
         .iter()
-        .map(|witness| witness.witness_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if witnesses.is_empty() || unique.len() != witnesses.len() {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            "generated SELECT witness catalog is empty or duplicated",
-        ));
-    }
-    Ok(witnesses)
-}
-
-/// Return the exact stable-order generated mutation witness set from the frozen catalog.
-///
-/// # Errors
-///
-/// Returns a typed error when the catalog is malformed, duplicated, or contains
-/// an unsupported generated mutation profile.
-pub fn scheduled_mutation_witnesses() -> Result<Vec<ScheduledMutationWitness>, SqlGeneratorError> {
-    let artifact = read_catalog()?;
-    let mut witnesses = artifact
-        .catalog
-        .required_structural_obligations
-        .into_iter()
-        .filter(|requirement| {
-            requirement
-                .provider_id
-                .starts_with(GENERATED_MUTATION_PROVIDER_PREFIX)
+        .map(|witness| ScheduledWitnessHashEntry {
+            kind: "select",
+            requirement_id: witness.requirement_id(),
+            provider_id: witness.provider_id(),
+            witness_id: witness.witness_id(),
+            expected_structural_signature: witness.signature(),
+            required_execution_facts: witness.required_execution_facts(),
         })
-        .map(|requirement| {
-            Ok(ScheduledMutationWitness {
-                requirement_id: requirement.id,
-                provider_id: requirement.provider_id,
-                witness_id: requirement.witness_id,
-                signature: requirement.expected_structural_signature,
-                required_execution_facts: requirement.required_execution_facts,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    witnesses.sort_by(|left, right| left.witness_id.cmp(&right.witness_id));
-    let unique = witnesses
-        .iter()
-        .map(|witness| witness.witness_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if witnesses.is_empty() || unique.len() != witnesses.len() {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            "generated mutation witness catalog is empty or duplicated",
-        ));
-    }
-    Ok(witnesses)
-}
-
-fn read_catalog() -> Result<CatalogArtifact, SqlGeneratorError> {
-    if CATALOG_ARTIFACT.len() > MAX_CATALOG_BYTES {
+        .chain(mutation.iter().map(|witness| ScheduledWitnessHashEntry {
+            kind: "mutation",
+            requirement_id: witness.requirement_id(),
+            provider_id: witness.provider_id(),
+            witness_id: witness.witness_id(),
+            expected_structural_signature: witness.signature(),
+            required_execution_facts: witness.required_execution_facts(),
+        }))
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.witness_id.cmp(right.witness_id));
+    let bytes = canonical_json_bytes(&entries)?;
+    if bytes.len() > MAX_WITNESS_SCHEDULE_BYTES {
         return Err(SqlGeneratorError::new(
             SqlGeneratorErrorKind::Budget,
-            "SQL obligation catalog exceeds its current byte bound",
+            "SQL witness schedule exceeds its current byte bound",
         ));
     }
-    let artifact = serde_json::from_str::<CatalogArtifact>(CATALOG_ARTIFACT).map_err(|source| {
-        SqlGeneratorError::with_json_source(
-            SqlGeneratorErrorKind::Serialization,
-            "failed to decode the reviewed SQL obligation catalog",
-            source,
-        )
-    })?;
-    if artifact.format_version != CATALOG_FORMAT_VERSION
-        || artifact.catalog_hash.len() != 64
-        || !artifact
-            .catalog_hash
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WITNESS_SCHEDULE_HASH_DOMAIN);
+    hasher.update(&bytes);
+
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// Return the exact stable-order generated SELECT witness set from code-owned declarations.
+///
+/// # Errors
+///
+/// Returns a typed error when a declaration is duplicated or its typed recipe is invalid.
+pub fn scheduled_select_witnesses() -> Result<Vec<ScheduledSelectWitness>, SqlGeneratorError> {
+    let mut witnesses = SCHEDULED_WITNESS_DECLARATIONS
+        .iter()
+        .filter(|declaration| matches!(declaration.kind, ScheduledWitnessKind::Select))
+        .map(|declaration| {
+            Ok(ScheduledSelectWitness {
+                requirement_id: declaration.requirement_id.to_string(),
+                provider_id: declaration.provider_id.to_string(),
+                witness_id: declaration.witness_id.to_string(),
+                signature: crate::structural_signature_for_scheduled_select_witness(
+                    declaration.witness_id,
+                )?,
+                required_execution_facts: declaration.required_execution_facts,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    witnesses.sort_by(|left, right| left.witness_id.cmp(&right.witness_id));
+    let unique_witnesses = witnesses
+        .iter()
+        .map(|witness| witness.witness_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let unique_requirements = witnesses
+        .iter()
+        .map(|witness| witness.requirement_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if witnesses.is_empty()
+        || unique_witnesses.len() != witnesses.len()
+        || unique_requirements.len() != witnesses.len()
     {
         return Err(SqlGeneratorError::new(
             SqlGeneratorErrorKind::InvalidCase,
-            "SQL obligation catalog does not use the current reviewed identity",
+            "generated SELECT witness schedule is empty or duplicated",
         ));
     }
-    for requirement in &artifact.catalog.required_structural_obligations {
-        requirement.expected_structural_signature.validate()?;
+    Ok(witnesses)
+}
+
+/// Return the exact stable-order generated mutation witness set from code-owned declarations.
+///
+/// # Errors
+///
+/// Returns a typed error when a declaration is duplicated or its typed recipe is invalid.
+pub fn scheduled_mutation_witnesses() -> Result<Vec<ScheduledMutationWitness>, SqlGeneratorError> {
+    let mut witnesses = SCHEDULED_WITNESS_DECLARATIONS
+        .iter()
+        .filter(|declaration| matches!(declaration.kind, ScheduledWitnessKind::Mutation))
+        .map(|declaration| {
+            Ok(ScheduledMutationWitness {
+                requirement_id: declaration.requirement_id.to_string(),
+                provider_id: declaration.provider_id.to_string(),
+                witness_id: declaration.witness_id.to_string(),
+                signature: crate::structural_signature_for_scheduled_mutation_witness(
+                    declaration.witness_id,
+                )?,
+                required_execution_facts: declaration.required_execution_facts,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    witnesses.sort_by(|left, right| left.witness_id.cmp(&right.witness_id));
+    let unique_witnesses = witnesses
+        .iter()
+        .map(|witness| witness.witness_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let unique_requirements = witnesses
+        .iter()
+        .map(|witness| witness.requirement_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if witnesses.is_empty()
+        || unique_witnesses.len() != witnesses.len()
+        || unique_requirements.len() != witnesses.len()
+    {
+        return Err(SqlGeneratorError::new(
+            SqlGeneratorErrorKind::InvalidCase,
+            "generated mutation witness schedule is empty or duplicated",
+        ));
     }
-    Ok(artifact)
+    Ok(witnesses)
 }

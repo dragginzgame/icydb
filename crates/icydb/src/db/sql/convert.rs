@@ -31,8 +31,7 @@ pub(crate) fn sql_query_result_from_statement(
         } => {
             // Preserve projection-local display contracts such as
             // `ROUND(..., scale)` before packaging the outward shell rows.
-            let rows =
-                sql_projection_output_rows(columns.as_slice(), fixed_scales.as_slice(), rows);
+            let rows = sql_projection_output_rows(fixed_scales.as_slice(), rows);
 
             SqlQueryResult::Projection(RowProjectionOutput {
                 entity: entity_name,
@@ -125,11 +124,7 @@ fn sql_grouped_rows_output(
                 .chain(row.aggregate_values().iter())
                 .enumerate()
                 .map(|(index, value)| {
-                    render_projection_value_text(
-                        columns.get(index),
-                        fixed_scales.get(index).copied().flatten(),
-                        value,
-                    )
+                    render_projection_value_text(fixed_scales.get(index).copied().flatten(), value)
                 })
                 .collect::<Vec<_>>()
         })

@@ -2573,7 +2573,7 @@ mod tests {
 
     #[test]
     fn unexpected_observed_signature_cannot_satisfy_a_required_declaration() {
-        let witnesses = scheduled_select_witnesses().expect("catalog should decode");
+        let witnesses = scheduled_select_witnesses().expect("schedule should derive");
         let witness = &witnesses[0];
         let different_signature = generate_scheduled_select_case(
             &witnesses[1],

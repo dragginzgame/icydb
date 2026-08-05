@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.220.md](docs/changelog/0.220.md)
 
+- `0.220.2` simplifies SQL projection formatting and correctness evidence
+  authority, while current measurements reject a more complex ordered-range
+  representation without changing public behavior or persisted formats.
+
 - `0.220.1` rejects an unhelpful compact metrics rewrite and simplifies schema
   type lowering through one closed authority path, reducing representative raw
   Wasm by 0.10–0.19% without public or persisted-format changes.

@@ -7,7 +7,7 @@ use crate::{
     MUTATION_GENERATOR_VERSION, ObservedExecutionFacts, REGRESSION_CORPUS_FORMAT_VERSION,
     SELECT_GENERATOR_VERSION, SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, SqlGeneratorError,
     StructuralSignature, TIER_C_ROOT_SEEDS, is_valid_tier_c_failure_artifact_id,
-    replay::canonical_json_bytes, scheduled_sql_scenario_shard, structural_obligation_catalog_hash,
+    replay::canonical_json_bytes, scheduled_sql_scenario_shard, structural_witness_schedule_hash,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,7 +17,7 @@ use std::{
 };
 
 /// Current hard-cut Tier C correctness evidence format.
-pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 3;
+pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 4;
 
 /// Semantic SQL coverage-manifest revision required by current Tier C evidence.
 ///
@@ -164,7 +164,7 @@ impl TierCScenarioObservation {
 pub struct TierCShardReport {
     format_version: u32,
     manifest_revision: String,
-    obligation_catalog_hash: String,
+    witness_schedule_hash: String,
     select_generator_version: u32,
     mutation_generator_version: u32,
     regression_corpus_format_version: u32,
@@ -208,8 +208,8 @@ impl TierCShardReport {
         Ok(Self {
             format_version: TIER_C_EVIDENCE_FORMAT_VERSION,
             manifest_revision: TIER_C_SQL_COVERAGE_MANIFEST_REVISION.to_string(),
-            obligation_catalog_hash: structural_obligation_catalog_hash()
-                .map_err(TierCEvidenceError::ObligationCatalog)?,
+            witness_schedule_hash: structural_witness_schedule_hash()
+                .map_err(TierCEvidenceError::WitnessSchedule)?,
             select_generator_version: SELECT_GENERATOR_VERSION,
             mutation_generator_version: MUTATION_GENERATOR_VERSION,
             regression_corpus_format_version: REGRESSION_CORPUS_FORMAT_VERSION,
@@ -235,10 +235,10 @@ impl TierCShardReport {
         self.shard_index
     }
 
-    /// Borrow the frozen obligation-catalog identity carried by this receipt.
+    /// Borrow the code-owned witness-schedule identity carried by this receipt.
     #[must_use]
-    pub const fn obligation_catalog_hash(&self) -> &str {
-        self.obligation_catalog_hash.as_str()
+    pub const fn witness_schedule_hash(&self) -> &str {
+        self.witness_schedule_hash.as_str()
     }
 
     /// Borrow the full expected Tier C scenario-set identity.
@@ -348,7 +348,7 @@ impl TierCShardReport {
 pub struct TierCMergedReport {
     format_version: u32,
     manifest_revision: String,
-    obligation_catalog_hash: String,
+    witness_schedule_hash: String,
     select_generator_version: u32,
     mutation_generator_version: u32,
     regression_corpus_format_version: u32,
@@ -444,8 +444,8 @@ impl TierCMergedReport {
         Ok(Self {
             format_version: TIER_C_EVIDENCE_FORMAT_VERSION,
             manifest_revision: TIER_C_SQL_COVERAGE_MANIFEST_REVISION.to_string(),
-            obligation_catalog_hash: structural_obligation_catalog_hash()
-                .map_err(TierCEvidenceError::ObligationCatalog)?,
+            witness_schedule_hash: structural_witness_schedule_hash()
+                .map_err(TierCEvidenceError::WitnessSchedule)?,
             select_generator_version: SELECT_GENERATOR_VERSION,
             mutation_generator_version: MUTATION_GENERATOR_VERSION,
             regression_corpus_format_version: REGRESSION_CORPUS_FORMAT_VERSION,
@@ -468,10 +468,10 @@ impl TierCMergedReport {
         self.expected_scenario_set_hash.as_str()
     }
 
-    /// Borrow the frozen obligation-catalog identity shared by every shard.
+    /// Borrow the code-owned witness-schedule identity shared by every shard.
     #[must_use]
-    pub const fn obligation_catalog_hash(&self) -> &str {
-        self.obligation_catalog_hash.as_str()
+    pub const fn witness_schedule_hash(&self) -> &str {
+        self.witness_schedule_hash.as_str()
     }
 
     /// Return the complete observed scenario count.
@@ -668,8 +668,8 @@ pub enum TierCEvidenceError {
     /// A decoded artifact was valid JSON but not canonical current JSON.
     NonCanonicalArtifact,
 
-    /// The frozen obligation catalog could not supply the current receipt identity.
-    ObligationCatalog(SqlGeneratorError),
+    /// The code-owned witness schedule could not supply the current receipt identity.
+    WitnessSchedule(SqlGeneratorError),
 
     /// One observation appeared in a report other than its deterministic shard.
     ScenarioAssignedToDifferentShard {
@@ -788,8 +788,8 @@ impl Display for TierCEvidenceError {
             Self::NonCanonicalArtifact => {
                 formatter.write_str("Tier C artifact is not canonical current JSON")
             }
-            Self::ObligationCatalog(source) => {
-                write!(formatter, "Tier C obligation catalog is invalid: {source}")
+            Self::WitnessSchedule(source) => {
+                write!(formatter, "Tier C witness schedule is invalid: {source}")
             }
             Self::ScenarioAssignedToDifferentShard {
                 scenario_id,
@@ -835,7 +835,7 @@ impl Error for TierCEvidenceError {
             Self::Decode { source } => Some(source),
             Self::InvalidScenarioId { source, .. } => Some(source),
             Self::InvalidStructuralSignature { source, .. }
-            | Self::ObligationCatalog(source)
+            | Self::WitnessSchedule(source)
             | Self::Serialization(source) => Some(source),
             _ => None,
         }

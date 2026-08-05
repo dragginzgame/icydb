@@ -1,7 +1,7 @@
 //! Module: sql_correctness_support::coverage_manifest
 //! Responsibility: machine-readable SQL contract coverage obligations and consistency checks.
 //! Does not own: product behavior or the deterministic evidence supplied by cited tests.
-//! Boundary: validates manifest entries against `SQL_SUBSET.md` and repository test providers.
+//! Boundary: validates code-owned manifest entries against repository test providers.
 
 mod obligations;
 
@@ -23,7 +23,7 @@ use icydb_testing_sqlite_reference::required_sqlite_reference_scenarios;
 /// FeatureKind
 ///
 /// Manifest classification for the kind of SQL contract feature being evidenced.
-/// Owned by the correctness coverage manifest and parsed from its static vocabulary.
+/// Owned by the correctness coverage manifest.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -35,17 +35,6 @@ enum FeatureKind {
 }
 
 impl FeatureKind {
-    /// Parse the closed feature-kind vocabulary used by the contract document.
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "interaction" => Some(Self::Interaction),
-            "policy" => Some(Self::Policy),
-            "semantic" => Some(Self::Semantic),
-            "syntax" => Some(Self::Syntax),
-            _ => None,
-        }
-    }
-
     /// Return the stable machine-readable feature-kind identity.
     const fn code(self) -> &'static str {
         match self {
@@ -61,7 +50,7 @@ impl FeatureKind {
 /// FeatureStatus
 ///
 /// Accepted or rejected status declared for one SQL contract feature.
-/// Owned by the correctness coverage manifest and checked against contract documentation.
+/// Owned by the correctness coverage manifest.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -71,15 +60,6 @@ enum FeatureStatus {
 }
 
 impl FeatureStatus {
-    /// Parse the closed feature-status vocabulary used by the contract document.
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "accepted" => Some(Self::Accepted),
-            "rejected" => Some(Self::Rejected),
-            _ => None,
-        }
-    }
-
     /// Return the stable machine-readable feature-status identity.
     const fn code(self) -> &'static str {
         match self {
@@ -165,7 +145,7 @@ struct EvidenceRequirement {
 ///
 /// CoverageCell
 ///
-/// Complete manifest obligation for one documented SQL contract feature.
+/// Complete manifest obligation for one SQL contract feature.
 /// Owned by the correctness coverage manifest and validated by its consistency gate.
 ///
 
@@ -214,21 +194,6 @@ struct GeneratedSelectExclusionAttribution {
     stratum: &'static str,
     /// Deterministic providers that exercise the stratum without claiming generated coverage.
     deterministic_providers: &'static [&'static str],
-}
-
-///
-/// ContractFeature
-///
-/// SQL feature declaration parsed from the active contract document.
-/// Owned by the correctness coverage manifest and compared with static coverage cells.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ContractFeature {
-    kind: FeatureKind,
-    status: FeatureStatus,
-    section: String,
-    line: usize,
 }
 
 const REQ_PARSE: &[EvidenceRequirement] = &[EvidenceRequirement {
@@ -2471,85 +2436,6 @@ fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn parse_contract_features(source: &str) -> Result<BTreeMap<String, ContractFeature>, String> {
-    const PREFIX: &str = "<!-- icydb-sql-feature id=\"";
-    const KIND_SEPARATOR: &str = "\" kind=\"";
-    const STATUS_SEPARATOR: &str = "\" status=\"";
-    const SUFFIX: &str = "\" -->";
-
-    let lines = source.lines().collect::<Vec<_>>();
-    let mut section = String::new();
-    let mut features = BTreeMap::new();
-
-    for (index, raw_line) in lines.iter().enumerate() {
-        let line = raw_line.trim();
-        if line.starts_with('#') {
-            section = line.trim_start_matches('#').trim().to_string();
-        }
-        if !line.starts_with("<!-- icydb-sql-feature") {
-            continue;
-        }
-
-        let body = line
-            .strip_prefix(PREFIX)
-            .and_then(|value| value.strip_suffix(SUFFIX))
-            .ok_or_else(|| {
-                format!(
-                    "line {} uses a non-canonical SQL feature metadata shape",
-                    index + 1
-                )
-            })?;
-        let (id, rest) = body
-            .split_once(KIND_SEPARATOR)
-            .ok_or_else(|| format!("line {} is missing canonical kind metadata", index + 1))?;
-        let (kind, status) = rest
-            .split_once(STATUS_SEPARATOR)
-            .ok_or_else(|| format!("line {} is missing canonical status metadata", index + 1))?;
-
-        validate_feature_id(id).map_err(|reason| format!("line {}: {reason}", index + 1))?;
-        let kind = FeatureKind::parse(kind)
-            .ok_or_else(|| format!("line {} has unknown feature kind {kind:?}", index + 1))?;
-        let status = FeatureStatus::parse(status)
-            .ok_or_else(|| format!("line {} has unknown feature status {status:?}", index + 1))?;
-        if section.is_empty() {
-            return Err(format!(
-                "line {} has no containing contract section",
-                index + 1
-            ));
-        }
-
-        let next_contract_line = lines[index + 1..]
-            .iter()
-            .map(|candidate| candidate.trim())
-            .find(|candidate| {
-                !candidate.is_empty() && !candidate.starts_with("<!-- icydb-sql-feature")
-            })
-            .ok_or_else(|| format!("line {} has no following contract text", index + 1))?;
-        if next_contract_line.starts_with('#') {
-            return Err(format!(
-                "line {} metadata must precede contract text, not another section",
-                index + 1
-            ));
-        }
-
-        let feature = ContractFeature {
-            kind,
-            status,
-            section: section.clone(),
-            line: index + 1,
-        };
-        if let Some(previous) = features.insert(id.to_string(), feature) {
-            return Err(format!(
-                "duplicate contract feature {id:?} at lines {} and {}",
-                previous.line,
-                index + 1
-            ));
-        }
-    }
-
-    Ok(features)
-}
-
 fn validate_feature_id(id: &str) -> Result<(), String> {
     let segments = id.split('.').collect::<Vec<_>>();
     if segments.len() < 2 {
@@ -2911,37 +2797,24 @@ fn sql_coverage_manifest_revision_has_a_fixed_golden_vector() {
 }
 
 #[test]
-fn sql_contract_metadata_and_coverage_manifest_are_consistent() {
+fn sql_coverage_manifest_is_complete_and_consistent() {
     assert_eq!(EVIDENCE_CLASS_TAXONOMY.len(), 8);
     assert_eq!(EVIDENCE_STRENGTH_TAXONOMY.len(), 4);
     assert_eq!(PERFORMANCE_OBLIGATION_TAXONOMY.len(), 5);
 
-    let contract = include_str!("../../../../docs/contracts/SQL_SUBSET.md");
-    let contract_features =
-        parse_contract_features(contract).expect("SQL contract feature metadata should be valid");
     let providers = provider_specs().expect("deterministic SQL providers should resolve");
-    let mut manifest_features = BTreeMap::new();
+    let mut manifest_features = BTreeSet::new();
     let mut used_providers = BTreeSet::new();
 
     for cell in MANIFEST {
         validate_cell(cell, &providers, &mut used_providers)
             .unwrap_or_else(|error| panic!("invalid SQL coverage manifest: {error}"));
         assert!(
-            manifest_features.insert(cell.id, cell).is_none(),
+            manifest_features.insert(cell.id),
             "duplicate SQL coverage manifest cell {:?}",
             cell.id
         );
     }
-
-    let contract_ids = contract_features
-        .keys()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    let manifest_ids = manifest_features.keys().copied().collect::<BTreeSet<_>>();
-    assert_eq!(
-        contract_ids, manifest_ids,
-        "SQL contract metadata and coverage manifest must form an exact bijection"
-    );
 
     let profile_features = required_sqlite_reference_scenarios()
         .iter()
@@ -2992,24 +2865,6 @@ fn sql_contract_metadata_and_coverage_manifest_are_consistent() {
         "manifest scale dispositions must match the shared query-performance contract",
     );
 
-    for (id, contract_feature) in &contract_features {
-        let cell = manifest_features
-            .get(id.as_str())
-            .expect("bijection check should resolve every contract feature");
-        assert_eq!(
-            cell.kind, contract_feature.kind,
-            "feature kind drift for {id}"
-        );
-        assert_eq!(
-            cell.status, contract_feature.status,
-            "feature status drift for {id}"
-        );
-        assert_eq!(
-            cell.contract_section, contract_feature.section,
-            "contract location drift for {id}"
-        );
-    }
-
     let declared_providers = providers.keys().copied().collect::<BTreeSet<_>>();
     assert_eq!(
         used_providers, declared_providers,
@@ -3041,21 +2896,6 @@ fn generated_select_exclusions_are_explicitly_attributed() {
                 provider_id
             );
         }
-    }
-}
-
-#[test]
-fn malformed_contract_feature_metadata_fails_closed() {
-    for invalid in [
-        "<!-- icydb-sql-feature kind=\"syntax\" id=\"query.valid\" status=\"accepted\" -->\ntext",
-        "<!-- icydb-sql-feature id=\"Query.invalid\" kind=\"syntax\" status=\"accepted\" -->\ntext",
-        "<!-- icydb-sql-feature id=\"query.invalid\" kind=\"unknown\" status=\"accepted\" -->\ntext",
-        "<!-- icydb-sql-feature id=\"query.invalid\" kind=\"syntax\" status=\"unknown\" -->\ntext",
-    ] {
-        assert!(
-            parse_contract_features(&format!("## Test\n{invalid}")).is_err(),
-            "invalid contract metadata must fail closed: {invalid}"
-        );
     }
 }
 

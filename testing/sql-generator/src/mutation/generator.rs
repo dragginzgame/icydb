@@ -24,8 +24,8 @@ pub const TIER_C_MUTATION_REPETITIONS: u64 = 2;
 
 /// Derive the frozen structural requirement for one reviewed mutation witness.
 ///
-/// This construction is independent of the checked catalog projection so the
-/// code-owned obligation catalog can freeze the expected signature before any
+/// This construction derives from the typed recipe independently of the
+/// code-owned witness declaration, freezing the expected signature before any
 /// scheduled observation runs.
 ///
 /// # Errors
