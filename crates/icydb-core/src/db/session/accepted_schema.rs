@@ -73,7 +73,8 @@ fn record_accepted_schema_runtime_root_publication() {
 
 #[cfg(test)]
 pub(in crate::db) fn reset_accepted_schema_runtime_build_counts_for_tests() {
-    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|counts| counts.set(Default::default()));
+    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS
+        .with(|counts| counts.set(AcceptedSchemaRuntimeBuildCounts::default()));
 }
 
 #[cfg(test)]
