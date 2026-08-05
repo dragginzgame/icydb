@@ -18,6 +18,9 @@ pub struct SqlQueryCacheAttribution {
     pub sql_compiled_command_misses: u64,
     pub shared_query_plan_hits: u64,
     pub shared_query_plan_misses: u64,
+    pub shared_query_plan_insertions: u64,
+    pub shared_query_plan_evictions: u64,
+    pub shared_query_plan_rejected_oversize: u64,
 }
 
 impl SqlQueryCacheAttribution {
@@ -32,6 +35,9 @@ impl SqlQueryCacheAttribution {
             sql_compiled_command_misses: merged.sql_compiled_command_cache_misses,
             shared_query_plan_hits: merged.shared_query_plan_cache_hits,
             shared_query_plan_misses: merged.shared_query_plan_cache_misses,
+            shared_query_plan_insertions: merged.shared_query_plan_cache_insertions,
+            shared_query_plan_evictions: merged.shared_query_plan_cache_evictions,
+            shared_query_plan_rejected_oversize: merged.shared_query_plan_cache_rejected_oversize,
         }
     }
 }

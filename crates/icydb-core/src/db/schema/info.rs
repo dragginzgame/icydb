@@ -17,9 +17,10 @@ use crate::db::schema::{
 use crate::db::schema::{SqlCapabilities, sql_capabilities_with_enum_catalog};
 use crate::{
     db::schema::{
+        canonicalize_filter_collection_element_for_persisted_kind,
         canonicalize_filter_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
     },
-    value::Value,
+    value::{InputValue, InputValueEnum, Value},
 };
 type SchemaFieldEntry = (String, SchemaFieldInfo);
 
@@ -614,6 +615,35 @@ impl SchemaInfo {
         canonicalize_filter_literal_for_persisted_kind(kind, value)
     }
 
+    /// Canonicalize one collection-containment literal against the accepted
+    /// element contract of a list or set field.
+    #[must_use]
+    pub(in crate::db) fn canonicalize_filter_collection_element(
+        &self,
+        field_name: &str,
+        value: &Value,
+    ) -> Option<Value> {
+        let field = schema_field_info(self.fields.as_slice(), field_name)?;
+        let element_kind = match &field.persisted_kind {
+            AcceptedFieldKind::List(element_kind) | AcceptedFieldKind::Set(element_kind) => {
+                element_kind.as_ref()
+            }
+            _ => return None,
+        };
+
+        if element_kind.contains_enum() {
+            let input = loose_enum_filter_input(element_kind, value)?;
+            let contract = self
+                .accepted_field_contract(field_name)?
+                .collection_element_contract()?;
+            return contract
+                .normalize_input_to_runtime(input, &mut ValueAdmissionBudget::standard())
+                .ok();
+        }
+
+        canonicalize_filter_collection_element_for_persisted_kind(&field.persisted_kind, value)
+    }
+
     /// Build one accepted-only schema view retaining its immutable value catalog.
     ///
     /// Integrity and other catalog-native consumers must not require a
@@ -710,6 +740,17 @@ impl SchemaInfo {
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_names,
         }
+    }
+}
+
+fn loose_enum_filter_input(kind: &AcceptedFieldKind, value: &Value) -> Option<InputValue> {
+    match kind {
+        AcceptedFieldKind::Enum { .. } => match value {
+            Value::Text(variant) => Some(InputValue::Enum(InputValueEnum::loose(variant.clone()))),
+            _ => None,
+        },
+        AcceptedFieldKind::Relation { key_kind, .. } => loose_enum_filter_input(key_kind, value),
+        _ => None,
     }
 }
 

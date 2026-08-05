@@ -9,7 +9,10 @@ use crate::db::diagnostics::measure_local_instruction_delta as measure_query_pla
 use crate::db::{
     commit::CommitSchemaFingerprint,
     executor::EntityAuthority,
-    query::intent::{StructuralQuery, StructuralQueryCacheKey},
+    query::{
+        intent::{StructuralQuery, StructuralQueryCacheKey},
+        plan::PreparedQueryParameterContract,
+    },
     schema::{
         AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaSnapshot,
         SchemaVersion,
@@ -17,6 +20,11 @@ use crate::db::{
     session::AcceptedSchemaCatalogContext,
 };
 use std::rc::Rc;
+
+// Charge one conservative shell allowance for a structural cache key. Query
+// topology is separately bounded by planner admission, while this fixed charge
+// keeps retained-byte accounting cheap on the miss path.
+const QUERY_PLAN_CACHE_KEY_RETAINED_BYTES_ESTIMATE: usize = 8 * 1024;
 
 ///
 /// QueryPlanVisibility
@@ -80,10 +88,11 @@ impl SchemaCacheIdentity {
         accepted_schema: &AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
         runtime_root: AcceptedSchemaRuntimeRootIdentity,
+        revision: AcceptedSchemaRevision,
     ) -> Self {
         Self::new(
             runtime_root,
-            AcceptedSchemaRevision::NONE,
+            revision,
             accepted_schema.persisted_snapshot().version(),
             crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             fingerprint,
@@ -127,6 +136,7 @@ impl<'schema> QueryPlanAcceptedSchema<'schema> {
         accepted_schema: &'schema AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
         runtime_root: AcceptedSchemaRuntimeRootIdentity,
+        revision: AcceptedSchemaRevision,
     ) -> Self {
         Self {
             accepted_schema,
@@ -134,6 +144,7 @@ impl<'schema> QueryPlanAcceptedSchema<'schema> {
                 accepted_schema,
                 fingerprint,
                 runtime_root,
+                revision,
             ),
         }
     }
@@ -169,6 +180,9 @@ impl<'schema> QueryPlanAcceptedSchema<'schema> {
 pub(in crate::db) struct QueryPlanCacheAttribution {
     pub hits: u64,
     pub misses: u64,
+    pub insertions: u64,
+    pub evictions: u64,
+    pub rejected_oversize: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -198,12 +212,36 @@ pub(super) struct QueryPlanCompilePhaseRecorder<'a> {
 impl QueryPlanCacheAttribution {
     #[must_use]
     pub(super) const fn hit() -> Self {
-        Self { hits: 1, misses: 0 }
+        Self {
+            hits: 1,
+            misses: 0,
+            insertions: 0,
+            evictions: 0,
+            rejected_oversize: 0,
+        }
     }
 
     #[must_use]
     pub(super) const fn miss() -> Self {
-        Self { hits: 0, misses: 1 }
+        Self {
+            hits: 0,
+            misses: 1,
+            insertions: 1,
+            evictions: 0,
+            rejected_oversize: 0,
+        }
+    }
+
+    #[must_use]
+    pub(super) fn with_template_insert(
+        mut self,
+        evictions: usize,
+        rejected_oversize: bool,
+    ) -> Self {
+        self.insertions = u64::from(!rejected_oversize);
+        self.evictions = u64::try_from(evictions).unwrap_or(u64::MAX);
+        self.rejected_oversize = u64::from(rejected_oversize);
+        self
     }
 }
 
@@ -299,6 +337,12 @@ impl QueryPlanCacheKey {
         &self.structural_query
     }
 
+    pub(super) fn estimated_retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(self.entity_path.len())
+            .saturating_add(QUERY_PLAN_CACHE_KEY_RETAINED_BYTES_ESTIMATE)
+    }
+
     // Assemble the canonical cache-key shell once so the test and
     // normalized-predicate constructors only decide which structural query key
     // they feed into the shared session cache identity.
@@ -344,6 +388,21 @@ impl QueryPlanCacheKey {
             query.structural_cache_key_with_normalized_predicate_fingerprint(
                 normalized_predicate_fingerprint,
             ),
+        )
+    }
+
+    pub(super) fn for_authority_with_parameter_contract(
+        authority: EntityAuthority,
+        schema_identity: SchemaCacheIdentity,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        parameter_contract: PreparedQueryParameterContract,
+    ) -> Self {
+        Self::from_authority_cache_inputs(
+            authority,
+            schema_identity,
+            visibility,
+            query.structural_cache_key_with_parameter_contract(parameter_contract),
         )
     }
 

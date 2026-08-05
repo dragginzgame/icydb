@@ -41,7 +41,7 @@ where
     ))
 }
 
-fn estimate_value_payload_bytes(value: &Value) -> u32 {
+pub(super) fn estimate_value_payload_bytes(value: &Value) -> u32 {
     match value {
         Value::Account(_) => crate::types::Account::STORED_SIZE,
         Value::Blob(bytes) => byte_len_u32(bytes.len()),

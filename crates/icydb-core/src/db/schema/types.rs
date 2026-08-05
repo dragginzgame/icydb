@@ -3,14 +3,19 @@
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
-use crate::db::schema::{
-    AcceptedFieldKind, AcceptedFieldKindCategory, classify_accepted_field_kind,
-};
-use crate::types::{Account, Decimal, Float32, Float64, Principal};
-use crate::types::{IntBig, NatBig, Ulid};
-use crate::value::{CoercionFamily, Value};
 #[cfg(any(test, feature = "sql"))]
 use crate::value::{InputValue, InputValueEnum};
+use crate::{
+    db::{
+        codec::hex::decode_hex_bounded,
+        schema::{AcceptedFieldKind, AcceptedFieldKindCategory, classify_accepted_field_kind},
+    },
+    types::{
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+        Timestamp, Ulid,
+    },
+    value::{CoercionFamily, Value},
+};
 use icydb_schema::{ScalarCoercionFamily, ScalarKind};
 use std::fmt;
 use std::str::FromStr;
@@ -249,6 +254,21 @@ pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind(
     }
 }
 
+/// Canonicalize one collection-containment literal through the field's
+/// accepted element kind.
+#[must_use]
+pub(in crate::db) fn canonicalize_filter_collection_element_for_persisted_kind(
+    field_kind: &AcceptedFieldKind,
+    value: &Value,
+) -> Option<Value> {
+    match field_kind {
+        AcceptedFieldKind::List(element_kind) | AcceptedFieldKind::Set(element_kind) => {
+            canonicalize_filter_literal_for_persisted_kind(element_kind, value)
+        }
+        _ => None,
+    }
+}
+
 fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
     match kind {
         AcceptedFieldKind::Account => canonicalize_text_or_exact(
@@ -332,14 +352,74 @@ fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -
         AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Date
         | AcceptedFieldKind::Duration
-        | AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::Subaccount
-        | AcceptedFieldKind::Timestamp
+        | AcceptedFieldKind::Timestamp => canonicalize_filter_string_backed_atom(kind, value),
+        AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::Relation { .. }
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Set(_)
         | AcceptedFieldKind::Map { .. }
         | AcceptedFieldKind::Composite { .. } => None,
+    }
+}
+
+fn canonicalize_filter_string_backed_atom(
+    kind: &AcceptedFieldKind,
+    value: &Value,
+) -> Option<Value> {
+    match kind {
+        AcceptedFieldKind::Blob { max_len } => {
+            let max_len = max_len
+                .and_then(|max_len| usize::try_from(max_len).ok())
+                .unwrap_or(usize::MAX);
+            match value {
+                Value::Blob(inner) if inner.len() <= max_len => Some(Value::Blob(inner.clone())),
+                Value::Text(inner) => decode_hex_bounded(inner, max_len).map(Value::Blob),
+                _ => None,
+            }
+        }
+        AcceptedFieldKind::Date => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Date(inner) => Some(*inner),
+                _ => None,
+            },
+            |value| Date::parse(value).ok_or(()),
+            Value::Date,
+        ),
+        AcceptedFieldKind::Duration => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Duration(inner) => Some(*inner),
+                _ => None,
+            },
+            Duration::parse_flexible,
+            Value::Duration,
+        ),
+        AcceptedFieldKind::Subaccount => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Subaccount(inner) => Some(*inner),
+                _ => None,
+            },
+            |value| {
+                let bytes = decode_hex_bounded(value, 32).ok_or(())?;
+                <[u8; 32]>::try_from(bytes)
+                    .map(Subaccount::from_array)
+                    .map_err(|_| ())
+            },
+            Value::Subaccount,
+        ),
+        AcceptedFieldKind::Timestamp => canonicalize_text_or_exact(
+            value,
+            |value| match value {
+                Value::Timestamp(inner) => Some(*inner),
+                _ => None,
+            },
+            Timestamp::parse_flexible,
+            Value::Timestamp,
+        ),
+        _ => None,
     }
 }
 
@@ -846,5 +926,112 @@ mod tests {
             ),
             None,
         );
+    }
+
+    #[test]
+    fn string_backed_filter_atoms_rehydrate_to_exact_runtime_types() {
+        let date = Date::try_new(2026, 8, 5).expect("test date should be valid");
+        let subaccount = Subaccount::from_array([0xab; 32]);
+        let cases = [
+            (
+                AcceptedFieldKind::Blob { max_len: Some(4) },
+                Value::Text("000aff".to_string()),
+                Value::Blob(vec![0x00, 0x0a, 0xff]),
+            ),
+            (
+                AcceptedFieldKind::Date,
+                Value::Text(date.to_string()),
+                Value::Date(date),
+            ),
+            (
+                AcceptedFieldKind::Duration,
+                Value::Text("12345".to_string()),
+                Value::Duration(Duration::from_millis(12_345)),
+            ),
+            (
+                AcceptedFieldKind::Subaccount,
+                Value::Text(subaccount.to_string()),
+                Value::Subaccount(subaccount),
+            ),
+            (
+                AcceptedFieldKind::Timestamp,
+                Value::Text("-42".to_string()),
+                Value::Timestamp(Timestamp::from_millis(-42)),
+            ),
+        ];
+
+        for (kind, literal, expected) in cases {
+            assert_eq!(
+                canonicalize_filter_literal_for_persisted_kind(&kind, &literal),
+                Some(expected),
+                "{kind:?} should rehydrate its string-backed filter literal",
+            );
+        }
+    }
+
+    #[test]
+    fn subaccount_relation_filters_reuse_the_exact_key_kind_canonicalizer() {
+        let subaccount = Subaccount::from_array([0xcd; 32]);
+        let relation = AcceptedFieldKind::Relation {
+            target_path: "test::Target".into(),
+            target_entity_name: "Target".into(),
+            target_entity_tag: crate::types::EntityTag::new(1),
+            target_store_path: "test::Store".into(),
+            key_kind: Box::new(AcceptedFieldKind::Subaccount),
+        };
+
+        assert_eq!(
+            canonicalize_filter_literal_for_persisted_kind(
+                &relation,
+                &Value::Text(subaccount.to_string()),
+            ),
+            Some(Value::Subaccount(subaccount)),
+        );
+    }
+
+    #[test]
+    fn collection_contains_rehydrates_string_backed_elements() {
+        let subaccount = Subaccount::from_array([0xef; 32]);
+        let field_kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Subaccount));
+
+        assert_eq!(
+            canonicalize_filter_collection_element_for_persisted_kind(
+                &field_kind,
+                &Value::Text(subaccount.to_string()),
+            ),
+            Some(Value::Subaccount(subaccount)),
+        );
+    }
+
+    #[test]
+    fn malformed_string_backed_filter_atoms_fail_closed() {
+        let malformed = [
+            (
+                AcceptedFieldKind::Blob { max_len: Some(1) },
+                Value::Text("0001".to_string()),
+            ),
+            (
+                AcceptedFieldKind::Date,
+                Value::Text("2026-02-30".to_string()),
+            ),
+            (AcceptedFieldKind::Duration, Value::Text("-1".to_string())),
+            (AcceptedFieldKind::Subaccount, Value::Text("ab".repeat(31))),
+            (
+                AcceptedFieldKind::Subaccount,
+                Value::Text(format!("{}zz", "ab".repeat(31))),
+            ),
+            (
+                AcceptedFieldKind::Timestamp,
+                Value::Text("not-a-timestamp".to_string()),
+            ),
+        ];
+
+        for (kind, literal) in malformed {
+            assert_eq!(
+                canonicalize_filter_literal_for_persisted_kind(&kind, &literal),
+                None,
+                "{kind:?} should reject malformed string-backed filter literals",
+            );
+        }
     }
 }

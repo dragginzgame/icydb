@@ -10,15 +10,20 @@ use crate::{
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault,
-            SchemaRowLayout, SchemaStore, SchemaVersion,
+            PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
+            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId,
+            SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
             accepted_schema_candidate_with_field_bindings_for_tests,
             accepted_schema_snapshot_fingerprint_builds_for_tests,
             reset_accepted_schema_snapshot_fingerprint_builds_for_tests,
         },
         session::{
             AcceptedSchemaRuntimeBuildCounts, accepted_schema_runtime_build_counts_for_tests,
-            query::shared_query_plan_cache_len_for_tests,
+            query::{
+                shared_query_plan_cache_len_for_tests,
+                shared_query_template_cache_entry_upper_bound_for_tests,
+                shared_query_template_cache_len_for_tests,
+            },
             reset_accepted_schema_runtime_build_counts_for_tests,
         },
     },
@@ -234,6 +239,195 @@ fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
 }
 
 #[test]
+fn parameterized_plan_cache_binds_current_values_across_dynamic_and_sql_surfaces() {
+    let session = initialize();
+    seed_singleton(&session);
+    let matching = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .select(["id", "label"]);
+
+    let first = session
+        .execute_trusted_dynamic_query(&matching)
+        .expect("first dynamic equality should compile its parameterized template");
+    assert_eq!(first.rows, vec![singleton_row()]);
+    let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
+
+    let (second, attribution) = session
+        .execute_trusted_sql_query_with_attribution(
+            "SELECT id, label FROM Singleton WHERE label = 'missing'",
+        )
+        .expect("different SQL literal should bind through the shared dynamic template");
+    let SqlStatementResult::Projection { rows, .. } = second else {
+        panic!("parameterized SQL lookup should return a projection");
+    };
+    assert!(
+        rows.is_empty(),
+        "the first literal's index bound must not leak"
+    );
+    assert_eq!(attribution.cache.shared_query_plan_hits, 1);
+    assert_eq!(attribution.cache.shared_query_plan_misses, 0);
+    assert_eq!(
+        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
+        cached_after_first,
+        "different literal values should reuse one shared template",
+    );
+}
+
+#[test]
+fn parameterized_in_list_cache_identity_is_independent_of_nonempty_arity() {
+    let session = initialize();
+    seed_singleton(&session);
+    let one = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").in_list([InputValue::Text("missing".to_string())]))
+        .select(["id", "label"]);
+    let two = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").in_list([
+            InputValue::Text("missing".to_string()),
+            InputValue::Text("singleton".to_string()),
+        ]))
+        .select(["id", "label"]);
+
+    let first = session
+        .execute_trusted_dynamic_query(&one)
+        .expect("one-item IN should compile its list-slot template");
+    assert!(first.rows.is_empty());
+    let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
+    let second = session
+        .execute_trusted_dynamic_query(&two)
+        .expect("two-item IN should bind to the same list-slot template");
+
+    assert_eq!(second.rows, vec![singleton_row()]);
+    assert_eq!(
+        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
+        cached_after_first,
+        "IN list arity must not create one template per length",
+    );
+}
+
+#[test]
+fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
+    let session = initialize();
+    seed_singleton(&session);
+    let above = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").gte(InputValue::Text("z".to_string())))
+        .select(["id", "label"]);
+    let below = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").gte(InputValue::Text("a".to_string())))
+        .select(["id", "label"]);
+
+    assert!(
+        session
+            .execute_trusted_dynamic_query(&above)
+            .expect("first range should compile its parameterized template")
+            .rows
+            .is_empty(),
+    );
+    let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
+    assert_eq!(
+        session
+            .execute_trusted_dynamic_query(&below)
+            .expect("second range should bind a fresh lower bound")
+            .rows,
+        vec![singleton_row()],
+    );
+    assert_eq!(
+        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
+        cached_after_first,
+    );
+
+    let wrong_type = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").gte(InputValue::Bool(true)))
+        .select(["id", "label"]);
+    assert!(
+        session.execute_trusted_dynamic_query(&wrong_type).is_err(),
+        "schema validation must reject a wrong-typed binding before cache reuse",
+    );
+    assert_eq!(
+        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
+        cached_after_first,
+    );
+}
+
+#[test]
+fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
+    let session = initialize();
+    seed_singleton(&session);
+    let base = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .select(["id"]);
+    session
+        .execute_trusted_dynamic_query(&base)
+        .expect("base parameterized shape should execute");
+    let after_base = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
+
+    let projection = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .select(["id", "label"]);
+    session
+        .execute_trusted_dynamic_query(&projection)
+        .expect("different projection shape should execute");
+    let after_projection = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
+    assert_eq!(after_projection, after_base.saturating_add(1));
+
+    let ordered = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .select(["id", "label"])
+        .order_by(asc("label"));
+    session
+        .execute_trusted_dynamic_query(&ordered)
+        .expect("different ordering topology should execute");
+    assert_eq!(
+        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
+        after_projection.saturating_add(1),
+    );
+}
+
+#[test]
+fn parameterized_template_cache_evicts_deterministically_at_its_capacity_bound() {
+    let session = initialize();
+    seed_singleton(&session);
+    let entry_upper_bound = shared_query_template_cache_entry_upper_bound_for_tests();
+
+    let mut last_attribution = None;
+    for limit in 1..=entry_upper_bound.saturating_add(1) {
+        let sql = format!(
+            "SELECT id, label FROM Singleton WHERE label = 'singleton' ORDER BY id LIMIT {limit}"
+        );
+        let (_, attribution) = session
+            .execute_trusted_sql_query_with_attribution(&sql)
+            .expect("each bounded parameterized shape should execute");
+        assert_eq!(attribution.cache.shared_query_plan_misses, 1);
+        last_attribution = Some(attribution);
+    }
+
+    assert_eq!(
+        last_attribution
+            .expect("at least one cache insertion should execute")
+            .cache
+            .shared_query_plan_evictions,
+        1,
+    );
+
+    let cache_scope_id = session.db.cache_scope_id();
+    assert!(shared_query_template_cache_len_for_tests(cache_scope_id) <= entry_upper_bound,);
+
+    let (_, newest) = session
+        .execute_trusted_sql_query_with_attribution(&format!(
+            "SELECT id, label FROM Singleton WHERE label = 'other' ORDER BY id LIMIT {}",
+            entry_upper_bound.saturating_add(1),
+        ))
+        .expect("newest retained shape should execute");
+    assert_eq!(newest.cache.shared_query_plan_hits, 1);
+
+    let (_, oldest) = session
+        .execute_trusted_sql_query_with_attribution(
+            "SELECT id, label FROM Singleton WHERE label = 'other' ORDER BY id LIMIT 1",
+        )
+        .expect("evicted oldest shape should recompile");
+    assert_eq!(oldest.cache.shared_query_plan_misses, 1);
+}
+
+#[test]
 fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
     let session = initialize();
     let binding = session
@@ -310,7 +504,7 @@ fn publish_schema(
         field(1, "id", 0, AcceptedFieldKind::Unit),
         field(2, "label", 1, AcceptedFieldKind::Text { max_len: None }),
     ];
-    let snapshot = PersistedSchemaSnapshot::new(
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),
         ENTITY_SOURCE.to_string(),
         ENTITY_NAME.to_string(),
@@ -322,6 +516,21 @@ fn publish_schema(
                 .collect(),
         ),
         fields,
+        vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+            1,
+            "singleton_label_idx".to_string(),
+            STORE_PATH.to_string(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["label".to_string()],
+                AcceptedFieldKind::Text { max_len: None },
+                false,
+            )]),
+            None,
+        )],
     );
     let field_bindings = BTreeMap::from([
         ((ENTITY_TAG, field_source(ID_SOURCE)), FieldId::new(1)),

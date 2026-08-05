@@ -468,10 +468,13 @@ pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
 pub(crate) use types::FieldType;
-pub(in crate::db) use types::canonicalize_filter_literal_for_persisted_kind;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
 pub(crate) use types::literal_matches_type;
+pub(in crate::db) use types::{
+    canonicalize_filter_collection_element_for_persisted_kind,
+    canonicalize_filter_literal_for_persisted_kind,
+};

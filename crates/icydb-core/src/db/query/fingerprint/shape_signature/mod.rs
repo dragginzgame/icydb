@@ -40,3 +40,42 @@ fn continuation_signature_for_plan_with_projection(
     );
     ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            Predicate,
+            access::AccessPath,
+            predicate::MissingRowPolicy,
+            query::plan::{AccessPlannedQuery, LogicalPlan},
+        },
+        value::Value,
+    };
+
+    fn plan_with_bound_value(value: &str) -> AccessPlannedQuery {
+        let mut plan =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+            panic!("test plan should remain scalar");
+        };
+        scalar.predicate = Some(Predicate::eq(
+            "label".to_string(),
+            Value::Text(value.to_string()),
+        ));
+
+        plan
+    }
+
+    #[test]
+    fn continuation_signature_binds_current_parameter_values() {
+        let first = plan_with_bound_value("first");
+        let second = plan_with_bound_value("second");
+
+        assert_ne!(
+            first.continuation_signature("tests::Entity"),
+            second.continuation_signature("tests::Entity"),
+            "one template must not admit a cursor issued for different bound values",
+        );
+    }
+}

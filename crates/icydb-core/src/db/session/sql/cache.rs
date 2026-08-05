@@ -37,6 +37,9 @@ pub(in crate::db) struct SqlCacheAttribution {
     pub sql_compiled_command_cache_misses: u64,
     pub shared_query_plan_cache_hits: u64,
     pub shared_query_plan_cache_misses: u64,
+    pub shared_query_plan_cache_insertions: u64,
+    pub shared_query_plan_cache_evictions: u64,
+    pub shared_query_plan_cache_rejected_oversize: u64,
 }
 
 ///
@@ -187,6 +190,9 @@ impl SqlCacheAttribution {
             sql_compiled_command_cache_misses: 0,
             shared_query_plan_cache_hits: 0,
             shared_query_plan_cache_misses: 0,
+            shared_query_plan_cache_insertions: 0,
+            shared_query_plan_cache_evictions: 0,
+            shared_query_plan_cache_rejected_oversize: 0,
         }
     }
 
@@ -221,6 +227,9 @@ impl SqlCacheAttribution {
         Self {
             shared_query_plan_cache_hits: attribution.hits,
             shared_query_plan_cache_misses: attribution.misses,
+            shared_query_plan_cache_insertions: attribution.insertions,
+            shared_query_plan_cache_evictions: attribution.evictions,
+            shared_query_plan_cache_rejected_oversize: attribution.rejected_oversize,
             ..Self::none()
         }
     }
@@ -247,6 +256,15 @@ impl SqlCacheAttribution {
             shared_query_plan_cache_misses: self
                 .shared_query_plan_cache_misses
                 .saturating_add(other.shared_query_plan_cache_misses),
+            shared_query_plan_cache_insertions: self
+                .shared_query_plan_cache_insertions
+                .saturating_add(other.shared_query_plan_cache_insertions),
+            shared_query_plan_cache_evictions: self
+                .shared_query_plan_cache_evictions
+                .saturating_add(other.shared_query_plan_cache_evictions),
+            shared_query_plan_cache_rejected_oversize: self
+                .shared_query_plan_cache_rejected_oversize
+                .saturating_add(other.shared_query_plan_cache_rejected_oversize),
         }
     }
 }

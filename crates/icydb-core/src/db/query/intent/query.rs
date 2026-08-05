@@ -10,7 +10,10 @@ use crate::db::{
         builder::AggregateExpr,
         expr::OrderTerm as FluentOrderTerm,
         intent::{QueryError, QueryModel},
-        plan::{AccessPlannedQuery, PreparedScalarPlanningState, VisibleIndexes},
+        plan::{
+            AccessPlannedQuery, PreparedQueryParameterContract, PreparedScalarPlanningState,
+            VisibleIndexes,
+        },
     },
     schema::SchemaInfo,
 };
@@ -240,6 +243,15 @@ impl StructuralQuery {
             )
     }
 
+    pub(in crate::db) fn build_plan_from_parameterized_template(
+        &self,
+        template_indexes: &[crate::db::access::SemanticIndexAccessContract],
+        planning_state: PreparedScalarPlanningState<'_>,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        self.intent
+            .build_plan_model_from_parameterized_template(template_indexes, planning_state)
+    }
+
     pub(in crate::db) fn try_build_count_cardinality_prefix_access_with_schema_info(
         &self,
         visible_indexes: &VisibleIndexes,
@@ -286,5 +298,18 @@ impl StructuralQuery {
 
         self.intent
             .structural_cache_key_with_normalized_predicate_fingerprint(predicate_fingerprint)
+    }
+
+    pub(in crate::db) fn structural_cache_key_with_parameter_contract(
+        &self,
+        parameter_contract: PreparedQueryParameterContract,
+    ) -> crate::db::query::intent::StructuralQueryCacheKey {
+        self.intent
+            .structural_cache_key_with_parameter_contract(parameter_contract)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn filter_predicate_fully_covers_expression(&self) -> bool {
+        self.intent.filter_predicate_fully_covers_expression()
     }
 }

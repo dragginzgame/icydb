@@ -15,6 +15,7 @@ use crate::{
                 PrimaryKeyAccessProof, PrimaryKeyInputResourceSummary, VisibleIndexes,
                 build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate,
+                plan_access_selection_with_order_and_semantic_indexes,
                 plan_query_access_with_accepted_schema, predicate_is_constant_false,
                 primary_key_input_resource_from_value_list,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
@@ -68,6 +69,11 @@ impl<'a> PreparedScalarPlanningState<'a> {
     #[must_use]
     pub(in crate::db) const fn normalized_predicate(&self) -> Option<&Predicate> {
         self.normalized_predicate.as_ref()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_info(&self) -> &SchemaInfo {
+        &self.schema_info
     }
 }
 
@@ -140,6 +146,63 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
     )?;
     let (access_plan_value, planned_non_index_reason) =
         access_selection.into_access_and_non_index_reason();
+
+    assemble_query_model_plan(
+        query,
+        visible_indexes.accepted_semantic_index_contracts(),
+        schema_info,
+        normalized_predicate,
+        primary_key_input_resource,
+        access_plan_value,
+        planned_non_index_reason,
+    )
+}
+
+/// Bind one validated execution to the index authority retained by a prepared
+/// parameterized template. This reuses the chosen physical topology while
+/// deriving fresh key/range bounds from the current execution's values.
+pub(in crate::db::query) fn build_query_model_plan_from_parameterized_template(
+    query: &QueryModel,
+    template_indexes: &[SemanticIndexAccessContract],
+    planning_state: PreparedScalarPlanningState<'_>,
+) -> Result<AccessPlannedQuery, QueryError> {
+    let PreparedScalarPlanningState {
+        schema_info,
+        access_inputs,
+        normalized_predicate,
+        primary_key_input_resource,
+    } = planning_state;
+    let access_order = access_inputs.order();
+    let access_selection = plan_access_from_parameterized_template(
+        query,
+        template_indexes,
+        &schema_info,
+        normalized_predicate.as_ref(),
+        access_order,
+    )?;
+    let (access_plan_value, planned_non_index_reason) =
+        access_selection.into_access_and_non_index_reason();
+
+    assemble_query_model_plan(
+        query,
+        template_indexes,
+        schema_info,
+        normalized_predicate,
+        primary_key_input_resource,
+        access_plan_value,
+        planned_non_index_reason,
+    )
+}
+
+fn assemble_query_model_plan(
+    query: &QueryModel,
+    rerank_indexes: &[SemanticIndexAccessContract],
+    schema_info: SchemaInfo,
+    normalized_predicate: Option<Predicate>,
+    primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
+    access_plan_value: AccessPlan<Value>,
+    planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
+) -> Result<AccessPlannedQuery, QueryError> {
     let logical_inputs = query.planning_logical_inputs();
     let primary_key_strip = strip_redundant_primary_key_predicate_for_exact_access(
         &schema_info,
@@ -167,7 +230,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
         planned_non_index_reason,
     );
     let preferred_access = rerank_access_plan_by_residual_burden_with_semantic_indexes(
-        visible_indexes.accepted_semantic_index_contracts(),
+        rerank_indexes,
         &schema_info,
         &plan,
     );
@@ -198,6 +261,36 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
         .map_err(QueryError::execute)?;
 
     Ok(plan)
+}
+
+fn plan_access_from_parameterized_template(
+    query: &QueryModel,
+    template_indexes: &[SemanticIndexAccessContract],
+    schema_info: &SchemaInfo,
+    normalized_predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
+) -> Result<PlannedAccessSelection, QueryError> {
+    let limit_zero_window = is_limit_zero_load_window(query.mode());
+    let constant_false_predicate = predicate_is_constant_false(normalized_predicate);
+    if limit_zero_window || constant_false_predicate {
+        return Ok(PlannedAccessSelection::new(
+            AccessPlan::by_keys(Vec::new()),
+            if limit_zero_window {
+                Some(PlannedNonIndexAccessReason::LimitZeroWindow)
+            } else {
+                Some(PlannedNonIndexAccessReason::ConstantFalsePredicate)
+            },
+        ));
+    }
+
+    plan_access_selection_with_order_and_semantic_indexes(
+        template_indexes,
+        schema_info,
+        normalized_predicate,
+        order,
+        query.is_grouped(),
+    )
+    .map_err(QueryError::from)
 }
 
 /// Build the exact-prefix COUNT metadata access proof directly from query

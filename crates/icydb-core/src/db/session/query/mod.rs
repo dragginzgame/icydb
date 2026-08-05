@@ -20,7 +20,10 @@ pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
 #[cfg(feature = "sql")]
 pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
 #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use cache::shared_query_plan_cache_len_for_tests;
+pub(in crate::db) use cache::{
+    shared_query_plan_cache_len_for_tests, shared_query_template_cache_entry_upper_bound_for_tests,
+    shared_query_template_cache_len_for_tests,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use diagnostics::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,

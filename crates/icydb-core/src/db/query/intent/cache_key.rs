@@ -13,7 +13,8 @@ use crate::{
             },
             intent::{model::QueryModel, state::GroupedIntent},
             plan::{
-                AggregateIdentity, OrderDirection, OrderSpec, QueryMode,
+                AggregateIdentity, OrderDirection, OrderSpec, PreparedQueryParameterContract,
+                QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
             },
         },
@@ -34,6 +35,7 @@ use crate::{
 pub(in crate::db) struct StructuralQueryCacheKey {
     mode: QueryModeCacheKey,
     predicate: Option<[u8; 32]>,
+    parameter_contract: Option<PreparedQueryParameterContract>,
     filter_expr: Option<ProjectionExprCacheKey>,
     order: Option<Vec<OrderFieldCacheKey>>,
     distinct: bool,
@@ -218,7 +220,14 @@ impl StructuralQueryCacheKey {
         model: &QueryModel,
         predicate_fingerprint: Option<[u8; 32]>,
     ) -> Self {
-        Self::from_query_model_with_optional_predicate_key(model, predicate_fingerprint)
+        Self::from_query_model_with_optional_predicate_key(model, predicate_fingerprint, None)
+    }
+
+    pub(in crate::db::query) fn from_query_model_with_parameter_contract(
+        model: &QueryModel,
+        parameter_contract: PreparedQueryParameterContract,
+    ) -> Self {
+        Self::from_query_model_with_optional_predicate_key(model, None, Some(parameter_contract))
     }
 
     // Build the shared structural cache key from one optional predicate-key
@@ -227,13 +236,22 @@ impl StructuralQueryCacheKey {
     fn from_query_model_with_optional_predicate_key(
         model: &QueryModel,
         predicate: Option<[u8; 32]>,
+        parameter_contract: Option<PreparedQueryParameterContract>,
     ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();
-        let filter_expr = scalar.filter.as_ref().and_then(|filter| {
-            filter
-                .logical_filter_expr()
-                .map(ProjectionExprCacheKey::from_expr)
-        });
+        // The fully-covered parameter contract is the semantic filter
+        // authority. Equivalent IN filters may lower to different-width OR
+        // expression trees, so authored expression arity must not enter the
+        // reusable template identity.
+        let filter_expr = if parameter_contract.is_some() {
+            None
+        } else {
+            scalar.filter.as_ref().and_then(|filter| {
+                filter
+                    .logical_filter_expr()
+                    .map(ProjectionExprCacheKey::from_expr)
+            })
+        };
         Self {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
             // Canonical scalar `filter_expr` owns semantic filter identity when
@@ -244,6 +262,7 @@ impl StructuralQueryCacheKey {
             } else {
                 predicate
             },
+            parameter_contract,
             filter_expr,
             order: scalar
                 .order

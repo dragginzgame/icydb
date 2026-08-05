@@ -4,6 +4,7 @@
 //! Boundary: resolves store visibility and memoizes prepared plans for typed and SQL callers.
 
 mod identity;
+mod template;
 
 #[cfg(feature = "sql")]
 use crate::db::TraceReuseEvent;
@@ -13,7 +14,10 @@ use crate::{
         DbSession, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         predicate::predicate_fingerprint_normalized,
-        query::{intent::StructuralQuery, plan::VisibleIndexes},
+        query::{
+            intent::StructuralQuery,
+            plan::{PreparedQueryParameterContract, VisibleIndexes},
+        },
         schema::{
             AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
             SchemaInfo,
@@ -35,17 +39,47 @@ use identity::{
     QueryPlanCompilePhaseRecorder, SchemaCacheIdentity,
 };
 pub(in crate::db) use identity::{QueryPlanCacheAttribution, QueryPlanVisibility};
+use template::PreparedQueryTemplate;
 
 const SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES: usize = 1024;
+const SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES: usize = 4 * 1024 * 1024;
 
-pub(in crate::db) type QueryPlanCache =
-    BoundedCache<QueryPlanCacheKey, SharedPreparedExecutionPlan>;
+type QueryPlanCache = BoundedCache<QueryPlanCacheKey, CachedQueryArtifact>;
+
+#[derive(Clone, Debug)]
+enum CachedQueryArtifact {
+    PreparedPlan(SharedPreparedExecutionPlan),
+    ParameterizedTemplate(PreparedQueryTemplate),
+}
+
+impl CachedQueryArtifact {
+    const fn prepared_plan(&self) -> Option<&SharedPreparedExecutionPlan> {
+        match self {
+            Self::PreparedPlan(plan) => Some(plan),
+            Self::ParameterizedTemplate(_) => None,
+        }
+    }
+
+    const fn parameterized_template(&self) -> Option<&PreparedQueryTemplate> {
+        match self {
+            Self::PreparedPlan(_) => None,
+            Self::ParameterizedTemplate(template) => Some(template),
+        }
+    }
+
+    const fn parameterized_template_mut(&mut self) -> Option<&mut PreparedQueryTemplate> {
+        match self {
+            Self::PreparedPlan(_) => None,
+            Self::ParameterizedTemplate(template) => Some(template),
+        }
+    }
+}
 
 // Classify one shared query-plan cache miss by comparing the missed key against
 // already-warmed plans. The buckets mirror the identity dimensions that can
 // drift independently while keeping query structure and schema hashes private.
-fn shared_query_plan_cache_miss_reason(
-    cache: &QueryPlanCache,
+fn shared_query_plan_cache_miss_reason<V>(
+    cache: &BoundedCache<QueryPlanCacheKey, V>,
     key: &QueryPlanCacheKey,
 ) -> CacheMissReason {
     if cache.is_empty() {
@@ -107,6 +141,24 @@ pub(in crate::db) fn shared_query_plan_cache_len_for_tests(cache_scope_id: usize
     })
 }
 
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) fn shared_query_template_cache_len_for_tests(cache_scope_id: usize) -> usize {
+    QUERY_PLAN_CACHES.with(|caches| {
+        caches.borrow().get(&cache_scope_id).map_or(0, |cache| {
+            cache
+                .values()
+                .filter(|artifact| artifact.parameterized_template().is_some())
+                .count()
+        })
+    })
+}
+
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) const fn shared_query_template_cache_entry_upper_bound_for_tests() -> usize {
+    SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES
+        / PreparedQueryTemplate::estimated_retained_bytes()
+}
+
 fn schema_info_for_plan_cache_authority(
     authority: &EntityAuthority,
     accepted_schema: &AcceptedSchemaSnapshot,
@@ -161,11 +213,97 @@ impl<C: CanisterKind> DbSession<C> {
 
         QUERY_PLAN_CACHES.with(|caches| {
             let mut caches = caches.borrow_mut();
-            let cache = caches
-                .entry(scope_id)
-                .or_insert_with(|| QueryPlanCache::new(SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES));
+            let cache = caches.entry(scope_id).or_insert_with(|| {
+                QueryPlanCache::new_weighted(
+                    SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES,
+                    SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES,
+                )
+            });
 
             f(cache)
+        })
+    }
+
+    fn lookup_shared_query_template_for_authority_recording(
+        &self,
+        authority: &EntityAuthority,
+        cache_key: &QueryPlanCacheKey,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> (Option<PreparedQueryTemplate>, Option<CacheMissReason>) {
+        recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
+            let (cached, entries, miss_reason) = self.with_query_plan_cache(|cache| {
+                let cached = cache
+                    .get(cache_key)
+                    .and_then(CachedQueryArtifact::parameterized_template)
+                    .cloned();
+                let miss_reason = cached
+                    .is_none()
+                    .then(|| shared_query_plan_cache_miss_reason(cache, cache_key));
+
+                (cached, cache.len(), miss_reason)
+            });
+            record_cache_entries(CacheKind::SharedQueryPlan, entries);
+            if cached.is_some() {
+                record_cache_event_for_path(
+                    CacheKind::SharedQueryPlan,
+                    CacheOutcome::Hit,
+                    authority.entity_path(),
+                );
+            }
+
+            (cached, miss_reason)
+        })
+    }
+
+    fn insert_shared_query_template_for_authority_recording(
+        &self,
+        authority: &EntityAuthority,
+        cache_key: QueryPlanCacheKey,
+        template: PreparedQueryTemplate,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> QueryPlanCacheAttribution {
+        let weight = cache_key
+            .estimated_retained_bytes()
+            .saturating_add(PreparedQueryTemplate::estimated_retained_bytes());
+        let (outcome, entries) = recorder.measure(QueryPlanCompilePhase::CacheInsert, || {
+            self.with_query_plan_cache(|cache| {
+                let outcome = cache.insert_weighted(
+                    cache_key,
+                    CachedQueryArtifact::ParameterizedTemplate(template),
+                    weight,
+                );
+                (outcome, cache.len())
+            })
+        });
+        record_cache_entries(CacheKind::SharedQueryPlan, entries);
+        if !outcome.rejected_oversize {
+            record_cache_event_for_path(
+                CacheKind::SharedQueryPlan,
+                CacheOutcome::Insert,
+                authority.entity_path(),
+            );
+        }
+
+        QueryPlanCacheAttribution::miss()
+            .with_template_insert(outcome.evicted, outcome.rejected_oversize)
+    }
+
+    fn remember_shared_query_template_bound_plan_recording(
+        &self,
+        cache_key: &QueryPlanCacheKey,
+        predicate_fingerprint: [u8; 32],
+        prepared_plan: SharedPreparedExecutionPlan,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> Result<(), QueryError> {
+        recorder.measure(QueryPlanCompilePhase::CacheInsert, || {
+            self.with_query_plan_cache(|cache| {
+                let template = cache
+                    .get_mut(cache_key)
+                    .and_then(CachedQueryArtifact::parameterized_template_mut)
+                    .ok_or_else(QueryError::invariant)?;
+                template.remember_bound_plan(predicate_fingerprint, prepared_plan);
+                Ok(())
+            })
         })
     }
 
@@ -180,7 +318,10 @@ impl<C: CanisterKind> DbSession<C> {
     ) {
         recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
             let (cached, entries, miss_reason) = self.with_query_plan_cache(|cache| {
-                let cached = cache.get(cache_key).cloned();
+                let cached = cache
+                    .get(cache_key)
+                    .and_then(CachedQueryArtifact::prepared_plan)
+                    .cloned();
                 let miss_reason = cached
                     .is_none()
                     .then(|| shared_query_plan_cache_miss_reason(cache, cache_key));
@@ -213,7 +354,10 @@ impl<C: CanisterKind> DbSession<C> {
     ) {
         let entries = recorder.measure(QueryPlanCompilePhase::CacheInsert, || {
             self.with_query_plan_cache(|cache| {
-                cache.insert(cache_key, prepared_plan.clone());
+                cache.insert(
+                    cache_key,
+                    CachedQueryArtifact::PreparedPlan(prepared_plan.clone()),
+                );
                 cache.len()
             })
         });
@@ -314,6 +458,10 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_schema,
             schema_fingerprint,
             authority.accepted_runtime_root_identity(),
+            authority
+                .accepted_schema_authority()
+                .map_err(QueryError::execute)?
+                .revision(),
         );
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query,
@@ -338,6 +486,10 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_schema,
             schema_fingerprint,
             authority.accepted_runtime_root_identity(),
+            authority
+                .accepted_schema_authority()
+                .map_err(QueryError::execute)?
+                .revision(),
         );
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
@@ -439,12 +591,37 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let visible_indexes = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
-            Self::visible_indexes_for_accepted_schema(&schema_info, visibility)
-        });
         let planning_state = recorder.measure(QueryPlanCompilePhase::Prepare, || {
             query.prepare_scalar_planning_state_with_schema_info(schema_info)
         })?;
+        let parameter_contract = recorder.measure(QueryPlanCompilePhase::Prepare, || {
+            query
+                .filter_predicate_fully_covers_expression()
+                .then(|| planning_state.normalized_predicate())
+                .flatten()
+                .and_then(PreparedQueryParameterContract::from_normalized_predicate)
+        });
+        if let Some(parameter_contract) = parameter_contract {
+            let bound_predicate_fingerprint = recorder
+                .measure(QueryPlanCompilePhase::Prepare, || {
+                    planning_state
+                        .normalized_predicate()
+                        .map(predicate_fingerprint_normalized)
+                })
+                .ok_or_else(QueryError::invariant)?;
+
+            return self.resolve_parameterized_query_plan_for_authority_recording(
+                &authority,
+                schema,
+                schema_identity,
+                visibility,
+                query,
+                planning_state,
+                parameter_contract,
+                bound_predicate_fingerprint,
+                recorder,
+            );
+        }
         let normalized_predicate_fingerprint =
             recorder.measure(QueryPlanCompilePhase::Prepare, || {
                 planning_state
@@ -459,6 +636,9 @@ impl<C: CanisterKind> DbSession<C> {
                 query,
                 normalized_predicate_fingerprint,
             )
+        });
+        let visible_indexes = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
+            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility)
         });
 
         self.resolve_shared_query_plan_for_authority_recording(
@@ -479,6 +659,90 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)
             },
         )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "parameterized cache binding keeps schema, visibility, and current values explicit"
+    )]
+    fn resolve_parameterized_query_plan_for_authority_recording(
+        &self,
+        authority: &EntityAuthority,
+        schema: QueryPlanAcceptedSchema<'_>,
+        schema_identity: SchemaCacheIdentity,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        planning_state: crate::db::query::plan::PreparedScalarPlanningState<'_>,
+        parameter_contract: PreparedQueryParameterContract,
+        bound_predicate_fingerprint: [u8; 32],
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
+            QueryPlanCacheKey::for_authority_with_parameter_contract(
+                authority.clone(),
+                schema_identity,
+                visibility,
+                query,
+                parameter_contract.clone(),
+            )
+        });
+        let (cached_template, miss_reason) = self
+            .lookup_shared_query_template_for_authority_recording(authority, &cache_key, recorder);
+        if let Some(template) = cached_template {
+            if let Some(prepared_plan) = template.reused_bound_plan(bound_predicate_fingerprint) {
+                return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
+            }
+            let bound = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
+                template.bind(query, planning_state)
+            })?;
+            let prepared_plan = SharedPreparedExecutionPlan::from_plan(
+                authority.clone(),
+                bound,
+                schema.fingerprint(),
+            )
+            .map_err(QueryError::execute)?;
+            self.remember_shared_query_template_bound_plan_recording(
+                &cache_key,
+                bound_predicate_fingerprint,
+                prepared_plan.clone(),
+                recorder,
+            )?;
+
+            return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
+        }
+
+        record_cache_event_for_path(
+            CacheKind::SharedQueryPlan,
+            CacheOutcome::Miss,
+            authority.entity_path(),
+        );
+        if let Some(reason) = miss_reason {
+            record_cache_miss_reason_for_path(
+                CacheKind::SharedQueryPlan,
+                reason,
+                authority.entity_path(),
+            );
+        }
+
+        let visible_indexes = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
+            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility)
+        });
+        let plan = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
+            query.build_plan_with_visible_indexes_from_scalar_planning_state(
+                &visible_indexes,
+                planning_state,
+            )
+        })?;
+        let mut template = PreparedQueryTemplate::from_plan(&plan);
+        let prepared_plan =
+            SharedPreparedExecutionPlan::from_plan(authority.clone(), plan, schema.fingerprint())
+                .map_err(QueryError::execute)?;
+        template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
+        let attribution = self.insert_shared_query_template_for_authority_recording(
+            authority, cache_key, template, recorder,
+        );
+
+        Ok((prepared_plan, attribution))
     }
 
     fn try_cached_filterless_query_plan_for_authority_recording(
@@ -521,7 +785,10 @@ impl<C: CanisterKind> DbSession<C> {
         });
         let (cached, entries) = recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
             self.with_query_plan_cache(|cache| {
-                let cached = cache.get(&cache_key).cloned();
+                let cached = cache
+                    .get(&cache_key)
+                    .and_then(CachedQueryArtifact::prepared_plan)
+                    .cloned();
 
                 (cached, cache.len())
             })

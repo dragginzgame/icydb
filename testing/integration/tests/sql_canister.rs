@@ -1,3 +1,8 @@
+#![allow(
+    clippy::significant_drop_tightening,
+    reason = "each test intentionally retains its exclusive pooled fixture lease for its full scope"
+)]
+
 #[expect(
     dead_code,
     unused_imports,
@@ -15,7 +20,10 @@ use crate::sql_harness::{
     ValueTypeFamily, WindowSpec, correctness_verdict,
 };
 use candid::{CandidType, Principal};
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{
+    CachedStandaloneCanisterFixtureGuard, CachedStandaloneCanisterFixturePool,
+    StandaloneCanisterFixture,
+};
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{
@@ -57,15 +65,29 @@ struct ApplicationBehaviorPerfResult {
     iterations: u32,
 }
 
-fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
-    // Build the dedicated SQL smoke canister once, then install that wasm into
-    // a fresh standalone IC testkit instance with empty init args.
-    install_fixture_canister("sql")
+const SQL_FIXTURE_POOL_CAPACITY: usize = 8;
+const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: usize = 4;
+
+static SQL_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<SQL_FIXTURE_POOL_CAPACITY> =
+    CachedStandaloneCanisterFixturePool::new();
+static SQL_BOUNDED_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<
+    SQL_BOUNDED_FIXTURE_POOL_CAPACITY,
+> = CachedStandaloneCanisterFixturePool::new();
+
+fn install_sql_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
+    // Bound concurrent PocketIC ownership while restoring the installed
+    // canister to its exact post-install baseline for every test lease.
+    SQL_FIXTURE_POOL
+        .acquire(|| install_fixture_canister("sql"))
+        .unwrap_or_else(|error| panic!("SQL fixture pool should restore cleanly: {error}"))
+        .0
 }
 
-fn install_sql_bounded_canister_fixture() -> StandaloneCanisterFixture {
-    // Reuse the SQL smoke canister code with its bounded source declaration.
-    install_fixture_canister("sql_bounded")
+fn install_sql_bounded_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
+    SQL_BOUNDED_FIXTURE_POOL
+        .acquire(|| install_fixture_canister("sql_bounded"))
+        .unwrap_or_else(|error| panic!("bounded SQL fixture pool should restore cleanly: {error}"))
+        .0
 }
 
 fn install_demo_rpg_canister_fixture() -> StandaloneCanisterFixture {

@@ -14,7 +14,8 @@ use crate::db::{
         intent::{QueryError, QueryIntent},
         plan::{
             AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, LogicalPlanningInputs,
-            OrderSpec, PreparedScalarPlanningState, QueryMode, VisibleIndexes,
+            OrderSpec, PreparedQueryParameterContract, PreparedScalarPlanningState, QueryMode,
+            VisibleIndexes, build_query_model_plan_from_parameterized_template,
             build_query_model_plan_with_indexes_from_scalar_planning_state,
             expr::{Expr, ProjectionSelection, is_normalized_bool_expr, normalize_bool_expr},
             prepare_query_model_scalar_planning_state_with_schema_info,
@@ -57,6 +58,20 @@ impl QueryModel {
             self,
             predicate_fingerprint,
         )
+    }
+
+    pub(in crate::db::query) fn structural_cache_key_with_parameter_contract(
+        &self,
+        parameter_contract: PreparedQueryParameterContract,
+    ) -> StructuralQueryCacheKey {
+        StructuralQueryCacheKey::from_query_model_with_parameter_contract(self, parameter_contract)
+    }
+
+    #[must_use]
+    pub(in crate::db::query) fn filter_predicate_fully_covers_expression(&self) -> bool {
+        let logical_inputs = self.planning_logical_inputs();
+
+        !logical_inputs.has_filter_expr() || logical_inputs.filter_predicate_covers_expr()
     }
 
     /// Return the intent mode (load vs delete).
@@ -381,6 +396,14 @@ impl QueryModel {
             visible_indexes,
             planning_state,
         )
+    }
+
+    pub(in crate::db::query::intent) fn build_plan_model_from_parameterized_template(
+        &self,
+        template_indexes: &[crate::db::access::SemanticIndexAccessContract],
+        planning_state: PreparedScalarPlanningState<'_>,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        build_query_model_plan_from_parameterized_template(self, template_indexes, planning_state)
     }
 
     pub(in crate::db::query::intent) fn try_build_trivial_scalar_load_plan_with_schema_info(

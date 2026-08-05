@@ -3,10 +3,12 @@
 //! Does not own: query route planning or executor predicate evaluation.
 //! Boundary: converts serialized filter input into planner-owned boolean expressions.
 
-use crate::db::query::plan::expr::UnaryOp;
-use crate::db::schema::SchemaInfo;
 use crate::{
-    db::query::plan::expr::{BinaryOp, Expr, FieldId, Function},
+    db::{
+        codec::hex::encode_hex_lower,
+        query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
+        schema::SchemaInfo,
+    },
     value::{InputValue, Value},
 };
 use candid::CandidType;
@@ -48,10 +50,10 @@ impl FilterValue {
             InputValue::Text(value) => Self::String(value),
             InputValue::Enum(value) => Self::String(value.variant().to_string()),
             InputValue::Account(value) => Self::String(value.to_string()),
-            InputValue::Blob(value) => Self::String(format!("{value:?}")),
+            InputValue::Blob(value) => Self::String(encode_hex_lower(value.as_slice())),
             InputValue::Date(value) => Self::String(value.to_string()),
             InputValue::Decimal(value) => Self::String(value.to_string()),
-            InputValue::Duration(value) => Self::String(format!("{value:?}")),
+            InputValue::Duration(value) => Self::String(value.as_millis().to_string()),
             InputValue::Float32(value) => Self::String(value.to_string()),
             InputValue::Float64(value) => Self::String(value.to_string()),
             InputValue::Int64(value) => Self::String(value.to_string()),
@@ -274,7 +276,7 @@ impl FilterExpr {
                 function: Function::CollectionContains,
                 args: vec![
                     Expr::Field(FieldId::new(field.clone())),
-                    Expr::Literal(value.lower_value()),
+                    Expr::Literal(lower_collection_element(schema, field, value)),
                 ],
             },
             Self::TextContains { field, value } => text_function_expr(
@@ -593,6 +595,13 @@ fn lower_membership(schema: &SchemaInfo, field: &str, values: &[FilterValue]) ->
         .collect()
 }
 
+fn lower_collection_element(schema: &SchemaInfo, field: &str, value: &FilterValue) -> Value {
+    let raw = value.lower_value();
+    schema
+        .canonicalize_filter_collection_element(field, &raw)
+        .unwrap_or(raw)
+}
+
 fn fold_filter_bool_chain(op: BinaryOp, exprs: &[FilterExpr], schema: &SchemaInfo) -> Expr {
     let mut exprs = exprs.iter();
     let Some(first) = exprs.next() else {
@@ -672,5 +681,35 @@ fn casefold_field_expr(field: &str) -> Expr {
     Expr::FunctionCall {
         function: Function::Lower,
         args: vec![Expr::Field(FieldId::new(field.to_string()))],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FilterValue;
+    use crate::types::{Date, Duration, Subaccount, Timestamp};
+
+    #[test]
+    fn typed_filter_atoms_use_reversible_string_representations() {
+        assert_eq!(
+            FilterValue::from(vec![0x00, 0x0a, 0xff]),
+            FilterValue::String("000aff".to_string()),
+        );
+        assert_eq!(
+            FilterValue::from(Date::try_new(2026, 8, 5).expect("test date should be valid")),
+            FilterValue::String("2026-08-05".to_string()),
+        );
+        assert_eq!(
+            FilterValue::from(Duration::from_millis(12_345)),
+            FilterValue::String("12345".to_string()),
+        );
+        assert_eq!(
+            FilterValue::from(Subaccount::from_array([0xab; 32])),
+            FilterValue::String("ab".repeat(32)),
+        );
+        assert_eq!(
+            FilterValue::from(Timestamp::from_millis(-42)),
+            FilterValue::String("-42".to_string()),
+        );
     }
 }

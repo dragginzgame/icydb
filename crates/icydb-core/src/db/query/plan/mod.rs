@@ -19,6 +19,7 @@ mod model;
 mod model_builder;
 mod order_contract;
 mod order_term;
+mod parameters;
 mod pipeline;
 mod planner;
 mod primary_key_access_proof;
@@ -94,10 +95,12 @@ pub(in crate::db) use order_contract::{
     deterministic_secondary_index_order_terms_satisfied, grouped_index_order_terms_satisfied,
 };
 pub(in crate::db) use order_term::index_key_item_order_terms;
+pub(in crate::db) use parameters::PreparedQueryParameterContract;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{
+    build_query_model_plan_from_parameterized_template,
     build_query_model_plan_with_indexes_from_scalar_planning_state,
     prepare_query_model_scalar_planning_state_with_schema_info,
     try_build_trivial_scalar_load_plan_with_schema_info,
