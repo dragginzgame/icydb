@@ -1008,6 +1008,18 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::MutationBatchDuplicateKey => {
             "structural mutation batch targets the same accepted key more than once"
         }
+        RuntimeBoundaryCode::ExactKeyBatchTooManyItems => {
+            "exact-key batch exceeds the input item-count bound"
+        }
+        RuntimeBoundaryCode::ExactKeyBatchInputBytesExceeded => {
+            "exact-key batch exceeds the encoded input-key byte bound"
+        }
+        RuntimeBoundaryCode::ExactKeyBatchStoredBytesExceeded => {
+            "exact-key batch exceeds the distinct stored-row byte bound"
+        }
+        RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded => {
+            "exact-key batch exceeds the logical result byte bound"
+        }
     }
 }
 
@@ -2083,6 +2095,22 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::GeneratedConstraintActivationStale,
                 "E_RUNTIME_CONFLICT: generated constraint proposal no longer matches its live activation",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ExactKeyBatchTooManyItems,
+                "E_RUNTIME_UNSUPPORTED: exact-key batch exceeds the input item-count bound",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ExactKeyBatchInputBytesExceeded,
+                "E_RUNTIME_UNSUPPORTED: exact-key batch exceeds the encoded input-key byte bound",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ExactKeyBatchStoredBytesExceeded,
+                "E_RUNTIME_UNSUPPORTED: exact-key batch exceeds the distinct stored-row byte bound",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded,
+                "E_RUNTIME_UNSUPPORTED: exact-key batch exceeds the logical result byte bound",
             ),
         ];
 
