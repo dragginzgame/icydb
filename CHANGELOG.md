@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.220.md](docs/changelog/0.220.md)
 
+- `0.220.1` rejects an unhelpful compact metrics rewrite and simplifies schema
+  type lowering through one closed authority path, reducing representative raw
+  Wasm by 0.10–0.19% without public or persisted-format changes.
+
 - `0.220.0` makes complexity-bounded Binaryen output the sole deployable Wasm
   and suppresses non-durable query-side metrics work, reducing maintained raw
   Wasm by 11.84–13.44% and the selected SQL query cost by 7.22%.

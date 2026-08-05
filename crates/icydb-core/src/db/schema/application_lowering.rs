@@ -114,6 +114,27 @@ struct InitialNamedTypes {
     bindings: AcceptedSourceBindingCatalog,
 }
 
+/// Exact named-type identity authority used by recursive field-type lowering.
+///
+/// Initial proposal lowering owns freshly allocated identities before the
+/// source-binding catalog exists. Existing-head and runtime binding checks use
+/// the accepted source-binding catalog. Keeping both cases in this closed
+/// owner avoids generating one recursive lowering body per caller closure.
+#[derive(Clone, Copy)]
+enum NamedTypeIdentityLookup<'a> {
+    Initial(&'a BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>),
+    Accepted(&'a AcceptedSourceBindingCatalog),
+}
+
+impl NamedTypeIdentityLookup<'_> {
+    fn resolve(self, source: &TypeSourceKey) -> Option<AcceptedNamedTypeIdentity> {
+        match self {
+            Self::Initial(bindings) => bindings.get(source).copied(),
+            Self::Accepted(bindings) => bindings.named_type(source),
+        }
+    }
+}
+
 /// Accepted catalogs required to lower one future insert-default policy.
 #[derive(Clone, Copy)]
 struct AcceptedDefaultLowering<'a> {
@@ -318,7 +339,7 @@ fn lower_initial_enum_catalog(
                 .payload()
                 .map(|payload| {
                     Ok::<_, InternalError>((
-                        lower_field_type(payload, |source| bindings.get(source).copied())?,
+                        lower_initial_field_type(payload, bindings)?,
                         field_storage_decode(payload),
                     ))
                 })
@@ -389,9 +410,7 @@ fn lower_initial_composite_shape(
                         field_id,
                         field.name().as_str().to_string(),
                         AcceptedCompositeElement::new(
-                            lower_field_type(field.field_type(), |source| {
-                                bindings.get(source).copied()
-                            })?,
+                            lower_initial_field_type(field.field_type(), bindings)?,
                             field.nullable(),
                         ),
                     ))
@@ -401,54 +420,10 @@ fn lower_initial_composite_shape(
             AcceptedCompositeShape::Record(fields)
         }
         NamedTypeFragment::Enum(_) => return Err(InternalError::store_invariant()),
-        NamedTypeFragment::Newtype { inner, .. } => {
-            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                lower_field_type(inner, |source| bindings.get(source).copied())?,
-                false,
-            ))
-        }
-        NamedTypeFragment::List { item, .. } => {
-            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                AcceptedFieldKind::List(Box::new(lower_field_type(item, |source| {
-                    bindings.get(source).copied()
-                })?)),
-                false,
-            ))
-        }
-        NamedTypeFragment::Set { item, .. } => {
-            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                AcceptedFieldKind::Set(Box::new(lower_field_type(item, |source| {
-                    bindings.get(source).copied()
-                })?)),
-                false,
-            ))
-        }
-        NamedTypeFragment::Map { key, value, .. } => {
-            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                AcceptedFieldKind::Map {
-                    key: Box::new(lower_field_type(key, |source| {
-                        bindings.get(source).copied()
-                    })?),
-                    value: Box::new(lower_field_type(value, |source| {
-                        bindings.get(source).copied()
-                    })?),
-                },
-                false,
-            ))
-        }
-        NamedTypeFragment::Tuple { members, .. } => AcceptedCompositeShape::Tuple(
-            members
-                .iter()
-                .map(|member| {
-                    Ok(AcceptedCompositeElement::new(
-                        lower_field_type(member.field_type(), |source| {
-                            bindings.get(source).copied()
-                        })?,
-                        member.nullable(),
-                    ))
-                })
-                .collect::<Result<Vec<_>, InternalError>>()?,
-        ),
+        _ => lower_non_record_composite_shape(
+            definition,
+            NamedTypeIdentityLookup::Initial(bindings),
+        )?,
     };
     Ok(shape)
 }
@@ -1466,9 +1441,7 @@ fn lower_existing_named_catalogs(
                 .payload()
                 .map(|payload| {
                     Ok::<_, InternalError>((
-                        lower_field_type(payload, |source| {
-                            bundle.source_bindings().named_type(source)
-                        })?,
+                        lower_field_type(payload, bundle.source_bindings())?,
                         field_storage_decode(payload),
                     ))
                 })
@@ -1546,9 +1519,7 @@ fn lower_existing_composite_shape(
                         field_id,
                         field.name().as_str().to_string(),
                         AcceptedCompositeElement::new(
-                            lower_field_type(field.field_type(), |source| {
-                                bindings.named_type(source)
-                            })?,
+                            lower_field_type(field.field_type(), bindings)?,
                             field.nullable(),
                         ),
                     ))
@@ -1557,35 +1528,40 @@ fn lower_existing_composite_shape(
             fields.sort_unstable_by(|left, right| left.name().cmp(right.name()));
             AcceptedCompositeShape::Record(fields)
         }
-        NamedTypeFragment::Newtype { inner, .. } => {
-            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                lower_field_type(inner, |source| bindings.named_type(source))?,
-                false,
-            ))
-        }
+        NamedTypeFragment::Enum(_) => return Err(InternalError::store_unsupported()),
+        _ => lower_non_record_composite_shape(
+            definition,
+            NamedTypeIdentityLookup::Accepted(bindings),
+        )?,
+    };
+    Ok(shape)
+}
+
+fn lower_non_record_composite_shape(
+    definition: &NamedTypeFragment,
+    named_types: NamedTypeIdentityLookup<'_>,
+) -> Result<AcceptedCompositeShape, InternalError> {
+    let shape = match definition {
+        NamedTypeFragment::Newtype { inner, .. } => AcceptedCompositeShape::Newtype(
+            AcceptedCompositeElement::new(lower_field_type_with_lookup(inner, named_types)?, false),
+        ),
         NamedTypeFragment::List { item, .. } => {
             AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                AcceptedFieldKind::List(Box::new(lower_field_type(item, |source| {
-                    bindings.named_type(source)
-                })?)),
+                AcceptedFieldKind::List(Box::new(lower_field_type_with_lookup(item, named_types)?)),
                 false,
             ))
         }
         NamedTypeFragment::Set { item, .. } => {
             AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                AcceptedFieldKind::Set(Box::new(lower_field_type(item, |source| {
-                    bindings.named_type(source)
-                })?)),
+                AcceptedFieldKind::Set(Box::new(lower_field_type_with_lookup(item, named_types)?)),
                 false,
             ))
         }
         NamedTypeFragment::Map { key, value, .. } => {
             AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
                 AcceptedFieldKind::Map {
-                    key: Box::new(lower_field_type(key, |source| bindings.named_type(source))?),
-                    value: Box::new(lower_field_type(value, |source| {
-                        bindings.named_type(source)
-                    })?),
+                    key: Box::new(lower_field_type_with_lookup(key, named_types)?),
+                    value: Box::new(lower_field_type_with_lookup(value, named_types)?),
                 },
                 false,
             ))
@@ -1595,15 +1571,15 @@ fn lower_existing_composite_shape(
                 .iter()
                 .map(|member| {
                     Ok(AcceptedCompositeElement::new(
-                        lower_field_type(member.field_type(), |source| {
-                            bindings.named_type(source)
-                        })?,
+                        lower_field_type_with_lookup(member.field_type(), named_types)?,
                         member.nullable(),
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?,
         ),
-        NamedTypeFragment::Enum(_) => return Err(InternalError::store_unsupported()),
+        NamedTypeFragment::Record(_) | NamedTypeFragment::Enum(_) => {
+            return Err(InternalError::store_invariant());
+        }
     };
     Ok(shape)
 }
@@ -1758,7 +1734,7 @@ fn lower_existing_fields(
         if !accepted.generated() {
             return Err(InternalError::store_unsupported());
         }
-        let kind = lower_field_type(proposed.field_type(), |source| bindings.named_type(source))?;
+        let kind = lower_field_type(proposed.field_type(), bindings)?;
         let storage_decode = field_storage_decode(proposed.field_type());
         let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
         let nested_leaves = lower_migration_nested_leaves(&kind, &catalogs.composite_catalog)?;
@@ -1832,7 +1808,7 @@ pub(in crate::db::schema) fn lower_migration_field(
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<PersistedFieldSnapshot, InternalError> {
-    let kind = lower_field_type(proposed.field_type(), |source| bindings.named_type(source))?;
+    let kind = lower_field_type(proposed.field_type(), bindings)?;
     let storage_decode = field_storage_decode(proposed.field_type());
     let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
     let nested_leaves = lower_migration_nested_leaves(&kind, composite_catalog)?;
@@ -2721,9 +2697,7 @@ fn lower_initial_entity_fields(
         let raw_slot = u16::try_from(offset).map_err(|_| InternalError::store_unsupported())?;
         let id = FieldId::new(raw_id);
         let slot = SchemaFieldSlot::new(raw_slot);
-        let kind = lower_field_type(field.field_type(), |source| {
-            context.named_type_bindings.named_type(source)
-        })?;
+        let kind = lower_field_type(field.field_type(), &context.named_type_bindings)?;
         let storage_decode = field_storage_decode(field.field_type());
         let leaf_codec = field_leaf_codec(field.field_type(), &kind);
         let nested_leaves = lower_migration_nested_leaves(&kind, &context.composite_catalog)?;
@@ -3081,20 +3055,34 @@ fn lower_write_policy(
     ))
 }
 
+fn lower_initial_field_type(
+    field_type: &FieldType,
+    bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+) -> Result<AcceptedFieldKind, InternalError> {
+    lower_field_type_with_lookup(field_type, NamedTypeIdentityLookup::Initial(bindings))
+}
+
 pub(in crate::db) fn lower_field_type(
     field_type: &FieldType,
-    resolve_named: impl FnOnce(&TypeSourceKey) -> Option<AcceptedNamedTypeIdentity>,
+    bindings: &AcceptedSourceBindingCatalog,
+) -> Result<AcceptedFieldKind, InternalError> {
+    lower_field_type_with_lookup(field_type, NamedTypeIdentityLookup::Accepted(bindings))
+}
+
+fn lower_field_type_with_lookup(
+    field_type: &FieldType,
+    named_types: NamedTypeIdentityLookup<'_>,
 ) -> Result<AcceptedFieldKind, InternalError> {
     let scalar = match field_type {
         FieldType::Scalar(scalar) => scalar,
         FieldType::List(item) => {
-            return Ok(AcceptedFieldKind::List(Box::new(lower_field_type(
-                item,
-                resolve_named,
-            )?)));
+            return Ok(AcceptedFieldKind::List(Box::new(
+                lower_field_type_with_lookup(item, named_types)?,
+            )));
         }
         FieldType::Named(source) => {
-            return resolve_named(source)
+            return named_types
+                .resolve(source)
                 .map(|identity| match identity {
                     AcceptedNamedTypeIdentity::Enum(type_id) => AcceptedFieldKind::Enum { type_id },
                     AcceptedNamedTypeIdentity::Composite(type_id) => {
@@ -3104,7 +3092,11 @@ pub(in crate::db) fn lower_field_type(
                 .ok_or_else(InternalError::store_unsupported);
         }
     };
-    Ok(match scalar {
+    Ok(lower_scalar_type(scalar))
+}
+
+pub(in crate::db) const fn lower_scalar_type(scalar: &ScalarType) -> AcceptedFieldKind {
+    match scalar {
         ScalarType::Account => AcceptedFieldKind::Account,
         ScalarType::Blob { max_len } => AcceptedFieldKind::Blob { max_len: *max_len },
         ScalarType::Bool => AcceptedFieldKind::Bool,
@@ -3135,7 +3127,7 @@ pub(in crate::db) fn lower_field_type(
         },
         ScalarType::Ulid => AcceptedFieldKind::Ulid,
         ScalarType::Unit => AcceptedFieldKind::Unit,
-    })
+    }
 }
 
 const fn field_storage_decode(field_type: &FieldType) -> FieldStorageDecode {
@@ -3214,9 +3206,11 @@ fn index_expression_text(op: PersistedIndexExpressionOp, field: &str) -> String 
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::{
         ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
-        lower_initial_schema_proposal,
+        lower_field_type, lower_initial_field_type, lower_initial_schema_proposal,
     };
     use crate::db::{
         data::{
@@ -3225,11 +3219,12 @@ mod tests {
         },
         schema::{
             AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
-            AcceptedFieldDecodeContract, AcceptedNamedTypeIdentity, AcceptedRuleOperation,
-            AcceptedRuleTarget, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
-            AcceptedSchemaSnapshot, AcceptedStoreCatalogScope, AcceptedValueCatalogHandle,
-            AcceptedValueContract, CompiledAcceptedRowConstraints, ConstraintActivationKind,
-            ConstraintOrigin, FieldInsertGeneration, PersistedFieldSnapshot, SchemaInsertDefault,
+            AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedNamedTypeIdentity,
+            AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaRevision,
+            AcceptedSchemaRevisionBundle, AcceptedSchemaSnapshot, AcceptedSourceBindingCatalog,
+            AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, AcceptedValueContract,
+            CompiledAcceptedRowConstraints, ConstraintActivationKind, ConstraintOrigin,
+            FieldInsertGeneration, PersistedFieldSnapshot, SchemaInsertDefault,
             ValueAdmissionBudget,
             composite_catalog::AcceptedCompositeShape,
             enum_catalog::{
@@ -3237,7 +3232,7 @@ mod tests {
             },
         },
     };
-    use crate::value::{InputValue, InputValueEnum, Value};
+    use crate::value::{EnumTypeId, InputValue, InputValueEnum, Value};
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
         EntitySourceKey, EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment,
@@ -3255,6 +3250,32 @@ mod tests {
 
     fn version_one() -> DeclaredEntityVersion {
         DeclaredEntityVersion::try_new(1).expect("fixture version should admit")
+    }
+
+    #[test]
+    fn field_type_lowering_uses_the_same_closed_named_identity_authority() {
+        let source = TypeSourceKey::try_new("Status").expect("type source should admit");
+        let type_id = EnumTypeId::new(7).expect("enum type id should admit");
+        let identities =
+            BTreeMap::from([(source.clone(), AcceptedNamedTypeIdentity::Enum(type_id))]);
+        let accepted = AcceptedSourceBindingCatalog::default().with_initial_named_types(
+            identities.clone(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+        );
+        let field_type = FieldType::List(Box::new(FieldType::Named(source)));
+        let expected = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Enum { type_id }));
+
+        assert_eq!(
+            lower_initial_field_type(&field_type, &identities)
+                .expect("initial named identity should resolve"),
+            expected,
+        );
+        assert_eq!(
+            lower_field_type(&field_type, &accepted)
+                .expect("accepted named identity should resolve"),
+            expected,
+        );
     }
 
     struct TargetedRuleProposalFixture {

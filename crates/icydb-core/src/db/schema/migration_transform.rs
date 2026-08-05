@@ -7,8 +7,7 @@
 use std::borrow::Cow;
 
 use icydb_schema::{
-    EntityMigration, FieldType, ScalarLiteral, SchemaMigrationTransform, SchemaProposal,
-    TargetStoreIdentity,
+    EntityMigration, ScalarLiteral, SchemaMigrationTransform, SchemaProposal, TargetStoreIdentity,
 };
 
 use crate::{
@@ -21,7 +20,7 @@ use crate::{
             AcceptedCatalogSnapshotSelection, AcceptedFieldKind, AcceptedSchemaSnapshot,
             CandidateSchemaRevision, ExistingProposalStore, FieldId,
             PersistedSchemaMigrationTransformReason, SchemaFieldSlot, ValueAdmissionBudget,
-            lower_field_type, source_literal_input,
+            lower_scalar_type, source_literal_input,
         },
     },
     error::InternalError,
@@ -506,7 +505,7 @@ fn compile_transform(
             ..
         } => {
             let (source_id, source) = source_field(store, entity, before_snapshot, from)?;
-            let declared_target = lower_field_type(&FieldType::Scalar(*scalar), |_| None)?;
+            let declared_target = lower_scalar_type(scalar);
             if declared_target != *target.kind()
                 || !supported_cast_source(source.kind())
                 || !supported_cast_target(target.kind())

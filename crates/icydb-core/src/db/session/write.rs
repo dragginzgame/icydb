@@ -611,10 +611,8 @@ impl<C: CanisterKind> DbSession<C> {
             if runtime_field.field_id() != field_id {
                 return Err(InternalError::store_invariant().into());
             }
-            let expected_kind = lower_field_type(field_type, |source| {
-                bundle.source_bindings().named_type(source)
-            })
-            .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
+            let expected_kind = lower_field_type(field_type, bundle.source_bindings())
+                .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
             if field.nullable() != *nullable
                 || !typed_adapter_field_kind_matches(field.kind(), &expected_kind)
             {

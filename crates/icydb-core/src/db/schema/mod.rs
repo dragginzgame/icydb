@@ -93,6 +93,8 @@ pub(in crate::db) use application::{
     schema_migration_status,
 };
 pub(in crate::db) use application_lowering::lower_field_type;
+#[cfg(feature = "migration")]
+pub(in crate::db) use application_lowering::lower_scalar_type;
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
     lower_initial_schema_proposal,
