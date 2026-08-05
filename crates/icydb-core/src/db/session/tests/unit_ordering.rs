@@ -12,6 +12,12 @@ use crate::{
             PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault,
             SchemaRowLayout, SchemaStore, SchemaVersion,
             accepted_schema_candidate_with_field_bindings_for_tests,
+            accepted_schema_snapshot_fingerprint_builds_for_tests,
+            reset_accepted_schema_snapshot_fingerprint_builds_for_tests,
+        },
+        session::{
+            AcceptedSchemaRuntimeBuildCounts, accepted_schema_runtime_build_counts_for_tests,
+            reset_accepted_schema_runtime_build_counts_for_tests,
         },
     },
     traits::{CanisterKind, Path},
@@ -146,11 +152,85 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
     }
 }
 
+#[test]
+fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
+    let session = initialize();
+    seed_singleton(&session);
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("id").eq(InputValue::Unit))
+        .select(["id"])
+        .limit(1);
+
+    session
+        .execute_trusted_dynamic_query(&query)
+        .expect("warm query should build the accepted runtime root");
+    reset_accepted_schema_runtime_build_counts_for_tests();
+    reset_accepted_schema_snapshot_fingerprint_builds_for_tests();
+
+    for _ in 0..1_000 {
+        let output = session
+            .execute_trusted_dynamic_query(&query)
+            .expect("warm query should reuse accepted runtime state");
+        assert_eq!(output.row_count, 1);
+    }
+
+    assert_eq!(
+        accepted_schema_runtime_build_counts_for_tests(),
+        AcceptedSchemaRuntimeBuildCounts::default(),
+    );
+    assert_eq!(accepted_schema_snapshot_fingerprint_builds_for_tests(), 0);
+}
+
+#[test]
+fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
+    let session = initialize();
+    let first_context = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .expect("initial accepted runtime root should resolve");
+    let first_root = first_context.runtime_root_identity();
+    reset_accepted_schema_runtime_build_counts_for_tests();
+
+    publish_schema(
+        &session,
+        AcceptedSchemaRevision::INITIAL,
+        AcceptedSchemaRevision::new(2),
+    );
+    let second_context = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .expect("replacement accepted runtime root should resolve");
+
+    assert_ne!(first_root, second_context.runtime_root_identity());
+    assert_eq!(first_context.runtime_root_identity(), first_root);
+    assert_eq!(
+        accepted_schema_runtime_build_counts_for_tests(),
+        AcceptedSchemaRuntimeBuildCounts {
+            root_identity_builds: 1,
+            root_publications: 1,
+            entity_compilations: 1,
+        },
+    );
+}
+
 fn initialize() -> DbSession<TestCanister> {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
 
+    let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+    publish_schema(
+        &session,
+        AcceptedSchemaRevision::NONE,
+        AcceptedSchemaRevision::INITIAL,
+    );
+
+    session
+}
+
+fn publish_schema(
+    session: &DbSession<TestCanister>,
+    expected: AcceptedSchemaRevision,
+    revision: AcceptedSchemaRevision,
+) {
     let fields = vec![
         field(1, "id", 0, AcceptedFieldKind::Unit),
         field(2, "label", 1, AcceptedFieldKind::Text { max_len: None }),
@@ -174,11 +254,10 @@ fn initialize() -> DbSession<TestCanister> {
     ]);
     let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
         STORE_PATH,
-        AcceptedSchemaRevision::INITIAL,
+        revision,
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
         field_bindings,
     );
-    let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
     session
         .db
         .ensure_recovered_state()
@@ -187,15 +266,8 @@ fn initialize() -> DbSession<TestCanister> {
         .db
         .store_handle(STORE_PATH)
         .expect("Unit ordering store should resolve");
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        store,
-        AcceptedSchemaRevision::NONE,
-        &candidate,
-    )
-    .expect("Unit ordering accepted schema should publish");
-
-    session
+    crate::db::commit::publish_accepted_schema_candidate(STORE_PATH, store, expected, &candidate)
+        .expect("Unit ordering accepted schema should publish");
 }
 
 fn field(id: u32, name: &str, slot: u16, kind: AcceptedFieldKind) -> PersistedFieldSnapshot {

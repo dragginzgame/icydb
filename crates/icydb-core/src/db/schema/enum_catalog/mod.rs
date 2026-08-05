@@ -42,12 +42,13 @@ pub(in crate::db) use publication::AcceptedSchemaRevisionBundle;
 pub(in crate::db::schema) use publication::decode_accepted_schema_revision_bundle;
 pub(in crate::db::schema) use publication::{
     ACCEPTED_SCHEMA_ROOT_BYTES, AcceptedSchemaBundleKey, AcceptedSchemaPublicationError,
-    AcceptedSchemaRootSelection, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES, MAX_SCHEMA_STORE_PATH_BYTES,
+    AcceptedSchemaRoot, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES, MAX_SCHEMA_STORE_PATH_BYTES,
     decode_verified_accepted_schema_revision_bundle, prepare_accepted_schema_root_publication,
     select_current_accepted_schema_root,
 };
 pub(in crate::db) use publication::{
-    AcceptedSchemaFingerprint, AcceptedSchemaRevision, CandidateSchemaRevision,
+    AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaRootSelection,
+    CandidateSchemaRevision,
 };
 #[cfg(test)]
 pub(in crate::db) use publication::{

@@ -28,7 +28,7 @@ impl SqlCompiledSchemaFingerprint {
     }
 
     #[must_use]
-    pub(in crate::db) const fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
+    pub(in crate::db) fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
         Self::new(catalog.fingerprint_method_version(), catalog.fingerprint())
     }
 

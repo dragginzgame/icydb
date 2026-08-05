@@ -58,7 +58,7 @@ impl SqlCompiledCommandExecutionContext {
     }
 
     #[must_use]
-    pub(in crate::db) const fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
+    pub(in crate::db) fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
         self.catalog.snapshot()
     }
 
@@ -68,12 +68,12 @@ impl SqlCompiledCommandExecutionContext {
     }
 
     #[must_use]
-    pub(in crate::db) const fn schema_version(&self) -> SchemaVersion {
+    pub(in crate::db) fn schema_version(&self) -> SchemaVersion {
         self.catalog.schema_version()
     }
 
     #[must_use]
-    pub(in crate::db) const fn compiled_schema_fingerprint(&self) -> SqlCompiledSchemaFingerprint {
+    pub(in crate::db) fn compiled_schema_fingerprint(&self) -> SqlCompiledSchemaFingerprint {
         SqlCompiledSchemaFingerprint::from_catalog(&self.catalog)
     }
 

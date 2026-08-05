@@ -154,9 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
             record_cache_miss_reason_for_path(CacheKind::SqlCompiledCommand, reason, entity_path);
         }
 
-        let authority = catalog
-            .accepted_entity_authority()
-            .map_err(QueryError::execute)?;
+        let authority = catalog.accepted_entity_authority();
         let schema = catalog.accepted_schema_info();
 
         let parse_result =
@@ -169,7 +167,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
         };
         attribution.record_parse(parse_local_instructions, parse_attribution);
-        let compile_result = Self::compile_sql_statement_measured(&parsed, surface, &schema);
+        let compile_result = Self::compile_sql_statement_measured(&parsed, surface, schema);
         let (artifacts, compile_attribution) = match compile_result {
             Ok(compiled) => compiled,
             Err(error) => {

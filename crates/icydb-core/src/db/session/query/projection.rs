@@ -18,10 +18,7 @@ use crate::{
             intent::StructuralQuery,
             plan::expr::{Expr, ProjectionField, ProjectionSpec},
         },
-        schema::{
-            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, accepted_schema_cache_fingerprint,
-            output_value_from_runtime,
-        },
+        schema::{AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, output_value_from_runtime},
         session::query::QueryPlanCacheAttribution,
     },
     traits::CanisterKind,
@@ -189,8 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let schema_fingerprint =
-            accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
+        let schema_fingerprint = authority.accepted_schema_fingerprint();
         let (prepared_plan, cache_attribution) = self
             .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
                 authority.clone(),

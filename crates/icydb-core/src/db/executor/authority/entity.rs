@@ -5,12 +5,14 @@ use crate::db::{executor::planning::route::AggregateRouteShape, query::plan::Agg
 use crate::{
     db::{
         access::validate_access_runtime_invariants_with_schema,
+        commit::CommitSchemaFingerprint,
+        data::StructuralRowContract,
         executor::terminal::RowLayout,
         query::plan::{
             AccessPlannedQuery, CoveringReadExecutionPlan,
             covering_read_execution_plan_with_schema_info,
         },
-        schema::{AcceptedRowDecodeContract, AcceptedSchemaAuthority, SchemaInfo},
+        schema::{AcceptedSchemaAuthority, AcceptedSchemaRuntimeRootIdentity, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::record_prepared_shape_already_finalized_for_path,
@@ -33,28 +35,34 @@ pub(in crate::db) struct EntityAuthority {
     entity_tag: EntityTag,
     store_path: &'static str,
     accepted_schema_info: Option<Arc<SchemaInfo>>,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+    accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
 }
 
 impl EntityAuthority {
-    /// Build complete runtime authority from accepted schema contracts.
+    /// Build complete runtime authority from one accepted runtime-root entity.
     #[must_use]
-    pub(in crate::db) fn from_accepted_row_decode_contract(
+    pub(in crate::db) fn from_accepted_runtime_contracts(
         entity_path: impl Into<Rc<str>>,
         entity_tag: EntityTag,
         store_path: &'static str,
-        accepted_decode_contract: AcceptedRowDecodeContract,
-        accepted_schema_info: SchemaInfo,
+        row_contract: StructuralRowContract,
+        accepted_schema_info: Arc<SchemaInfo>,
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
+        accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
     ) -> Self {
         let entity_path = entity_path.into();
-        let row_layout =
-            RowLayout::from_accepted_decode_contract(entity_path.clone(), accepted_decode_contract);
+        debug_assert_eq!(row_contract.entity_path(), entity_path.as_ref());
+        let row_layout = RowLayout::from_structural_row_contract(row_contract);
 
         Self {
             entity_path,
             row_layout: Some(row_layout),
             entity_tag,
             store_path,
-            accepted_schema_info: Some(Arc::new(accepted_schema_info)),
+            accepted_schema_info: Some(accepted_schema_info),
+            accepted_schema_fingerprint,
+            accepted_runtime_root_identity,
         }
     }
 
@@ -95,6 +103,20 @@ impl EntityAuthority {
         self.accepted_schema_info
             .as_ref()
             .map(std::convert::AsRef::as_ref)
+    }
+
+    /// Return the entity snapshot fingerprint captured by the runtime root.
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.accepted_schema_fingerprint
+    }
+
+    /// Return the database-wide accepted runtime-root identity.
+    #[must_use]
+    pub(in crate::db) const fn accepted_runtime_root_identity(
+        &self,
+    ) -> AcceptedSchemaRuntimeRootIdentity {
+        self.accepted_runtime_root_identity
     }
 
     /// Borrow structural entity-tag authority.

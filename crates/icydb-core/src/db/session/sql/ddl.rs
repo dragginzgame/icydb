@@ -187,7 +187,7 @@ impl<C: CanisterKind> DbSession<C> {
         let prepared = match prepare_sql_ddl_statement(
             &statement,
             catalog.snapshot(),
-            &schema_info,
+            schema_info,
             catalog.identity().store_path(),
         ) {
             Ok(prepared) => prepared,
@@ -235,7 +235,7 @@ impl<C: CanisterKind> DbSession<C> {
             derivation,
             &prepared,
         )?;
-        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
+        self.invalidate_accepted_schema_runtime_root();
 
         Ok(SqlStatementResult::Ddl(
             prepared
@@ -313,7 +313,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -349,7 +349,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -380,7 +380,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -411,7 +411,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -466,7 +466,7 @@ impl<C: CanisterKind> DbSession<C> {
             )?
         };
         let rows_scanned = usize::try_from(validation_page.rows_scanned()).unwrap_or(usize::MAX);
-        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -522,7 +522,7 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
         };
-        self.invalidate_accepted_schema_query_cache(accepted_before.identity().entity_path());
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared.report().clone().with_execution_status(status),
         ))

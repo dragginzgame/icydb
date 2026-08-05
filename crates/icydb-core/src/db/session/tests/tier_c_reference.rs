@@ -941,7 +941,7 @@ fn planned_select_execution_facts(
     let authority = context
         .accepted_authority()
         .cloned()
-        .or_else(|| context.accepted_catalog().accepted_entity_authority().ok())
+        .or_else(|| Some(context.accepted_catalog().accepted_entity_authority()))
         .expect("scheduled SELECT should resolve accepted authority");
     let plan = session
         .sql_select_prepared_plan_for_tests(query, authority, context.accepted_schema())

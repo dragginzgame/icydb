@@ -415,7 +415,7 @@ impl PreparedExecutionPlanCore {
             RoutePlanRequest::Load {
                 continuation,
                 probe_fetch_hint: None,
-                authority: Some(authority),
+                authority: Some(Box::new(authority)),
                 load_terminal_fast_path: None,
             },
         );

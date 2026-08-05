@@ -98,7 +98,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> SqlStatementResult {
         SqlStatementResult::ShowIndexes(self.show_indexes_for_store_schema_info(
             catalog.identity().store_path(),
-            &catalog.accepted_schema_info(),
+            catalog.accepted_schema_info(),
             catalog.snapshot().persisted_snapshot(),
         ))
     }

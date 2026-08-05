@@ -13,12 +13,10 @@ use crate::{
         },
         executor::terminal::{RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode},
         key_taxonomy::PrimaryKeyValue,
-        schema::AcceptedRowDecodeContract,
     },
     error::InternalError,
     value::Value,
 };
-use std::rc::Rc;
 
 ///
 /// RowLayout
@@ -35,17 +33,11 @@ pub(in crate::db) struct RowLayout {
 }
 
 impl RowLayout {
-    /// Build one row layout directly from accepted runtime authority.
+    /// Build one row layout from an already-compiled accepted row contract.
     #[must_use]
-    pub(in crate::db) fn from_accepted_decode_contract(
-        entity_path: impl Into<Rc<str>>,
-        accepted_decode_contract: AcceptedRowDecodeContract,
+    pub(in crate::db) const fn from_structural_row_contract(
+        contract: StructuralRowContract,
     ) -> Self {
-        let contract = StructuralRowContract::from_accepted_decode_contract(
-            entity_path,
-            accepted_decode_contract,
-        );
-
         Self { contract }
     }
 

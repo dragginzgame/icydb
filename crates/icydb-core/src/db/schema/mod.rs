@@ -46,6 +46,7 @@ mod migration_transform;
 mod migration_validation;
 mod mutation;
 mod runtime;
+mod runtime_root;
 mod snapshot;
 mod source_binding;
 #[cfg(feature = "sql")]
@@ -206,6 +207,11 @@ pub(in crate::db) use fingerprint::{
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
 };
+#[cfg(test)]
+pub(in crate::db) use fingerprint::{
+    accepted_schema_snapshot_fingerprint_builds_for_tests,
+    reset_accepted_schema_snapshot_fingerprint_builds_for_tests,
+};
 #[cfg(feature = "sql")]
 pub(in crate::db) use format::show_indexes_for_schema_info_with_runtime_state;
 pub(in crate::db) use identity::{
@@ -339,6 +345,9 @@ pub(in crate::db) use runtime::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use runtime::{
     AcceptedRowLayoutRuntimeField, accepted_insert_field_is_omittable,
+};
+pub(in crate::db) use runtime_root::{
+    AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaRuntimeStoreRoot,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use snapshot::AcceptedFieldDependencyError;

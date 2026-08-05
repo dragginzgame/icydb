@@ -10,7 +10,10 @@ use crate::db::{
     commit::CommitSchemaFingerprint,
     executor::EntityAuthority,
     query::intent::{StructuralQuery, StructuralQueryCacheKey},
-    schema::{AcceptedSchemaRevision, AcceptedSchemaSnapshot, SchemaVersion},
+    schema::{
+        AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaSnapshot,
+        SchemaVersion,
+    },
     session::AcceptedSchemaCatalogContext,
 };
 use std::rc::Rc;
@@ -49,6 +52,7 @@ pub(in crate::db) struct QueryPlanCacheKey {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) struct SchemaCacheIdentity {
+    runtime_root: AcceptedSchemaRuntimeRootIdentity,
     revision: AcceptedSchemaRevision,
     version: SchemaVersion,
     fingerprint_method_version: u8,
@@ -57,12 +61,14 @@ pub(super) struct SchemaCacheIdentity {
 
 impl SchemaCacheIdentity {
     pub(super) const fn new(
+        runtime_root: AcceptedSchemaRuntimeRootIdentity,
         revision: AcceptedSchemaRevision,
         version: SchemaVersion,
         fingerprint_method_version: u8,
         fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         Self {
+            runtime_root,
             revision,
             version,
             fingerprint_method_version,
@@ -73,8 +79,10 @@ impl SchemaCacheIdentity {
     pub(super) const fn from_accepted_schema_with_fingerprint(
         accepted_schema: &AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
+        runtime_root: AcceptedSchemaRuntimeRootIdentity,
     ) -> Self {
         Self::new(
+            runtime_root,
             AcceptedSchemaRevision::NONE,
             accepted_schema.persisted_snapshot().version(),
             crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
@@ -82,8 +90,9 @@ impl SchemaCacheIdentity {
         )
     }
 
-    const fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
+    fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
         Self::new(
+            catalog.runtime_root_identity(),
             catalog.revision(),
             catalog.schema_version(),
             catalog.fingerprint_method_version(),
@@ -96,7 +105,9 @@ impl SchemaCacheIdentity {
     }
 
     pub(super) fn same_version(self, other: Self) -> bool {
-        self.revision == other.revision && self.version == other.version
+        self.runtime_root == other.runtime_root
+            && self.revision == other.revision
+            && self.version == other.version
     }
 
     pub(super) fn same_fingerprint(self, other: Self) -> bool {
@@ -115,17 +126,19 @@ impl<'schema> QueryPlanAcceptedSchema<'schema> {
     pub(super) const fn from_accepted_schema_with_fingerprint(
         accepted_schema: &'schema AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
+        runtime_root: AcceptedSchemaRuntimeRootIdentity,
     ) -> Self {
         Self {
             accepted_schema,
             identity: SchemaCacheIdentity::from_accepted_schema_with_fingerprint(
                 accepted_schema,
                 fingerprint,
+                runtime_root,
             ),
         }
     }
 
-    pub(super) const fn from_catalog(catalog: &'schema AcceptedSchemaCatalogContext) -> Self {
+    pub(super) fn from_catalog(catalog: &'schema AcceptedSchemaCatalogContext) -> Self {
         Self {
             accepted_schema: catalog.snapshot(),
             identity: SchemaCacheIdentity::from_catalog(catalog),
@@ -349,5 +362,55 @@ impl QueryPlanCacheKey {
                 normalized_predicate_fingerprint,
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SchemaCacheIdentity;
+    use crate::db::{
+        integrity::DatabaseIncarnationId,
+        schema::{
+            AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity,
+            AcceptedSchemaRuntimeStoreRoot, SchemaVersion,
+            empty_accepted_schema_candidate_for_tests,
+        },
+    };
+
+    fn runtime_root(fill: u8) -> AcceptedSchemaRuntimeRootIdentity {
+        let candidate = empty_accepted_schema_candidate_for_tests(
+            "test::CacheIdentity",
+            AcceptedSchemaRevision::INITIAL,
+        );
+        AcceptedSchemaRuntimeRootIdentity::from_store_roots(
+            DatabaseIncarnationId::for_tests(fill),
+            &[AcceptedSchemaRuntimeStoreRoot::new(
+                "test::CacheIdentity",
+                Some(candidate.root()),
+            )],
+        )
+        .expect("cache identity root should admit")
+    }
+
+    #[test]
+    fn schema_cache_identity_rejects_mixed_runtime_roots() {
+        let first = SchemaCacheIdentity::new(
+            runtime_root(1),
+            AcceptedSchemaRevision::INITIAL,
+            SchemaVersion::initial(),
+            1,
+            [7; 16],
+        );
+        let second = SchemaCacheIdentity::new(
+            runtime_root(2),
+            AcceptedSchemaRevision::INITIAL,
+            SchemaVersion::initial(),
+            1,
+            [7; 16],
+        );
+
+        assert_ne!(first, second);
+        assert!(!first.same_version(second));
+        assert!(first.same_fingerprint(second));
     }
 }

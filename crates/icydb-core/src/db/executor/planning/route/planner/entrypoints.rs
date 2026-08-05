@@ -32,7 +32,7 @@ pub(in crate::db::executor) enum RoutePlanRequest {
     Load {
         continuation: ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
-        authority: Option<EntityAuthority>,
+        authority: Option<Box<EntityAuthority>>,
         load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     },
     Grouped {
@@ -55,7 +55,7 @@ pub(in crate::db::executor) fn build_execution_route_plan(
             plan,
             continuation,
             probe_fetch_hint,
-            authority,
+            authority.map(|authority| *authority),
             load_terminal_fast_path,
         ),
         RoutePlanRequest::Grouped {

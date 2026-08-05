@@ -91,7 +91,7 @@ impl<C: CanisterKind> DbSession<C> {
             Some(entity_name.as_str()),
             returning,
             |catalog, descriptor| {
-                let (authority, _) = Self::accepted_sql_write_authority_schema_info(catalog)?;
+                let (authority, _) = Self::accepted_sql_write_authority_schema_info(catalog);
                 let primary_names = descriptor.primary_key_names();
                 let selector = query
                     .clone()
@@ -198,7 +198,7 @@ impl<C: CanisterKind> DbSession<C> {
             statement.returning.as_ref(),
             |catalog, _descriptor| {
                 let (_authority, schema_info) =
-                    Self::accepted_sql_write_authority_schema_info(catalog)?;
+                    Self::accepted_sql_write_authority_schema_info(catalog);
                 let query = Self::sql_delete_query_from_statement(&schema_info, statement)?;
 
                 self.execute_sql_delete_statement_with_execution_bounds(

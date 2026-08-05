@@ -94,10 +94,8 @@ impl<C: CanisterKind> DbSession<C> {
     pub(super) fn global_aggregate_prepared_plan_authority(
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
-    ) -> Result<EntityAuthority, QueryError> {
-        catalog
-            .accepted_or_provided_entity_authority(authority.as_ref())
-            .map_err(QueryError::execute)
+    ) -> EntityAuthority {
+        catalog.accepted_or_provided_entity_authority(authority.as_ref())
     }
 
     pub(super) fn resolve_global_aggregate_prepared_plan_for_authority(
@@ -157,7 +155,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan));
         }
 
-        let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority)?;
+        let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority);
         let resolved =
             self.resolve_global_aggregate_prepared_plan_for_authority(command, catalog, authority)?;
         cache_compiled_global_aggregate_prepared_plan(compiled, catalog, resolved.prepared_plan());
@@ -182,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority)?;
+        let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority);
         let (resolved, plan_compile_attribution) = self
             .resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
                 command, catalog, authority,

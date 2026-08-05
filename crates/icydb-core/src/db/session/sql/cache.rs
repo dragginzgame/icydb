@@ -6,7 +6,7 @@
 use crate::{
     db::{
         DbSession, QueryError,
-        schema::{AcceptedSchemaRevision, SchemaVersion},
+        schema::{AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, SchemaVersion},
         session::{
             AcceptedSchemaCatalogContext,
             bounded_cache::BoundedCache,
@@ -59,15 +59,15 @@ pub(in crate::db::session::sql) enum SqlCompiledCommandSurface {
 /// SqlCompiledCommandCacheKey pins one compiled SQL artifact to the exact
 /// session-local semantic boundary that produced it.
 /// The key is intentionally conservative: surface kind, entity path, schema
-/// revision, entity schema version, fingerprint method, schema fingerprint,
-/// and raw SQL text must all match before execution can reuse a prior compile
-/// result.
+/// runtime-root identity, entity schema revision/version, schema fingerprint,
+/// and raw SQL text must all match before execution can reuse a prior compile.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlCompiledCommandCacheKey {
     surface: SqlCompiledCommandSurface,
     entity_path: Rc<str>,
+    accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
     accepted_schema_revision: AcceptedSchemaRevision,
     schema_version: SchemaVersion,
     schema_fingerprint: SqlCompiledSchemaFingerprint,
@@ -93,7 +93,8 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
             && candidate.entity_path == key.entity_path
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.sql == key.sql
-            && (candidate.accepted_schema_revision != key.accepted_schema_revision
+            && (candidate.accepted_runtime_root_identity != key.accepted_runtime_root_identity
+                || candidate.accepted_schema_revision != key.accepted_schema_revision
                 || candidate.schema_version != key.schema_version)
     }) {
         return CacheMissReason::SchemaVersion;
@@ -102,6 +103,7 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
     if cache.keys().any(|candidate| {
         candidate.surface == key.surface
             && candidate.entity_path == key.entity_path
+            && candidate.accepted_runtime_root_identity == key.accepted_runtime_root_identity
             && candidate.accepted_schema_revision == key.accepted_schema_revision
             && candidate.sql == key.sql
             && candidate.schema_fingerprint != key.schema_fingerprint
@@ -111,6 +113,7 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
 
     if cache.keys().any(|candidate| {
         candidate.entity_path == key.entity_path
+            && candidate.accepted_runtime_root_identity == key.accepted_runtime_root_identity
             && candidate.accepted_schema_revision == key.accepted_schema_revision
             && candidate.schema_version == key.schema_version
             && candidate.schema_fingerprint == key.schema_fingerprint
@@ -149,6 +152,7 @@ impl SqlCompiledCommandCacheContext {
             key: SqlCompiledCommandCacheKey::new(
                 surface,
                 catalog.identity().entity_path(),
+                catalog.runtime_root_identity(),
                 catalog.revision(),
                 catalog.schema_version(),
                 SqlCompiledSchemaFingerprint::from_catalog(&catalog),
@@ -251,6 +255,7 @@ impl SqlCompiledCommandCacheKey {
     fn new(
         surface: SqlCompiledCommandSurface,
         entity_path: impl Into<Rc<str>>,
+        accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
         accepted_schema_revision: AcceptedSchemaRevision,
         schema_version: SchemaVersion,
         schema_fingerprint: SqlCompiledSchemaFingerprint,
@@ -259,6 +264,7 @@ impl SqlCompiledCommandCacheKey {
         Self {
             surface,
             entity_path: entity_path.into(),
+            accepted_runtime_root_identity,
             accepted_schema_revision,
             schema_version,
             schema_fingerprint,

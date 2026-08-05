@@ -166,12 +166,10 @@ pub(super) fn reject_explicit_sql_write_to_generated_field(
 impl<C: CanisterKind> DbSession<C> {
     pub(super) fn accepted_sql_write_authority_schema_info(
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<(EntityAuthority, SchemaInfo), QueryError> {
+    ) -> (EntityAuthority, SchemaInfo) {
         let schema_info = catalog.accepted_schema_info();
-        let authority = catalog
-            .accepted_entity_authority()
-            .map_err(QueryError::execute)?;
-        Ok((authority, schema_info))
+        let authority = catalog.accepted_entity_authority();
+        (authority, schema_info.clone())
     }
 
     pub(in crate::db::session::sql) fn with_checked_accepted_write_descriptor_for_returning<T>(

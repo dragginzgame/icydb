@@ -251,7 +251,7 @@ impl<C: CanisterKind> DbSession<C> {
             statement.returning.as_ref(),
             |catalog, descriptor| {
                 let (authority, schema_info) =
-                    Self::accepted_sql_write_authority_schema_info(catalog)?;
+                    Self::accepted_sql_write_authority_schema_info(catalog);
                 let entity_tag = catalog.identity().entity_tag();
                 let selector = execution_contract
                     .selector(Self::sql_update_selector_query(&schema_info, statement)?);

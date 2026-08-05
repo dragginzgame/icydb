@@ -1,334 +1,110 @@
 //! Module: db::session::accepted_schema
-//! Responsibility: accepted-schema runtime authority, query cache, and
-//! save-contract projection for session execution paths.
-//! Does not own: schema reconciliation policy, query planning, or mutation
-//! staging.
-//! Boundary: loads accepted schema snapshots from store authority and exposes
-//! typed session helpers for query, SQL, catalog, and write adapters.
+//! Responsibility: accepted-schema runtime-root publication and session lookup.
+//! Does not own: schema reconciliation policy, query planning, or mutation staging.
+//! Boundary: captures every registered accepted store root and publishes one
+//! immutable database-wide runtime authority for query, SQL, and write adapters.
 
-use super::DbSession;
-use crate::db::executor::EntityAuthority;
-use crate::db::schema::{
-    AcceptedRowLayoutRuntimeContract, AcceptedSchemaAuthority, SchemaInfo, SchemaStore,
-    SchemaVersion,
-};
 use crate::{
     db::{
-        commit::CommitSchemaFingerprint,
+        DbSession,
+        commit::{CommitSchemaFingerprint, database_incarnation_id},
+        executor::EntityAuthority,
+        registry::StoreHandle,
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedCatalogIdentity, AcceptedEnumCatalog, AcceptedInspectionPlan,
-            AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
-            CompiledAcceptedRowConstraints,
+            AcceptedSchemaAuthority, AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity,
+            AcceptedSchemaRuntimeStoreRoot, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            CompiledAcceptedRowConstraints, SchemaInfo, SchemaStore, SchemaVersion,
+            enum_catalog::AcceptedSchemaRootSelection,
         },
     },
     error::InternalError,
     traits::CanisterKind,
 };
-use std::cell::OnceCell;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+#[cfg(test)]
+use std::cell::Cell;
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
-#[derive(Clone, Debug)]
-struct AcceptedSchemaQueryCacheEntry {
-    inspection_plan: AcceptedInspectionPlan,
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedSchemaRuntimeBuildCounts {
+    pub root_identity_builds: u64,
+    pub root_publications: u64,
+    pub entity_compilations: u64,
 }
 
-type AcceptedSchemaQueryCacheKey = (usize, Rc<str>);
-
-#[derive(Clone, Debug)]
-pub(in crate::db) struct AcceptedSchemaCatalogContext {
-    inspection_plan: AcceptedInspectionPlan,
-    schema_info: OnceCell<SchemaInfo>,
-}
-
-pub(in crate::db::session) enum AcceptedInspectionPlanLoadError {
-    Unselected(InternalError),
-    Selected {
-        identity: AcceptedCatalogIdentity,
-        error: InternalError,
-    },
-}
-
-impl AcceptedInspectionPlanLoadError {
-    pub(in crate::db::session) fn into_internal(self) -> InternalError {
-        match self {
-            Self::Unselected(error) | Self::Selected { error, .. } => error,
-        }
-    }
-}
-
-impl AcceptedSchemaCatalogContext {
-    const fn new(inspection_plan: AcceptedInspectionPlan) -> Self {
-        Self {
-            inspection_plan,
-            schema_info: OnceCell::new(),
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn snapshot(&self) -> &AcceptedSchemaSnapshot {
-        self.inspection_plan.snapshot()
-    }
-
-    #[must_use]
-    pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
-        self.inspection_plan.value_catalog().enum_catalog()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn value_catalog_handle(&self) -> &AcceptedValueCatalogHandle {
-        self.inspection_plan.value_catalog()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_version(&self) -> SchemaVersion {
-        self.inspection_plan
-            .identity_ref()
-            .accepted_schema_version()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn revision(&self) -> AcceptedSchemaRevision {
-        self.inspection_plan
-            .identity_ref()
-            .accepted_schema_revision()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn fingerprint(&self) -> CommitSchemaFingerprint {
-        self.inspection_plan
-            .identity_ref()
-            .accepted_schema_fingerprint()
-    }
-
-    /// Borrow the accepted row-constraint program compiled for this fingerprint.
-    #[must_use]
-    pub(in crate::db) const fn accepted_row_constraints(&self) -> &CompiledAcceptedRowConstraints {
-        self.inspection_plan.write_constraints()
-    }
-
-    /// Borrow the canonical accepted inspection projection.
-    #[must_use]
-    pub(in crate::db) const fn inspection_plan(&self) -> &AcceptedInspectionPlan {
-        &self.inspection_plan
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn fingerprint_method_version(&self) -> u8 {
-        self.inspection_plan
-            .identity_ref()
-            .fingerprint_method_version()
-    }
-
-    #[must_use]
-    pub(in crate::db) fn identity(&self) -> AcceptedCatalogIdentity {
-        self.inspection_plan.identity()
-    }
-
-    /// Build executor authority directly from accepted catalog state.
-    pub(in crate::db) fn accepted_entity_authority(
-        &self,
-    ) -> Result<EntityAuthority, InternalError> {
-        let accepted_row_layout =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(self.snapshot())?;
-        let row_decode_contract =
-            accepted_row_layout.row_decode_contract(self.inspection_plan.value_catalog().clone());
-        debug_assert_eq!(
-            row_decode_contract.accepted_schema_revision(),
-            self.revision()
-        );
-        debug_assert!(std::ptr::eq(
-            row_decode_contract.enum_catalog(),
-            self.enum_catalog()
-        ));
-
-        Ok(EntityAuthority::from_accepted_row_decode_contract(
-            self.inspection_plan.identity().entity_path_handle(),
-            self.inspection_plan.identity().entity_tag(),
-            self.inspection_plan.identity().store_path(),
-            row_decode_contract,
-            self.accepted_schema_info(),
-        ))
-    }
-
-    pub(in crate::db) fn accepted_or_provided_entity_authority(
-        &self,
-        accepted_authority: Option<&EntityAuthority>,
-    ) -> Result<EntityAuthority, InternalError> {
-        match accepted_authority {
-            Some(authority) => Ok(authority.clone()),
-            None => self.accepted_entity_authority(),
-        }
-    }
-
-    /// Project schema metadata from the accepted snapshot only.
-    #[must_use]
-    pub(in crate::db) fn accepted_schema_info(&self) -> SchemaInfo {
-        self.schema_info
-            .get_or_init(|| {
-                let schema_info = SchemaInfo::from_accepted_snapshot_and_catalog(
-                    self.inspection_plan.snapshot(),
-                    self.inspection_plan.value_catalog().clone(),
-                    true,
-                );
-                debug_assert!(std::ptr::eq(
-                    schema_info.enum_catalog(),
-                    self.enum_catalog()
-                ));
-                schema_info
-            })
-            .clone()
-    }
-}
-
+#[cfg(test)]
 thread_local! {
-    // Query-side SQL/fluent cache setup needs accepted runtime schema authority,
-    // but repeated read calls should not reload the stable schema snapshot just
-    // to prove an already-warmed cache key. SQL DDL publication invalidates this
-    // heap cache before the next query observes the new accepted schema.
-    static ACCEPTED_SCHEMA_QUERY_CACHES: RefCell<HashMap<AcceptedSchemaQueryCacheKey, AcceptedSchemaQueryCacheEntry>> =
-        RefCell::new(HashMap::default());
+    static ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS: Cell<AcceptedSchemaRuntimeBuildCounts> =
+        const { Cell::new(AcceptedSchemaRuntimeBuildCounts {
+            root_identity_builds: 0,
+            root_publications: 0,
+            entity_compilations: 0,
+        }) };
 }
 
-impl<C: CanisterKind> DbSession<C> {
-    pub(in crate::db::session) fn accepted_schema_catalog_context_for_runtime_entity(
-        &self,
+#[cfg(test)]
+fn record_accepted_schema_entity_runtime_compilation() {
+    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|cell| {
+        let mut counts = cell.get();
+        counts.entity_compilations = counts.entity_compilations.saturating_add(1);
+        cell.set(counts);
+    });
+}
+
+#[cfg(test)]
+fn record_accepted_schema_runtime_root_identity_build() {
+    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|cell| {
+        let mut counts = cell.get();
+        counts.root_identity_builds = counts.root_identity_builds.saturating_add(1);
+        cell.set(counts);
+    });
+}
+
+#[cfg(test)]
+fn record_accepted_schema_runtime_root_publication() {
+    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|cell| {
+        let mut counts = cell.get();
+        counts.root_publications = counts.root_publications.saturating_add(1);
+        cell.set(counts);
+    });
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_accepted_schema_runtime_build_counts_for_tests() {
+    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|counts| counts.set(Default::default()));
+}
+
+#[cfg(test)]
+#[must_use]
+pub(in crate::db) fn accepted_schema_runtime_build_counts_for_tests()
+-> AcceptedSchemaRuntimeBuildCounts {
+    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(Cell::get)
+}
+
+///
+/// AcceptedSchemaEntityRuntime
+///
+/// Immutable per-entity runtime state compiled exactly once for one accepted
+/// database-wide root. It owns all derived query and row-decode authority used
+/// by session execution.
+///
+
+#[derive(Debug)]
+struct AcceptedSchemaEntityRuntime {
+    inspection_plan: AcceptedInspectionPlan,
+    schema_info: Arc<SchemaInfo>,
+    authority: EntityAuthority,
+}
+
+impl AcceptedSchemaEntityRuntime {
+    fn compile<C: CanisterKind>(
+        db: &crate::db::Db<C>,
+        root_identity: AcceptedSchemaRuntimeRootIdentity,
         runtime_entity: AcceptedRuntimeEntity,
-        store: crate::db::registry::StoreHandle,
-    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
-        self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store)
-            .map(AcceptedSchemaCatalogContext::new)
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)
-    }
-
-    /// Resolve one accepted catalog through its immutable authored source key.
-    pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_source_key(
-        &self,
-        entity_source: &str,
-    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
-        self.find_accepted_schema_catalog_context_for_entity_source_key(entity_source)?
-            .ok_or_else(|| InternalError::unsupported_entity_path(entity_source))
-    }
-
-    /// Find one accepted catalog through immutable source identity without
-    /// translating source absence into a dynamic-name lookup failure.
-    pub(in crate::db::session) fn find_accepted_schema_catalog_context_for_entity_source_key(
-        &self,
-        entity_source: &str,
-    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        self.db.ensure_recovered_state()?;
-        let Some(runtime_entity) =
-            crate::db::runtime_entity_catalog::find_accepted_runtime_entity_for_path(
-                &self.db,
-                entity_source,
-            )?
-        else {
-            return Ok(None);
-        };
-        let store = runtime_entity.store(&self.db)?;
-        self.accepted_schema_catalog_context_for_runtime_entity(runtime_entity, store)
-            .map(Some)
-    }
-
-    /// Resolve one accepted catalog by its editable SQL/display entity name.
-    pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_name(
-        &self,
-        entity_name: Option<&str>,
-    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
-        if let Some(entity_name) = entity_name {
-            return self
-                .find_accepted_schema_catalog_context_for_entity_name(entity_name)?
-                .ok_or_else(|| InternalError::unsupported_entity_path(entity_name));
-        }
-
-        self.db.ensure_recovered_state()?;
-
-        let runtime_entity = self
-            .db
-            .accepted_runtime_entities()?
-            .into_iter()
-            .next()
-            .ok_or_else(|| InternalError::unsupported_entity_path(entity_name))?;
-        let store = runtime_entity.store(&self.db)?;
-
-        self.accepted_schema_catalog_context_for_runtime_entity(runtime_entity, store)
-    }
-
-    /// Resolve an exact accepted SQL/display entity name without compiling
-    /// unrelated entity plans.
-    pub(in crate::db::session) fn find_accepted_schema_catalog_context_for_entity_name(
-        &self,
-        entity_name: &str,
-    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        self.db.ensure_recovered_state()?;
-        if let Some(context) =
-            self.accepted_schema_catalog_context_from_cached_entity_name(entity_name)?
-        {
-            return Ok(Some(context));
-        }
-
-        crate::db::runtime_entity_catalog::accepted_runtime_entity_for_name(&self.db, entity_name)?
-            .map(|runtime_entity| {
-                let store = runtime_entity.store(&self.db)?;
-                self.accepted_schema_catalog_context_for_runtime_entity(runtime_entity, store)
-            })
-            .transpose()
-    }
-
-    fn accepted_schema_catalog_context_from_cached_entity_name(
-        &self,
-        entity_name: &str,
-    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        let scope_id = self.db.cache_scope_id();
-        let candidates = ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache
-                .borrow()
-                .iter()
-                .filter_map(|(cache_key, entry)| {
-                    (cache_key.0 == scope_id
-                        && entry.inspection_plan.snapshot().entity_name() == entity_name)
-                        .then_some((
-                            cache_key.clone(),
-                            entry.inspection_plan.identity().store_path(),
-                        ))
-                })
-                .collect::<Vec<_>>()
-        });
-        let mut matched = None;
-
-        for (cache_key, store_path) in candidates {
-            let store = self.db.store_handle(store_path)?;
-            let Some(context) = Self::accepted_schema_catalog_context_from_current_authority_cache(
-                cache_key, store,
-            )?
-            else {
-                continue;
-            };
-            if matched.is_some() {
-                return Err(InternalError::store_corruption());
-            }
-            matched = Some(context);
-        }
-
-        Ok(matched)
-    }
-
-    pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_entity(
-        &self,
-        runtime_entity: AcceptedRuntimeEntity,
-        store: crate::db::registry::StoreHandle,
-    ) -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError> {
-        let cache_key = self.accepted_schema_query_cache_key(runtime_entity.entity_path_handle());
-        if let Some(context) = Self::accepted_schema_catalog_context_from_runtime_entity_cache(
-            cache_key.clone(),
-            runtime_entity.clone(),
-            store,
-        )
-        .map_err(AcceptedInspectionPlanLoadError::Unselected)?
-        {
-            return Ok(context.inspection_plan);
-        }
-
+        store: StoreHandle,
+    ) -> Result<Self, AcceptedInspectionPlanLoadError> {
         let selection = store
             .with_schema(|schema_store| {
                 schema_store.current_accepted_catalog_selection(
@@ -349,79 +125,474 @@ impl<C: CanisterKind> DbSession<C> {
             }
         })?;
         let inspection_plan = AcceptedInspectionPlan::compile(
-            &self.db,
+            db,
             identity.clone(),
             snapshot,
             selection.value_catalog_handle().clone(),
         )
-        .map_err(|error| AcceptedInspectionPlanLoadError::Selected { identity, error })?;
-        Self::insert_accepted_schema_query_cache(cache_key, inspection_plan.clone());
+        .map_err(|error| AcceptedInspectionPlanLoadError::Selected {
+            identity: identity.clone(),
+            error,
+        })?;
+        let schema_info = Arc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
+            inspection_plan.snapshot(),
+            inspection_plan.value_catalog().clone(),
+            true,
+        ));
+        debug_assert!(std::ptr::eq(
+            schema_info.enum_catalog(),
+            inspection_plan.value_catalog().enum_catalog(),
+        ));
+        let authority = EntityAuthority::from_accepted_runtime_contracts(
+            identity.entity_path_handle(),
+            identity.entity_tag(),
+            identity.store_path(),
+            inspection_plan.row_contract().clone(),
+            schema_info.clone(),
+            identity.accepted_schema_fingerprint(),
+            root_identity,
+        );
 
-        Ok(inspection_plan)
-    }
-
-    fn accepted_schema_catalog_context_from_runtime_entity_cache(
-        cache_key: AcceptedSchemaQueryCacheKey,
-        runtime_entity: AcceptedRuntimeEntity,
-        store: crate::db::registry::StoreHandle,
-    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        let context =
-            Self::accepted_schema_catalog_context_from_current_authority_cache(cache_key, store)?;
-        if let Some(context) = &context {
-            debug_assert_eq!(
-                context.inspection_plan.identity().entity_tag(),
-                runtime_entity.entity_tag()
-            );
-            debug_assert_eq!(
-                context.inspection_plan.identity().entity_path(),
-                runtime_entity.entity_path()
-            );
-            debug_assert_eq!(
-                context.inspection_plan.identity().store_path(),
-                runtime_entity.store_path()
-            );
-        }
-        Ok(context)
-    }
-
-    fn accepted_schema_query_cache_key(
-        &self,
-        entity_path: impl Into<Rc<str>>,
-    ) -> AcceptedSchemaQueryCacheKey {
-        (self.db.cache_scope_id(), entity_path.into())
-    }
-
-    fn accepted_schema_catalog_context_from_current_authority_cache(
-        cache_key: AcceptedSchemaQueryCacheKey,
-        store: crate::db::registry::StoreHandle,
-    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        let entry =
-            ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned());
-        let Some(entry) = entry else {
-            return Ok(None);
+        let runtime = Self {
+            inspection_plan,
+            schema_info,
+            authority,
         };
-        if !store.with_schema(|schema_store| {
-            schema_store.current_accepted_schema_authority_matches(
-                entry.inspection_plan.value_catalog().authority(),
-            )
-        })? {
-            return Ok(None);
+        #[cfg(test)]
+        record_accepted_schema_entity_runtime_compilation();
+
+        Ok(runtime)
+    }
+}
+
+///
+/// AcceptedSchemaRuntimeRoot
+///
+/// One atomically published runtime view of every accepted entity authority in
+/// a database incarnation. Store-root facts are retained to revalidate a warm
+/// root without serializing or hashing accepted entity snapshots.
+///
+
+#[derive(Debug)]
+struct AcceptedSchemaRuntimeRoot {
+    identity: AcceptedSchemaRuntimeRootIdentity,
+    store_roots: Vec<AcceptedSchemaRuntimeStoreRoot>,
+    entities: Vec<Rc<AcceptedSchemaEntityRuntime>>,
+    entities_by_path: HashMap<Rc<str>, Rc<AcceptedSchemaEntityRuntime>>,
+    entities_by_name: HashMap<Rc<str>, Rc<AcceptedSchemaEntityRuntime>>,
+}
+
+impl AcceptedSchemaRuntimeRoot {
+    fn compile<C: CanisterKind>(
+        db: &crate::db::Db<C>,
+        identity: AcceptedSchemaRuntimeRootIdentity,
+        store_roots: Vec<AcceptedSchemaRuntimeStoreRoot>,
+    ) -> Result<Self, AcceptedInspectionPlanLoadError> {
+        let runtime_entities = db
+            .accepted_runtime_entities()
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let mut entities = Vec::with_capacity(runtime_entities.len());
+        let mut entities_by_path = HashMap::with_capacity(runtime_entities.len());
+        let mut entities_by_name = HashMap::with_capacity(runtime_entities.len());
+
+        for runtime_entity in runtime_entities {
+            let store = runtime_entity
+                .store(db)
+                .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+            let entity = Rc::new(AcceptedSchemaEntityRuntime::compile(
+                db,
+                identity,
+                runtime_entity,
+                store,
+            )?);
+            let entity_path = entity.inspection_plan.identity().entity_path_handle();
+            let entity_name: Rc<str> = Rc::from(entity.inspection_plan.snapshot().entity_name());
+            if entities_by_path
+                .insert(entity_path, entity.clone())
+                .is_some()
+                || entities_by_name
+                    .insert(entity_name, entity.clone())
+                    .is_some()
+            {
+                return Err(AcceptedInspectionPlanLoadError::Unselected(
+                    InternalError::store_corruption(),
+                ));
+            }
+            entities.push(entity);
         }
 
-        Ok(Some(AcceptedSchemaCatalogContext::new(
-            entry.inspection_plan,
-        )))
+        let root = Self {
+            identity,
+            store_roots,
+            entities,
+            entities_by_path,
+            entities_by_name,
+        };
+        #[cfg(test)]
+        record_accepted_schema_runtime_root_publication();
+
+        Ok(root)
     }
 
-    fn insert_accepted_schema_query_cache(
-        cache_key: AcceptedSchemaQueryCacheKey,
-        inspection_plan: AcceptedInspectionPlan,
-    ) {
-        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache
-                .borrow_mut()
-                .insert(cache_key, AcceptedSchemaQueryCacheEntry { inspection_plan });
+    #[must_use]
+    const fn identity(&self) -> AcceptedSchemaRuntimeRootIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    fn matches(
+        &self,
+        database_incarnation: crate::db::DatabaseIncarnationId,
+        store_roots: &[AcceptedSchemaRuntimeStoreRoot],
+    ) -> bool {
+        self.identity.database_incarnation() == database_incarnation
+            && self.store_roots == store_roots
+    }
+
+    fn entity_for_runtime_entity(
+        &self,
+        runtime_entity: &AcceptedRuntimeEntity,
+    ) -> Result<Rc<AcceptedSchemaEntityRuntime>, InternalError> {
+        let entity = self
+            .entities_by_path
+            .get(runtime_entity.entity_path())
+            .cloned()
+            .ok_or_else(InternalError::store_corruption)?;
+        let identity = entity.inspection_plan.identity_ref();
+        if identity.entity_tag() != runtime_entity.entity_tag()
+            || identity.store_path() != runtime_entity.store_path()
+        {
+            return Err(InternalError::store_corruption());
+        }
+
+        Ok(entity)
+    }
+
+    #[must_use]
+    fn entity_for_path(&self, entity_path: &str) -> Option<Rc<AcceptedSchemaEntityRuntime>> {
+        self.entities_by_path.get(entity_path).cloned()
+    }
+
+    #[must_use]
+    fn entity_for_name(&self, entity_name: &str) -> Option<Rc<AcceptedSchemaEntityRuntime>> {
+        self.entities_by_name.get(entity_name).cloned()
+    }
+
+    #[must_use]
+    fn first_entity(&self) -> Option<Rc<AcceptedSchemaEntityRuntime>> {
+        self.entities.first().cloned()
+    }
+}
+
+///
+/// AcceptedSchemaCatalogContext
+///
+/// One entity projection borrowed from a captured database-wide accepted
+/// runtime root. Cloning the context retains that exact root publication.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct AcceptedSchemaCatalogContext {
+    root: Rc<AcceptedSchemaRuntimeRoot>,
+    entity: Rc<AcceptedSchemaEntityRuntime>,
+}
+
+impl AcceptedSchemaCatalogContext {
+    const fn new(
+        root: Rc<AcceptedSchemaRuntimeRoot>,
+        entity: Rc<AcceptedSchemaEntityRuntime>,
+    ) -> Self {
+        Self { root, entity }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn snapshot(&self) -> &AcceptedSchemaSnapshot {
+        self.entity.inspection_plan.snapshot()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
+        self.entity.inspection_plan.value_catalog().enum_catalog()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn value_catalog_handle(&self) -> &AcceptedValueCatalogHandle {
+        self.entity.inspection_plan.value_catalog()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn schema_version(&self) -> SchemaVersion {
+        self.entity
+            .inspection_plan
+            .identity_ref()
+            .accepted_schema_version()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn revision(&self) -> AcceptedSchemaRevision {
+        self.entity
+            .inspection_plan
+            .identity_ref()
+            .accepted_schema_revision()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn fingerprint(&self) -> CommitSchemaFingerprint {
+        self.entity
+            .inspection_plan
+            .identity_ref()
+            .accepted_schema_fingerprint()
+    }
+
+    /// Return the database-wide root identity captured by this context.
+    #[must_use]
+    pub(in crate::db) fn runtime_root_identity(&self) -> AcceptedSchemaRuntimeRootIdentity {
+        self.root.identity()
+    }
+
+    /// Borrow the accepted row-constraint program compiled for this fingerprint.
+    #[must_use]
+    pub(in crate::db) fn accepted_row_constraints(&self) -> &CompiledAcceptedRowConstraints {
+        self.entity.inspection_plan.write_constraints()
+    }
+
+    /// Borrow the canonical accepted inspection projection.
+    #[must_use]
+    pub(in crate::db) fn inspection_plan(&self) -> &AcceptedInspectionPlan {
+        &self.entity.inspection_plan
+    }
+
+    #[must_use]
+    pub(in crate::db) fn fingerprint_method_version(&self) -> u8 {
+        self.entity
+            .inspection_plan
+            .identity_ref()
+            .fingerprint_method_version()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn identity(&self) -> AcceptedCatalogIdentity {
+        self.entity.inspection_plan.identity()
+    }
+
+    /// Clone executor authority from this immutable accepted entity runtime.
+    #[must_use]
+    pub(in crate::db) fn accepted_entity_authority(&self) -> EntityAuthority {
+        self.entity.authority.clone()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn accepted_or_provided_entity_authority(
+        &self,
+        accepted_authority: Option<&EntityAuthority>,
+    ) -> EntityAuthority {
+        match accepted_authority {
+            Some(authority) => authority.clone(),
+            None => self.accepted_entity_authority(),
+        }
+    }
+
+    /// Borrow schema metadata compiled once with the accepted runtime root.
+    #[must_use]
+    pub(in crate::db) fn accepted_schema_info(&self) -> &SchemaInfo {
+        self.entity.schema_info.as_ref()
+    }
+}
+
+///
+/// AcceptedInspectionPlanLoadError
+///
+/// Distinguishes failure before entity selection from failure compiling one
+/// selected accepted entity so integrity callers can retain entity identity.
+///
+
+pub(in crate::db::session) enum AcceptedInspectionPlanLoadError {
+    Unselected(InternalError),
+    Selected {
+        identity: AcceptedCatalogIdentity,
+        error: InternalError,
+    },
+}
+
+impl AcceptedInspectionPlanLoadError {
+    pub(in crate::db::session) fn into_internal(self) -> InternalError {
+        match self {
+            Self::Unselected(error) | Self::Selected { error, .. } => error,
+        }
+    }
+}
+
+thread_local! {
+    // Each registry owns one database-wide accepted runtime root. A cache hit
+    // revalidates only the compact store-root records and never serializes or
+    // hashes an accepted entity snapshot.
+    static ACCEPTED_SCHEMA_RUNTIME_ROOTS: RefCell<HashMap<usize, Rc<AcceptedSchemaRuntimeRoot>>> =
+        RefCell::new(HashMap::default());
+}
+
+impl<C: CanisterKind> DbSession<C> {
+    fn capture_accepted_runtime_store_roots(
+        &self,
+    ) -> Result<Vec<AcceptedSchemaRuntimeStoreRoot>, InternalError> {
+        let mut stores = self
+            .db
+            .with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+        stores.sort_unstable_by_key(|(store_path, _)| *store_path);
+        stores
+            .into_iter()
+            .map(|(store_path, store)| {
+                let root = store
+                    .with_schema(SchemaStore::current_accepted_schema_root)?
+                    .map(AcceptedSchemaRootSelection::root);
+                Ok(AcceptedSchemaRuntimeStoreRoot::new(store_path, root))
+            })
+            .collect()
+    }
+
+    fn accepted_schema_runtime_root(
+        &self,
+    ) -> Result<Rc<AcceptedSchemaRuntimeRoot>, AcceptedInspectionPlanLoadError> {
+        self.db
+            .ensure_recovered_state()
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let database_incarnation =
+            database_incarnation_id().map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let store_roots = self
+            .capture_accepted_runtime_store_roots()
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let scope_id = self.db.cache_scope_id();
+        let cached = ACCEPTED_SCHEMA_RUNTIME_ROOTS.with(|roots| {
+            roots
+                .borrow()
+                .get(&scope_id)
+                .filter(|root| root.matches(database_incarnation, store_roots.as_slice()))
+                .cloned()
         });
+        if let Some(root) = cached {
+            return Ok(root);
+        }
+
+        #[cfg(test)]
+        record_accepted_schema_runtime_root_identity_build();
+        let identity = AcceptedSchemaRuntimeRootIdentity::from_store_roots(
+            database_incarnation,
+            store_roots.as_slice(),
+        )
+        .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+
+        let root = Rc::new(AcceptedSchemaRuntimeRoot::compile(
+            &self.db,
+            identity,
+            store_roots.clone(),
+        )?);
+        let current_incarnation =
+            database_incarnation_id().map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let current_store_roots = self
+            .capture_accepted_runtime_store_roots()
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        if current_incarnation != database_incarnation || current_store_roots != store_roots {
+            return Err(AcceptedInspectionPlanLoadError::Unselected(
+                InternalError::store_invariant(),
+            ));
+        }
+
+        ACCEPTED_SCHEMA_RUNTIME_ROOTS.with(|roots| {
+            roots.borrow_mut().insert(scope_id, root.clone());
+        });
+
+        Ok(root)
+    }
+
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_runtime_entity(
+        &self,
+        runtime_entity: AcceptedRuntimeEntity,
+        store: StoreHandle,
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
+        let expected_store = runtime_entity.store(&self.db)?;
+        if !std::ptr::eq(store.schema_store(), expected_store.schema_store()) {
+            return Err(InternalError::store_invariant());
+        }
+        let root = self
+            .accepted_schema_runtime_root()
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+        let entity = root.entity_for_runtime_entity(&runtime_entity)?;
+
+        Ok(AcceptedSchemaCatalogContext::new(root, entity))
+    }
+
+    /// Resolve one accepted catalog through its immutable authored source key.
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_source_key(
+        &self,
+        entity_source: &str,
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
+        self.find_accepted_schema_catalog_context_for_entity_source_key(entity_source)?
+            .ok_or_else(|| InternalError::unsupported_entity_path(entity_source))
+    }
+
+    /// Find one accepted catalog through immutable source identity.
+    pub(in crate::db::session) fn find_accepted_schema_catalog_context_for_entity_source_key(
+        &self,
+        entity_source: &str,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
+        let root = self
+            .accepted_schema_runtime_root()
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+
+        Ok(root
+            .entity_for_path(entity_source)
+            .map(|entity| AcceptedSchemaCatalogContext::new(root, entity)))
+    }
+
+    /// Resolve one accepted catalog by its editable SQL/display entity name.
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_entity_name(
+        &self,
+        entity_name: Option<&str>,
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
+        let root = self
+            .accepted_schema_runtime_root()
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+        let entity = match entity_name {
+            Some(entity_name) => root.entity_for_name(entity_name),
+            None => root.first_entity(),
+        }
+        .ok_or_else(|| InternalError::unsupported_entity_path(entity_name))?;
+
+        Ok(AcceptedSchemaCatalogContext::new(root, entity))
+    }
+
+    /// Resolve an exact accepted SQL/display entity name from one root.
+    pub(in crate::db::session) fn find_accepted_schema_catalog_context_for_entity_name(
+        &self,
+        entity_name: &str,
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
+        let root = self
+            .accepted_schema_runtime_root()
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
+
+        Ok(root
+            .entity_for_name(entity_name)
+            .map(|entity| AcceptedSchemaCatalogContext::new(root, entity)))
+    }
+
+    pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_entity(
+        &self,
+        runtime_entity: AcceptedRuntimeEntity,
+        store: StoreHandle,
+    ) -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError> {
+        let expected_store = runtime_entity
+            .store(&self.db)
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        if !std::ptr::eq(store.schema_store(), expected_store.schema_store()) {
+            return Err(AcceptedInspectionPlanLoadError::Unselected(
+                InternalError::store_invariant(),
+            ));
+        }
+        let root = self.accepted_schema_runtime_root()?;
+        let entity = root
+            .entity_for_runtime_entity(&runtime_entity)
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+
+        Ok(entity.inspection_plan.clone())
     }
 
     /// Verify accepted authority for a schema-resolved structural operation.
@@ -445,10 +616,11 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    pub(in crate::db::session) fn invalidate_accepted_schema_query_cache(&self, entity_path: &str) {
-        let cache_key = self.accepted_schema_query_cache_key(entity_path);
-        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
-            cache.borrow_mut().remove(&cache_key);
+    /// Drop the complete cached root after schema publication by this session.
+    pub(in crate::db::session) fn invalidate_accepted_schema_runtime_root(&self) {
+        let scope_id = self.db.cache_scope_id();
+        ACCEPTED_SCHEMA_RUNTIME_ROOTS.with(|roots| {
+            roots.borrow_mut().remove(&scope_id);
         });
     }
 }

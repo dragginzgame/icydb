@@ -1403,6 +1403,7 @@ impl SchemaStore {
     }
 
     /// Resolve one accepted entity display name without materializing the full store catalog.
+    #[cfg(test)]
     pub(in crate::db) fn current_accepted_runtime_entity_for_name(
         &self,
         registered_store_path: &'static str,

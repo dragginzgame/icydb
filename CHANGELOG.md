@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
+
+Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
+
+- `0.221.0` publishes one database-wide accepted-schema runtime root and binds
+  query caches to its complete identity, reducing repeated point-query and
+  ordered-scan setup cost without changing public or persisted formats.
+
 ## [0.220.x] 📉 - 2026-08-04 - Measured Runtime Footprint And Query Cost Contraction
 
 Detailed notes: [docs/changelog/0.220.md](docs/changelog/0.220.md)

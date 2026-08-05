@@ -44,9 +44,7 @@ impl<C: CanisterKind> DbSession<C> {
         admission: Option<&QueryAdmissionPolicy>,
         cursor_token: Option<&str>,
     ) -> Result<GroupedQueryOutput, QueryError> {
-        let authority = catalog
-            .accepted_entity_authority()
-            .map_err(QueryError::execute)?;
+        let authority = catalog.accepted_entity_authority();
         let (prepared_plan, _) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog(
                 authority, catalog, query,

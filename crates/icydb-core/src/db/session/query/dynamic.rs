@@ -31,7 +31,7 @@ impl<C: CanisterKind> DbSession<C> {
         let schema = catalog.accepted_schema_info();
         let mut query = StructuralQuery::new(MissingRowPolicy::Ignore);
         if let Some(filter) = request.filter_expr() {
-            query = query.filter_for_schema(&schema, filter.clone());
+            query = query.filter_for_schema(schema, filter.clone());
         }
         for order in request.order_terms() {
             query = query.order_term(order.clone());
@@ -43,7 +43,7 @@ impl<C: CanisterKind> DbSession<C> {
             query = query.limit(limit);
         }
         for field in request.group_fields() {
-            query = query.group_by_with_schema(field, &schema)?;
+            query = query.group_by_with_schema(field, schema)?;
         }
         for aggregate in request.aggregates() {
             query = query.aggregate(aggregate.clone());
@@ -74,9 +74,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
 
-        let authority = catalog
-            .accepted_entity_authority()
-            .map_err(QueryError::execute)?;
+        let authority = catalog.accepted_entity_authority();
         let public_admission = match lane {
             DynamicReadLane::Public => Some(QueryAdmissionPolicy::default_bounded_read()),
             DynamicReadLane::Trusted => None,

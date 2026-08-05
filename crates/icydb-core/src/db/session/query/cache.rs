@@ -303,6 +303,7 @@ impl<C: CanisterKind> DbSession<C> {
         let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
             accepted_schema,
             schema_fingerprint,
+            authority.accepted_runtime_root_identity(),
         );
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query,
@@ -326,6 +327,7 @@ impl<C: CanisterKind> DbSession<C> {
         let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
             accepted_schema,
             schema_fingerprint,
+            authority.accepted_runtime_root_identity(),
         );
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(

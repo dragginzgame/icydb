@@ -134,16 +134,14 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         accepted_authority: Option<&EntityAuthority>,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let authority = catalog
-            .accepted_or_provided_entity_authority(accepted_authority)
-            .map_err(QueryError::execute)?;
+        let authority = catalog.accepted_or_provided_entity_authority(accepted_authority);
         let schema_info = catalog.accepted_schema_info();
 
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
             lowered,
             authority.clone(),
             catalog,
-            &schema_info,
+            schema_info,
         )? {
             return Ok((
                 SqlStatementResult::Explain(explain),
@@ -151,7 +149,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        self.explain_lowered_sql_for_authority(lowered, authority, catalog, &schema_info)
+        self.explain_lowered_sql_for_authority(lowered, authority, catalog, schema_info)
             .map(SqlStatementResult::Explain)
             .map(|result| (result, SqlCacheAttribution::default()))
     }

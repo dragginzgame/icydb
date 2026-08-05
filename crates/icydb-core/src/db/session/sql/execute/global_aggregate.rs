@@ -45,7 +45,8 @@ impl<C: CanisterKind> DbSession<C> {
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
         let schema_info = catalog.accepted_schema_info();
-        let bundle = PreparedAggregateRequestBundle::from_global_command(command, schema_info)?;
+        let bundle =
+            PreparedAggregateRequestBundle::from_global_command(command, schema_info.clone())?;
         let (request, projection) = bundle.into_parts();
         let rows = self
             .with_metrics(|| {

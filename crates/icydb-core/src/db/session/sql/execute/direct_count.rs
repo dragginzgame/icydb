@@ -220,16 +220,14 @@ fn direct_count_cardinality_prefix_keys_from_planned_query(
 fn direct_count_cardinality_target_from_entry(
     catalog: &AcceptedSchemaCatalogContext,
     entry: Rc<SqlGlobalAggregateCountPlanCacheEntry>,
-) -> Result<DirectCountCardinalityTarget, QueryError> {
-    let authority = catalog
-        .accepted_entity_authority()
-        .map_err(QueryError::execute)?;
+) -> DirectCountCardinalityTarget {
+    let authority = catalog.accepted_entity_authority();
 
-    Ok(DirectCountCardinalityTarget::CountPlan {
+    DirectCountCardinalityTarget::CountPlan {
         authority,
         entry,
         cache_attribution: SqlCacheAttribution::shared_query_plan_cache_hit(),
-    })
+    }
 }
 
 fn cached_compiled_direct_count_cardinality_entry(
@@ -385,10 +383,8 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn direct_count_cardinality_authority(
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<EntityAuthority, QueryError> {
-        catalog
-            .accepted_entity_authority()
-            .map_err(QueryError::execute)
+    ) -> EntityAuthority {
+        catalog.accepted_entity_authority()
     }
 
     fn direct_count_cardinality_target_from_cached_shared_plan(
@@ -446,7 +442,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(DirectCountCardinalityTarget::Disabled);
         }
 
-        let authority = Self::direct_count_cardinality_authority(catalog)?;
+        let authority = Self::direct_count_cardinality_authority(catalog);
         self.direct_count_cardinality_target_for_authority(command, catalog, authority)
     }
 
@@ -463,7 +459,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(DirectCountCardinalityTarget::Disabled);
         }
         if let Some(entry) = cached_compiled_direct_count_cardinality_entry(compiled, catalog) {
-            return direct_count_cardinality_target_from_entry(catalog, entry);
+            return Ok(direct_count_cardinality_target_from_entry(catalog, entry));
         }
 
         let target = self.build_direct_count_cardinality_target(command, catalog)?;
@@ -498,12 +494,12 @@ impl<C: CanisterKind> DbSession<C> {
         attribution.cache_lookup = attribution.cache_lookup.saturating_add(cache_lookup);
         if let Some(entry) = cached_plan {
             return Ok((
-                direct_count_cardinality_target_from_entry(catalog, entry)?,
+                direct_count_cardinality_target_from_entry(catalog, entry),
                 attribution,
             ));
         }
 
-        let authority = Self::direct_count_cardinality_authority(catalog)?;
+        let authority = Self::direct_count_cardinality_authority(catalog);
         let (schema_info_local, shortcut) = measure_sql_stage(|| {
             self.direct_count_cardinality_shortcut_target_for_authority(
                 &authority, command, catalog,

@@ -182,6 +182,7 @@ pub(in crate::db) fn find_accepted_runtime_entity_for_path<C: CanisterKind>(
     Ok(matched)
 }
 
+#[cfg(test)]
 pub(in crate::db) fn accepted_runtime_entity_for_name<C: CanisterKind>(
     db: &Db<C>,
     entity_name: &str,

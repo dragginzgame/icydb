@@ -10,7 +10,7 @@ use crate::{
         DbSession, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
-        schema::{AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint},
+        schema::AcceptedSchemaSnapshot,
         session::{
             AcceptedSchemaCatalogContext,
             query::{QueryPlanCacheAttribution, StructuralProjectionContract},
@@ -155,8 +155,7 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let schema_fingerprint =
-            accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
+        let schema_fingerprint = authority.accepted_schema_fingerprint();
         let (prepared_plan, cache_attribution) = self
             .cached_primary_only_query_plan_for_accepted_authority_with_schema_fingerprint(
                 authority.clone(),
@@ -170,13 +169,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn select_authority_for_context(
         context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<EntityAuthority, QueryError> {
+    ) -> EntityAuthority {
         match context.accepted_authority() {
-            Some(authority) => Ok(authority.clone()),
-            None => context
-                .accepted_catalog()
-                .accepted_entity_authority()
-                .map_err(QueryError::execute),
+            Some(authority) => authority.clone(),
+            None => context.accepted_catalog().accepted_entity_authority(),
         }
     }
 
@@ -318,7 +314,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = Self::select_authority_for_context(context)?;
+        let authority = Self::select_authority_for_context(context);
         let resolved = self.resolve_select_prepared_plan_for_authority_with_catalog(
             query,
             authority,
@@ -346,7 +342,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = Self::select_authority_for_context(context)?;
+        let authority = Self::select_authority_for_context(context);
         let (resolved, plan_compile_attribution) = self
             .resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
                 query,
