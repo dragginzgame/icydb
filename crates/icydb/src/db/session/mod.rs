@@ -125,4 +125,17 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_public_dynamic_grouped_query_for_typed_binding(binding.inner(), request)
             .map_err(Into::into)
     }
+
+    pub(crate) fn execute_public_typed_exact_key_batch<K>(
+        &self,
+        binding: &TypedEntityBinding,
+        keys: &[K],
+    ) -> Result<Option<core::db::ExactKeyBatchProjectionOutput>, crate::Error>
+    where
+        K: core::db::PrimaryKeyEncode,
+    {
+        self.inner
+            .execute_public_exact_key_batch_for_typed_binding(binding.inner(), keys)
+            .map_err(Into::into)
+    }
 }

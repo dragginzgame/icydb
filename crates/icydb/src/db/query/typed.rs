@@ -10,7 +10,8 @@ use crate::{
         DbSession, DynamicQuery, GroupedQueryOutput, TypedBindingError, TypedEntityAdapter,
         TypedEntityBinding, TypedRowError,
     },
-    traits::CanisterKind,
+    traits::{CanisterKind, EntityKey},
+    types::Id,
 };
 use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm};
 use std::{error::Error as StdError, fmt, marker::PhantomData};
@@ -34,6 +35,13 @@ impl fmt::Display for TypedQueryError {
 }
 
 impl StdError for TypedQueryError {}
+
+fn typed_query_error_from_binding(error: TypedBindingError) -> TypedQueryError {
+    match error {
+        TypedBindingError::Adapter(error) => TypedQueryError::Row(TypedRowError::Adapter(error)),
+        TypedBindingError::Database(error) => TypedQueryError::Database(error),
+    }
+}
 
 ///
 /// Query
@@ -183,4 +191,92 @@ impl<C: CanisterKind> DbSession<C> {
     {
         Query::new(self)
     }
+
+    /// Read one generated entity directly by its typed entity identifier.
+    ///
+    /// This path validates one current accepted binding and performs one
+    /// bounded store lookup without constructing or caching a dynamic plan.
+    pub fn get<E>(&self, id: Id<E>) -> Result<Option<E::Row>, TypedQueryError>
+    where
+        E: EntityKey + TypedEntityAdapter,
+        E::Row: Clone,
+    {
+        let mut rows = self.get_many::<E>(&[id])?;
+        rows.pop().ok_or({
+            TypedQueryError::Row(TypedRowError::Adapter(
+                crate::db::TypedAdapterError::RowShapeMismatch,
+            ))
+        })
+    }
+
+    /// Read generated entities directly by typed entity identifier.
+    ///
+    /// The result has exactly one position per input identifier in request
+    /// order. Missing identifiers produce `None`; duplicates preserve positions
+    /// while sharing one physical lookup and persisted-row decode. One batch is
+    /// bounded by [`MAX_TYPED_EXACT_KEY_BATCH_ITEMS`], encoded key bytes,
+    /// distinct stored-row bytes, and logical result bytes.
+    pub fn get_many<E>(&self, ids: &[Id<E>]) -> Result<Vec<Option<E::Row>>, TypedQueryError>
+    where
+        E: EntityKey + TypedEntityAdapter,
+        E::Row: Clone,
+    {
+        let binding = E::typed_binding(self).map_err(typed_query_error_from_binding)?;
+        let result = self
+            .execute_public_typed_exact_key_batch(&binding, ids)
+            .map_err(TypedQueryError::Database)?
+            .ok_or({
+                TypedQueryError::Row(TypedRowError::Adapter(
+                    crate::db::TypedAdapterError::StaleBinding,
+                ))
+            })?;
+        let mut distinct_rows = Vec::with_capacity(result.distinct_rows.len());
+        for values in result.distinct_rows {
+            let row = values
+                .map(|values| {
+                    let row = Self::typed_exact_key_row(
+                        &binding,
+                        result.entity.as_str(),
+                        result.columns.as_slice(),
+                        values,
+                    )
+                    .map_err(TypedQueryError::Row)?;
+                    E::decode_row(&binding, row)
+                        .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))
+                })
+                .transpose()?;
+            distinct_rows.push(row);
+        }
+        result
+            .positions
+            .into_iter()
+            .map(|position| {
+                let index = usize::try_from(position).map_err(|_| {
+                    TypedQueryError::Row(TypedRowError::Adapter(
+                        crate::db::TypedAdapterError::RowShapeMismatch,
+                    ))
+                })?;
+                distinct_rows.get(index).cloned().ok_or({
+                    TypedQueryError::Row(TypedRowError::Adapter(
+                        crate::db::TypedAdapterError::RowShapeMismatch,
+                    ))
+                })
+            })
+            .collect()
+    }
 }
+
+/// Maximum input positions admitted by one typed exact-key batch.
+pub const MAX_TYPED_EXACT_KEY_BATCH_ITEMS: usize = icydb_core::db::MAX_TYPED_EXACT_KEY_BATCH_ITEMS;
+
+/// Maximum encoded stored-key bytes admitted before input deduplication.
+pub const MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES: usize =
+    icydb_core::db::MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES;
+
+/// Maximum raw row bytes admitted across distinct stored keys.
+pub const MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES: usize =
+    icydb_core::db::MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES;
+
+/// Maximum logical projection bytes admitted across original input positions.
+pub const MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES: usize =
+    icydb_core::db::MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES;

@@ -8,6 +8,7 @@ mod cache;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 mod diagnostics;
 mod dynamic;
+mod exact_key;
 mod grouped;
 mod projection;
 
@@ -18,10 +19,17 @@ pub(in crate::db) use cache::QueryPlanCacheAttribution;
 pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
 #[cfg(feature = "sql")]
 pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use cache::shared_query_plan_cache_len_for_tests;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use diagnostics::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
+};
+#[doc(hidden)]
+pub use exact_key::{
+    MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
+    MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::StructuralProjectionContract;

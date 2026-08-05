@@ -189,6 +189,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "pub struct TestEntityPatch",
         "pub struct TestEntityReplace",
         "impl :: icydb :: db :: TypedEntityAdapter for TestEntity",
+        "impl :: icydb :: __macro :: EntityKey for TestEntity { type Key = :: icydb_model :: schema :: Ulid",
         "impl :: icydb :: db :: TypedRowAdapter for TestEntity",
         "impl :: icydb :: db :: TypedWriteAdapter for TestEntityInsert",
         "impl :: icydb :: db :: TypedWriteAdapter for TestEntityPatch",
@@ -217,6 +218,25 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
             "generated write adapters must not invoke application callback `{forbidden}`: {tokens}",
         );
     }
+}
+
+#[test]
+fn composite_typed_adapter_uses_the_generated_canonical_key() {
+    let mut entity = entity_with_fields_and_indexes(
+        vec![scalar_field("tenant_id"), scalar_field("local_id")],
+        vec![],
+    );
+    entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("local_id")];
+    entity.emit_runtime_adapters = true;
+
+    let tokens = entity_typed_adapter_tokens(&entity).to_string();
+
+    assert!(
+        tokens.contains(
+            "impl :: icydb :: __macro :: EntityKey for TestEntity { type Key = TestEntityKey"
+        ),
+        "composite adapter must expose its generated key type: {tokens}",
+    );
 }
 
 #[test]

@@ -1198,11 +1198,28 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
     let insert_impl = typed_write_adapter_impl_tokens(entity, &insert_ident, "insert");
     let patch_impl = typed_write_adapter_impl_tokens(entity, &patch_ident, "patch");
     let replace_impl = typed_write_adapter_impl_tokens(entity, &replace_ident, "replace");
+    let primary_key_type = if entity.primary_key.fields().len() == 1 {
+        let primary_key_field = entity.primary_key.scalar_field();
+        entity
+            .fields
+            .iter()
+            .find(|field| field.name == *primary_key_field)
+            .expect("validated scalar primary-key field must exist")
+            .value
+            .type_expr()
+    } else {
+        let key_ident = composite_primary_key_ident(&ident);
+        quote!(#key_ident)
+    };
 
     quote! {
         #insert_struct
         #patch_struct
         #replace_struct
+
+        impl ::icydb::__macro::EntityKey for #ident {
+            type Key = #primary_key_type;
+        }
 
         impl ::icydb::db::TypedEntityAdapter for #ident {
             fn typed_binding<C>(

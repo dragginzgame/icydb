@@ -679,4 +679,12 @@ define_error_code_registry! {
         detail(SchemaMigration { reason: SchemaMigrationCode::CandidateMismatch });
     SCHEMA_MIGRATION_PUBLICATION_RACE_LOST = 268 => RuntimeConflict,
         detail(SchemaMigration { reason: SchemaMigrationCode::PublicationRaceLost });
+    RUNTIME_BOUNDARY_EXACT_KEY_BATCH_TOO_MANY_ITEMS = 269 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExactKeyBatchTooManyItems });
+    RUNTIME_BOUNDARY_EXACT_KEY_BATCH_INPUT_BYTES_EXCEEDED = 270 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExactKeyBatchInputBytesExceeded });
+    RUNTIME_BOUNDARY_EXACT_KEY_BATCH_STORED_BYTES_EXCEEDED = 271 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExactKeyBatchStoredBytesExceeded });
+    RUNTIME_BOUNDARY_EXACT_KEY_BATCH_RESULT_BYTES_EXCEEDED = 272 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded });
 }

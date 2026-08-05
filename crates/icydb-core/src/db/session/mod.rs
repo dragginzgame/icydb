@@ -35,6 +35,11 @@ pub use query::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
 };
+#[doc(hidden)]
+pub use query::{
+    MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
+    MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
+};
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::grouped_cursor_from_bytes;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### ➕ Added
+
+- Adds bounded planner-free typed `get` and `get_many` reads with explicit
+  request-order, missing-key, duplicate-key, and resource-limit semantics.
+
 ## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)

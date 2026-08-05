@@ -534,6 +534,14 @@ pub enum RuntimeBoundaryCode {
     MutationBatchDuplicateKey,
     /// An operational report or reset endpoint requires a controller caller.
     OperationalSurfaceControllerRequired,
+    /// An exact-key batch exceeded its admitted input item count.
+    ExactKeyBatchTooManyItems,
+    /// An exact-key batch exceeded its admitted encoded input-key bytes.
+    ExactKeyBatchInputBytesExceeded,
+    /// An exact-key batch exceeded its admitted distinct stored-row bytes.
+    ExactKeyBatchStoredBytesExceeded,
+    /// An exact-key batch exceeded its admitted logical result bytes.
+    ExactKeyBatchResultBytesExceeded,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1074,7 +1082,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 268);
+        assert_eq!(last, 272);
     }
 
     #[test]
@@ -1106,7 +1114,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 269, u16::MAX] {
+        for raw in [0, 273, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

@@ -917,6 +917,18 @@ impl<C: CanisterKind> DbSession<C> {
         OutputRow::new(binding, entity, columns.to_vec(), values).map_err(TypedRowError::Adapter)
     }
 
+    pub(crate) fn typed_exact_key_row(
+        binding: &TypedEntityBinding,
+        entity: &str,
+        columns: &[String],
+        values: Vec<OutputValue>,
+    ) -> Result<OutputRow, TypedRowError> {
+        if entity != binding.inner.entity() {
+            return Err(TypedRowError::Adapter(TypedAdapterError::EntityMismatch));
+        }
+        OutputRow::new(binding, entity, columns.to_vec(), values).map_err(TypedRowError::Adapter)
+    }
+
     /// Project one accepted dynamic-query row through a current opaque binding.
     pub fn typed_query_row(
         &self,

@@ -3,7 +3,10 @@
 //! boundaries.
 
 use crate::{
-    db::{EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec},
+    db::{
+        EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec, PrimaryKeyEncode,
+        PrimaryKeyEncodeError, PrimaryKeyValue,
+    },
     types::{GenerateKey, Subaccount},
     value::Value,
 };
@@ -157,6 +160,15 @@ where
     }
 }
 
+impl<E> PrimaryKeyEncode for Id<E>
+where
+    E: EntityKey,
+{
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
+        self.key.to_primary_key_value()
+    }
+}
+
 // ----------------------------------------------------------------------
 // Wire / view integration
 // ----------------------------------------------------------------------
@@ -300,7 +312,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::Id;
-    use crate::{db::EntityKey, value::Value};
+    use crate::{
+        db::{EntityKey, PrimaryKeyEncode},
+        value::Value,
+    };
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct TestEntity;
@@ -318,6 +333,19 @@ mod tests {
 
         assert_eq!(borrowed, expected);
         assert_eq!(owned, expected);
+    }
+
+    #[test]
+    fn primary_key_encoding_matches_the_wrapped_entity_key() {
+        let id = Id::<TestEntity>::from_key(42);
+
+        assert_eq!(
+            id.to_primary_key_value()
+                .expect("typed identity should encode"),
+            42_u64
+                .to_primary_key_value()
+                .expect("raw entity key should encode"),
+        );
     }
 
     #[test]

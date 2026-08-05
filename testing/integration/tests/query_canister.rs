@@ -56,3 +56,30 @@ fn repeated_dynamic_point_query_instruction_measurement() {
         );
     }
 }
+
+#[test]
+#[ignore = "the 0.221 native exact-key handoff supplies one prebuilt Wasm subject"]
+fn native_exact_key_batch_instruction_measurement() {
+    let wasm_path = env::var("ICYDB_0221_EXACT_KEY_WASM")
+        .expect("ICYDB_0221_EXACT_KEY_WASM should name the measured Wasm");
+    let wasm = fs::read(&wasm_path).expect("measured exact-key Wasm should read");
+    let fixture = install_prebuilt_fixture_canister("one_entity_typed_query", wasm);
+    for (shape, method, distinct) in [
+        ("dynamic_distinct", "measure_dynamic_key_loop", true),
+        ("exact_distinct", "measure_exact_key_batch", true),
+        ("dynamic_duplicate", "measure_dynamic_key_loop", false),
+        ("exact_duplicate", "measure_exact_key_batch", false),
+    ] {
+        let ((items, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
+            .query_candid(method, (1_000_u16, distinct))
+            .expect("exact-key instruction measurement should decode");
+
+        assert_eq!(items, 1_000);
+        assert_eq!(failures, 0);
+        assert_eq!(rows, 0);
+        assert!(local_instructions > 0);
+        println!(
+            "icydb_0221_exact_keys wasm={wasm_path} shape={shape} items={items} local_instructions={local_instructions}",
+        );
+    }
+}

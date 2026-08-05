@@ -9,7 +9,11 @@
 
 mod typed;
 
-pub use typed::{Query, TypedQueryError};
+pub use typed::{
+    MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
+    MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES, Query,
+    TypedQueryError,
+};
 
 pub use icydb_core::db::{
     AggregateExpr, CompareOp, ExplainAccessCandidate, ExplainAccessDecision,

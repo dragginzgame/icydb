@@ -592,8 +592,7 @@ impl<C: CanisterKind> DbSession<C> {
             .entity_snapshots()
             .get(&entity_tag)
             .ok_or_else(InternalError::store_invariant)?;
-        let descriptor =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let row_contract = catalog.inspection_plan().row_contract();
         let mut fields = Vec::with_capacity(field_requests.len());
         for (source, field_type, nullable) in &field_requests {
             let field_id = bundle
@@ -605,9 +604,8 @@ impl<C: CanisterKind> DbSession<C> {
                 .iter()
                 .find(|field| field.id() == field_id)
                 .ok_or_else(InternalError::store_invariant)?;
-            let runtime_field = descriptor
-                .field_for_slot_index(usize::from(field.slot().get()))
-                .ok_or_else(InternalError::store_invariant)?;
+            let runtime_field =
+                row_contract.required_accepted_field_contract(usize::from(field.slot().get()))?;
             if runtime_field.field_id() != field_id {
                 return Err(InternalError::store_invariant().into());
             }
@@ -634,7 +632,7 @@ impl<C: CanisterKind> DbSession<C> {
             entity_tag.value(),
             catalog.revision().get(),
             catalog.fingerprint(),
-            descriptor.current_layout_version().get(),
+            row_contract.current_layout_version().get(),
             fields,
             adapter_names.named_types,
             adapter_names.enum_variants,
@@ -656,14 +654,13 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
-        let descriptor =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let row_contract = catalog.inspection_plan().row_contract();
         let identity = catalog.identity();
         if identity.entity_path() != binding.entity_source.as_str()
             || identity.entity_tag().value() != binding.entity_tag
             || catalog.revision().get() != binding.accepted_revision
             || catalog.fingerprint() != binding.accepted_fingerprint
-            || descriptor.current_layout_version().get() != binding.entity_generation
+            || row_contract.current_layout_version().get() != binding.entity_generation
         {
             return Ok(None);
         }
@@ -2545,6 +2542,8 @@ mod mixed_relation_batch_tests {
 
 #[cfg(test)]
 mod identity_pre_key_tests {
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    use super::DynamicTypedEntityBinding;
     use super::{
         AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
         AcceptedStructuralMutationTarget, DbSession, DynamicMutation, DynamicStructuralPatch,
@@ -2807,6 +2806,86 @@ mod identity_pre_key_tests {
 
     fn expected_dynamic_row(id: u64, payload: u64) -> Vec<OutputValue> {
         vec![OutputValue::Nat64(id), OutputValue::Nat64(payload)]
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn exact_key_binding<C: CanisterKind>(session: &DbSession<C>) -> DynamicTypedEntityBinding {
+        session
+            .issue_typed_entity_binding(
+                ENTITY_SOURCE,
+                &[
+                    DynamicTypedFieldBindingRequest::new(
+                        ID_SOURCE.to_string(),
+                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
+                        false,
+                    ),
+                    DynamicTypedFieldBindingRequest::new(
+                        PAYLOAD_SOURCE.to_string(),
+                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
+                        false,
+                    ),
+                ],
+            )
+            .expect("exact-key test binding should issue")
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn insert_exact_key_fixture<C: CanisterKind>(session: &DbSession<C>, payload: u64) -> u64 {
+        let output = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(payload),
+            })
+            .expect("exact-key fixture insert should commit");
+        match output.rows.as_slice() {
+            [row] => match row.as_slice() {
+                [OutputValue::Nat64(id), OutputValue::Nat64(actual_payload)]
+                    if *actual_payload == payload =>
+                {
+                    *id
+                }
+                _ => panic!("exact-key fixture should return its identity and payload"),
+            },
+            _ => panic!("exact-key fixture insert should return one row"),
+        }
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>) {
+        let first = insert_exact_key_fixture(session, 41);
+        let second = insert_exact_key_fixture(session, 42);
+        let missing = u64::MAX;
+        let binding = exact_key_binding(session);
+        let gets_before = DataStore::current_get_call_count();
+        let result = session
+            .execute_public_exact_key_batch_for_typed_binding(
+                &binding,
+                &[second, missing, first, second],
+            )
+            .expect("exact-key batch should execute")
+            .expect("exact-key binding should remain current");
+
+        assert_eq!(result.positions, vec![0, 1, 2, 0]);
+        assert_eq!(
+            result.distinct_rows,
+            vec![
+                Some(expected_dynamic_row(second, 42)),
+                None,
+                Some(expected_dynamic_row(first, 41)),
+            ],
+        );
+        assert_eq!(
+            DataStore::current_get_call_count().saturating_sub(gets_before),
+            3,
+            "four input positions with one duplicate must perform three physical reads",
+        );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn exact_key_batches_preserve_semantics_across_heap_and_journaled_stores() {
+        assert_exact_key_batch(&initialize());
+        assert_exact_key_batch(&initialize_journaled());
     }
 
     fn assert_dynamic_payload(session: &DbSession<TestCanister>, key: u64, expected_payload: u64) {

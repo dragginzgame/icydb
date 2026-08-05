@@ -97,6 +97,16 @@ thread_local! {
         RefCell::new(HashMap::default());
 }
 
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) fn shared_query_plan_cache_len_for_tests(cache_scope_id: usize) -> usize {
+    QUERY_PLAN_CACHES.with(|caches| {
+        caches
+            .borrow()
+            .get(&cache_scope_id)
+            .map_or(0, BoundedCache::len)
+    })
+}
+
 fn schema_info_for_plan_cache_authority(
     authority: &EntityAuthority,
     accepted_schema: &AcceptedSchemaSnapshot,

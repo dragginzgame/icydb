@@ -141,6 +141,8 @@ pub use registry::{
     StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
+#[doc(hidden)]
+pub use response::ExactKeyBatchProjectionOutput;
 pub use response::{GroupedQueryOutput, GroupedRow, RowProjectionOutput};
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
@@ -166,6 +168,11 @@ pub use session::DbSession;
 pub use session::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
+};
+#[doc(hidden)]
+pub use session::{
+    MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
+    MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{

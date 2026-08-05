@@ -375,6 +375,20 @@ impl InternalError {
         )
     }
 
+    #[cold]
+    #[inline(never)]
+    fn exact_key_batch_boundary_with_facts(
+        boundary: diagnostic_code::RuntimeBoundaryCode,
+        facts: Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }),
+            facts,
+        )
+    }
+
     /// Rebuild this error with a new origin while preserving class taxonomy.
     ///
     /// Numeric facts are origin-independent and remain safe after recovery
@@ -679,6 +693,74 @@ impl InternalError {
         Self::mutation_boundary_with_facts(
             ErrorClass::Unsupported,
             diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualLength,
+                    actual_bytes as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
+    }
+
+    /// Construct a query-origin exact-key item-bound rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn exact_key_batch_too_many_items(actual_count: usize, limit: usize) -> Self {
+        Self::exact_key_batch_boundary_with_facts(
+            diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchTooManyItems,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualCount,
+                    actual_count as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
+    }
+
+    /// Construct a query-origin exact-key input-byte rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn exact_key_batch_input_bytes_exceeded(actual_bytes: usize, limit: usize) -> Self {
+        Self::exact_key_batch_bytes_exceeded(
+            diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchInputBytesExceeded,
+            actual_bytes,
+            limit,
+        )
+    }
+
+    /// Construct a query-origin exact-key stored-row-byte rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn exact_key_batch_stored_bytes_exceeded(actual_bytes: usize, limit: usize) -> Self {
+        Self::exact_key_batch_bytes_exceeded(
+            diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchStoredBytesExceeded,
+            actual_bytes,
+            limit,
+        )
+    }
+
+    /// Construct a query-origin exact-key result-byte rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn exact_key_batch_result_bytes_exceeded(actual_bytes: usize, limit: usize) -> Self {
+        Self::exact_key_batch_bytes_exceeded(
+            diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded,
+            actual_bytes,
+            limit,
+        )
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn exact_key_batch_bytes_exceeded(
+        boundary: diagnostic_code::RuntimeBoundaryCode,
+        actual_bytes: usize,
+        limit: usize,
+    ) -> Self {
+        Self::exact_key_batch_boundary_with_facts(
+            boundary,
             vec![
                 (
                     diagnostic_code::DiagnosticFactTag::ActualLength,

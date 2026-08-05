@@ -145,7 +145,7 @@ pub mod __macro {
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };
     pub use icydb_core::db::{
-        CompositePrimaryKeyValue, DataStore, DbSession as CoreDbSession, EntityKeyBytes,
+        CompositePrimaryKeyValue, DataStore, DbSession as CoreDbSession, EntityKey, EntityKeyBytes,
         EntityKeyBytesError, IndexStore, JournalTailStore, KeyValueCodec, PrimaryKeyDecode,
         PrimaryKeyEncode, PrimaryKeyEncodeError, PrimaryKeyValue, SchemaStore,
         StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
