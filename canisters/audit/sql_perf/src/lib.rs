@@ -598,6 +598,9 @@ fn average_attribution(
     total_sql_compiled_command_cache_misses: u64,
     total_shared_query_plan_cache_hits: u64,
     total_shared_query_plan_cache_misses: u64,
+    total_shared_query_plan_cache_insertions: u64,
+    total_shared_query_plan_cache_evictions: u64,
+    total_shared_query_plan_cache_rejected_oversize: u64,
     saw_pure_covering: bool,
     saw_grouped: bool,
     runs: u32,
@@ -685,6 +688,9 @@ fn average_attribution(
         sql_compiled_command_misses: total_sql_compiled_command_cache_misses,
         shared_query_plan_hits: total_shared_query_plan_cache_hits,
         shared_query_plan_misses: total_shared_query_plan_cache_misses,
+        shared_query_plan_insertions: total_shared_query_plan_cache_insertions,
+        shared_query_plan_evictions: total_shared_query_plan_cache_evictions,
+        shared_query_plan_rejected_oversize: total_shared_query_plan_cache_rejected_oversize,
     };
 
     attribution
@@ -736,6 +742,9 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
     let mut total_sql_compiled_command_cache_misses = 0_u64;
     let mut total_shared_query_plan_cache_hits = 0_u64;
     let mut total_shared_query_plan_cache_misses = 0_u64;
+    let mut total_shared_query_plan_cache_insertions = 0_u64;
+    let mut total_shared_query_plan_cache_evictions = 0_u64;
+    let mut total_shared_query_plan_cache_rejected_oversize = 0_u64;
     let mut saw_pure_covering = false;
     let mut saw_grouped = false;
 
@@ -837,6 +846,13 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
             .saturating_add(attribution.cache.shared_query_plan_hits);
         total_shared_query_plan_cache_misses = total_shared_query_plan_cache_misses
             .saturating_add(attribution.cache.shared_query_plan_misses);
+        total_shared_query_plan_cache_insertions = total_shared_query_plan_cache_insertions
+            .saturating_add(attribution.cache.shared_query_plan_insertions);
+        total_shared_query_plan_cache_evictions = total_shared_query_plan_cache_evictions
+            .saturating_add(attribution.cache.shared_query_plan_evictions);
+        total_shared_query_plan_cache_rejected_oversize =
+            total_shared_query_plan_cache_rejected_oversize
+                .saturating_add(attribution.cache.shared_query_plan_rejected_oversize);
     }
 
     Ok(SqlQueryPerfResult {
@@ -887,6 +903,9 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
             total_sql_compiled_command_cache_misses,
             total_shared_query_plan_cache_hits,
             total_shared_query_plan_cache_misses,
+            total_shared_query_plan_cache_insertions,
+            total_shared_query_plan_cache_evictions,
+            total_shared_query_plan_cache_rejected_oversize,
             saw_pure_covering,
             saw_grouped,
             runs,
