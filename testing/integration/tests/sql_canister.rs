@@ -78,14 +78,14 @@ fn install_sql_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'stati
     // Bound concurrent PocketIC ownership while restoring the installed
     // canister to its exact post-install baseline for every test lease.
     SQL_FIXTURE_POOL
-        .acquire(|| install_fixture_canister("sql"))
+        .acquire_with_outcome(|| install_fixture_canister("sql"))
         .unwrap_or_else(|error| panic!("SQL fixture pool should restore cleanly: {error}"))
         .0
 }
 
 fn install_sql_bounded_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
     SQL_BOUNDED_FIXTURE_POOL
-        .acquire(|| install_fixture_canister("sql_bounded"))
+        .acquire_with_outcome(|| install_fixture_canister("sql_bounded"))
         .unwrap_or_else(|error| panic!("bounded SQL fixture pool should restore cleanly: {error}"))
         .0
 }

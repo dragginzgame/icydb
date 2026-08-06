@@ -1,5 +1,7 @@
 //! Shared integration harness helpers.
 
+mod canister_build_cache;
+
 pub mod canister_artifact;
 pub mod sql_performance_contract;
 pub mod wasm_measurement;
@@ -12,9 +14,13 @@ use std::{
     sync::OnceLock,
 };
 
-use ic_testkit::artifacts::wasm_path;
+use ic_testkit::artifacts::{ArtifactCachePreparation, wasm_path};
 use ic_testkit::pic::{InstallSpec, PocketIc, StandaloneCanisterFixture};
 use icydb::Error;
+
+use crate::canister_build_cache::{
+    CanisterBuildCacheRequest, prepare_canister_build_cache, trace_cache_record,
+};
 
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
@@ -26,6 +32,14 @@ struct FixtureCanister {
 }
 
 struct BuiltCanisterArtifacts {
+    compiler_emitted: PathBuf,
+    final_deployable: PathBuf,
+}
+
+struct ConfiguredCanisterBuild {
+    command: Command,
+    arguments: Vec<String>,
+    rustflags: Option<String>,
     compiler_emitted: PathBuf,
     final_deployable: PathBuf,
 }
@@ -342,9 +356,9 @@ fn wasm_release_path_trim_flags(root: &Path) -> Vec<String> {
 
 // Preserve caller-provided rustflags and append any canister-specific flags to
 // the same environment variable Cargo already understands.
-fn append_rustflags(command: &mut Command, extra_flags: &[String]) {
+fn combined_rustflags(extra_flags: &[String]) -> Option<String> {
     if extra_flags.is_empty() {
-        return;
+        return None;
     }
 
     let mut combined = env::var("RUSTFLAGS").unwrap_or_default();
@@ -355,7 +369,7 @@ fn append_rustflags(command: &mut Command, extra_flags: &[String]) {
         combined.push_str(flag);
     }
 
-    command.env("RUSTFLAGS", combined);
+    Some(combined)
 }
 
 fn build_canister_package_artifacts(
@@ -364,9 +378,85 @@ fn build_canister_package_artifacts(
     context_label: &str,
 ) -> Result<BuiltCanisterArtifacts, String> {
     let root = workspace_root();
-    let mut cargo = Command::new("cargo");
-    let profile = options.profile.as_str();
+    let canister_target_dir = target_dir(&root).join(options.build_profile.target_dir_name());
+    let configured = configure_canister_build(&root, &canister_target_dir, package_name, options)?;
 
+    let cache_root = target_dir(&root).join("canister-artifact-cache");
+    let cache_request = CanisterBuildCacheRequest {
+        workspace_root: &root,
+        cache_root: &cache_root,
+        coordination_scope: options.build_profile.target_dir_name(),
+        arguments: &configured.arguments,
+        effective_rustflags: configured.rustflags.as_deref(),
+        compiler_emitted: &configured.compiler_emitted,
+        final_deployable: (!matches!(options.profile, CanisterWasmProfile::WasmAttribution))
+            .then_some(configured.final_deployable.as_path()),
+    };
+
+    let transaction = match prepare_canister_build_cache(&cache_request)? {
+        ArtifactCachePreparation::Reused(record) => {
+            trace_cache_record(context_label, "reused", &record);
+            return Ok(BuiltCanisterArtifacts {
+                compiler_emitted: configured.compiler_emitted,
+                final_deployable: configured.final_deployable,
+            });
+        }
+        ArtifactCachePreparation::Build(transaction) => transaction,
+    };
+
+    // Phase 2: run an incremental build only on an exact artifact-cache miss.
+    run_checked(configured.command, context_label)?;
+
+    // Phase 3: resolve the built wasm from the configured target directory.
+    if !configured.compiler_emitted.is_file() {
+        return Err(format!(
+            "{context_label}: build succeeded but wasm was not found at {}",
+            configured.compiler_emitted.display()
+        ));
+    }
+
+    if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
+        transaction
+            .import_output("compiler-emitted", &configured.compiler_emitted)
+            .map_err(|error| format!("{context_label}: {error}"))?;
+        let outcome = transaction
+            .commit()
+            .map_err(|error| format!("{context_label}: {error}"))?;
+        trace_cache_record(context_label, "built", outcome.record());
+        return Ok(BuiltCanisterArtifacts {
+            compiler_emitted: configured.compiler_emitted.clone(),
+            final_deployable: configured.compiler_emitted,
+        });
+    }
+
+    wasm_optimizer::optimize_deployable_wasm(
+        &configured.compiler_emitted,
+        &configured.final_deployable,
+    )
+    .map_err(|error| format!("{context_label}: {error}"))?;
+    transaction
+        .import_output("compiler-emitted", &configured.compiler_emitted)
+        .map_err(|error| format!("{context_label}: {error}"))?;
+    transaction
+        .import_output("final-deployable", &configured.final_deployable)
+        .map_err(|error| format!("{context_label}: {error}"))?;
+    let outcome = transaction
+        .commit()
+        .map_err(|error| format!("{context_label}: {error}"))?;
+    trace_cache_record(context_label, "built", outcome.record());
+
+    Ok(BuiltCanisterArtifacts {
+        compiler_emitted: configured.compiler_emitted,
+        final_deployable: configured.final_deployable,
+    })
+}
+
+fn configure_canister_build(
+    root: &Path,
+    canister_target_dir: &Path,
+    package_name: &str,
+    options: CanisterBuildOptions,
+) -> Result<ConfiguredCanisterBuild, String> {
     let policy = canister_artifact::MAINTAINED_CANISTER_POLICIES
         .iter()
         .find(|policy| policy.package == package_name)
@@ -384,10 +474,18 @@ fn build_canister_package_artifacts(
                 || (*feature != "candid-export" && options.sql_mode.enabled())
         })
         .collect::<Vec<_>>();
-    let canister_target_dir = target_dir(&root).join(options.build_profile.target_dir_name());
+    let profile = options.profile.as_str();
+    let compiler_emitted = wasm_path(canister_target_dir, package_name, profile);
+    let final_deployable = if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
+        compiler_emitted.clone()
+    } else {
+        canister_target_dir
+            .join("icydb-final")
+            .join(profile)
+            .join(format!("{package_name}.wasm"))
+    };
 
-    // Phase 1: configure the wasm cargo build request.
-    cargo.current_dir(&root).args([
+    let mut arguments = [
         "build",
         "--locked",
         "--target",
@@ -395,52 +493,41 @@ fn build_canister_package_artifacts(
         "--package",
         package_name,
         "--no-default-features",
-    ]);
+    ]
+    .map(str::to_owned)
+    .to_vec();
     if !features.is_empty() {
-        cargo.args(["--features", features.join(",").as_str()]);
+        arguments.extend(["--features".to_owned(), features.join(",")]);
     }
-    cargo.env("CARGO_TARGET_DIR", &canister_target_dir);
     if profile == "release" {
-        cargo.arg("--release");
+        arguments.push("--release".to_owned());
     } else if profile != "debug" {
-        cargo.args(["--profile", profile]);
+        arguments.extend(["--profile".to_owned(), profile.to_owned()]);
     }
-    if matches!(
+    let extra_rustflags = if matches!(
         options.profile,
         CanisterWasmProfile::WasmRelease | CanisterWasmProfile::WasmAttribution
     ) {
-        append_rustflags(&mut cargo, &wasm_release_path_trim_flags(&root));
+        wasm_release_path_trim_flags(root)
+    } else {
+        Vec::new()
+    };
+    let rustflags = combined_rustflags(&extra_rustflags);
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(root)
+        .args(&arguments)
+        .env("CARGO_TARGET_DIR", canister_target_dir);
+    if let Some(rustflags) = &rustflags {
+        command.env("RUSTFLAGS", rustflags);
     }
 
-    // Phase 2: run the build and fail loudly if cargo does not succeed.
-    run_checked(cargo, context_label)?;
-
-    // Phase 3: resolve the built wasm from the configured target directory.
-    let built_wasm_path = wasm_path(&canister_target_dir, package_name, profile);
-    if !built_wasm_path.is_file() {
-        return Err(format!(
-            "{context_label}: build succeeded but wasm was not found at {}",
-            built_wasm_path.display()
-        ));
-    }
-
-    if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
-        return Ok(BuiltCanisterArtifacts {
-            compiler_emitted: built_wasm_path.clone(),
-            final_deployable: built_wasm_path,
-        });
-    }
-
-    let final_deployable_path = canister_target_dir
-        .join("icydb-final")
-        .join(profile)
-        .join(format!("{package_name}.wasm"));
-    wasm_optimizer::optimize_deployable_wasm(&built_wasm_path, &final_deployable_path)
-        .map_err(|error| format!("{context_label}: {error}"))?;
-
-    Ok(BuiltCanisterArtifacts {
-        compiler_emitted: built_wasm_path,
-        final_deployable: final_deployable_path,
+    Ok(ConfiguredCanisterBuild {
+        command,
+        arguments,
+        rustflags,
+        compiler_emitted,
+        final_deployable,
     })
 }
 

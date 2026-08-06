@@ -1,5 +1,13 @@
+#![allow(
+    clippy::significant_drop_tightening,
+    reason = "each test intentionally retains its exclusive pooled fixture lease for its full scope"
+)]
+
 use candid::CandidType;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{
+    CachedStandaloneCanisterFixtureGuard, CachedStandaloneCanisterFixturePool,
+    StandaloneCanisterFixture,
+};
 use icydb::{
     Error,
     db::{
@@ -126,6 +134,10 @@ const INTEGRITY_DEEP_PAGE_BUDGET: u64 = 30_000_000;
 const INTEGRITY_RESPONSE_BYTE_BUDGET: usize = 512 * 1024;
 const INTEGRITY_RETAINED_MEMORY_GROWTH_BUDGET: u64 = 16 * 1024 * 1024;
 const INTEGRITY_RELATION_RECOVERY_BUDGET: u64 = 15_000_000_000;
+const SQL_PERF_FIXTURE_POOL_CAPACITY: usize = 4;
+
+static SQL_PERF_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<SQL_PERF_FIXTURE_POOL_CAPACITY> =
+    CachedStandaloneCanisterFixturePool::new();
 
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
@@ -212,8 +224,14 @@ const fn repeat_scenario(
     }
 }
 
-fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
-    install_fixture_canister("sql_perf")
+fn install_sql_perf_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
+    // The audit scenarios mutate isolated canister state but do not depend on
+    // simulator time or topology, so a restored post-install snapshot is the
+    // narrowest complete reset boundary between tests.
+    SQL_PERF_FIXTURE_POOL
+        .acquire_with_outcome(|| install_fixture_canister("sql_perf"))
+        .unwrap_or_else(|error| panic!("SQL perf fixture pool should restore cleanly: {error}"))
+        .0
 }
 
 fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
