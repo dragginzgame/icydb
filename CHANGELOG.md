@@ -13,8 +13,8 @@ Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
 
 - `0.221.5` stages bounded resumable scalar-page progress, restores
   case-insensitive accepted entity lookup, and reduces repeated CI, release,
-  publish, and compile-fixture work without changing current public page,
-  Candid, or persisted formats.
+  publish, compile-fixture, and repo-local cleanup work without changing
+  current public page, Candid, or persisted formats.
 
 - `0.221.4` makes database and operational work safer through endpoint-wide
   execution budgets and authoritative environment, artifact, and schema

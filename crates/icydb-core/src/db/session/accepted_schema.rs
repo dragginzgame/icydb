@@ -19,7 +19,6 @@ use crate::{
             CompiledAcceptedRowConstraints, SchemaInfo, SchemaStore, SchemaVersion,
             enum_catalog::AcceptedSchemaRootSelection,
         },
-        sql::identifier::identifier_last_segment,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -285,7 +284,8 @@ impl AcceptedSchemaRuntimeRoot {
 
     #[must_use]
     fn entity_for_name(&self, entity_name: &str) -> Option<Rc<AcceptedSchemaEntityRuntime>> {
-        let canonical_entity_name = EntityName::try_from_str(identifier_last_segment(entity_name)?)
+        let entity_name = entity_name.rsplit('.').next()?;
+        let canonical_entity_name = EntityName::try_from_str(entity_name)
             .ok()?
             .ascii_case_fold();
         self.entities_by_canonical_name
