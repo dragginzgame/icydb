@@ -669,6 +669,15 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::QueryShapeFingerprintPrefix,
             ],
         ),
+        274 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::BudgetResource,
+                DiagnosticFactTag::Limit,
+                DiagnosticFactTag::Actual,
+            ],
+        ),
         239 => tags_match(
             fact_count,
             &fact_at,
@@ -707,7 +716,7 @@ fn validate_diagnostic_fact_schema(
 
 const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
     match code.raw() {
-        6 | 16 | 18 | 24 | 197 | 198 | 233 | 239 | 240 => 3,
+        6 | 16 | 18 | 24 | 197 | 198 | 233 | 239 | 240 | 274 => 3,
         141 | 142 | 169 | 170 | 175 | 235 => 1,
         19 | 21 | 138 | 177 | 178 | 180 | 201 | 202 | 203 | 205 | 236 | 237 | 238 | 269 | 270
         | 271 | 272 => 2,

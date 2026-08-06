@@ -1,8 +1,6 @@
-use icydb::{
-    db::DbSession,
-    traits::CanisterKind,
-};
+use icydb::{db::DbSession, traits::CanisterKind};
 
+#[allow(dead_code)]
 fn trusted_sql_query_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -10,6 +8,7 @@ where
     let _ = db.execute_trusted_sql_query(sql);
 }
 
+#[allow(dead_code)]
 fn trusted_sql_mutation_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -17,6 +16,7 @@ where
     let _ = db.execute_trusted_sql_mutation(sql);
 }
 
+#[allow(dead_code)]
 fn trusted_sql_update_contracts_compile<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -32,6 +32,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 fn admin_sql_ddl_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -39,6 +40,7 @@ where
     let _ = db.execute_admin_sql_ddl(sql);
 }
 
+#[allow(dead_code)]
 fn admin_integrity_sql_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -48,4 +50,5 @@ where
     let _ = db.execute_admin_integrity_sql(sql, owner);
 }
 
-fn main() {}
+#[test]
+fn public_trusted_sql_facade_compile_contract() {}

@@ -11,6 +11,8 @@ PUBLISH_FROM="${PUBLISH_FROM:-}"
 PUBLISH_POLL_SECS="${PUBLISH_POLL_SECS:-10}"
 PUBLISH_TIMEOUT_SECS="${PUBLISH_TIMEOUT_SECS:-300}"
 PUBLISH_VALIDATE_ONLY="${PUBLISH_VALIDATE_ONLY:-0}"
+PUBLISH_VERIFY="${PUBLISH_VERIFY:-auto}"
+RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
 
 PUBLISH_ORDER=(
     icydb-diagnostic-code
@@ -121,6 +123,27 @@ wait_for_registry_version() {
     return 1
 }
 
+# Returns success only when a one-shot release target recorded this exact
+# annotated version tag after its release gate and push completed.
+release_receipt_matches() {
+    local version="$1"
+    local release_tag="v$version"
+    local receipt="$RELEASE_RECEIPT_DIR/$release_tag.commit"
+    local head_commit
+    local tag_commit
+    local tag_type
+    local receipt_commit
+
+    head_commit="$(git rev-parse --verify HEAD)"
+    tag_type="$(git cat-file -t "refs/tags/$release_tag" 2>/dev/null || true)"
+    tag_commit="$(git rev-parse --verify "refs/tags/$release_tag^{commit}" 2>/dev/null || true)"
+    receipt_commit="$(sed -n '1p' "$receipt" 2>/dev/null || true)"
+
+    [ "$tag_type" = "tag" ] &&
+        [ "$tag_commit" = "$head_commit" ] &&
+        [ "$receipt_commit" = "$head_commit" ]
+}
+
 version="$(workspace_version)"
 if [ -z "$version" ]; then
     echo "Failed to determine workspace version from Cargo.toml" >&2
@@ -128,6 +151,27 @@ if [ -z "$version" ]; then
 fi
 
 validate_publish_order
+
+case "$PUBLISH_VERIFY" in
+    always)
+        verify_packages=1
+        echo "Cargo package verification forced for v$version"
+        ;;
+    auto)
+        if release_receipt_matches "$version"; then
+            verify_packages=0
+            echo "Reusing release-gate receipt for v$version; Cargo package rebuilds will be skipped"
+        else
+            verify_packages=1
+            echo "No matching release-gate receipt for v$version; Cargo will verify every package"
+        fi
+        ;;
+    *)
+        echo "PUBLISH_VERIFY must be 'auto' or 'always'" >&2
+        exit 1
+        ;;
+esac
+
 if [ "$PUBLISH_VALIDATE_ONLY" = "1" ]; then
     echo "Publish order validated for IcyDB workspace version $version"
     exit 0
@@ -157,6 +201,9 @@ for crate in "${PUBLISH_ORDER[@]}"; do
     publish_args=(publish -p "$crate" --locked)
     if [ "$PUBLISH_DRY_RUN" = "1" ]; then
         publish_args+=(--dry-run)
+    fi
+    if [ "$verify_packages" -eq 0 ]; then
+        publish_args+=(--no-verify)
     fi
 
     printf '+ cargo'

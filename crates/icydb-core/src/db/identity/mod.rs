@@ -182,6 +182,18 @@ impl EntityName {
         std::str::from_utf8(self.as_bytes()).unwrap_or_default()
     }
 
+    /// Return the bounded ASCII case-folded form used for display-name lookup.
+    ///
+    /// This does not change persisted entity identity. Callers use the folded
+    /// copy only as an unambiguous lookup key after schema admission has
+    /// rejected case-insensitive display-name collisions.
+    #[must_use]
+    pub(in crate::db) fn ascii_case_fold(mut self) -> Self {
+        let len = self.len();
+        self.bytes[..len].make_ascii_lowercase();
+        self
+    }
+
     /// Encode this identity into its fixed-size persisted representation.
     #[must_use]
     pub fn to_bytes(self) -> [u8; Self::STORED_SIZE_USIZE] {

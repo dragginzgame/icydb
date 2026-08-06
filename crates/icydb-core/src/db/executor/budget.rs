@@ -47,6 +47,13 @@ static READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
     READ_FAILURE_HEADROOM,
 );
 
+#[cfg(test)]
+pub(in crate::db::executor) const fn read_hard_budget_limit_for_tests(
+    resource: DiagnosticExecutionBudgetResource,
+) -> u64 {
+    READ_HARD_BUDGET.limit(resource)
+}
+
 std::thread_local! {
     static ACTIVE_EXECUTION_BUDGET: RefCell<Option<HardExecutionBudgetTracker>> =
         const { RefCell::new(None) };

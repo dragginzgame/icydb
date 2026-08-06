@@ -161,6 +161,42 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
     }
 }
 
+#[test]
+fn accepted_entity_display_name_lookup_is_case_insensitive() {
+    let session = initialize();
+    seed_singleton(&session);
+
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some("sInGlEtOn"))
+        .expect("mixed-case display name should resolve accepted authority");
+    assert_eq!(catalog.snapshot().entity_name(), ENTITY_NAME);
+    assert_eq!(
+        sql_rows(
+            &session,
+            "SELECT id, label FROM singleton ORDER BY id LIMIT 100",
+        ),
+        vec![singleton_row()],
+    );
+
+    let SqlStatementResult::Describe(description) = session
+        .execute_trusted_sql_query("DESCRIBE public.singleton")
+        .expect("lowercase DESCRIBE should resolve accepted authority")
+    else {
+        panic!("DESCRIBE should return accepted schema metadata");
+    };
+    assert_eq!(description.entity_name(), ENTITY_NAME);
+
+    assert!(
+        session
+            .find_accepted_schema_catalog_context_for_entity_source_key(
+                &ENTITY_SOURCE.to_ascii_lowercase(),
+            )
+            .expect("source-key lookup should remain valid")
+            .is_none(),
+        "immutable source-key lookup must remain exact",
+    );
+}
+
 fn assert_unit_exact_key_batch(
     session: &DbSession<TestCanister>,
     binding: &DynamicTypedEntityBinding,

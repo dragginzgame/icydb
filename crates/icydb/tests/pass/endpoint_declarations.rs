@@ -1,3 +1,5 @@
+#![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
@@ -34,4 +36,8 @@ icydb::endpoints! {
     icydb_metrics_reset;
 }
 
+#[test]
+fn public_endpoint_facade_compile_contract() {}
+
+#[allow(dead_code)]
 fn main() {}

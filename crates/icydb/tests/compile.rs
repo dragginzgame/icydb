@@ -1,59 +1,31 @@
 #[test]
 fn public_facade_compile_contract() {
-    let t = trybuild::TestCases::new();
-    t.pass("tests/pass/**/*.rs");
-    t.compile_fail("tests/fail-endpoints/duplicate.rs");
-    t.compile_fail("tests/fail-endpoints/duplicate_block.rs");
-    t.compile_fail("tests/fail-endpoints/handwritten_duplicate.rs");
-    t.compile_fail("tests/fail-endpoints/invalid_option.rs");
-    t.compile_fail("tests/fail-endpoints/nested.rs");
-    t.compile_fail("tests/fail-endpoints/unknown.rs");
-    t.compile_fail("tests/fail-endpoints/unsupported_attribute.rs");
-    t.compile_fail("tests/fail-endpoints/without_start.rs");
-
-    #[cfg(not(feature = "sql"))]
-    t.compile_fail("tests/fail-endpoints/missing_sql_capability.rs");
-
-    #[cfg(feature = "sql")]
-    t.compile_fail("tests/fail-endpoints/missing_test_admin_capability.rs");
-
-    #[cfg(not(feature = "migration"))]
     {
-        t.compile_fail("tests/fail-migration/missing_capability.rs");
-        t.compile_fail("tests/fail-endpoints/missing_migration_capability.rs");
+        let t = trybuild::TestCases::new();
+        t.compile_fail("tests/fail-endpoints/duplicate.rs");
+        t.compile_fail("tests/fail-endpoints/duplicate_block.rs");
+        t.compile_fail("tests/fail-endpoints/invalid_option.rs");
+        t.compile_fail("tests/fail-endpoints/nested.rs");
+        t.compile_fail("tests/fail-endpoints/unknown.rs");
+        t.compile_fail("tests/fail-endpoints/unsupported_attribute.rs");
+        t.compile_fail("tests/fail-endpoints/without_start.rs");
+
+        #[cfg(not(feature = "sql"))]
+        t.compile_fail("tests/fail-endpoints/missing_sql_capability.rs");
+
+        #[cfg(feature = "sql")]
+        t.compile_fail("tests/fail-endpoints/missing_test_admin_capability.rs");
+
+        #[cfg(not(feature = "migration"))]
+        {
+            t.compile_fail("tests/fail-migration/missing_capability.rs");
+            t.compile_fail("tests/fail-endpoints/missing_migration_capability.rs");
+        }
     }
-}
 
-#[cfg(feature = "migration")]
-#[test]
-fn source_migration_capability_compile_contract() {
+    // This collision is diagnosed only while linking. Including one maintained
+    // pass case makes trybuild use `cargo build` for this isolated contract.
     let t = trybuild::TestCases::new();
-    t.pass("tests/pass-migration/**/*.rs");
-}
-
-#[test]
-fn public_query_facade_compile_contract() {
-    let t = trybuild::TestCases::new();
-    t.pass("tests/pass-query/**/*.rs");
-}
-
-#[cfg(feature = "sql")]
-#[test]
-fn public_trusted_sql_facade_compile_contract() {
-    let t = trybuild::TestCases::new();
-    t.pass("tests/pass-sql/**/*.rs");
-}
-
-#[cfg(feature = "sql")]
-#[test]
-fn source_declared_primary_key_update_policy_selects_exact_handler() {
-    let t = trybuild::TestCases::new();
-    t.pass("tests/pass-sql/endpoint_update_primary_key.rs");
-}
-
-#[cfg(feature = "sql")]
-#[test]
-fn source_declared_bounded_update_policy_selects_exact_handler() {
-    let t = trybuild::TestCases::new();
-    t.pass("tests/pass-sql/endpoint_update_bounded.rs");
+    t.pass("tests/pass/endpoint_declarations.rs");
+    t.compile_fail("tests/fail-endpoints/handwritten_duplicate.rs");
 }

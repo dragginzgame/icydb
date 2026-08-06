@@ -3,6 +3,14 @@
 //! Does not own: access-path selection, route precedence, or query planning.
 //! Boundary: shared row materialization helper used by scalar execution paths.
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Patch 7 stages the internal scalar page contract consumed by the Patch 8 authenticated page surface"
+    )
+)]
+mod coordinator;
 mod direct_path;
 mod metrics;
 mod plan;

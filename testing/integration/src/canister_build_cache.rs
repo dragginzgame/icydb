@@ -8,7 +8,9 @@ use std::{
 
 use ic_testkit::artifacts::{
     ArtifactCachePreparation, ArtifactCachePrunePolicy, ArtifactCacheRecord, ArtifactCacheSpec,
-    WasmBuildOutcome, WasmBuildSpec, build_wasm_canisters_cached, prepare_artifact_cache,
+    SharedIncrementalTargetMaintenanceOutcome, SharedIncrementalTargetPrunePolicy,
+    WasmBuildOutcome, WasmBuildSpec, build_wasm_canisters_cached,
+    maintain_shared_incremental_target_at_most_every, prepare_artifact_cache,
 };
 
 use crate::wasm_optimizer::{
@@ -20,6 +22,8 @@ const POST_LINK_CACHE_NAMESPACE: &str = "icydb-canister-wasm";
 const POST_LINK_CACHE_RECIPE: &str = "icydb/post-link/v1";
 const CACHE_MAX_AGE: Duration = Duration::from_hours(336);
 const CACHE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
+const CACHE_MAINTENANCE_INTERVAL: Duration = Duration::from_hours(24);
+const SHARED_INCREMENTAL_TARGET_MAX_BYTES: u64 = 6 * 1024 * 1024 * 1024;
 const ADDITIONAL_CARGO_INPUTS: [&str; 1] = ["schema"];
 const EXTRA_BUILD_ENVIRONMENT: [&str; 9] = [
     "AR",
@@ -63,14 +67,18 @@ pub(crate) fn build_cached_cargo_wasm(
     .with_inherited_env_os(inherited_build_environment())
     .with_additional_inputs(&ADDITIONAL_CARGO_INPUTS)
     .with_shared_incremental_target(request.target_dir)
-    .with_prune_policy(
-        ArtifactCachePrunePolicy::new()
-            .with_max_age(CACHE_MAX_AGE)
-            .with_max_size_bytes(CACHE_MAX_BYTES),
-    );
+    .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL);
     if let Some(rustflags) = request.effective_rustflags {
         spec = spec.with_extra_env_os([(OsString::from("RUSTFLAGS"), OsString::from(rustflags))]);
     }
+
+    let maintenance = maintain_shared_incremental_target_at_most_every(
+        &spec,
+        shared_incremental_target_prune_policy(),
+        CACHE_MAINTENANCE_INTERVAL,
+    )
+    .map_err(|error| format!("shared Cargo target maintenance failed: {error}"))?;
+    trace_shared_target_maintenance(&maintenance);
 
     build_wasm_canisters_cached(&spec)
         .map_err(|error| format!("cached Cargo Wasm build failed: {error}"))
@@ -100,11 +108,7 @@ pub(crate) fn cache_post_link_wasm(
         POST_LINK_PIPELINE_IDENTITY.as_bytes(),
     )
     .with_output("final-deployable", request.final_deployable)
-    .with_prune_policy(
-        ArtifactCachePrunePolicy::new()
-            .with_max_age(CACHE_MAX_AGE)
-            .with_max_size_bytes(CACHE_MAX_BYTES),
-    );
+    .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL);
 
     match prepare_artifact_cache(&spec)
         .map_err(|error| format!("post-link artifact cache failed: {error}"))?
@@ -139,6 +143,24 @@ pub(crate) fn trace_post_link(context: &str, record: &ArtifactCacheRecord) {
     }
 }
 
+fn trace_shared_target_maintenance(outcome: &SharedIncrementalTargetMaintenanceOutcome) {
+    if env::var_os(CACHE_TRACE_ENV).is_some() {
+        eprintln!("shared_cargo_target_maintenance={outcome}");
+    }
+}
+
+const fn artifact_cache_prune_policy() -> ArtifactCachePrunePolicy {
+    ArtifactCachePrunePolicy::new()
+        .with_max_age(CACHE_MAX_AGE)
+        .with_max_size_bytes(CACHE_MAX_BYTES)
+}
+
+const fn shared_incremental_target_prune_policy() -> SharedIncrementalTargetPrunePolicy {
+    SharedIncrementalTargetPrunePolicy::new()
+        .with_max_age(CACHE_MAX_AGE)
+        .with_max_size_bytes(SHARED_INCREMENTAL_TARGET_MAX_BYTES)
+}
+
 fn inherited_build_environment() -> BTreeSet<OsString> {
     let mut names = EXTRA_BUILD_ENVIRONMENT
         .into_iter()
@@ -166,7 +188,11 @@ fn relevant_prefixed_environment(name: &OsStr) -> bool {
 mod tests {
     use std::ffi::OsStr;
 
-    use super::{ADDITIONAL_CARGO_INPUTS, EXTRA_BUILD_ENVIRONMENT, relevant_prefixed_environment};
+    use super::{
+        ADDITIONAL_CARGO_INPUTS, CACHE_MAX_AGE, CACHE_MAX_BYTES, EXTRA_BUILD_ENVIRONMENT,
+        SHARED_INCREMENTAL_TARGET_MAX_BYTES, artifact_cache_prune_policy,
+        relevant_prefixed_environment, shared_incremental_target_prune_policy,
+    };
 
     #[test]
     fn cargo_cache_inputs_and_environment_are_narrow_and_target_safe() {
@@ -181,5 +207,19 @@ mod tests {
         assert!(!relevant_prefixed_environment(OsStr::new(
             "CARGO_TARGET_DIR"
         )));
+    }
+
+    #[test]
+    fn cargo_cache_retention_bounds_exact_and_incremental_state() {
+        let artifact_policy = artifact_cache_prune_policy();
+        assert_eq!(artifact_policy.max_age(), Some(CACHE_MAX_AGE));
+        assert_eq!(artifact_policy.max_size_bytes(), Some(CACHE_MAX_BYTES));
+
+        let shared_target_policy = shared_incremental_target_prune_policy();
+        assert_eq!(shared_target_policy.max_age(), Some(CACHE_MAX_AGE));
+        assert_eq!(
+            shared_target_policy.max_size_bytes(),
+            Some(SHARED_INCREMENTAL_TARGET_MAX_BYTES)
+        );
     }
 }

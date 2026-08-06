@@ -545,6 +545,8 @@ pub enum RuntimeBoundaryCode {
     ExactKeyBatchResultBytesExceeded,
     /// One charged execution resource exceeded its absolute safety ceiling.
     ExecutionBudgetExceeded,
+    /// One indivisible scalar-page unit cannot fit in an otherwise empty page envelope.
+    PageUnitTooLarge,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1085,7 +1087,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 273);
+        assert_eq!(last, 274);
     }
 
     #[test]
@@ -1117,7 +1119,7 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 274, u16::MAX] {
+        for raw in [0, 275, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);

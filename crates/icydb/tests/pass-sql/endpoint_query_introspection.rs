@@ -1,3 +1,5 @@
+#![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
@@ -34,4 +36,5 @@ icydb::endpoints! {
     icydb_sql_query(introspection = true);
 }
 
-fn main() {}
+#[test]
+fn sql_query_introspection_endpoint_compile_contract() {}

@@ -99,7 +99,7 @@ help:
 	@echo "  release-major    Confirm, bump, stage, commit, tag, and push a major release"
 	@echo "  release          CI-driven release (local target is no-op)"
 	@echo "  package          Build publishable crate tarballs"
-	@echo "  publish          Publish workspace crates to registry in dependency order"
+	@echo "  publish          Publish crates; reuse an exact one-shot release receipt when available"
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
@@ -277,10 +277,13 @@ release-push:
 	git push --follow-tags
 
 release-patch: patch release-stage release-commit release-push
+	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" scripts/ci/record-release-gate-receipt.sh
 
 release-minor: minor release-stage release-commit release-push
+	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" scripts/ci/record-release-gate-receipt.sh
 
 release-major: major release-stage release-commit release-push
+	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" scripts/ci/record-release-gate-receipt.sh
 
 #
 # Tests

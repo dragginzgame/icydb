@@ -1,5 +1,6 @@
 [package]
 name = "icydb"
+autotests = false
 edition = { workspace = true }
 rust-version = "1.88.0"
 version = { workspace = true }
@@ -26,6 +27,52 @@ serde = { workspace = true }
 
 [dev-dependencies]
 trybuild = { workspace = true }
+
+[[test]]
+name = "compile"
+path = "tests/compile.rs"
+
+[[test]]
+name = "compile_pass_endpoint_declarations"
+path = "tests/pass/endpoint_declarations.rs"
+
+[[test]]
+name = "compile_pass_structural_write_surface"
+path = "tests/pass/structural_write_surface.rs"
+
+[[test]]
+name = "compile_pass_dynamic_query"
+path = "tests/pass-query/dynamic_query.rs"
+
+[[test]]
+name = "compile_pass_migration_capability"
+path = "tests/pass-migration/capability.rs"
+required-features = ["migration"]
+
+[[test]]
+name = "compile_pass_migration_endpoints"
+path = "tests/pass-migration/endpoints.rs"
+required-features = ["migration"]
+
+[[test]]
+name = "compile_pass_sql_query_introspection"
+path = "tests/pass-sql/endpoint_query_introspection.rs"
+required-features = ["sql"]
+
+[[test]]
+name = "compile_pass_sql_update_bounded"
+path = "tests/pass-sql/endpoint_update_bounded.rs"
+required-features = ["sql"]
+
+[[test]]
+name = "compile_pass_sql_update_primary_key"
+path = "tests/pass-sql/endpoint_update_primary_key.rs"
+required-features = ["sql"]
+
+[[test]]
+name = "compile_pass_trusted_sql"
+path = "tests/pass-sql/trusted_sql_query.rs"
+required-features = ["sql"]
 
 [lints]
 workspace = true

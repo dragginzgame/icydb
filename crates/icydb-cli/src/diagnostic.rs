@@ -1084,6 +1084,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::ExecutionBudgetExceeded => {
             "charged database work exceeds its hard execution budget"
         }
+        RuntimeBoundaryCode::PageUnitTooLarge => {
+            "one scalar-page unit exceeds its resumable page-work envelope"
+        }
     }
 }
 
@@ -2214,6 +2217,10 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::ExecutionBudgetExceeded,
                 "E_RUNTIME_UNSUPPORTED: charged database work exceeds its hard execution budget",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::PageUnitTooLarge,
+                "E_RUNTIME_UNSUPPORTED: one scalar-page unit exceeds its resumable page-work envelope",
             ),
         ];
 

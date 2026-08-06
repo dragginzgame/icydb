@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Local version-bump gates now clean repo-owned Cargo build output and IcyDB
-  temporary files on success or failure without sweeping shared `/tmp`.
-
 ## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
+
+- `0.221.5` stages bounded resumable scalar-page progress, restores
+  case-insensitive accepted entity lookup, and reduces repeated CI, release,
+  publish, and compile-fixture work without changing current public page,
+  Candid, or persisted formats.
 
 - `0.221.4` makes database and operational work safer through endpoint-wide
   execution budgets and authoritative environment, artifact, and schema

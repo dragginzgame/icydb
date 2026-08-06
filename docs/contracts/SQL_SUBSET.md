@@ -543,6 +543,12 @@ The admitted single-entity naming surface is:
 - schema-qualified entity names such as `public.Customer`
 - one optional single-table alias, with or without `AS`
 
+Unquoted entity names resolve against accepted catalog display names using
+ASCII case-insensitive matching. For example, `DESCRIBE customer` resolves an
+accepted entity authored as `Customer`, and metadata continues to report the
+authored spelling. Immutable entity source keys remain exact and are not SQL
+display-name aliases.
+
 Examples:
 
 - `SELECT * FROM Customer c`

@@ -40,8 +40,12 @@ require_text \
     'the maintained application build must use the canonical fixture artifact producer.'
 require_text \
     .github/workflows/ci.yml \
-    'make build-canister-production CANISTER=default_empty' \
-    'release packaging must consume the canonical post-link artifact producer.'
+    'bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty' \
+    'release evidence must invoke the canonical post-link artifact producer.'
+require_text \
+    .github/workflows/ci.yml \
+    'cp release-input/default_empty.wasm-release.final-deployable.wasm artifacts/default_empty.wasm' \
+    'release packaging must consume the verified canonical post-link artifact.'
 require_text \
     testing/integration/src/wasm_optimizer.rs \
     'binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2' \

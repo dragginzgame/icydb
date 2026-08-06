@@ -429,6 +429,31 @@ impl InternalError {
         )
     }
 
+    /// Construct an executor-origin rejection for one indivisible page unit.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn page_unit_too_large(
+        resource: diagnostic_code::DiagnosticExecutionBudgetResource,
+        limit: u64,
+        attempted: u64,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Executor,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::PageUnitTooLarge,
+            }),
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::BudgetResource,
+                    resource.raw(),
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit),
+                (diagnostic_code::DiagnosticFactTag::Actual, attempted),
+            ],
+        )
+    }
+
     /// Rebuild this error with a new origin while preserving class taxonomy.
     ///
     /// Numeric facts are origin-independent and remain safe after recovery

@@ -689,4 +689,6 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded });
     RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED = 273 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded });
+    RUNTIME_BOUNDARY_PAGE_UNIT_TOO_LARGE = 274 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::PageUnitTooLarge });
 }

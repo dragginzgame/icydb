@@ -1,8 +1,12 @@
 use icydb::{
-    db::{DbSession, DynamicQuery, TypedEntityAdapter, query::{Query, count}},
+    db::{
+        DbSession, DynamicQuery, TypedEntityAdapter,
+        query::{Query, count},
+    },
     traits::CanisterKind,
 };
 
+#[allow(dead_code)]
 fn dynamic_queries_compile_without_sql<C>(db: &DbSession<C>)
 where
     C: CanisterKind,
@@ -22,6 +26,7 @@ where
     let _ = db.execute_trusted_dynamic_grouped_query(&grouped);
 }
 
+#[allow(dead_code)]
 fn typed_grouped_queries_compile_without_sql<C, E>(query: Query<'_, C, E>)
 where
     C: CanisterKind,
@@ -35,4 +40,5 @@ where
         .execute_grouped();
 }
 
-fn main() {}
+#[test]
+fn public_query_facade_compile_contract() {}

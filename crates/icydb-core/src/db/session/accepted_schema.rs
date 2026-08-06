@@ -9,6 +9,7 @@ use crate::{
         DbSession,
         commit::{CommitSchemaFingerprint, database_incarnation_id},
         executor::EntityAuthority,
+        identity::EntityName,
         registry::StoreHandle,
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
@@ -18,6 +19,7 @@ use crate::{
             CompiledAcceptedRowConstraints, SchemaInfo, SchemaStore, SchemaVersion,
             enum_catalog::AcceptedSchemaRootSelection,
         },
+        sql::identifier::identifier_last_segment,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -180,7 +182,7 @@ struct AcceptedSchemaRuntimeRoot {
     store_roots: Vec<AcceptedSchemaRuntimeStoreRoot>,
     entities: Vec<Rc<AcceptedSchemaEntityRuntime>>,
     entities_by_path: HashMap<Rc<str>, Rc<AcceptedSchemaEntityRuntime>>,
-    entities_by_name: HashMap<Rc<str>, Rc<AcceptedSchemaEntityRuntime>>,
+    entities_by_canonical_name: HashMap<EntityName, Rc<AcceptedSchemaEntityRuntime>>,
 }
 
 impl AcceptedSchemaRuntimeRoot {
@@ -194,7 +196,7 @@ impl AcceptedSchemaRuntimeRoot {
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
         let mut entities = Vec::with_capacity(runtime_entities.len());
         let mut entities_by_path = HashMap::with_capacity(runtime_entities.len());
-        let mut entities_by_name = HashMap::with_capacity(runtime_entities.len());
+        let mut entities_by_canonical_name = HashMap::with_capacity(runtime_entities.len());
 
         for runtime_entity in runtime_entities {
             let store = runtime_entity
@@ -207,12 +209,19 @@ impl AcceptedSchemaRuntimeRoot {
                 store,
             )?);
             let entity_path = entity.inspection_plan.identity().entity_path_handle();
-            let entity_name: Rc<str> = Rc::from(entity.inspection_plan.snapshot().entity_name());
+            let canonical_entity_name =
+                EntityName::try_from_str(entity.inspection_plan.snapshot().entity_name())
+                    .map(EntityName::ascii_case_fold)
+                    .map_err(|_| {
+                        AcceptedInspectionPlanLoadError::Unselected(
+                            InternalError::store_corruption(),
+                        )
+                    })?;
             if entities_by_path
                 .insert(entity_path, entity.clone())
                 .is_some()
-                || entities_by_name
-                    .insert(entity_name, entity.clone())
+                || entities_by_canonical_name
+                    .insert(canonical_entity_name, entity.clone())
                     .is_some()
             {
                 return Err(AcceptedInspectionPlanLoadError::Unselected(
@@ -227,7 +236,7 @@ impl AcceptedSchemaRuntimeRoot {
             store_roots,
             entities,
             entities_by_path,
-            entities_by_name,
+            entities_by_canonical_name,
         };
         #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
         record_accepted_schema_runtime_root_publication();
@@ -276,7 +285,12 @@ impl AcceptedSchemaRuntimeRoot {
 
     #[must_use]
     fn entity_for_name(&self, entity_name: &str) -> Option<Rc<AcceptedSchemaEntityRuntime>> {
-        self.entities_by_name.get(entity_name).cloned()
+        let canonical_entity_name = EntityName::try_from_str(identifier_last_segment(entity_name)?)
+            .ok()?
+            .ascii_case_fold();
+        self.entities_by_canonical_name
+            .get(&canonical_entity_name)
+            .cloned()
     }
 
     #[must_use]
@@ -580,7 +594,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(AcceptedSchemaCatalogContext::new(root, entity))
     }
 
-    /// Resolve an exact accepted SQL/display entity name from one root.
+    /// Resolve a case-insensitive accepted SQL/display entity name from one root.
     pub(in crate::db::session) fn find_accepted_schema_catalog_context_for_entity_name(
         &self,
         entity_name: &str,

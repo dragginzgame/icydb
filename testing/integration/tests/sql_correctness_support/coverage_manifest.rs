@@ -355,14 +355,14 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "build.sql.update_primary_key_policy",
-        "crates/icydb/tests/compile.rs",
+        "crates/icydb/tests/pass-sql/endpoint_update_primary_key.rs",
         "source_declared_primary_key_update_policy_selects_exact_handler",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_bounded_policy",
-        "crates/icydb/tests/compile.rs",
+        "crates/icydb/tests/pass-sql/endpoint_update_bounded.rs",
         "source_declared_bounded_update_policy_selects_exact_handler",
         BoundaryAssertion,
         [Boundary]

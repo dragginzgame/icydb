@@ -1,3 +1,5 @@
+#![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
@@ -20,4 +22,5 @@ icydb::endpoints! {
     icydb_update(admission = primary_key_only);
 }
 
-fn main() {}
+#[test]
+fn source_declared_primary_key_update_policy_selects_exact_handler() {}
