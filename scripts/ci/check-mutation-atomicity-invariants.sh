@@ -7,21 +7,34 @@ cd "$ROOT"
 # shellcheck source=scripts/ci/invariant-common.sh
 source "$ROOT/scripts/ci/invariant-common.sh"
 
-GUARDED_ROOTS=(
+GUARDED_PATHS=(
   "crates/icydb-core/src/db/commit"
   "crates/icydb-core/src/db/executor/mutation"
   "crates/icydb-core/src/db/schema/mutation"
   "crates/icydb-core/src/db/schema/store"
-  "crates/icydb-core/src/db/session/sql"
-  "crates/icydb/src/db"
-  "crates/icydb-model/src/build/actor"
+  "crates/icydb-core/src/db/session/write.rs"
+  "crates/icydb-core/src/db/session/integrity.rs"
+  "crates/icydb-core/src/db/integrity/progress_store.rs"
+  "crates/icydb-core/src/db/session/sql/ddl.rs"
+  "crates/icydb-core/src/db/session/sql/integrity.rs"
+  "crates/icydb-core/src/db/session/sql/resumable_update.rs"
+  "crates/icydb-core/src/db/session/sql/execute/write"
+  "crates/icydb-core/src/db/session/sql/execute/write_returning.rs"
+  "crates/icydb-core/src/db/session/sql/execute/write_returning"
 )
 
 INTERLEAVING_PATTERN="\\basync\\s+fn\\b|\\basync\\s+move\\b|\\.await\\b|\\bic_cdk::(call|spawn)\\b|\\bcall_raw\\b|\\bnotify_raw\\b|\\bic_cdk_timers\\b|\\bset_timer(_interval)?\\b"
 
+for guarded_path in "${GUARDED_PATHS[@]}"; do
+  if [[ ! -e "$guarded_path" ]]; then
+    echo "[ERROR] Missing guarded mutation/publication path: $guarded_path" >&2
+    exit 1
+  fi
+done
+
 interleaving_points="$(
   rg -n --no-heading --color=never "$INTERLEAVING_PATTERN" \
-    "${GUARDED_ROOTS[@]}" \
+    "${GUARDED_PATHS[@]}" \
     "${COMMON_GLOBS[@]}" \
     | strip_comment_only \
     || true

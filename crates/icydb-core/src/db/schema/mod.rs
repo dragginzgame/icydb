@@ -176,7 +176,8 @@ pub(in crate::db) use constraint_validation::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use describe::describe_entity_fields_with_persisted_schema;
 pub(in crate::db) use describe::{
-    describe_accepted_entity_with_persisted_schema, describe_accepted_identity,
+    AcceptedEntityDescriptionMetadata, describe_accepted_entity_with_persisted_schema,
+    describe_accepted_identity,
 };
 pub(in crate::db) use enum_catalog::AcceptedSchemaAuthority;
 pub(in crate::db::schema) use enum_catalog::AcceptedStoreCatalogScope;

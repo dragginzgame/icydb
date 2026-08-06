@@ -19,8 +19,8 @@ use crate::{
         SchemaChangeReceipt, StorageReport, StoreCatalogDescription,
         commit::database_incarnation_id,
         schema::{
-            ConstraintValidationJob, describe_accepted_entity_with_persisted_schema,
-            describe_accepted_identity,
+            AcceptedEntityDescriptionMetadata, ConstraintValidationJob,
+            describe_accepted_entity_with_persisted_schema, describe_accepted_identity,
         },
     },
     error::InternalError,
@@ -236,10 +236,12 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
-            identity,
-            catalog.identity().entity_tag().value(),
-            catalog.fingerprint_method_version(),
-            catalog.fingerprint(),
+            AcceptedEntityDescriptionMetadata::new(
+                identity,
+                catalog.identity().entity_tag().value(),
+                catalog.fingerprint_method_version(),
+                catalog.fingerprint(),
+            ),
             |target_path| catalog.relation_target_description(target_path),
         )
     }

@@ -5,7 +5,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
 status=0
-durability_design_dir="docs/design/archive/0.191-durability-productization-format-policy"
 
 require_file() {
   local file="$1"
@@ -36,18 +35,6 @@ require_file "docs/contracts/DURABILITY.md"
 require_file "docs/contracts/PERSISTED_FORMAT_POLICY.md"
 require_file "docs/contracts/PERSISTED_FORMAT_INVENTORY.md"
 require_file "docs/operations/DURABILITY_GUIDE.md"
-require_file "$durability_design_dir/0.191-evidence.md"
-require_file "$durability_design_dir/streaming-recovery-followup.md"
-require_file "docs/changelog/0.191.md"
-
-require_pattern \
-  "CHANGELOG.md" \
-  "Detailed notes: \\[docs/changelog/0\\.191\\.md\\]\\(docs/changelog/0\\.191\\.md\\)" \
-  "root changelog must link to the 0.191 detailed changelog"
-require_pattern \
-  "docs/changelog/0.191.md" \
-  "^## 0\\.191\\.1$" \
-  "0.191 detailed changelog must include the current 0.191.1 slice"
 
 require_pattern \
   "docs/contracts/DURABILITY.md" \

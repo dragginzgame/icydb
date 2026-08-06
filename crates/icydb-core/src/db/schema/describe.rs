@@ -799,25 +799,44 @@ pub enum EntityRelationCardinality {
     Set,
 }
 
+/// Accepted identity and fingerprint metadata projected into one entity description.
+pub(in crate::db) struct AcceptedEntityDescriptionMetadata {
+    identity: Option<EntityIdentityDescription>,
+    entity_tag: u64,
+    accepted_schema_fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
+}
+
+impl AcceptedEntityDescriptionMetadata {
+    /// Capture the accepted metadata that accompanies persisted schema authority.
+    pub(in crate::db) const fn new(
+        identity: Option<EntityIdentityDescription>,
+        entity_tag: u64,
+        accepted_schema_fingerprint_method: u8,
+        accepted_schema_fingerprint: [u8; 16],
+    ) -> Self {
+        Self {
+            identity,
+            entity_tag,
+            accepted_schema_fingerprint_method,
+            accepted_schema_fingerprint,
+        }
+    }
+}
+
 /// Build one entity-schema description solely from accepted persisted authority.
 pub(in crate::db) fn describe_accepted_entity_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
-    identity: Option<EntityIdentityDescription>,
-    entity_tag: u64,
-    accepted_schema_fingerprint_method: u8,
-    accepted_schema_fingerprint: [u8; 16],
+    metadata: AcceptedEntityDescriptionMetadata,
     resolve_relation_target: impl Fn(&str) -> Result<(String, String), InternalError>,
 ) -> Result<EntitySchemaDescription, InternalError> {
     describe_entity_with_persisted_schema(
         schema,
         value_catalog,
         validation_jobs,
-        identity,
-        entity_tag,
-        accepted_schema_fingerprint_method,
-        accepted_schema_fingerprint,
+        metadata,
         &resolve_relation_target,
     )
 }
@@ -826,10 +845,7 @@ fn describe_entity_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
-    identity: Option<EntityIdentityDescription>,
-    entity_tag: u64,
-    accepted_schema_fingerprint_method: u8,
-    accepted_schema_fingerprint: [u8; 16],
+    metadata: AcceptedEntityDescriptionMetadata,
     resolve_relation_target: &impl Fn(&str) -> Result<(String, String), InternalError>,
 ) -> Result<EntitySchemaDescription, InternalError> {
     let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
@@ -847,9 +863,9 @@ fn describe_entity_with_persisted_schema(
     Ok(describe_entity_model_from_description_rows(
         schema.entity_path(),
         schema.entity_name(),
-        entity_tag,
-        accepted_schema_fingerprint_method,
-        accepted_schema_fingerprint,
+        metadata.entity_tag,
+        metadata.accepted_schema_fingerprint_method,
+        metadata.accepted_schema_fingerprint,
         primary_key.as_str(),
         primary_key_fields,
         fields,
@@ -859,7 +875,7 @@ fn describe_entity_with_persisted_schema(
         row_layout.current_layout_version().get(),
         row_layout.history_floor().get(),
     )
-    .with_identity(identity))
+    .with_identity(metadata.identity))
 }
 
 // Assemble the common DESCRIBE payload once field rows have already been built.
