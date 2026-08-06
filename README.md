@@ -13,7 +13,7 @@ accepted schema catalogs, indexes, typed queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.221.3`
+Current workspace version: `0.221.4`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
 public `icydb` crate path. Workspace packages declare a `1.96.0` Rust floor;
@@ -47,7 +47,7 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.221.3" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.221.4" }
 ```
 
 Base IcyDB provides accepted-schema runtime support together with structural,
@@ -77,7 +77,7 @@ methods are declared explicitly beside `start!()` with `icydb::endpoints!`.
 
 ```toml
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.221.3" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.221.4" }
 ```
 
 ## Minimal Schema
