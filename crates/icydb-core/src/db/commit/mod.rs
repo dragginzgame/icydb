@@ -69,7 +69,9 @@ pub(in crate::db) use schema_publication::{
 };
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
-pub(in crate::db) use store::{database_control_proof_identity, database_incarnation_id};
+pub(in crate::db) use store::{
+    cursor_authentication_key, database_control_proof_identity, database_incarnation_id,
+};
 
 /// Return whether one single-store journaled row-op prefix fits the current
 /// durable commit-control window exactly as it would be encoded.

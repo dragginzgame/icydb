@@ -127,7 +127,6 @@ impl<'a> ExecutionMaterializationContract<'a> {
             scan_budget_hint: self.scan_budget_hint,
             load_order_route_mode: self.load_order_route_mode,
             continuation,
-            cursor_boundary: continuation.cursor_boundary(),
             capabilities: self.capabilities(CursorEmissionMode::Suppress),
             consistency,
             key_stream,
@@ -205,7 +204,7 @@ impl ExecutionRuntimeAdapter {
     ) -> Result<ScalarPageMaterialization, InternalError> {
         if !emit_cursor
             && let Some(materialized) = self.try_materialize_load_via_row_collector(
-                contract.row_collector_request(continuation, consistency, key_stream),
+                contract.row_collector_request(continuation.clone(), consistency, key_stream),
             )?
         {
             return Ok(materialized);

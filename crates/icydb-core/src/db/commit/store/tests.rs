@@ -40,8 +40,9 @@ fn commit_control_slot_rejects_corrupt_magic() {
     let store = super::CommitStore::init(test_memory(233));
     let mut malformed = Vec::new();
     malformed.extend_from_slice(b"XMCS");
-    malformed.push(1);
+    malformed.push(2);
     malformed.extend_from_slice(&DatabaseIncarnationId::for_tests(0x41).to_bytes());
+    malformed.extend_from_slice(&[0x51; 32]);
     malformed.extend_from_slice(&0u32.to_le_bytes());
     store.set_raw_marker_bytes_for_tests(malformed);
 
@@ -267,8 +268,9 @@ fn clear_verified_rejects_malformed_control_slot() {
     let store = super::CommitStore::init(test_memory(232));
     let mut malformed = Vec::new();
     malformed.extend_from_slice(b"ICCS");
-    malformed.push(1);
+    malformed.push(2);
     malformed.extend_from_slice(&DatabaseIncarnationId::for_tests(0x42).to_bytes());
+    malformed.extend_from_slice(&[0x52; 32]);
     malformed.extend_from_slice(&1u32.to_le_bytes());
     store.set_raw_marker_bytes_for_tests(malformed.clone());
 
@@ -304,6 +306,9 @@ fn commit_marker_transitions_preserve_database_incarnation() {
     let incarnation_before = store
         .database_incarnation_id()
         .expect("current control slot should carry an incarnation");
+    let cursor_key_before = store
+        .cursor_authentication_key()
+        .expect("current control slot should carry a cursor key");
     let proof_before = store
         .proof_identity()
         .expect("empty current control slot should fingerprint");
@@ -321,6 +326,12 @@ fn commit_marker_transitions_preserve_database_incarnation() {
             .database_incarnation_id()
             .expect("marker-bearing control slot should carry an incarnation"),
         incarnation_before,
+    );
+    assert_eq!(
+        store
+            .cursor_authentication_key()
+            .expect("marker-bearing control slot should carry a cursor key"),
+        cursor_key_before,
     );
     assert_ne!(
         store
@@ -341,6 +352,12 @@ fn commit_marker_transitions_preserve_database_incarnation() {
     );
     assert_eq!(
         store
+            .cursor_authentication_key()
+            .expect("cleared control slot should carry a cursor key"),
+        cursor_key_before,
+    );
+    assert_eq!(
+        store
             .proof_identity()
             .expect("cleared current control slot should fingerprint"),
         proof_before,
@@ -355,6 +372,9 @@ fn ordinary_reopen_preserves_database_incarnation() {
     let incarnation = first
         .database_incarnation_id()
         .expect("initial current control slot should carry an incarnation");
+    let cursor_key = first
+        .cursor_authentication_key()
+        .expect("initial current control slot should carry a cursor key");
 
     let reopened = super::CommitStore::open(memory)
         .expect("ordinary reopen should admit the same current control state");
@@ -365,6 +385,12 @@ fn ordinary_reopen_preserves_database_incarnation() {
             .expect("reopened current control slot should carry an incarnation"),
         incarnation,
     );
+    assert_eq!(
+        reopened
+            .cursor_authentication_key()
+            .expect("reopened current control slot should carry a cursor key"),
+        cursor_key,
+    );
 }
 
 #[test]
@@ -372,14 +398,34 @@ fn database_control_rejects_zero_incarnation() {
     let store = super::CommitStore::init(test_memory(226));
     let mut control_slot = Vec::new();
     control_slot.extend_from_slice(b"ICCS");
-    control_slot.push(1);
+    control_slot.push(2);
     control_slot.extend_from_slice(&[0; 16]);
+    control_slot.extend_from_slice(&[0x53; 32]);
     control_slot.extend_from_slice(&0_u32.to_le_bytes());
     store.set_raw_marker_bytes_for_tests(control_slot);
 
     let err = store
         .database_incarnation_id()
         .expect_err("zero database incarnation must fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn database_control_rejects_zero_cursor_authentication_key() {
+    let store = super::CommitStore::init(test_memory(234));
+    let mut control_slot = Vec::new();
+    control_slot.extend_from_slice(b"ICCS");
+    control_slot.push(2);
+    control_slot.extend_from_slice(&DatabaseIncarnationId::for_tests(0x54).to_bytes());
+    control_slot.extend_from_slice(&[0; 32]);
+    control_slot.extend_from_slice(&0_u32.to_le_bytes());
+    store.set_raw_marker_bytes_for_tests(control_slot);
+
+    let err = store
+        .cursor_authentication_key()
+        .expect_err("zero cursor authentication key must fail closed");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -428,7 +474,7 @@ fn commit_control_slot_future_version_fails_closed() {
     let store = super::CommitStore::init(test_memory(228));
     let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
         .expect("current empty commit-control slot should encode");
-    control_slot[4] = 2;
+    control_slot[4] = 3;
     store.set_raw_marker_bytes_for_tests(control_slot);
 
     let err = store

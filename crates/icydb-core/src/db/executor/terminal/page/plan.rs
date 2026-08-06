@@ -68,8 +68,8 @@ impl<'a> ScalarMaterializationPlan<'a> {
         Ok(ScalarPageKernelRequest {
             key_stream,
             scan_budget_hint,
-            row_keep_cap: self.branch_set_page_scan_keep_cap(plan, continuation),
-            order_window: self.bounded_materialized_order_scan_window(plan, continuation)?,
+            row_keep_cap: self.branch_set_page_scan_keep_cap(plan, &continuation),
+            order_window: self.bounded_materialized_order_scan_window(plan, &continuation)?,
             load_order_route_mode,
             consistency,
             scan_strategy: self.kernel_row_scan_strategy,
@@ -90,7 +90,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
     fn branch_set_page_scan_keep_cap(
         &self,
         plan: &AccessPlannedQuery,
-        continuation: ScalarContinuationContext,
+        continuation: &ScalarContinuationContext,
     ) -> Option<usize> {
         let logical = plan.scalar_plan();
         let branch_set_page = plan
@@ -131,7 +131,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
     fn bounded_materialized_order_scan_window(
         &self,
         plan: &'a AccessPlannedQuery,
-        continuation: ScalarContinuationContext,
+        continuation: &ScalarContinuationContext,
     ) -> Result<Option<KernelRowOrderWindow<'a>>, InternalError> {
         let logical = plan.scalar_plan();
         if !logical.mode.is_load()

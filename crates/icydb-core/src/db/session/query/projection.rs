@@ -7,13 +7,8 @@
 use crate::{
     db::{
         DbSession, QueryError,
-        executor::{
-            CoveringProjectionMetricsRecorder, EntityAuthority,
-            ProjectionMaterializationMetricsRecorder, SharedPreparedExecutionPlan,
-            StructuralProjectionRequest, execute_structural_projection_rows,
-        },
+        executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::{
-            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             intent::StructuralQuery,
             plan::expr::{Expr, ProjectionField, ProjectionSpec},
@@ -205,66 +200,5 @@ impl<C: CanisterKind> DbSession<C> {
         let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
         Ok((prepared_plan, projection, cache_attribution))
-    }
-
-    pub(in crate::db::session) fn execute_structural_projection_from_query(
-        &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        admission: Option<&QueryAdmissionPolicy>,
-    ) -> Result<(StructuralProjectionPayload, QueryPlanCacheAttribution), QueryError> {
-        let execution_lane = if admission.is_some() {
-            DiagnosticExecutionLane::PublicRead
-        } else {
-            DiagnosticExecutionLane::TrustedRead
-        };
-        let (prepared_plan, projection, cache_attribution) = self
-            .structural_projection_prepared_plan_for_accepted_authority(
-                &query,
-                authority,
-                accepted_schema,
-                execution_lane,
-            )?;
-        if let Some(policy) = admission {
-            let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
-                policy.lane(),
-                prepared_plan.logical_plan(),
-            ));
-            if let Some(rejection) = summary.rejection() {
-                return Err(QueryError::from(rejection.code()));
-            }
-        }
-
-        let value_catalog = prepared_plan
-            .authority_ref()
-            .accepted_schema_info()
-            .map(crate::db::schema::SchemaInfo::value_catalog_handle)
-            .cloned()
-            .ok_or_else(QueryError::invariant)?;
-        let (columns, fixed_scales) = projection.into_components();
-        let rows = execute_structural_projection_rows(
-            &self.db,
-            StructuralProjectionRequest::new(
-                self.debug,
-                prepared_plan,
-                CoveringProjectionMetricsRecorder::none(),
-                ProjectionMaterializationMetricsRecorder::none(),
-                execution_lane,
-            ),
-        )
-        .map_err(QueryError::execute)?;
-        let row_count = rows.row_count();
-
-        Ok((
-            StructuralProjectionPayload::new(
-                columns,
-                fixed_scales,
-                rows.into_value_rows(),
-                row_count,
-                value_catalog,
-            ),
-            cache_attribution,
-        ))
     }
 }

@@ -26,7 +26,10 @@ use crate::{
             },
         },
         database_format::{DATABASE_BOOT_RECORD_BYTES, validate_current_boot_record},
-        integrity::{DatabaseIncarnationId, generate_database_incarnation_id},
+        integrity::{
+            DatabaseIncarnationId, generate_cursor_authentication_key,
+            generate_database_incarnation_id,
+        },
     },
     error::InternalError,
 };
@@ -126,7 +129,11 @@ impl CommitStore {
     pub(super) fn encode_raw_control_slot_for_tests(
         marker_bytes: Vec<u8>,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_commit_control_slot(DatabaseIncarnationId::for_tests(0x31), &marker_bytes)
+        encode_commit_control_slot(
+            DatabaseIncarnationId::for_tests(0x31),
+            [0x42; 32],
+            &marker_bytes,
+        )
     }
 
     /// Open the database control store after format admission.
@@ -135,7 +142,11 @@ impl CommitStore {
         let store = Self { memory };
         if store.control_slot_is_uninitialized() {
             let incarnation = generate_database_incarnation_id()?;
-            store.write_control_slot(&encode_empty_commit_control_slot(incarnation))?;
+            let cursor_authentication_key = generate_cursor_authentication_key()?;
+            store.write_control_slot(&encode_empty_commit_control_slot(
+                incarnation,
+                cursor_authentication_key,
+            ))?;
         } else {
             store.read_control_slot()?;
         }
@@ -161,6 +172,12 @@ impl CommitStore {
     pub(super) fn database_incarnation_id(&self) -> Result<DatabaseIncarnationId, InternalError> {
         self.read_control_slot()
             .and_then(|bytes| Ok(inspect_commit_control_slot(&bytes)?.database_incarnation_id))
+    }
+
+    /// Load the durable scalar-cursor authentication key.
+    pub(super) fn cursor_authentication_key(&self) -> Result<[u8; 32], InternalError> {
+        self.read_control_slot()
+            .and_then(|bytes| Ok(inspect_commit_control_slot(&bytes)?.cursor_authentication_key))
     }
 
     /// Fingerprint the exact current database-control envelope.
@@ -193,8 +210,13 @@ impl CommitStore {
 
     /// Persist one commit marker while proving the current slot has no marker.
     pub(super) fn set_if_empty(&self, marker: &CommitMarker) -> Result<(), InternalError> {
-        let database_incarnation_id = self.require_empty_marker_slot()?;
-        let encoded = encode_commit_control_slot_from_marker(database_incarnation_id, marker)?;
+        let (database_incarnation_id, cursor_authentication_key) =
+            self.require_empty_marker_slot()?;
+        let encoded = encode_commit_control_slot_from_marker(
+            database_incarnation_id,
+            cursor_authentication_key,
+            marker,
+        )?;
 
         self.write_control_slot(&encoded)?;
         mark_commit_marker_may_be_present();
@@ -207,6 +229,7 @@ impl CommitStore {
         let slot = inspect_commit_control_slot(&control_slot)?;
         self.write_control_slot(&encode_empty_commit_control_slot(
             slot.database_incarnation_id,
+            slot.cursor_authentication_key,
         ))?;
         mark_commit_marker_verified_absent();
 
@@ -219,8 +242,12 @@ impl CommitStore {
         let incarnation = self
             .database_incarnation_id()
             .unwrap_or_else(|_| DatabaseIncarnationId::for_tests(0x31));
-        self.write_control_slot(&encode_empty_commit_control_slot(incarnation))
-            .expect("test database control slot should clear");
+        let cursor_authentication_key = self.cursor_authentication_key().unwrap_or([0x42; 32]);
+        self.write_control_slot(&encode_empty_commit_control_slot(
+            incarnation,
+            cursor_authentication_key,
+        ))
+        .expect("test database control slot should clear");
         mark_commit_marker_verified_absent();
     }
 
@@ -237,7 +264,8 @@ impl CommitStore {
             let incarnation = self
                 .database_incarnation_id()
                 .unwrap_or_else(|_| DatabaseIncarnationId::for_tests(0x31));
-            encode_empty_commit_control_slot(incarnation)
+            let cursor_authentication_key = self.cursor_authentication_key().unwrap_or([0x42; 32]);
+            encode_empty_commit_control_slot(incarnation, cursor_authentication_key)
         } else {
             bytes
         };
@@ -247,14 +275,16 @@ impl CommitStore {
 
     // Decode the control slot once and require that no marker bytes are present
     // before commit-window open persists a fresh marker.
-    fn require_empty_marker_slot(&self) -> Result<DatabaseIncarnationId, InternalError> {
+    fn require_empty_marker_slot(
+        &self,
+    ) -> Result<(DatabaseIncarnationId, [u8; 32]), InternalError> {
         let bytes = self.read_control_slot()?;
         let slot = inspect_commit_control_slot(&bytes)?;
         if !slot.marker_bytes.is_empty() {
             return Err(InternalError::store_invariant());
         }
 
-        Ok(slot.database_incarnation_id)
+        Ok((slot.database_incarnation_id, slot.cursor_authentication_key))
     }
 
     fn control_slot_is_uninitialized(&self) -> bool {
@@ -379,6 +409,11 @@ pub(super) fn with_commit_store<R>(
 /// Load the current durable database-lifecycle identity.
 pub(in crate::db) fn database_incarnation_id() -> Result<DatabaseIncarnationId, InternalError> {
     with_commit_store(CommitStore::database_incarnation_id)
+}
+
+/// Load the durable database-lifecycle scalar-cursor authentication key.
+pub(in crate::db) fn cursor_authentication_key() -> Result<[u8; 32], InternalError> {
+    with_commit_store(CommitStore::cursor_authentication_key)
 }
 
 /// Capture the exact current database-control proof identity.

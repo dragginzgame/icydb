@@ -655,12 +655,14 @@ const fn direction_code(direction: Direction) -> &'static str {
 const fn continuation_mode_code(mode: ContinuationMode) -> &'static str {
     match mode {
         ContinuationMode::Initial => "initial",
+        ContinuationMode::CursorBoundary => "cursor_boundary",
     }
 }
 
 const fn resume_from_label(mode: ContinuationMode) -> &'static str {
     match mode {
         ContinuationMode::Initial => "none",
+        ContinuationMode::CursorBoundary => "logical_boundary",
     }
 }
 

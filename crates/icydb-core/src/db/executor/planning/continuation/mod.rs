@@ -10,4 +10,4 @@ mod scalar;
 pub(in crate::db::executor) use crate::db::query::plan::GroupedPaginationWindow;
 pub(in crate::db::executor) use grouped::GroupedContinuationContext;
 pub(in crate::db::executor) use route::{AccessWindow, ContinuationMode, RouteContinuationPlan};
-pub(in crate::db::executor) use scalar::ScalarContinuationContext;
+pub(in crate::db) use scalar::ScalarContinuationContext;

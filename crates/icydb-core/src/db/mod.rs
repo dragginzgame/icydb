@@ -143,7 +143,9 @@ pub use registry::{
 };
 #[doc(hidden)]
 pub use response::ExactKeyBatchProjectionOutput;
-pub use response::{GroupedQueryOutput, GroupedRow, RowProjectionOutput};
+pub use response::{
+    GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, RowProjectionOutput, ScalarPageWork,
+};
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
 pub use schema::{

@@ -24,14 +24,13 @@ impl ExecutionKernel {
             scan_budget_hint,
             load_order_route_mode,
             continuation,
-            cursor_boundary,
             capabilities,
             consistency,
             key_stream,
         } = request;
 
         let Some(short_path_plan) =
-            resolve_cursorless_short_path_plan(plan, cursor_boundary, capabilities)?
+            resolve_cursorless_short_path_plan(plan, continuation.cursor_boundary(), capabilities)?
         else {
             return Ok(None);
         };

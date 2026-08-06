@@ -42,8 +42,8 @@ enum UnpagedLoadHintStrategy {
 }
 
 impl UnpagedLoadHintStrategy {
-    const fn resolve(
-        resolved_continuation: ScalarContinuationContext,
+    fn resolve(
+        resolved_continuation: &ScalarContinuationContext,
         unpaged_rows_mode: bool,
         top_n_seek_requires_lookahead: bool,
         route_plan: &ExecutionRoutePlan,
@@ -105,8 +105,8 @@ impl UnpagedLoadHintStrategy {
 // Unpaged `execute()` does not need continuation lookahead rows. For
 // route-eligible top-N seek windows, constrain both access probe and load
 // scan-budget hints to the keep-count window (without continuation +1).
-const fn apply_unpaged_top_n_seek_hints(
-    resolved_continuation: ScalarContinuationContext,
+fn apply_unpaged_top_n_seek_hints(
+    resolved_continuation: &ScalarContinuationContext,
     unpaged_rows_mode: bool,
     top_n_seek_requires_lookahead: bool,
     route_plan: &mut ExecutionRoutePlan,
@@ -126,7 +126,7 @@ const fn apply_unpaged_top_n_seek_hints(
 pub(super) fn normalize_scalar_route_for_execution(
     route_plan: &mut ExecutionRoutePlan,
     plan: &AccessPlannedQuery,
-    continuation: ScalarContinuationContext,
+    continuation: &ScalarContinuationContext,
     unpaged_rows_mode: bool,
     suppress_route_scan_hints: bool,
     terminal: ScalarRouteTerminal,
@@ -163,7 +163,7 @@ pub(super) fn normalize_scalar_route_for_execution(
 fn apply_index_set_page_fetch_hint(
     route_plan: &mut ExecutionRoutePlan,
     plan: &AccessPlannedQuery,
-    continuation: ScalarContinuationContext,
+    continuation: &ScalarContinuationContext,
     residual_filter_present: bool,
 ) {
     let access_shape_facts = plan.access_shape_facts();

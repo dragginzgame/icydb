@@ -18,12 +18,12 @@ fn query_ten_entity_typed_rows() -> u32 {
         };
         let Ok(rows) = query
             .filter(FieldRef::new("id").eq(icydb::types::Ulid::MIN))
-            .execute_rows()
+            .execute_live_page(None)
         else {
             return 0;
         };
 
-        u32::try_from(rows.len()).unwrap_or(u32::MAX)
+        u32::try_from(rows.rows.len()).unwrap_or(u32::MAX)
     })
 }
 

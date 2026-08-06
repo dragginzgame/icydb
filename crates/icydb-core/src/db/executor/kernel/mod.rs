@@ -367,7 +367,7 @@ impl<'a> RouteAttemptMaterializer<'a> {
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         ExecutionAttemptKernel::new(self.inputs).materialize_route_attempt(
             route_plan,
-            self.continuation,
+            self.continuation.clone(),
             self.predicate_compile_mode,
         )
     }
@@ -379,7 +379,7 @@ impl<'a> RouteAttemptMaterializer<'a> {
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         ExecutionAttemptKernel::new(self.inputs).materialize_route_attempt_kernel_rows(
             route_plan,
-            self.continuation,
+            self.continuation.clone(),
             self.predicate_compile_mode,
         )
     }

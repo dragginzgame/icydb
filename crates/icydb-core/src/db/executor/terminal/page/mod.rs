@@ -7,7 +7,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "Patch 7 stages the internal scalar page contract consumed by the Patch 8 authenticated page surface"
+        reason = "the live page uses the frozen envelope; route-owned physical unit integration remains staged beside it"
     )
 )]
 mod coordinator;
@@ -48,6 +48,8 @@ use direct_path::execute_direct_data_row_path;
 use plan::resolve_scalar_materialization_plan;
 use post_access::apply_post_access_to_kernel_rows_dyn;
 use scan::execute_scalar_page_kernel_dyn;
+
+pub(in crate::db) use coordinator::PageWorkEnvelope;
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use metrics::{
@@ -207,7 +209,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
             scan_budget_hint,
             load_order_route_mode,
             consistency,
-            continuation,
+            continuation.clone(),
             row_runtime,
         )?)?;
     let (rows, _rows_after_cursor) = apply_post_access_to_kernel_rows_dyn(

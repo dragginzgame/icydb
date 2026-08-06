@@ -104,6 +104,15 @@ impl CachedOrderValues {
             Self::Heap(values) => values.push(value),
         }
     }
+
+    fn into_values(self) -> impl Iterator<Item = Option<Value>> {
+        let values = match self {
+            Self::Inline { len, values } => values.into_iter().take(len).collect(),
+            Self::Heap(values) => values,
+        };
+
+        values.into_iter()
+    }
 }
 
 /// Apply canonical in-memory ordering with an optional bounded top-k window.
@@ -889,6 +898,44 @@ fn cache_order_values_from_data_row(
     }
 
     Ok(cached_values)
+}
+
+/// Build one canonical continuation boundary from a decoded structural row.
+pub(in crate::db::executor) fn cursor_boundary_from_orderable_row<R>(
+    row: &R,
+    resolved_order: &ResolvedOrder,
+) -> CursorBoundary
+where
+    R: OrderReadableRow,
+{
+    let slots = resolved_order
+        .fields()
+        .iter()
+        .map(|field| match order_value_from_row(row, field.source()) {
+            Some(value) => CursorBoundarySlot::Present(value.into_owned()),
+            None => CursorBoundarySlot::Missing,
+        })
+        .collect();
+
+    CursorBoundary { slots }
+}
+
+/// Build one canonical continuation boundary from a persisted data row.
+pub(in crate::db::executor) fn cursor_boundary_from_data_row(
+    row: &DataRow,
+    row_layout: &RowLayout,
+    resolved_order: &ResolvedOrder,
+) -> Result<CursorBoundary, InternalError> {
+    let values = cache_order_values_from_data_row(row, row_layout, resolved_order)?;
+    let slots = values
+        .into_values()
+        .map(|value| match value {
+            Some(value) => CursorBoundarySlot::Present(value),
+            None => CursorBoundarySlot::Missing,
+        })
+        .collect();
+
+    Ok(CursorBoundary { slots })
 }
 
 // Compare two already-materialized ordering tuples by walking their cached

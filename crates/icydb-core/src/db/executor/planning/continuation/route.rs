@@ -15,6 +15,7 @@ use crate::db::query::plan::{ContinuationPolicy, ScalarAccessWindowPlan};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum ContinuationMode {
     Initial,
+    CursorBoundary,
 }
 
 ///

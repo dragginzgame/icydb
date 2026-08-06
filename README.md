@@ -268,7 +268,8 @@ pub fn top_users() -> Result<Vec<User>, Box<dyn std::error::Error>> {
         .order_by(desc("score"))
         .order_by(asc("id"))
         .limit(10)
-        .execute_rows()?;
+        .execute_live_page(None)?
+        .rows;
 
     Ok(rows)
 }

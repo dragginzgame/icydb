@@ -71,23 +71,25 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
-    /// Execute one trusted entity-name-driven dynamic read.
-    pub fn execute_trusted_dynamic_query(
+    /// Execute one revision-tolerant bounded dynamic page.
+    pub fn execute_live_page(
         &self,
         request: &crate::db::DynamicQuery,
-    ) -> Result<crate::db::RowProjectionOutput, crate::Error> {
+        continuation: Option<&str>,
+    ) -> Result<crate::db::LiveQueryPageOutput, crate::Error> {
         self.inner
-            .execute_trusted_dynamic_query(request)
+            .execute_public_live_page(request, continuation)
             .map_err(Into::into)
     }
 
-    /// Execute one ordinary entity-name-driven bounded read.
-    pub fn execute_public_dynamic_query(
+    /// Execute one trusted revision-tolerant bounded dynamic page.
+    pub fn execute_trusted_live_page(
         &self,
         request: &crate::db::DynamicQuery,
-    ) -> Result<crate::db::RowProjectionOutput, crate::Error> {
+        continuation: Option<&str>,
+    ) -> Result<crate::db::LiveQueryPageOutput, crate::Error> {
         self.inner
-            .execute_public_dynamic_query(request)
+            .execute_trusted_live_page(request, continuation)
             .map_err(Into::into)
     }
 
@@ -111,13 +113,14 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
-    pub(crate) fn execute_public_typed_dynamic_query(
+    pub(crate) fn execute_public_typed_live_page(
         &self,
         binding: &TypedEntityBinding,
         request: &crate::db::DynamicQuery,
-    ) -> Result<Option<crate::db::RowProjectionOutput>, crate::Error> {
+        continuation: Option<&str>,
+    ) -> Result<Option<crate::db::LiveQueryPageOutput>, crate::Error> {
         self.inner
-            .execute_public_dynamic_query_for_typed_binding(binding.inner(), request)
+            .execute_public_live_page_for_typed_binding(binding.inner(), request, continuation)
             .map_err(Into::into)
     }
 

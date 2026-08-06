@@ -26,7 +26,7 @@ impl<'a> ByteCursor<'a> {
     }
 
     // Return the remaining unread byte count.
-    const fn remaining(&self) -> usize {
+    pub(in crate::db::cursor::token) const fn remaining(&self) -> usize {
         self.bytes.len().saturating_sub(self.offset)
     }
 

@@ -79,7 +79,7 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
         for key in keys {
             let request =
                 DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(key.key()));
-            match database.execute_public_dynamic_query(&request) {
+            match database.execute_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }

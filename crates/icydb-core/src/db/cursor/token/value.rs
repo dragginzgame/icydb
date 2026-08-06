@@ -62,6 +62,9 @@ pub(in crate::db::cursor::token) fn read_value_vec(
     cursor: &mut ByteCursor<'_>,
 ) -> Result<Vec<Value>, TokenWireError> {
     let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
+    if len > cursor.remaining() {
+        return Err(TokenWireError::decode());
+    }
     let mut values = Vec::with_capacity(len);
 
     for _ in 0..len {
@@ -335,6 +338,9 @@ fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<NatBig, TokenWireError> {
 
 fn read_map_value(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
     let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
+    if len > cursor.remaining() / 2 {
+        return Err(TokenWireError::decode());
+    }
     let mut entries = Vec::with_capacity(len);
 
     for _ in 0..len {

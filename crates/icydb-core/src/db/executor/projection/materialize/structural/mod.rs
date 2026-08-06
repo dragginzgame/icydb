@@ -54,6 +54,11 @@ impl MaterializedProjectionRows {
     pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
         self.0
     }
+
+    /// Retain at most the caller-admitted output row count.
+    pub(in crate::db) fn truncate(&mut self, limit: usize) {
+        self.0.truncate(limit);
+    }
 }
 
 pub(super) struct RowViewCollector {

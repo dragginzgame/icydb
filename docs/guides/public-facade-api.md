@@ -63,12 +63,12 @@ or response types. The optional `sql` feature adds a frontend over the same
 engine-neutral query runtime:
 
 ```rust
-let rows = db!()?
+let page = db!()?
     .query::<User>()?
     .filter(FieldRef::new("active").eq(true))
     .order_by(asc("id"))
     .limit(25)
-    .execute_rows()?;
+    .execute_live_page(None)?;
 ```
 
 `query::<E>()` is generated automatically for entities declared in a crate
@@ -83,9 +83,10 @@ resolve accepted type, member, and variant names through the entity binding
 before crossing the existing `InputValue` / `OutputValue` boundary.
 
 `DynamicQuery` is the untyped accepted-schema equivalent. Use
-`execute_public_dynamic_query` for caller-facing bounded reads and
-`execute_trusted_dynamic_query` only after application-owned admin
-authorization.
+`execute_live_page(&request, continuation)` for caller-facing bounded reads and
+`execute_trusted_live_page` only after application-owned admin authorization.
+Always return or consume `page.continuation`; a non-null value proves the read
+has not yet established exhaustion.
 
 Grouped reads use the same accepted-schema planner, plan cache, executor, and
 public-value conversion as SQL. They do not require the SQL parser or SQL

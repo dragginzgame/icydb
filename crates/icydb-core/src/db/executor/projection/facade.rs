@@ -15,6 +15,7 @@ use crate::{
                 with_read_execution_budget,
             },
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
+            pipeline::execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             planning::preparation::slot_map_for_model_plan,
             projection::{
                 MaterializedProjectionRows, PreparedCoveringProjectionRuntime,
@@ -82,6 +83,8 @@ pub(in crate::db) struct StructuralProjectionRequest {
     materialization_metrics: ProjectionMaterializationMetricsRecorder,
     scan_budget: Option<StructuralProjectionScanBudget>,
     execution_lane: DiagnosticExecutionLane,
+    continuation: crate::db::executor::ScalarContinuationContext,
+    cursor_page_row_limit: Option<usize>,
 }
 
 impl StructuralProjectionRequest {
@@ -101,6 +104,8 @@ impl StructuralProjectionRequest {
             materialization_metrics,
             scan_budget: None,
             execution_lane,
+            continuation: crate::db::executor::ScalarContinuationContext::initial(),
+            cursor_page_row_limit: None,
         }
     }
 
@@ -113,6 +118,31 @@ impl StructuralProjectionRequest {
         self.scan_budget = Some(scan_budget);
         self
     }
+
+    /// Attach one authenticated scalar continuation boundary.
+    #[must_use]
+    pub(in crate::db) fn with_continuation(
+        mut self,
+        continuation: crate::db::executor::ScalarContinuationContext,
+    ) -> Self {
+        self.continuation = continuation;
+        self
+    }
+
+    /// Retain canonical order inputs needed to emit one authenticated cursor.
+    #[must_use]
+    pub(in crate::db) const fn with_cursor_emission(mut self, page_row_limit: usize) -> Self {
+        self.cursor_page_row_limit = Some(page_row_limit);
+        self
+    }
+}
+
+/// Materialized projection page plus canonical cursor progress.
+pub(in crate::db) struct StructuralProjectionPage {
+    pub(in crate::db) rows: MaterializedProjectionRows,
+    pub(in crate::db) scanned_keys: usize,
+    pub(in crate::db) last_emitted_logical: Option<crate::db::cursor::CursorBoundary>,
+    pub(in crate::db) has_more: bool,
 }
 
 /// Execute one prepared structural projection request through the executor-owned
@@ -126,14 +156,32 @@ where
 {
     let context = prepared_read_execution_context(&request.prepared_plan, request.execution_lane);
     with_read_execution_budget(db.request_execution_scope(), context, || {
+        execute_structural_projection_rows_inner(db, request).map(|page| page.rows)
+    })
+}
+
+/// Execute one bounded scalar projection page with canonical cursor progress.
+pub(in crate::db) fn execute_structural_projection_page<C>(
+    db: &Db<C>,
+    request: StructuralProjectionRequest,
+) -> Result<StructuralProjectionPage, InternalError>
+where
+    C: CanisterKind,
+{
+    let context = prepared_read_execution_context(&request.prepared_plan, request.execution_lane);
+    with_read_execution_budget(db.request_execution_scope(), context, || {
         execute_structural_projection_rows_inner(db, request)
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one coordinator keeps covering, retained-slot, cursor-boundary, and projection ownership explicit"
+)]
 fn execute_structural_projection_rows_inner<C>(
     db: &Db<C>,
     request: StructuralProjectionRequest,
-) -> Result<MaterializedProjectionRows, InternalError>
+) -> Result<StructuralProjectionPage, InternalError>
 where
     C: CanisterKind,
 {
@@ -144,13 +192,16 @@ where
         materialization_metrics,
         scan_budget,
         execution_lane: _,
+        continuation,
+        cursor_page_row_limit,
     } = request;
+    let emit_cursor = cursor_page_row_limit.is_some();
     let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
 
     // Phase 1: choose the covering projection lane only for non-DISTINCT
     // requests. DISTINCT must see final projected rows in scalar execution order
     // before executor-owned deduplication and windowing.
-    if !distinct && scan_budget.is_none() {
+    if !distinct && scan_budget.is_none() && !continuation.has_cursor_boundary() && !emit_cursor {
         let covering = prepared_plan.projection_covering_read_execution_plan();
         let index_prefix_specs = prepared_plan.index_prefix_specs();
         let index_range_specs = prepared_plan.index_range_specs();
@@ -185,7 +236,13 @@ where
             || prepared_plan.hybrid_covering_read_plan(),
         )? {
             charge_runtime_value_rows(projected.value_rows())?;
-            return Ok(projected);
+            let scanned_keys = usize::try_from(projected.row_count()).unwrap_or(usize::MAX);
+            return Ok(StructuralProjectionPage {
+                rows: projected,
+                scanned_keys,
+                last_emitted_logical: None,
+                has_more: false,
+            });
         }
     }
 
@@ -212,21 +269,61 @@ where
     let prepared_projection = prepared_projection_contract
         .as_deref()
         .ok_or_else(InternalError::query_executor_invariant)?;
-    let (page, scanned_keys) =
+    let resolved_order = emit_cursor
+        .then(|| {
+            scalar_runtime
+                .plan_core
+                .plan()
+                .require_resolved_order()
+                .cloned()
+        })
+        .transpose()?;
+    let (page, scanned_keys) = if continuation.has_cursor_boundary() {
+        execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister(
+            db,
+            debug,
+            scalar_runtime,
+            continuation,
+            emit_cursor,
+        )?
+    } else {
         execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
             db,
             debug,
             scalar_runtime,
+            emit_cursor,
             distinct,
             scan_budget.map(StructuralProjectionScanBudget::probe_limit),
-        )?;
+        )?
+    };
     if let Some(scan_budget) = scan_budget
         && scan_budget.exceeded_by(scanned_keys)
     {
         return Err(sql_scan_budget_exceeded_error(scan_budget, scanned_keys));
     }
 
-    let rows = if distinct {
+    let (last_emitted_logical, has_more) = match cursor_page_row_limit {
+        Some(page_row_limit) => {
+            let retained_count = page.row_count().min(page_row_limit);
+            let boundary = retained_count
+                .checked_sub(1)
+                .map(|row_index| {
+                    page.cursor_boundary_at(
+                        row_index,
+                        &row_layout,
+                        resolved_order
+                            .as_ref()
+                            .ok_or_else(InternalError::query_executor_invariant)?,
+                    )
+                })
+                .transpose()?
+                .flatten();
+            (boundary, page.row_count() >= page_row_limit)
+        }
+        None => (None, false),
+    };
+
+    let mut rows = if distinct {
         project_distinct(
             row_layout,
             prepared_projection,
@@ -245,7 +342,16 @@ where
 
     charge_runtime_value_rows(rows.value_rows())?;
 
-    Ok(rows)
+    if let Some(page_row_limit) = cursor_page_row_limit {
+        rows.truncate(page_row_limit);
+    }
+
+    Ok(StructuralProjectionPage {
+        rows,
+        scanned_keys,
+        last_emitted_logical,
+        has_more,
+    })
 }
 
 fn sql_scan_budget_exceeded_error(

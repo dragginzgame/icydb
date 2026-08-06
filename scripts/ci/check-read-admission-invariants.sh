@@ -65,8 +65,8 @@ for literal in \
   'maximum returned rows: 100' \
   '1024 terms and 64 KiB' \
   '100 groups, 64 KiB per group, and 1024 distinct' \
-  '`execute_public_dynamic_query`' \
-  '`execute_trusted_dynamic_query`' \
+  '`execute_live_page`' \
+  '`execute_trusted_live_page`' \
   '`execute_trusted_sql_query`' \
   'generated `icydb_query`' \
   '`DiagnosticExplain`'
@@ -99,8 +99,8 @@ done <<< "$public_variants"
 
 require_literal \
   "$TYPED_QUERY" \
-  "identity-bound typed query public-admission handoff" \
-  '.execute_public_typed_dynamic_query(&self.binding, &self.request)'
+  "identity-bound typed live-page public-admission handoff" \
+  '.execute_public_typed_live_page(&self.binding, &self.request, continuation)'
 require_literal \
   "$FACADE_SQL" \
   "trusted SQL caller-control warning" \

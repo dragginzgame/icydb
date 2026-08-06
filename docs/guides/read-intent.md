@@ -13,18 +13,19 @@ Generated Rust adapters never choose admission or execution semantics.
 
 | Intent | Maintained surface |
 | --- | --- |
-| Bounded typed rows | `db.query::<E>()?.limit(n).execute_rows()` |
-| Bounded dynamic rows | `execute_public_dynamic_query(&request)` |
+| Typed live page | `db.query::<E>()?.execute_live_page(continuation)` |
+| Dynamic live page | `execute_live_page(&request, continuation)` |
 | Bounded typed grouped page | `db.query::<E>()?...execute_grouped()` |
 | Bounded dynamic grouped page | `execute_public_dynamic_grouped_query(&request)` |
-| Trusted dynamic maintenance read | `execute_trusted_dynamic_query(&request)` |
+| Trusted dynamic maintenance page | `execute_trusted_live_page(&request, continuation)` |
 | Trusted dynamic grouped maintenance read | `execute_trusted_dynamic_grouped_query(&request)` |
 | Trusted SQL read | `execute_trusted_sql_query(sql)` |
 | Query diagnostics | SQL `EXPLAIN` through a trusted/admin surface |
 
-Public scalar typed and dynamic reads return one bounded result without
-caller-provided continuation state or admission controls. Grouped reads expose
-only an opaque continuation cursor and require explicit engine limits.
+Public scalar typed and dynamic reads return bounded live pages. A non-null
+continuation means traversal is not yet proven exhausted; it does not promise
+that another matching row exists. Grouped reads retain their separate opaque
+cursor and explicit engine limits.
 
 ## When Admission Rejects A Read
 
@@ -41,15 +42,14 @@ The returned typed error preserves the stable `QueryReadAdmissionCode`; see
 ```rust
 #[icydb::request_execution]
 #[ic_cdk::query]
-fn active_users() -> Result<Vec<User>, String> {
+fn active_users(continuation: Option<String>) -> Result<LivePage<User>, String> {
     db!()
         .map_err(|error| error.to_string())?
         .query::<User>()
         .map_err(|error| error.to_string())?
         .filter(FieldRef::new("active").eq(true))
         .order_by(asc("id"))
-        .limit(25)
-        .execute_rows()
+        .execute_live_page(continuation.as_deref())
         .map_err(|error| error.to_string())
 }
 ```
@@ -73,33 +73,28 @@ recognizes planner-proven exact primary-key access; it never trusts the
 spelling of the predicate alone.
 
 ```rust
-let rows = db!()?
-    .query::<User>()?
-    .filter(FieldRef::new("id").eq(user_id))
-    .limit(1)
-    .execute_rows()?;
+let row = db!()?.get::<User>(user_id)?;
 ```
 
-If application semantics require exactly one row, check the returned vector
-explicitly and return an application-level typed error for zero or multiple
-rows.
+`get` returns `None` for a missing key. Use `get_many` for a finite exact key
+set; both operations carry their own bounded exhaustion proof.
 
 ## Bounded Lists
 
 Use an accepted indexed order and an explicit limit:
 
 ```rust
-let rows = db!()?
+let page = db!()?
     .query::<User>()?
     .filter(FieldRef::new("active").eq(true))
     .order_by(asc("id"))
-    .limit(50)
-    .execute_rows()?;
+    .execute_live_page(continuation.as_deref())?;
 ```
 
-The current scalar typed surface intentionally has no cursor or offset.
-Endpoints that require scalable continuation need a separately designed
-continuation contract; do not emulate one with hidden offsets.
+Return `page.continuation` to the caller and pass it back unchanged. The token
+binds the complete order, query window, page envelope, database incarnation,
+and accepted schema authority. It is authenticated and opaque, but not
+encrypted.
 
 ## Bounded Grouped Pages
 
@@ -132,7 +127,7 @@ let request = DynamicQuery::new("LedgerEntry")
     .order_by(asc("id"))
     .limit(100);
 
-let rows = db!()?.execute_trusted_dynamic_query(&request)?;
+let page = db!()?.execute_trusted_live_page(&request, continuation.as_deref())?;
 ```
 
 Only controller/admin code with an explicit resource policy should use this
@@ -148,11 +143,11 @@ typed/dynamic lane.
 
 - Authorize before dispatch.
 - Use the public lane for caller-facing reads.
-- Include a positive limit at or below 100.
+- Use the returned continuation until exhaustion, or declare a deliberate
+  total query limit.
 - Ensure filtering and ordering can select an accepted bounded/index route.
 - For grouped reads, include positive group limits within the public ceilings.
 - Treat admission rejection as a typed failure, never as an empty result.
 - Bound the final encoded response.
 - Use trusted methods only for explicit admin work.
-- Do not emulate continuation with offsets; the maintained typed/dynamic
-  surface does not yet expose scalar continuation.
+- Do not decode, modify, or emulate continuation with offsets.

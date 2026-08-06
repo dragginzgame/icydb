@@ -32,34 +32,34 @@ owns authorization and the resource policy.
 
 | Surface | Lane | Contract |
 | --- | --- | --- |
-| `DbSession::query::<E>()?.execute_rows()` | `PublicRead` | Generated binding and decode around the ordinary accepted structural lane. |
-| `execute_public_dynamic_query` | `PublicRead` | Entity/field names resolve against accepted schema; built-in bounded admission applies. |
+| `DbSession::query::<E>()?.execute_live_page(...)` | `PublicRead` | Generated binding and decode around an authenticated bounded live page. |
+| `execute_live_page` | `PublicRead` | Entity/field names resolve against accepted schema; built-in bounded admission and explicit continuation apply. |
 | `DbSession::query::<E>()?.execute_grouped()` | `PublicRead` | Generated binding selects accepted entity identity; the engine-neutral grouped result remains structural. |
 | `execute_public_dynamic_grouped_query` | `PublicRead` | Grouped dynamic execution requires explicit limits and exposes an opaque continuation cursor. |
-| `execute_trusted_dynamic_query` | trusted bypass | Explicit maintenance/admin dynamic read. |
+| `execute_trusted_live_page` | trusted bypass | Explicit maintenance/admin dynamic page. |
 | `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
 | generated `icydb_query` | trusted bypass | Controller-gated admin SQL using `execute_trusted_sql_query_with_perf_attribution`. |
 | SQL `EXPLAIN` | `DiagnosticExplain` | Observational planning only on its diagnostic route. |
 
-Public callers cannot provide scalar continuation state, offsets, or admission
-policy controls. Grouped callers may provide only the opaque cursor issued by
-the preceding page of the same accepted plan.
+Public scalar and grouped callers may provide only the opaque cursor issued by
+the preceding page of the same accepted plan. They cannot provide offsets or
+admission-policy controls.
 
 ## Which API should I use?
 
 - Known generated row type: `query::<E>()`; runtime adapters are automatic.
 - Runtime entity/field names: `DynamicQuery` plus
-  `execute_public_dynamic_query`.
+  `execute_live_page`.
 - Grouped typed/dynamic rows: ordered `.group_by(...)` and `.aggregate(...)`
   declarations, explicit `.grouped_limits(...)`, and the grouped terminal.
-- Controller/admin maintenance: `execute_trusted_dynamic_query`.
+- Controller/admin maintenance: `execute_trusted_live_page`.
 - Authorized SQL tooling: `execute_trusted_sql_query`.
 - Planner inspection: trusted SQL `EXPLAIN`.
 
-Ordinary typed and dynamic calls require a positive limit at or below 100 and
-a safe selected route. The current scalar typed surface intentionally has no
-continuation contract. Do not emulate continuation with hidden offsets.
+Ordinary typed and dynamic pages require a safe selected route and return at
+most 100 rows. A query `LIMIT` is the total traversal limit, not a per-page
+limit. Do not emulate continuation with hidden offsets.
 
 Grouped calls additionally require positive `max_groups` and
 `max_group_bytes` values. Public calls must remain within the frozen ceilings;
@@ -90,16 +90,16 @@ the root; it is never shared with the called canister and cannot replace a
 different active root.
 
 ```rust
-let rows = db!()?
+let page = db!()?
     .query::<User>()?
     .filter(FieldRef::new("active").eq(true))
     .order_by(asc("id"))
-    .limit(25)
-    .execute_rows()?;
+    .execute_live_page(continuation.as_deref())?;
 ```
 
 Filtering and ordering must map to accepted indexed access. A public endpoint
-must also enforce its final encoded-response budget after IcyDB returns.
+must return the opaque continuation and enforce its final encoded-response
+budget after IcyDB returns.
 
 See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 
@@ -124,7 +124,7 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 - internal and public rejection enums remain one-to-one;
 - default budgets remain synchronized with this contract;
 - typed execution enters the identity-bound
-  `execute_public_typed_dynamic_query`;
+  `execute_public_typed_live_page` boundary;
 - trusted SQL documentation and generated-controller ownership remain intact;
 - public reads enter through the maintained typed or dynamic admission
   boundaries.

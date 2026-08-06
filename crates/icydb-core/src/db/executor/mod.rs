@@ -103,9 +103,10 @@ pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister_with_ph
 pub(in crate::db) use pipeline::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
 };
+pub(in crate::db) use planning::continuation::ScalarContinuationContext;
 pub(in crate::db::executor) use planning::continuation::{
     AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,
-    RouteContinuationPlan, ScalarContinuationContext,
+    RouteContinuationPlan,
 };
 pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
 pub(in crate::db::executor) use planning::route::ExecutionRoutePlan;
@@ -127,7 +128,8 @@ pub(in crate::db::executor) use profiling::{
 pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use projection::{
-    StructuralProjectionRequest, execute_structural_projection_rows,
+    StructuralProjectionRequest, execute_structural_projection_page,
+    execute_structural_projection_rows,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
@@ -155,6 +157,7 @@ pub(in crate::db::executor) use stream::{
     FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream, PrefixSetExecutionShape,
     PrefixSetMergeSafety,
 };
+pub(in crate::db) use terminal::PageWorkEnvelope;
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};

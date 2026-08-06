@@ -945,6 +945,22 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    /// Project one accepted live-page row through a current opaque binding.
+    pub fn typed_live_page_row(
+        &self,
+        binding: &TypedEntityBinding,
+        result: &crate::db::LiveQueryPageOutput,
+        row_index: usize,
+    ) -> Result<OutputRow, TypedRowError> {
+        self.typed_output_row(
+            binding,
+            result.entity.as_str(),
+            result.columns.as_slice(),
+            result.rows.as_slice(),
+            row_index,
+        )
+    }
+
     /// Project one accepted structural-mutation row through a current opaque binding.
     pub fn typed_mutation_row(
         &self,

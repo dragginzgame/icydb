@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
 
+- `0.221.7` is potentially breaking: scalar enumeration now uses authenticated
+  bounded live pages and current cursor authority, requiring caller updates
+  and affected development-state recreation; canister builds and release
+  cleanup are safer.
+
 - `0.221.6` keeps zero-argument `db!()` available across attributed sync and
   async entries; potentially breaking scope failures now use dedicated
   E275/E276 diagnostics.

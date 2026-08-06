@@ -11,13 +11,14 @@ use crate::{
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutionPreparation, OrderedKeyStreamBox,
             ScalarContinuationContext,
+            order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
             pipeline::{
                 contracts::ScalarMaterializationCapabilities,
                 runtime::{ExecutionRuntimeAdapter, compile_retained_slot_layout_for_mode},
             },
             projection::PreparedProjectionContract,
             route::LoadOrderRouteMode,
-            terminal::{RetainedSlotLayout, RetainedSlotRow},
+            terminal::{RetainedSlotLayout, RetainedSlotRow, RowLayout},
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -175,6 +176,25 @@ impl StructuralCursorPage {
         }
     }
 
+    /// Derive the canonical logical boundary for one returned row without
+    /// widening the outward projection with hidden ordering values.
+    pub(in crate::db) fn cursor_boundary_at(
+        &self,
+        row_index: usize,
+        row_layout: &RowLayout,
+        resolved_order: &crate::db::query::plan::ResolvedOrder,
+    ) -> Result<Option<CursorBoundary>, InternalError> {
+        match &self.payload {
+            StructuralCursorPagePayload::DataRows(rows) => rows
+                .get(row_index)
+                .map(|row| cursor_boundary_from_data_row(row, row_layout, resolved_order))
+                .transpose(),
+            StructuralCursorPagePayload::SlotRows(rows) => Ok(rows
+                .get(row_index)
+                .map(|row| cursor_boundary_from_orderable_row(row, resolved_order))),
+        }
+    }
+
     /// Dispatch one structural projection consumer onto the page's concrete row
     /// payload without exposing the payload enum to the session boundary.
     pub(in crate::db) fn consume_projection_rows<T>(
@@ -256,7 +276,6 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) load_order_route_mode: LoadOrderRouteMode,
     pub(in crate::db::executor) continuation: ScalarContinuationContext,
-    pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
     pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,

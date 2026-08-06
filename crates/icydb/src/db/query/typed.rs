@@ -13,7 +13,9 @@ use crate::{
     traits::{CanisterKind, EntityKey},
     types::Id,
 };
+use candid::CandidType;
 use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm};
+use serde::Deserialize;
 use std::{error::Error as StdError, fmt, marker::PhantomData};
 
 /// Failure while executing one accepted-schema-bound typed query.
@@ -23,6 +25,17 @@ pub enum TypedQueryError {
     Database(crate::Error),
     /// A returned accepted row could not be projected through the binding.
     Row(TypedRowError),
+}
+
+/// One revision-tolerant bounded typed page.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct LivePage<Row> {
+    /// Decoded typed rows returned by this page.
+    pub rows: Vec<Row>,
+    /// Authenticated continuation, or `None` after proven exhaustion.
+    pub continuation: Option<String>,
+    /// Bounded work observed while producing the page.
+    pub work: crate::db::ScalarPageWork,
 }
 
 impl fmt::Display for TypedQueryError {
@@ -140,11 +153,17 @@ where
         self
     }
 
-    /// Execute through ordinary bounded public-read admission and decode rows.
-    pub fn execute_rows(self) -> Result<Vec<E::Row>, TypedQueryError> {
+    /// Execute one revision-tolerant bounded page and decode its typed rows.
+    ///
+    /// Pass the prior page's opaque continuation to resume. A non-null
+    /// continuation means traversal has not yet been proven exhausted.
+    pub fn execute_live_page(
+        self,
+        continuation: Option<&str>,
+    ) -> Result<LivePage<E::Row>, TypedQueryError> {
         let result = self
             .session
-            .execute_public_typed_dynamic_query(&self.binding, &self.request)
+            .execute_public_typed_live_page(&self.binding, &self.request, continuation)
             .map_err(TypedQueryError::Database)?
             .ok_or({
                 TypedQueryError::Row(TypedRowError::Adapter(
@@ -155,14 +174,19 @@ where
         for row_index in 0..result.rows.len() {
             let row = self
                 .session
-                .typed_query_row(&self.binding, &result, row_index)
+                .typed_live_page_row(&self.binding, &result, row_index)
                 .map_err(TypedQueryError::Row)?;
             rows.push(
                 E::decode_row(&self.binding, row)
                     .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
             );
         }
-        Ok(rows)
+
+        Ok(LivePage {
+            rows,
+            continuation: result.continuation,
+            work: result.work,
+        })
     }
 
     /// Execute through ordinary bounded grouped-read admission.

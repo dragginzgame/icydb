@@ -93,7 +93,7 @@ help:
 	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Commit version files and create the release tag"
-	@echo "  release-push     Push the release commit and tags"
+	@echo "  release-push     Push the release commit and tags, then clean release artifacts"
 	@echo "  release-patch    Human-owned one-shot patch release"
 	@echo "  release-minor    Confirm, bump, stage, commit, tag, and push a minor release"
 	@echo "  release-major    Confirm, bump, stage, commit, tag, and push a major release"
@@ -201,46 +201,25 @@ tags:
 patch:
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@bash scripts/ci/cleanup-release-workspace.sh
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch
 
 minor:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@bash scripts/ci/cleanup-release-workspace.sh
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor
 
 major:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major || { \
-		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
-	}
-	@bash scripts/ci/cleanup-release-workspace.sh
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major
 
 release-prepare:
 	@mkdir -p "$(RELEASE_TMP_DIR)"
@@ -275,6 +254,7 @@ release-commit:
 
 release-push:
 	git push --follow-tags
+	@bash scripts/ci/cleanup-release-workspace.sh
 
 release-patch: patch release-stage release-commit release-push
 	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" scripts/ci/record-release-gate-receipt.sh
@@ -520,6 +500,7 @@ check-invariants:
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
+	bash scripts/ci/check-release-cleanup-invariants.sh
 	bash scripts/ci/check-durability-doc-invariants.sh
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/check-schema-model-boundary-invariants.sh

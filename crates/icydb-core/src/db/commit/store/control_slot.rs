@@ -27,6 +27,7 @@ use crate::{
 
 pub(super) struct CommitControlSlotRef<'a> {
     pub(super) database_incarnation_id: DatabaseIncarnationId,
+    pub(super) cursor_authentication_key: [u8; 32],
     pub(super) marker_bytes: &'a [u8],
 }
 
@@ -44,10 +45,11 @@ struct ControlSlotLengths {
     capacity: usize,
 }
 
-pub(super) const COMMIT_CONTROL_HEADER_BYTES: usize = 25;
+pub(super) const COMMIT_CONTROL_HEADER_BYTES: usize = 57;
 const COMMIT_CONTROL_MAGIC: [u8; 4] = *b"ICCS";
-const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 1;
+const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 2;
 const DATABASE_INCARNATION_BYTES: usize = 16;
+const CURSOR_AUTHENTICATION_KEY_BYTES: usize = 32;
 const COMMIT_MARKER_HEADER_BYTES: usize = 5;
 
 // Build the canonical max-size corruption error for raw commit control bytes.
@@ -91,12 +93,23 @@ pub(super) fn inspect_commit_control_slot(
         .try_into()
         .map_err(|_| control_slot_canonical_envelope_required())?;
     let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(incarnation_bytes)?;
+    let cursor_key_start = incarnation_end;
+    let cursor_key_end = cursor_key_start + CURSOR_AUTHENTICATION_KEY_BYTES;
+    let cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES] = bytes
+        .get(cursor_key_start..cursor_key_end)
+        .ok_or_else(control_slot_canonical_envelope_required)?
+        .try_into()
+        .map_err(|_| control_slot_canonical_envelope_required())?;
+    if cursor_authentication_key == [0; CURSOR_AUTHENTICATION_KEY_BYTES] {
+        return Err(control_slot_canonical_envelope_required());
+    }
     let marker_bytes = bytes
         .get(COMMIT_CONTROL_HEADER_BYTES..encoded_len)
         .ok_or_else(control_slot_canonical_envelope_required)?;
 
     Ok(CommitControlSlotRef {
         database_incarnation_id,
+        cursor_authentication_key,
         marker_bytes,
     })
 }
@@ -123,7 +136,10 @@ pub(super) fn commit_control_slot_encoded_len(bytes: &[u8]) -> Result<usize, Int
         return Err(InternalError::serialize_incompatible_persisted_format());
     }
 
-    let mut cursor = COMMIT_CONTROL_MAGIC.len() + 1 + DATABASE_INCARNATION_BYTES;
+    let mut cursor = COMMIT_CONTROL_MAGIC.len()
+        + 1
+        + DATABASE_INCARNATION_BYTES
+        + CURSOR_AUTHENTICATION_KEY_BYTES;
     let marker_len = read_u32_le(bytes, &mut cursor, "commit control-slot")? as usize;
     let encoded_len = cursor.saturating_add(marker_len);
     if encoded_len > MAX_COMMIT_BYTES as usize {
@@ -136,9 +152,15 @@ pub(super) fn commit_control_slot_encoded_len(bytes: &[u8]) -> Result<usize, Int
 /// Encode the canonical empty commit-control slot.
 pub(super) fn encode_empty_commit_control_slot(
     database_incarnation_id: DatabaseIncarnationId,
+    cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
 ) -> Vec<u8> {
     let mut encoded = Vec::with_capacity(COMMIT_CONTROL_HEADER_BYTES);
-    write_commit_control_slot_header(&mut encoded, database_incarnation_id, 0);
+    write_commit_control_slot_header(
+        &mut encoded,
+        database_incarnation_id,
+        cursor_authentication_key,
+        0,
+    );
     encoded
 }
 
@@ -146,9 +168,14 @@ pub(super) fn encode_empty_commit_control_slot(
 #[cfg(test)]
 pub(super) fn encode_commit_control_slot(
     database_incarnation_id: DatabaseIncarnationId,
+    cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     marker_bytes: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
-    let encoded = encode_commit_control_slot_bytes(database_incarnation_id, marker_bytes)?;
+    let encoded = encode_commit_control_slot_bytes(
+        database_incarnation_id,
+        cursor_authentication_key,
+        marker_bytes,
+    )?;
 
     if encoded.len() > MAX_COMMIT_BYTES as usize {
         return Err(InternalError::commit_control_slot_exceeds_max_size());
@@ -161,6 +188,7 @@ pub(super) fn encode_commit_control_slot(
 // opens do not allocate intermediate marker payload and marker-envelope buffers.
 pub(super) fn encode_commit_control_slot_from_marker(
     database_incarnation_id: DatabaseIncarnationId,
+    cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     marker: &CommitMarker,
 ) -> Result<Vec<u8>, InternalError> {
     validate_commit_marker_shape(marker)?;
@@ -169,7 +197,12 @@ pub(super) fn encode_commit_control_slot_from_marker(
     let lengths = checked_control_slot_lengths(marker_payload_len)?;
 
     let mut encoded = Vec::with_capacity(lengths.capacity);
-    write_commit_control_slot_header(&mut encoded, database_incarnation_id, lengths.marker_length);
+    write_commit_control_slot_header(
+        &mut encoded,
+        database_incarnation_id,
+        cursor_authentication_key,
+        lengths.marker_length,
+    );
     write_commit_marker_envelope_header(&mut encoded, lengths.payload_size)?;
     write_commit_marker_payload(&mut encoded, marker)?;
 
@@ -212,13 +245,19 @@ pub(in crate::db::commit) fn commit_control_slot_encoded_len_for_marker_payload(
 #[cfg(test)]
 fn encode_commit_control_slot_bytes(
     database_incarnation_id: DatabaseIncarnationId,
+    cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     marker_bytes: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
     let mut encoded =
         Vec::with_capacity(COMMIT_CONTROL_HEADER_BYTES.saturating_add(marker_bytes.len()));
     let marker_len = u32::try_from(marker_bytes.len())
         .map_err(|_| InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit())?;
-    write_commit_control_slot_header(&mut encoded, database_incarnation_id, marker_len);
+    write_commit_control_slot_header(
+        &mut encoded,
+        database_incarnation_id,
+        cursor_authentication_key,
+        marker_len,
+    );
     encoded.extend_from_slice(marker_bytes);
 
     Ok(encoded)
@@ -228,10 +267,12 @@ fn encode_commit_control_slot_bytes(
 fn write_commit_control_slot_header(
     out: &mut Vec<u8>,
     database_incarnation_id: DatabaseIncarnationId,
+    cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     marker_len: u32,
 ) {
     out.extend_from_slice(&COMMIT_CONTROL_MAGIC);
     out.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
     out.extend_from_slice(&database_incarnation_id.to_bytes());
+    out.extend_from_slice(&cursor_authentication_key);
     out.extend_from_slice(&marker_len.to_le_bytes());
 }

@@ -984,6 +984,24 @@ pub(crate) fn generate_database_incarnation_id() -> Result<DatabaseIncarnationId
     DatabaseIncarnationId::generate()
 }
 
+/// Generate the database-lifecycle secret used to authenticate scalar cursors.
+///
+/// The key is persisted beside the database incarnation before runtime
+/// authority becomes visible. It uses the same process-local generation
+/// authority as generated ULID keys and is not exposed through an outward API.
+pub(crate) fn generate_cursor_authentication_key() -> Result<[u8; 32], InternalError> {
+    let first = <crate::types::Ulid as crate::types::GenerateKey>::generate()?;
+    let second = <crate::types::Ulid as crate::types::GenerateKey>::generate()?;
+    let mut bytes = [0_u8; 32];
+    bytes[..16].copy_from_slice(&first.to_bytes());
+    bytes[16..].copy_from_slice(&second.to_bytes());
+    if bytes == [0; 32] {
+        return Err(InternalError::database_incarnation_generation_failed());
+    }
+
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

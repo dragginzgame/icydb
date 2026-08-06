@@ -240,6 +240,10 @@ fn canonicalize_order_spec_with_primary_key_tie_break(
         .map(String::as_str)
         .collect();
 
+    let appended_direction = order.fields.last().map_or(
+        OrderDirection::Asc,
+        crate::db::query::plan::OrderTerm::direction,
+    );
     for primary_key_name in primary_key_names {
         let already_ordered = order
             .fields
@@ -251,7 +255,7 @@ fn canonicalize_order_spec_with_primary_key_tie_break(
 
         order.fields.push(crate::db::query::plan::OrderTerm::field(
             primary_key_name,
-            OrderDirection::Asc,
+            appended_direction,
         ));
     }
 

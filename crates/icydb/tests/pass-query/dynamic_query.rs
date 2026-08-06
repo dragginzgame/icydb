@@ -14,8 +14,8 @@ where
     let request = DynamicQuery::new("app::User")
         .select(["name", "age"])
         .limit(25);
-    let _ = db.execute_public_dynamic_query(&request);
-    let _ = db.execute_trusted_dynamic_query(&request);
+    let _ = db.execute_live_page(&request, None);
+    let _ = db.execute_trusted_live_page(&request, None);
 
     let grouped = DynamicQuery::new("app::User")
         .group_by("age")

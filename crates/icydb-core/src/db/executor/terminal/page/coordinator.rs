@@ -41,7 +41,7 @@ const DEFAULT_PAGE_LIMITS: [u64; RESOURCE_COUNT] = [
 /// be charged by a page unit. Every physical page resource has a finite limit
 /// below the enclosing hard execution budget.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct PageWorkEnvelope {
+pub(in crate::db) struct PageWorkEnvelope {
     limits: [u64; RESOURCE_COUNT],
     identity: u64,
 }
@@ -49,19 +49,27 @@ pub(in crate::db::executor) struct PageWorkEnvelope {
 impl PageWorkEnvelope {
     /// Return the maintained scalar-page envelope.
     #[must_use]
-    pub(in crate::db::executor) const fn default_scalar() -> Self {
+    pub(in crate::db) const fn default_scalar() -> Self {
         Self::new(DEFAULT_PAGE_LIMITS)
+    }
+
+    /// Return the maintained public scalar-page envelope.
+    #[must_use]
+    pub(in crate::db) const fn public_scalar() -> Self {
+        let mut limits = DEFAULT_PAGE_LIMITS;
+        limits[resource_index(DiagnosticExecutionBudgetResource::ResultRows)] = 100;
+        Self::new(limits)
     }
 
     /// Return the immutable identity that a future authenticated cursor binds.
     #[must_use]
-    pub(in crate::db::executor) const fn identity(self) -> u64 {
+    pub(in crate::db) const fn identity(self) -> u64 {
         self.identity
     }
 
     /// Return one resource limit when that resource belongs to page progress.
     #[must_use]
-    pub(in crate::db::executor) const fn limit(
+    pub(in crate::db) const fn limit(
         self,
         resource: DiagnosticExecutionBudgetResource,
     ) -> Option<u64> {
@@ -333,7 +341,7 @@ impl<Row, LogicalBoundary, PhysicalAnchor> ScalarPageUnit<Row, LogicalBoundary, 
 
 /// Work actually admitted for one successful scalar page.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct PageWorkReceipt {
+pub(in crate::db) struct PageWorkReceipt {
     envelope_identity: u64,
     observed: PageWork,
 }
@@ -341,16 +349,13 @@ pub(in crate::db::executor) struct PageWorkReceipt {
 impl PageWorkReceipt {
     /// Return the envelope identity under which this work was admitted.
     #[must_use]
-    pub(in crate::db::executor) const fn envelope_identity(self) -> u64 {
+    pub(in crate::db) const fn envelope_identity(self) -> u64 {
         self.envelope_identity
     }
 
     /// Return admitted work for one page resource.
     #[must_use]
-    pub(in crate::db::executor) const fn observed(
-        self,
-        resource: DiagnosticExecutionBudgetResource,
-    ) -> u64 {
+    pub(in crate::db) const fn observed(self, resource: DiagnosticExecutionBudgetResource) -> u64 {
         self.observed.amount(resource)
     }
 }

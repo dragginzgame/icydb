@@ -24,10 +24,13 @@ use crate::{
         executor::{
             PreparedScalarRuntimeHandoff,
             pipeline::{
-                contracts::StructuralCursorPage,
+                contracts::{CursorEmissionMode, StructuralCursorPage},
                 entrypoints::scalar::{
                     materialized::execute_prepared_scalar_route_runtime_with_scan_count,
-                    runtime::prepare_initial_scalar_retained_slot_page_runtime_from_handoff,
+                    runtime::{
+                        prepare_initial_scalar_retained_slot_page_runtime_from_handoff,
+                        prepare_resumed_scalar_retained_slot_page_runtime_from_handoff,
+                    },
                 },
             },
         },
@@ -43,6 +46,7 @@ pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_ru
     db: &Db<C>,
     debug: bool,
     prepared: PreparedScalarRuntimeHandoff,
+    emit_cursor: bool,
     suppress_route_scan_hints: bool,
     enforced_scan_probe_limit: Option<usize>,
 ) -> Result<(StructuralCursorPage, usize), InternalError>
@@ -53,11 +57,44 @@ where
         db,
         debug,
         prepared,
+        if emit_cursor {
+            CursorEmissionMode::Emit
+        } else {
+            CursorEmissionMode::Suppress
+        },
         suppress_route_scan_hints,
     )?;
     if let Some(probe_limit) = enforced_scan_probe_limit {
         prepared = prepared.with_enforced_scan_probe_limit(probe_limit);
     }
+
+    execute_prepared_scalar_route_runtime_with_scan_count(prepared)
+}
+
+/// Execute one resumed scalar page from an authenticated logical boundary.
+pub(in crate::db::executor) fn execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister<
+    C,
+>(
+    db: &Db<C>,
+    debug: bool,
+    prepared: crate::db::executor::PreparedScalarRuntimeHandoff,
+    continuation: crate::db::executor::ScalarContinuationContext,
+    emit_cursor: bool,
+) -> Result<(StructuralCursorPage, usize), InternalError>
+where
+    C: CanisterKind,
+{
+    let prepared = prepare_resumed_scalar_retained_slot_page_runtime_from_handoff(
+        db,
+        debug,
+        prepared,
+        continuation,
+        if emit_cursor {
+            CursorEmissionMode::Emit
+        } else {
+            CursorEmissionMode::Suppress
+        },
+    )?;
 
     execute_prepared_scalar_route_runtime_with_scan_count(prepared)
 }

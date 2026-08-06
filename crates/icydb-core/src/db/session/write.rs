@@ -1832,7 +1832,7 @@ mod typed_adapter_tests {
                 .order_by(crate::db::asc("id"))
                 .limit(1);
             let result = session
-                .execute_trusted_dynamic_query(&query)
+                .execute_trusted_live_page(&query, None)
                 .expect("SQL-free dynamic execution should use accepted authority");
             assert_eq!(result.entity, "RenamedEntity");
             assert_eq!(result.columns, vec!["id".to_string(), "value".to_string()]);
@@ -1846,7 +1846,7 @@ mod typed_adapter_tests {
             assert_eq!(result.row_count, 1);
             assert_query_diagnostic(
                 session
-                    .execute_trusted_dynamic_query(&query.cursor("00"))
+                    .execute_trusted_live_page(&query.cursor("00"), None)
                     .expect_err("scalar execution must reject grouped cursor state"),
                 icydb_diagnostic_code::DiagnosticCode::QueryIntent,
                 icydb_diagnostic_code::ErrorOrigin::Query,
@@ -2017,7 +2017,9 @@ mod mixed_relation_batch_tests {
     use super::{DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
     use crate::{
         db::{
+            DynamicQuery, asc,
             data::DataStore,
+            desc,
             index::IndexStore,
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::{
@@ -2346,6 +2348,105 @@ mod mixed_relation_batch_tests {
             icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
             icydb_diagnostic_code::DiagnosticConstraintKind::Relation.raw(),
         )));
+    }
+
+    #[test]
+    fn live_pages_resume_mixed_projection_from_authenticated_hidden_order_values() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                insert_with_code(1, None, 10),
+                insert_with_code(2, Some(1), 20),
+                insert_with_code(3, None, 30),
+            ])
+            .expect("live-page rows should insert");
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .order_by(desc("code"));
+
+        let first = session
+            .execute_public_live_page(&query, None)
+            .expect("initial live page should execute");
+        assert_eq!(
+            first.rows,
+            vec![vec![OutputValue::Nat64(3)], vec![OutputValue::Nat64(2)]]
+        );
+        let cursor = first
+            .continuation
+            .as_deref()
+            .expect("unreturned matching row should produce continuation");
+        let second = session
+            .execute_public_live_page(&query, Some(cursor))
+            .expect("authenticated live continuation should resume");
+        assert_eq!(second.rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(second.continuation, None);
+
+        let total_limit = session
+            .execute_public_live_page(&query.clone().limit(2), None)
+            .expect("total live-page limit should execute");
+        assert_eq!(
+            total_limit.rows,
+            vec![vec![OutputValue::Nat64(3)], vec![OutputValue::Nat64(2)]],
+        );
+        assert_eq!(
+            total_limit.continuation, None,
+            "query LIMIT is a total traversal window rather than a page size",
+        );
+
+        let three_row_window = query.clone().limit(3);
+        let limited_first = session
+            .execute_public_live_page(&three_row_window, None)
+            .expect("first total-window page should execute");
+        let limited_cursor = limited_first
+            .continuation
+            .as_deref()
+            .expect("a partially consumed total window should continue");
+        let limited_second = session
+            .execute_public_live_page(&three_row_window, Some(limited_cursor))
+            .expect("remaining total window should preserve the plan signature");
+        assert_eq!(limited_second.rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(limited_second.continuation, None);
+
+        let mixed_order = DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .order_by(desc("parent_id"))
+            .order_by(asc("id"));
+        let mixed_first = session
+            .execute_trusted_live_page(&mixed_order, None)
+            .expect("mixed-direction nullable order should execute");
+        assert_eq!(
+            mixed_first.rows,
+            vec![vec![OutputValue::Nat64(2)], vec![OutputValue::Nat64(1)]],
+        );
+        let mixed_cursor = mixed_first
+            .continuation
+            .as_deref()
+            .expect("duplicate null order values should retain continuation");
+        let mixed_second = session
+            .execute_trusted_live_page(&mixed_order, Some(mixed_cursor))
+            .expect("mixed-direction nullable order should resume");
+        assert_eq!(mixed_second.rows, vec![vec![OutputValue::Nat64(3)]]);
+        assert_eq!(mixed_second.continuation, None);
+
+        let mismatched_window = session
+            .execute_public_live_page(&query.clone().limit(3), Some(cursor))
+            .expect_err("a changed total limit must invalidate the continuation");
+        assert_eq!(
+            mismatched_window.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+        );
+
+        let mut tampered = cursor.as_bytes().to_vec();
+        let last = tampered.len().saturating_sub(1);
+        tampered[last] = if tampered[last] == b'0' { b'1' } else { b'0' };
+        let tampered = String::from_utf8(tampered).expect("hex cursor should remain UTF-8");
+        let error = session
+            .execute_public_live_page(&query, Some(tampered.as_str()))
+            .expect_err("tampered cursor must fail closed");
+        assert_eq!(
+            error.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+        );
     }
 
     #[test]
@@ -2988,7 +3089,7 @@ mod identity_pre_key_tests {
             0x7068_7973_6963_616c,
         );
         let error = with_query_execution_budget_for_tests(budget, context, || {
-            session.execute_trusted_dynamic_query(query)
+            session.execute_trusted_live_page(query, None)
         })
         .expect_err("the injected zero resource allowance should reject planned execution");
 
@@ -3093,7 +3194,7 @@ mod identity_pre_key_tests {
             .limit(1);
         assert_eq!(
             session
-                .execute_trusted_dynamic_query(&fallback)
+                .execute_trusted_live_page(&fallback, None)
                 .expect("bounded fallback execution should preserve its result")
                 .row_count,
             1,
@@ -3111,7 +3212,7 @@ mod identity_pre_key_tests {
             .limit(1);
         assert_eq!(
             session
-                .execute_trusted_dynamic_query(&covering)
+                .execute_trusted_live_page(&covering, None)
                 .expect("bounded covering execution should preserve its result")
                 .row_count,
             1,
@@ -3129,7 +3230,7 @@ mod identity_pre_key_tests {
             .limit(1);
         assert_eq!(
             session
-                .execute_trusted_dynamic_query(&residual)
+                .execute_trusted_live_page(&residual, None)
                 .expect("bounded residual execution should preserve its result")
                 .row_count,
             0,

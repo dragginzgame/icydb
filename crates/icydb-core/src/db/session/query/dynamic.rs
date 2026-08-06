@@ -5,17 +5,37 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, DynamicTypedEntityBinding, GroupedQueryOutput, MissingRowPolicy,
-        QueryError, RowProjectionOutput,
+        DbSession, DynamicQuery, DynamicTypedEntityBinding, GroupedQueryOutput,
+        LiveQueryPageOutput, MissingRowPolicy, QueryError, ScalarPageWork,
+        commit::{cursor_authentication_key, database_incarnation_id},
+        cursor::{
+            CursorPlanError, ScalarOrderTermContract, ScalarPageMode, ScalarPageToken,
+            ScalarPageTokenAuthority, ScalarPageTokenProgress, ScalarPageTokenWindow,
+            decode_optional_cursor_token, encode_cursor,
+        },
+        executor::{
+            CoveringProjectionMetricsRecorder, PageWorkEnvelope,
+            ProjectionMaterializationMetricsRecorder, ScalarContinuationContext,
+            StructuralProjectionRequest, execute_structural_projection_page,
+        },
         query::{
-            admission::QueryAdmissionPolicy,
+            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
+            expr::{FilterExpr, OrderTerm as FluentOrderTerm},
             intent::{IntentError, StructuralQuery},
         },
         session::AcceptedSchemaCatalogContext,
     },
     traits::CanisterKind,
 };
-use icydb_diagnostic_code::QueryReadAdmissionCode;
+use icydb_diagnostic_code::{
+    DiagnosticDecodeReason, DiagnosticExecutionBudgetResource, DiagnosticExecutionLane,
+    QueryReadAdmissionCode,
+};
+
+#[cfg(not(test))]
+const SCALAR_PAGE_OUTPUT_ROWS: usize = 1_024;
+#[cfg(test)]
+const SCALAR_PAGE_OUTPUT_ROWS: usize = 2;
 
 #[derive(Clone, Copy)]
 enum DynamicReadLane {
@@ -23,10 +43,51 @@ enum DynamicReadLane {
     Trusted,
 }
 
+struct ScalarLiveCursorContract {
+    signature: crate::db::cursor::ContinuationSignature,
+    authority: ScalarPageTokenAuthority,
+    window: ScalarPageTokenWindow,
+    order_terms: Vec<ScalarOrderTermContract>,
+}
+
 impl<C: CanisterKind> DbSession<C> {
+    fn may_select_exact_single_primary_key(
+        request: &DynamicQuery,
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> bool {
+        let [primary_key] = catalog.accepted_schema_info().primary_key_names() else {
+            return false;
+        };
+        matches!(
+            request.filter_expr(),
+            Some(FilterExpr::Eq { field, .. } | FilterExpr::In { field, .. })
+                if field.eq_ignore_ascii_case(primary_key)
+        )
+    }
+
+    fn exact_primary_key_candidate_bound(
+        prepared_plan: &crate::db::executor::SharedPreparedExecutionPlan,
+    ) -> Option<usize> {
+        let access = &prepared_plan.logical_plan().access;
+        if access.as_by_key_path().is_some() {
+            return Some(1);
+        }
+
+        access.as_by_keys_path().map(<[crate::value::Value]>::len)
+    }
+
     fn structural_query_from_dynamic_request(
         request: &DynamicQuery,
         catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<StructuralQuery, QueryError> {
+        Self::structural_query_from_dynamic_request_with_page_limit(request, catalog, None, false)
+    }
+
+    fn structural_query_from_dynamic_request_with_page_limit(
+        request: &DynamicQuery,
+        catalog: &AcceptedSchemaCatalogContext,
+        page_limit: Option<u32>,
+        require_total_order: bool,
     ) -> Result<StructuralQuery, QueryError> {
         let schema = catalog.accepted_schema_info();
         let mut query = StructuralQuery::new(MissingRowPolicy::Ignore);
@@ -36,10 +97,15 @@ impl<C: CanisterKind> DbSession<C> {
         for order in request.order_terms() {
             query = query.order_term(order.clone());
         }
+        if require_total_order && request.order_terms().is_empty() {
+            for primary_key in schema.primary_key_names() {
+                query = query.order_term(FluentOrderTerm::asc(primary_key.clone()));
+            }
+        }
         if !request.selected_fields().is_empty() {
             query = query.select_fields(request.selected_fields().iter().cloned());
         }
-        if let Some(limit) = request.row_limit() {
+        if let Some(limit) = page_limit.or_else(|| request.row_limit()) {
             query = query.limit(limit);
         }
         for field in request.group_fields() {
@@ -58,41 +124,81 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(query)
     }
 
-    fn execute_dynamic_query_against_catalog(
-        &self,
+    fn scalar_page_cursor_error() -> QueryError {
+        QueryError::from_cursor_plan_error(CursorPlanError::invalid_continuation_cursor_payload(
+            DiagnosticDecodeReason::CursorTokenDecode,
+        ))
+    }
+
+    fn scalar_live_cursor_contract(
         request: &DynamicQuery,
-        lane: DynamicReadLane,
-        catalog: AcceptedSchemaCatalogContext,
-    ) -> Result<RowProjectionOutput, QueryError> {
-        if request.has_grouping()
-            || request.grouped_execution_limits().is_some()
-            || request.continuation_cursor().is_some()
-        {
-            return Err(QueryError::intent(
-                IntentError::scalar_terminal_requires_scalar_query(),
+        catalog: &AcceptedSchemaCatalogContext,
+        envelope: PageWorkEnvelope,
+        prepared_plan: &crate::db::executor::SharedPreparedExecutionPlan,
+    ) -> Result<ScalarLiveCursorContract, QueryError> {
+        let signature = prepared_plan
+            .continuation_signature_for_runtime()
+            .map_err(QueryError::execute)?;
+        let root_identity = catalog.runtime_root_identity();
+        let (root_fingerprint_method, root_fingerprint) = root_identity.fingerprint();
+        let authority = ScalarPageTokenAuthority::new(
+            database_incarnation_id()
+                .map_err(QueryError::execute)?
+                .to_bytes(),
+            root_identity.accepted_root_revision().get(),
+            root_fingerprint_method,
+            root_fingerprint,
+            catalog.fingerprint(),
+            prepared_plan.authority_ref().entity_tag(),
+        );
+        let window = ScalarPageTokenWindow::new(0, request.row_limit(), envelope.identity());
+        let canonical_order = prepared_plan
+            .logical_plan()
+            .scalar_plan()
+            .order
+            .as_ref()
+            .ok_or_else(Self::scalar_page_cursor_error)?;
+        let order_terms = canonical_order
+            .fields
+            .iter()
+            .map(|term| ScalarOrderTermContract::new(term.rendered_label(), term.direction()))
+            .collect::<Vec<_>>();
+
+        Ok(ScalarLiveCursorContract {
+            signature,
+            authority,
+            window,
+            order_terms,
+        })
+    }
+
+    fn validate_scalar_page_token(
+        token: &ScalarPageToken,
+        mode: ScalarPageMode,
+        signature: crate::db::cursor::ContinuationSignature,
+        authority: ScalarPageTokenAuthority,
+        window: ScalarPageTokenWindow,
+        order_terms: &[ScalarOrderTermContract],
+        entity: &str,
+    ) -> Result<(), QueryError> {
+        if token.signature() != signature {
+            return Err(QueryError::from_cursor_plan_error(
+                CursorPlanError::continuation_cursor_signature_mismatch(
+                    entity,
+                    &signature,
+                    &token.signature(),
+                ),
             ));
         }
-        let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
+        if token.mode() != mode
+            || token.authority() != authority
+            || token.window() != window
+            || token.order_terms() != order_terms
+        {
+            return Err(Self::scalar_page_cursor_error());
+        }
 
-        let authority = catalog.accepted_entity_authority();
-        let public_admission = match lane {
-            DynamicReadLane::Public => Some(QueryAdmissionPolicy::default_bounded_read()),
-            DynamicReadLane::Trusted => None,
-        };
-        let (payload, _) = self.execute_structural_projection_from_query(
-            query,
-            authority,
-            catalog.snapshot(),
-            public_admission.as_ref(),
-        )?;
-        let (columns, _fixed_scales, rows, row_count) = payload.into_output_components()?;
-
-        Ok(RowProjectionOutput {
-            entity: catalog.snapshot().entity_name().to_string(),
-            columns,
-            rows,
-            row_count,
-        })
+        Ok(())
     }
 
     fn execute_dynamic_grouped_query_against_catalog(
@@ -128,26 +234,273 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn execute_dynamic_query(
+    #[expect(
+        clippy::too_many_lines,
+        reason = "live-page orchestration keeps planning, cursor validation, execution, and response proof in one auditable boundary"
+    )]
+    fn execute_live_page_against_catalog(
         &self,
         request: &DynamicQuery,
+        continuation: Option<&str>,
         lane: DynamicReadLane,
-    ) -> Result<RowProjectionOutput, QueryError> {
+        catalog: AcceptedSchemaCatalogContext,
+    ) -> Result<LiveQueryPageOutput, QueryError> {
+        if request.has_grouping()
+            || request.grouped_execution_limits().is_some()
+            || request.continuation_cursor().is_some()
+        {
+            return Err(QueryError::intent(
+                IntentError::scalar_terminal_requires_scalar_query(),
+            ));
+        }
+
+        let envelope = match lane {
+            DynamicReadLane::Public => PageWorkEnvelope::public_scalar(),
+            DynamicReadLane::Trusted => PageWorkEnvelope::default_scalar(),
+        };
+        let page_row_limit = envelope
+            .limit(DiagnosticExecutionBudgetResource::ResultRows)
+            .and_then(|limit| usize::try_from(limit).ok())
+            .unwrap_or(SCALAR_PAGE_OUTPUT_ROWS)
+            .min(SCALAR_PAGE_OUTPUT_ROWS);
+        let decoded_token = decode_optional_cursor_token(continuation)
+            .map_err(QueryError::from_cursor_plan_error)?
+            .map(|bytes| {
+                ScalarPageToken::decode(
+                    bytes.as_slice(),
+                    &cursor_authentication_key().map_err(QueryError::execute)?,
+                )
+                .map_err(|error| {
+                    QueryError::from_cursor_plan_error(CursorPlanError::from_token_wire_error(
+                        error,
+                    ))
+                })
+            })
+            .transpose()?;
+        let prior_rows_emitted = decoded_token
+            .as_ref()
+            .map_or(0, |token| token.progress().rows_emitted());
+        let remaining_limit = request
+            .row_limit()
+            .map(|limit| u64::from(limit).saturating_sub(prior_rows_emitted));
+        let page_output_limit = remaining_limit
+            .unwrap_or(page_row_limit as u64)
+            .min(page_row_limit as u64);
+        let page_output_limit = usize::try_from(page_output_limit).unwrap_or(page_row_limit);
+        let execution_limit = u32::try_from(page_row_limit).unwrap_or(u32::MAX);
+        let execution_lane = match lane {
+            DynamicReadLane::Public => DiagnosticExecutionLane::PublicRead,
+            DynamicReadLane::Trusted => DiagnosticExecutionLane::TrustedRead,
+        };
+        let exact_candidate =
+            decoded_token.is_none() && Self::may_select_exact_single_primary_key(request, &catalog);
+        let initial_plan = if exact_candidate {
+            let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
+            Some(
+                self.structural_projection_prepared_plan_for_accepted_authority(
+                    &query,
+                    catalog.accepted_entity_authority(),
+                    catalog.snapshot(),
+                    execution_lane,
+                )?,
+            )
+        } else {
+            None
+        };
+        let initial_is_exact_exhaustion =
+            initial_plan.as_ref().is_some_and(|(prepared_plan, _, _)| {
+                Self::exact_primary_key_candidate_bound(prepared_plan)
+                    .is_some_and(|bound| bound <= page_output_limit)
+            });
+        let (prepared_plan, projection, _) = if initial_is_exact_exhaustion {
+            initial_plan.ok_or_else(Self::scalar_page_cursor_error)?
+        } else {
+            let query = Self::structural_query_from_dynamic_request_with_page_limit(
+                request,
+                &catalog,
+                Some(execution_limit),
+                true,
+            )?;
+            self.structural_projection_prepared_plan_for_accepted_authority(
+                &query,
+                catalog.accepted_entity_authority(),
+                catalog.snapshot(),
+                execution_lane,
+            )?
+        };
+        if matches!(lane, DynamicReadLane::Public) {
+            let policy = QueryAdmissionPolicy::default_bounded_read();
+            let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
+                policy.lane(),
+                prepared_plan.logical_plan(),
+            ));
+            if let Some(rejection) = summary.rejection() {
+                return Err(QueryError::from(rejection.code()));
+            }
+        }
+
+        let exact_initial_exhaustion = initial_is_exact_exhaustion;
+        let cursor_contract = decoded_token
+            .as_ref()
+            .map(|token| {
+                let contract =
+                    Self::scalar_live_cursor_contract(request, &catalog, envelope, &prepared_plan)?;
+                Self::validate_scalar_page_token(
+                    token,
+                    ScalarPageMode::Live,
+                    contract.signature,
+                    contract.authority,
+                    contract.window,
+                    contract.order_terms.as_slice(),
+                    request.entity(),
+                )?;
+                Ok::<_, QueryError>(contract)
+            })
+            .transpose()?;
+        let deferred_cursor_plan =
+            (!exact_initial_exhaustion && decoded_token.is_none()).then(|| prepared_plan.clone());
+        let continuation_context = decoded_token
+            .as_ref()
+            .and_then(|token| token.progress().last_emitted_logical().cloned())
+            .map_or_else(
+                ScalarContinuationContext::initial,
+                ScalarContinuationContext::resumed,
+            );
+        if decoded_token.is_some() && !continuation_context.has_cursor_boundary() {
+            return Err(Self::scalar_page_cursor_error());
+        }
+
+        let value_catalog = prepared_plan
+            .authority_ref()
+            .accepted_schema_info()
+            .map(crate::db::schema::SchemaInfo::value_catalog_handle)
+            .cloned()
+            .ok_or_else(QueryError::invariant)?;
+        let (columns, _fixed_scales) = projection.into_components();
+        let projection_request = StructuralProjectionRequest::new(
+            self.debug,
+            prepared_plan,
+            CoveringProjectionMetricsRecorder::none(),
+            ProjectionMaterializationMetricsRecorder::none(),
+            execution_lane,
+        );
+        let projection_request = if exact_initial_exhaustion {
+            projection_request
+        } else {
+            projection_request
+                .with_continuation(continuation_context)
+                .with_cursor_emission(page_output_limit)
+        };
+        let page = execute_structural_projection_page(&self.db, projection_request)
+            .map_err(QueryError::execute)?;
+        let row_count = page.rows.row_count();
+        let rows = page
+            .rows
+            .into_value_rows()
+            .into_iter()
+            .map(|row| {
+                row.iter()
+                    .map(|value| {
+                        crate::db::schema::output_value_from_runtime(
+                            value_catalog.enum_catalog(),
+                            value,
+                        )
+                        .map_err(|_| QueryError::invariant())
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let rows_emitted = prior_rows_emitted.saturating_add(u64::from(row_count));
+        let total_limit_reached = request
+            .row_limit()
+            .is_some_and(|limit| rows_emitted >= u64::from(limit));
+        let continuation = if page.has_more && !total_limit_reached {
+            let logical_boundary = page
+                .last_emitted_logical
+                .ok_or_else(Self::scalar_page_cursor_error)?;
+            let cursor_contract = if let Some(contract) = cursor_contract {
+                contract
+            } else {
+                let prepared_plan = deferred_cursor_plan
+                    .as_ref()
+                    .ok_or_else(Self::scalar_page_cursor_error)?;
+                Self::scalar_live_cursor_contract(request, &catalog, envelope, prepared_plan)?
+            };
+            let token = ScalarPageToken::new(
+                ScalarPageMode::Live,
+                cursor_contract.signature,
+                cursor_contract.authority,
+                cursor_contract.window,
+                cursor_contract.order_terms,
+                ScalarPageTokenProgress::new(Some(logical_boundary), None, None, 0, rows_emitted),
+            );
+            Some(encode_cursor(
+                token
+                    .encode(&cursor_authentication_key().map_err(QueryError::execute)?)
+                    .map_err(|error| {
+                        QueryError::from_cursor_plan_error(CursorPlanError::from_token_wire_error(
+                            error,
+                        ))
+                    })?
+                    .as_slice(),
+            ))
+        } else {
+            None
+        };
+
+        Ok(LiveQueryPageOutput {
+            entity: catalog.snapshot().entity_name().to_string(),
+            columns,
+            rows,
+            row_count,
+            continuation,
+            work: ScalarPageWork {
+                envelope_identity: envelope.identity(),
+                entries_visited: page.scanned_keys as u64,
+                result_rows: row_count,
+            },
+        })
+    }
+
+    /// Execute one revision-tolerant bounded scalar page.
+    pub fn execute_public_live_page(
+        &self,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+    ) -> Result<LiveQueryPageOutput, QueryError> {
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
-        self.execute_dynamic_query_against_catalog(request, lane, catalog)
+        self.execute_live_page_against_catalog(
+            request,
+            continuation,
+            DynamicReadLane::Public,
+            catalog,
+        )
     }
 
-    /// Execute one ordinary entity-name-driven dynamic read.
-    ///
-    /// The selected accepted plan must satisfy the built-in bounded public-read
-    /// policy before any row is executed.
-    pub fn execute_public_dynamic_query(
+    /// Execute one live page through a typed binding's immutable accepted
+    /// entity identity. `None` means the opaque binding is stale.
+    #[doc(hidden)]
+    pub fn execute_public_live_page_for_typed_binding(
         &self,
+        binding: &DynamicTypedEntityBinding,
         request: &DynamicQuery,
-    ) -> Result<RowProjectionOutput, QueryError> {
-        self.execute_dynamic_query(request, DynamicReadLane::Public)
+        continuation: Option<&str>,
+    ) -> Result<Option<LiveQueryPageOutput>, QueryError> {
+        let Some(catalog) = self
+            .current_typed_entity_binding_catalog(binding)
+            .map_err(QueryError::execute)?
+        else {
+            return Ok(None);
+        };
+        self.execute_live_page_against_catalog(
+            request,
+            continuation,
+            DynamicReadLane::Public,
+            catalog,
+        )
+        .map(Some)
     }
 
     /// Execute one ordinary entity-name-driven bounded grouped read.
@@ -163,24 +516,6 @@ impl<C: CanisterKind> DbSession<C> {
             DynamicReadLane::Public,
             catalog,
         )
-    }
-
-    /// Execute one typed read through the binding's immutable accepted entity
-    /// identity. `None` means the opaque binding is stale.
-    #[doc(hidden)]
-    pub fn execute_public_dynamic_query_for_typed_binding(
-        &self,
-        binding: &DynamicTypedEntityBinding,
-        request: &DynamicQuery,
-    ) -> Result<Option<RowProjectionOutput>, QueryError> {
-        let Some(catalog) = self
-            .current_typed_entity_binding_catalog(binding)
-            .map_err(QueryError::execute)?
-        else {
-            return Ok(None);
-        };
-        self.execute_dynamic_query_against_catalog(request, DynamicReadLane::Public, catalog)
-            .map(Some)
     }
 
     /// Execute one grouped typed read through the binding's immutable accepted
@@ -205,18 +540,6 @@ impl<C: CanisterKind> DbSession<C> {
         .map(Some)
     }
 
-    /// Execute one trusted entity-name-driven dynamic read.
-    ///
-    /// This uses accepted schema, planner, executor, and projection authority
-    /// only. The request root still supplies finite physical and aggregate
-    /// execution policy; callers separately own authorization.
-    pub fn execute_trusted_dynamic_query(
-        &self,
-        request: &DynamicQuery,
-    ) -> Result<RowProjectionOutput, QueryError> {
-        self.execute_dynamic_query(request, DynamicReadLane::Trusted)
-    }
-
     /// Execute one trusted entity-name-driven grouped read.
     ///
     /// This bypasses ordinary public admission but retains accepted-schema
@@ -230,6 +553,26 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
         self.execute_dynamic_grouped_query_against_catalog(
             request,
+            DynamicReadLane::Trusted,
+            catalog,
+        )
+    }
+
+    /// Execute one trusted revision-tolerant bounded dynamic page.
+    ///
+    /// Trusted execution bypasses public admission but retains the same
+    /// physical and aggregate request budgets as every other read lane.
+    pub fn execute_trusted_live_page(
+        &self,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+    ) -> Result<LiveQueryPageOutput, QueryError> {
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
+            .map_err(QueryError::execute)?;
+        self.execute_live_page_against_catalog(
+            request,
+            continuation,
             DynamicReadLane::Trusted,
             catalog,
         )

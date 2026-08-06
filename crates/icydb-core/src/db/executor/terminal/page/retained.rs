@@ -1,5 +1,8 @@
-use crate::{db::executor::projection::ProjectionValidationRow, value::Value};
-use std::rc::Rc;
+use crate::{
+    db::executor::{OrderReadableRow, projection::ProjectionValidationRow},
+    value::Value,
+};
+use std::{borrow::Cow, rc::Rc};
 
 ///
 /// RetainedSlotLayout
@@ -281,5 +284,19 @@ impl RetainedSlotRow {
 impl ProjectionValidationRow for RetainedSlotRow {
     fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value> {
         self.slot_ref(slot)
+    }
+}
+
+impl OrderReadableRow for RetainedSlotRow {
+    fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
+        self.slot_ref(slot)
+    }
+
+    fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        self.slot_ref(slot).map(Cow::Borrowed)
+    }
+
+    fn order_slots_are_borrowed(&self) -> bool {
+        true
     }
 }

@@ -40,7 +40,10 @@ use string::decode_cursor;
 pub(in crate::db) use string::encode_cursor;
 #[cfg(test)]
 pub(in crate::db) use string::encode_grouped_cursor_token;
-pub(in crate::db) use token::{GroupedContinuationToken, TokenWireError};
+pub(in crate::db) use token::{
+    GroupedContinuationToken, ScalarOrderTermContract, ScalarPageMode, ScalarPageToken,
+    ScalarPageTokenAuthority, ScalarPageTokenProgress, ScalarPageTokenWindow, TokenWireError,
+};
 pub(in crate::db) use validated::ValidatedGroupedCursor;
 
 /// Decode one optional external continuation token through cursor-runtime authority.

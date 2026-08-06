@@ -14,7 +14,10 @@ pub mod sql;
 
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
-pub use icydb_core::db::{DynamicQuery, GroupedQueryOutput, GroupedRow, RowProjectionOutput};
+pub use icydb_core::db::{
+    DynamicQuery, GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, RowProjectionOutput,
+    ScalarPageWork,
+};
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{
     SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,

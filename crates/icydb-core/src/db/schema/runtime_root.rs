@@ -117,6 +117,18 @@ impl AcceptedSchemaRuntimeRootIdentity {
     pub(in crate::db) const fn database_incarnation(self) -> DatabaseIncarnationId {
         self.database_incarnation
     }
+
+    /// Return the durable accepted-root generation represented by this runtime.
+    #[must_use]
+    pub(in crate::db) const fn accepted_root_revision(self) -> AcceptedSchemaRevision {
+        self.accepted_root_revision
+    }
+
+    /// Return the method-qualified database-wide accepted-root fingerprint.
+    #[must_use]
+    pub(in crate::db) const fn fingerprint(self) -> (u8, [u8; 32]) {
+        (self.fingerprint_method_version, self.fingerprint)
+    }
 }
 
 #[cfg(test)]

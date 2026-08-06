@@ -22,7 +22,7 @@ fn query_one_entity_dynamic_rows() -> u32 {
         };
         let request =
             DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(Ulid::MIN));
-        let Ok(output) = database.execute_public_dynamic_query(&request) else {
+        let Ok(output) = database.execute_live_page(&request, None) else {
             return 0;
         };
 
@@ -44,7 +44,7 @@ fn measure_repeated_point_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
         let mut rows = 0_u32;
         let start = ic_cdk::api::performance_counter(1);
         for _ in 0..executions {
-            match database.execute_trusted_dynamic_query(&request) {
+            match database.execute_trusted_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
@@ -69,7 +69,7 @@ fn measure_parameterized_point_queries(repetitions: u16) -> ((u16, u16, u32, u64
         for value in 0..executions {
             let request = DynamicQuery::new("OneSimpleEntity01")
                 .filter(FieldRef::new("id").eq(Ulid::from_u128(u128::from(value))));
-            match database.execute_trusted_dynamic_query(&request) {
+            match database.execute_trusted_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
@@ -95,7 +95,7 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
         let mut rows = 0_u32;
         let start = ic_cdk::api::performance_counter(1);
         for _ in 0..executions {
-            match database.execute_trusted_dynamic_query(&request) {
+            match database.execute_trusted_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }

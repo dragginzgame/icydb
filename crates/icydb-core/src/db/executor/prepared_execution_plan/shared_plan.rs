@@ -67,6 +67,13 @@ impl SharedPreparedExecutionPlan {
         self.core.execution_family()
     }
 
+    /// Return the accepted-schema-bound scalar continuation signature.
+    pub(in crate::db) fn continuation_signature_for_runtime(
+        &self,
+    ) -> Result<crate::db::cursor::ContinuationSignature, InternalError> {
+        self.core.continuation_signature_for_runtime()
+    }
+
     /// Borrow the accepted schema authority frozen into this shared plan.
     pub(in crate::db) fn accepted_schema_authority(
         &self,

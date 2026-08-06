@@ -176,7 +176,7 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
             .order_by(asc("id"))
             .select(["id"])
             .limit(1);
-        let result = session.execute_trusted_dynamic_query(&query)?;
+        let result = session.execute_trusted_live_page(&query, None)?;
         let id = result
             .rows
             .first()

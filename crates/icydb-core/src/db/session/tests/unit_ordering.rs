@@ -107,7 +107,7 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
         .order_by(asc("label"))
         .limit(100);
     let dynamic = session
-        .execute_trusted_dynamic_query(&tie_break_query)
+        .execute_trusted_live_page(&tie_break_query, None)
         .expect("dynamic Unit primary-key tie-break should plan and execute");
     assert_eq!(dynamic.rows, vec![singleton_row()]);
 
@@ -134,7 +134,7 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
         )
         .expect("generated-style typed binding should resolve accepted Unit authority");
     let typed = session
-        .execute_public_dynamic_query_for_typed_binding(&binding, &primary_key_query)
+        .execute_public_live_page_for_typed_binding(&binding, &primary_key_query, None)
         .expect("typed Unit primary-key tie-break should execute")
         .expect("typed binding should remain current");
     assert_eq!(typed.rows, vec![singleton_row()]);
@@ -154,7 +154,7 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
             .order_by(asc("id"))
             .limit(100);
         let output = session
-            .execute_trusted_dynamic_query(&query)
+            .execute_trusted_live_page(&query, None)
             .expect("Unit comparison should plan and execute");
 
         assert_eq!(output.row_count, expected_rows);
@@ -255,7 +255,7 @@ fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
         .limit(1);
 
     session
-        .execute_trusted_dynamic_query(&query)
+        .execute_trusted_live_page(&query, None)
         .expect("warm query should build the accepted runtime root");
     reset_accepted_schema_runtime_build_counts_for_tests();
     reset_accepted_schema_snapshot_fingerprint_builds_for_tests();
@@ -263,7 +263,7 @@ fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
     for _ in 0..1_000 {
         let request_session = new_request_session();
         let output = request_session
-            .execute_trusted_dynamic_query(&query)
+            .execute_trusted_live_page(&query, None)
             .expect("warm query should reuse accepted runtime state");
         assert_eq!(output.row_count, 1);
     }
@@ -281,17 +281,18 @@ fn parameterized_plan_cache_binds_current_values_across_dynamic_and_sql_surfaces
     seed_singleton(&session);
     let matching = DynamicQuery::new(ENTITY_NAME)
         .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
-        .select(["id", "label"]);
+        .select(["id", "label"])
+        .order_by(asc("id"));
 
     let first = session
-        .execute_trusted_dynamic_query(&matching)
+        .execute_trusted_live_page(&matching, None)
         .expect("first dynamic equality should compile its parameterized template");
     assert_eq!(first.rows, vec![singleton_row()]);
     let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
 
     let (second, attribution) = session
         .execute_trusted_sql_query_with_attribution(
-            "SELECT id, label FROM Singleton WHERE label = 'missing'",
+            "SELECT id, label FROM Singleton WHERE label = 'missing' ORDER BY id LIMIT 2",
         )
         .expect("different SQL literal should bind through the shared dynamic template");
     let SqlStatementResult::Projection { rows, .. } = second else {
@@ -325,12 +326,12 @@ fn parameterized_in_list_cache_identity_is_independent_of_nonempty_arity() {
         .select(["id", "label"]);
 
     let first = session
-        .execute_trusted_dynamic_query(&one)
+        .execute_trusted_live_page(&one, None)
         .expect("one-item IN should compile its list-slot template");
     assert!(first.rows.is_empty());
     let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
     let second = session
-        .execute_trusted_dynamic_query(&two)
+        .execute_trusted_live_page(&two, None)
         .expect("two-item IN should bind to the same list-slot template");
 
     assert_eq!(second.rows, vec![singleton_row()]);
@@ -354,7 +355,7 @@ fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
 
     assert!(
         session
-            .execute_trusted_dynamic_query(&above)
+            .execute_trusted_live_page(&above, None)
             .expect("first range should compile its parameterized template")
             .rows
             .is_empty(),
@@ -362,7 +363,7 @@ fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
     let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
     assert_eq!(
         session
-            .execute_trusted_dynamic_query(&below)
+            .execute_trusted_live_page(&below, None)
             .expect("second range should bind a fresh lower bound")
             .rows,
         vec![singleton_row()],
@@ -376,7 +377,9 @@ fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
         .filter(FieldRef::new("label").gte(InputValue::Bool(true)))
         .select(["id", "label"]);
     assert!(
-        session.execute_trusted_dynamic_query(&wrong_type).is_err(),
+        session
+            .execute_trusted_live_page(&wrong_type, None)
+            .is_err(),
         "schema validation must reject a wrong-typed binding before cache reuse",
     );
     assert_eq!(
@@ -393,7 +396,7 @@ fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
         .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
         .select(["id"]);
     session
-        .execute_trusted_dynamic_query(&base)
+        .execute_trusted_live_page(&base, None)
         .expect("base parameterized shape should execute");
     let after_base = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
 
@@ -401,7 +404,7 @@ fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
         .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
         .select(["id", "label"]);
     session
-        .execute_trusted_dynamic_query(&projection)
+        .execute_trusted_live_page(&projection, None)
         .expect("different projection shape should execute");
     let after_projection = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
     assert_eq!(after_projection, after_base.saturating_add(1));
@@ -411,7 +414,7 @@ fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
         .select(["id", "label"])
         .order_by(asc("label"));
     session
-        .execute_trusted_dynamic_query(&ordered)
+        .execute_trusted_live_page(&ordered, None)
         .expect("different ordering topology should execute");
     assert_eq!(
         shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),

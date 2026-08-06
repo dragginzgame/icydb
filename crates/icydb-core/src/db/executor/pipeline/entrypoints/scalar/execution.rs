@@ -108,7 +108,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     normalize_scalar_route_for_execution(
         &mut route_plan,
         plan,
-        continuation,
+        &continuation,
         unpaged_rows_mode,
         suppress_route_scan_hints,
         terminal,
@@ -132,6 +132,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     let execution_started_at = start_execution_timer();
 
     let executable_access = plan.access.executable_contract();
+    let access_continuation = continuation.clone();
     let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
         runtime: &runtime,
         plan,
@@ -139,7 +140,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         stream_bindings: AccessStreamBindings::new(
             index_prefix_specs,
             index_range_specs,
-            continuation.access_scan_input(direction),
+            access_continuation.access_scan_input(direction, plan),
         )
         .with_index_prefix_child_expansion(route_plan.scan_hints.index_prefix_child_expansion),
         execution_preparation: &prep,
@@ -150,7 +151,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     });
     record_plan_metrics(entity_path.as_ref(), plan);
     let (attempt, execution_stats) = with_execution_stats_capture(debug, || {
-        execute(&execution_inputs, &route_plan, continuation)
+        execute(&execution_inputs, &route_plan, continuation.clone())
     });
     let attempt = attempt?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);

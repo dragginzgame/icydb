@@ -354,6 +354,7 @@ fn build_canister_package_artifacts(
     let configured = configure_canister_build(&root, &canister_target_dir, package_name, options)?;
     let packages = [package_name];
     let outcome = build_cached_cargo_wasm(&CargoWasmCacheRequest {
+        context: context_label,
         workspace_root: &root,
         target_dir: &canister_target_dir,
         packages: &packages,
@@ -768,6 +769,7 @@ pub fn build_maintained_canisters_with_options(
         options.build_profile,
     );
     let outcome = build_cached_cargo_wasm(&CargoWasmCacheRequest {
+        context: &context_label,
         workspace_root: &root,
         target_dir: &canister_target_dir,
         packages: &packages,
