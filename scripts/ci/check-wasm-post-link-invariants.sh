@@ -16,7 +16,19 @@ require_text() {
 
 require_text \
     testing/integration/src/lib.rs \
-    'wasm_optimizer::optimize_deployable_wasm(&built_wasm_path, &final_deployable_path)' \
+    'wasm_optimizer::optimize_deployable_wasm(' \
+    'fixture builds must invoke the canonical post-link artifact producer.'
+require_text \
+    testing/integration/src/lib.rs \
+    '&configured.compiler_emitted,' \
+    'fixture post-link builds must consume the compiler-emitted artifact.'
+require_text \
+    testing/integration/src/lib.rs \
+    '&configured.final_deployable,' \
+    'fixture post-link builds must write the canonical deployable artifact.'
+require_text \
+    testing/integration/src/lib.rs \
+    'final_deployable: configured.final_deployable,' \
     'fixture builds must publish the canonical post-link artifact.'
 require_text \
     scripts/app/build.sh \
