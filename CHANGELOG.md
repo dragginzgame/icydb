@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- The CLI now defaults an omitted ICP environment to `local` instead of
+  `demo`, and stale-state guidance requires target verification before any
+  destructive recovery advice. Scripts relying on implicit `demo` must select
+  it explicitly.
+
 ## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)

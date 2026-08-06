@@ -167,7 +167,8 @@ fn cli_args_preserve_trailing_sql_convenience_form() {
     let (canister, environment, _, sql) = sql_shell_config_inputs(sql_args);
 
     assert_eq!(canister, "test_sql");
-    assert_eq!(environment, DEFAULT_ENVIRONMENT);
+    assert_eq!(DEFAULT_ENVIRONMENT, "local");
+    assert_eq!(environment, "local");
     assert_eq!(sql.as_deref(), Some("SELECT name FROM character;"));
 }
 
@@ -410,6 +411,7 @@ fn cli_args_group_canister_status_under_canister_keyword() {
     };
 
     assert_eq!(target.canister_name(), "demo");
+    assert_eq!(target.environment(), "local");
 }
 
 #[test]

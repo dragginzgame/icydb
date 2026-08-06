@@ -104,7 +104,7 @@ fn missing_canister_message(environment: &str, canister: &str) -> String {
 
 fn missing_canister_base_message(environment: &str, canister: &str) -> String {
     format!(
-        "canister '{canister}' is not created in the '{environment}' ICP environment.\nRun `icydb canister refresh {canister} --environment {environment}` to rebuild and refresh that canister.\nRun `icydb canister list --environment {environment}` to see known local canisters.\nThe CLI never starts or stops the ICP network; manage that lifecycle outside icydb."
+        "canister '{canister}' is not created in the '{environment}' ICP environment.\nVerify that the environment was selected intentionally, then run `icydb canister list --environment {environment}` to see its known canisters.\nDo not refresh unless this explicitly selected environment is disposable and you intend to rebuild its canister state.\nThe CLI never starts or stops the ICP network; manage that lifecycle outside icydb."
     )
 }
 

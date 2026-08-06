@@ -224,6 +224,16 @@ fn sql_recovery_hint_leaves_unrelated_errors_unchanged() {
 }
 
 #[test]
+fn sql_recovery_hint_requires_environment_verification_before_disposable_refresh() {
+    let error = "startup index rebuild failed: store 'token' not found";
+    let rendered = sql_error_with_recovery_hint(error, "local", "toko-feed");
+
+    assert!(rendered.contains("canister status toko-feed --environment local"));
+    assert!(rendered.contains("Do not refresh unless"));
+    assert!(!rendered.contains("run `icydb canister refresh"));
+}
+
+#[test]
 fn candid_escape_string_escapes_sql_for_wire_arg() {
     assert_eq!(
         candid_escape_string("SELECT \"name\\path\"\nFROM Character\tWHERE note = 'a\rb'"),

@@ -87,14 +87,14 @@ pub(super) fn sql_error_with_recovery_hint(
     environment: &str,
     canister: &str,
 ) -> String {
-    if !looks_like_stale_demo_sql_surface(error) {
+    if !looks_like_stale_sql_surface(error) {
         return error.to_string();
     }
 
     format!("{error}\n\n{}", sql_recovery_hint(environment, canister))
 }
 
-fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
+fn looks_like_stale_sql_surface(error: &str) -> bool {
     stale_startup_index_rebuild(error)
 }
 
@@ -106,6 +106,6 @@ fn stale_startup_index_rebuild(error: &str) -> bool {
 
 fn sql_recovery_hint(environment: &str, canister: &str) -> String {
     format!(
-        "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. If this is disposable, run `icydb canister refresh {canister} --environment {environment}`; otherwise repair it or use `icydb canister upgrade {canister} --environment {environment}` intentionally."
+        "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. Verify that target first with `icydb canister status {canister} --environment {environment}`. Do not refresh unless this explicitly selected environment is disposable; otherwise repair it or use `icydb canister upgrade {canister} --environment {environment}` intentionally."
     )
 }

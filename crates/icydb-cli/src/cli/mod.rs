@@ -22,7 +22,9 @@ pub(crate) use target::{CanisterTarget, EnvironmentTarget};
 
 use clap::{Parser, Subcommand};
 
-pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
+// Match the upstream `icp` CLI's omitted-environment behavior. Remote or
+// shared environments must be selected explicitly by flag or environment.
+pub(crate) const DEFAULT_ENVIRONMENT: &str = "local";
 pub(super) const ICP_ENVIRONMENT_ENV: &str = "ICP_ENVIRONMENT";
 
 ///
