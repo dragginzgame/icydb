@@ -69,11 +69,13 @@ impl SqlSurfaceTokens {
 
         if reset_statements.is_empty() {
             quote! {
-                const fn __icydb_sql_surface_reset_all_tables() {}
+                const fn __icydb_sql_surface_reset_all_tables(
+                ) {}
             }
         } else {
             quote! {
-                fn __icydb_sql_surface_reset_all_tables() -> Result<(), ::icydb::Error> {
+                fn __icydb_sql_surface_reset_all_tables(
+                ) -> Result<(), ::icydb::Error> {
                     #reset_statements
 
                     Ok(())

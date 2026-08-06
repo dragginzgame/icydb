@@ -55,7 +55,7 @@ where
     C: CanisterKind,
 {
     let context = prepared_read_execution_context(&plan, execution_lane);
-    with_read_execution_budget(context, || {
+    with_read_execution_budget(db.request_execution_scope(), context, || {
         execute_shared_grouped_plan_for_canister_inner(db, debug, plan, cursor)
     })
 }
@@ -111,7 +111,7 @@ where
     C: CanisterKind,
 {
     let context = prepared_read_execution_context(&plan, execution_lane);
-    with_read_execution_budget(context, || {
+    with_read_execution_budget(db.request_execution_scope(), context, || {
         execute_shared_grouped_plan_for_canister_with_phase_attribution_inner(
             db, debug, plan, cursor,
         )

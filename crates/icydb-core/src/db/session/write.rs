@@ -1596,7 +1596,10 @@ mod typed_adapter_tests {
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
 
-        let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         session
             .db
             .ensure_recovered_state()
@@ -2101,13 +2104,7 @@ mod mixed_relation_batch_tests {
                 FieldId::new(2),
                 "parent_id".to_string(),
                 SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Relation {
-                    target_path: ENTITY_SOURCE.to_string(),
-                    target_entity_name: ENTITY_NAME.to_string(),
-                    target_entity_tag: ENTITY_TAG,
-                    target_store_path: STORE_PATH.to_string(),
-                    key_kind: Box::new(AcceptedFieldKind::Nat64),
-                },
+                AcceptedFieldKind::Nat64,
                 Vec::new(),
                 true,
                 SchemaInsertDefault::None,
@@ -2214,7 +2211,10 @@ mod mixed_relation_batch_tests {
         DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-        let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         session
             .db
             .ensure_recovered_state()
@@ -2346,6 +2346,34 @@ mod mixed_relation_batch_tests {
             icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
             icydb_diagnostic_code::DiagnosticConstraintKind::Relation.raw(),
         )));
+    }
+
+    #[test]
+    fn accepted_relation_edges_drive_catalog_and_describe_introspection() {
+        let session = initialize();
+        let entities = session
+            .show_entities()
+            .expect("accepted entity catalog should resolve");
+        let source = entities
+            .iter()
+            .find(|entity| entity.entity_name() == ENTITY_NAME)
+            .expect("relation source should be listed");
+        assert_eq!(source.relations(), 1);
+
+        let description = session
+            .try_describe_entity_by_name(ENTITY_NAME)
+            .expect("accepted relation source should describe");
+        let [relation] = description.relations() else {
+            panic!("accepted relation edge should produce one relation row");
+        };
+        assert_eq!(relation.field(), "parent_id");
+        assert_eq!(relation.target_path(), ENTITY_SOURCE);
+        assert_eq!(relation.target_entity_name(), ENTITY_NAME);
+        assert_eq!(relation.target_store_path(), STORE_PATH);
+        assert_eq!(
+            relation.cardinality(),
+            crate::db::EntityRelationCardinality::Single,
+        );
     }
 
     #[test]
@@ -2740,7 +2768,10 @@ mod identity_pre_key_tests {
         DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-        let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         session
             .db
             .ensure_recovered_state()
@@ -2769,7 +2800,10 @@ mod identity_pre_key_tests {
     }
 
     fn initialize_journaled() -> DbSession<JournaledTestCanister> {
-        let session = DbSession::<JournaledTestCanister>::new(&JOURNALED_STORE_REGISTRY);
+        let session = DbSession::<JournaledTestCanister>::new(
+            &JOURNALED_STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         session
             .db
             .ensure_recovered_state()
@@ -4354,7 +4388,10 @@ mod targeted_rule_mutation_tests {
             BTreeMap::from([(entity_tag, snapshot)]),
         );
 
-        let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         session
             .db
             .ensure_recovered_state()

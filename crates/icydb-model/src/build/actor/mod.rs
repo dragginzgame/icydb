@@ -235,7 +235,8 @@ fn generate_endpoint_runtime() -> TokenStream {
                 Ok(())
             }
 
-            pub(crate) fn snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
+            pub(crate) fn snapshot(
+            ) -> Result<::icydb::db::StorageReport, ::icydb::Error> {
                 ::icydb::__macro::execute_generated_storage_report(&super::db()?)
             }
         }

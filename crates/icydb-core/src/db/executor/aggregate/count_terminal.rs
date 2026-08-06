@@ -55,7 +55,7 @@ where
         DiagnosticExecutionLane::TrustedRead,
         DIRECT_COUNT_SHAPE_DOMAIN,
     );
-    with_read_execution_budget(context, || {
+    with_read_execution_budget(db.request_execution_scope(), context, || {
         execute_direct_count_index_prefix_cardinality_inner(db, authority, page, prefix_keys)
     })
 }

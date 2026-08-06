@@ -4,7 +4,8 @@ IcyDB has two maintained read authorities:
 
 - ordinary typed/dynamic reads use the built-in `PublicRead` admission policy;
 - trusted dynamic or SQL reads are explicit admin lanes whose authorization
-  and resource policy belong to the caller.
+  belongs to the caller while the active request scope supplies finite IcyDB
+  resource policy.
 
 Generated Rust adapters never choose admission or execution semantics.
 
@@ -40,20 +41,32 @@ The returned typed error preserves the stable `QueryReadAdmissionCode`; see
 ```rust
 #[ic_cdk::query]
 fn active_users() -> Result<Vec<User>, String> {
-    db()
-        .map_err(|error| error.to_string())?
-        .query::<User>()
-        .map_err(|error| error.to_string())?
-        .filter(FieldRef::new("active").eq(true))
-        .order_by(asc("id"))
-        .limit(25)
-        .execute_rows()
-        .map_err(|error| error.to_string())
+    icydb::db::with_request_execution(|| {
+        db!()
+            .map_err(|error| error.to_string())?
+            .query::<User>()
+            .map_err(|error| error.to_string())?
+            .filter(FieldRef::new("active").eq(true))
+            .order_by(asc("id"))
+            .limit(25)
+            .execute_rows()
+            .map_err(|error| error.to_string())
+    })
 }
 ```
 
-The endpoint must authorize the caller before entering IcyDB and must still
-enforce its final response-byte budget after shaping the typed result.
+The endpoint must authorize the caller before entering IcyDB and establish
+exactly one synchronous database segment with
+`icydb::db::with_request_execution`. Nested helpers use `db!()` without an
+argument and share that segment's counters. The endpoint must still enforce
+its final response-byte budget after shaping the typed result.
+
+If database work occurs both before and after an inter-canister `await`, use
+`with_request_execution_root` and pass the returned root explicitly as
+`db!(&request_root)`. An await that happens entirely before database work does
+not need the explicit form; enter the ordinary scope after it. The other
+canister always has its own IcyDB scope—the explicit root only preserves this
+canister's accounting while its endpoint is suspended.
 
 ## Exact Lookup
 
@@ -62,7 +75,7 @@ recognizes planner-proven exact primary-key access; it never trusts the
 spelling of the predicate alone.
 
 ```rust
-let rows = db()?
+let rows = db!()?
     .query::<User>()?
     .filter(FieldRef::new("id").eq(user_id))
     .limit(1)
@@ -78,7 +91,7 @@ rows.
 Use an accepted indexed order and an explicit limit:
 
 ```rust
-let rows = db()?
+let rows = db!()?
     .query::<User>()?
     .filter(FieldRef::new("active").eq(true))
     .order_by(asc("id"))
@@ -97,7 +110,7 @@ reads. Declare group keys and aggregates in output order, provide hard grouped
 limits, and bound each returned page:
 
 ```rust
-let page = db()?
+let page = db!()?
     .query::<User>()?
     .group_by("country")
     .aggregate(count())
@@ -121,7 +134,7 @@ let request = DynamicQuery::new("LedgerEntry")
     .order_by(asc("id"))
     .limit(100);
 
-let rows = db()?.execute_trusted_dynamic_query(&request)?;
+let rows = db!()?.execute_trusted_dynamic_query(&request)?;
 ```
 
 Only controller/admin code with an explicit resource policy should use this

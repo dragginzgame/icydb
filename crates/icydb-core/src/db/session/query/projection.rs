@@ -179,6 +179,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
+        lane: DiagnosticExecutionLane,
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
@@ -194,6 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
                 accepted_schema,
                 schema_fingerprint,
                 query,
+                lane,
             )?;
         let projection_spec = prepared_plan.logical_plan().projection_spec_with_schema(
             authority
@@ -212,11 +214,17 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema: &AcceptedSchemaSnapshot,
         admission: Option<&QueryAdmissionPolicy>,
     ) -> Result<(StructuralProjectionPayload, QueryPlanCacheAttribution), QueryError> {
+        let execution_lane = if admission.is_some() {
+            DiagnosticExecutionLane::PublicRead
+        } else {
+            DiagnosticExecutionLane::TrustedRead
+        };
         let (prepared_plan, projection, cache_attribution) = self
             .structural_projection_prepared_plan_for_accepted_authority(
                 &query,
                 authority,
                 accepted_schema,
+                execution_lane,
             )?;
         if let Some(policy) = admission {
             let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
@@ -242,11 +250,7 @@ impl<C: CanisterKind> DbSession<C> {
                 prepared_plan,
                 CoveringProjectionMetricsRecorder::none(),
                 ProjectionMaterializationMetricsRecorder::none(),
-                if admission.is_some() {
-                    DiagnosticExecutionLane::PublicRead
-                } else {
-                    DiagnosticExecutionLane::TrustedRead
-                },
+                execution_lane,
             ),
         )
         .map_err(QueryError::execute)?;

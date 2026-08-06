@@ -32,6 +32,7 @@ use crate::{
     traits::CanisterKind,
     value::{OutputValue, Value},
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 use std::rc::Rc;
 
 #[cfg(feature = "diagnostics")]
@@ -418,6 +419,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority.clone(),
                 catalog,
                 command.query(),
+                DiagnosticExecutionLane::TrustedRead,
             )?;
 
         Ok(
@@ -515,6 +517,7 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.clone(),
                     catalog,
                     command.query(),
+                    DiagnosticExecutionLane::TrustedRead,
                 )?;
             attribution.merge(compile_attribution);
 

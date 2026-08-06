@@ -265,7 +265,10 @@ fn accepted_relations_require_accepted_target_authority() {
         descriptor.row_decode_contract(catalog),
     );
 
-    let db: Db<RelationTestCanister> = Db::new(&TEST_REGISTRY);
+    let db: Db<RelationTestCanister> = Db::new(
+        &TEST_REGISTRY,
+        crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+    );
     super::accepted_relations_for_row_contract(&db, "Source", &row_contract, None)
         .expect_err("accepted relation targets must exist in the current accepted catalog");
 }

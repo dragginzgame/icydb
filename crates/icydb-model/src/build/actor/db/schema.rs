@@ -35,7 +35,8 @@ impl quote::ToTokens for SchemaSurfaceTokens {
 
         tokens.extend(quote! {
             #[allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
-            pub(crate) fn __icydb_endpoint_handler_schema() -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
+            pub(crate) fn __icydb_endpoint_handler_schema(
+            ) -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
                 Ok(vec![
                     #(db()?.try_describe_entity_by_source_key(#entity_sources)?),*
                 ])

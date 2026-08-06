@@ -387,7 +387,10 @@ mod tests {
                 .expect("accepted runtime candidate should publish");
         });
 
-        let db = Db::<TestCanister>::new(&STORE_REGISTRY);
+        let db = Db::<TestCanister>::new(
+            &STORE_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         let by_tag =
             accepted_runtime_entity_for_tag(&db, entity_tag).expect("accepted tag should route");
         let by_path =

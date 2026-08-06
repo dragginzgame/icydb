@@ -15,6 +15,10 @@ use icydb::{
         IntegrityTerminalOutcome, SqlIntegrityError, SqlQueryExecutionAttribution,
         SqlStructuralWorkAttribution, sql::SqlQueryResult,
     },
+    diagnostic::{
+        DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
+        DiagnosticFactTag, RuntimeBoundaryCode,
+    },
 };
 use icydb_testing_integration::{
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
@@ -490,6 +494,14 @@ fn query_surface_with_perf(
             )
             .expect("query_token_loop_with_perf should decode"),
     }
+}
+
+fn error_fact(error: &Error, tag: DiagnosticFactTag) -> Option<u64> {
+    error
+        .facts()
+        .iter()
+        .find(|fact| fact.tag() == tag.raw())
+        .map(icydb::DiagnosticFact::value)
 }
 
 fn warm_query_surface_with_perf(
@@ -1733,6 +1745,39 @@ fn assert_journaled_guarded_reentry_perf_stays_bounded(
         "{label} guarded reentry probe should stay below the regression budget, got {} >= {}",
         perf.instructions,
         instruction_budget,
+    );
+}
+
+#[test]
+fn sql_perf_n_plus_one_loop_exhausts_one_shared_request_scope() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+    let result: Result<SqlQueryPerfResult, Error> = fixture
+        .query_candid(
+            "query_user_loop_with_perf",
+            (
+                "SELECT id FROM PerfAuditUser WHERE id = 1 LIMIT 1".to_string(),
+                257_u32,
+            ),
+        )
+        .expect("request-budget probe should decode a typed result");
+    let error = result.expect_err("the 257th query must exhaust the shared request root");
+
+    assert!(matches!(
+        error.diagnostic().detail(),
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+        })
+    ));
+    assert_eq!(
+        error_fact(&error, DiagnosticFactTag::BudgetResource),
+        Some(DiagnosticExecutionBudgetResource::QueryExecutions.raw()),
+    );
+    assert_eq!(error_fact(&error, DiagnosticFactTag::Limit), Some(256));
+    assert_eq!(error_fact(&error, DiagnosticFactTag::Actual), Some(257));
+    assert_eq!(
+        error_fact(&error, DiagnosticFactTag::ExecutionBudgetScope),
+        Some(DiagnosticExecutionBudgetScope::Request.raw()),
     );
 }
 

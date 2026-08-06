@@ -35,14 +35,14 @@ icydb::endpoints! {
 /// Load one deterministic baseline fixture dataset.
 #[cfg(feature = "test-admin-api")]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
-    db()?.execute_trusted_structural_insert_batch(
+    icydb::db!()?.execute_trusted_structural_insert_batch(
         "Character",
         fixtures::characters()
             .into_iter()
             .map(character_patch)
             .collect(),
     )?;
-    db()?.execute_trusted_structural_insert_batch(
+    icydb::db!()?.execute_trusted_structural_insert_batch(
         "Grid",
         fixtures::grid().into_iter().map(grid_patch).collect(),
     )?;

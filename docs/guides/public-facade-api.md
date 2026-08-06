@@ -5,6 +5,18 @@ This guide describes the maintained application-facing surface after the
 Rust types are optional adapters at the boundary; they are not planner,
 admission, storage, or recovery inputs.
 
+Generated IcyDB endpoints enter one request scope automatically. Manual
+endpoints use `with_request_execution` around their synchronous database call
+tree; zero-argument `db!()` calls in nested helpers share its monotonic
+counters. The snippets below assume that default scope.
+
+Use `with_request_execution_root` plus `db!(&request_root)` only when database
+work genuinely occurs on both sides of an inter-canister `await`, or when a
+low-level adapter intentionally makes scope ownership explicit. The argument
+selects the existing root; it never creates or resets a budget. It is not
+shared with the called canister, which has a separate IcyDB instance and its
+own request scope; it only reconnects the caller's work after suspension.
+
 ## Read Surfaces
 
 Typed and dynamic reads are part of base IcyDB and do not depend on SQL parser
@@ -12,7 +24,7 @@ or response types. The optional `sql` feature adds a frontend over the same
 engine-neutral query runtime:
 
 ```rust
-let rows = db()?
+let rows = db!()?
     .query::<User>()?
     .filter(FieldRef::new("active").eq(true))
     .order_by(asc("id"))
@@ -41,7 +53,7 @@ public-value conversion as SQL. They do not require the SQL parser or SQL
 response types:
 
 ```rust
-let page = db()?
+let page = db!()?
     .query::<User>()?
     .group_by("country")
     .aggregate(count())
@@ -77,7 +89,7 @@ let patch = StructuralPatch::new().field(
     WriteCell::Value(InputValue::Text("Ada".to_string())),
 );
 
-let result = db()?.execute_trusted_structural_mutation(
+let result = db!()?.execute_trusted_structural_mutation(
     StructuralMutation::Update {
         entity: "User".to_string(),
         key: InputValue::Ulid(user_id),
@@ -114,7 +126,7 @@ let output = StructuralPatch::new().field(
     WriteCell::Value(InputValue::Nat64(40)),
 );
 
-let result = db()?.execute_trusted_structural_mutation_batch(vec![
+let result = db!()?.execute_trusted_structural_mutation_batch(vec![
     StructuralMutation::Update {
         entity: "TokenHolding".to_string(),
         key: InputValue::Ulid(source_id),

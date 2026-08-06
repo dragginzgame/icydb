@@ -128,8 +128,8 @@ fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
 #[cfg(feature = "test-admin-api")]
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
-    db()?.execute_trusted_structural_insert_batch("SqlTestUser", sql_user_patches())?;
-    db()?.execute_trusted_structural_insert_batch(
+    icydb::db!()?.execute_trusted_structural_insert_batch("SqlTestUser", sql_user_patches())?;
+    icydb::db!()?.execute_trusted_structural_insert_batch(
         "SqlTestNumericTypes",
         sql_numeric_type_patches(),
     )?;
@@ -169,38 +169,40 @@ fn sql_user_patch(name: &str, age: u16, rank: i32) -> StructuralPatch {
 #[cfg(feature = "sql")]
 #[update]
 fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
-    let session = db()?;
-    let query = DynamicQuery::new("SqlTestNumericTypes")
-        .filter(FieldRef::new("label").eq("alpha"))
-        .order_by(asc("id"))
-        .select(["id"])
-        .limit(1);
-    let result = session.execute_trusted_dynamic_query(&query)?;
-    let id = result
-        .rows
-        .first()
-        .and_then(|row| row.first())
-        .and_then(|value| match value {
-            OutputValue::Ulid(id) => Some(*id),
-            _ => None,
-        })
-        .ok_or_else(|| {
-            icydb::Error::from_kind(
-                ErrorKind::Query(QueryErrorKind::NotFound),
-                ErrorOrigin::Response,
-            )
+    icydb::db::with_request_execution(|| {
+        let session = icydb::db!()?;
+        let query = DynamicQuery::new("SqlTestNumericTypes")
+            .filter(FieldRef::new("label").eq("alpha"))
+            .order_by(asc("id"))
+            .select(["id"])
+            .limit(1);
+        let result = session.execute_trusted_dynamic_query(&query)?;
+        let id = result
+            .rows
+            .first()
+            .and_then(|row| row.first())
+            .and_then(|value| match value {
+                OutputValue::Ulid(id) => Some(*id),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                icydb::Error::from_kind(
+                    ErrorKind::Query(QueryErrorKind::NotFound),
+                    ErrorOrigin::Response,
+                )
+            })?;
+        let group_name = "x".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
+        let patch = session
+            .structural_patch([("group_name", WriteCell::Value(InputValue::from(group_name)))]);
+
+        session.execute_trusted_structural_mutation(StructuralMutation::Update {
+            entity: "SqlTestNumericTypes".to_string(),
+            key: InputValue::from(id),
+            patch,
         })?;
-    let group_name = "x".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
-    let patch =
-        session.structural_patch([("group_name", WriteCell::Value(InputValue::from(group_name)))]);
 
-    session.execute_trusted_structural_mutation(StructuralMutation::Update {
-        entity: "SqlTestNumericTypes".to_string(),
-        key: InputValue::from(id),
-        patch,
-    })?;
-
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Build one deterministic mixed numeric fixture batch for SQL type coverage.
@@ -300,81 +302,85 @@ fn caller_nat64_patch(id: u64, payload: u64) -> StructuralPatch {
 /// Measure the final Identity write matrix on one fresh test canister.
 #[update]
 fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb::Error> {
-    let session = db()?;
+    icydb::db::with_request_execution(|| {
+        let session = icydb::db!()?;
 
-    // Warm each accepted entity and the shared journaled store before sampling.
-    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "SqlTestCallerNat64".to_string(),
-        patch: caller_nat64_patch(1, 1),
-    })?;
-    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "SqlTestIdentityNat64".to_string(),
-        patch: identity_payload_patch(1),
-    })?;
-    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "SqlTestIdentityNat128".to_string(),
-        patch: identity_payload_patch(1),
-    })?;
-    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "SqlTestIdentityBatch".to_string(),
-        patch: identity_payload_patch(1),
-    })?;
+        // Warm each accepted entity and the shared journaled store before sampling.
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestCallerNat64".to_string(),
+            patch: caller_nat64_patch(1, 1),
+        })?;
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestIdentityNat64".to_string(),
+            patch: identity_payload_patch(1),
+        })?;
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestIdentityNat128".to_string(),
+            patch: identity_payload_patch(1),
+        })?;
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestIdentityBatch".to_string(),
+            patch: identity_payload_patch(1),
+        })?;
 
-    let start = ic_cdk::api::performance_counter(1);
-    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "SqlTestCallerNat64".to_string(),
-        patch: caller_nat64_patch(2, 2),
-    })?;
-    let caller_nat64_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let start = ic_cdk::api::performance_counter(1);
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestCallerNat64".to_string(),
+            patch: caller_nat64_patch(2, 2),
+        })?;
+        let caller_nat64_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    let start = ic_cdk::api::performance_counter(1);
-    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "SqlTestIdentityNat64".to_string(),
-        patch: identity_payload_patch(2),
-    })?;
-    let generated_nat64_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let start = ic_cdk::api::performance_counter(1);
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestIdentityNat64".to_string(),
+            patch: identity_payload_patch(2),
+        })?;
+        let generated_nat64_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    let start = ic_cdk::api::performance_counter(1);
-    session.execute_trusted_structural_mutation(StructuralMutation::Insert {
-        entity: "SqlTestIdentityNat128".to_string(),
-        patch: identity_payload_patch(2),
-    })?;
-    let generated_nat128_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let start = ic_cdk::api::performance_counter(1);
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestIdentityNat128".to_string(),
+            patch: identity_payload_patch(2),
+        })?;
+        let generated_nat128_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    let start = ic_cdk::api::performance_counter(1);
-    let one_row = session.execute_trusted_structural_insert_batch(
-        "SqlTestIdentityBatch",
-        vec![identity_payload_patch(2)],
-    )?;
-    let one_row_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-    if one_row.affected_rows != 1 {
-        return Err(icydb::Error::from_kind(
-            ErrorKind::Query(QueryErrorKind::Validate),
-            ErrorOrigin::Executor,
-        ));
-    }
+        let start = ic_cdk::api::performance_counter(1);
+        let one_row = session.execute_trusted_structural_insert_batch(
+            "SqlTestIdentityBatch",
+            vec![identity_payload_patch(2)],
+        )?;
+        let one_row_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        if one_row.affected_rows != 1 {
+            return Err(icydb::Error::from_kind(
+                ErrorKind::Query(QueryErrorKind::Validate),
+                ErrorOrigin::Executor,
+            ));
+        }
 
-    let maximum_batch = (0..IDENTITY_MAX_BATCH_ROWS)
-        .map(|ordinal| identity_payload_patch(u64::from(ordinal) + 3))
-        .collect();
-    let start = ic_cdk::api::performance_counter(1);
-    let maximum =
-        session.execute_trusted_structural_insert_batch("SqlTestIdentityBatch", maximum_batch)?;
-    let maximum_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-    if maximum.affected_rows != IDENTITY_MAX_BATCH_ROWS {
-        return Err(icydb::Error::from_kind(
-            ErrorKind::Query(QueryErrorKind::Validate),
-            ErrorOrigin::Executor,
-        ));
-    }
+        let maximum_batch = (0..IDENTITY_MAX_BATCH_ROWS)
+            .map(|ordinal| identity_payload_patch(u64::from(ordinal) + 3))
+            .collect();
+        let start = ic_cdk::api::performance_counter(1);
+        let maximum = session
+            .execute_trusted_structural_insert_batch("SqlTestIdentityBatch", maximum_batch)?;
+        let maximum_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        if maximum.affected_rows != IDENTITY_MAX_BATCH_ROWS {
+            return Err(icydb::Error::from_kind(
+                ErrorKind::Query(QueryErrorKind::Validate),
+                ErrorOrigin::Executor,
+            ));
+        }
 
-    Ok(IdentityCloseoutPerfResult {
-        caller_nat64_instructions,
-        generated_nat64_instructions,
-        generated_nat128_instructions,
-        one_row_batch_instructions,
-        maximum_batch_instructions,
-        maximum_batch_rows: IDENTITY_MAX_BATCH_ROWS,
+        Ok(IdentityCloseoutPerfResult {
+            caller_nat64_instructions,
+            generated_nat64_instructions,
+            generated_nat128_instructions,
+            one_row_batch_instructions,
+            maximum_batch_instructions,
+            maximum_batch_rows: IDENTITY_MAX_BATCH_ROWS,
+        })
     })
 }
 

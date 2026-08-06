@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode,
-    build_canister_with_options,
+    build_maintained_canisters_with_options,
     canister_artifact::{
         CanisterMethod, ExpectedCanisterMethod, MAINTAINED_CANISTER_POLICIES,
         inspect_canister_artifacts,
@@ -10,47 +10,40 @@ use icydb_testing_integration::{
 };
 
 #[test]
-#[ignore = "builds and inspects 18 canister artifacts; run `make test-canister-artifact-contract`"]
+#[ignore = "builds and inspects 20 canister artifacts; run `make test-canister-artifact-contract`"]
 fn production_and_local_source_declarations_match_the_frozen_endpoint_policy() {
-    for policy in MAINTAINED_CANISTER_POLICIES {
-        for (build_profile, expected) in [
-            (
-                CanisterBuildProfile::LocalTest,
-                policy.local_test_icydb_methods,
-            ),
-            (
-                CanisterBuildProfile::Production,
-                policy.production_icydb_methods,
-            ),
-        ] {
-            let wasm = build_canister_with_options(
-                policy.canister,
-                CanisterBuildOptions {
-                    candid_export: CanisterCandidExportMode::Enabled,
-                    build_profile,
-                    ..CanisterBuildOptions::default()
-                },
-            )
-            .unwrap_or_else(|error| {
-                panic!(
-                    "{} should build for {build_profile:?}: {error}",
-                    policy.canister
-                )
-            });
-            let manifest = inspect_canister_artifacts(&wasm).unwrap_or_else(|error| {
-                panic!(
-                    "{} artifacts should agree for {build_profile:?}: {error}",
-                    policy.canister
-                )
-            });
+    std::thread::scope(|scope| {
+        scope.spawn(|| verify_profile(CanisterBuildProfile::LocalTest));
+        scope.spawn(|| verify_profile(CanisterBuildProfile::Production));
+    });
+}
 
-            assert_eq!(
-                manifest.icydb_methods(),
-                owned_methods(expected),
-                "unexpected IcyDB surface for {} ({build_profile:?})",
-                policy.canister
-            );
-        }
+fn verify_profile(build_profile: CanisterBuildProfile) {
+    let artifacts = build_maintained_canisters_with_options(CanisterBuildOptions {
+        candid_export: CanisterCandidExportMode::Enabled,
+        build_profile,
+        ..CanisterBuildOptions::default()
+    })
+    .unwrap_or_else(|error| panic!("maintained canisters should build: {error}"));
+
+    for (canister, wasm) in artifacts {
+        let policy = MAINTAINED_CANISTER_POLICIES
+            .iter()
+            .find(|policy| policy.canister == canister)
+            .expect("built canister should have a maintained policy");
+        let expected = match build_profile {
+            CanisterBuildProfile::LocalTest => policy.local_test_icydb_methods,
+            CanisterBuildProfile::Production => policy.production_icydb_methods,
+        };
+        let manifest = inspect_canister_artifacts(&wasm).unwrap_or_else(|error| {
+            panic!("{canister} artifacts should agree for {build_profile:?}: {error}")
+        });
+
+        assert_eq!(
+            manifest.icydb_methods(),
+            owned_methods(expected),
+            "unexpected IcyDB surface for {canister} ({build_profile:?})",
+        );
     }
 }
 

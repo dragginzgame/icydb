@@ -702,7 +702,7 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
         return Err(invalid_perf_loop_runs_error());
     }
 
-    let session = db()?;
+    let session = icydb::db!()?;
     let mut first_result = None;
     let mut total_compile_local_instructions = 0_u64;
     let mut total_compile_cache_key_local_instructions = 0_u64;
@@ -949,141 +949,155 @@ fn load_perf_fixtures() -> Result<(), icydb::Error> {
 #[cfg(feature = "sql")]
 #[update]
 fn load_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
-    let validated_rows = validate_scale_fixture_rows(row_count)?;
-    let rows = perf_scale_users(validated_rows);
-    let facts = scale_fixture_facts(
-        "user",
-        row_count,
-        rows.len(),
-        rows.iter().filter(|row| row.name.starts_with('A')).count(),
-        rows.iter().filter(|row| row.id == 1).count(),
-        rows.iter()
-            .filter(|row| row.age >= 24 && row.age < 40)
-            .count(),
-        ScalePayloadProfile::NotApplicable,
-    )?;
-    reset_perf_fixtures()?;
-    insert_fixture_rows(rows)?;
+    icydb::db::with_request_execution(|| {
+        let validated_rows = validate_scale_fixture_rows(row_count)?;
+        let rows = perf_scale_users(validated_rows);
+        let facts = scale_fixture_facts(
+            "user",
+            row_count,
+            rows.len(),
+            rows.iter().filter(|row| row.name.starts_with('A')).count(),
+            rows.iter().filter(|row| row.id == 1).count(),
+            rows.iter()
+                .filter(|row| row.age >= 24 && row.age < 40)
+                .count(),
+            ScalePayloadProfile::NotApplicable,
+        )?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
 
-    Ok(facts)
+        Ok(facts)
+    })
 }
 
 /// Load only the deterministic account scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
 fn load_account_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
-    let validated_rows = validate_scale_fixture_rows(row_count)?;
-    let rows = perf_scale_accounts(validated_rows);
-    let facts = scale_fixture_facts(
-        "account",
-        row_count,
-        rows.len(),
-        rows.iter()
-            .filter(|row| row.handle.starts_with('a'))
-            .count(),
-        rows.iter().filter(|row| row.id == 1).count(),
-        rows.iter()
-            .filter(|row| row.tier == "gold" && row.active)
-            .count(),
-        ScalePayloadProfile::NotApplicable,
-    )?;
-    reset_perf_fixtures()?;
-    insert_fixture_rows(rows)?;
+    icydb::db::with_request_execution(|| {
+        let validated_rows = validate_scale_fixture_rows(row_count)?;
+        let rows = perf_scale_accounts(validated_rows);
+        let facts = scale_fixture_facts(
+            "account",
+            row_count,
+            rows.len(),
+            rows.iter()
+                .filter(|row| row.handle.starts_with('a'))
+                .count(),
+            rows.iter().filter(|row| row.id == 1).count(),
+            rows.iter()
+                .filter(|row| row.tier == "gold" && row.active)
+                .count(),
+            ScalePayloadProfile::NotApplicable,
+        )?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
 
-    Ok(facts)
+        Ok(facts)
+    })
 }
 
 /// Load only the deterministic blob scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
 fn load_blob_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
-    let validated_rows = validate_scale_fixture_rows(row_count)?;
-    let rows = perf_scale_blobs(validated_rows);
-    let facts = scale_fixture_facts(
-        "blob",
-        row_count,
-        rows.len(),
-        rows.iter()
-            .filter(|row| row.label.starts_with("blob-"))
-            .count(),
-        rows.iter().filter(|row| row.id == 1).count(),
-        rows.iter().filter(|row| row.bucket == 10).count(),
-        ScalePayloadProfile::BlobCycleV1,
-    )?;
-    reset_perf_fixtures()?;
-    insert_fixture_rows(rows)?;
+    icydb::db::with_request_execution(|| {
+        let validated_rows = validate_scale_fixture_rows(row_count)?;
+        let rows = perf_scale_blobs(validated_rows);
+        let facts = scale_fixture_facts(
+            "blob",
+            row_count,
+            rows.len(),
+            rows.iter()
+                .filter(|row| row.label.starts_with("blob-"))
+                .count(),
+            rows.iter().filter(|row| row.id == 1).count(),
+            rows.iter().filter(|row| row.bucket == 10).count(),
+            ScalePayloadProfile::BlobCycleV1,
+        )?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
 
-    Ok(facts)
+        Ok(facts)
+    })
 }
 
 /// Load only the deterministic heap-user scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
 fn load_heap_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
-    let validated_rows = validate_scale_fixture_rows(row_count)?;
-    let rows = perf_scale_heap_users(validated_rows);
-    let facts = scale_user_mirror_fixture_facts("heap_user", row_count, &rows)?;
-    reset_perf_fixtures()?;
-    insert_fixture_rows(rows)?;
+    icydb::db::with_request_execution(|| {
+        let validated_rows = validate_scale_fixture_rows(row_count)?;
+        let rows = perf_scale_heap_users(validated_rows);
+        let facts = scale_user_mirror_fixture_facts("heap_user", row_count, &rows)?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
 
-    Ok(facts)
+        Ok(facts)
+    })
 }
 
 /// Load only the deterministic journaled-user scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
 fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
-    let validated_rows = validate_scale_fixture_rows(row_count)?;
-    let rows = perf_scale_journaled_users(validated_rows);
-    let facts = scale_journaled_user_fixture_facts(row_count, &rows)?;
-    reset_perf_fixtures()?;
-    insert_fixture_rows(rows)?;
+    icydb::db::with_request_execution(|| {
+        let validated_rows = validate_scale_fixture_rows(row_count)?;
+        let rows = perf_scale_journaled_users(validated_rows);
+        let facts = scale_journaled_user_fixture_facts(row_count, &rows)?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
 
-    Ok(facts)
+        Ok(facts)
+    })
 }
 
 /// Load only the deterministic token scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
 fn load_token_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
-    let validated_rows = validate_scale_fixture_rows(row_count)?;
-    let rows = perf_scale_tokens(validated_rows);
-    let first_id = Ulid::from_bytes(20_001_u128.to_be_bytes());
-    let facts = scale_fixture_facts(
-        "token",
-        row_count,
-        rows.len(),
-        rows.iter()
-            .filter(|row| row.collection_id == "missing-collection")
-            .count(),
-        rows.iter().filter(|row| row.id == first_id).count(),
-        rows.iter()
-            .filter(|row| row.collection_id == TOKEN_TARGET_COLLECTION)
-            .count(),
-        ScalePayloadProfile::NotApplicable,
-    )?;
-    reset_perf_fixtures()?;
-    insert_fixture_rows(rows)?;
+    icydb::db::with_request_execution(|| {
+        let validated_rows = validate_scale_fixture_rows(row_count)?;
+        let rows = perf_scale_tokens(validated_rows);
+        let first_id = Ulid::from_bytes(20_001_u128.to_be_bytes());
+        let facts = scale_fixture_facts(
+            "token",
+            row_count,
+            rows.len(),
+            rows.iter()
+                .filter(|row| row.collection_id == "missing-collection")
+                .count(),
+            rows.iter().filter(|row| row.id == first_id).count(),
+            rows.iter()
+                .filter(|row| row.collection_id == TOKEN_TARGET_COLLECTION)
+                .count(),
+            ScalePayloadProfile::NotApplicable,
+        )?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
 
-    Ok(facts)
+        Ok(facts)
+    })
 }
 
 /// Return accepted runtime schema descriptions in stable audit-surface order.
 #[cfg(feature = "sql")]
 #[query]
 fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb::Error> {
-    let session = db()?;
+    icydb::db::with_request_execution(|| {
+        let session = db()?;
 
-    Ok(vec![
-        session.try_describe_entity_by_name("PerfAuditAccount")?,
-        session.try_describe_entity_by_name("PerfAuditBlob")?,
-        session.try_describe_entity_by_name("PerfAuditHeapUser")?,
-        session.try_describe_entity_by_name("PerfAuditJournaledUser")?,
-        session.try_describe_entity_by_name("PerfAuditRelationSource")?,
-        session.try_describe_entity_by_name("PerfAuditRelationTarget")?,
-        session.try_describe_entity_by_name("PerfAuditToken")?,
-        session.try_describe_entity_by_name("PerfAuditUser")?,
-    ])
+        Ok(vec![
+            session.try_describe_entity_by_name("PerfAuditAccount")?,
+            session.try_describe_entity_by_name("PerfAuditBlob")?,
+            session.try_describe_entity_by_name("PerfAuditHeapUser")?,
+            session.try_describe_entity_by_name("PerfAuditJournaledUser")?,
+            session.try_describe_entity_by_name("PerfAuditRelationSource")?,
+            session.try_describe_entity_by_name("PerfAuditRelationTarget")?,
+            session.try_describe_entity_by_name("PerfAuditToken")?,
+            session.try_describe_entity_by_name("PerfAuditUser")?,
+        ])
+    })
 }
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
@@ -1115,14 +1129,14 @@ fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Er
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 #[query]
 fn measure_schema_application_query() -> Result<SchemaApplicationPerfResult, icydb::Error> {
-    measure_schema_application()
+    icydb::db::with_request_execution(measure_schema_application)
 }
 
 /// Measure and persist schema application through an update message.
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 #[update]
 fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, icydb::Error> {
-    measure_schema_application()
+    icydb::db::with_request_execution(measure_schema_application)
 }
 
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry
@@ -1131,10 +1145,12 @@ fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, ic
 #[cfg(feature = "sql")]
 #[update]
 fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
-    reset_perf_fixtures()?;
-    insert_fixture_rows(perf_audit_journaled_reentry_probe_users())?;
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        insert_fixture_rows(perf_audit_journaled_reentry_probe_users())?;
 
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Load one row per commit so Deep integrity must resume within a live journal
@@ -1142,34 +1158,38 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
 #[cfg(feature = "sql")]
 #[update]
 fn load_journal_tail_integrity_fixture() -> Result<(), icydb::Error> {
-    reset_perf_fixtures()?;
-    for id in 1..=INTEGRITY_JOURNAL_TAIL_BATCHES {
-        insert_fixture_rows(vec![build_perf_audit_journaled_user(
-            id,
-            &format!("integrity-journal-tail-{id:04}"),
-            18 + id,
-        )])?;
-    }
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        for id in 1..=INTEGRITY_JOURNAL_TAIL_BATCHES {
+            insert_fixture_rows(vec![build_perf_audit_journaled_user(
+                id,
+                &format!("integrity-journal-tail-{id:04}"),
+                18 + id,
+            )])?;
+        }
 
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Load the deterministic relation pair used by bounded integrity evidence.
 #[cfg(feature = "sql")]
 #[update]
 fn load_relation_integrity_fixture() -> Result<(), icydb::Error> {
-    reset_perf_fixtures()?;
-    insert_fixture_rows(perf_audit_relation_targets())?;
-    insert_fixture_rows(perf_audit_relation_sources())?;
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        insert_fixture_rows(perf_audit_relation_targets())?;
+        insert_fixture_rows(perf_audit_relation_sources())?;
 
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Execute one PerfAuditUser-only SQL query.
 #[cfg(feature = "sql")]
 #[query]
 fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db()?.execute_trusted_sql_query(sql.as_str())
+    icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
 }
 
 /// Execute one PerfAuditUser-only SQL query and attach one local instruction
@@ -1177,11 +1197,14 @@ fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            icydb::db!()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1191,13 +1214,16 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 #[cfg(feature = "sql")]
 #[query]
 fn query_user_attributed_total_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let (result, _attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let (result, _attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    Ok(SqlTotalOnlyPerfResult {
-        result,
-        instructions,
+        Ok(SqlTotalOnlyPerfResult {
+            result,
+            instructions,
+        })
     })
 }
 
@@ -1206,13 +1232,15 @@ fn query_user_attributed_total_perf(sql: String) -> Result<SqlTotalOnlyPerfResul
 #[cfg(feature = "sql")]
 #[query]
 fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let result = db()?.execute_trusted_sql_query(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let result = db()?.execute_trusted_sql_query(sql.as_str())?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    Ok(SqlTotalOnlyPerfResult {
-        result,
-        instructions,
+        Ok(SqlTotalOnlyPerfResult {
+            result,
+            instructions,
+        })
     })
 }
 
@@ -1221,11 +1249,14 @@ fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icy
 #[cfg(feature = "sql")]
 #[update]
 fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1234,7 +1265,7 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[cfg(feature = "sql")]
 #[query]
 fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
-    query_entity_with_perf_loop(sql.as_str(), runs)
+    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
 #[cfg(feature = "sql")]
@@ -1523,22 +1554,26 @@ where
 #[cfg(feature = "sql")]
 #[update]
 fn measure_heap_user_write_matrix_perf() -> Result<StorageWritePerfResult, icydb::Error> {
-    measure_storage_write_matrix::<PerfAuditHeapUser, _>(
-        "heap write matrix",
-        30_000,
-        build_perf_audit_heap_user,
-    )
+    icydb::db::with_request_execution(|| {
+        measure_storage_write_matrix::<PerfAuditHeapUser, _>(
+            "heap write matrix",
+            30_000,
+            build_perf_audit_heap_user,
+        )
+    })
 }
 
 /// Measure the journaled typed write path.
 #[cfg(feature = "sql")]
 #[update]
 fn measure_journaled_user_write_matrix_perf() -> Result<StorageWritePerfResult, icydb::Error> {
-    measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
-        "journaled write matrix",
-        40_000,
-        build_perf_audit_journaled_user,
-    )
+    icydb::db::with_request_execution(|| {
+        measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
+            "journaled write matrix",
+            40_000,
+            build_perf_audit_journaled_user,
+        )
+    })
 }
 
 /// Measure the matched journaled typed-write path before and after one simple
@@ -1547,31 +1582,34 @@ fn measure_journaled_user_write_matrix_perf() -> Result<StorageWritePerfResult, 
 #[update]
 fn measure_journaled_user_constraint_write_perf()
 -> Result<ConstraintActivationPerfResult, icydb::Error> {
-    let no_check = measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
-        "journaled no-check write matrix",
-        70_000,
-        build_perf_audit_journaled_user,
-    )?;
+    icydb::db::with_request_execution(|| {
+        let no_check = measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
+            "journaled no-check write matrix",
+            70_000,
+            build_perf_audit_journaled_user,
+        )?;
 
-    let start = ic_cdk::api::performance_counter(1);
-    let add_result = db()?.execute_admin_sql_ddl(
-        "ALTER TABLE PerfAuditJournaledUser ADD CONSTRAINT \
+        let start = ic_cdk::api::performance_counter(1);
+        let add_result = db()?.execute_admin_sql_ddl(
+            "ALTER TABLE PerfAuditJournaledUser ADD CONSTRAINT \
          perf_audit_age_nonnegative CHECK (age >= 0) NOT VALID \
          EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
-    )?;
-    let add_check_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-    let SqlQueryResult::Ddl {
-        rows_scanned: add_check_rows_scanned,
-        ..
-    } = add_result
-    else {
-        return Err(query_validate_error());
-    };
+        )?;
+        let add_check_local_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let SqlQueryResult::Ddl {
+            rows_scanned: add_check_rows_scanned,
+            ..
+        } = add_result
+        else {
+            return Err(query_validate_error());
+        };
 
-    Ok(ConstraintActivationPerfResult {
-        no_check,
-        add_check_local_instructions,
-        add_check_rows_scanned,
+        Ok(ConstraintActivationPerfResult {
+            no_check,
+            add_check_local_instructions,
+            add_check_rows_scanned,
+        })
     })
 }
 
@@ -1580,36 +1618,40 @@ fn measure_journaled_user_constraint_write_perf()
 #[cfg(feature = "sql")]
 #[update]
 fn measure_journaled_user_checked_write_perf() -> Result<StorageWritePerfResult, icydb::Error> {
-    measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
-        "journaled checked write matrix",
-        90_000,
-        build_perf_audit_journaled_user,
-    )
+    icydb::db::with_request_execution(|| {
+        measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
+            "journaled checked write matrix",
+            90_000,
+            build_perf_audit_journaled_user,
+        )
+    })
 }
 
 /// Advance the audit-only journaled check activation to accepted authority.
 #[cfg(feature = "sql")]
 #[update]
 fn validate_journaled_user_perf_check() -> Result<(), icydb::Error> {
-    const MAX_VALIDATION_STEPS: usize = 4;
+    icydb::db::with_request_execution(|| {
+        const MAX_VALIDATION_STEPS: usize = 4;
 
-    for _ in 0..MAX_VALIDATION_STEPS {
-        let result = db()?.execute_admin_sql_ddl(
-            "ALTER TABLE PerfAuditJournaledUser \
+        for _ in 0..MAX_VALIDATION_STEPS {
+            let result = db()?.execute_admin_sql_ddl(
+                "ALTER TABLE PerfAuditJournaledUser \
              VALIDATE CONSTRAINT perf_audit_age_nonnegative",
-        )?;
-        if matches!(
-            result,
-            SqlQueryResult::Ddl {
-                constraint_validation: Some(ref validation),
-                ..
-            } if validation.complete
-        ) {
-            return Ok(());
+            )?;
+            if matches!(
+                result,
+                SqlQueryResult::Ddl {
+                    constraint_validation: Some(ref validation),
+                    ..
+                } if validation.complete
+            ) {
+                return Ok(());
+            }
         }
-    }
 
-    Err(query_validate_error())
+        Err(query_validate_error())
+    })
 }
 
 /// Measure broad SQL write materialization shapes against heap storage.
@@ -1617,11 +1659,13 @@ fn validate_journaled_user_perf_check() -> Result<(), icydb::Error> {
 #[update]
 fn measure_heap_user_sql_write_materialization_perf()
 -> Result<SqlWriteMaterializationPerfResult, icydb::Error> {
-    measure_sql_write_materialization_matrix::<PerfAuditHeapUser, _>(
-        "PerfAuditHeapUser",
-        50_000,
-        build_perf_audit_heap_user,
-    )
+    icydb::db::with_request_execution(|| {
+        measure_sql_write_materialization_matrix::<PerfAuditHeapUser, _>(
+            "PerfAuditHeapUser",
+            50_000,
+            build_perf_audit_heap_user,
+        )
+    })
 }
 
 /// Measure broad SQL write materialization shapes against journaled storage.
@@ -1629,11 +1673,13 @@ fn measure_heap_user_sql_write_materialization_perf()
 #[update]
 fn measure_journaled_user_sql_write_materialization_perf()
 -> Result<SqlWriteMaterializationPerfResult, icydb::Error> {
-    measure_sql_write_materialization_matrix::<PerfAuditJournaledUser, _>(
-        "PerfAuditJournaledUser",
-        60_000,
-        build_perf_audit_journaled_user,
-    )
+    icydb::db::with_request_execution(|| {
+        measure_sql_write_materialization_matrix::<PerfAuditJournaledUser, _>(
+            "PerfAuditJournaledUser",
+            60_000,
+            build_perf_audit_journaled_user,
+        )
+    })
 }
 
 /// Measure one complete trusted resumable convergence operation without
@@ -1642,55 +1688,59 @@ fn measure_journaled_user_sql_write_materialization_perf()
 #[update]
 fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfResult, icydb::Error>
 {
-    const MAX_STEPS: usize = 16;
+    icydb::db::with_request_execution(|| {
+        const MAX_STEPS: usize = 16;
 
-    let session = db()?;
-    let sql = "UPDATE PerfAuditJournaledUser SET name = 'resumable-measured' WHERE age >= 0";
-    let operation_id = Ulid::from_bytes(0x210_0000_0000_0001_u128.to_be_bytes());
-    let prepare_start = ic_cdk::api::performance_counter(1);
-    let mut continuation = session.prepare_trusted_sql_resumable_update(operation_id, sql)?;
-    let prepare_local_instructions =
-        ic_cdk::api::performance_counter(1).saturating_sub(prepare_start);
-    let mut phase = icydb::db::TrustedResumableUpdatePhase::Forward;
-    let mut forward_local_instructions = Vec::new();
-    let mut verify_local_instructions = Vec::new();
-    let mut forward_keys_scanned = 0_u32;
-    let mut verify_keys_scanned = 0_u32;
-    let mut rows_updated = 0_u32;
+        let session = db()?;
+        let sql = "UPDATE PerfAuditJournaledUser SET name = 'resumable-measured' WHERE age >= 0";
+        let operation_id = Ulid::from_bytes(0x210_0000_0000_0001_u128.to_be_bytes());
+        let prepare_start = ic_cdk::api::performance_counter(1);
+        let mut continuation = session.prepare_trusted_sql_resumable_update(operation_id, sql)?;
+        let prepare_local_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(prepare_start);
+        let mut phase = icydb::db::TrustedResumableUpdatePhase::Forward;
+        let mut forward_local_instructions = Vec::new();
+        let mut verify_local_instructions = Vec::new();
+        let mut forward_keys_scanned = 0_u32;
+        let mut verify_keys_scanned = 0_u32;
+        let mut rows_updated = 0_u32;
 
-    for _ in 0..MAX_STEPS {
-        let start = ic_cdk::api::performance_counter(1);
-        let receipt =
-            session.resume_trusted_sql_resumable_update(operation_id, sql, &continuation)?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-        match phase {
-            icydb::db::TrustedResumableUpdatePhase::Forward => {
-                forward_local_instructions.push(instructions);
-                forward_keys_scanned = forward_keys_scanned.saturating_add(receipt.keys_scanned());
+        for _ in 0..MAX_STEPS {
+            let start = ic_cdk::api::performance_counter(1);
+            let receipt =
+                session.resume_trusted_sql_resumable_update(operation_id, sql, &continuation)?;
+            let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+            match phase {
+                icydb::db::TrustedResumableUpdatePhase::Forward => {
+                    forward_local_instructions.push(instructions);
+                    forward_keys_scanned =
+                        forward_keys_scanned.saturating_add(receipt.keys_scanned());
+                }
+                icydb::db::TrustedResumableUpdatePhase::Verify => {
+                    verify_local_instructions.push(instructions);
+                    verify_keys_scanned =
+                        verify_keys_scanned.saturating_add(receipt.keys_scanned());
+                }
             }
-            icydb::db::TrustedResumableUpdatePhase::Verify => {
-                verify_local_instructions.push(instructions);
-                verify_keys_scanned = verify_keys_scanned.saturating_add(receipt.keys_scanned());
+            rows_updated = rows_updated.saturating_add(receipt.rows_updated());
+            phase = receipt.phase();
+            if receipt.complete() {
+                return Ok(ResumableUpdatePerfResult {
+                    prepare_local_instructions,
+                    forward_local_instructions,
+                    verify_local_instructions,
+                    forward_keys_scanned,
+                    verify_keys_scanned,
+                    rows_updated,
+                });
             }
+            continuation = receipt
+                .into_continuation()
+                .ok_or_else(query_validate_error)?;
         }
-        rows_updated = rows_updated.saturating_add(receipt.rows_updated());
-        phase = receipt.phase();
-        if receipt.complete() {
-            return Ok(ResumableUpdatePerfResult {
-                prepare_local_instructions,
-                forward_local_instructions,
-                verify_local_instructions,
-                forward_keys_scanned,
-                verify_keys_scanned,
-                rows_updated,
-            });
-        }
-        continuation = receipt
-            .into_continuation()
-            .ok_or_else(query_validate_error)?;
-    }
 
-    Err(query_validate_error())
+        Err(query_validate_error())
+    })
 }
 
 /// Measure one canonical administrative integrity SQL operation.
@@ -1700,17 +1750,19 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
 // error. Boxing it would change the generated Candid response contract.
 #[allow(clippy::result_large_err)]
 fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, SqlIntegrityError> {
-    let session = db().map_err(SqlIntegrityError::Sql)?;
-    let owner = IntegrityJobOwner::new("audit::sql-perf")
-        .map_err(IntegrityCheckError::Job)
-        .map_err(SqlIntegrityError::Integrity)?;
-    let start = ic_cdk::api::performance_counter(1);
-    let result = session.execute_admin_integrity_sql(sql.as_str(), owner)?;
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    icydb::db::with_request_execution(|| {
+        let session = db().map_err(SqlIntegrityError::Sql)?;
+        let owner = IntegrityJobOwner::new("audit::sql-perf")
+            .map_err(IntegrityCheckError::Job)
+            .map_err(SqlIntegrityError::Integrity)?;
+        let start = ic_cdk::api::performance_counter(1);
+        let result = session.execute_admin_integrity_sql(sql.as_str(), owner)?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    Ok(IntegritySqlPerfResult {
-        result,
-        local_instructions,
+        Ok(IntegritySqlPerfResult {
+            result,
+            local_instructions,
+        })
     })
 }
 
@@ -1719,11 +1771,14 @@ fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, Sql
 #[cfg(feature = "sql")]
 #[query]
 fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1732,13 +1787,15 @@ fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[cfg(feature = "sql")]
 #[query]
 fn query_heap_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let result = db()?.execute_trusted_sql_query(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let result = db()?.execute_trusted_sql_query(sql.as_str())?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    Ok(SqlTotalOnlyPerfResult {
-        result,
-        instructions,
+        Ok(SqlTotalOnlyPerfResult {
+            result,
+            instructions,
+        })
     })
 }
 
@@ -1748,11 +1805,14 @@ fn query_heap_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult
 #[cfg(feature = "sql")]
 #[update]
 fn warm_heap_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1764,7 +1824,7 @@ fn query_heap_user_loop_with_perf(
     sql: String,
     runs: u32,
 ) -> Result<SqlQueryPerfResult, icydb::Error> {
-    query_entity_with_perf_loop(sql.as_str(), runs)
+    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
 /// Execute one PerfAuditJournaledUser-only SQL query and attach one local
@@ -1772,11 +1832,14 @@ fn query_heap_user_loop_with_perf(
 #[cfg(feature = "sql")]
 #[query]
 fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1787,13 +1850,15 @@ fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icy
 fn query_journaled_user_total_only_perf(
     sql: String,
 ) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let result = db()?.execute_trusted_sql_query(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let result = db()?.execute_trusted_sql_query(sql.as_str())?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    Ok(SqlTotalOnlyPerfResult {
-        result,
-        instructions,
+        Ok(SqlTotalOnlyPerfResult {
+            result,
+            instructions,
+        })
     })
 }
 
@@ -1803,15 +1868,18 @@ fn query_journaled_user_total_only_perf(
 #[cfg(feature = "sql")]
 #[update]
 fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let response = db()?
-        .execute_trusted_sql_query("SELECT id FROM PerfAuditJournaledUser ORDER BY id LIMIT 1")?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-    let row_count = sql_write_result_row_count(&response).ok_or_else(query_validate_error)?;
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let response = db()?.execute_trusted_sql_query(
+            "SELECT id FROM PerfAuditJournaledUser ORDER BY id LIMIT 1",
+        )?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let row_count = sql_write_result_row_count(&response).ok_or_else(query_validate_error)?;
 
-    Ok(ReadTotalOnlyPerfResult {
-        row_count,
-        instructions,
+        Ok(ReadTotalOnlyPerfResult {
+            row_count,
+            instructions,
+        })
     })
 }
 
@@ -1821,11 +1889,14 @@ fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Er
 #[cfg(feature = "sql")]
 #[update]
 fn warm_journaled_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1837,14 +1908,14 @@ fn query_journaled_user_loop_with_perf(
     sql: String,
     runs: u32,
 ) -> Result<SqlQueryPerfResult, icydb::Error> {
-    query_entity_with_perf_loop(sql.as_str(), runs)
+    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
 /// Execute one PerfAuditAccount-only SQL query.
 #[cfg(feature = "sql")]
 #[query]
 fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db()?.execute_trusted_sql_query(sql.as_str())
+    icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
 }
 
 /// Execute one PerfAuditAccount-only SQL query and attach one local instruction
@@ -1852,11 +1923,14 @@ fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1866,11 +1940,14 @@ fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Err
 #[cfg(feature = "sql")]
 #[update]
 fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1882,14 +1959,14 @@ fn query_account_loop_with_perf(
     sql: String,
     runs: u32,
 ) -> Result<SqlQueryPerfResult, icydb::Error> {
-    query_entity_with_perf_loop(sql.as_str(), runs)
+    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
 /// Execute one PerfAuditBlob-only SQL query.
 #[cfg(feature = "sql")]
 #[query]
 fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db()?.execute_trusted_sql_query(sql.as_str())
+    icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
 }
 
 /// Execute one PerfAuditBlob-only SQL query and attach one local instruction
@@ -1897,11 +1974,14 @@ fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1910,11 +1990,14 @@ fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 #[cfg(feature = "sql")]
 #[update]
 fn warm_blob_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1923,14 +2006,14 @@ fn warm_blob_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[cfg(feature = "sql")]
 #[query]
 fn query_blob_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
-    query_entity_with_perf_loop(sql.as_str(), runs)
+    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
 /// Execute one PerfAuditToken-only SQL query.
 #[cfg(feature = "sql")]
 #[query]
 fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db()?.execute_trusted_sql_query(sql.as_str())
+    icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
 }
 
 /// Execute one PerfAuditToken-only SQL query and attach one local instruction
@@ -1938,11 +2021,14 @@ fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1951,11 +2037,14 @@ fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error
 #[cfg(feature = "sql")]
 #[update]
 fn warm_token_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) = db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
     })
 }
 
@@ -1964,7 +2053,7 @@ fn warm_token_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::
 #[cfg(feature = "sql")]
 #[query]
 fn query_token_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
-    query_entity_with_perf_loop(sql.as_str(), runs)
+    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
 #[cfg(feature = "sql")]

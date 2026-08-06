@@ -15,6 +15,7 @@ use crate::{
     },
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::session::query::QueryPlanCompilePhaseAttribution;
@@ -109,6 +110,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 catalog,
                 command.query(),
+                DiagnosticExecutionLane::TrustedRead,
             )?;
 
         Ok(
@@ -131,6 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 catalog,
                 command.query(),
+                DiagnosticExecutionLane::TrustedRead,
             )?;
 
         Ok((

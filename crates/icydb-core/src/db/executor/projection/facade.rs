@@ -125,7 +125,7 @@ where
     C: CanisterKind,
 {
     let context = prepared_read_execution_context(&request.prepared_plan, request.execution_lane);
-    with_read_execution_budget(context, || {
+    with_read_execution_budget(db.request_execution_scope(), context, || {
         execute_structural_projection_rows_inner(db, request)
     })
 }

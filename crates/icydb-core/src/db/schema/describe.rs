@@ -13,8 +13,8 @@ use crate::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
             ConstraintOrigin, ConstraintValidationJob, FieldId, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaHistoricalFill,
+            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedSchemaSnapshot, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
             field_type_from_persisted_kind, identity_kind_maximum, output_value_from_runtime,
             render_accepted_check_expr_sql,
@@ -808,6 +808,7 @@ pub(in crate::db) fn describe_accepted_entity_with_persisted_schema(
     entity_tag: u64,
     accepted_schema_fingerprint_method: u8,
     accepted_schema_fingerprint: [u8; 16],
+    resolve_relation_target: impl Fn(&str) -> Result<(String, String), InternalError>,
 ) -> Result<EntitySchemaDescription, InternalError> {
     describe_entity_with_persisted_schema(
         schema,
@@ -817,6 +818,7 @@ pub(in crate::db) fn describe_accepted_entity_with_persisted_schema(
         entity_tag,
         accepted_schema_fingerprint_method,
         accepted_schema_fingerprint,
+        &resolve_relation_target,
     )
 }
 
@@ -828,6 +830,7 @@ fn describe_entity_with_persisted_schema(
     entity_tag: u64,
     accepted_schema_fingerprint_method: u8,
     accepted_schema_fingerprint: [u8; 16],
+    resolve_relation_target: &impl Fn(&str) -> Result<(String, String), InternalError>,
 ) -> Result<EntitySchemaDescription, InternalError> {
     let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
     let fields = describe_entity_fields_with_runtime_contract(schema, &row_layout, value_catalog)?;
@@ -851,7 +854,7 @@ fn describe_entity_with_persisted_schema(
         primary_key_fields,
         fields,
         describe_entity_indexes_with_persisted_schema(schema),
-        describe_entity_relations_with_persisted_schema(schema),
+        describe_entity_relations_with_persisted_schema(schema, resolve_relation_target)?,
         describe_entity_constraints_with_persisted_schema(schema, value_catalog, validation_jobs)?,
         row_layout.current_layout_version().get(),
         row_layout.history_floor().get(),
@@ -1390,71 +1393,49 @@ fn field_origin_label(generated: bool) -> String {
 
 fn describe_entity_relations_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
-) -> Vec<EntityRelationDescription> {
-    schema
-        .persisted_snapshot()
-        .fields()
+    resolve_target: &impl Fn(&str) -> Result<(String, String), InternalError>,
+) -> Result<Vec<EntityRelationDescription>, InternalError> {
+    let snapshot = schema.persisted_snapshot();
+    snapshot
+        .relations()
         .iter()
-        .filter_map(relation_description_from_persisted_field)
+        .map(|relation| {
+            let local_fields = relation
+                .local_field_ids()
+                .iter()
+                .map(|field_id| accepted_field_name(snapshot, *field_id))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (target_entity_name, target_store_path) = resolve_target(relation.target_path())?;
+
+            Ok(EntityRelationDescription::new(
+                render_primary_key_fields(local_fields.as_slice()),
+                relation.target_path().to_string(),
+                target_entity_name,
+                target_store_path,
+                persisted_relation_cardinality(snapshot, relation)?,
+            ))
+        })
         .collect()
 }
 
-fn relation_description_from_persisted_field(
-    field: &crate::db::schema::PersistedFieldSnapshot,
-) -> Option<EntityRelationDescription> {
-    let relation = persisted_relation_description_metadata(field.kind())?;
+fn persisted_relation_cardinality(
+    snapshot: &PersistedSchemaSnapshot,
+    relation: &PersistedRelationEdgeSnapshot,
+) -> Result<EntityRelationCardinality, InternalError> {
+    let [field_id] = relation.local_field_ids() else {
+        return Ok(EntityRelationCardinality::Single);
+    };
+    let field = snapshot
+        .fields()
+        .iter()
+        .find(|field| field.id() == *field_id)
+        .ok_or_else(InternalError::store_invariant)?;
 
-    Some(EntityRelationDescription::new(
-        field.name().to_string(),
-        relation.target_path.to_string(),
-        relation.target_entity_name.to_string(),
-        relation.target_store_path.to_string(),
-        relation.cardinality,
-    ))
-}
-
-struct PersistedRelationDescriptionMetadata<'a> {
-    target_path: &'a str,
-    target_entity_name: &'a str,
-    target_store_path: &'a str,
-    cardinality: EntityRelationCardinality,
-}
-
-fn persisted_relation_description_metadata(
-    kind: &AcceptedFieldKind,
-) -> Option<PersistedRelationDescriptionMetadata<'_>> {
-    const fn from_relation_kind(
-        kind: &AcceptedFieldKind,
-        cardinality: EntityRelationCardinality,
-    ) -> Option<PersistedRelationDescriptionMetadata<'_>> {
-        let AcceptedFieldKind::Relation {
-            target_path,
-            target_entity_name,
-            target_store_path,
-            ..
-        } = kind
-        else {
-            return None;
-        };
-
-        Some(PersistedRelationDescriptionMetadata {
-            target_path: target_path.as_str(),
-            target_entity_name: target_entity_name.as_str(),
-            target_store_path: target_store_path.as_str(),
-            cardinality,
-        })
-    }
-
-    match kind {
-        AcceptedFieldKind::Relation { .. } => {
-            from_relation_kind(kind, EntityRelationCardinality::Single)
-        }
-        AcceptedFieldKind::List(inner) => {
-            from_relation_kind(inner, EntityRelationCardinality::List)
-        }
-        AcceptedFieldKind::Set(inner) => from_relation_kind(inner, EntityRelationCardinality::Set),
-        _ => None,
-    }
+    Ok(match field.kind() {
+        AcceptedFieldKind::List(_) => EntityRelationCardinality::List,
+        AcceptedFieldKind::Set(_) => EntityRelationCardinality::Set,
+        _ => EntityRelationCardinality::Single,
+    })
 }
 
 fn write_accepted_composite_shape_summary(

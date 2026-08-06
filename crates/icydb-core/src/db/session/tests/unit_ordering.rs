@@ -485,7 +485,10 @@ fn initialize() -> DbSession<TestCanister> {
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
 
-    let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+    let session = DbSession::<TestCanister>::new(
+        &STORE_REGISTRY,
+        &crate::db::RequestExecutionRoot::__new_runtime_root(),
+    );
     publish_schema(
         &session,
         AcceptedSchemaRevision::NONE,

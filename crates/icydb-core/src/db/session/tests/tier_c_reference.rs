@@ -431,7 +431,10 @@ fn initialize() -> DbSession<TestCanister> {
         snapshots,
         fields,
     );
-    let session = DbSession::<TestCanister>::new(&STORE_REGISTRY);
+    let session = DbSession::<TestCanister>::new(
+        &STORE_REGISTRY,
+        &crate::db::RequestExecutionRoot::__new_runtime_root(),
+    );
     session
         .db
         .ensure_recovered_state()

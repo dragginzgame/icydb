@@ -56,6 +56,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.identity().entity_tag().value(),
             catalog.fingerprint_method_version(),
             catalog.fingerprint(),
+            |target_path| catalog.relation_target_description(target_path),
         )
         .map(SqlStatementResult::Describe)
         .map_err(QueryError::execute)
@@ -76,6 +77,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.identity().entity_tag().value(),
             catalog.fingerprint_method_version(),
             catalog.fingerprint(),
+            |target_path| catalog.relation_target_description(target_path),
         )
         .map(|description| SqlStatementResult::ShowConstraints(description.constraints().to_vec()))
         .map_err(QueryError::execute)

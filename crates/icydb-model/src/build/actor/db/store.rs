@@ -545,12 +545,28 @@ fn store_wiring_tokens(
         #[doc(hidden)]
         pub fn core_db() -> ::std::result::Result<
             ::icydb::__macro::CoreDbSession<__IcydbGeneratedCanister>,
+            ::icydb::Error,
+        > {
+            ensure_memory_bootstrap()?;
+
+            ::icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::__new_from_current_request(
+                &STORE_REGISTRY,
+            )
+            .ok_or_else(::icydb::db::__request_execution_scope_required)
+        }
+
+        #[doc(hidden)]
+        pub fn core_db_with_request_root(
+            request_root: &::icydb::db::RequestExecutionRoot,
+        ) -> ::std::result::Result<
+            ::icydb::__macro::CoreDbSession<__IcydbGeneratedCanister>,
             ::icydb::db::DatabaseBootstrapError,
         > {
             ensure_memory_bootstrap()?;
 
             Ok(::icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new(
-                &STORE_REGISTRY
+                &STORE_REGISTRY,
+                request_root.__core(),
             ))
         }
 
@@ -559,6 +575,18 @@ fn store_wiring_tokens(
             ::icydb::Error,
         > {
             let session = ::icydb::db::DbSession::new(core_db()?);
+            ensure_schema_application(&session)?;
+            Ok(session)
+        }
+
+        #[doc(hidden)]
+        pub fn db_with_request_root(
+            request_root: &::icydb::db::RequestExecutionRoot,
+        ) -> ::std::result::Result<
+            ::icydb::db::DbSession<__IcydbGeneratedCanister>,
+            ::icydb::Error,
+        > {
+            let session = ::icydb::db::DbSession::new(core_db_with_request_root(request_root)?);
             ensure_schema_application(&session)?;
             Ok(session)
         }
@@ -746,10 +774,16 @@ mod tests {
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("MEMORY_BOOTSTRAP.with("));
-        assert!(
-            rendered.contains("CoreDbSession::<__IcydbGeneratedCanister>::new(&STORE_REGISTRY)")
-        );
+        assert!(rendered.contains(
+            "CoreDbSession::<__IcydbGeneratedCanister>::__new_from_current_request(&STORE_REGISTRY,)"
+        ));
+        assert!(rendered.contains(
+            "CoreDbSession::<__IcydbGeneratedCanister>::new(&STORE_REGISTRY,request_root.__core(),)"
+        ));
         assert!(rendered.contains("pubfndb()->::std::result::Result<"));
+        assert!(rendered.contains(
+            "pubfndb_with_request_root(request_root:&::icydb::db::RequestExecutionRoot,)"
+        ));
         assert!(!rendered.contains("must_use"));
         assert!(
             rendered

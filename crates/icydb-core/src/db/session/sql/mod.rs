@@ -105,8 +105,9 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// The statement resolves its entity against accepted catalog authority,
     /// rejects state-changing SQL, and returns SQL-shaped output. It
-    /// intentionally bypasses public-read admission, so its caller must own
-    /// authorization and resource policy.
+    /// intentionally bypasses public-read admission. The request root still
+    /// supplies finite physical and aggregate execution policy; its caller
+    /// separately owns authorization.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
         let entity_name = sql_statement_entity_name(sql)?;
         let (compiled, _, _) =

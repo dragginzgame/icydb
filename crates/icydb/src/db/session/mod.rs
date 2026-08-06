@@ -7,6 +7,7 @@
 mod catalog;
 pub(crate) mod generated;
 mod integrity;
+mod request;
 #[cfg(feature = "sql")]
 mod sql;
 mod write;
@@ -19,6 +20,7 @@ use icydb_core as core;
 pub use integrity::IntegrityCheckError;
 #[cfg(feature = "sql")]
 pub use integrity::SqlIntegrityError;
+pub use request::{RequestExecutionRoot, with_request_execution, with_request_execution_root};
 #[cfg(feature = "sql")]
 pub use sql::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
@@ -55,7 +57,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub const fn debug(mut self) -> Self {
+    pub fn debug(mut self) -> Self {
         self.inner = self.inner.debug();
         self
     }

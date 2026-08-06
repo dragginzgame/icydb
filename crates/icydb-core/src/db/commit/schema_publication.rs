@@ -1124,7 +1124,10 @@ mod tests {
 
     #[test]
     fn marker_owned_application_publishes_one_live_only_store_and_receipt() {
-        let db = Db::<CompletionCanister>::new(&COMPLETION_REGISTRY);
+        let db = Db::<CompletionCanister>::new(
+            &COMPLETION_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         ensure_recovered(&db).expect("test database format should initialize");
         let store = db
             .store_handle(COMPLETION_STORE_PATH)
@@ -1198,7 +1201,10 @@ mod tests {
         reason = "the interrupted compound publication and recovery assertions form one scenario"
     )]
     fn interrupted_live_only_application_recovers_candidate_and_receipt_from_marker() {
-        let db = Db::<RecoveryCanister>::new(&RECOVERY_REGISTRY);
+        let db = Db::<RecoveryCanister>::new(
+            &RECOVERY_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         ensure_recovered(&db).expect("test database format should initialize");
         let store = db
             .store_handle(RECOVERY_STORE_PATH)

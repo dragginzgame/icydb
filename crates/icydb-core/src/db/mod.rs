@@ -163,7 +163,7 @@ pub use schema::{
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
-pub use session::DbSession;
+pub use session::{DbSession, RequestExecutionRoot};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
@@ -205,17 +205,26 @@ pub use write_context::MutationMode;
 
 pub(crate) struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
+    request_scope: session::RequestExecutionScope,
     _marker: PhantomData<C>,
 }
 
 impl<C: CanisterKind> Db<C> {
     /// Construct a database handle over one sealed runtime store registry.
     #[must_use]
-    pub(crate) const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
+    pub(in crate::db) const fn new(
+        store: &'static LocalKey<StoreRegistry>,
+        request_scope: session::RequestExecutionScope,
+    ) -> Self {
         Self {
             store,
+            request_scope,
             _marker: PhantomData,
         }
+    }
+
+    pub(in crate::db) const fn request_execution_scope(&self) -> &session::RequestExecutionScope {
+        &self.request_scope
     }
 
     /// Resolve one named store after enforcing startup recovery.
@@ -414,6 +423,6 @@ impl<C: CanisterKind> Db<C> {
 
 impl<C: CanisterKind> Clone for Db<C> {
     fn clone(&self) -> Self {
-        Self::new(self.store)
+        Self::new(self.store, self.request_scope.clone())
     }
 }

@@ -325,9 +325,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         K: PrimaryKeyEncode,
     {
-        let mut budget = HardExecutionBudgetTracker::new(
+        let mut budget = HardExecutionBudgetTracker::new_with_request_scope(
             &EXACT_KEY_HARD_BUDGET,
             exact_key_budget_context(binding),
+            self.db.request_execution_scope(),
         );
         self.execute_exact_key_batch_with_budget(binding, keys, &mut budget)
     }

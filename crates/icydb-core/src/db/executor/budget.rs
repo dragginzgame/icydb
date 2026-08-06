@@ -8,6 +8,7 @@ use std::cell::RefCell;
 #[cfg(test)]
 use crate::db::QueryError;
 use crate::db::executor::{EntityAuthority, RuntimeGroupedRow, SharedPreparedExecutionPlan};
+use crate::db::session::RequestExecutionScope;
 use crate::{error::InternalError, value::Value};
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
@@ -165,6 +166,12 @@ impl HardExecutionContext {
             normalized_shape_fingerprint_prefix,
         }
     }
+
+    /// Reattribute the same lane and normalized shape to another counter owner.
+    #[must_use]
+    pub(in crate::db) const fn with_scope(self, scope: DiagnosticExecutionBudgetScope) -> Self {
+        Self { scope, ..self }
+    }
 }
 
 /// Build literal-free attribution for one prepared read shape.
@@ -216,7 +223,7 @@ pub(in crate::db::executor) fn read_shape_fingerprint_prefix(
 }
 
 /// Build bounded attribution for a direct read terminal without a full plan.
-pub(in crate::db::executor) const fn direct_read_execution_context(
+pub(in crate::db) const fn direct_read_execution_context(
     authority: &EntityAuthority,
     lane: DiagnosticExecutionLane,
     shape_domain: u64,
@@ -247,6 +254,21 @@ pub(in crate::db) struct ExecutionBudgetExceeded {
 }
 
 impl ExecutionBudgetExceeded {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        resource: DiagnosticExecutionBudgetResource,
+        limit: u64,
+        observed: u64,
+        context: HardExecutionContext,
+    ) -> Self {
+        Self {
+            resource,
+            limit,
+            observed,
+            context,
+        }
+    }
+
     /// Return the resource whose ceiling rejected work.
     #[must_use]
     pub(in crate::db) const fn resource(self) -> DiagnosticExecutionBudgetResource {
@@ -317,6 +339,7 @@ impl HardExecutionBudgetAuthority {
 pub(in crate::db) struct HardExecutionBudgetTracker {
     budget: HardExecutionBudgetAuthority,
     context: HardExecutionContext,
+    request_scope: Option<RequestExecutionScope>,
     observed: [u64; RESOURCE_COUNT],
     last_instruction_counter: Option<u64>,
     charges_since_instruction_watermark: u16,
@@ -333,10 +356,23 @@ impl HardExecutionBudgetTracker {
         Self {
             budget: HardExecutionBudgetAuthority::Static(budget),
             context,
+            request_scope: None,
             observed: [0; RESOURCE_COUNT],
             last_instruction_counter: None,
             charges_since_instruction_watermark: 0,
         }
+    }
+
+    /// Start one execution counter set attached to an aggregate request scope.
+    #[must_use]
+    pub(in crate::db) fn new_with_request_scope(
+        budget: &'static HardExecutionBudget,
+        context: HardExecutionContext,
+        request_scope: &RequestExecutionScope,
+    ) -> Self {
+        let mut tracker = Self::new(budget, context);
+        tracker.request_scope = Some(request_scope.clone());
+        tracker
     }
 
     #[cfg(test)]
@@ -349,6 +385,7 @@ impl HardExecutionBudgetTracker {
         Self {
             budget: HardExecutionBudgetAuthority::TestOwned(Box::new(budget)),
             context,
+            request_scope: None,
             observed: [0; RESOURCE_COUNT],
             last_instruction_counter: None,
             charges_since_instruction_watermark: 0,
@@ -356,7 +393,7 @@ impl HardExecutionBudgetTracker {
     }
 
     /// Charge work whose bounded amount is known before it starts.
-    pub(in crate::db) const fn precharge(
+    pub(in crate::db) fn precharge(
         &mut self,
         resource: DiagnosticExecutionBudgetResource,
         amount: u64,
@@ -431,7 +468,7 @@ impl HardExecutionBudgetTracker {
         self.charge_raw(resource, amount)
     }
 
-    const fn charge_raw(
+    fn charge_raw(
         &mut self,
         resource: DiagnosticExecutionBudgetResource,
         amount: u64,
@@ -442,25 +479,37 @@ impl HardExecutionBudgetTracker {
         let observed = if overflowed { u64::MAX } else { observed };
         self.observed[index] = observed;
         let limit = self.budget.budget().limit(resource);
-        if overflowed || observed > limit {
-            return Err(ExecutionBudgetExceeded {
+        let execution_result = if overflowed || observed > limit {
+            Err(ExecutionBudgetExceeded::new(
                 resource,
                 limit,
                 observed,
-                context: self.context,
-            });
-        }
-        Ok(())
+                self.context,
+            ))
+        } else {
+            Ok(())
+        };
+        let request_result = self
+            .request_scope
+            .as_ref()
+            .map_or(Ok(()), |scope| scope.charge(self.context, resource, amount));
+        execution_result?;
+        request_result
     }
 }
 
 /// Run one prepared read under a finite per-execution hard budget.
 pub(in crate::db::executor) fn with_read_execution_budget<T>(
+    request_scope: &RequestExecutionScope,
     context: HardExecutionContext,
     run: impl FnOnce() -> Result<T, InternalError>,
 ) -> Result<T, InternalError> {
     with_execution_budget(
-        HardExecutionBudgetTracker::new(&READ_HARD_BUDGET, context),
+        HardExecutionBudgetTracker::new_with_request_scope(
+            &READ_HARD_BUDGET,
+            context,
+            request_scope,
+        ),
         run,
         std::convert::identity,
     )
@@ -728,7 +777,7 @@ pub(in crate::db) fn with_query_execution_budget_for_tests<T>(
     )
 }
 
-const fn resource_index(resource: DiagnosticExecutionBudgetResource) -> usize {
+pub(in crate::db) const fn resource_index(resource: DiagnosticExecutionBudgetResource) -> usize {
     match resource {
         DiagnosticExecutionBudgetResource::QueryExecutions => 0,
         DiagnosticExecutionBudgetResource::PlanningSteps => 1,
@@ -757,6 +806,7 @@ const fn resource_index(resource: DiagnosticExecutionBudgetResource) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::RequestExecutionRoot;
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, RuntimeBoundaryCode};
 
     const TEST_HEADROOM: HardExecutionFailureHeadroom = HardExecutionFailureHeadroom::new(500, 256);
@@ -850,5 +900,160 @@ mod tests {
         );
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn derived_execution_trackers_cannot_reset_the_shared_request_scope() {
+        let request_budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(DiagnosticExecutionBudgetResource::QueryExecutions, 2);
+        let root = RequestExecutionRoot::new_for_tests(request_budget);
+        let scope = root.scope();
+
+        for _ in 0..2 {
+            HardExecutionBudgetTracker::new_with_request_scope(
+                &READ_HARD_BUDGET,
+                TEST_CONTEXT,
+                &scope,
+            )
+            .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1)
+            .expect("work at the aggregate request ceiling should admit");
+        }
+        let exhausted = HardExecutionBudgetTracker::new_with_request_scope(
+            &READ_HARD_BUDGET,
+            TEST_CONTEXT,
+            &root.scope(),
+        )
+        .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1)
+        .expect_err("a fresh derived scope handle must not reset request counters");
+
+        assert_eq!(exhausted.scope(), DiagnosticExecutionBudgetScope::Request);
+        assert_eq!(exhausted.observed(), 3);
+        assert_eq!(
+            root.observed(DiagnosticExecutionBudgetResource::QueryExecutions),
+            3,
+        );
+    }
+
+    #[test]
+    fn failures_retries_and_nested_executions_remain_charged() {
+        let request_budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
+        let root = RequestExecutionRoot::new_for_tests(request_budget);
+        let scope = root.scope();
+        let failed = with_execution_budget(
+            HardExecutionBudgetTracker::new_with_request_scope(
+                &READ_HARD_BUDGET,
+                TEST_CONTEXT,
+                &scope,
+            ),
+            || Err::<(), _>(InternalError::query_executor_invariant()),
+            std::convert::identity,
+        );
+        assert!(failed.is_err());
+
+        let retried = with_execution_budget(
+            HardExecutionBudgetTracker::new_with_request_scope(
+                &READ_HARD_BUDGET,
+                TEST_CONTEXT,
+                &scope,
+            ),
+            || {
+                with_execution_budget(
+                    HardExecutionBudgetTracker::new_with_request_scope(
+                        &READ_HARD_BUDGET,
+                        TEST_CONTEXT,
+                        &scope,
+                    ),
+                    || Ok::<_, InternalError>(()),
+                    std::convert::identity,
+                )
+            },
+            std::convert::identity,
+        );
+        assert!(retried.is_ok());
+        assert_eq!(
+            root.observed(DiagnosticExecutionBudgetResource::QueryExecutions),
+            3,
+            "the failed attempt, retry, and nested execution all stay charged",
+        );
+    }
+
+    #[test]
+    fn planning_and_compilation_charges_share_the_request_scope() {
+        let request_budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(DiagnosticExecutionBudgetResource::PlanningSteps, 2)
+            .with_limit_for_tests(DiagnosticExecutionBudgetResource::PlanCompilations, 1);
+        let root = RequestExecutionRoot::new_for_tests(request_budget);
+        let first_scope = root.scope();
+        first_scope
+            .charge(
+                TEST_CONTEXT,
+                DiagnosticExecutionBudgetResource::PlanningSteps,
+                1,
+            )
+            .expect("the first planning operation should be admitted");
+        first_scope
+            .charge(
+                TEST_CONTEXT,
+                DiagnosticExecutionBudgetResource::PlanCompilations,
+                1,
+            )
+            .expect("the first compilation should be admitted");
+
+        let second_scope = root.scope();
+        second_scope
+            .charge(
+                TEST_CONTEXT,
+                DiagnosticExecutionBudgetResource::PlanningSteps,
+                1,
+            )
+            .expect("planning at the aggregate ceiling should be admitted");
+        let exhausted = second_scope
+            .charge(
+                TEST_CONTEXT,
+                DiagnosticExecutionBudgetResource::PlanCompilations,
+                1,
+            )
+            .expect_err("a derived scope must retain the earlier compilation charge");
+
+        assert_eq!(exhausted.scope(), DiagnosticExecutionBudgetScope::Request);
+        assert_eq!(exhausted.limit(), 1);
+        assert_eq!(exhausted.observed(), 2);
+        assert_eq!(
+            root.observed(DiagnosticExecutionBudgetResource::PlanningSteps),
+            2,
+        );
+        assert_eq!(
+            root.observed(DiagnosticExecutionBudgetResource::PlanCompilations),
+            2,
+        );
+    }
+
+    #[test]
+    fn toko_shaped_n_plus_one_work_fails_at_the_aggregate_request_boundary() {
+        let root = RequestExecutionRoot::__new_runtime_root();
+        let scope = root.scope();
+        let mut rejected = None;
+        for _ in 0..257 {
+            let charge = HardExecutionBudgetTracker::new_with_request_scope(
+                &READ_HARD_BUDGET,
+                HardExecutionContext::new(
+                    DiagnosticExecutionBudgetScope::Execution,
+                    DiagnosticExecutionLane::TrustedRead,
+                    0x746f_6b6f_2d6e_2b31,
+                ),
+                &scope,
+            )
+            .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1);
+            if let Err(exhausted) = charge {
+                rejected = Some(exhausted);
+                break;
+            }
+        }
+        let exhausted = rejected.expect("the 257th individually bounded query should reject");
+
+        assert_eq!(exhausted.scope(), DiagnosticExecutionBudgetScope::Request);
+        assert_eq!(exhausted.lane(), DiagnosticExecutionLane::TrustedRead);
+        assert_eq!(exhausted.limit(), 256);
+        assert_eq!(exhausted.observed(), 257);
     }
 }

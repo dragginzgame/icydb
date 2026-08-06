@@ -3860,7 +3860,10 @@ mod tests {
         reason = "the staged publication, recovery, and promotion assertions form one lifecycle"
     )]
     fn targeted_rule_edit_activation_recovers_and_promotes_without_source_model() {
-        let db = Db::<EvolutionCanister>::new(&EVOLUTION_REGISTRY);
+        let db = Db::<EvolutionCanister>::new(
+            &EVOLUTION_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         let empty_target =
             schema_application_target(&db).expect("empty evolution target should issue");
         let store_identity = empty_target
@@ -4150,7 +4153,10 @@ mod tests {
         reason = "the journaled abort, replay, and recovery assertions form one scenario"
     )]
     fn pending_generated_check_abort_is_atomic_terminal_and_replayable() {
-        let db = Db::<AbortCanister>::new(&ABORT_REGISTRY);
+        let db = Db::<AbortCanister>::new(
+            &ABORT_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         let empty_target =
             schema_application_target(&db).expect("empty application target should issue");
         let store_identity = empty_target
@@ -4428,7 +4434,10 @@ mod tests {
         };
         use crate::types::EntityTag;
 
-        let db = Db::<MigrationCanister>::new(&MIGRATION_REGISTRY);
+        let db = Db::<MigrationCanister>::new(
+            &MIGRATION_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         ensure_recovered(&db).expect("migration database should initialize");
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let store_identity = initial_target
@@ -4445,7 +4454,10 @@ mod tests {
         );
         apply_schema(&db, &initial).expect("initial schema should publish");
 
-        let session = DbSession::<MigrationCanister>::new(&MIGRATION_REGISTRY);
+        let session = DbSession::<MigrationCanister>::new(
+            &MIGRATION_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         for (id, value) in [(1, 7), (2, 8)] {
             session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
@@ -4608,7 +4620,10 @@ mod tests {
         };
         use crate::error::InternalError;
 
-        let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY);
+        let db = Db::<MigrationExecutionCanister>::new(
+            &MIGRATION_EXECUTION_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         ensure_recovered(&db).expect("migration execution database should initialize");
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let store_identity = initial_target
@@ -4624,7 +4639,10 @@ mod tests {
             store_identity,
         );
         apply_schema(&db, &initial).expect("initial schema should publish");
-        let session = DbSession::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY);
+        let session = DbSession::<MigrationExecutionCanister>::new(
+            &MIGRATION_EXECUTION_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         for (id, value) in [(1, 7), (2, 8), (3, 9)] {
             session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
@@ -4831,7 +4849,10 @@ mod tests {
             schema::{SchemaMigrationCommand, SchemaMigrationFindingKind, SchemaMigrationPhase},
         };
 
-        let db = Db::<MigrationFindingCanister>::new(&MIGRATION_FINDING_REGISTRY);
+        let db = Db::<MigrationFindingCanister>::new(
+            &MIGRATION_FINDING_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         ensure_recovered(&db).expect("migration finding database should initialize");
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let store_identity = initial_target
@@ -4848,7 +4869,10 @@ mod tests {
         );
         apply_schema(&db, &initial).expect("initial finding schema should publish");
 
-        let session = DbSession::<MigrationFindingCanister>::new(&MIGRATION_FINDING_REGISTRY);
+        let session = DbSession::<MigrationFindingCanister>::new(
+            &MIGRATION_FINDING_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
         session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
                 entity: "MigrationTarget".to_string(),
@@ -4955,7 +4979,10 @@ mod tests {
     fn exact_migration_retry_binds_the_terminal_head_not_the_predecessor_head() {
         use super::exact_migration_replay_target;
 
-        let db = Db::<EvolutionCanister>::new(&EVOLUTION_REGISTRY);
+        let db = Db::<EvolutionCanister>::new(
+            &EVOLUTION_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         ensure_recovered(&db).expect("test database should initialize");
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let (proposal, _, _) = generated_check_proposal(

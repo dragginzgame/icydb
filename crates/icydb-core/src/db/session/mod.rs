@@ -8,6 +8,7 @@ mod bounded_cache;
 mod catalog;
 mod integrity;
 mod query;
+mod request;
 mod response;
 #[cfg(feature = "sql")]
 mod sql;
@@ -40,6 +41,8 @@ pub use query::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
     MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
 };
+pub use request::RequestExecutionRoot;
+pub(in crate::db) use request::RequestExecutionScope;
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::grouped_cursor_from_bytes;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -79,12 +82,29 @@ pub struct DbSession<C: CanisterKind> {
 impl<C: CanisterKind> DbSession<C> {
     /// Construct one session facade over a sealed runtime store registry.
     #[must_use]
-    pub const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
+    pub fn new(
+        store: &'static LocalKey<StoreRegistry>,
+        request_root: &RequestExecutionRoot,
+    ) -> Self {
         Self {
-            db: Db::new(store),
+            db: Db::new(store, request_root.scope()),
             debug: false,
             metrics: None,
         }
+    }
+
+    /// Construct a session from the active synchronous request scope.
+    ///
+    /// Generated zero-argument `db!()` wiring uses this entry. `None` means
+    /// that the caller did not establish a request execution boundary.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __new_from_current_request(store: &'static LocalKey<StoreRegistry>) -> Option<Self> {
+        request::current_request_scope().map(|scope| Self {
+            db: Db::new(store, scope),
+            debug: false,
+            metrics: None,
+        })
     }
 
     /// Enable debug execution behavior where supported by executors.

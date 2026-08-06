@@ -19,6 +19,7 @@ use crate::{
     },
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 pub(super) struct ResolvedSelectPreparedPlan {
     prepared_plan: SharedPreparedExecutionPlan,
@@ -130,6 +131,7 @@ impl<C: CanisterKind> DbSession<C> {
                 query,
                 authority,
                 accepted_schema,
+                DiagnosticExecutionLane::TrustedRead,
             )?;
 
         Ok((
@@ -162,6 +164,7 @@ impl<C: CanisterKind> DbSession<C> {
                 accepted_schema,
                 schema_fingerprint,
                 query,
+                DiagnosticExecutionLane::Mutation,
             )?;
 
         Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
@@ -194,6 +197,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority.clone(),
                 catalog,
                 query,
+                DiagnosticExecutionLane::TrustedRead,
             )?;
         Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
     }
@@ -218,6 +222,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority.clone(),
                 catalog,
                 query,
+                DiagnosticExecutionLane::TrustedRead,
             )?;
         let (prepared_plan, projection, cache_attribution) =
             Self::sql_select_projection_from_prepared_plan(

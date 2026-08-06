@@ -311,6 +311,25 @@ impl AcceptedSchemaCatalogContext {
         self.entity.inspection_plan.snapshot()
     }
 
+    /// Resolve one relation target from the same captured database-wide root.
+    pub(in crate::db) fn relation_target_description(
+        &self,
+        target_path: &str,
+    ) -> Result<(String, String), InternalError> {
+        let target = self
+            .root
+            .entity_for_path(target_path)
+            .ok_or_else(InternalError::store_invariant)?;
+        Ok((
+            target.inspection_plan.snapshot().entity_name().to_string(),
+            target
+                .inspection_plan
+                .identity_ref()
+                .store_path()
+                .to_string(),
+        ))
+    }
+
     #[must_use]
     pub(in crate::db) fn enum_catalog(&self) -> &AcceptedEnumCatalog {
         self.entity.inspection_plan.value_catalog().enum_catalog()

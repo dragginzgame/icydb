@@ -1184,7 +1184,10 @@ mod tests {
 
     #[test]
     fn scheduler_overlay_seeds_later_final_after_images_before_preflight() {
-        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
+        let db: Db<SchedulerOverlayTestCanister> = Db::new(
+            &TEST_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         let first = test_key(1);
         let later = test_key(2);
         let row_ops = vec![
@@ -1204,7 +1207,10 @@ mod tests {
 
     #[test]
     fn scheduler_overlay_seeds_delete_absence_before_preflight() {
-        let db: Db<SchedulerOverlayTestCanister> = Db::new(&TEST_REGISTRY);
+        let db: Db<SchedulerOverlayTestCanister> = Db::new(
+            &TEST_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
         let deleted = test_key(3);
         let row_ops = vec![test_row_op(&deleted, None)];
 

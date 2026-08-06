@@ -45,10 +45,10 @@ fn repeated_dynamic_point_query_instruction_measurement() {
         ("scan", "measure_repeated_scan_queries"),
     ] {
         let ((executions, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
-            .query_candid(method, (1_000_u16,))
+            .query_candid(method, (200_u16,))
             .expect("repeated dynamic-query measurement should decode");
 
-        assert_eq!(executions, 1_000);
+        assert_eq!(executions, 200);
         assert_eq!(failures, 0);
         assert_eq!(rows, 0);
         assert!(local_instructions > 0);
@@ -65,17 +65,32 @@ fn native_exact_key_batch_instruction_measurement() {
         .expect("ICYDB_0221_EXACT_KEY_WASM should name the measured Wasm");
     let wasm = fs::read(&wasm_path).expect("measured exact-key Wasm should read");
     let fixture = install_prebuilt_fixture_canister("one_entity_typed_query", wasm);
-    for (shape, method, distinct) in [
-        ("dynamic_distinct", "measure_dynamic_key_loop", true),
-        ("exact_distinct", "measure_exact_key_batch", true),
-        ("dynamic_duplicate", "measure_dynamic_key_loop", false),
-        ("exact_duplicate", "measure_exact_key_batch", false),
+    for (shape, method, distinct, requested_items) in [
+        (
+            "dynamic_distinct",
+            "measure_dynamic_key_loop",
+            true,
+            200_u16,
+        ),
+        ("exact_distinct", "measure_exact_key_batch", true, 1_000_u16),
+        (
+            "dynamic_duplicate",
+            "measure_dynamic_key_loop",
+            false,
+            200_u16,
+        ),
+        (
+            "exact_duplicate",
+            "measure_exact_key_batch",
+            false,
+            1_000_u16,
+        ),
     ] {
         let ((items, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
-            .query_candid(method, (1_000_u16, distinct))
+            .query_candid(method, (requested_items, distinct))
             .expect("exact-key instruction measurement should decode");
 
-        assert_eq!(items, 1_000);
+        assert_eq!(items, requested_items);
         assert_eq!(failures, 0);
         assert_eq!(rows, 0);
         assert!(local_instructions > 0);

@@ -19,8 +19,8 @@ use crate::{
         SchemaChangeReceipt, StorageReport, StoreCatalogDescription,
         commit::database_incarnation_id,
         schema::{
-            AcceptedFieldKind, ConstraintValidationJob, PersistedFieldSnapshot,
-            describe_accepted_entity_with_persisted_schema, describe_accepted_identity,
+            ConstraintValidationJob, describe_accepted_entity_with_persisted_schema,
+            describe_accepted_identity,
         },
     },
     error::InternalError,
@@ -30,23 +30,6 @@ use icydb_schema::{SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity};
 
 #[cfg(feature = "migration")]
 use crate::db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest};
-
-fn relation_field_count(fields: &[PersistedFieldSnapshot]) -> usize {
-    fields
-        .iter()
-        .filter(|field| persisted_kind_is_relation_field(field.kind()))
-        .count()
-}
-
-fn persisted_kind_is_relation_field(kind: &AcceptedFieldKind) -> bool {
-    match kind {
-        AcceptedFieldKind::Relation { .. } => true,
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
-            matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. })
-        }
-        _ => false,
-    }
-}
 
 impl<C: CanisterKind> DbSession<C> {
     /// Return whether exact prepared migration authority deliberately defers
@@ -170,7 +153,7 @@ impl<C: CanisterKind> DbSession<C> {
                 EntityCatalogCounts::new(
                     u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),
                     u32::try_from(snapshot.indexes().len()).unwrap_or(u32::MAX),
-                    u32::try_from(relation_field_count(snapshot.fields())).unwrap_or(u32::MAX),
+                    u32::try_from(snapshot.relations().len()).unwrap_or(u32::MAX),
                     snapshot.version().get(),
                 ),
             ));
@@ -257,6 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.identity().entity_tag().value(),
             catalog.fingerprint_method_version(),
             catalog.fingerprint(),
+            |target_path| catalog.relation_target_description(target_path),
         )
     }
 

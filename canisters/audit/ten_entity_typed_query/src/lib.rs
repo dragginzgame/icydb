@@ -9,20 +9,22 @@ icydb::start!();
 
 #[ic_cdk::query]
 fn query_ten_entity_typed_rows() -> u32 {
-    let Ok(database) = db() else {
-        return 0;
-    };
-    let Ok(query) = database.query::<TenSimpleEntity01>() else {
-        return 0;
-    };
-    let Ok(rows) = query
-        .filter(FieldRef::new("id").eq(icydb::types::Ulid::MIN))
-        .execute_rows()
-    else {
-        return 0;
-    };
+    icydb::db::with_request_execution(|| {
+        let Ok(database) = db() else {
+            return 0;
+        };
+        let Ok(query) = database.query::<TenSimpleEntity01>() else {
+            return 0;
+        };
+        let Ok(rows) = query
+            .filter(FieldRef::new("id").eq(icydb::types::Ulid::MIN))
+            .execute_rows()
+        else {
+            return 0;
+        };
 
-    u32::try_from(rows.len()).unwrap_or(u32::MAX)
+        u32::try_from(rows.len()).unwrap_or(u32::MAX)
+    })
 }
 
 #[cfg(feature = "candid-export")]

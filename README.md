@@ -242,7 +242,11 @@ full operator-facing durability boundary is documented in
 ## Query From Rust
 
 Opted-in generated adapters provide typed reads over accepted schema. Planning,
-admission, and execution do not consume generated model metadata:
+admission, and execution do not consume generated model metadata. Generated
+IcyDB endpoints establish one request scope automatically. In a manual
+endpoint, enter the synchronous database segment once with
+`with_request_execution`; every nested zero-argument `db!()` then shares that
+scope:
 
 ```rust
 use icydb::prelude::*;
@@ -260,7 +264,10 @@ pub fn top_users() -> Result<Vec<User>, Box<dyn std::error::Error>> {
     Ok(rows)
 }
 
-pub fn rename_user(id: Ulid, name: String) -> Result<u32, icydb::Error> {
+pub fn rename_user(
+    id: Ulid,
+    name: String,
+) -> Result<u32, icydb::Error> {
     let session = db!()?;
     let patch = session.structural_patch([(
         "name",
@@ -308,22 +315,49 @@ through session/library reduced single-entity SQL:
 ```rust
 use icydb::prelude::*;
 
-let rows = db!()?.execute_trusted_sql_query(
-    "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
-)?;
+icydb::db::with_request_execution(|| {
+    let session = db!()?;
+    let rows = session.execute_trusted_sql_query(
+        "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
+    )?;
+    let updated = session.execute_trusted_sql_exact_update(
+        "UPDATE User SET name = 'Ada' WHERE id = '01J...' RETURNING id, name",
+        1,
+    )?;
 
-let updated = db!()?.execute_trusted_sql_exact_update(
-    "UPDATE User SET name = 'Ada' WHERE id = '01J...' RETURNING id, name",
-    1,
-)?;
+    // Large fixed convergence work uses the separate trusted resumable
+    // prepare/resume contract with application-owned durable continuation custody.
 
-// Large fixed convergence work uses the separate trusted resumable
-// prepare/resume contract with application-owned durable continuation custody.
-
-let ddl = db!()?.execute_admin_sql_ddl(
-    "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
-)?;
+    let ddl = session.execute_admin_sql_ddl(
+        "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
+    )?;
+    Ok::<_, icydb::Error>((rows, updated, ddl))
+})?;
 ```
+
+If an endpoint awaits authorization or another canister before doing any
+database work, enter `with_request_execution` after that await. Use the
+explicit form only when the same logical endpoint performs database work on
+both sides of an inter-canister await:
+
+```rust
+let work = icydb::db::with_request_execution_root(|request_root| async move {
+    let before = db!(&request_root)?.get(user_id)?;
+    call_another_canister().await?;
+    let after = db!(&request_root)?.get(user_id)?;
+    Ok::<_, icydb::Error>((before, after))
+});
+let result = work.await?;
+```
+
+`db!(&request_root)` does not create another allowance; it attaches the new
+session to that root's existing counters. The called canister has its own
+IcyDB instance and request scope; this root is not sent to it. The explicit
+argument only reconnects this canister's own database work before and after
+its suspended call. Do not create a separate explicit root around each query.
+Background tasks should also receive an explicit root or establish their own
+genuine request boundary rather than relying on an ambient scope from another
+message.
 
 `execute_trusted_sql_query` is an explicit trusted/admin SQL bypass. It is not
 public-safe for caller-controlled SQL by itself; public reads should prefer

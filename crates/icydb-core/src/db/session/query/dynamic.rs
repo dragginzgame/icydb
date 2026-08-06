@@ -208,8 +208,8 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one trusted entity-name-driven dynamic read.
     ///
     /// This uses accepted schema, planner, executor, and projection authority
-    /// only. Like trusted SQL reads, callers own authorization and resource
-    /// policy.
+    /// only. The request root still supplies finite physical and aggregate
+    /// execution policy; callers separately own authorization.
     pub fn execute_trusted_dynamic_query(
         &self,
         request: &DynamicQuery,

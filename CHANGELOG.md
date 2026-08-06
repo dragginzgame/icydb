@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- The CLI now defaults an omitted ICP environment to `local` instead of
-  `demo`, and stale-state guidance requires target verification before any
-  destructive recovery advice. Scripts relying on implicit `demo` must select
-  it explicitly.
-
 ## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
+
+- `0.221.4` makes database and operational work safer through endpoint-wide
+  execution budgets and authoritative environment, artifact, and schema
+  inspection while preserving the zero-argument `db!()` application API.
 
 - `0.221.3` bounds physical work across maintained read routes, upgrades host
   fixtures to `ic-testkit` 0.5.0, and reuses isolated fixtures plus exact Wasm

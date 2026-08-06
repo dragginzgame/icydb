@@ -56,7 +56,7 @@ where
 {
     let context =
         prepared_read_execution_context(&shared_plan, DiagnosticExecutionLane::TrustedRead);
-    with_read_execution_budget(context, || {
+    with_read_execution_budget(db.request_execution_scope(), context, || {
         execute_structural_aggregate_rows_inner(db, debug, shared_plan, request)
     })
 }

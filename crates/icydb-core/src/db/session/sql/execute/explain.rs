@@ -40,6 +40,7 @@ use crate::{
     traits::CanisterKind,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 // Render one shell-facing SQL execution explain report with a phase legend and
 // one indented immutable diagnostics artifact.
@@ -96,7 +97,10 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
         let (prepared_plan, cache_attribution) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog(
-                authority, catalog, structural,
+                authority,
+                catalog,
+                structural,
+                DiagnosticExecutionLane::Diagnostic,
             )?;
         let mapped = map(prepared_plan.logical_plan())?;
 
@@ -113,7 +117,10 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError> {
         let (prepared_plan, cache_attribution) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog(
-                authority, catalog, structural,
+                authority,
+                catalog,
+                structural,
+                DiagnosticExecutionLane::Diagnostic,
             )?;
 
         Ok((prepared_plan.logical_plan().clone(), cache_attribution))
