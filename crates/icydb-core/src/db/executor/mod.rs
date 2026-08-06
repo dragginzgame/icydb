@@ -129,11 +129,11 @@ pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use projection::{
     StructuralProjectionRequest, execute_structural_projection_page,
-    execute_structural_projection_rows,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
     StructuralProjectionScanBudget, eval_compiled_filter_expr_with_required_slot_reader,
+    execute_structural_projection_rows,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use projection::{
