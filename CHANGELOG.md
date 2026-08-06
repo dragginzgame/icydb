@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Local version-bump gates now clean repo-owned Cargo build output and IcyDB
+  temporary files on success or failure without sweeping shared `/tmp`.
+
 ## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)

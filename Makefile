@@ -1,4 +1,4 @@
-.PHONY: help version tags patch minor major package publish release-stage release-commit release-push \
+.PHONY: help version tags patch minor major package publish release-prepare release-clean release-stage release-commit release-push \
         release-patch release-minor release-major release \
         test test-bump test-canister-artifact-contract test-sql-canister-matrix \
         test-sql-tier-c-shard test-sql-tier-c-merge \
@@ -27,6 +27,7 @@ workspace_path = $(if $(strip $(1)),$(if $(filter /%,$(strip $(1))),$(strip $(1)
 # filesystem do not contend on a shared cargo home or target directory.
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
+RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
@@ -89,6 +90,7 @@ help:
 	@echo "  patch            Run release gate, then bump patch version files (0.0.x)"
 	@echo "  minor            Confirm, run release gate, then bump minor version files (0.x.0)"
 	@echo "  major            Confirm, run full release gate, then bump major version files (x.0.0)"
+	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Commit version files and create the release tag"
 	@echo "  release-push     Push the release commit and tags"
@@ -196,22 +198,55 @@ version:
 tags:
 	@git tag --sort=-version:refname | head -10
 
-patch: ensure-clean fmt test-bump
-	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch
+patch:
+	@$(MAKE) --no-print-directory ensure-clean
+	@$(MAKE) --no-print-directory release-prepare
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@bash scripts/ci/cleanup-release-workspace.sh
 
 minor:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
-	@$(MAKE) ensure-clean
-	@$(MAKE) fmt
-	@$(MAKE) test-bump
-	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor
+	@$(MAKE) --no-print-directory ensure-clean
+	@$(MAKE) --no-print-directory release-prepare
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@bash scripts/ci/cleanup-release-workspace.sh
 
 major:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
-	@$(MAKE) ensure-clean
-	@$(MAKE) fmt
-	@$(MAKE) test
-	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh major
+	@$(MAKE) --no-print-directory ensure-clean
+	@$(MAKE) --no-print-directory release-prepare
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major || { \
+		bash scripts/ci/cleanup-release-workspace.sh; exit 1; \
+	}
+	@bash scripts/ci/cleanup-release-workspace.sh
+
+release-prepare:
+	@mkdir -p "$(RELEASE_TMP_DIR)"
+
+release-clean:
+	@bash scripts/ci/cleanup-release-workspace.sh
 
 release: ensure-clean
 	@echo "Release handled by CI on tag push"
