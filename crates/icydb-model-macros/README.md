@@ -8,6 +8,11 @@ lowers declarations into that package's host graph and the public
 `icydb-schema` proposal vocabulary; it has no dependency on `icydb` or
 `icydb-core`.
 
+The package also transports the two thin request-entry attributes re-exported
+only by the `icydb` runtime facade. They expand to facade calls resolved through
+the consuming crate's direct dependency and do not own execution policy or
+depend on runtime internals.
+
 ## Durable Rule Grammar
 
 A `ty(...)` declaration may contain multiple uniquely named durable rules.

@@ -1,5 +1,5 @@
 //! Module: lib
-//! Responsibility: application-model declaration and helper macros.
+//! Responsibility: application-model declarations plus thin runtime entry attributes.
 //! Does not own: runtime schema semantics.
 //! Boundary: macro input to generated tokens.
 
@@ -20,6 +20,7 @@ mod helper_ops;
 mod imp;
 mod node;
 mod predicate;
+mod request_execution;
 mod trait_kind;
 mod types;
 mod validate;
@@ -31,6 +32,31 @@ use crate::{
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use quote::quote;
 use syn::{ItemStruct, Visibility, parse_macro_input};
+
+/// Install one aggregate IcyDB execution root for a sync or async entry point.
+///
+/// Place this outside the framework export attribute so IC-CDK, Canic,
+/// lifecycle, and timer handlers all use the same boundary implementation.
+#[proc_macro_attribute]
+pub fn request_execution(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    request_execution::expand_request_execution(args.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Declare a synchronous unit test with the production request boundary.
+#[proc_macro_attribute]
+pub fn test(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    request_execution::expand_test(args.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// Derive `Deref` for a one-field application wrapper.
 #[proc_macro_derive(Deref)]

@@ -586,6 +586,7 @@ fn store_wiring_tokens(
             ::icydb::db::DbSession<__IcydbGeneratedCanister>,
             ::icydb::Error,
         > {
+            request_root.__ensure_compatible_with_current()?;
             let session = ::icydb::db::DbSession::new(core_db_with_request_root(request_root)?);
             ensure_schema_application(&session)?;
             Ok(session)
@@ -784,6 +785,7 @@ mod tests {
         assert!(rendered.contains(
             "pubfndb_with_request_root(request_root:&::icydb::db::RequestExecutionRoot,)"
         ));
+        assert!(rendered.contains("request_root.__ensure_compatible_with_current()?"));
         assert!(!rendered.contains("must_use"));
         assert!(
             rendered

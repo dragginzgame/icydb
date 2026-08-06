@@ -20,7 +20,10 @@ use icydb_core as core;
 pub use integrity::IntegrityCheckError;
 #[cfg(feature = "sql")]
 pub use integrity::SqlIntegrityError;
-pub use request::{RequestExecutionRoot, with_request_execution, with_request_execution_root};
+pub use request::{
+    RequestExecutionFuture, RequestExecutionRoot, with_request_execution,
+    with_request_execution_async, with_request_execution_root,
+};
 #[cfg(feature = "sql")]
 pub use sql::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,

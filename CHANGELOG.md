@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
 
+- `0.221.6` keeps zero-argument `db!()` available across attributed sync and
+  async entries; potentially breaking scope failures now use dedicated
+  E275/E276 diagnostics.
+
 - `0.221.5` stages bounded resumable scalar-page progress, restores
   case-insensitive accepted entity lookup, and reduces repeated CI, release,
   publish, compile-fixture, and repo-local cleanup work without changing

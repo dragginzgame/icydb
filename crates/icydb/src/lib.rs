@@ -58,6 +58,8 @@
 // Generated actor glue resolves this package through its canonical crate name.
 extern crate self as icydb;
 
+pub use icydb_model_macros::{request_execution, test};
+
 // core modules
 #[doc(hidden)]
 pub use icydb_core::types;
@@ -727,16 +729,16 @@ macro_rules! __icydb_endpoints_internal {
 
 /// Access the active request's database session.
 ///
-/// Use `db!()` in ordinary generated endpoints and synchronous helpers. Every
-/// call shares the execution counters installed at request entry. Manual
-/// endpoints establish that boundary once with
-/// [`db::with_request_execution`](crate::db::with_request_execution).
+/// Use `db!()` in ordinary generated endpoints and nested helpers. Every call
+/// shares the execution counters installed at request entry. Manual IC-CDK,
+/// Canic, lifecycle, and timer entries establish that boundary with
+/// [`request_execution`].
 ///
-/// Use `db!(&request_root)` only when one request must perform database work
-/// on both sides of an inter-canister `await`, or when another manually
-/// managed flow must retain one aggregate budget explicitly. Obtain that root
-/// from [`db::with_request_execution_root`](crate::db::with_request_execution_root);
-/// passing it never creates fresh counters.
+/// `db!(&request_root)` is the explicit low-level integration form for a
+/// framework that already owns a request root. Obtain that root from
+/// [`db::with_request_execution_root`](crate::db::with_request_execution_root);
+/// passing it never creates fresh counters and fails if a different root is
+/// already active.
 #[macro_export]
 #[expect(clippy::crate_in_macro_def)]
 macro_rules! db {

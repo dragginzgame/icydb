@@ -20,7 +20,7 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
-syn-darling = { workspace = true }
+syn-darling = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true

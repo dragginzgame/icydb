@@ -989,6 +989,10 @@ const fn runtime_kind_text(kind: RuntimeErrorKind) -> &'static str {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the exhaustive public runtime-boundary vocabulary is clearer in one match"
+)]
 const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
     match boundary {
         RuntimeBoundaryCode::SqlSurfaceControllerRequired => {
@@ -1086,6 +1090,12 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         }
         RuntimeBoundaryCode::PageUnitTooLarge => {
             "one scalar-page unit exceeds its resumable page-work envelope"
+        }
+        RuntimeBoundaryCode::RequestExecutionScopeRequired => {
+            "no IcyDB request-execution scope is active; wrap the entry point with #[icydb::request_execution], #[icydb::test], or with_request_execution"
+        }
+        RuntimeBoundaryCode::RequestExecutionRootMismatch => {
+            "explicit IcyDB request root conflicts with the active request root"
         }
     }
 }
@@ -2221,6 +2231,14 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::PageUnitTooLarge,
                 "E_RUNTIME_UNSUPPORTED: one scalar-page unit exceeds its resumable page-work envelope",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::RequestExecutionScopeRequired,
+                "E_RUNTIME_UNSUPPORTED: no IcyDB request-execution scope is active; wrap the entry point with #[icydb::request_execution], #[icydb::test], or with_request_execution",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::RequestExecutionRootMismatch,
+                "E_RUNTIME_CONFLICT: explicit IcyDB request root conflicts with the active request root",
             ),
         ];
 

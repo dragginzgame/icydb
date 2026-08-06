@@ -82,10 +82,12 @@ Authorize the caller before entering IcyDB. Use the ordinary typed or dynamic
 lane, supply a small explicit limit, and shape a bounded response:
 
 Generated IcyDB endpoints establish the request scope automatically. A manual
-endpoint enters `with_request_execution` once around its synchronous database
-call tree and keeps using `db!()` in nested helpers. The explicit root argument
-is reserved for this canister's own database work on both sides of an
-inter-canister `await`; it is never shared with the called canister.
+IC-CDK, Canic, lifecycle, or timer entry uses
+`#[icydb::request_execution]` and keeps using `db!()` in nested helpers. The
+same root is installed per poll across async suspension. The explicit root
+argument is reserved for low-level framework integration that already owns
+the root; it is never shared with the called canister and cannot replace a
+different active root.
 
 ```rust
 let rows = db!()?

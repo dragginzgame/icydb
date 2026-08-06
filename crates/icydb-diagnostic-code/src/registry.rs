@@ -691,4 +691,8 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded });
     RUNTIME_BOUNDARY_PAGE_UNIT_TOO_LARGE = 274 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::PageUnitTooLarge });
+    RUNTIME_BOUNDARY_REQUEST_EXECUTION_SCOPE_REQUIRED = 275 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::RequestExecutionScopeRequired });
+    RUNTIME_BOUNDARY_REQUEST_EXECUTION_ROOT_MISMATCH = 276 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::RequestExecutionRootMismatch });
 }

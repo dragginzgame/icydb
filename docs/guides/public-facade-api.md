@@ -6,16 +6,55 @@ Rust types are optional adapters at the boundary; they are not planner,
 admission, storage, or recovery inputs.
 
 Generated IcyDB endpoints enter one request scope automatically. Manual
-endpoints use `with_request_execution` around their synchronous database call
-tree; zero-argument `db!()` calls in nested helpers share its monotonic
-counters. The snippets below assume that default scope.
+IC-CDK, Canic, lifecycle, and timer entries put
+`#[icydb::request_execution]` outside the framework attribute. Zero-argument
+`db!()` calls in nested helpers share its monotonic counters across the whole
+sync or async invocation. Synchronous unit tests use `#[icydb::test]`. The
+snippets below assume that default scope.
 
-Use `with_request_execution_root` plus `db!(&request_root)` only when database
-work genuinely occurs on both sides of an inter-canister `await`, or when a
-low-level adapter intentionally makes scope ownership explicit. The argument
-selects the existing root; it never creates or resets a budget. It is not
-shared with the called canister, which has a separate IcyDB instance and its
-own request scope; it only reconnects the caller's work after suspension.
+Use `with_request_execution_root` plus `db!(&request_root)` only when a
+low-level adapter intentionally owns and passes scope ownership itself. The
+argument selects the existing root; it never creates or resets a budget and
+is rejected if another root is active. It is not shared with the called
+canister, which has a separate IcyDB instance and request scope.
+
+## Request Entry
+
+The boundary attribute is framework-neutral and must appear outside the
+framework export attribute:
+
+```rust,ignore
+#[icydb::request_execution]
+#[canic_query(requires(auth::authenticated()))]
+async fn refresh() -> Result<Receipt, Error> {
+    authorize().await?;
+    refresh_with(db!()?).await
+}
+```
+
+Conceptually, a sync function calls `with_request_execution(|| body)` and an
+async function awaits `with_request_execution_async(async move { body })`.
+The async future retains its root counters across suspension, installs that
+root immediately before each poll, and removes it immediately afterward.
+Nested attributed helpers reuse the active root. Caller authorization remains
+application-owned; the execution root supplies database accounting only.
+
+The explicit argument form is for integrations that deliberately retain the
+root themselves:
+
+```rust,ignore
+let task = icydb::db::with_request_execution_root(|root| async move {
+    let before = db!(&root)?.get(user_id)?;
+    call_another_canister().await?;
+    let after = db!(&root)?.get(user_id)?;
+    Ok::<_, icydb::Error>((before, after))
+});
+let result = task.await?;
+```
+
+Every explicit lookup reuses the root's cumulative counters. It is rejected
+if a different request root is already active. Ordinary endpoints should not
+use this form merely because they contain `.await`.
 
 ## Read Surfaces
 

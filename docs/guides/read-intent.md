@@ -39,34 +39,32 @@ The returned typed error preserves the stable `QueryReadAdmissionCode`; see
 ## Public Endpoint Template
 
 ```rust
+#[icydb::request_execution]
 #[ic_cdk::query]
 fn active_users() -> Result<Vec<User>, String> {
-    icydb::db::with_request_execution(|| {
-        db!()
-            .map_err(|error| error.to_string())?
-            .query::<User>()
-            .map_err(|error| error.to_string())?
-            .filter(FieldRef::new("active").eq(true))
-            .order_by(asc("id"))
-            .limit(25)
-            .execute_rows()
-            .map_err(|error| error.to_string())
-    })
+    db!()
+        .map_err(|error| error.to_string())?
+        .query::<User>()
+        .map_err(|error| error.to_string())?
+        .filter(FieldRef::new("active").eq(true))
+        .order_by(asc("id"))
+        .limit(25)
+        .execute_rows()
+        .map_err(|error| error.to_string())
 }
 ```
 
 The endpoint must authorize the caller before entering IcyDB and establish
-exactly one synchronous database segment with
-`icydb::db::with_request_execution`. Nested helpers use `db!()` without an
-argument and share that segment's counters. The endpoint must still enforce
-its final response-byte budget after shaping the typed result.
+exactly one request boundary. Nested helpers use `db!()` without an argument
+and share that request's counters. Async endpoints use the same attribute:
+IcyDB installs the scope only while their future is polled and retains its
+counters across `.await`. The endpoint must still enforce its final
+response-byte budget after shaping the typed result.
 
-If database work occurs both before and after an inter-canister `await`, use
-`with_request_execution_root` and pass the returned root explicitly as
-`db!(&request_root)`. An await that happens entirely before database work does
-not need the explicit form; enter the ordinary scope after it. The other
-canister always has its own IcyDB scope—the explicit root only preserves this
-canister's accounting while its endpoint is suspended.
+The explicit `with_request_execution_root` plus `db!(&request_root)` form is
+for low-level framework integration that already owns the root. It is not
+required merely because an endpoint awaits. The other canister always has its
+own IcyDB instance and request scope.
 
 ## Exact Lookup
 

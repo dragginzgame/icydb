@@ -243,10 +243,19 @@ full operator-facing durability boundary is documented in
 
 Opted-in generated adapters provide typed reads over accepted schema. Planning,
 admission, and execution do not consume generated model metadata. Generated
-IcyDB endpoints establish one request scope automatically. In a manual
-endpoint, enter the synchronous database segment once with
-`with_request_execution`; every nested zero-argument `db!()` then shares that
-scope:
+IcyDB endpoints establish one request scope automatically. Put the thin IcyDB
+boundary outside the framework attribute on a manual IC-CDK or Canic endpoint.
+Every nested zero-argument `db!()` then shares the same scope, including before
+and after `.await`:
+
+```rust,ignore
+#[icydb::request_execution]
+#[canic_query(requires(auth::authenticated()))]
+async fn active_users() -> Result<Vec<User>, Error> {
+    authorize().await?;
+    load_active_users()
+}
+```
 
 ```rust
 use icydb::prelude::*;
@@ -315,7 +324,8 @@ through session/library reduced single-entity SQL:
 ```rust
 use icydb::prelude::*;
 
-icydb::db::with_request_execution(|| {
+#[icydb::request_execution]
+fn admin_work() -> Result<(), icydb::Error> {
     let session = db!()?;
     let rows = session.execute_trusted_sql_query(
         "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
@@ -331,14 +341,18 @@ icydb::db::with_request_execution(|| {
     let ddl = session.execute_admin_sql_ddl(
         "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
     )?;
-    Ok::<_, icydb::Error>((rows, updated, ddl))
-})?;
+    consume(rows, updated, ddl);
+    Ok(())
+}
 ```
 
-If an endpoint awaits authorization or another canister before doing any
-database work, enter `with_request_execution` after that await. Use the
-explicit form only when the same logical endpoint performs database work on
-both sides of an inter-canister await:
+The async boundary retains one counter set across suspension but installs it
+only while this future is being polled. Other interleaved messages therefore
+cannot inherit its scope. The called canister has a separate IcyDB instance
+and creates its own request root.
+
+Use the explicit form only for low-level framework integration that already
+owns and passes the root itself:
 
 ```rust
 let work = icydb::db::with_request_execution_root(|request_root| async move {
@@ -351,13 +365,12 @@ let result = work.await?;
 ```
 
 `db!(&request_root)` does not create another allowance; it attaches the new
-session to that root's existing counters. The called canister has its own
-IcyDB instance and request scope; this root is not sent to it. The explicit
-argument only reconnects this canister's own database work before and after
-its suspended call. Do not create a separate explicit root around each query.
-Background tasks should also receive an explicit root or establish their own
-genuine request boundary rather than relying on an ambient scope from another
-message.
+session to that root's existing counters. It is not an authorization token and
+is never sent to another canister. Passing a different explicit root while a
+request root is active returns a typed mismatch error. Do not create a
+separate explicit root around each query. Lifecycle hooks, timers, and
+background task entry functions that access IcyDB also use
+`#[icydb::request_execution]`; synchronous unit tests use `#[icydb::test]`.
 
 `execute_trusted_sql_query` is an explicit trusted/admin SQL bypass. It is not
 public-safe for caller-controlled SQL by itself; public reads should prefer

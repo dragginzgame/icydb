@@ -31,18 +31,29 @@ pub use response::ExecutionTrace;
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
 pub use session::{
-    DbSession, IntegrityCheckError, OutputRow, RequestExecutionRoot, StructuralMutation,
-    StructuralPatch, TypedAdapterError, TypedBindingError, TypedEntityAdapter, TypedEntityBinding,
-    TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell,
-    with_request_execution, with_request_execution_root,
+    DbSession, IntegrityCheckError, OutputRow, RequestExecutionFuture, RequestExecutionRoot,
+    StructuralMutation, StructuralPatch, TypedAdapterError, TypedBindingError, TypedEntityAdapter,
+    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
+    TypedWriteError, WriteCell, with_request_execution, with_request_execution_async,
+    with_request_execution_root,
 };
 
 /// Build the compact error returned when `db!()` has no active request scope.
 #[doc(hidden)]
 #[must_use]
 pub const fn __request_execution_scope_required() -> crate::Error {
-    crate::Error::from_kind(
-        crate::ErrorKind::Runtime(crate::RuntimeErrorKind::Internal),
+    crate::Error::from_runtime_boundary(
+        icydb_diagnostic_code::RuntimeBoundaryCode::RequestExecutionScopeRequired,
+        crate::ErrorOrigin::Runtime,
+    )
+}
+
+/// Build the compact error returned when an explicit root conflicts with the active request.
+#[doc(hidden)]
+#[must_use]
+pub const fn __request_execution_root_mismatch() -> crate::Error {
+    crate::Error::from_runtime_boundary(
+        icydb_diagnostic_code::RuntimeBoundaryCode::RequestExecutionRootMismatch,
         crate::ErrorOrigin::Runtime,
     )
 }

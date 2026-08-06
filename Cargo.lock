@@ -1291,6 +1291,7 @@ dependencies = [
  "icydb-core",
  "icydb-diagnostic-code",
  "icydb-model",
+ "icydb-model-macros",
  "icydb-schema",
  "serde",
  "trybuild",

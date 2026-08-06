@@ -91,6 +91,27 @@ impl RequestExecutionRoot {
         run()
     }
 
+    /// Whether no root is active or this root owns the active counters.
+    ///
+    /// Generated facade wiring uses this before accepting an explicit root.
+    /// A different active root would reset aggregate accounting inside a
+    /// request and must fail closed.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __is_compatible_with_current(&self) -> bool {
+        match current_request_scope() {
+            Some(current) => current.same_counters(&self.scope),
+            None => true,
+        }
+    }
+
+    /// Whether this root owns the counters currently installed for this poll.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __is_current(&self) -> bool {
+        current_request_scope().is_some_and(|current| current.same_counters(&self.scope))
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn new_for_tests(budget: HardExecutionBudget) -> Self {
@@ -150,6 +171,10 @@ pub(in crate::db) struct RequestExecutionScope {
 }
 
 impl RequestExecutionScope {
+    fn same_counters(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.counters, &other.counters)
+    }
+
     pub(in crate::db) fn charge(
         &self,
         context: HardExecutionContext,
@@ -238,5 +263,20 @@ mod tests {
             assert_eq!(exhausted.scope(), DiagnosticExecutionBudgetScope::Request);
             assert_eq!(exhausted.observed(), 2);
         });
+    }
+
+    #[test]
+    fn explicit_root_compatibility_rejects_a_different_active_root() {
+        let first = RequestExecutionRoot::new_for_tests(REQUEST_HARD_BUDGET);
+        let second = RequestExecutionRoot::new_for_tests(REQUEST_HARD_BUDGET);
+
+        assert!(first.__is_compatible_with_current());
+        assert!(!first.__is_current());
+        first.__with_current_scope(|| {
+            assert!(first.__is_current());
+            assert!(first.__is_compatible_with_current());
+            assert!(!second.__is_compatible_with_current());
+        });
+        assert!(second.__is_compatible_with_current());
     }
 }

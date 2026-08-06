@@ -13,6 +13,10 @@ use syn::{Expr, Lit, Path};
 const ICYDB_PACKAGE: &str = "icydb";
 const MODEL_PACKAGE: &str = "icydb-model";
 
+pub(crate) fn icydb_runtime_path() -> Result<TokenStream, darling::Error> {
+    resolve_path(ICYDB_PACKAGE, None, None)
+}
+
 /// Optional dependency paths consumed before node-specific argument parsing.
 #[derive(Default)]
 pub(crate) struct CratePathOverrides {
