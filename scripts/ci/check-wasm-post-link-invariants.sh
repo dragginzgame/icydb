@@ -16,8 +16,12 @@ require_text() {
 
 require_text \
     testing/integration/src/lib.rs \
-    'wasm_optimizer::optimize_deployable_wasm(' \
-    'fixture builds must invoke the canonical post-link artifact producer.'
+    'cache_post_link_wasm(&PostLinkCacheRequest {' \
+    'fixture builds must invoke the canonical cached post-link artifact producer.'
+require_text \
+    testing/integration/src/canister_build_cache.rs \
+    'optimize_deployable_wasm(request.compiler_emitted, &output)?;' \
+    'the post-link artifact cache must invoke the canonical optimizer on cache misses.'
 require_text \
     testing/integration/src/lib.rs \
     '&configured.compiler_emitted,' \
