@@ -27,6 +27,7 @@ use crate::{
     },
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 fn ensure_grouped_execution_family(family: ExecutionFamily) -> Result<(), QueryError> {
     match family {
@@ -59,8 +60,16 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
 
-        let (result, _trace) =
-            self.execute_structural_grouped_with_trace(prepared_plan, cursor_token)?;
+        let execution_lane = if admission.is_some() {
+            DiagnosticExecutionLane::PublicRead
+        } else {
+            DiagnosticExecutionLane::TrustedRead
+        };
+        let (result, _trace) = self.execute_structural_grouped_with_trace(
+            prepared_plan,
+            cursor_token,
+            execution_lane,
+        )?;
         let row_count = result.row_count();
         let (rows, next_cursor) = finalize_structural_grouped_projection_result(result)?;
 
@@ -99,11 +108,18 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         plan: SharedPreparedExecutionPlan,
         cursor_token: Option<&str>,
+        execution_lane: DiagnosticExecutionLane,
     ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError> {
         let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
 
         self.with_metrics(|| {
-            execute_shared_grouped_plan_for_canister(&self.db, self.debug, plan, cursor)
+            execute_shared_grouped_plan_for_canister(
+                &self.db,
+                self.debug,
+                plan,
+                cursor,
+                execution_lane,
+            )
         })
         .map_err(QueryError::execute)
     }
@@ -114,6 +130,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         plan: SharedPreparedExecutionPlan,
         cursor_token: Option<&str>,
+        execution_lane: DiagnosticExecutionLane,
     ) -> Result<
         (
             StructuralGroupedProjectionResult,
@@ -126,7 +143,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.with_metrics(|| {
             execute_shared_grouped_plan_for_canister_with_phase_attribution(
-                &self.db, self.debug, plan, cursor,
+                &self.db,
+                self.debug,
+                plan,
+                cursor,
+                execution_lane,
             )
         })
         .map_err(QueryError::execute)

@@ -2554,7 +2554,10 @@ mod identity_pre_key_tests {
         insert_key_exists_after_generation, validate_structural_mutation_result_bytes,
     };
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    use crate::db::executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom};
+    use crate::db::executor::budget::{
+        HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+        with_query_execution_budget_for_tests,
+    };
     use crate::{
         db::{
             commit::{database_incarnation_id, forget_recovered_domain_for_tests},
@@ -2932,6 +2935,211 @@ mod identity_pre_key_tests {
             icydb_diagnostic_code::DiagnosticFactTag::QueryShapeFingerprintPrefix,
         );
         assert_ne!(facts[5].1, 0);
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn assert_planned_query_exhausts(
+        session: &DbSession<TestCanister>,
+        query: &crate::db::DynamicQuery,
+        resource: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
+    ) {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(resource, 0);
+        let context = HardExecutionContext::new(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::TrustedRead,
+            0x7068_7973_6963_616c,
+        );
+        let error = with_query_execution_budget_for_tests(budget, context, || {
+            session.execute_trusted_dynamic_query(query)
+        })
+        .expect_err("the injected zero resource allowance should reject planned execution");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            error.diagnostic_facts()[0],
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                resource.raw(),
+            ),
+        );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn assert_grouped_query_exhausts(
+        session: &DbSession<TestCanister>,
+        query: &crate::db::DynamicQuery,
+        resource: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
+    ) {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(resource, 0);
+        let context = HardExecutionContext::new(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::TrustedRead,
+            0x6772_6f75_7065_642d,
+        );
+        let error = with_query_execution_budget_for_tests(budget, context, || {
+            session.execute_trusted_dynamic_grouped_query(query)
+        })
+        .expect_err("the injected zero resource allowance should reject grouped execution");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            error.diagnostic_facts()[0],
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                resource.raw(),
+            ),
+        );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn assert_sql_query_exhausts(
+        session: &DbSession<TestCanister>,
+        sql: &str,
+        resource: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
+    ) {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(resource, 0);
+        let context = HardExecutionContext::new(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::TrustedRead,
+            0x7371_6c2d_736f_7274,
+        );
+        let error = with_query_execution_budget_for_tests(budget, context, || {
+            session.execute_trusted_sql_query(sql)
+        })
+        .expect_err("the injected zero resource allowance should reject SQL execution");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            error.diagnostic_facts()[0],
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                resource.raw(),
+            ),
+        );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn planned_read_routes_share_physical_resource_accounting() {
+        let session = initialize();
+        let first = insert_exact_key_fixture(&session, 41);
+        insert_exact_key_fixture(&session, 42);
+
+        let fallback = crate::db::DynamicQuery::new(ENTITY_NAME)
+            .filter(crate::db::FieldRef::new("id").eq(first))
+            .select(["id", "payload"])
+            .order_by(crate::db::asc("id"))
+            .limit(1);
+        assert_eq!(
+            session
+                .execute_trusted_dynamic_query(&fallback)
+                .expect("bounded fallback execution should preserve its result")
+                .row_count,
+            1,
+        );
+        assert_planned_query_exhausts(
+            &session,
+            &fallback,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::RowsVisited,
+        );
+
+        let covering = crate::db::DynamicQuery::new(ENTITY_NAME)
+            .filter(crate::db::FieldRef::new("payload").eq(41_u64))
+            .select(["payload"])
+            .order_by(crate::db::asc("payload"))
+            .limit(1);
+        assert_eq!(
+            session
+                .execute_trusted_dynamic_query(&covering)
+                .expect("bounded covering execution should preserve its result")
+                .row_count,
+            1,
+        );
+        assert_planned_query_exhausts(
+            &session,
+            &covering,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+        );
+
+        let residual = crate::db::DynamicQuery::new(ENTITY_NAME)
+            .filter(crate::db::FieldRef::new("payload").eq_field("id"))
+            .select(["id"])
+            .order_by(crate::db::asc("id"))
+            .limit(1);
+        assert_eq!(
+            session
+                .execute_trusted_dynamic_query(&residual)
+                .expect("bounded residual execution should preserve its result")
+                .row_count,
+            0,
+        );
+        assert_planned_query_exhausts(
+            &session,
+            &residual,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        );
+
+        assert_planned_query_exhausts(
+            &session,
+            &fallback,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultBytes,
+        );
+
+        let grouped = crate::db::DynamicQuery::new(ENTITY_NAME)
+            .group_by("payload")
+            .aggregate(crate::db::count())
+            .order_by(crate::db::asc("payload"))
+            .grouped_limits(10, 16 * 1_024)
+            .limit(1);
+        let grouped_result = session
+            .execute_trusted_dynamic_grouped_query(&grouped)
+            .expect("bounded grouped execution should preserve its result");
+        assert_eq!(grouped_result.row_count, 1);
+        assert!(grouped_result.next_cursor.is_some());
+        assert_grouped_query_exhausts(
+            &session,
+            &grouped,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::GroupDistinctEntries,
+        );
+        assert_grouped_query_exhausts(
+            &session,
+            &grouped,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::CursorSteps,
+        );
+
+        assert_sql_query_exhausts(
+            &session,
+            "SELECT payload, COUNT(*) AS row_count FROM IdentityRow \
+             GROUP BY payload ORDER BY row_count DESC, payload ASC LIMIT 1",
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::SortEntries,
+        );
     }
 
     fn assert_dynamic_payload(session: &DbSession<TestCanister>, key: u64, expected_payload: u64) {

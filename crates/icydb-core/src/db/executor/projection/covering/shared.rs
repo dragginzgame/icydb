@@ -6,7 +6,9 @@ use crate::{
         direction::Direction,
         executor::{
             AccessWindow, EntityAuthority, IndexComponentRows, PrefixSetMergeSafety,
-            apply_offset_limit_window, expand_index_prefix_family_with_exact_child_prefixes,
+            apply_offset_limit_window,
+            budget::charge_current_execution_budget,
+            expand_index_prefix_family_with_exact_child_prefixes,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
                 CoveringReadField, CoveringReadFieldSource, PageSpec,
@@ -24,6 +26,7 @@ use crate::{
     traits::CanisterKind,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::collections::BTreeMap;
 
 pub(super) struct PreparedCoveringIndexScan {
@@ -329,6 +332,7 @@ pub(super) fn project_covering_row_from_decoded_values(
     component_indices: &[usize],
     decoded_values: &[Value],
 ) -> Result<Vec<Value>, InternalError> {
+    charge_covering_projection_steps(fields.len())?;
     if component_indices.len() != decoded_values.len() {
         return Err(InternalError::query_executor_invariant());
     }
@@ -390,6 +394,7 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
     component_indices: &[usize],
     decoded_values: Vec<Value>,
 ) -> Result<Vec<Value>, InternalError> {
+    charge_covering_projection_steps(fields.len())?;
     if component_indices.len() != decoded_values.len() {
         return Err(InternalError::query_executor_invariant());
     }
@@ -436,6 +441,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
     component_index: usize,
     decoded_value: Value,
 ) -> Result<Vec<Value>, InternalError> {
+    charge_covering_projection_steps(fields.len())?;
     let mut projected = Vec::with_capacity(fields.len());
     let mut decoded_value = Some(decoded_value);
 
@@ -494,6 +500,13 @@ pub(super) fn project_covering_row_from_single_decoded_value(
     }
 
     Ok(projected)
+}
+
+fn charge_covering_projection_steps(count: usize) -> Result<(), InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        u64::try_from(count).unwrap_or(u64::MAX),
+    )
 }
 
 fn covering_component_position_use_counts(

@@ -8,8 +8,11 @@ use crate::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         data::{CanonicalSlotReader, DataRow},
         executor::{
-            measure_execution_stats_phase, projection::eval_compiled_expr_with_value_reader,
-            record_ordering, terminal::RowLayout,
+            budget::{charge_current_execution_budget, charge_sort_work},
+            measure_execution_stats_phase,
+            projection::eval_compiled_expr_with_value_reader,
+            record_ordering,
+            terminal::RowLayout,
         },
         numeric::canonical_value_compare,
         query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
@@ -17,6 +20,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::{array, borrow::Cow, cmp::Ordering, mem};
 
 const INLINE_ORDER_VALUE_CAPACITY: usize = 2;
@@ -107,24 +111,28 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
     rows: &mut Vec<R>,
     resolved_order: &ResolvedOrder,
     keep_count: Option<usize>,
-) where
+) -> Result<(), InternalError>
+where
     R: OrderReadableRow,
 {
     if let Some(keep_count) = keep_count
         && keep_count == 0
     {
         rows.clear();
-        return;
+        return Ok(());
     }
 
     if rows.len() <= 1 {
-        return;
+        return Ok(());
     }
+    charge_sort_work::<R>(rows.len())?;
     let rows_sorted = rows.len();
     let ((), ordering_micros) = measure_execution_stats_phase(|| {
         apply_structural_order_window_inner(rows, resolved_order, keep_count);
     });
     record_ordering(rows_sorted, ordering_micros);
+
+    Ok(())
 }
 
 fn apply_structural_order_window_inner<R>(
@@ -209,7 +217,7 @@ impl<R> PendingOrderRows<R> {
     {
         match self.storage {
             PendingOrderRowStorage::Plain(mut rows) => {
-                apply_structural_order_window(&mut rows, resolved_order, keep_count);
+                apply_structural_order_window(&mut rows, resolved_order, keep_count)?;
                 Ok(rows)
             }
             PendingOrderRowStorage::Cached {
@@ -226,6 +234,7 @@ impl<R> PendingOrderRows<R> {
 
                 let rows_sorted = rows.len();
                 if rows_sorted > 1 {
+                    charge_sort_work::<R>(rows_sorted)?;
                     let ((), ordering_micros) = measure_execution_stats_phase(|| {
                         rows.sort_by(|left, right| {
                             compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
@@ -323,11 +332,33 @@ where
     }
 
     /// Retain one candidate if it belongs in the bounded resolved-order window.
-    pub(in crate::db::executor) fn push(&mut self, candidate: R) {
+    pub(in crate::db::executor) fn push(&mut self, candidate: R) -> Result<(), InternalError> {
+        let retained_count = match &self.candidates {
+            BoundedOrderCandidates::Direct(window) => window.rows.len(),
+            BoundedOrderCandidates::Cached(window) => window.rows.len(),
+        };
+        let comparisons = if retained_count == 0 {
+            0
+        } else if retained_count < self.candidates.keep_count() {
+            1
+        } else {
+            retained_count.saturating_add(1)
+        };
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::SortEntries, 1)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::SortComparisons,
+            u64::try_from(comparisons).unwrap_or(u64::MAX),
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::SortTemporaryBytes,
+            u64::try_from(std::mem::size_of::<R>()).unwrap_or(u64::MAX),
+        )?;
         match &mut self.candidates {
             BoundedOrderCandidates::Direct(window) => window.push(candidate, self.resolved_order),
             BoundedOrderCandidates::Cached(window) => window.push(candidate, self.resolved_order),
         }
+
+        Ok(())
     }
 
     /// Consume retained rows while preserving expression-order values for
@@ -356,6 +387,15 @@ where
 enum BoundedOrderCandidates<R> {
     Direct(BoundedDirectOrderWindow<R>),
     Cached(BoundedCachedOrderWindow<R>),
+}
+
+impl<R> BoundedOrderCandidates<R> {
+    const fn keep_count(&self) -> usize {
+        match self {
+            Self::Direct(window) => window.keep_count,
+            Self::Cached(window) => window.keep_count,
+        }
+    }
 }
 
 ///
@@ -532,6 +572,7 @@ pub(in crate::db::executor) fn apply_structural_order_window_to_data_rows(
     if rows.len() <= 1 {
         return Ok(());
     }
+    charge_sort_work::<DataRow>(rows.len())?;
     let rows_sorted = rows.len();
     let (result, ordering_micros) = measure_execution_stats_phase(|| {
         apply_structural_order_window_to_data_rows_inner(

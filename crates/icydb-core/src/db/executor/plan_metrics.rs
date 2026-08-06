@@ -5,7 +5,9 @@
 
 use crate::{
     db::access::{AccessPathKind, AccessPlan},
-    db::executor::planning::route::GroupedExecutionMode,
+    db::executor::{
+        budget::admit_current_execution_diagnostic_step, planning::route::GroupedExecutionMode,
+    },
     db::query::plan::{AccessChoiceSelectedReason, AccessPlannedQuery},
     metrics::sink::{
         GroupedPlanExecutionMode, MetricsEvent, PlanChoiceReason, PlanKind, event_is_observable,
@@ -16,7 +18,7 @@ use crate::{
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
 pub(super) fn record_plan_metrics(entity_path: &str, plan: &AccessPlannedQuery) {
-    if !event_is_observable() {
+    if !event_is_observable() || !admit_current_execution_diagnostic_step() {
         return;
     }
 
@@ -37,7 +39,7 @@ pub(super) fn record_grouped_plan_metrics(
     plan: &AccessPlannedQuery,
     grouped_execution_mode: GroupedExecutionMode,
 ) {
-    if !event_is_observable() {
+    if !event_is_observable() || !admit_current_execution_diagnostic_step() {
         return;
     }
 

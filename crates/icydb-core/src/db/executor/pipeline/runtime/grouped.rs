@@ -13,6 +13,7 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
             },
+            budget::charge_current_execution_budget,
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
             projection::eval_effective_runtime_filter_program_with_value_cow_reader,
             terminal::{RetainedSlotLayout, RetainedSlotRow, RowDecoder, RowLayout},
@@ -28,6 +29,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::borrow::Cow;
 
 ///
@@ -379,6 +381,7 @@ impl StructuralGroupedRowRuntime {
                 self.single_slot_row_view_from_data_row(key, row, single_grouped_slot_decode)
             }
             GroupedRowDecodePath::Indexed => {
+                charge_grouped_decoded_row(&row, self.grouped_slot_layout.required_slots().len())?;
                 let retained_slots = RowDecoder::decode_retained_slots_from_data_key(
                     &self.row_layout,
                     key,
@@ -422,6 +425,7 @@ impl StructuralGroupedRowRuntime {
         row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<Option<Value>, InternalError> {
+        charge_grouped_decoded_row(row, 1)?;
         RowLayout::decode_required_value_from_data_key(
             &self.row_layout,
             row,
@@ -458,6 +462,18 @@ impl StructuralGroupedRowRuntime {
     ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         let row = self.store.with_data(|store| store.get(&raw_key));
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+        if let Some(row) = row.as_ref() {
+            let row_bytes = u64::try_from(row.len()).unwrap_or(u64::MAX);
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::StoredBytesRead,
+                row_bytes,
+            )?;
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::MaterializedBytes,
+                row_bytes,
+            )?;
+        }
 
         match (consistency, row) {
             (MissingRowPolicy::Ignore, None) => Ok(None),
@@ -506,6 +522,17 @@ impl StructuralGroupedRowRuntime {
             .map(|row| self.row_view_from_data_row(key, row))
             .transpose()
     }
+}
+
+fn charge_grouped_decoded_row(row: &RawRow, nested_steps: usize) -> Result<(), InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::DecodedBytes,
+        u64::try_from(row.len()).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::NestedValueSteps,
+        u64::try_from(nested_steps).unwrap_or(u64::MAX),
+    )
 }
 
 ///

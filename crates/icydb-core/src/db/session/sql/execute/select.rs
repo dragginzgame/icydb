@@ -31,6 +31,7 @@ use crate::{
     },
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 use super::diagnostics::GroupedSqlDiagnosticsCollector;
 #[cfg(feature = "diagnostics")]
@@ -265,6 +266,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 .execute_structural_grouped_with_phase_attribution(
                                     prepared_plan,
                                     None,
+                                    DiagnosticExecutionLane::TrustedRead,
                                 )
                                 .map(|(result, _trace, phase_attribution)| {
                                     (result, phase_attribution)
@@ -394,7 +396,11 @@ impl<C: CanisterKind> DbSession<C> {
                 projection,
                 |session, prepared_plan| {
                     session
-                        .execute_structural_grouped_with_trace(prepared_plan, None)
+                        .execute_structural_grouped_with_trace(
+                            prepared_plan,
+                            None,
+                            DiagnosticExecutionLane::TrustedRead,
+                        )
                         .map(|(result, _trace)| (result, ()))
                 },
             )?;

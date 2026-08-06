@@ -8,6 +8,7 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
+            budget::charge_current_execution_budget,
             projection::{
                 eval::{
                     ProjectionEvalError, eval_compiled_expr_with_required_slot_reader_cow,
@@ -28,6 +29,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 pub(super) fn project_slot_row(
     prepared_projection: &PreparedProjectionContract,
     row: RetainedSlotRow,
@@ -176,6 +178,7 @@ fn project_slot_row_dense_into(
     row: &RetainedSlotRow,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
+    charge_projection_steps(prepared_projection.compiled_exprs().len())?;
     shaped.clear();
 
     if project_slot_row_direct_octet_lengths_into(prepared_projection, row, shaped)? {
@@ -281,6 +284,7 @@ fn project_slot_row_from_direct_slots_into(
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
     let projections = direct_slots.projections();
+    charge_projection_steps(projections.len())?;
     shaped.clear();
 
     if direct_slots.has_repeated_source() {
@@ -402,6 +406,7 @@ fn project_data_row_from_direct_slots_into(
     metrics: ProjectionMaterializationMetricsRecorder,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
+    charge_projection_steps(projections.len())?;
     shaped.clear();
     let (data_key, raw_row) = row;
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
@@ -424,6 +429,7 @@ fn project_repeated_data_row_from_direct_slots_into(
     metrics: ProjectionMaterializationMetricsRecorder,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
+    charge_projection_steps(projections.len())?;
     shaped.clear();
     let (data_key, raw_row) = row;
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
@@ -507,6 +513,7 @@ fn project_scalar_data_row_into(
     #[cfg(not(any(test, feature = "diagnostics")))]
     let _ = projected_slot_mask;
 
+    charge_projection_steps(compiled_fields.len())?;
     shaped.clear();
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
@@ -526,6 +533,13 @@ fn project_scalar_data_row_into(
     }
 
     Ok(())
+}
+
+fn charge_projection_steps(count: usize) -> Result<(), InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        u64::try_from(count).unwrap_or(u64::MAX),
+    )
 }
 
 // Walk one prepared projection plan through one reader that can borrow slot

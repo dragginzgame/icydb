@@ -1,14 +1,55 @@
 //! Module: db::executor::budget
 //! Responsibility: finite hard limits and monotonic accounting for database work.
-//! Does not own: request-root propagation, physical-operator instrumentation, or paging progress.
+//! Does not own: request-root propagation or paging progress.
 //! Boundary: charges one named resource before or during bounded work and returns typed exhaustion.
 
-use crate::error::InternalError;
+use std::cell::RefCell;
+
+#[cfg(test)]
+use crate::db::QueryError;
+use crate::db::executor::{EntityAuthority, RuntimeGroupedRow, SharedPreparedExecutionPlan};
+use crate::{error::InternalError, value::Value};
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
 };
 
 const RESOURCE_COUNT: usize = DiagnosticExecutionBudgetResource::ALL.len();
+const INSTRUCTION_WATERMARK_CHARGE_INTERVAL: u16 = 64;
+const INSTRUCTION_WATERMARK_LARGE_CHARGE: u64 = 1_024 * 1_024;
+
+const READ_FAILURE_HEADROOM: HardExecutionFailureHeadroom =
+    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1_024);
+static READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
+    [
+        1,                   // query executions
+        2_000_000,           // planning steps
+        64,                  // plan compilations
+        250_000,             // key/index entries visited
+        250_000,             // rows visited
+        128 * 1_024 * 1_024, // stored bytes read
+        16_000_000,          // predicate/expression steps
+        16_000_000,          // nested value steps
+        128 * 1_024 * 1_024, // decoded bytes
+        128 * 1_024 * 1_024, // materialized bytes
+        250_000,             // sort entries
+        32_000_000,          // sort comparisons
+        128 * 1_024 * 1_024, // sort temporary bytes
+        100_000,             // group/distinct entries
+        128 * 1_024 * 1_024, // group/distinct state bytes
+        1_000_000,           // cursor steps
+        128 * 1_024 * 1_024, // temporary bytes
+        1_000_000,           // diagnostic steps
+        100_000,             // result rows
+        64 * 1_024 * 1_024,  // result bytes
+        4_500_000_000,       // instruction units
+    ],
+    READ_FAILURE_HEADROOM,
+);
+
+std::thread_local! {
+    static ACTIVE_EXECUTION_BUDGET: RefCell<Option<HardExecutionBudgetTracker>> =
+        const { RefCell::new(None) };
+}
 
 /// Reserved capacity needed to construct and encode a typed budget failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,6 +129,18 @@ impl HardExecutionBudget {
     ) -> Self {
         Self::new([limit; RESOURCE_COUNT], failure_headroom)
     }
+
+    /// Replace one resource ceiling in a test-only injected profile.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn with_limit_for_tests(
+        mut self,
+        resource: DiagnosticExecutionBudgetResource,
+        limit: u64,
+    ) -> Self {
+        self.limits[resource_index(resource)] = limit;
+        self
+    }
 }
 
 /// Immutable attribution attached to one hard-budget counter set.
@@ -112,6 +165,76 @@ impl HardExecutionContext {
             normalized_shape_fingerprint_prefix,
         }
     }
+}
+
+/// Build literal-free attribution for one prepared read shape.
+pub(in crate::db::executor) fn prepared_read_execution_context(
+    plan: &SharedPreparedExecutionPlan,
+    lane: DiagnosticExecutionLane,
+) -> HardExecutionContext {
+    HardExecutionContext::new(
+        DiagnosticExecutionBudgetScope::Execution,
+        lane,
+        plan.execution_shape_fingerprint_prefix(),
+    )
+}
+
+/// Derive one literal-free shape prefix while immutable prepared residents are built.
+pub(in crate::db::executor) fn read_shape_fingerprint_prefix(
+    authority: &EntityAuthority,
+    logical: &crate::db::query::plan::AccessPlannedQuery,
+) -> u64 {
+    let fingerprint = authority.accepted_schema_fingerprint();
+    let mut prefix = u64::from_be_bytes([
+        fingerprint[0],
+        fingerprint[1],
+        fingerprint[2],
+        fingerprint[3],
+        fingerprint[4],
+        fingerprint[5],
+        fingerprint[6],
+        fingerprint[7],
+    ]) ^ authority.entity_tag().value().rotate_left(17);
+    let scalar = logical.scalar_plan();
+    prefix ^= u64::from(logical.has_residual_filter_predicate()).rotate_left(7);
+    prefix ^= u64::from(scalar.distinct).rotate_left(11);
+    prefix ^=
+        usize_as_u64(scalar.order.as_ref().map_or(0, |order| order.fields.len())).rotate_left(23);
+    prefix ^= usize_as_u64(
+        logical
+            .scalar_projection_plan()
+            .map_or(0, <[crate::db::query::plan::expr::CompiledExpr]>::len),
+    )
+    .rotate_left(31);
+    prefix ^= usize_as_u64(logical.grouped_aggregate_execution_specs().map_or(
+        0,
+        <[crate::db::query::plan::GroupedAggregateExecutionSpec]>::len,
+    ))
+    .rotate_left(41);
+
+    prefix
+}
+
+/// Build bounded attribution for a direct read terminal without a full plan.
+pub(in crate::db::executor) const fn direct_read_execution_context(
+    authority: &EntityAuthority,
+    lane: DiagnosticExecutionLane,
+    shape_domain: u64,
+) -> HardExecutionContext {
+    let fingerprint = authority.accepted_schema_fingerprint();
+    let prefix = u64::from_be_bytes([
+        fingerprint[0],
+        fingerprint[1],
+        fingerprint[2],
+        fingerprint[3],
+        fingerprint[4],
+        fingerprint[5],
+        fingerprint[6],
+        fingerprint[7],
+    ]) ^ authority.entity_tag().value().rotate_left(17)
+        ^ shape_domain;
+
+    HardExecutionContext::new(DiagnosticExecutionBudgetScope::Execution, lane, prefix)
 }
 
 /// Typed hard-budget exhaustion with no query literals or row payloads.
@@ -174,25 +297,61 @@ impl From<ExecutionBudgetExceeded> for InternalError {
     }
 }
 
-/// Monotonic usage counters for one hard execution budget.
-pub(in crate::db) struct HardExecutionBudgetTracker<'budget> {
-    budget: &'budget HardExecutionBudget,
-    context: HardExecutionContext,
-    observed: [u64; RESOURCE_COUNT],
+enum HardExecutionBudgetAuthority {
+    Static(&'static HardExecutionBudget),
+    #[cfg(test)]
+    TestOwned(Box<HardExecutionBudget>),
 }
 
-impl<'budget> HardExecutionBudgetTracker<'budget> {
+impl HardExecutionBudgetAuthority {
+    const fn budget(&self) -> &HardExecutionBudget {
+        match self {
+            Self::Static(budget) => budget,
+            #[cfg(test)]
+            Self::TestOwned(budget) => budget,
+        }
+    }
+}
+
+/// Monotonic usage counters for one hard execution budget.
+pub(in crate::db) struct HardExecutionBudgetTracker {
+    budget: HardExecutionBudgetAuthority,
+    context: HardExecutionContext,
+    observed: [u64; RESOURCE_COUNT],
+    last_instruction_counter: Option<u64>,
+    charges_since_instruction_watermark: u16,
+}
+
+impl HardExecutionBudgetTracker {
     /// Start one counter set at zero usage.
     #[must_use]
-    pub(in crate::db) const fn new(
-        budget: &'budget HardExecutionBudget,
+    pub(in crate::db) fn new(
+        budget: &'static HardExecutionBudget,
         context: HardExecutionContext,
     ) -> Self {
         debug_assert!(budget.failure_headroom.is_reserved());
         Self {
-            budget,
+            budget: HardExecutionBudgetAuthority::Static(budget),
             context,
             observed: [0; RESOURCE_COUNT],
+            last_instruction_counter: None,
+            charges_since_instruction_watermark: 0,
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn new_for_tests(
+        budget: HardExecutionBudget,
+        context: HardExecutionContext,
+    ) -> Self {
+        debug_assert!(budget.failure_headroom.is_reserved());
+        Self {
+            budget: HardExecutionBudgetAuthority::TestOwned(Box::new(budget)),
+            context,
+            observed: [0; RESOURCE_COUNT],
+            last_instruction_counter: None,
+            charges_since_instruction_watermark: 0,
         }
     }
 
@@ -202,11 +361,11 @@ impl<'budget> HardExecutionBudgetTracker<'budget> {
         resource: DiagnosticExecutionBudgetResource,
         amount: u64,
     ) -> Result<(), ExecutionBudgetExceeded> {
-        self.charge(resource, amount)
+        self.charge_raw(resource, amount)
     }
 
     /// Charge one bounded increment at a maintained loop boundary.
-    pub(in crate::db) const fn charge_periodic(
+    pub(in crate::db) fn charge_periodic(
         &mut self,
         resource: DiagnosticExecutionBudgetResource,
         amount: u64,
@@ -221,14 +380,58 @@ impl<'budget> HardExecutionBudgetTracker<'budget> {
         self.observed[resource_index(resource)]
     }
 
+    /// Sample the current IC instruction watermark at a bounded operator seam.
+    pub(in crate::db) fn check_instruction_watermark(
+        &mut self,
+    ) -> Result<(), ExecutionBudgetExceeded> {
+        let current = local_instruction_counter();
+        let delta = self
+            .last_instruction_counter
+            .map_or(0, |previous| current.saturating_sub(previous));
+        self.last_instruction_counter = Some(current);
+        self.charges_since_instruction_watermark = 0;
+        self.charge_raw(DiagnosticExecutionBudgetResource::InstructionUnits, delta)
+    }
+
+    /// Finish instruction accounting only after a maintained loop opened a watermark.
+    pub(in crate::db) fn finish_instruction_watermark(
+        &mut self,
+    ) -> Result<(), ExecutionBudgetExceeded> {
+        if self.last_instruction_counter.is_none() {
+            return Ok(());
+        }
+
+        self.check_instruction_watermark()
+    }
+
     /// Return the profile's failure-construction reserve.
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn failure_headroom(&self) -> HardExecutionFailureHeadroom {
-        self.budget.failure_headroom()
+        self.budget.budget().failure_headroom()
     }
 
-    const fn charge(
+    fn charge(
+        &mut self,
+        resource: DiagnosticExecutionBudgetResource,
+        amount: u64,
+    ) -> Result<(), ExecutionBudgetExceeded> {
+        if !matches!(
+            resource,
+            DiagnosticExecutionBudgetResource::InstructionUnits
+        ) {
+            self.charges_since_instruction_watermark =
+                self.charges_since_instruction_watermark.saturating_add(1);
+            if self.charges_since_instruction_watermark >= INSTRUCTION_WATERMARK_CHARGE_INTERVAL
+                || amount >= INSTRUCTION_WATERMARK_LARGE_CHARGE
+            {
+                self.check_instruction_watermark()?;
+            }
+        }
+        self.charge_raw(resource, amount)
+    }
+
+    const fn charge_raw(
         &mut self,
         resource: DiagnosticExecutionBudgetResource,
         amount: u64,
@@ -238,7 +441,7 @@ impl<'budget> HardExecutionBudgetTracker<'budget> {
         let (observed, overflowed) = current.overflowing_add(amount);
         let observed = if overflowed { u64::MAX } else { observed };
         self.observed[index] = observed;
-        let limit = self.budget.limit(resource);
+        let limit = self.budget.budget().limit(resource);
         if overflowed || observed > limit {
             return Err(ExecutionBudgetExceeded {
                 resource,
@@ -249,6 +452,280 @@ impl<'budget> HardExecutionBudgetTracker<'budget> {
         }
         Ok(())
     }
+}
+
+/// Run one prepared read under a finite per-execution hard budget.
+pub(in crate::db::executor) fn with_read_execution_budget<T>(
+    context: HardExecutionContext,
+    run: impl FnOnce() -> Result<T, InternalError>,
+) -> Result<T, InternalError> {
+    with_execution_budget(
+        HardExecutionBudgetTracker::new(&READ_HARD_BUDGET, context),
+        run,
+        std::convert::identity,
+    )
+}
+
+/// Charge one maintained physical resource in the innermost active execution.
+pub(in crate::db::executor) fn charge_current_execution_budget(
+    resource: DiagnosticExecutionBudgetResource,
+    amount: u64,
+) -> Result<(), InternalError> {
+    if amount == 0 {
+        return Ok(());
+    }
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let mut budget = budget
+            .try_borrow_mut()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        let Some(budget) = budget.as_mut() else {
+            return Ok(());
+        };
+
+        budget
+            .charge_periodic(resource, amount)
+            .map_err(InternalError::from)
+    })
+}
+
+/// Precharge one full in-memory sort whose entry count is already known.
+pub(in crate::db::executor) fn charge_sort_work<R>(entries: usize) -> Result<(), InternalError> {
+    let comparisons_per_entry = if entries <= 1 {
+        0
+    } else {
+        usize::BITS.saturating_sub(entries.saturating_sub(1).leading_zeros())
+    };
+    let comparisons = entries.saturating_mul(comparisons_per_entry as usize);
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortEntries,
+        usize_as_u64(entries),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortComparisons,
+        usize_as_u64(comparisons),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortTemporaryBytes,
+        usize_as_u64(entries.saturating_mul(std::mem::size_of::<R>())),
+    )
+}
+
+/// Sample only the instruction watermark for the innermost active execution.
+pub(in crate::db::executor) fn finish_current_execution_instruction_watermark()
+-> Result<(), InternalError> {
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let mut budget = budget
+            .try_borrow_mut()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        let Some(budget) = budget.as_mut() else {
+            return Ok(());
+        };
+
+        budget
+            .finish_instruction_watermark()
+            .map_err(InternalError::from)
+    })
+}
+
+/// Admit one optional diagnostics update, suppressing detail after its finite allowance.
+#[must_use]
+pub(in crate::db::executor) fn admit_current_execution_diagnostic_step() -> bool {
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let Ok(mut budget) = budget.try_borrow_mut() else {
+            return false;
+        };
+        let Some(budget) = budget.as_mut() else {
+            return true;
+        };
+
+        budget
+            .charge_periodic(DiagnosticExecutionBudgetResource::DiagnosticSteps, 1)
+            .is_ok()
+    })
+}
+
+/// Charge one fully materialized runtime-value result before response shaping.
+pub(in crate::db::executor) fn charge_runtime_value_rows(
+    rows: &[Vec<Value>],
+) -> Result<(), InternalError> {
+    let (bytes, nested_steps) = rows.iter().flatten().fold((0_u64, 0_u64), |total, value| {
+        let value_work = runtime_value_work(value);
+        (
+            total.0.saturating_add(value_work.0),
+            total.1.saturating_add(value_work.1),
+        )
+    });
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::ResultRows,
+        usize_as_u64(rows.len()),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::NestedValueSteps,
+        nested_steps,
+    )?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::MaterializedBytes, bytes)?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, bytes)
+}
+
+/// Charge grouped runtime rows before cursor and public DTO finalization.
+pub(in crate::db::executor) fn charge_runtime_grouped_rows(
+    rows: &[RuntimeGroupedRow],
+) -> Result<(), InternalError> {
+    let (bytes, nested_steps) = rows
+        .iter()
+        .flat_map(|row| row.group_key().iter().chain(row.aggregate_values()))
+        .fold((0_u64, 0_u64), |total, value| {
+            let value_work = runtime_value_work(value);
+            (
+                total.0.saturating_add(value_work.0),
+                total.1.saturating_add(value_work.1),
+            )
+        });
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::ResultRows,
+        usize_as_u64(rows.len()),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::NestedValueSteps,
+        nested_steps,
+    )?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::MaterializedBytes, bytes)?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, bytes)
+}
+
+pub(in crate::db::executor) fn runtime_value_work(value: &Value) -> (u64, u64) {
+    const VALUE_OVERHEAD: u64 = 32;
+    match value {
+        Value::Blob(value) => (VALUE_OVERHEAD.saturating_add(usize_as_u64(value.len())), 1),
+        Value::Text(value) => (VALUE_OVERHEAD.saturating_add(usize_as_u64(value.len())), 1),
+        Value::IntBig(value) => (
+            VALUE_OVERHEAD.saturating_add(usize_as_u64(value.to_leb128().len())),
+            1,
+        ),
+        Value::NatBig(value) => (
+            VALUE_OVERHEAD.saturating_add(usize_as_u64(value.to_leb128().len())),
+            1,
+        ),
+        Value::Principal(value) => (
+            VALUE_OVERHEAD.saturating_add(usize_as_u64(value.as_slice().len())),
+            1,
+        ),
+        Value::List(values) => values.iter().fold((VALUE_OVERHEAD, 1_u64), |total, value| {
+            let value_work = runtime_value_work(value);
+            (
+                total.0.saturating_add(value_work.0),
+                total.1.saturating_add(value_work.1),
+            )
+        }),
+        Value::Map(entries) => {
+            entries
+                .iter()
+                .fold((VALUE_OVERHEAD, 1_u64), |total, (key, value)| {
+                    let key_work = runtime_value_work(key);
+                    let value_work = runtime_value_work(value);
+                    (
+                        total
+                            .0
+                            .saturating_add(key_work.0)
+                            .saturating_add(value_work.0),
+                        total
+                            .1
+                            .saturating_add(key_work.1)
+                            .saturating_add(value_work.1),
+                    )
+                })
+        }
+        Value::Enum(value) => value.payload().map_or((VALUE_OVERHEAD, 1), |payload| {
+            let payload_work = runtime_value_work(payload);
+            (
+                VALUE_OVERHEAD.saturating_add(payload_work.0),
+                1_u64.saturating_add(payload_work.1),
+            )
+        }),
+        Value::Account(_)
+        | Value::Bool(_)
+        | Value::Date(_)
+        | Value::Decimal(_)
+        | Value::Duration(_)
+        | Value::Float32(_)
+        | Value::Float64(_)
+        | Value::Int64(_)
+        | Value::Int128(_)
+        | Value::Null
+        | Value::Subaccount(_)
+        | Value::Timestamp(_)
+        | Value::Nat64(_)
+        | Value::Nat128(_)
+        | Value::Ulid(_)
+        | Value::Unit => (VALUE_OVERHEAD, 1),
+    }
+}
+
+fn with_execution_budget<T, E>(
+    mut tracker: HardExecutionBudgetTracker,
+    run: impl FnOnce() -> Result<T, E>,
+    map_internal: fn(InternalError) -> E,
+) -> Result<T, E> {
+    tracker
+        .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1)
+        .map_err(InternalError::from)
+        .map_err(map_internal)?;
+    let installed = ACTIVE_EXECUTION_BUDGET
+        .with(|budget| {
+            let mut budget = budget
+                .try_borrow_mut()
+                .map_err(|_| InternalError::query_executor_invariant())?;
+            if budget.is_some() {
+                return Ok(false);
+            }
+            *budget = Some(tracker);
+            Ok::<bool, InternalError>(true)
+        })
+        .map_err(map_internal)?;
+    if !installed {
+        return run();
+    }
+
+    let result = run();
+    let final_budget_result = finish_current_execution_instruction_watermark();
+    let removed = ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        budget
+            .try_borrow_mut()
+            .map_err(|_| InternalError::query_executor_invariant())?
+            .take()
+            .ok_or_else(InternalError::query_executor_invariant)
+    });
+    removed.map_err(map_internal)?;
+    final_budget_result.map_err(map_internal)?;
+
+    result
+}
+
+fn usize_as_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn local_instruction_counter() -> u64 {
+    crate::runtime::performance_counter(1)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const fn local_instruction_counter() -> u64 {
+    0
+}
+
+#[cfg(test)]
+pub(in crate::db) fn with_query_execution_budget_for_tests<T>(
+    budget: HardExecutionBudget,
+    context: HardExecutionContext,
+    run: impl FnOnce() -> Result<T, QueryError>,
+) -> Result<T, QueryError> {
+    with_execution_budget(
+        HardExecutionBudgetTracker::new_for_tests(budget, context),
+        run,
+        QueryError::execute,
+    )
 }
 
 const fn resource_index(resource: DiagnosticExecutionBudgetResource) -> usize {
@@ -293,7 +770,7 @@ mod tests {
     fn every_resource_charges_monotonically_and_retains_rejected_work() {
         let budget = HardExecutionBudget::new([1; RESOURCE_COUNT], TEST_HEADROOM);
         for resource in DiagnosticExecutionBudgetResource::ALL {
-            let mut tracker = HardExecutionBudgetTracker::new(&budget, TEST_CONTEXT);
+            let mut tracker = HardExecutionBudgetTracker::new_for_tests(budget, TEST_CONTEXT);
             tracker
                 .precharge(resource, 1)
                 .expect("work at the hard ceiling should be admitted");
@@ -312,7 +789,7 @@ mod tests {
     fn arithmetic_overflow_is_exhaustion_and_never_refunds_usage() {
         let budget = HardExecutionBudget::new([u64::MAX; RESOURCE_COUNT], TEST_HEADROOM);
         let resource = DiagnosticExecutionBudgetResource::PlanningSteps;
-        let mut tracker = HardExecutionBudgetTracker::new(&budget, TEST_CONTEXT);
+        let mut tracker = HardExecutionBudgetTracker::new_for_tests(budget, TEST_CONTEXT);
         tracker
             .precharge(resource, u64::MAX)
             .expect("the representable ceiling should be admitted");
@@ -327,7 +804,7 @@ mod tests {
     #[test]
     fn exhaustion_maps_to_complete_typed_diagnostic_facts() {
         let budget = HardExecutionBudget::new([0; RESOURCE_COUNT], TEST_HEADROOM);
-        let mut tracker = HardExecutionBudgetTracker::new(&budget, TEST_CONTEXT);
+        let mut tracker = HardExecutionBudgetTracker::new_for_tests(budget, TEST_CONTEXT);
         let exhausted = tracker
             .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1)
             .expect_err("zero query allowance should reject");
@@ -356,5 +833,22 @@ mod tests {
         assert_eq!(tracker.failure_headroom(), TEST_HEADROOM);
         assert_eq!(TEST_HEADROOM.instruction_units(), 500);
         assert_eq!(TEST_HEADROOM.response_bytes(), 256);
+    }
+
+    #[test]
+    fn diagnostic_exhaustion_suppresses_optional_detail_without_failing_execution() {
+        let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(DiagnosticExecutionBudgetResource::DiagnosticSteps, 0);
+        let result = with_execution_budget(
+            HardExecutionBudgetTracker::new_for_tests(budget, TEST_CONTEXT),
+            || {
+                assert!(!admit_current_execution_diagnostic_step());
+                charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultRows, 1)?;
+                Ok::<_, InternalError>(())
+            },
+            std::convert::identity,
+        );
+
+        assert!(result.is_ok());
     }
 }

@@ -44,6 +44,12 @@ impl MaterializedProjectionRows {
         u32::try_from(self.0.len()).unwrap_or(u32::MAX)
     }
 
+    /// Borrow materialized values for physical response-budget charging.
+    #[must_use]
+    pub(in crate::db::executor) fn value_rows(&self) -> &[Vec<Value>] {
+        &self.0
+    }
+
     #[must_use]
     pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
         self.0

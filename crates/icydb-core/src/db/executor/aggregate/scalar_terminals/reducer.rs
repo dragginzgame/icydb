@@ -14,12 +14,14 @@ use crate::{
             },
             value_reducer::ValueReducerState,
         },
+        budget::{charge_current_execution_budget, runtime_value_work},
         projection::ProjectionEvalError,
         terminal::KernelRow,
     },
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::aggregate::terminal_attribution::{
@@ -93,6 +95,15 @@ impl ScalarAggregateReducerState {
         if self.distinct_values.iter().any(|current| current == value) {
             return Ok(());
         }
+        let value_work = runtime_value_work(value);
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::GroupDistinctEntries,
+            1,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+            value_work.0,
+        )?;
         if matches!(value, Value::Null) {
             self.distinct_values.push(Value::Null);
             return Ok(());

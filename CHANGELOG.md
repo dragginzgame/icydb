@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Host integration updates to `ic-testkit` 0.4.0, retaining the existing
+  single-canister fixture API while gaining safer pool invalidation and an
+  optional bounded multi-canister baseline pool.
+- Maintained scalar, grouped, covering, fallback, sorting, cursor, diagnostic,
+  and result routes now share finite physical-work accounting and typed budget
+  exhaustion without changing successful query results or data formats.
+
 ## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)

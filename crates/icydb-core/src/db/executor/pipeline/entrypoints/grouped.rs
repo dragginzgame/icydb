@@ -22,6 +22,10 @@ use crate::{
                 GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
                 execute_group_fold_stage, finalize_grouped_output_with_observer,
             },
+            budget::{
+                charge_current_execution_budget, charge_runtime_grouped_rows,
+                prepared_read_execution_context, runtime_value_work, with_read_execution_budget,
+            },
             pipeline::contracts::{ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
             pipeline::runtime::{
@@ -37,9 +41,26 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
 
 /// Execute one generic-free shared grouped plan through the canonical runtime.
 pub(in crate::db) fn execute_shared_grouped_plan_for_canister<C>(
+    db: &crate::db::Db<C>,
+    debug: bool,
+    plan: SharedPreparedExecutionPlan,
+    cursor: ValidatedGroupedCursor,
+    execution_lane: DiagnosticExecutionLane,
+) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), InternalError>
+where
+    C: CanisterKind,
+{
+    let context = prepared_read_execution_context(&plan, execution_lane);
+    with_read_execution_budget(context, || {
+        execute_shared_grouped_plan_for_canister_inner(db, debug, plan, cursor)
+    })
+}
+
+fn execute_shared_grouped_plan_for_canister_inner<C>(
     db: &crate::db::Db<C>,
     debug: bool,
     plan: SharedPreparedExecutionPlan,
@@ -48,6 +69,7 @@ pub(in crate::db) fn execute_shared_grouped_plan_for_canister<C>(
 where
     C: CanisterKind,
 {
+    charge_grouped_cursor_input(&cursor)?;
     let value_catalog = plan
         .authority_ref()
         .accepted_schema_info()
@@ -61,6 +83,7 @@ where
         cursor,
     )?;
     let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
+    charge_grouped_page_result(&page)?;
 
     Ok((
         StructuralGroupedProjectionResult::from_page(page, value_catalog),
@@ -71,6 +94,32 @@ where
 /// Execute one generic-free shared grouped plan with runtime phase attribution.
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) fn execute_shared_grouped_plan_for_canister_with_phase_attribution<C>(
+    db: &crate::db::Db<C>,
+    debug: bool,
+    plan: SharedPreparedExecutionPlan,
+    cursor: ValidatedGroupedCursor,
+    execution_lane: DiagnosticExecutionLane,
+) -> Result<
+    (
+        StructuralGroupedProjectionResult,
+        Option<ExecutionTrace>,
+        GroupedExecutePhaseAttribution,
+    ),
+    InternalError,
+>
+where
+    C: CanisterKind,
+{
+    let context = prepared_read_execution_context(&plan, execution_lane);
+    with_read_execution_budget(context, || {
+        execute_shared_grouped_plan_for_canister_with_phase_attribution_inner(
+            db, debug, plan, cursor,
+        )
+    })
+}
+
+#[cfg(feature = "diagnostics")]
+fn execute_shared_grouped_plan_for_canister_with_phase_attribution_inner<C>(
     db: &crate::db::Db<C>,
     debug: bool,
     plan: SharedPreparedExecutionPlan,
@@ -86,6 +135,7 @@ pub(in crate::db) fn execute_shared_grouped_plan_for_canister_with_phase_attribu
 where
     C: CanisterKind,
 {
+    charge_grouped_cursor_input(&cursor)?;
     let value_catalog = plan
         .authority_ref()
         .accepted_schema_info()
@@ -100,12 +150,55 @@ where
     )?;
     let (page, trace, phase_attribution) =
         execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)?;
+    charge_grouped_page_result(&page)?;
 
     Ok((
         StructuralGroupedProjectionResult::from_page(page, value_catalog),
         trace,
         phase_attribution,
     ))
+}
+
+fn charge_grouped_page_result(page: &GroupedCursorPage) -> Result<(), InternalError> {
+    charge_runtime_grouped_rows(&page.rows)?;
+    if let Some(cursor) = page.next_cursor.as_ref() {
+        let encoded = cursor
+            .encode()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(encoded.len()).unwrap_or(u64::MAX),
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::ResultBytes,
+            u64::try_from(encoded.len().saturating_mul(2)).unwrap_or(u64::MAX),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn charge_grouped_cursor_input(cursor: &ValidatedGroupedCursor) -> Result<(), InternalError> {
+    let Some(group_key) = cursor.last_group_key() else {
+        return Ok(());
+    };
+    let (bytes, nested_steps) = group_key.iter().fold((0_u64, 0_u64), |total, value| {
+        let value_work = runtime_value_work(value);
+        (
+            total.0.saturating_add(value_work.0),
+            total.1.saturating_add(value_work.1),
+        )
+    });
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::CursorSteps,
+        u64::try_from(group_key.len()).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::NestedValueSteps,
+        nested_steps,
+    )?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::TemporaryBytes, bytes)
 }
 
 ///

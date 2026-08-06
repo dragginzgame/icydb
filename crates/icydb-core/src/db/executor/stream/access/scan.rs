@@ -10,7 +10,7 @@ use crate::{
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-            lowered_index_prefix_liveness_at_generation,
+            budget::charge_current_execution_budget, lowered_index_prefix_liveness_at_generation,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
@@ -25,6 +25,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::{borrow::Cow, ops::Bound, sync::Arc};
 
 pub(in crate::db::executor) type IndexComponentValues = Arc<[Vec<u8>]>;
@@ -555,6 +556,15 @@ impl IndexScan {
         continuation: &ContinuationRuntime<'_>,
         raw_key: &RawIndexStoreKey,
     ) -> Result<(), InternalError> {
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            1,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::StoredBytesRead,
+            u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
+        )?;
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
         continuation.accept_key(ContinuationKeyRef::scan(raw_key))
     }
 
@@ -567,11 +577,19 @@ impl IndexScan {
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
+        )?;
         // Phase 1: decode only the primary-key suffix for ordinary row-identity
         // scans. Predicate scans still need the fully decoded index key.
         let (primary_key_value, primary_key_bytes) = if let Some(execution) =
             index_predicate_execution
         {
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+                1,
+            )?;
             let decoded_key = IndexKey::try_from_raw(raw_key)
                 .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
             if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
@@ -628,6 +646,10 @@ impl IndexScan {
         // evaluate any optional index-only predicate against that decoded view.
         let decoded_key = IndexKey::try_from_raw(raw_key)
             .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
+        )?;
         let mut components = Vec::with_capacity(component_indices.len());
         for component_index in component_indices {
             let Some(component) = decoded_key.component(*component_index) else {
@@ -640,10 +662,14 @@ impl IndexScan {
         }
         let components: Arc<[Vec<u8>]> = Arc::from(components);
 
-        if let Some(execution) = index_predicate_execution
-            && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
-        {
-            return Ok(false);
+        if let Some(execution) = index_predicate_execution {
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+                1,
+            )?;
+            if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
+                return Ok(false);
+            }
         }
 
         // Phase 2: decode the key-owned row witness. The raw index key now owns

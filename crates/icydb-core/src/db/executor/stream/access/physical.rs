@@ -17,7 +17,8 @@ use crate::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
             OrderedKeyStreamBox, PrefixSetExecutionShape, PrefixSetMergeSafety, PrimaryScan,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
-            branch_stream_chunk_entries, expand_index_prefix_family_with_exact_child_prefixes,
+            branch_stream_chunk_entries, budget::charge_current_execution_budget,
+            expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, lowered_index_prefix_liveness,
             ordered_key_stream_from_materialized_keys,
@@ -33,6 +34,7 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::ops::Bound;
 
 ///
@@ -197,6 +199,10 @@ impl KeyAccessRuntime {
         &self,
         key: Value,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            1,
+        )?;
         Ok((
             vec![DecodedDataStoreKey::try_from_structural_key(
                 self.entity_tag,
@@ -220,6 +226,10 @@ impl KeyAccessRuntime {
         }
         data_keys.sort_unstable();
         data_keys.dedup();
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            u64::try_from(data_keys.len()).unwrap_or(u64::MAX),
+        )?;
 
         Ok((data_keys, KeyOrderState::AscendingSorted))
     }
@@ -866,7 +876,15 @@ impl PrimaryRangeKeyStream {
                         .last_raw_key
                         .clone()
                         .map_or_else(|| Bound::Included(self.lower_raw.clone()), Bound::Excluded);
-                    store.visit_range((lower, self.upper_bound.clone()), |raw_key, _row| {
+                    store.visit_range((lower, self.upper_bound.clone()), |raw_key, row| {
+                        charge_current_execution_budget(
+                            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                            1,
+                        )?;
+                        charge_current_execution_budget(
+                            DiagnosticExecutionBudgetResource::StoredBytesRead,
+                            u64::try_from(row.len()).unwrap_or(u64::MAX),
+                        )?;
                         let raw_key = raw_key.clone();
                         keys.push(PrimaryScan::decode_data_key(&raw_key)?);
                         last_raw_key = Some(raw_key);
@@ -884,7 +902,15 @@ impl PrimaryRangeKeyStream {
                         .map_or_else(|| self.upper_bound.clone(), Bound::Excluded);
                     store.visit_range_rev(
                         (Bound::Included(self.lower_raw.clone()), upper),
-                        |raw_key, _row| {
+                        |raw_key, row| {
+                            charge_current_execution_budget(
+                                DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                                1,
+                            )?;
+                            charge_current_execution_budget(
+                                DiagnosticExecutionBudgetResource::StoredBytesRead,
+                                u64::try_from(row.len()).unwrap_or(u64::MAX),
+                            )?;
                             let raw_key = raw_key.clone();
                             keys.push(PrimaryScan::decode_data_key(&raw_key)?);
                             last_raw_key = Some(raw_key);

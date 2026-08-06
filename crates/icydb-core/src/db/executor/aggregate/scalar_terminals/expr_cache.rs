@@ -5,12 +5,14 @@
 use crate::{
     db::executor::{
         aggregate::{CompiledExpr, admit_true_only_boolean_value},
+        budget::charge_current_execution_budget,
         projection::ProjectionEvalError,
         terminal::KernelRow,
     },
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 ///
 /// ScalarTerminalExprCache
@@ -136,6 +138,10 @@ fn evaluate_scalar_terminal_expr(
     expr: &CompiledExpr,
     row: &KernelRow,
 ) -> Result<Value, InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        1,
+    )?;
     let mut read_slot = |slot: usize| row.slot_ref(slot);
 
     crate::db::executor::projection::eval_compiled_expr_with_value_ref_reader(expr, &mut read_slot)

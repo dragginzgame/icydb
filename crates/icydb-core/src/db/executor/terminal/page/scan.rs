@@ -366,7 +366,7 @@ fn scan_kernel_rows_with_bounded_order_window(
             return Err(InternalError::query_executor_invariant());
         }
 
-        window.push(row);
+        window.push(row)?;
     }
 
     Ok((window.into_pending_rows(), rows_scanned))

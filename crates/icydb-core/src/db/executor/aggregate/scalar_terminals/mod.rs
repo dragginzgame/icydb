@@ -21,6 +21,10 @@ use crate::{
                     compile_structural_scalar_aggregate_terminal,
                 },
             },
+            budget::{
+                charge_runtime_value_rows, prepared_read_execution_context,
+                with_read_execution_budget,
+            },
             pipeline::entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
             projection::{GroupedRowView, evaluate_grouped_having_expr},
         },
@@ -29,6 +33,7 @@ use crate::{
     traits::CanisterKind,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 use std::borrow::Cow;
 
 #[cfg(feature = "diagnostics")]
@@ -41,6 +46,22 @@ pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregat
 
 /// Execute one structural global aggregate request over a shared prepared scalar plan.
 pub(in crate::db) fn execute_structural_aggregate_rows_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    shared_plan: SharedPreparedExecutionPlan,
+    request: StructuralAggregateRequest,
+) -> Result<Vec<Vec<Value>>, InternalError>
+where
+    C: CanisterKind,
+{
+    let context =
+        prepared_read_execution_context(&shared_plan, DiagnosticExecutionLane::TrustedRead);
+    with_read_execution_budget(context, || {
+        execute_structural_aggregate_rows_inner(db, debug, shared_plan, request)
+    })
+}
+
+fn execute_structural_aggregate_rows_inner<C>(
     db: &Db<C>,
     debug: bool,
     shared_plan: SharedPreparedExecutionPlan,
@@ -73,7 +94,9 @@ where
         && !evaluate_grouped_having_expr(expr, &grouped_row)
             .map_err(|_err| InternalError::query_executor_invariant())?
     {
-        return Ok(Vec::new());
+        let rows = Vec::new();
+        charge_runtime_value_rows(&rows)?;
+        return Ok(rows);
     }
 
     let mut row = Vec::with_capacity(compiled.projection().len());
@@ -85,7 +108,10 @@ where
         );
     }
 
-    Ok(vec![row])
+    let rows = vec![row];
+    charge_runtime_value_rows(&rows)?;
+
+    Ok(rows)
 }
 
 fn execute_scalar_aggregate_terminals<C>(

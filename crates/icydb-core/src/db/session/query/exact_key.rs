@@ -36,7 +36,7 @@ pub const MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES: usize = 4 * 1_024 * 1_024;
 
 const EXACT_KEY_FAILURE_HEADROOM: HardExecutionFailureHeadroom =
     HardExecutionFailureHeadroom::new(500_000_000, 64 * 1_024);
-const EXACT_KEY_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
+static EXACT_KEY_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
     [
         1,                 // query executions
         0,                 // planning steps
@@ -130,7 +130,7 @@ fn project_distinct_row(
     data_key: &DecodedDataStoreKey,
     raw_row: &crate::db::data::RawRow,
     slots: &[usize],
-    budget: &mut HardExecutionBudgetTracker<'_>,
+    budget: &mut HardExecutionBudgetTracker,
 ) -> Result<Vec<OutputValue>, InternalError> {
     budget
         .charge_periodic(
@@ -156,7 +156,7 @@ fn validate_logical_result_bytes(
     columns: &[String],
     distinct_rows: &[Option<Vec<OutputValue>>],
     positions: &[u32],
-    budget: &mut HardExecutionBudgetTracker<'_>,
+    budget: &mut HardExecutionBudgetTracker,
 ) -> Result<(), InternalError> {
     let mut total = candid::encode_one((entity, columns))
         .map_err(|_| InternalError::query_executor_invariant())?
@@ -207,7 +207,7 @@ fn validate_logical_result_bytes(
 fn charge_stored_row(
     row: &RawRow,
     stored_bytes: &mut usize,
-    budget: &mut HardExecutionBudgetTracker<'_>,
+    budget: &mut HardExecutionBudgetTracker,
 ) -> Result<(), InternalError> {
     let exact_charge = checked_add_bytes(
         stored_bytes,
@@ -239,7 +239,7 @@ fn charge_stored_row(
 fn load_distinct_raw_rows(
     store: &StoreHandle,
     distinct_keys: &[(DecodedDataStoreKey, RawDataStoreKey)],
-    budget: &mut HardExecutionBudgetTracker<'_>,
+    budget: &mut HardExecutionBudgetTracker,
 ) -> Result<Vec<Option<RawRow>>, InternalError> {
     let mut stored_bytes = 0_usize;
     distinct_keys
@@ -260,7 +260,7 @@ fn load_distinct_raw_rows(
 fn lower_exact_keys<K: PrimaryKeyEncode>(
     entity_tag: crate::types::EntityTag,
     keys: &[K],
-    budget: &mut HardExecutionBudgetTracker<'_>,
+    budget: &mut HardExecutionBudgetTracker,
 ) -> Result<LoweredExactKeys, QueryError> {
     let mut distinct_by_raw = BTreeMap::new();
     let mut distinct_keys = Vec::new();
@@ -336,7 +336,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &DynamicTypedEntityBinding,
         keys: &[K],
-        budget: &mut HardExecutionBudgetTracker<'_>,
+        budget: &mut HardExecutionBudgetTracker,
     ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError>
     where
         K: PrimaryKeyEncode,
@@ -401,6 +401,9 @@ impl<C: CanisterKind> DbSession<C> {
         let entity = catalog.snapshot().entity_name().to_string();
         validate_logical_result_bytes(&entity, &columns, &distinct_rows, &positions, budget)
             .map_err(QueryError::execute)?;
+        budget
+            .finish_instruction_watermark()
+            .map_err(budget_error)?;
 
         Ok(Some(ExactKeyBatchProjectionOutput {
             entity,
@@ -420,8 +423,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         K: PrimaryKeyEncode,
     {
-        let mut budget =
-            HardExecutionBudgetTracker::new(hard_budget, exact_key_budget_context(binding));
+        let mut budget = HardExecutionBudgetTracker::new_for_tests(
+            *hard_budget,
+            exact_key_budget_context(binding),
+        );
         self.execute_exact_key_batch_with_budget(binding, keys, &mut budget)
     }
 }

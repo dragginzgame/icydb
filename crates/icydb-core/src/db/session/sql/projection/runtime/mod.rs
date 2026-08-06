@@ -27,6 +27,7 @@ use crate::{
     traits::CanisterKind,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 type SqlProjectionRowsWithDirectAttribution = (
@@ -91,6 +92,7 @@ where
             prepared_plan,
             covering_projection_metrics_recorder(),
             projection_materialization_metrics_recorder(),
+            DiagnosticExecutionLane::TrustedRead,
         ),
     )?;
     let row_count = rows.row_count();
@@ -117,6 +119,7 @@ where
             prepared_plan,
             covering_projection_metrics_recorder(),
             projection_materialization_metrics_recorder(),
+            DiagnosticExecutionLane::Mutation,
         )
         .with_scan_budget(scan_budget),
     )?;

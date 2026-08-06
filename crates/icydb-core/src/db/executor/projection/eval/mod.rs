@@ -7,7 +7,12 @@
 mod contracts;
 mod scalar;
 
-use crate::{db::data::CanonicalSlotReader, error::InternalError, value::Value};
+use crate::{
+    db::{data::CanonicalSlotReader, executor::budget::charge_current_execution_budget},
+    error::InternalError,
+    value::Value,
+};
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::borrow::Cow;
 
 use self::contracts::EffectiveRuntimeFilterProgram;
@@ -28,6 +33,10 @@ pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_r
     filter_program: &EffectiveRuntimeFilterProgram,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        1,
+    )?;
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     crate::db::diagnostics::record_sql_residual_predicate_evaluation();
     if let Some(predicate_program) = filter_program.predicate_program() {
@@ -53,6 +62,10 @@ pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_value_
 where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
 {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        1,
+    )?;
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     crate::db::diagnostics::record_sql_residual_predicate_evaluation();
     if let Some(predicate_program) = filter_program.predicate_program() {

@@ -111,26 +111,25 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
     // paths do not re-derive the same specialization policy independently.
     let grouped_execution_route = route.grouped_execution_route();
     if grouped_execution_route.uses_global_distinct_fold() {
-        return execute_global_distinct_grouped_fold_stage(
+        execute_global_distinct_grouped_fold_stage(
             route,
             &mut stream,
             &mut grouped_execution_context,
             &grouped_projection_spec,
-        );
-    }
-    if grouped_execution_route.uses_count_rows_dedicated_fold() {
-        return execute_single_grouped_count_fold_stage(
+        )
+    } else if grouped_execution_route.uses_count_rows_dedicated_fold() {
+        execute_single_grouped_count_fold_stage(
             route,
             &mut stream,
             &mut grouped_execution_context,
             &grouped_projection_spec,
-        );
+        )
+    } else {
+        execute_generic_grouped_fold_stage(
+            route,
+            &mut stream,
+            &mut grouped_execution_context,
+            &grouped_projection_spec,
+        )
     }
-
-    execute_generic_grouped_fold_stage(
-        route,
-        &mut stream,
-        &mut grouped_execution_context,
-        &grouped_projection_spec,
-    )
 }

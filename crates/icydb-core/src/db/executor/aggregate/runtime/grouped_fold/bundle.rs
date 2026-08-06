@@ -27,6 +27,7 @@ use crate::{
                     },
                 },
             },
+            budget::charge_sort_work,
             group::{GroupKey, StableHash, StableHashBuildHasher, StableHashMap},
             pipeline::runtime::RowView,
         },
@@ -619,9 +620,9 @@ impl GroupedAggregateBundle {
 
     /// Return the grouped bundle as canonical-order groups whose aggregate
     /// states have not been finalized yet.
-    #[must_use]
-    pub(super) fn into_sorted_groups(self) -> Vec<GroupedFinalizeGroup> {
+    pub(super) fn into_sorted_groups(self) -> Result<Vec<GroupedFinalizeGroup>, InternalError> {
         let expected_group_count = self.groups.len();
+        charge_sort_work::<GroupedFinalizeGroup>(expected_group_count)?;
         let mut out = self.into_groups();
 
         // Phase 2: preserve deterministic canonical grouped-key order across
@@ -638,7 +639,7 @@ impl GroupedAggregateBundle {
             "grouped sorted finalize groups cardinality must match tracked group count",
         );
 
-        out
+        Ok(out)
     }
 }
 

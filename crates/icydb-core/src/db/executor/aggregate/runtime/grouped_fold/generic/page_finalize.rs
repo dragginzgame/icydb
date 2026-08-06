@@ -25,6 +25,7 @@ use crate::{
                     grouped_output::project_grouped_values_from_compiled_projection,
                 },
             },
+            budget::{charge_current_execution_budget, charge_sort_work},
             group::GroupKey,
             pipeline::contracts::GroupedRouteStage,
             projection::{
@@ -37,6 +38,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::{borrow::Cow, cmp::Ordering, collections::BinaryHeap};
 
 ///
@@ -386,7 +388,7 @@ fn for_each_grouped_page_candidate(
 ) -> Result<(), InternalError> {
     let aggregate_count = grouped_bundle.aggregate_count();
 
-    for finalized_group in into_finalize_groups(grouped_bundle, sorted) {
+    for finalized_group in into_finalize_groups(grouped_bundle, sorted)? {
         let mut candidate = GroupedPageCandidate::from_finalized(
             finalized_group,
             aggregate_count,
@@ -433,11 +435,14 @@ fn collect_grouped_page_candidates(
 fn into_finalize_groups(
     grouped_bundle: GroupedAggregateBundle,
     sorted: bool,
-) -> Vec<crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup> {
+) -> Result<
+    Vec<crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup>,
+    InternalError,
+> {
     if sorted {
         grouped_bundle.into_sorted_groups()
     } else {
-        grouped_bundle.into_groups()
+        Ok(grouped_bundle.into_groups())
     }
 }
 
@@ -624,6 +629,10 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
                 if !self.matches_window(&candidate)? {
                     return Ok(());
                 }
+                charge_grouped_top_k_candidate::<GroupedPageCandidate>(
+                    retained.len(),
+                    selection_bound,
+                )?;
                 if retained.len() < selection_bound {
                     retained.push(candidate);
                     return Ok(());
@@ -644,6 +653,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         // Phase 2: restore grouped-key order across the retained bounded
         // window only, respecting the active grouped execution direction.
         let mut out = retained.into_vec();
+        charge_sort_work::<GroupedPageCandidate>(out.len())?;
         out.sort();
 
         Ok(out)
@@ -684,6 +694,28 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
             GroupedPageCandidate::into_row,
         )
     }
+}
+
+fn charge_grouped_top_k_candidate<R>(
+    retained_count: usize,
+    selection_bound: usize,
+) -> Result<(), InternalError> {
+    let comparisons = if retained_count == 0 {
+        0
+    } else if retained_count < selection_bound {
+        1
+    } else {
+        retained_count.saturating_add(1)
+    };
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::SortEntries, 1)?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortComparisons,
+        u64::try_from(comparisons).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortTemporaryBytes,
+        u64::try_from(std::mem::size_of::<R>()).unwrap_or(u64::MAX),
+    )
 }
 
 fn compare_grouped_page_candidate_order(

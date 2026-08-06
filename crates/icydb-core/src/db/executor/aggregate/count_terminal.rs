@@ -7,13 +7,23 @@ use crate::{
     db::{
         Db,
         data::DataStore,
-        executor::{EntityAuthority, aggregate::PageSpec},
+        executor::{
+            EntityAuthority,
+            aggregate::PageSpec,
+            budget::{
+                charge_current_execution_budget, direct_read_execution_context,
+                with_read_execution_budget,
+            },
+        },
         index::{IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
         registry::StoreHandle,
     },
     error::InternalError,
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
+
+const DIRECT_COUNT_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_636e;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::{
@@ -40,6 +50,29 @@ pub(in crate::db) fn execute_direct_count_index_prefix_cardinality_for_canister<
 where
     C: CanisterKind,
 {
+    let context = direct_read_execution_context(
+        &authority,
+        DiagnosticExecutionLane::TrustedRead,
+        DIRECT_COUNT_SHAPE_DOMAIN,
+    );
+    with_read_execution_budget(context, || {
+        execute_direct_count_index_prefix_cardinality_inner(db, authority, page, prefix_keys)
+    })
+}
+
+fn execute_direct_count_index_prefix_cardinality_inner<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    page: Option<&PageSpec>,
+    prefix_keys: &[UserIndexPrefixCardinalityKey],
+) -> Result<Option<u32>, InternalError>
+where
+    C: CanisterKind,
+{
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+        u64::try_from(prefix_keys.len()).unwrap_or(u64::MAX),
+    )?;
     let store = db.recovered_store(authority.store_path())?;
     let (metadata_local_instructions, output) = measure_index_prefix_cardinality(|| {
         count_user_index_prefix_cardinality_keys(store, page, prefix_keys)
@@ -47,6 +80,8 @@ where
     let Some(output) = output else {
         return Ok(None);
     };
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultRows, 1)?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, 32)?;
 
     #[cfg(not(feature = "diagnostics"))]
     let _ = metadata_local_instructions;

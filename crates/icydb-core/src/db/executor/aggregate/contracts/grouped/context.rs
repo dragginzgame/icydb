@@ -7,9 +7,11 @@ use crate::db::executor::{
     aggregate::contracts::{
         GroupBudgetResourceCode, error::GroupError, state::GroupedTerminalAggregateState,
     },
+    budget::{charge_current_execution_budget, runtime_value_work},
     group::{GroupKey, GroupKeySet},
 };
 use crate::error::InternalError;
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::mem::size_of;
 
 ///
@@ -148,6 +150,19 @@ impl ExecutionBudget {
             ));
         }
 
+        if new_group_key {
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::GroupDistinctEntries,
+                1,
+            )
+            .map_err(GroupError::from)?;
+        }
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+            bytes_delta,
+        )
+        .map_err(GroupError::from)?;
+
         self.groups = next_groups;
         self.aggregate_states = self.aggregate_states.saturating_add(1);
         #[cfg(any(test, feature = "diagnostics"))]
@@ -193,6 +208,14 @@ impl ExecutionBudget {
             ));
         }
 
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1)
+            .map_err(GroupError::from)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+            bytes_delta,
+        )
+        .map_err(GroupError::from)?;
+
         self.groups = next_groups;
         self.aggregate_states = self
             .aggregate_states
@@ -232,7 +255,11 @@ impl ExecutionBudget {
         }
     }
 
-    const fn record_distinct_value(&mut self, config: &ExecutionConfig) -> Result<(), GroupError> {
+    fn record_distinct_value(
+        &mut self,
+        config: &ExecutionConfig,
+        value: &crate::value::Value,
+    ) -> Result<(), GroupError> {
         let attempted = self.distinct_values.saturating_add(1);
         if attempted > config.max_distinct_values_total() {
             return Err(GroupError::distinct_budget_exceeded(
@@ -241,6 +268,15 @@ impl ExecutionBudget {
                 config.max_distinct_values_total(),
             ));
         }
+
+        let value_work = runtime_value_work(value);
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1)
+            .map_err(GroupError::from)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+            value_work.0,
+        )
+        .map_err(GroupError::from)?;
 
         self.distinct_values = attempted;
         #[cfg(any(test, feature = "diagnostics"))]
@@ -514,10 +550,11 @@ impl ExecutionContext {
     }
 
     /// Record one admitted grouped DISTINCT value against the total budget.
-    pub(in crate::db::executor) const fn record_distinct_value(
+    pub(in crate::db::executor) fn record_distinct_value(
         &mut self,
+        value: &crate::value::Value,
     ) -> Result<(), GroupError> {
-        self.budget.record_distinct_value(&self.config)
+        self.budget.record_distinct_value(&self.config, value)
     }
 
     /// Admit one grouped DISTINCT key through execution-context budget
@@ -554,9 +591,9 @@ impl ExecutionContext {
             ));
         }
 
+        self.record_distinct_value(key.canonical_value())?;
         let inserted = distinct_keys.insert_key(key);
         debug_assert!(inserted, "new distinct key must insert exactly once");
-        self.record_distinct_value()?;
 
         Ok(true)
     }

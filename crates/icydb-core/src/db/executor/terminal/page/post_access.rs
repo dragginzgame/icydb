@@ -3,14 +3,15 @@ use crate::{
         cursor::CursorBoundary,
         data::DataRow,
         executor::{
-            ExecutionKernel, PendingOrderRows, compare_orderable_row_with_boundary,
-            record_rows_after_predicate, route::access_order_satisfied_by_route_mode,
-            terminal::page::KernelRow,
+            ExecutionKernel, PendingOrderRows, budget::charge_current_execution_budget,
+            compare_orderable_row_with_boundary, record_rows_after_predicate,
+            route::access_order_satisfied_by_route_mode, terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, ResolvedOrder},
     },
     error::InternalError,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
@@ -214,6 +215,7 @@ pub(super) fn apply_load_cursor_and_pagination_window(
     let mut limit_remaining = limit.map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
     for read_index in 0..rows.len() {
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
         if !compare_orderable_row_with_boundary(&rows[read_index], resolved_order, boundary)?
             .is_gt()
         {

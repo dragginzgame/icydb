@@ -14,12 +14,16 @@ use crate::{
                 resolve_index_backed_covering_scan,
             },
         },
-        executor::{EntityAuthority, IndexComponentRows, terminal::RowLayout},
+        executor::{
+            EntityAuthority, IndexComponentRows, budget::charge_current_execution_budget,
+            terminal::RowLayout,
+        },
     },
     error::InternalError,
     traits::CanisterKind,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::collections::BTreeMap;
 
 pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister<C>(
@@ -251,9 +255,24 @@ fn read_hybrid_projection_row_fields_from_store(
     // Phase 3: fetch the raw row from storage and keep sparse slot decode in
     // executor ownership. The one-slot and indexed decode paths stay explicit so
     // storage never decides an execution decode strategy.
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
     let Some(raw_row) = data_store.get(&raw_key) else {
         return Ok(None);
     };
+    let raw_bytes = u64::try_from(raw_row.len()).unwrap_or(u64::MAX);
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::StoredBytesRead,
+        raw_bytes,
+    )?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::DecodedBytes, raw_bytes)?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::MaterializedBytes,
+        raw_bytes,
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::NestedValueSteps,
+        u64::try_from(row_field_slots.len()).unwrap_or(u64::MAX),
+    )?;
     if let [required_slot] = row_field_slots {
         let Some(value) =
             row_layout.decode_required_value_from_data_key(&raw_row, data_key, *required_slot)?
@@ -290,6 +309,10 @@ fn project_hybrid_covering_row(
     mut row_fields: BTreeMap<usize, Value>,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        u64::try_from(fields.len()).unwrap_or(u64::MAX),
+    )?;
     let mut projected = Vec::with_capacity(fields.len());
     let mut remaining_index_component_uses = covering_index_component_use_counts(fields);
     let mut remaining_row_field_uses = covering_row_field_use_counts(fields);

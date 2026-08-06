@@ -10,6 +10,10 @@ use crate::{
             CoveringProjectionMetricsRecorder, ExecutionPreparation,
             ProjectionMaterializationMetricsRecorder, SharedPreparedExecutionPlan,
             SharedPreparedProjectionRuntimeHandoff,
+            budget::{
+                charge_runtime_value_rows, prepared_read_execution_context,
+                with_read_execution_budget,
+            },
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             planning::preparation::slot_map_for_model_plan,
             projection::{
@@ -23,7 +27,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
+use icydb_diagnostic_code::{DiagnosticExecutionLane, DiagnosticFactTag, SqlWriteBoundaryCode};
 
 /// Enforced scanned-key ceiling for one structural projection execution.
 #[derive(Clone, Copy)]
@@ -77,6 +81,7 @@ pub(in crate::db) struct StructuralProjectionRequest {
     covering_metrics: CoveringProjectionMetricsRecorder,
     materialization_metrics: ProjectionMaterializationMetricsRecorder,
     scan_budget: Option<StructuralProjectionScanBudget>,
+    execution_lane: DiagnosticExecutionLane,
 }
 
 impl StructuralProjectionRequest {
@@ -87,6 +92,7 @@ impl StructuralProjectionRequest {
         prepared_plan: SharedPreparedExecutionPlan,
         covering_metrics: CoveringProjectionMetricsRecorder,
         materialization_metrics: ProjectionMaterializationMetricsRecorder,
+        execution_lane: DiagnosticExecutionLane,
     ) -> Self {
         Self {
             debug,
@@ -94,6 +100,7 @@ impl StructuralProjectionRequest {
             covering_metrics,
             materialization_metrics,
             scan_budget: None,
+            execution_lane,
         }
     }
 
@@ -117,12 +124,26 @@ pub(in crate::db) fn execute_structural_projection_rows<C>(
 where
     C: CanisterKind,
 {
+    let context = prepared_read_execution_context(&request.prepared_plan, request.execution_lane);
+    with_read_execution_budget(context, || {
+        execute_structural_projection_rows_inner(db, request)
+    })
+}
+
+fn execute_structural_projection_rows_inner<C>(
+    db: &Db<C>,
+    request: StructuralProjectionRequest,
+) -> Result<MaterializedProjectionRows, InternalError>
+where
+    C: CanisterKind,
+{
     let StructuralProjectionRequest {
         debug,
         prepared_plan,
         covering_metrics,
         materialization_metrics,
         scan_budget,
+        execution_lane: _,
     } = request;
     let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
 
@@ -163,6 +184,7 @@ where
             covering,
             || prepared_plan.hybrid_covering_read_plan(),
         )? {
+            charge_runtime_value_rows(projected.value_rows())?;
             return Ok(projected);
         }
     }
@@ -220,6 +242,8 @@ where
             materialization_metrics,
         )?
     };
+
+    charge_runtime_value_rows(rows.value_rows())?;
 
     Ok(rows)
 }

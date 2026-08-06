@@ -58,6 +58,11 @@ impl SharedPreparedExecutionPlan {
         self.core.plan()
     }
 
+    #[must_use]
+    pub(in crate::db::executor) fn execution_shape_fingerprint_prefix(&self) -> u64 {
+        self.core.execution_shape_fingerprint_prefix()
+    }
+
     pub(in crate::db) fn execution_family(&self) -> Result<ExecutionFamily, InternalError> {
         self.core.execution_family()
     }

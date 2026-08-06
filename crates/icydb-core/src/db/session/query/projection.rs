@@ -24,6 +24,7 @@ use crate::{
     traits::CanisterKind,
     value::{OutputValue, Value},
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 type StructuralProjectionPayloadComponents =
     (Vec<String>, Vec<Option<u32>>, Vec<Vec<OutputValue>>, u32);
@@ -241,6 +242,11 @@ impl<C: CanisterKind> DbSession<C> {
                 prepared_plan,
                 CoveringProjectionMetricsRecorder::none(),
                 ProjectionMaterializationMetricsRecorder::none(),
+                if admission.is_some() {
+                    DiagnosticExecutionLane::PublicRead
+                } else {
+                    DiagnosticExecutionLane::TrustedRead
+                },
             ),
         )
         .map_err(QueryError::execute)?;

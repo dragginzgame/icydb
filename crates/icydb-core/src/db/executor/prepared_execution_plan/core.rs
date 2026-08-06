@@ -13,6 +13,7 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
             GroupedPaginationWindow, ScalarContinuationContext,
+            budget::read_shape_fingerprint_prefix,
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::{
@@ -61,6 +62,7 @@ pub enum ExecutionFamily {
 
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanResidents {
     pub(in crate::db::executor::prepared_execution_plan) plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor::prepared_execution_plan) execution_shape_fingerprint_prefix: u64,
     pub(in crate::db::executor::prepared_execution_plan) continuation_identity:
         Option<AcceptedContinuationIdentity>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_projection_contract:
@@ -101,6 +103,7 @@ impl Clone for PreparedExecutionPlanResidents {
     fn clone(&self) -> Self {
         Self {
             plan: Arc::clone(&self.plan),
+            execution_shape_fingerprint_prefix: self.execution_shape_fingerprint_prefix,
             continuation_identity: self.continuation_identity,
             prepared_projection_contract: clone_once_lock(&self.prepared_projection_contract),
             projection_covering_read_execution_plan: clone_once_lock(
@@ -242,6 +245,7 @@ impl PreparedExecutionPlanCore {
     #[must_use]
     fn new(
         plan: Arc<AccessPlannedQuery>,
+        execution_shape_fingerprint_prefix: u64,
         continuation_identity: Option<AcceptedContinuationIdentity>,
         continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
@@ -250,6 +254,7 @@ impl PreparedExecutionPlanCore {
         Self {
             residents: Rc::new(PreparedExecutionPlanResidents {
                 plan,
+                execution_shape_fingerprint_prefix,
                 continuation_identity,
                 prepared_projection_contract: OnceLock::new(),
                 projection_covering_read_execution_plan: OnceLock::new(),
@@ -484,6 +489,13 @@ impl PreparedExecutionPlanCore {
         })
     }
 
+    #[must_use]
+    pub(in crate::db::executor::prepared_execution_plan) fn execution_shape_fingerprint_prefix(
+        &self,
+    ) -> u64 {
+        self.residents.execution_shape_fingerprint_prefix
+    }
+
     // Recover the prepared-plan resident payload by move when this core is
     // uniquely owned, and fall back to cloning only when another wrapper still
     // holds the resident Arc.
@@ -609,9 +621,11 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         authority.entity_path(),
         continuation_identity,
     );
+    let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(&authority, &plan);
 
     PreparedExecutionPlanCore::new(
         plan,
+        execution_shape_fingerprint_prefix,
         continuation_identity,
         continuation,
         index_prefix_specs,

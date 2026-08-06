@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 
 use crate::db::diagnostics::ExecutionStats;
+use crate::db::executor::budget::admit_current_execution_diagnostic_step;
 
 std::thread_local! {
     static EXECUTION_STATS: RefCell<Option<ExecutionProfileStats>> = const {
@@ -175,6 +176,9 @@ fn update_execution_stats(update: impl FnOnce(&mut ExecutionProfileStats)) {
         let Some(stats) = stats.as_mut() else {
             return;
         };
+        if !admit_current_execution_diagnostic_step() {
+            return;
+        }
 
         update(stats);
     });
