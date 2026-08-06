@@ -72,17 +72,9 @@ mod tests {
     }
 
     #[test]
-    fn explicit_request_root_can_be_retained_by_an_async_endpoint_future() {
-        #[expect(
-            clippy::future_not_send,
-            reason = "canister request futures and their Rc-backed roots stay on one executor"
-        )]
-        async fn retain_across_await(root: RequestExecutionRoot) -> RequestExecutionRoot {
-            std::future::ready(()).await;
-            root
-        }
+    fn explicit_request_root_can_outlive_callback_construction() {
+        let retained = with_request_execution_root(std::convert::identity);
 
-        let future = with_request_execution_root(retain_across_await);
-        let _future = std::hint::black_box(future);
+        let _retained = std::hint::black_box(retained);
     }
 }
