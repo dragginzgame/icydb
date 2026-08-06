@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty_metrics"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_dynamic_query"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_sql_query"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_typed_query"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_typed_query"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_bounded"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -394,9 +394,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.5"
+version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "301b56658598e48f3648647ac6fc887be7e7108eddfa4e9b63fcf3ec58c0cadf"
+checksum = "473c7e07f409a8d772161724aa8db6a765a2532a70f9667eeb7b49d3d02fbdca"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -404,9 +404,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.6.5"
+version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a65403d1a1bd28f7dc68eb8506e8874808ee5eecb59298de588e2e1407a078"
+checksum = "7b48fea5a88e9ae728a2dcbedbfc0e730f7d60da42e1cb049a83c9fb8b789889"
 dependencies = [
  "anstyle",
  "clap_lex",
@@ -1114,9 +1114,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.7.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c5b50240f2efe8945a465cbdc225855ee2e82a86474f29eb09daf9183ccb412"
+checksum = "f4f2f14ee1461fb7ee9510686036019ddf12dc5589dfb060df9981f43c8bf832"
 dependencies = [
  "candid",
  "fs2",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "clap",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "getrandom 0.4.3",
@@ -1339,14 +1339,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "convert_case",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "convert_case",
  "darling",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "derive_more",
@@ -1399,7 +1399,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "icydb",
@@ -1409,7 +1409,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "icydb",
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "icydb",
@@ -1429,7 +1429,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "icydb",
@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "icydb",
@@ -1449,7 +1449,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-endpoint-installation"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "blake3",
  "candid",
@@ -1474,14 +1474,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-schema-only"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "icydb-model",
 ]
 
 [[package]]
 name = "icydb-testing-model-typed-adapter"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "blake3",
  "serde",
@@ -1498,7 +1498,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "blake3",
  "icydb-testing-sql-generator",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "icydb",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.221.5"
+version = "0.221.6"
 dependencies = [
  "candid",
  "icydb",
@@ -1526,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.221.5"
+version = "0.221.6"
 
 [[package]]
 name = "ident_case"
