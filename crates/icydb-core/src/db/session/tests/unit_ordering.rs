@@ -225,7 +225,8 @@ fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
     reset_accepted_schema_snapshot_fingerprint_builds_for_tests();
 
     for _ in 0..1_000 {
-        let output = session
+        let request_session = new_request_session();
+        let output = request_session
             .execute_trusted_dynamic_query(&query)
             .expect("warm query should reuse accepted runtime state");
         assert_eq!(output.row_count, 1);
@@ -485,10 +486,7 @@ fn initialize() -> DbSession<TestCanister> {
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
 
-    let session = DbSession::<TestCanister>::new(
-        &STORE_REGISTRY,
-        &crate::db::RequestExecutionRoot::__new_runtime_root(),
-    );
+    let session = new_request_session();
     publish_schema(
         &session,
         AcceptedSchemaRevision::NONE,
@@ -496,6 +494,13 @@ fn initialize() -> DbSession<TestCanister> {
     );
 
     session
+}
+
+fn new_request_session() -> DbSession<TestCanister> {
+    DbSession::new(
+        &STORE_REGISTRY,
+        &crate::db::RequestExecutionRoot::__new_runtime_root(),
+    )
 }
 
 fn publish_schema(
