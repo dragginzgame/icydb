@@ -796,21 +796,19 @@ fn finish_maintained_canister_builds(
             .drain(..pending.len().min(POST_LINK_BUILD_BATCH_SIZE))
             .collect::<Vec<_>>();
         let completed = std::thread::scope(|scope| {
-            let workers = batch
-                .into_iter()
-                .map(|(policy, configured)| {
-                    scope.spawn(move || {
-                        let canister_label = format!(
-                            "{} canister build ({}, {:?})",
-                            policy.canister,
-                            options.profile.as_str(),
-                            options.build_profile,
-                        );
-                        finish_canister_build(root, configured, options, &canister_label)
-                            .map(|built| (policy.canister, built.final_deployable))
-                    })
-                })
-                .collect::<Vec<_>>();
+            let mut workers = Vec::with_capacity(batch.len());
+            for (policy, configured) in batch {
+                workers.push(scope.spawn(move || {
+                    let canister_label = format!(
+                        "{} canister build ({}, {:?})",
+                        policy.canister,
+                        options.profile.as_str(),
+                        options.build_profile,
+                    );
+                    finish_canister_build(root, configured, options, &canister_label)
+                        .map(|built| (policy.canister, built.final_deployable))
+                }));
+            }
             workers
                 .into_iter()
                 .map(|worker| {

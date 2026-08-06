@@ -3,13 +3,31 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOCK="$ROOT/Cargo.lock"
+MANIFEST="$ROOT/Cargo.toml"
 
-if [[ ! -f "$LOCK" ]]; then
-  echo "Cargo.lock not found at $LOCK" >&2
+if [[ ! -f "$LOCK" || ! -f "$MANIFEST" ]]; then
+  echo "Cargo manifest or lockfile is missing under $ROOT" >&2
   exit 1
 fi
 
-awk '
+workspace_time_version="$(
+  awk '
+    /^\[workspace\.dependencies\]$/ { in_workspace_dependencies = 1; next }
+    /^\[/ { in_workspace_dependencies = 0 }
+    in_workspace_dependencies && /^time[[:space:]]*=/ {
+      line = $0
+      sub(/^.*version[[:space:]]*=[[:space:]]*"/, "", line)
+      sub(/".*$/, "", line)
+      print line
+    }
+  ' "$MANIFEST"
+)"
+if [[ -z "$workspace_time_version" || "$workspace_time_version" == *$'\n'* ]]; then
+  echo "Unable to resolve one workspace time dependency version from $MANIFEST" >&2
+  exit 1
+fi
+
+awk -v required_time="$workspace_time_version" '
 BEGIN {
   split("candid digest ic-cdk ic-cdk-executor ic-cdk-macros ic-memory ic-stable-structures ic0 ic_principal icrc-ledger-types sha2", sensitive)
   for (idx in sensitive) {
@@ -17,9 +35,8 @@ BEGIN {
   }
   banned_set["canic-cdk"] = 1
   banned_set["ic-agent"] = 1
-  # Keep the resolved time release aligned with the reviewed workspace
-  # dependency after removal of the retired ic-agent resolver guard.
-  required_exact["time"] = "0.3.55"
+  # Keep the resolved release aligned with the workspace dependency authority.
+  required_exact["time"] = required_time
 }
 
 function strip_value(line) {

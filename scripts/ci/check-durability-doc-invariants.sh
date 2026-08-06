@@ -31,6 +31,8 @@ require_pattern() {
   fi
 }
 
+# Guard maintained durability contracts only. Archived release evidence and
+# changelog topology are historical records, not runtime durability authority.
 require_file "docs/contracts/DURABILITY.md"
 require_file "docs/contracts/PERSISTED_FORMAT_POLICY.md"
 require_file "docs/contracts/PERSISTED_FORMAT_INVENTORY.md"
@@ -171,32 +173,6 @@ require_pattern \
   "docs/operations/DURABILITY_GUIDE.md" \
   "do not claim raw backup/import support" \
   "operator guide checklist must keep backup/import non-claim"
-
-require_pattern \
-  "$durability_design_dir/0.191-evidence.md" \
-  "Persisted-format classification: no persisted-format change" \
-  "0.191 evidence must classify documentation decisions as no persisted-format change"
-require_pattern \
-  "$durability_design_dir/0.191-evidence.md" \
-  "recovery_startup_rebuilds_mixed_index_shapes_host_floor" \
-  "0.191 evidence must retain mixed-index recovery proof"
-require_pattern \
-  "$durability_design_dir/0.191-evidence.md" \
-  "sql_perf_journaled_upgrade_guarded_reentry_stays_bounded" \
-  "0.191 evidence must retain PocketIC upgrade/reentry proof"
-require_pattern \
-  "$durability_design_dir/0.191-evidence.md" \
-  "^## Closeout Checklist$" \
-  "0.191 evidence must retain closeout checklist"
-
-require_pattern \
-  "$durability_design_dir/streaming-recovery-followup.md" \
-  "Streaming recovery must be an explicit recovery mode" \
-  "streaming follow-up must retain explicit recovery-mode requirement"
-require_pattern \
-  "$durability_design_dir/streaming-recovery-followup.md" \
-  "Progress bytes are persisted format" \
-  "streaming follow-up must retain persisted progress classification"
 
 if [[ $status -ne 0 ]]; then
   echo "[FAIL] Durability documentation invariant checks failed." >&2

@@ -7,44 +7,22 @@ cd "$ROOT"
 # shellcheck source=scripts/ci/invariant-common.sh
 source "$ROOT/scripts/ci/invariant-common.sh"
 
-filter_out_allowed_files() {
-  local file
-  local patterns=()
-  for file in "$@"; do
-    patterns+=(-e "^${file//\//\\/}:")
-  done
-
-  if [[ ${#patterns[@]} -eq 0 ]]; then
-    cat
-    return
-  fi
-
-  rg -v --no-heading "${patterns[@]}" || true
-}
-
 status=0
 
 # -----------------------------------------------------------------------------
-# A. Execution-layer semantic revalidation must not spread beyond the current
-# execution owner quarantine. This is intentionally narrow: grouped/runtime
-# packaging is allowed in execution, but semantic shape checks must not start
-# diffusing into sibling execution files.
+# A. Execution owns runtime packaging, never SQL semantic revalidation.
 # -----------------------------------------------------------------------------
 
 EXECUTION_SQL_ROOT="crates/icydb-core/src/db/session/sql"
-EXECUTION_SEMANTIC_ALLOWED=(
-  "crates/icydb-core/src/db/session/sql/execute/mod.rs"
-)
 EXECUTION_SEMANTIC_PATTERN="group_by\\.|having\\.|SqlSelectItem::Aggregate|projection_aggregates|grouped_projection_aggregates|validate_sql_insert_(required_fields|value_tuple_lengths|selected_rows)\\("
 
 execution_semantic_leaks="$(
   run_rg "$EXECUTION_SEMANTIC_PATTERN" "$EXECUTION_SQL_ROOT" \
-    | strip_comment_only \
-    | filter_out_allowed_files "${EXECUTION_SEMANTIC_ALLOWED[@]}"
+    | strip_comment_only
 )"
 if [[ -n "$execution_semantic_leaks" ]]; then
-  echo "[ERROR] SQL execution semantic revalidation spread beyond the sanctioned execution owner." >&2
-  echo "[ERROR] Keep grouped/aggregate/HAVING semantic checks in lowering, with the current INSERT SELECT quarantine only in execute/mod.rs." >&2
+  echo "[ERROR] SQL execution must not revalidate parser/lowering semantics." >&2
+  echo "[ERROR] Keep grouped, aggregate, HAVING, and INSERT SELECT shape checks in lowering." >&2
   echo "$execution_semantic_leaks" >&2
   status=1
 fi
