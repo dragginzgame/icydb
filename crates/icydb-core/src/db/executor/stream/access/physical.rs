@@ -1762,10 +1762,11 @@ mod physical_seek_tests {
     use crate::{
         db::{
             data::{DataStore, RawRow},
-            index::{IndexEntryValue, IndexId, IndexKeyKind, IndexStore},
+            index::{IndexEntryValue, IndexId, IndexStore},
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
             registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
             schema::SchemaStore,
+            test_support::index::nat64_index_key,
         },
         types::EntityTag,
     };
@@ -1796,13 +1797,7 @@ mod physical_seek_tests {
     }
 
     fn index_key(index_id: &IndexId, component: &[u8], value: u64) -> IndexKey {
-        IndexKey::new_from_components_with_primary_key_value(
-            index_id,
-            IndexKeyKind::User,
-            &[component.to_vec()],
-            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(value)),
-        )
-        .expect("test index key should build")
+        nat64_index_key(index_id, component, value)
     }
 
     fn reset_heap_stores() {
