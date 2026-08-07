@@ -312,6 +312,88 @@ fn parameterized_plan_cache_binds_current_values_across_dynamic_and_sql_surfaces
 }
 
 #[test]
+fn request_diagnostics_share_one_root_and_expose_repeated_point_lookups() {
+    let bootstrap = initialize();
+    seed_singleton(&bootstrap);
+    let binding = bootstrap
+        .issue_typed_entity_binding(
+            ENTITY_SOURCE,
+            &[
+                DynamicTypedFieldBindingRequest::new(
+                    ID_SOURCE.to_string(),
+                    DynamicTypedFieldType::Scalar(ScalarType::Unit),
+                    false,
+                ),
+                DynamicTypedFieldBindingRequest::new(
+                    LABEL_SOURCE.to_string(),
+                    DynamicTypedFieldType::Scalar(ScalarType::Text { max_len: None }),
+                    false,
+                ),
+            ],
+        )
+        .expect("request diagnostics binding should resolve");
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let first = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+    let second = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+    assert!(first.enable_request_diagnostics());
+    assert!(
+        !second.enable_request_diagnostics(),
+        "a derived session must not reset the request summary",
+    );
+
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("id").eq(InputValue::Unit))
+        .select(["id"])
+        .limit(1);
+    for session in [
+        &first, &first, &first, &first, &second, &second, &second, &second,
+    ] {
+        session
+            .execute_trusted_live_page(&query, None)
+            .expect("repeated point lookup should execute");
+    }
+    second
+        .execute_public_exact_key_batch_for_typed_binding(&binding, &[(), ()])
+        .expect("direct exact-key batch should execute")
+        .expect("binding should remain current");
+
+    let diagnostics = first
+        .request_diagnostics()
+        .expect("enabled request diagnostics should snapshot");
+    let dynamic = diagnostics
+        .shapes
+        .iter()
+        .find(|shape| {
+            shape.entity == ENTITY_SOURCE
+                && shape.access_path == crate::db::RequestDiagnosticAccessPath::ByKey
+        })
+        .expect("dynamic point shape should be retained");
+    assert_eq!(dynamic.executions, 8);
+    assert_eq!(
+        dynamic
+            .plan_cache_hits
+            .saturating_add(dynamic.plan_cache_misses),
+        8,
+    );
+    assert_eq!(dynamic.hottest_key_lookups, 8);
+    assert_eq!(dynamic.rows_returned, 8);
+    assert!(diagnostics.warnings.iter().any(|warning| {
+        warning.normalized_shape_fingerprint_prefix == dynamic.normalized_shape_fingerprint_prefix
+            && warning.message.contains("get_many")
+    }));
+
+    let direct = diagnostics
+        .shapes
+        .iter()
+        .find(|shape| shape.access_path == crate::db::RequestDiagnosticAccessPath::ByKeys)
+        .expect("planner-free exact-key shape should be retained");
+    assert_eq!(direct.executions, 1);
+    assert_eq!(direct.exact_key_lookups, 2);
+    assert_eq!(direct.hottest_key_lookups, 2);
+    assert_eq!(second.request_diagnostics(), Some(diagnostics));
+}
+
+#[test]
 fn parameterized_in_list_cache_identity_is_independent_of_nonempty_arity() {
     let session = initialize();
     seed_singleton(&session);

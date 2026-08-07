@@ -23,6 +23,8 @@ use crate::{
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
 };
+#[cfg(feature = "diagnostics")]
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 /// Maximum caller positions in one typed exact-key batch.
@@ -67,6 +69,8 @@ const EXACT_KEY_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_676b;
 struct LoweredExactKeys {
     distinct: Vec<(DecodedDataStoreKey, RawDataStoreKey)>,
     positions: Vec<u32>,
+    #[cfg(feature = "diagnostics")]
+    diagnostic_key_hashes: Vec<[u8; 16]>,
 }
 
 fn budget_error(error: impl Into<InternalError>) -> QueryError {
@@ -265,6 +269,10 @@ fn lower_exact_keys<K: PrimaryKeyEncode>(
     let mut distinct_by_raw = BTreeMap::new();
     let mut distinct_keys = Vec::new();
     let mut positions = Vec::with_capacity(keys.len());
+    #[cfg(feature = "diagnostics")]
+    let collect_diagnostic_keys = budget.request_diagnostics_enabled();
+    #[cfg(feature = "diagnostics")]
+    let mut diagnostic_key_hashes = Vec::new();
     let mut input_bytes = 0_usize;
     for key in keys {
         let primary_key = key
@@ -273,6 +281,10 @@ fn lower_exact_keys<K: PrimaryKeyEncode>(
             .map_err(QueryError::execute)?;
         let data_key = DecodedDataStoreKey::new(entity_tag, &primary_key);
         let raw_key = data_key.to_raw().map_err(QueryError::execute)?;
+        #[cfg(feature = "diagnostics")]
+        if collect_diagnostic_keys {
+            diagnostic_key_hashes.push(diagnostic_key_hash(raw_key.as_bytes()));
+        }
         let exact_charge = checked_add_bytes(
             &mut input_bytes,
             raw_key.as_bytes().len(),
@@ -308,7 +320,20 @@ fn lower_exact_keys<K: PrimaryKeyEncode>(
     Ok(LoweredExactKeys {
         distinct: distinct_keys,
         positions,
+        #[cfg(feature = "diagnostics")]
+        diagnostic_key_hashes,
     })
+}
+
+#[cfg(feature = "diagnostics")]
+fn diagnostic_key_hash(raw_key: &[u8]) -> [u8; 16] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"icydb/request-diagnostic/exact-key/v1\0");
+    hasher.update(raw_key);
+    let digest = hasher.finalize();
+    let mut hash = [0_u8; 16];
+    hash.copy_from_slice(&digest[..16]);
+    hash
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -330,7 +355,10 @@ impl<C: CanisterKind> DbSession<C> {
             exact_key_budget_context(binding),
             self.db.request_execution_scope(),
         );
-        self.execute_exact_key_batch_with_budget(binding, keys, &mut budget)
+        let result = self.execute_exact_key_batch_with_budget(binding, keys, &mut budget);
+        #[cfg(feature = "diagnostics")]
+        budget.finish_request_diagnostics();
+        result
     }
 
     fn execute_exact_key_batch_with_budget<K>(
@@ -360,6 +388,8 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         let lowered = lower_exact_keys(catalog.identity().entity_tag(), keys, budget)?;
+        #[cfg(feature = "diagnostics")]
+        budget.record_exact_key_hashes(&lowered.diagnostic_key_hashes);
         let distinct_keys = lowered.distinct;
         let positions = lowered.positions;
 

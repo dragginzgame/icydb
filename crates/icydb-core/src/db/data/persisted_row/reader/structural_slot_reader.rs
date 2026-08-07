@@ -610,3 +610,130 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         Ok(Cow::Borrowed(self.required_cached_value(slot)?))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CachedSlotValue, StructuralSlotReader};
+    use crate::{
+        db::{
+            data::{
+                StructuralRowContract,
+                canonical_row_from_runtime_value_source_with_accepted_contract,
+            },
+            schema::{
+                AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
+                AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+                FieldId, FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaInsertDefault,
+                SchemaRowLayout, SchemaVersion, empty_accepted_enum_catalog_for_tests,
+            },
+        },
+        value::Value,
+    };
+    use std::borrow::Cow;
+
+    fn selective_payload_contract() -> StructuralRowContract {
+        let fields = vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "matches".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Bool,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Bool),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(3),
+                "snapshot".to_string(),
+                SchemaFieldSlot::new(2),
+                AcceptedFieldKind::Blob {
+                    max_len: Some(512 * 1_024),
+                },
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Blob),
+            ),
+        ];
+        let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "tests::SelectivePayload".to_string(),
+            "SelectivePayload".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+        ));
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("large-payload accepted row layout should build");
+        let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+
+        StructuralRowContract::from_accepted_decode_contract(
+            accepted.entity_path(),
+            descriptor.row_decode_contract(value_catalog),
+        )
+    }
+
+    fn scalar_slot_is_untouched(value: &CachedSlotValue) -> bool {
+        matches!(
+            value,
+            CachedSlotValue::Scalar {
+                validated,
+                materialized,
+            } if validated.get().is_none() && materialized.get().is_none()
+        )
+    }
+
+    #[test]
+    fn selective_small_field_read_does_not_decode_large_unrelated_payload() {
+        let contract = selective_payload_contract();
+        let values = [
+            Value::Nat64(7),
+            Value::Bool(false),
+            Value::Blob(vec![0xA5; 300 * 1_024]),
+        ];
+        let row =
+            canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                Ok(Cow::Borrowed(&values[slot]))
+            })
+            .expect("large-payload fixture row should encode")
+            .into_raw_row();
+        let reader = StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract)
+            .expect("large-payload fixture row should open lazily");
+
+        assert!(scalar_slot_is_untouched(&reader.cached_values[2]));
+        assert_eq!(
+            reader
+                .required_cached_value(1)
+                .expect("small residual-like metadata slot should decode"),
+            &Value::Bool(false),
+        );
+        assert!(
+            scalar_slot_is_untouched(&reader.cached_values[2]),
+            "rejecting on small metadata must not validate or materialize the unrelated snapshot",
+        );
+    }
+}

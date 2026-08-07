@@ -97,6 +97,11 @@ pub use icydb_core::db::{
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
 pub use icydb_core::db::{ReadIntentKind, TraceReuseEvent};
+#[cfg(feature = "diagnostics")]
+pub use icydb_core::db::{
+    RequestDiagnosticAccessPath, RequestDiagnosticWarning, RequestDiagnosticWarningKind,
+    RequestDiagnostics, RequestQueryShapeDiagnostic,
+};
 pub use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,

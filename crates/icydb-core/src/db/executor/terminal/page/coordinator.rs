@@ -740,6 +740,36 @@ mod tests {
     }
 
     #[test]
+    fn ten_thousand_units_is_progress_not_false_exhaustion() {
+        let envelope = PageWorkEnvelope::default_scalar().with_limit_for_tests(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            10_000,
+        );
+        let first = coordinate_scalar_page(
+            envelope,
+            ScalarPageWindow::new(0, None),
+            None,
+            (1_u64..=10_001).map(filtered),
+        )
+        .expect("the work envelope should return resumable progress");
+        let (rows, continuation, _) = first.into_parts();
+        let progress = continuation.expect("10,000 examined units do not prove exhaustion");
+        assert!(rows.is_empty());
+        assert_eq!(progress.last_consumed_physical(), Some(&10_000));
+
+        let second = coordinate_scalar_page(
+            envelope,
+            ScalarPageWindow::new(0, None),
+            Some(progress),
+            [filtered(10_001)],
+        )
+        .expect("the final progress page should prove exhaustion");
+        let (rows, continuation, _) = second.into_parts();
+        assert!(rows.is_empty());
+        assert!(continuation.is_none());
+    }
+
+    #[test]
     fn lookahead_match_is_not_consumed_or_skipped_on_resume() {
         let envelope = PageWorkEnvelope::default_scalar()
             .with_limit_for_tests(DiagnosticExecutionBudgetResource::ResultRows, 1);

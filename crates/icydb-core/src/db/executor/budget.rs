@@ -7,6 +7,8 @@ use std::cell::RefCell;
 
 #[cfg(test)]
 use crate::db::QueryError;
+#[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::RequestDiagnosticResourceUsage;
 use crate::db::executor::{EntityAuthority, RuntimeGroupedRow, SharedPreparedExecutionPlan};
 use crate::db::session::RequestExecutionScope;
 use crate::{error::InternalError, value::Value};
@@ -178,6 +180,12 @@ impl HardExecutionContext {
     #[must_use]
     pub(in crate::db) const fn with_scope(self, scope: DiagnosticExecutionBudgetScope) -> Self {
         Self { scope, ..self }
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[must_use]
+    pub(in crate::db) const fn normalized_shape_fingerprint_prefix(self) -> u64 {
+        self.normalized_shape_fingerprint_prefix
     }
 }
 
@@ -446,6 +454,47 @@ impl HardExecutionBudgetTracker {
         }
 
         self.check_instruction_watermark()
+    }
+
+    /// Publish one bounded request diagnostic observation after execution.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn finish_request_diagnostics(&self) {
+        let Some(scope) = self.request_scope.as_ref() else {
+            return;
+        };
+        scope.record_execution(
+            self.context,
+            RequestDiagnosticResourceUsage {
+                keys_visited: self.observed
+                    [resource_index(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited)],
+                rows_visited: self.observed
+                    [resource_index(DiagnosticExecutionBudgetResource::RowsVisited)],
+                rows_returned: self.observed
+                    [resource_index(DiagnosticExecutionBudgetResource::ResultRows)],
+                stored_bytes_read: self.observed
+                    [resource_index(DiagnosticExecutionBudgetResource::StoredBytesRead)],
+                decoded_bytes: self.observed
+                    [resource_index(DiagnosticExecutionBudgetResource::DecodedBytes)],
+                materialized_bytes: self.observed
+                    [resource_index(DiagnosticExecutionBudgetResource::MaterializedBytes)],
+                result_bytes: self.observed
+                    [resource_index(DiagnosticExecutionBudgetResource::ResultBytes)],
+            },
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn request_diagnostics_enabled(&self) -> bool {
+        self.request_scope
+            .as_ref()
+            .is_some_and(RequestExecutionScope::diagnostics_enabled)
+    }
+
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn record_exact_key_hashes(&self, hashes: &[[u8; 16]]) {
+        if let Some(scope) = self.request_scope.as_ref() {
+            scope.record_exact_key_hashes(self.context, hashes);
+        }
     }
 
     /// Return the profile's failure-construction reserve.
@@ -751,7 +800,11 @@ fn with_execution_budget<T, E>(
             .take()
             .ok_or_else(InternalError::query_executor_invariant)
     });
-    removed.map_err(map_internal)?;
+    let removed = removed.map_err(map_internal)?;
+    #[cfg(feature = "diagnostics")]
+    removed.finish_request_diagnostics();
+    #[cfg(not(feature = "diagnostics"))]
+    let _ = removed;
     final_budget_result.map_err(map_internal)?;
 
     result

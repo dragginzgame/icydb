@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 [features]
 default = []
 candid-export = []
+request-diagnostics = ["icydb/diagnostics"]
 
 [dependencies]
 candid = { workspace = true }

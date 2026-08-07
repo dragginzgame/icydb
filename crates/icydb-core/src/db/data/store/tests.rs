@@ -257,6 +257,19 @@ fn heap_data_store_preserves_order_bounds_and_early_stop() {
     );
     assert_eq!(ranged, vec![(raw_key(1, 1), 11), (raw_key(1, 2), 12)]);
 
+    let mut ranged_keys = Vec::new();
+    let _: Result<(), Infallible> = store.visit_key_range(
+        (
+            Bound::Included(raw_key(1, 1)),
+            Bound::Excluded(raw_key(1, 3)),
+        ),
+        |key| {
+            ranged_keys.push(key.clone());
+            Ok(StoreVisit::Continue)
+        },
+    );
+    assert_eq!(ranged_keys, vec![raw_key(1, 1), raw_key(1, 2)]);
+
     let mut stopped = Vec::new();
     let _: Result<(), Infallible> = store.visit_entries(|key, _| {
         stopped.push(key.clone());
@@ -311,20 +324,20 @@ fn journaled_mixed_data_range_traversal_streams_without_snapshot() {
     );
     assert_eq!(asc, vec![(raw_key(1, 0), 10), (raw_key(1, 3), 13)]);
 
-    let mut desc = Vec::new();
-    let _: Result<(), Infallible> = store.visit_range_rev(
+    let mut desc_keys = Vec::new();
+    let _: Result<(), Infallible> = store.visit_key_range_rev(
         (
             Bound::Included(raw_key(1, 0)),
             Bound::Included(raw_key(1, 5)),
         ),
-        |key, row| {
-            desc.push((key.clone(), row.as_bytes()[0]));
-            Ok(if desc.len() == 2 {
-                StoreVisit::Stop
-            } else {
-                StoreVisit::Continue
-            })
+        |key| {
+            desc_keys.push(key.clone());
+            Ok(StoreVisit::Continue)
         },
     );
-    assert_eq!(desc, vec![(raw_key(1, 5), 55), (raw_key(1, 4), 14)]);
+    assert_eq!(
+        desc_keys,
+        vec![raw_key(1, 5), raw_key(1, 4), raw_key(1, 3), raw_key(1, 0),],
+        "key-only traversal must merge live overrides and tombstones without reading row values",
+    );
 }

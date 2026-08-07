@@ -201,7 +201,28 @@ kinds, limit-stop attribution, and fallback reasons. These facts describe how a
 specific execution was performed; they do not weaken the cursor contract or
 make cursor tokens a stable public execution-plan interface.
 
-### 8. Non-Goals
+### 8. Row Access Model
+
+Primary-key range traversal enumerates and charges candidate keys without
+loading their stored row payloads. An index-covered predicate may therefore
+reject a candidate without a row fetch. When residual filtering, ordering, or
+output needs the row, the terminal runtime fetches and charges that payload at
+most once for the candidate.
+
+One structural row reader is reused across residual filtering and retained-slot
+projection. It opens the bounded row envelope once, decodes only required
+filter/order slots before acceptance, and reuses those decoded slots if the
+projection needs them. Unrelated blob, text, map, list, and snapshot-like fields
+are not decoded or materialized for rejected rows. A typed full-entity result
+may still require every outward field after the row is accepted.
+
+This contract does not claim that stable memory can return one field without
+reading the containing stored row. `StoredBytesRead` therefore charges the raw
+payload when a fetch is required; the guarantee is that key discovery does not
+perform a hidden first payload read and terminal materialization does not fetch
+the same candidate again.
+
+### 9. Non-Goals
 
 Pagination does not provide:
 
@@ -222,6 +243,48 @@ IcyDB pagination guarantees:
 - Live-state iteration semantics.
 
 These guarantees are part of the current query contract.
+
+## Bounded Request Diagnostics
+
+Builds that enable the `diagnostics` feature may opt one request root into a
+bounded query summary:
+
+```rust
+let database = icydb::db!()?;
+database.enable_request_diagnostics();
+
+// Every later db!() session under this endpoint shares this collection state.
+run_application_work()?;
+
+let summary = database.request_diagnostics();
+```
+
+Enabling collection is idempotent. A nested helper or another `DbSession`
+derived from the same endpoint root cannot create or reset a second summary.
+Collection begins when explicitly enabled; earlier request work is not
+reconstructed.
+
+The summary groups maintained reads by a literal-free normalized shape and
+reports bounded cache, execution, physical-row, byte, access-path, residual,
+and exact-key evidence. It retains at most 32 shapes, 128 hashed key
+identities, eight residual/candidate fields per shape, and 128 bytes per
+label. Raw keys, predicate literals, and row payloads are never retained or
+returned. Capacity loss remains visible through shape, key-identity, and
+suppression counters.
+
+Repeated point queries can therefore produce an actionable warning to preload
+known keys with bounded `get_many` and reuse the rows. A selected equality
+index followed by residual equality work may also produce a diagnostic-only
+compound-index prefix, such as `collection_id + stage`. IcyDB never creates or
+publishes an index from this evidence.
+
+Diagnostic hashing, aggregation, retained bytes, and snapshot bytes consume
+the same request root's finite resource counters. If diagnostic allowance is
+unavailable, collection fails soft: query planning and successful result
+semantics stay unchanged, detail is omitted, and suppression is reported.
+Plan observations may outnumber completed executions when the request-wide
+execution budget rejects later N+1 calls; that difference is intentional and
+shows where aggregate protection stopped physical work.
 
 ## Missing-Row Semantics (Explicit)
 

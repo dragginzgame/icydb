@@ -6,6 +6,8 @@
 mod execution_trace;
 mod local_instructions;
 mod model;
+#[cfg(feature = "diagnostics")]
+mod request;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 mod sql_structural;
 mod storage_report;
@@ -24,6 +26,15 @@ pub use model::{
 };
 use model::{
     IndexStoreSnapshotStats, StoreSnapshotAllocationIdentity, StoreSnapshotSchemaMetadata,
+};
+#[cfg(feature = "diagnostics")]
+pub use request::{
+    RequestDiagnosticAccessPath, RequestDiagnosticWarning, RequestDiagnosticWarningKind,
+    RequestDiagnostics, RequestQueryShapeDiagnostic,
+};
+#[cfg(feature = "diagnostics")]
+pub(in crate::db) use request::{
+    RequestDiagnosticResourceUsage, RequestDiagnosticsState, RequestQueryPlanEvidence,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql_structural::SqlStructuralWorkAttribution;

@@ -566,6 +566,12 @@ impl<C: CanisterKind> DbSession<C> {
                 lane,
                 &mut recorder,
             )?;
+        if self.db.request_execution_scope().diagnostics_enabled() {
+            self.db.request_execution_scope().record_query_plan(
+                crate::db::executor::request_query_plan_evidence(&prepared_plan),
+                cache_attribution,
+            );
+        }
 
         Ok((prepared_plan, cache_attribution, compile_attribution))
     }
@@ -580,14 +586,23 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let mut recorder = QueryPlanCompilePhaseRecorder::none();
 
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
-            authority,
-            schema,
-            visibility,
-            query,
-            lane,
-            &mut recorder,
-        )
+        let prepared = self
+            .cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
+                authority,
+                schema,
+                visibility,
+                query,
+                lane,
+                &mut recorder,
+            )?;
+        #[cfg(feature = "diagnostics")]
+        if self.db.request_execution_scope().diagnostics_enabled() {
+            self.db.request_execution_scope().record_query_plan(
+                crate::db::executor::request_query_plan_evidence(&prepared.0),
+                prepared.1,
+            );
+        }
+        Ok(prepared)
     }
 
     fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(

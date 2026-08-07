@@ -106,5 +106,40 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
     })
 }
 
+/// Return bounded request evidence for a Toko-shaped point-query loop.
+#[ic_cdk::query]
+#[cfg(feature = "request-diagnostics")]
+fn diagnose_repeated_point_queries(
+    repetitions: u16,
+    repeated_key: bool,
+) -> ((u16, u16, u64, Option<icydb::db::RequestDiagnostics>),) {
+    icydb::db::with_request_execution(|| {
+        let executions = repetitions.min(MAX_REPEATED_QUERIES);
+        let Ok(database) = icydb::db!() else {
+            return ((executions, executions, 0, None),);
+        };
+        let _ = database.enable_request_diagnostics();
+        let mut failures = 0_u16;
+        let start = ic_cdk::api::performance_counter(1);
+        for value in 0..executions {
+            let key = if repeated_key {
+                Ulid::MIN
+            } else {
+                Ulid::from_u128(u128::from(value))
+            };
+            let request =
+                DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(key));
+            if database.execute_trusted_live_page(&request, None).is_err() {
+                failures = failures.saturating_add(1);
+            }
+        }
+
+        let diagnostics = database.request_diagnostics();
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        ((executions, failures, local_instructions, diagnostics),)
+    })
+}
+
 #[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();

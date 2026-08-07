@@ -101,6 +101,23 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
+    /// Enable bounded request-wide query diagnostics for this request root.
+    ///
+    /// This is idempotent and never resets work already collected through
+    /// another `db!()` session sharing the same endpoint request root.
+    #[cfg(feature = "diagnostics")]
+    #[must_use]
+    pub fn enable_request_diagnostics(&self) -> bool {
+        self.inner.enable_request_diagnostics()
+    }
+
+    /// Snapshot the bounded request summary when diagnostics are enabled.
+    #[cfg(feature = "diagnostics")]
+    #[must_use]
+    pub fn request_diagnostics(&self) -> Option<crate::db::RequestDiagnostics> {
+        self.inner.request_diagnostics()
+    }
+
     /// Execute one revision-tolerant bounded dynamic page.
     pub fn execute_live_page(
         &self,

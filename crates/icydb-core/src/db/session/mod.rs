@@ -109,6 +109,23 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    /// Enable bounded request-wide query diagnostics without resetting prior counters.
+    ///
+    /// Returns `true` only when this call enabled collection. Every session
+    /// derived from the same request root observes the same diagnostic state.
+    #[cfg(feature = "diagnostics")]
+    #[must_use]
+    pub fn enable_request_diagnostics(&self) -> bool {
+        self.db.request_execution_scope().enable_diagnostics()
+    }
+
+    /// Snapshot bounded request-wide query diagnostics when collection is enabled.
+    #[cfg(feature = "diagnostics")]
+    #[must_use]
+    pub fn request_diagnostics(&self) -> Option<crate::db::RequestDiagnostics> {
+        self.db.request_execution_scope().diagnostics_snapshot()
+    }
+
     /// Enable debug execution behavior where supported by executors.
     #[must_use]
     pub const fn debug(mut self) -> Self {

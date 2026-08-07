@@ -161,8 +161,8 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "one_entity_dynamic_query",
         package: "canister_audit_one_entity_dynamic_query",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &["candid-export", "request-diagnostics"],
+        local_test_features: &["candid-export", "request-diagnostics"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },

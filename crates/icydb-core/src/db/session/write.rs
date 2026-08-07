@@ -2683,6 +2683,8 @@ mod identity_pre_key_tests {
         insert_key_exists_after_generation, validate_structural_mutation_result_bytes,
     };
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    use crate::db::data::DecodedDataStoreKey;
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::executor::budget::{
         HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
         with_query_execution_budget_for_tests,
@@ -3022,6 +3024,53 @@ mod identity_pre_key_tests {
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn identity_row_stored_bytes<C: CanisterKind>(
+        session: &DbSession<C>,
+        store_path: &'static str,
+        key: u64,
+    ) -> u64 {
+        let data_key = DecodedDataStoreKey::try_from_structural_key(ENTITY_TAG, &Value::Nat64(key))
+            .expect("identity row key should encode");
+        let raw_key = data_key.to_raw().expect("identity raw key should encode");
+        let store = session
+            .db
+            .recovered_store(store_path)
+            .expect("identity store should resolve");
+        store.with_data(|data_store| {
+            u64::try_from(
+                data_store
+                    .get(&raw_key)
+                    .expect("inserted identity row should exist")
+                    .len(),
+            )
+            .expect("bounded row length should fit u64")
+        })
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn with_stored_bytes_limit<T>(
+        limit: u64,
+        shape_fingerprint_prefix: u64,
+        operation: impl FnOnce() -> Result<T, crate::db::query::intent::QueryError>,
+    ) -> Result<T, crate::db::query::intent::QueryError> {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::StoredBytesRead,
+            limit,
+        );
+        let context = HardExecutionContext::new(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::TrustedRead,
+            shape_fingerprint_prefix,
+        );
+
+        with_query_execution_budget_for_tests(budget, context, operation)
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>) {
         let first = insert_exact_key_fixture(session, 41);
         let second = insert_exact_key_fixture(session, 42);
@@ -3057,6 +3106,58 @@ mod identity_pre_key_tests {
     fn exact_key_batches_preserve_semantics_across_heap_and_journaled_stores() {
         assert_exact_key_batch(&initialize());
         assert_exact_key_batch(&initialize_journaled());
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn assert_primary_range_materialization_fetches_once<C: CanisterKind>(
+        session: &DbSession<C>,
+        store_path: &'static str,
+    ) {
+        let key = insert_exact_key_fixture(session, 41);
+        let stored_bytes = identity_row_stored_bytes(session, store_path, key);
+
+        let scalar = DynamicQuery::new(ENTITY_NAME)
+            .select(["id", "payload"])
+            .order_by(asc("id"))
+            .limit(1);
+        let gets_before = DataStore::current_get_call_count();
+        let scalar_page = with_stored_bytes_limit(stored_bytes, 0x7072_696d_6172_792d, || {
+            session.execute_trusted_live_page(&scalar, None)
+        })
+        .expect("one scalar primary-range row should fit one payload-read allowance");
+        assert_eq!(scalar_page.row_count, 1);
+        assert_eq!(
+            DataStore::current_get_call_count().saturating_sub(gets_before),
+            1,
+            "scalar primary traversal should fetch its emitted row exactly once",
+        );
+
+        let grouped = DynamicQuery::new(ENTITY_NAME)
+            .group_by("payload")
+            .aggregate(crate::db::count())
+            .grouped_limits(10, 16 * 1_024)
+            .limit(1);
+        let gets_before = DataStore::current_get_call_count();
+        let grouped_page = with_stored_bytes_limit(stored_bytes, 0x6772_6f75_7065_642d, || {
+            session.execute_trusted_dynamic_grouped_query(&grouped)
+        })
+        .expect("one grouped primary-range row should fit one payload-read allowance");
+        assert_eq!(grouped_page.row_count, 1);
+        assert_eq!(
+            DataStore::current_get_call_count().saturating_sub(gets_before),
+            1,
+            "grouped primary traversal should fetch its source row exactly once",
+        );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn row_materialization_fetches_each_required_payload_at_most_once() {
+        assert_primary_range_materialization_fetches_once(&initialize(), STORE_PATH);
+        assert_primary_range_materialization_fetches_once(
+            &initialize_journaled(),
+            JOURNALED_STORE_PATH,
+        );
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]

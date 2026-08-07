@@ -76,6 +76,11 @@ pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,
 };
+#[cfg(feature = "diagnostics")]
+pub use diagnostics::{
+    RequestDiagnosticAccessPath, RequestDiagnosticWarning, RequestDiagnosticWarningKind,
+    RequestDiagnostics, RequestQueryShapeDiagnostic,
+};
 #[doc(hidden)]
 pub use dynamic_write::{
     DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicTypedStructuralPatch,

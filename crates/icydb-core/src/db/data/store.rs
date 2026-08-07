@@ -378,7 +378,6 @@ impl DataStore {
             } => Self::visit_journaled_entries_in_bounds(
                 &self.backend,
                 (Bound::Unbounded, Bound::Unbounded),
-                false,
                 visitor,
             )?,
         }
@@ -405,35 +404,33 @@ impl DataStore {
                 canonical: _,
                 live: _,
                 tombstones: _,
-            } => Self::visit_journaled_entries_in_bounds(&self.backend, bounds, false, visitor)?,
+            } => Self::visit_journaled_entries_in_bounds(&self.backend, bounds, visitor)?,
         }
 
         Ok(())
     }
 
-    /// Visit raw row entries in reverse order whose keys belong to the provided storage range.
-    pub(in crate::db) fn visit_range_rev<E>(
+    /// Visit only raw keys in storage order without fetching row payloads.
+    ///
+    /// Primary-key access streams use this boundary to discover candidate
+    /// identities before the terminal row runtime decides whether the payload
+    /// is needed. Journaled traversal merges canonical and live keys while
+    /// preserving live overrides and tombstones without reading stable values.
+    pub(in crate::db) fn visit_key_range<E>(
         &self,
         key_range: impl RangeBounds<RawDataStoreKey>,
-        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
+        visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        let bounds = Self::owned_range_bounds(&key_range);
-        match &self.backend {
-            DataStoreBackend::Heap(map) => {
-                for (key, row) in map.range((bounds.0.clone(), bounds.1)).rev() {
-                    if visitor(key, row)?.should_stop() {
-                        break;
-                    }
-                }
-            }
-            DataStoreBackend::Journaled {
-                canonical: _,
-                live: _,
-                tombstones: _,
-            } => Self::visit_journaled_entries_in_bounds(&self.backend, bounds, true, visitor)?,
-        }
+        self.visit_keys_in_bounds(Self::owned_range_bounds(&key_range), false, visitor)
+    }
 
-        Ok(())
+    /// Visit only raw keys in reverse storage order without fetching row payloads.
+    pub(in crate::db) fn visit_key_range_rev<E>(
+        &self,
+        key_range: impl RangeBounds<RawDataStoreKey>,
+        visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
+    ) -> Result<(), E> {
+        self.visit_keys_in_bounds(Self::owned_range_bounds(&key_range), true, visitor)
     }
 
     /// Sum of bytes used by all stored rows.
@@ -499,11 +496,41 @@ impl DataStore {
         (lower, upper)
     }
 
-    fn visit_journaled_entries_in_bounds<E>(
+    fn visit_keys_in_bounds<E>(
+        &self,
+        bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
+        reverse: bool,
+        mut visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
+    ) -> Result<(), E> {
+        match &self.backend {
+            DataStoreBackend::Heap(map) => {
+                if reverse {
+                    for (key, _row) in map.range(bounds).rev() {
+                        if visitor(key)?.should_stop() {
+                            break;
+                        }
+                    }
+                } else {
+                    for (key, _row) in map.range(bounds) {
+                        if visitor(key)?.should_stop() {
+                            break;
+                        }
+                    }
+                }
+            }
+            DataStoreBackend::Journaled { .. } => {
+                Self::visit_journaled_keys_in_bounds(&self.backend, bounds, reverse, visitor)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn visit_journaled_keys_in_bounds<E>(
         backend: &DataStoreBackend,
         bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
         reverse: bool,
-        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
+        mut visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
         let DataStoreBackend::Journaled {
             canonical,
@@ -516,14 +543,14 @@ impl DataStore {
 
         if canonical.is_empty() {
             if reverse {
-                for (key, row) in live.range(bounds).rev() {
-                    if visitor(key, row)?.should_stop() {
+                for (key, _row) in live.range(bounds).rev() {
+                    if visitor(key)?.should_stop() {
                         return Ok(());
                     }
                 }
             } else {
-                for (key, row) in live.range(bounds) {
-                    if visitor(key, row)?.should_stop() {
+                for (key, _row) in live.range(bounds) {
+                    if visitor(key)?.should_stop() {
                         return Ok(());
                     }
                 }
@@ -534,13 +561,13 @@ impl DataStore {
         if live.is_empty() && tombstones.is_empty() {
             if reverse {
                 for entry in canonical.range(bounds).rev() {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                    if visitor(entry.key())?.should_stop() {
                         return Ok(());
                     }
                 }
             } else {
                 for entry in canonical.range(bounds) {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                    if visitor(entry.key())?.should_stop() {
                         return Ok(());
                     }
                 }
@@ -548,24 +575,25 @@ impl DataStore {
             return Ok(());
         }
 
-        match if reverse {
+        let direction = if reverse {
             Direction::Desc
         } else {
             Direction::Asc
-        } {
+        };
+        match direction {
             Direction::Asc => visit_ordered_overlay(
                 canonical.range((bounds.0.clone(), bounds.1.clone())),
                 live.range((bounds.0, bounds.1)),
-                Direction::Asc,
+                direction,
                 |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
                 |canonical_entry| !tombstones.contains(canonical_entry.key()),
                 |live_entry| !tombstones.contains(live_entry.0),
                 |entry| {
                     let visit = match entry {
                         OrderedOverlayEntry::Canonical(canonical_entry) => {
-                            visitor(canonical_entry.key(), &canonical_entry.value())?
+                            visitor(canonical_entry.key())?
                         }
-                        OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
+                        OrderedOverlayEntry::Live((key, _row)) => visitor(key)?,
                     };
                     Ok(if visit.should_stop() {
                         OrderedOverlayVisit::Stop
@@ -577,16 +605,16 @@ impl DataStore {
             Direction::Desc => visit_ordered_overlay(
                 canonical.range((bounds.0.clone(), bounds.1.clone())).rev(),
                 live.range((bounds.0, bounds.1)).rev(),
-                Direction::Desc,
+                direction,
                 |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
                 |canonical_entry| !tombstones.contains(canonical_entry.key()),
                 |live_entry| !tombstones.contains(live_entry.0),
                 |entry| {
                     let visit = match entry {
                         OrderedOverlayEntry::Canonical(canonical_entry) => {
-                            visitor(canonical_entry.key(), &canonical_entry.value())?
+                            visitor(canonical_entry.key())?
                         }
-                        OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
+                        OrderedOverlayEntry::Live((key, _row)) => visitor(key)?,
                     };
                     Ok(if visit.should_stop() {
                         OrderedOverlayVisit::Stop
@@ -596,6 +624,61 @@ impl DataStore {
                 },
             ),
         }
+    }
+
+    fn visit_journaled_entries_in_bounds<E>(
+        backend: &DataStoreBackend,
+        bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
+        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
+    ) -> Result<(), E> {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = backend
+        else {
+            return Ok(());
+        };
+
+        if canonical.is_empty() {
+            for (key, row) in live.range(bounds) {
+                if visitor(key, row)?.should_stop() {
+                    return Ok(());
+                }
+            }
+            return Ok(());
+        }
+
+        if live.is_empty() && tombstones.is_empty() {
+            for entry in canonical.range(bounds) {
+                if visitor(entry.key(), &entry.value())?.should_stop() {
+                    return Ok(());
+                }
+            }
+            return Ok(());
+        }
+
+        visit_ordered_overlay(
+            canonical.range((bounds.0.clone(), bounds.1.clone())),
+            live.range((bounds.0, bounds.1)),
+            Direction::Asc,
+            |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
+            |canonical_entry| !tombstones.contains(canonical_entry.key()),
+            |live_entry| !tombstones.contains(live_entry.0),
+            |entry| {
+                let visit = match entry {
+                    OrderedOverlayEntry::Canonical(canonical_entry) => {
+                        visitor(canonical_entry.key(), &canonical_entry.value())?
+                    }
+                    OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
+                };
+                Ok(if visit.should_stop() {
+                    OrderedOverlayVisit::Stop
+                } else {
+                    OrderedOverlayVisit::Continue
+                })
+            },
+        )
     }
 }
 

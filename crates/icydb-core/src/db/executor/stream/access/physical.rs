@@ -876,14 +876,10 @@ impl PrimaryRangeKeyStream {
                         .last_raw_key
                         .clone()
                         .map_or_else(|| Bound::Included(self.lower_raw.clone()), Bound::Excluded);
-                    store.visit_range((lower, self.upper_bound.clone()), |raw_key, row| {
+                    store.visit_key_range((lower, self.upper_bound.clone()), |raw_key| {
                         charge_current_execution_budget(
                             DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
                             1,
-                        )?;
-                        charge_current_execution_budget(
-                            DiagnosticExecutionBudgetResource::StoredBytesRead,
-                            u64::try_from(row.len()).unwrap_or(u64::MAX),
                         )?;
                         let raw_key = raw_key.clone();
                         keys.push(PrimaryScan::decode_data_key(&raw_key)?);
@@ -900,16 +896,12 @@ impl PrimaryRangeKeyStream {
                         .last_raw_key
                         .clone()
                         .map_or_else(|| self.upper_bound.clone(), Bound::Excluded);
-                    store.visit_range_rev(
+                    store.visit_key_range_rev(
                         (Bound::Included(self.lower_raw.clone()), upper),
-                        |raw_key, row| {
+                        |raw_key| {
                             charge_current_execution_budget(
                                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
                                 1,
-                            )?;
-                            charge_current_execution_budget(
-                                DiagnosticExecutionBudgetResource::StoredBytesRead,
-                                u64::try_from(row.len()).unwrap_or(u64::MAX),
                             )?;
                             let raw_key = raw_key.clone();
                             keys.push(PrimaryScan::decode_data_key(&raw_key)?);

@@ -66,6 +66,8 @@ pub(in crate::db::executor) use covering::{
 };
 pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
+#[cfg(feature = "diagnostics")]
+pub(in crate::db) use diagnostics::request_query_plan_evidence;
 #[cfg(feature = "sql")]
 pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
