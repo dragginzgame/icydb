@@ -1,5 +1,7 @@
 use crate::{
-    db::executor::{OrderReadableRow, projection::ProjectionValidationRow},
+    db::executor::{
+        OrderReadableRow, budget::runtime_value_work, projection::ProjectionValidationRow,
+    },
     value::Value,
 };
 use std::{borrow::Cow, rc::Rc};
@@ -262,6 +264,26 @@ impl RetainedSlotRow {
                 let index = Self::find_sparse_entry_index(entries.as_slice(), slot)?;
 
                 entries.get_mut(index)?.value.take()
+            }
+        }
+    }
+
+    /// Estimate complete value backing retained by this compact slot row.
+    #[must_use]
+    pub(in crate::db::executor) fn estimated_backing_bytes(&self) -> u64 {
+        match &self.storage {
+            RetainedSlotRowStorage::Indexed { values, .. } => {
+                values.iter().flatten().fold(0_u64, |total, value| {
+                    total.saturating_add(runtime_value_work(value).0)
+                })
+            }
+            #[cfg(test)]
+            RetainedSlotRowStorage::Sparse { entries } => {
+                entries.iter().fold(0_u64, |total, entry| {
+                    entry.value.as_ref().map_or(total, |value| {
+                        total.saturating_add(runtime_value_work(value).0)
+                    })
+                })
             }
         }
     }

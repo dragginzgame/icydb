@@ -26,6 +26,11 @@ pub(in crate::db::session::sql) struct SqlProjectionMaterializationMetrics {
     pub(in crate::db::session::sql) full_row_decode_materializations: u64,
     pub(in crate::db::session::sql) distinct_candidate_rows: u64,
     pub(in crate::db::session::sql) distinct_bounded_stop_hits: u64,
+    pub(in crate::db::session::sql) distinct_adjacent_path_hits: u64,
+    pub(in crate::db::session::sql) distinct_global_path_hits: u64,
+    pub(in crate::db::session::sql) distinct_unique_rows: u64,
+    pub(in crate::db::session::sql) distinct_peak_retained_entries: u64,
+    pub(in crate::db::session::sql) distinct_peak_retained_backing_bytes: u64,
 }
 
 #[cfg(feature = "diagnostics")]
@@ -132,6 +137,42 @@ pub(super) fn record_sql_projection_distinct_candidate_row() {
 pub(super) fn record_sql_projection_distinct_bounded_stop() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.distinct_bounded_stop_hits = metrics.distinct_bounded_stop_hits.saturating_add(1);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_sql_projection_distinct_adjacent_path_hit() {
+    update_sql_projection_materialization_metrics(|metrics| {
+        metrics.distinct_adjacent_path_hits = metrics.distinct_adjacent_path_hits.saturating_add(1);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_sql_projection_distinct_global_path_hit() {
+    update_sql_projection_materialization_metrics(|metrics| {
+        metrics.distinct_global_path_hits = metrics.distinct_global_path_hits.saturating_add(1);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_sql_projection_distinct_unique_rows(count: u64) {
+    update_sql_projection_materialization_metrics(|metrics| {
+        metrics.distinct_unique_rows = metrics.distinct_unique_rows.saturating_add(count);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_sql_projection_distinct_peak_retained_entries(count: u64) {
+    update_sql_projection_materialization_metrics(|metrics| {
+        metrics.distinct_peak_retained_entries = metrics.distinct_peak_retained_entries.max(count);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_sql_projection_distinct_peak_retained_backing_bytes(bytes: u64) {
+    update_sql_projection_materialization_metrics(|metrics| {
+        metrics.distinct_peak_retained_backing_bytes =
+            metrics.distinct_peak_retained_backing_bytes.max(bytes);
     });
 }
 

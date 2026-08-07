@@ -1,8 +1,8 @@
 use crate::{
     db::{
+        data::DataRow,
         executor::{
             ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
-            apply_structural_order_window_to_data_rows,
             pipeline::contracts::{ScalarPageMaterialization, StructuralCursorPage},
             route::LoadOrderRouteMode,
         },
@@ -17,7 +17,7 @@ use super::{
     post_access::apply_data_row_page_window,
     row_runtime::ScalarRowRuntimeHandle,
     scan::{
-        RowScanResult, scan_direct_data_rows_with_residual_policy,
+        DataRowOrderScanResult, RowScanResult, scan_direct_data_rows_with_residual_policy,
         scan_materialized_order_direct_data_rows,
     },
 };
@@ -32,7 +32,6 @@ use super::metrics::{
 // Execute one already-resolved direct `DataRow` strategy through the shared
 // direct-lane scan and page-window shell.
 #[expect(clippy::too_many_arguments)]
-#[expect(clippy::too_many_lines)]
 pub(super) fn execute_direct_data_row_path(
     plan: &AccessPlannedQuery,
     key_stream: &mut OrderedKeyStreamBox,
@@ -46,118 +45,63 @@ pub(super) fn execute_direct_data_row_path(
     continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
     // Phase 1: run the direct scan through the shared residual-policy helper.
+    // Incompatible-order lanes select their bounded winner set during this
+    // scan instead of retaining every raw candidate until a later sort pass.
     let row_skip_count = direct_data_row_page_skip_count(plan);
+    let order_keep_count = ExecutionKernel::bounded_order_keep_count(plan, None, false);
     #[cfg(feature = "diagnostics")]
-    let (scan_local_instructions, scan_result) =
-        measure_direct_data_row_phase(|| match direct_data_row_path {
-            DirectDataRowPath::Plain { row_keep_cap } => {
-                scan_direct_data_rows_with_residual_policy(
-                    key_stream,
-                    scan_budget_hint,
-                    row_keep_cap,
-                    row_skip_count,
-                    consistency,
-                    row_runtime,
-                    None,
-                )
-            }
-            DirectDataRowPath::Filtered {
-                row_keep_cap,
-                filter_program,
-            } => scan_direct_data_rows_with_residual_policy(
-                key_stream,
-                scan_budget_hint,
-                row_keep_cap,
-                row_skip_count,
-                consistency,
-                row_runtime,
-                Some(filter_program),
-            ),
-            DirectDataRowPath::MaterializedOrder { filter_program, .. } => {
-                scan_materialized_order_direct_data_rows(
-                    key_stream,
-                    scan_budget_hint,
-                    consistency,
-                    row_runtime,
-                    filter_program,
-                )
-            }
-        });
+    let (scan_local_instructions, scan_result) = measure_direct_data_row_phase(|| {
+        execute_direct_data_row_scan(
+            key_stream,
+            scan_budget_hint,
+            row_skip_count,
+            consistency,
+            row_runtime,
+            direct_data_row_path,
+            order_keep_count,
+        )
+    });
     #[cfg(not(feature = "diagnostics"))]
-    let scan_result = match direct_data_row_path {
-        DirectDataRowPath::Plain { row_keep_cap } => scan_direct_data_rows_with_residual_policy(
-            key_stream,
-            scan_budget_hint,
-            row_keep_cap,
-            row_skip_count,
-            consistency,
-            row_runtime,
-            None,
-        ),
-        DirectDataRowPath::Filtered {
-            row_keep_cap,
-            filter_program,
-        } => scan_direct_data_rows_with_residual_policy(
-            key_stream,
-            scan_budget_hint,
-            row_keep_cap,
-            row_skip_count,
-            consistency,
-            row_runtime,
-            Some(filter_program),
-        ),
-        DirectDataRowPath::MaterializedOrder { filter_program, .. } => {
-            scan_materialized_order_direct_data_rows(
-                key_stream,
-                scan_budget_hint,
-                consistency,
-                row_runtime,
-                filter_program,
-            )
-        }
-    };
-    let RowScanResult {
-        rows: mut data_rows,
-        rows_scanned,
-        rows_matched,
-    } = scan_result?;
+    let scan_result = execute_direct_data_row_scan(
+        key_stream,
+        scan_budget_hint,
+        row_skip_count,
+        consistency,
+        row_runtime,
+        direct_data_row_path,
+        order_keep_count,
+    );
+    let scan_result = scan_result?;
     #[cfg(feature = "diagnostics")]
     record_direct_data_row_scan_local_instructions(scan_local_instructions);
 
-    // Phase 3: materialized-order direct lanes still own one in-memory order
-    // pass before the final page window.
-    if let DirectDataRowPath::MaterializedOrder { resolved_order, .. } = direct_data_row_path
-        && data_rows.len() > 1
+    // Phase 2: only the retained winner set reaches final canonical ordering.
+    let (mut data_rows, rows_scanned, rows_matched, page_window_already_applied) = match scan_result
     {
-        #[cfg(feature = "diagnostics")]
-        let (order_window_local_instructions, order_window_result) =
-            measure_direct_data_row_phase(|| {
-                apply_structural_order_window_to_data_rows(
-                    &mut data_rows,
-                    row_runtime.row_layout(),
-                    resolved_order,
-                    ExecutionKernel::bounded_order_keep_count(plan, None),
-                )
-            });
-        #[cfg(not(feature = "diagnostics"))]
-        apply_structural_order_window_to_data_rows(
-            &mut data_rows,
-            row_runtime.row_layout(),
-            resolved_order,
-            ExecutionKernel::bounded_order_keep_count(plan, None),
-        )?;
-        #[cfg(feature = "diagnostics")]
-        order_window_result?;
-        #[cfg(feature = "diagnostics")]
-        record_direct_data_row_order_window_local_instructions(order_window_local_instructions);
-    }
+        DirectDataRowScanOutcome::PageRows(RowScanResult {
+            rows,
+            rows_scanned,
+            rows_matched,
+        }) => (rows, rows_scanned, rows_matched, true),
+        DirectDataRowScanOutcome::OrderWindow(DataRowOrderScanResult {
+            window,
+            rows_scanned,
+            rows_matched,
+        }) => {
+            #[cfg(feature = "diagnostics")]
+            let (order_window_local_instructions, rows) =
+                measure_direct_data_row_phase(|| window.into_sorted_rows());
+            #[cfg(not(feature = "diagnostics"))]
+            let rows = window.into_sorted_rows();
+            #[cfg(feature = "diagnostics")]
+            record_direct_data_row_order_window_local_instructions(order_window_local_instructions);
 
-    // Phase 4: direct-lane accounting matches the shared kernel path, then
+            (rows?, rows_scanned, rows_matched, false)
+        }
+    };
+
+    // Phase 3: direct-lane accounting matches the shared kernel path, then
     // the final offset/limit window runs once on canonical data rows.
-    let page_window_already_applied = !matches!(
-        direct_data_row_path,
-        DirectDataRowPath::MaterializedOrder { .. }
-    );
     let post_access_rows = if page_window_already_applied {
         rows_matched
     } else {
@@ -186,6 +130,60 @@ pub(super) fn execute_direct_data_row_path(
         rows_scanned,
         post_access_rows,
     })
+}
+
+enum DirectDataRowScanOutcome<'a> {
+    PageRows(RowScanResult<DataRow>),
+    OrderWindow(DataRowOrderScanResult<'a>),
+}
+
+fn execute_direct_data_row_scan<'a>(
+    key_stream: &mut OrderedKeyStreamBox,
+    scan_budget_hint: Option<usize>,
+    row_skip_count: usize,
+    consistency: MissingRowPolicy,
+    row_runtime: &ScalarRowRuntimeHandle<'_>,
+    direct_data_row_path: DirectDataRowPath<'a>,
+    order_keep_count: Option<usize>,
+) -> Result<DirectDataRowScanOutcome<'a>, InternalError> {
+    match direct_data_row_path {
+        DirectDataRowPath::Plain { row_keep_cap } => scan_direct_data_rows_with_residual_policy(
+            key_stream,
+            scan_budget_hint,
+            row_keep_cap,
+            row_skip_count,
+            consistency,
+            row_runtime,
+            None,
+        )
+        .map(DirectDataRowScanOutcome::PageRows),
+        DirectDataRowPath::Filtered {
+            row_keep_cap,
+            filter_program,
+        } => scan_direct_data_rows_with_residual_policy(
+            key_stream,
+            scan_budget_hint,
+            row_keep_cap,
+            row_skip_count,
+            consistency,
+            row_runtime,
+            Some(filter_program),
+        )
+        .map(DirectDataRowScanOutcome::PageRows),
+        DirectDataRowPath::MaterializedOrder {
+            resolved_order,
+            filter_program,
+        } => scan_materialized_order_direct_data_rows(
+            key_stream,
+            scan_budget_hint,
+            consistency,
+            row_runtime,
+            filter_program,
+            resolved_order,
+            order_keep_count,
+        )
+        .map(DirectDataRowScanOutcome::OrderWindow),
+    }
 }
 
 // Return the cursorless scalar page offset that route-satisfied direct raw-row

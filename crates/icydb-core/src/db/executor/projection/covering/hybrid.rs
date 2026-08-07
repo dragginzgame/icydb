@@ -24,7 +24,6 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::collections::BTreeMap;
 
 pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister<C>(
     db: &Db<C>,
@@ -70,6 +69,7 @@ where
 
     runtime.metrics.record_hybrid_path_hit();
     let row_layout = authority.row_layout()?;
+    let ownership = HybridProjectionOwnership::compile(hybrid.fields.as_slice());
 
     store.with_data(|data_store| {
         let projected_rows = if row_presence_proven {
@@ -83,6 +83,7 @@ where
                 scan_window.page_skip_count,
                 scan_window.page_window_applied,
                 raw_pairs,
+                &ownership,
                 runtime.metrics,
             )?
         } else {
@@ -96,6 +97,7 @@ where
                 scan_window.page_skip_count,
                 scan_window.page_window_applied,
                 raw_pairs,
+                &ownership,
                 runtime.metrics,
             )?
         };
@@ -115,6 +117,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
     page_skip_count: usize,
     page_window_applied: bool,
     raw_pairs: IndexComponentRows,
+    ownership: &HybridProjectionOwnership,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut keyed_components = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
@@ -149,6 +152,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
             hybrid.fields.as_slice(),
             decoded_components,
             sparse_row_fields,
+            ownership,
             metrics,
         )?;
 
@@ -169,6 +173,7 @@ fn execute_hybrid_covering_projection_with_checked_rows(
     page_skip_count: usize,
     page_window_applied: bool,
     raw_pairs: IndexComponentRows,
+    ownership: &HybridProjectionOwnership,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
@@ -195,6 +200,7 @@ fn execute_hybrid_covering_projection_with_checked_rows(
             hybrid.fields.as_slice(),
             decoded_components,
             sparse_row_fields,
+            ownership,
             metrics,
         )?;
 
@@ -241,10 +247,10 @@ fn read_hybrid_projection_row_fields_from_store(
     data_store: &DataStore,
     data_key: &DecodedDataStoreKey,
     row_field_slots: &[usize],
-) -> Result<Option<BTreeMap<usize, Value>>, InternalError> {
+) -> Result<Option<Vec<(usize, Value)>>, InternalError> {
     // Phase 1: empty row-backed hybrids stay on the covering-only path.
     if row_field_slots.is_empty() {
-        return Ok(Some(BTreeMap::new()));
+        return Ok(Some(Vec::new()));
     }
 
     // Phase 2: fetch the persisted row once. The store boundary still returns
@@ -279,8 +285,7 @@ fn read_hybrid_projection_row_fields_from_store(
         else {
             return Err(InternalError::query_executor_invariant());
         };
-        let mut row_fields = BTreeMap::new();
-        row_fields.insert(*required_slot, value);
+        let row_fields = vec![(*required_slot, value)];
 
         return Ok(Some(row_fields));
     }
@@ -290,13 +295,13 @@ fn read_hybrid_projection_row_fields_from_store(
 
     // Phase 4: rebuild the field-slot map expected by the hybrid projection
     // row shaper from the compact executor-owned selective decode result.
-    let mut row_fields = BTreeMap::new();
+    let mut row_fields = Vec::with_capacity(row_field_slots.len());
 
     for (slot, value) in row_field_slots.iter().copied().zip(decoded) {
         let Some(value) = value else {
             return Err(InternalError::query_executor_invariant());
         };
-        row_fields.insert(slot, value);
+        row_fields.push((slot, value));
     }
 
     Ok(Some(row_fields))
@@ -305,8 +310,9 @@ fn read_hybrid_projection_row_fields_from_store(
 fn project_hybrid_covering_row(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
-    mut decoded_components: BTreeMap<usize, Value>,
-    mut row_fields: BTreeMap<usize, Value>,
+    mut decoded_components: Vec<(usize, Value)>,
+    mut row_fields: Vec<(usize, Value)>,
+    ownership: &HybridProjectionOwnership,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     charge_current_execution_budget(
@@ -314,19 +320,17 @@ fn project_hybrid_covering_row(
         u64::try_from(fields.len()).unwrap_or(u64::MAX),
     )?;
     let mut projected = Vec::with_capacity(fields.len());
-    let mut remaining_index_component_uses = covering_index_component_use_counts(fields);
-    let mut remaining_row_field_uses = covering_row_field_use_counts(fields);
 
-    for field in fields {
+    for (field_index, field) in fields.iter().enumerate() {
         let value = match &field.source {
             CoveringReadFieldSource::IndexComponent { component_index }
             | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
                 metrics.record_hybrid_index_field_access();
 
-                take_or_clone_last_covering_value(
+                take_or_clone_compact_value(
                     &mut decoded_components,
-                    &mut remaining_index_component_uses,
                     *component_index,
+                    ownership.move_on_use(field_index)?,
                 )?
             }
             CoveringReadFieldSource::PrimaryKey { component_index } => {
@@ -336,10 +340,10 @@ fn project_hybrid_covering_row(
             CoveringReadFieldSource::RowField => {
                 metrics.record_hybrid_row_field_access();
 
-                take_or_clone_last_covering_value(
+                take_or_clone_compact_value(
                     &mut row_fields,
-                    &mut remaining_row_field_uses,
                     field.field_slot.index(),
+                    ownership.move_on_use(field_index)?,
                 )?
             }
         };
@@ -349,56 +353,112 @@ fn project_hybrid_covering_row(
     Ok(projected)
 }
 
-fn covering_index_component_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize, usize> {
-    let mut counts = BTreeMap::new();
-    for field in fields {
-        let component_index = match &field.source {
-            CoveringReadFieldSource::IndexComponent { component_index }
-            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
-                component_index
-            }
-            CoveringReadFieldSource::PrimaryKey { .. }
-            | CoveringReadFieldSource::Constant(_)
-            | CoveringReadFieldSource::RowField => continue,
-        };
-        *counts.entry(*component_index).or_insert(0) += 1;
-    }
-
-    counts
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum HybridOwnedSource {
+    IndexComponent(usize),
+    RowField(usize),
 }
 
-fn covering_row_field_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize, usize> {
-    let mut counts = BTreeMap::new();
-    for field in fields {
-        if !matches!(field.source, CoveringReadFieldSource::RowField) {
-            continue;
+struct HybridProjectionOwnership {
+    move_on_use: Box<[bool]>,
+}
+
+impl HybridProjectionOwnership {
+    fn compile(fields: &[CoveringReadField]) -> Self {
+        let mut move_on_use = Vec::with_capacity(fields.len());
+        for (field_index, field) in fields.iter().enumerate() {
+            let Some(source) = hybrid_owned_source(field) else {
+                move_on_use.push(false);
+                continue;
+            };
+            let source_is_used_later = fields[field_index.saturating_add(1)..]
+                .iter()
+                .any(|later| hybrid_owned_source(later) == Some(source));
+            move_on_use.push(!source_is_used_later);
         }
-        *counts.entry(field.field_slot.index()).or_insert(0) += 1;
+
+        Self {
+            move_on_use: move_on_use.into_boxed_slice(),
+        }
     }
 
-    counts
+    fn move_on_use(&self, field_index: usize) -> Result<bool, InternalError> {
+        self.move_on_use
+            .get(field_index)
+            .copied()
+            .ok_or_else(InternalError::query_executor_invariant)
+    }
 }
 
-fn take_or_clone_last_covering_value(
-    values: &mut BTreeMap<usize, Value>,
-    remaining_uses: &mut BTreeMap<usize, usize>,
-    slot: usize,
-) -> Result<Value, InternalError> {
-    let Some(remaining) = remaining_uses.get_mut(&slot) else {
-        return Err(InternalError::query_executor_invariant());
-    };
+const fn hybrid_owned_source(field: &CoveringReadField) -> Option<HybridOwnedSource> {
+    match &field.source {
+        CoveringReadFieldSource::IndexComponent { component_index }
+        | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
+            Some(HybridOwnedSource::IndexComponent(*component_index))
+        }
+        CoveringReadFieldSource::RowField => {
+            Some(HybridOwnedSource::RowField(field.field_slot.index()))
+        }
+        CoveringReadFieldSource::PrimaryKey { .. } | CoveringReadFieldSource::Constant(_) => None,
+    }
+}
 
-    // Projected columns are independently owned. Duplicate references clone
-    // from the per-row sparse map until the final projected use can consume it.
-    *remaining = remaining.saturating_sub(1);
-    if *remaining == 0 {
-        return values
-            .remove(&slot)
-            .ok_or_else(InternalError::query_executor_invariant);
+fn take_or_clone_compact_value(
+    values: &mut Vec<(usize, Value)>,
+    slot: usize,
+    move_value: bool,
+) -> Result<Value, InternalError> {
+    let position = values
+        .iter()
+        .position(|(value_slot, _)| *value_slot == slot)
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    if move_value {
+        return Ok(values.swap_remove(position).1);
     }
 
     values
-        .get(&slot)
-        .cloned()
+        .get(position)
+        .map(|(_, value)| value.clone())
         .ok_or_else(InternalError::query_executor_invariant)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn final_hybrid_use_moves_large_value_without_retaining_or_cloning_backing() {
+        let payload = vec![7_u8; 300 * 1_024];
+        let payload_ptr = payload.as_ptr();
+        let mut values = vec![(4, Value::Blob(payload))];
+
+        let moved = take_or_clone_compact_value(&mut values, 4, true)
+            .expect("final use should move the value");
+        let Value::Blob(moved) = moved else {
+            panic!("fixture should remain a blob");
+        };
+
+        assert_eq!(moved.as_ptr(), payload_ptr);
+        assert!(values.is_empty());
+    }
+
+    #[test]
+    fn repeated_hybrid_use_clones_until_the_final_owned_use() {
+        let payload = vec![9_u8; 40 * 1_024];
+        let payload_ptr = payload.as_ptr();
+        let mut values = vec![(2, Value::Blob(payload))];
+
+        let cloned = take_or_clone_compact_value(&mut values, 2, false)
+            .expect("non-final use should clone the value");
+        let Value::Blob(cloned) = cloned else {
+            panic!("fixture should remain a blob");
+        };
+        let retained_ptr = match &values[0].1 {
+            Value::Blob(retained) => retained.as_ptr(),
+            _ => panic!("fixture should remain a blob"),
+        };
+
+        assert_ne!(cloned.as_ptr(), payload_ptr);
+        assert_eq!(retained_ptr, payload_ptr);
+    }
 }

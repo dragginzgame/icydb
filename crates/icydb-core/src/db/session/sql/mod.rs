@@ -46,9 +46,9 @@ pub(in crate::db) use attribution::SqlExecutePhaseAttribution;
 pub(in crate::db::session::sql) use attribution::SqlQueryExecutionAttributionInputs;
 #[cfg(feature = "diagnostics")]
 pub use attribution::{
-    SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
-    SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
-    SqlQueryExecutionAttribution,
+    SqlCompileAttribution, SqlDistinctProjectionAttribution, SqlExecutionAttribution,
+    SqlHybridCoveringAttribution, SqlOutputBlobAttribution, SqlPureCoveringAttribution,
+    SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
 };
 pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
 pub(in crate::db::session::sql) use cache::{

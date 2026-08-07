@@ -1,58 +1,106 @@
 //! Module: db::executor::projection::materialize::structural::distinct_entrypoints
 //! Responsibility: structural DISTINCT projection page entrypoints.
 //! Does not own: projection expression evaluation or distinct key storage.
-//! Boundary: adapts structural pages into bounded DISTINCT row collection.
+//! Boundary: adapts structural rows and canonical source boundaries into one DISTINCT strategy.
 
 use crate::{
-    db::executor::{
-        StructuralCursorPage,
-        projection::materialize::{
-            ProjectionDistinctWindow,
-            distinct::collect_bounded_distinct_projected_rows,
-            execute::{project_data_row, project_slot_row},
-            metrics::ProjectionMaterializationMetricsRecorder,
-            plan::PreparedProjectionContract,
-            structural::MaterializedProjectionRows,
+    db::{
+        cursor::CursorBoundary,
+        executor::{
+            StructuralCursorPage,
+            order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
+            projection::materialize::{
+                ProjectionDistinctStrategy, ProjectionDistinctWindow,
+                distinct::{DistinctProjectedRow, collect_distinct_projected_rows},
+                execute::{project_data_row, project_slot_row},
+                metrics::ProjectionMaterializationMetricsRecorder,
+                plan::PreparedProjectionContract,
+                structural::MaterializedProjectionRows,
+            },
+            terminal::RowLayout,
         },
-        terminal::RowLayout,
+        query::plan::ResolvedOrder,
     },
     error::InternalError,
 };
 
+/// Final DISTINCT projection rows plus strategy-owned cursor progress.
+pub(in crate::db::executor::projection) struct MaterializedDistinctProjectionPage {
+    rows: MaterializedProjectionRows,
+    last_emitted_logical: Option<CursorBoundary>,
+    has_more: bool,
+}
+
+impl MaterializedDistinctProjectionPage {
+    pub(in crate::db::executor::projection) fn into_parts(
+        self,
+    ) -> (MaterializedProjectionRows, Option<CursorBoundary>, bool) {
+        (self.rows, self.last_emitted_logical, self.has_more)
+    }
+}
+
 pub(in crate::db::executor::projection) fn project_distinct(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,
+    strategy: ProjectionDistinctStrategy,
     window: ProjectionDistinctWindow,
+    resolved_order: Option<&ResolvedOrder>,
     page: StructuralCursorPage,
     metrics: ProjectionMaterializationMetricsRecorder,
-) -> Result<MaterializedProjectionRows, InternalError> {
-    // Phase 1: choose the structural payload once, then run a bounded
-    // DISTINCT projector over that shape. The projector owns the
-    // post-projection window so it can stop when LIMIT has been satisfied.
-    page.consume_projection_rows(
+) -> Result<MaterializedDistinctProjectionPage, InternalError> {
+    let projected = page.consume_projection_rows(
         |slot_rows| {
             metrics.record_slot_rows_path_hit();
 
-            collect_bounded_distinct_projected_rows(
+            collect_distinct_projected_rows(
+                strategy,
                 window,
                 slot_rows,
                 || metrics.record_distinct_candidate_row(),
                 || metrics.record_distinct_bounded_stop(),
-                |row| project_slot_row(prepared_projection, row),
+                |row| {
+                    let boundary =
+                        resolved_order.map(|order| cursor_boundary_from_orderable_row(&row, order));
+                    project_slot_row(prepared_projection, row)
+                        .map(|row| DistinctProjectedRow::new(row, boundary))
+                },
             )
-            .map(MaterializedProjectionRows::from_row_views)
         },
         |data_rows| {
             metrics.record_data_rows_path_hit();
 
-            collect_bounded_distinct_projected_rows(
+            collect_distinct_projected_rows(
+                strategy,
                 window,
-                data_rows.iter(),
+                data_rows,
                 || metrics.record_distinct_candidate_row(),
                 || metrics.record_distinct_bounded_stop(),
-                |row| project_data_row(row_layout.clone(), prepared_projection, row, metrics),
+                |row| {
+                    let boundary = resolved_order
+                        .map(|order| cursor_boundary_from_data_row(&row, &row_layout, order))
+                        .transpose()?;
+                    project_data_row(&row_layout, prepared_projection, &row, metrics)
+                        .map(|row| DistinctProjectedRow::new(row, boundary))
+                },
             )
-            .map(MaterializedProjectionRows::from_row_views)
         },
-    )
+    )?;
+    let (rows, last_emitted_logical, has_more, stats) = projected.into_parts();
+    match stats.strategy {
+        ProjectionDistinctStrategy::OrderedAdjacent => {
+            metrics.record_distinct_adjacent_path_hit();
+        }
+        ProjectionDistinctStrategy::GlobalReplay => {
+            metrics.record_distinct_global_path_hit();
+        }
+    }
+    metrics.record_distinct_unique_rows(stats.unique_rows);
+    metrics.record_distinct_peak_retained_entries(stats.peak_retained_entries);
+    metrics.record_distinct_peak_retained_backing_bytes(stats.peak_retained_backing_bytes);
+
+    Ok(MaterializedDistinctProjectionPage {
+        rows: MaterializedProjectionRows::from_row_views(rows),
+        last_emitted_logical,
+        has_more,
+    })
 }

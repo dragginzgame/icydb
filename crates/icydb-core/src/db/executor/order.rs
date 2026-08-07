@@ -8,7 +8,7 @@ use crate::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         data::{CanonicalSlotReader, DataRow},
         executor::{
-            budget::{charge_current_execution_budget, charge_sort_work},
+            budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
             measure_execution_stats_phase,
             projection::eval_compiled_expr_with_value_reader,
             record_ordering,
@@ -21,7 +21,7 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::{array, borrow::Cow, cmp::Ordering, mem};
+use std::{array, borrow::Cow, cmp::Ordering};
 
 const INLINE_ORDER_VALUE_CAPACITY: usize = 2;
 const BOUNDED_ORDER_INITIAL_CAPACITY: usize = 64;
@@ -53,6 +53,13 @@ pub(in crate::db::executor) trait OrderReadableRow {
     /// every comparator call.
     fn order_slots_are_borrowed(&self) -> bool {
         false
+    }
+
+    /// Estimate the complete owned backing kept alive when this row crosses
+    /// the blocking-order boundary. Implementors with indirect allocations
+    /// must override the inline-size default.
+    fn retained_order_backing_bytes(&self) -> u64 {
+        u64::try_from(std::mem::size_of_val(self)).unwrap_or(u64::MAX)
     }
 
     /// Read one slot value as an owned payload when a caller still needs to
@@ -112,6 +119,17 @@ impl CachedOrderValues {
         };
 
         values.into_iter()
+    }
+
+    fn estimated_backing_bytes(&self) -> u64 {
+        let values: &[Option<Value>] = match self {
+            Self::Inline { len, values } => &values[..*len],
+            Self::Heap(values) => values.as_slice(),
+        };
+
+        values.iter().flatten().fold(0_u64, |total, value| {
+            total.saturating_add(runtime_value_work(value).0)
+        })
     }
 }
 
@@ -275,6 +293,26 @@ impl<R> PendingOrderRows<R> {
         }
     }
 
+    /// Estimate complete backing bytes retained by the pending row set.
+    #[must_use]
+    pub(in crate::db::executor) fn retained_backing_bytes(&self) -> u64
+    where
+        R: OrderReadableRow,
+    {
+        match &self.storage {
+            PendingOrderRowStorage::Plain(rows) => rows.iter().fold(0_u64, |total, row| {
+                total.saturating_add(row.retained_order_backing_bytes())
+            }),
+            PendingOrderRowStorage::Cached { rows, .. } => {
+                rows.iter().fold(0_u64, |total, (row, values)| {
+                    total
+                        .saturating_add(row.retained_order_backing_bytes())
+                        .saturating_add(values.estimated_backing_bytes())
+                })
+            }
+        }
+    }
+
     /// Consume rows that must not carry pending expression-order values.
     ///
     /// # Errors
@@ -318,6 +356,137 @@ pub(in crate::db::executor) struct BoundedOrderWindow<'a, R> {
     candidates: BoundedOrderCandidates<R>,
 }
 
+///
+/// DataRowOrderWindow
+///
+/// DataRowOrderWindow performs incompatible-order selection while raw rows
+/// are scanned. Bounded queries retain only the winning output rows plus their
+/// compact canonical order tuples; unbounded queries retain the complete set
+/// required by full-sort semantics.
+///
+
+pub(in crate::db::executor) struct DataRowOrderWindow<'a> {
+    row_layout: RowLayout,
+    resolved_order: &'a ResolvedOrder,
+    candidates: DataRowOrderCandidates,
+}
+
+impl<'a> DataRowOrderWindow<'a> {
+    /// Build one raw-row ordering window from the semantic page bound.
+    #[must_use]
+    pub(in crate::db::executor) fn new(
+        row_layout: RowLayout,
+        resolved_order: &'a ResolvedOrder,
+        keep_count: Option<usize>,
+    ) -> Self {
+        let candidates = keep_count.map_or_else(
+            || DataRowOrderCandidates::Complete {
+                rows: Vec::new(),
+                retained_backing_bytes: 0,
+            },
+            |keep_count| DataRowOrderCandidates::Bounded(BoundedCachedOrderWindow::new(keep_count)),
+        );
+
+        Self {
+            row_layout,
+            resolved_order,
+            candidates,
+        }
+    }
+
+    /// Evaluate and retain one candidate under the captured order contract.
+    pub(in crate::db::executor) fn push(
+        &mut self,
+        candidate: DataRow,
+    ) -> Result<(), InternalError> {
+        let cached_values =
+            cache_order_values_from_data_row(&candidate, &self.row_layout, self.resolved_order)?;
+        let retained_count = self.retained_count();
+        let comparisons = match &self.candidates {
+            DataRowOrderCandidates::Bounded(window) if retained_count != 0 => {
+                if retained_count < window.keep_count {
+                    1
+                } else {
+                    retained_count.saturating_add(1)
+                }
+            }
+            DataRowOrderCandidates::Bounded(_) | DataRowOrderCandidates::Complete { .. } => 0,
+        };
+        let retained_backing_bytes = data_row_retained_backing_bytes(&candidate)
+            .saturating_add(cached_values.estimated_backing_bytes());
+        charge_order_candidate_work(comparisons, retained_backing_bytes)?;
+
+        match &mut self.candidates {
+            DataRowOrderCandidates::Bounded(window) => {
+                window.push_cached(
+                    candidate,
+                    cached_values,
+                    retained_backing_bytes,
+                    self.resolved_order,
+                );
+            }
+            DataRowOrderCandidates::Complete {
+                rows,
+                retained_backing_bytes: total,
+            } => {
+                rows.push((candidate, cached_values));
+                *total = total.saturating_add(retained_backing_bytes);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Return the current blocking-state row count.
+    #[must_use]
+    pub(in crate::db::executor) const fn retained_count(&self) -> usize {
+        match &self.candidates {
+            DataRowOrderCandidates::Bounded(window) => window.rows.len(),
+            DataRowOrderCandidates::Complete { rows, .. } => rows.len(),
+        }
+    }
+
+    /// Return the largest complete backing total retained while selecting.
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_retained_backing_bytes(&self) -> u64 {
+        match &self.candidates {
+            DataRowOrderCandidates::Bounded(window) => window.peak_retained_backing_bytes,
+            DataRowOrderCandidates::Complete {
+                retained_backing_bytes,
+                ..
+            } => *retained_backing_bytes,
+        }
+    }
+
+    /// Consume the selected candidates in final canonical order.
+    pub(in crate::db::executor) fn into_sorted_rows(self) -> Result<Vec<DataRow>, InternalError> {
+        let mut rows = match self.candidates {
+            DataRowOrderCandidates::Bounded(window) => window.into_rows_with_cached_values(),
+            DataRowOrderCandidates::Complete { rows, .. } => rows,
+        };
+        let rows_sorted = rows.len();
+        if rows_sorted > 1 {
+            charge_sort_work::<DataRow>(rows_sorted)?;
+            let ((), ordering_micros) = measure_execution_stats_phase(|| {
+                rows.sort_by(|left, right| {
+                    compare_cached_orderable_rows(&left.1, &right.1, self.resolved_order)
+                });
+            });
+            record_ordering(rows_sorted, ordering_micros);
+        }
+
+        Ok(rows.into_iter().map(|(row, _)| row).collect())
+    }
+}
+
+enum DataRowOrderCandidates {
+    Bounded(BoundedCachedOrderWindow<DataRow>),
+    Complete {
+        rows: Vec<(DataRow, CachedOrderValues)>,
+        retained_backing_bytes: u64,
+    },
+}
+
 impl<'a, R> BoundedOrderWindow<'a, R>
 where
     R: OrderReadableRow,
@@ -353,21 +522,36 @@ where
         } else {
             retained_count.saturating_add(1)
         };
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::SortEntries, 1)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::SortComparisons,
-            u64::try_from(comparisons).unwrap_or(u64::MAX),
-        )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::SortTemporaryBytes,
-            u64::try_from(std::mem::size_of::<R>()).unwrap_or(u64::MAX),
-        )?;
         match &mut self.candidates {
-            BoundedOrderCandidates::Direct(window) => window.push(candidate, self.resolved_order),
-            BoundedOrderCandidates::Cached(window) => window.push(candidate, self.resolved_order),
+            BoundedOrderCandidates::Direct(window) => {
+                charge_order_candidate_work(comparisons, candidate.retained_order_backing_bytes())?;
+                window.push(candidate, self.resolved_order);
+            }
+            BoundedOrderCandidates::Cached(window) => {
+                let cached_values = cache_order_values_from_row(&candidate, self.resolved_order);
+                let retained_backing_bytes = candidate
+                    .retained_order_backing_bytes()
+                    .saturating_add(cached_values.estimated_backing_bytes());
+                charge_order_candidate_work(comparisons, retained_backing_bytes)?;
+                window.push_cached(
+                    candidate,
+                    cached_values,
+                    retained_backing_bytes,
+                    self.resolved_order,
+                );
+            }
         }
 
         Ok(())
+    }
+
+    /// Return the largest complete backing total retained while selecting.
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_retained_backing_bytes(&self) -> u64 {
+        match &self.candidates {
+            BoundedOrderCandidates::Direct(window) => window.peak_retained_backing_bytes,
+            BoundedOrderCandidates::Cached(window) => window.peak_retained_backing_bytes,
+        }
     }
 
     /// Consume retained rows while preserving expression-order values for
@@ -420,6 +604,8 @@ struct BoundedDirectOrderWindow<R> {
     rows: Vec<R>,
     worst_index: Option<usize>,
     keep_count: usize,
+    retained_backing_bytes: u64,
+    peak_retained_backing_bytes: u64,
 }
 
 impl<R> BoundedDirectOrderWindow<R>
@@ -433,6 +619,8 @@ where
             rows: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
             worst_index: None,
             keep_count,
+            retained_backing_bytes: 0,
+            peak_retained_backing_bytes: 0,
         }
     }
 
@@ -441,8 +629,15 @@ where
         if self.keep_count == 0 {
             return;
         }
+        let candidate_backing_bytes = candidate.retained_order_backing_bytes();
         if self.rows.len() < self.keep_count {
             self.rows.push(candidate);
+            self.retained_backing_bytes = self
+                .retained_backing_bytes
+                .saturating_add(candidate_backing_bytes);
+            self.peak_retained_backing_bytes = self
+                .peak_retained_backing_bytes
+                .max(self.retained_backing_bytes);
             self.update_worst_after_append(resolved_order);
             return;
         }
@@ -457,6 +652,13 @@ where
         )
         .is_lt()
         {
+            self.retained_backing_bytes = self
+                .retained_backing_bytes
+                .saturating_sub(self.rows[worst_index].retained_order_backing_bytes())
+                .saturating_add(candidate_backing_bytes);
+            self.peak_retained_backing_bytes = self
+                .peak_retained_backing_bytes
+                .max(self.retained_backing_bytes);
             self.rows[worst_index] = candidate;
             self.worst_index = Some(worst_direct_order_row_index(
                 self.rows.as_slice(),
@@ -499,30 +701,41 @@ where
 
 struct BoundedCachedOrderWindow<R> {
     rows: Vec<(R, CachedOrderValues)>,
+    row_backing_bytes: Vec<u64>,
     worst_index: Option<usize>,
     keep_count: usize,
+    retained_backing_bytes: u64,
+    peak_retained_backing_bytes: u64,
 }
 
-impl<R> BoundedCachedOrderWindow<R>
-where
-    R: OrderReadableRow,
-{
+impl<R> BoundedCachedOrderWindow<R> {
     fn new(keep_count: usize) -> Self {
         Self {
             rows: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
+            row_backing_bytes: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
             worst_index: None,
             keep_count,
+            retained_backing_bytes: 0,
+            peak_retained_backing_bytes: 0,
         }
     }
 
-    fn push(&mut self, candidate: R, resolved_order: &ResolvedOrder) {
-        if self.keep_count == 0 {
-            return;
-        }
-
-        let cached_values = cache_order_values_from_row(&candidate, resolved_order);
+    fn push_cached(
+        &mut self,
+        candidate: R,
+        cached_values: CachedOrderValues,
+        retained_backing_bytes: u64,
+        resolved_order: &ResolvedOrder,
+    ) {
         if self.rows.len() < self.keep_count {
             self.rows.push((candidate, cached_values));
+            self.row_backing_bytes.push(retained_backing_bytes);
+            self.retained_backing_bytes = self
+                .retained_backing_bytes
+                .saturating_add(retained_backing_bytes);
+            self.peak_retained_backing_bytes = self
+                .peak_retained_backing_bytes
+                .max(self.retained_backing_bytes);
             self.update_worst_after_append(resolved_order);
             return;
         }
@@ -534,6 +747,14 @@ where
             .is_lt()
         {
             self.rows[worst_index] = (candidate, cached_values);
+            self.retained_backing_bytes = self
+                .retained_backing_bytes
+                .saturating_sub(self.row_backing_bytes[worst_index])
+                .saturating_add(retained_backing_bytes);
+            self.peak_retained_backing_bytes = self
+                .peak_retained_backing_bytes
+                .max(self.retained_backing_bytes);
+            self.row_backing_bytes[worst_index] = retained_backing_bytes;
             self.worst_index = Some(worst_cached_order_row_index(
                 self.rows.as_slice(),
                 resolved_order,
@@ -563,75 +784,25 @@ where
     }
 }
 
-/// Apply canonical in-memory ordering with an optional bounded top-k window
-/// directly over canonical `DataRow` payloads.
-pub(in crate::db::executor) fn apply_structural_order_window_to_data_rows(
-    rows: &mut Vec<DataRow>,
-    row_layout: RowLayout,
-    resolved_order: &ResolvedOrder,
-    keep_count: Option<usize>,
+fn charge_order_candidate_work(
+    comparisons: usize,
+    retained_backing_bytes: u64,
 ) -> Result<(), InternalError> {
-    if let Some(keep_count) = keep_count
-        && keep_count == 0
-    {
-        rows.clear();
-        return Ok(());
-    }
-
-    if rows.len() <= 1 {
-        return Ok(());
-    }
-    charge_sort_work::<DataRow>(rows.len())?;
-    let rows_sorted = rows.len();
-    let (result, ordering_micros) = measure_execution_stats_phase(|| {
-        apply_structural_order_window_to_data_rows_inner(
-            rows,
-            row_layout,
-            resolved_order,
-            keep_count,
-        )
-    });
-    result?;
-    record_ordering(rows_sorted, ordering_micros);
-
-    Ok(())
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::SortEntries, 1)?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortComparisons,
+        u64::try_from(comparisons).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortTemporaryBytes,
+        retained_backing_bytes,
+    )
 }
 
-fn apply_structural_order_window_to_data_rows_inner(
-    rows: &mut Vec<DataRow>,
-    row_layout: RowLayout,
-    resolved_order: &ResolvedOrder,
-    keep_count: Option<usize>,
-) -> Result<(), InternalError> {
-    // Phase 1: cache resolved order values once per raw row so the direct
-    // `DataRow` lane can reuse the same bounded selection and final sort
-    // logic without forcing retained-slot kernel rows first.
-    let source_rows = mem::take(rows);
-    let mut cached_rows = Vec::with_capacity(source_rows.len());
-    for row in source_rows {
-        let cached_values = cache_order_values_from_data_row(&row, &row_layout, resolved_order)?;
-
-        cached_rows.push((row, cached_values));
-    }
-
-    // Phase 2: retain only the bounded canonical window when pagination
-    // exposes one, using the cached order keys instead of live row reads.
-    if let Some(keep_count) = keep_count
-        && cached_rows.len() > keep_count
-    {
-        cached_rows.select_nth_unstable_by(keep_count - 1, |left, right| {
-            compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
-        });
-        cached_rows.truncate(keep_count);
-    }
-
-    // Phase 3: sort the retained rows into final canonical order using the
-    // precomputed key values.
-    cached_rows
-        .sort_by(|left, right| compare_cached_orderable_rows(&left.1, &right.1, resolved_order));
-    rows.extend(cached_rows.into_iter().map(|(row, _)| row));
-
-    Ok(())
+fn data_row_retained_backing_bytes(row: &DataRow) -> u64 {
+    u64::try_from(std::mem::size_of::<DataRow>())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(row.1.len()).unwrap_or(u64::MAX))
 }
 
 /// Compare one structural row against one cursor boundary under the canonical order contract.

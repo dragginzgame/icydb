@@ -25,6 +25,10 @@ pub struct DirectDataRowAttribution {
     pub store_get_local_instructions: u64,
     pub order_window_local_instructions: u64,
     pub page_window_local_instructions: u64,
+    /// Maximum raw output winners retained by an incompatible-order scan.
+    pub peak_retained_candidates: u64,
+    /// Complete raw-row and order-key backing retained by that winner window.
+    pub peak_retained_backing_bytes: u64,
 }
 
 impl DirectDataRowAttribution {
@@ -51,6 +55,8 @@ impl DirectDataRowAttribution {
             store_get_local_instructions: phase.store_get_local_instructions,
             order_window_local_instructions: phase.order_window_local_instructions,
             page_window_local_instructions: phase.page_window_local_instructions,
+            peak_retained_candidates: phase.peak_retained_candidates,
+            peak_retained_backing_bytes: phase.peak_retained_backing_bytes,
         }
     }
 }
@@ -72,6 +78,8 @@ pub struct KernelRowAttribution {
     pub retained_octet_length_values: u64,
     /// Maximum kernel-row candidates retained by a successful scan collection.
     pub peak_retained_candidates: u64,
+    /// Complete backing bytes retained by the largest live candidate window.
+    pub peak_retained_backing_bytes: u64,
 }
 
 impl KernelRowAttribution {
@@ -93,6 +101,7 @@ impl KernelRowAttribution {
                 retained_slot_values: phase.retained_slot_values,
                 retained_octet_length_values: phase.retained_octet_length_values,
                 peak_retained_candidates: phase.peak_retained_candidates,
+                peak_retained_backing_bytes: phase.peak_retained_backing_bytes,
             })
         } else {
             None

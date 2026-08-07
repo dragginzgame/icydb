@@ -2,8 +2,8 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey},
         executor::{
-            BoundedOrderWindow, OrderedKeyStreamBox, PendingOrderRows, ScalarContinuationContext,
-            exact_output_key_count_hint, key_stream_budget_is_redundant,
+            BoundedOrderWindow, DataRowOrderWindow, OrderedKeyStreamBox, PendingOrderRows,
+            ScalarContinuationContext, exact_output_key_count_hint, key_stream_budget_is_redundant,
             measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
             route::LoadOrderRouteMode,
             terminal::page::{
@@ -12,7 +12,7 @@ use crate::{
             },
         },
         predicate::MissingRowPolicy,
-        query::plan::EffectiveRuntimeFilterProgram,
+        query::plan::{EffectiveRuntimeFilterProgram, ResolvedOrder},
     },
     error::InternalError,
 };
@@ -20,13 +20,16 @@ use crate::{
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
     measure_direct_data_row_phase, record_direct_data_row_key_stream_local_instructions,
+    record_direct_data_row_peak_retained_backing_bytes,
+    record_direct_data_row_peak_retained_candidates,
     record_direct_data_row_row_read_local_instructions,
 };
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
     measure_kernel_row_phase, record_kernel_retained_slot_layout,
-    record_kernel_row_key_stream_local_instructions, record_kernel_row_peak_retained_candidates,
-    record_kernel_row_row_read_local_instructions, record_kernel_row_scan_local_instructions,
+    record_kernel_row_key_stream_local_instructions, record_kernel_row_peak_retained_backing_bytes,
+    record_kernel_row_peak_retained_candidates, record_kernel_row_row_read_local_instructions,
+    record_kernel_row_scan_local_instructions,
 };
 
 ///
@@ -41,6 +44,13 @@ use super::metrics::{
 
 pub(super) struct RowScanResult<T> {
     pub(super) rows: Vec<T>,
+    pub(super) rows_scanned: usize,
+    pub(super) rows_matched: usize,
+}
+
+/// Scan result for one incompatible-order direct raw-row lane.
+pub(super) struct DataRowOrderScanResult<'a> {
+    pub(super) window: DataRowOrderWindow<'a>,
     pub(super) rows_scanned: usize,
     pub(super) rows_matched: usize,
 }
@@ -112,6 +122,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
         record_kernel_row_scan_local_instructions(scan_local_instructions);
         let result = result?;
         record_kernel_row_peak_retained_candidates(result.0.retained_count());
+        record_kernel_row_peak_retained_backing_bytes(result.0.retained_backing_bytes());
 
         Ok(result)
     }
@@ -351,6 +362,9 @@ fn scan_kernel_rows_with_bounded_order_window(
     if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
         return Err(InternalError::query_executor_invariant());
     }
+    if order_window.keep_count == 0 {
+        return Ok((PendingOrderRows::plain(Vec::new()), 0));
+    }
 
     let mut rows_scanned = 0usize;
     let mut window = BoundedOrderWindow::new(order_window.keep_count, order_window.resolved_order);
@@ -368,6 +382,9 @@ fn scan_kernel_rows_with_bounded_order_window(
 
         window.push(row)?;
     }
+
+    #[cfg(feature = "diagnostics")]
+    record_kernel_row_peak_retained_backing_bytes(window.peak_retained_backing_bytes());
 
     Ok((window.into_pending_rows(), rows_scanned))
 }
@@ -568,22 +585,62 @@ fn scan_data_rows_direct_with_filter_program(
 // Run the materialized-order raw data-row lane through one residual-predicate
 // policy helper so perf-attributed and normal scans share the same scan-time
 // filtering contract.
-pub(super) fn scan_materialized_order_direct_data_rows(
+pub(super) fn scan_materialized_order_direct_data_rows<'a>(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     consistency: MissingRowPolicy,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-) -> Result<RowScanResult<DataRow>, InternalError> {
-    scan_direct_data_rows_with_residual_policy(
-        key_stream,
-        scan_budget_hint,
-        None,
-        0,
-        consistency,
-        row_runtime,
-        residual_filter_program,
-    )
+    resolved_order: &'a ResolvedOrder,
+    keep_count: Option<usize>,
+) -> Result<DataRowOrderScanResult<'a>, InternalError> {
+    execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
+        let mut rows_scanned = 0usize;
+        let mut rows_matched = 0usize;
+        let mut window =
+            DataRowOrderWindow::new(row_runtime.row_layout(), resolved_order, keep_count);
+        if keep_count == Some(0) {
+            return Ok(DataRowOrderScanResult {
+                window,
+                rows_scanned,
+                rows_matched,
+            });
+        }
+
+        while let Some(key) = next_direct_data_row_scan_key(key_stream)? {
+            record_key_stream_yield();
+            rows_scanned = rows_scanned.saturating_add(1);
+            let row =
+                read_direct_data_row_scan_row(key, &mut |key| match residual_filter_program {
+                    None => row_runtime.read_data_row(consistency, key),
+                    Some(filter_program) => row_runtime.read_data_row_with_filter_program(
+                        consistency,
+                        key,
+                        filter_program,
+                    ),
+                })?;
+            let Some(row) = row else {
+                continue;
+            };
+
+            window.push(row)?;
+            rows_matched = rows_matched.saturating_add(1);
+        }
+
+        #[cfg(feature = "diagnostics")]
+        {
+            record_direct_data_row_peak_retained_candidates(window.retained_count());
+            record_direct_data_row_peak_retained_backing_bytes(
+                window.peak_retained_backing_bytes(),
+            );
+        }
+
+        Ok(DataRowOrderScanResult {
+            window,
+            rows_scanned,
+            rows_matched,
+        })
+    })
 }
 
 // Run one direct data-row scan through the shared residual-filter contract so

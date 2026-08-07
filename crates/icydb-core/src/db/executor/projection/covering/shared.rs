@@ -27,7 +27,6 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::collections::BTreeMap;
 
 pub(super) struct PreparedCoveringIndexScan {
     pub(super) component_indices: Vec<usize>,
@@ -565,8 +564,8 @@ fn take_or_clone_last_component_value(
 pub(super) fn decode_hybrid_covering_components(
     component_indices: &[usize],
     components: std::sync::Arc<[Vec<u8>]>,
-) -> Result<BTreeMap<usize, Value>, InternalError> {
-    let mut decoded = BTreeMap::new();
+) -> Result<Vec<(usize, Value)>, InternalError> {
+    let mut decoded = Vec::with_capacity(component_indices.len());
 
     for (component_index, component) in component_indices.iter().copied().zip(components.iter()) {
         let Some(value) =
@@ -574,7 +573,7 @@ pub(super) fn decode_hybrid_covering_components(
         else {
             return Err(InternalError::query_executor_invariant());
         };
-        decoded.insert(component_index, value);
+        decoded.push((component_index, value));
     }
 
     Ok(decoded)

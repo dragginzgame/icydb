@@ -8,6 +8,8 @@
 
 mod materialize;
 
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+use crate::db::executor::DistinctProjectionMetricsRecorder;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::{
     CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
@@ -63,8 +65,15 @@ fn projection_materialization_metrics_recorder() -> ProjectionMaterializationMet
         materialize::record_sql_projection_data_rows_path_hit,
         materialize::record_sql_projection_data_rows_scalar_fallback_hit,
         materialize::record_sql_projection_data_rows_slot_access,
-        materialize::record_sql_projection_distinct_candidate_row,
-        materialize::record_sql_projection_distinct_bounded_stop,
+        DistinctProjectionMetricsRecorder::new(
+            materialize::record_sql_projection_distinct_candidate_row,
+            materialize::record_sql_projection_distinct_bounded_stop,
+            materialize::record_sql_projection_distinct_adjacent_path_hit,
+            materialize::record_sql_projection_distinct_global_path_hit,
+            materialize::record_sql_projection_distinct_unique_rows,
+            materialize::record_sql_projection_distinct_peak_retained_entries,
+            materialize::record_sql_projection_distinct_peak_retained_backing_bytes,
+        ),
     )
 }
 

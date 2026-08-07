@@ -49,9 +49,9 @@ pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::grouped_cursor_from_bytes;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{
-    SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
-    SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
-    SqlQueryExecutionAttribution,
+    SqlCompileAttribution, SqlDistinctProjectionAttribution, SqlExecutionAttribution,
+    SqlHybridCoveringAttribution, SqlOutputBlobAttribution, SqlPureCoveringAttribution,
+    SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
 };
 #[cfg(feature = "sql")]
 pub use sql::{

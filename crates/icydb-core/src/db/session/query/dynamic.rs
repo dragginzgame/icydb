@@ -424,7 +424,8 @@ impl<C: CanisterKind> DbSession<C> {
             CoveringProjectionMetricsRecorder::none(),
             ProjectionMaterializationMetricsRecorder::none(),
             execution_lane,
-        );
+        )
+        .with_distinct_output_offset(usize::try_from(prior_rows_emitted).unwrap_or(usize::MAX));
         let projection_request = if exact_initial_exhaustion {
             projection_request
         } else {

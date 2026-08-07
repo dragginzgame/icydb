@@ -7,10 +7,7 @@ use crate::{
                 CursorEmissionMode, ScalarMaterializationCapabilities, StructuralCursorPage,
             },
             projection::PreparedProjectionContract,
-            route::{
-                LoadOrderRouteMode, access_order_satisfied_by_route_mode,
-                branch_set_page_keep_cap_shape_supported,
-            },
+            route::{LoadOrderRouteMode, access_order_satisfied_by_route_mode},
             terminal::page::{
                 KernelRow, KernelRowPayloadMode, RetainedSlotLayout, ScalarRowRuntimeHandle,
                 post_scan::{
@@ -37,6 +34,7 @@ use crate::{
 pub(super) struct ScalarMaterializationPlan<'a> {
     direct_data_row_path: Option<DirectDataRowPath<'a>>,
     kernel_row_scan_strategy: KernelRowScanStrategy<'a>,
+    cursor_emission: CursorEmissionMode,
     defer_retained_slot_distinct_window: bool,
     post_scan_tail: StructuralPostScanTailStrategy<'a>,
 }
@@ -68,7 +66,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
         Ok(ScalarPageKernelRequest {
             key_stream,
             scan_budget_hint,
-            row_keep_cap: self.branch_set_page_scan_keep_cap(plan, &continuation),
+            row_keep_cap: self.streaming_page_scan_keep_cap(plan, &continuation),
             order_window: self.bounded_materialized_order_scan_window(plan, &continuation)?,
             load_order_route_mode,
             consistency,
@@ -84,20 +82,22 @@ impl<'a> ScalarMaterializationPlan<'a> {
         self.defer_retained_slot_distinct_window
     }
 
-    // Bound branch-set page materialization at the merged lookahead window.
-    // The branch route already proves final primary-key order for this slice,
-    // so no post-scan ordering or predicate phase can reveal earlier rows.
-    fn branch_set_page_scan_keep_cap(
+    // Return whether this materialization owns one continuation lookahead row.
+    pub(super) const fn cursor_emission(&self) -> CursorEmissionMode {
+        self.cursor_emission
+    }
+
+    // Bound any final-order scalar scan at its exact output/lookahead frontier.
+    // Residual predicates execute while each raw row is open, so only matched
+    // rows count toward this cap. A resumed non-primary order cannot use this
+    // optimization because the current scalar cursor does not reposition its
+    // physical secondary-index stream.
+    fn streaming_page_scan_keep_cap(
         &self,
         plan: &AccessPlannedQuery,
         continuation: &ScalarContinuationContext,
     ) -> Option<usize> {
         let logical = plan.scalar_plan();
-        let branch_set_page = plan
-            .access_shape_facts()
-            .single_path_facts()
-            .as_ref()
-            .is_some_and(branch_set_page_keep_cap_shape_supported);
         if !logical.mode.is_load()
             || logical.distinct
             || logical
@@ -105,9 +105,8 @@ impl<'a> ScalarMaterializationPlan<'a> {
                 .as_ref()
                 .is_none_or(|order| order.fields.is_empty())
             || !access_order_satisfied_by_route_mode(plan)
-            || !branch_set_page
-            || self.kernel_row_scan_strategy.applies_residual_filter()
             || self.defer_retained_slot_distinct_window
+            || (continuation.has_cursor_boundary() && !scalar_order_is_primary_key_only(plan))
         {
             return None;
         }
@@ -117,11 +116,9 @@ impl<'a> ScalarMaterializationPlan<'a> {
             return Some(0);
         }
 
-        Some(
-            continuation
-                .keep_count_for_limit_window(plan, limit)
-                .saturating_add(1),
-        )
+        let keep_count = continuation.keep_count_for_limit_window(plan, limit);
+
+        Some(keep_count.saturating_add(usize::from(self.cursor_emission.enabled())))
     }
 
     // Bound unordered retained-row materialization at the same top-K page
@@ -152,14 +149,15 @@ impl<'a> ScalarMaterializationPlan<'a> {
         }
         let resolved_order = plan.require_resolved_order()?;
 
-        Ok(
-            ExecutionKernel::bounded_order_keep_count(plan, continuation.cursor_boundary()).map(
-                |keep_count| KernelRowOrderWindow {
-                    resolved_order,
-                    keep_count,
-                },
-            ),
+        Ok(ExecutionKernel::bounded_order_keep_count(
+            plan,
+            continuation.cursor_boundary(),
+            self.cursor_emission.enabled(),
         )
+        .map(|keep_count| KernelRowOrderWindow {
+            resolved_order,
+            keep_count,
+        }))
     }
 
     // Apply the remaining shared post-scan tail before cursor derivation and
@@ -272,7 +270,6 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
         capabilities,
         select_kernel_row_payload_mode(
             capabilities.retain_slot_rows,
-            capabilities.cursor_emission,
             capabilities.retained_slot_layout,
         ),
     )?;
@@ -291,6 +288,7 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
     Ok(ScalarMaterializationPlan {
         direct_data_row_path,
         kernel_row_scan_strategy: structural_policy.kernel_row_scan_strategy(),
+        cursor_emission: capabilities.cursor_emission,
         defer_retained_slot_distinct_window,
         post_scan_tail: structural_policy.post_scan_tail(),
     })
@@ -323,7 +321,6 @@ pub(in crate::db::executor) fn resolve_cursorless_short_path_plan<'a>(
         capabilities,
         select_cursorless_short_path_payload_mode(
             capabilities.retain_slot_rows,
-            cursor_boundary,
             capabilities.retained_slot_layout,
         ),
     )?;
@@ -425,22 +422,27 @@ pub(in crate::db::executor) enum KernelRowScanStrategy<'a> {
 }
 
 impl KernelRowScanStrategy<'_> {
-    // Return whether this concrete scan strategy applies the planner-selected
-    // residual filter while each raw row is open.
-    const fn applies_residual_filter(self) -> bool {
-        matches!(
-            self,
-            Self::DataRowsFiltered { .. }
-                | Self::RetainedFullRowsFiltered { .. }
-                | Self::SlotOnlyRowsFiltered { .. }
-        )
-    }
-
     // Return whether rows emitted by this scan strategy carry decoded slots
     // usable by post-access ordering and cursor comparisons.
     const fn materializes_slots(self) -> bool {
         !matches!(self, Self::DataRows | Self::DataRowsFiltered { .. })
     }
+}
+
+// Return whether the canonical scalar order consists only of the complete
+// primary-key tuple. Those cursors are physically applied by access traversal,
+// so resumed scans may stop at the same bounded output/lookahead frontier as
+// initial scans.
+fn scalar_order_is_primary_key_only(plan: &AccessPlannedQuery) -> bool {
+    let Ok(primary_key_names) = plan.primary_key_names() else {
+        return false;
+    };
+
+    plan.scalar_plan().order.as_ref().is_some_and(|order| {
+        order
+            .primary_key_only_direction_fields(primary_key_names.as_slice())
+            .is_some()
+    })
 }
 
 ///
@@ -559,25 +561,22 @@ fn resolve_kernel_row_scan_strategy<'a>(
 // branch on retained/data-row shape per key.
 const fn select_kernel_row_payload_mode(
     retain_slot_rows: bool,
-    cursor_emission: CursorEmissionMode,
     retained_slot_layout: Option<&RetainedSlotLayout>,
 ) -> KernelRowPayloadMode {
-    select_scalar_structural_payload_mode(
-        retain_slot_rows,
-        !cursor_emission.enabled(),
-        retained_slot_layout,
-    )
+    select_scalar_structural_payload_mode(retain_slot_rows, retained_slot_layout)
 }
 
 // Select one structural payload mode from the already-resolved slot-retention
-// and cursor-suppression capabilities shared by scalar page and short-path
-// materialization.
+// capabilities shared by scalar page and short-path materialization.
 const fn select_scalar_structural_payload_mode(
     retain_slot_rows: bool,
-    suppress_cursor: bool,
     retained_slot_layout: Option<&RetainedSlotLayout>,
 ) -> KernelRowPayloadMode {
-    if retain_slot_rows && suppress_cursor {
+    // Retained-slot layouts already include every projection and order slot
+    // required for cursor construction. Keep only those compact values even
+    // when the page emits a cursor instead of retaining each complete raw row
+    // until the outer projection boundary.
+    if retain_slot_rows {
         KernelRowPayloadMode::SlotsOnly
     } else if retained_slot_layout.is_some() {
         KernelRowPayloadMode::FullRowRetained
@@ -626,12 +625,40 @@ fn cursorless_short_path_skip_count(
 // loop does not branch on data-vs-slot materialization per row.
 const fn select_cursorless_short_path_payload_mode(
     retain_slot_rows: bool,
-    cursor_boundary: Option<&CursorBoundary>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
 ) -> KernelRowPayloadMode {
-    select_scalar_structural_payload_mode(
-        retain_slot_rows,
-        cursor_boundary.is_none(),
-        retained_slot_layout,
-    )
+    select_scalar_structural_payload_mode(retain_slot_rows, retained_slot_layout)
+}
+
+#[cfg(test)]
+mod payload_mode_tests {
+    use super::*;
+
+    #[test]
+    fn retained_projection_uses_compact_slots_independently_of_cursor_emission() {
+        let layout = RetainedSlotLayout::compile(8, vec![1, 4]);
+
+        assert_eq!(
+            select_kernel_row_payload_mode(true, Some(&layout)),
+            KernelRowPayloadMode::SlotsOnly,
+        );
+        assert_eq!(
+            select_cursorless_short_path_payload_mode(true, Some(&layout)),
+            KernelRowPayloadMode::SlotsOnly,
+        );
+    }
+
+    #[test]
+    fn non_projection_consumers_keep_required_raw_row_modes() {
+        let layout = RetainedSlotLayout::compile(8, vec![1, 4]);
+
+        assert_eq!(
+            select_kernel_row_payload_mode(false, Some(&layout)),
+            KernelRowPayloadMode::FullRowRetained,
+        );
+        assert_eq!(
+            select_kernel_row_payload_mode(false, None),
+            KernelRowPayloadMode::DataRowOnly,
+        );
+    }
 }

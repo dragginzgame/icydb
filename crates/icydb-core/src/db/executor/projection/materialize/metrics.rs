@@ -18,8 +18,20 @@ pub(in crate::db) struct ProjectionMaterializationMetricsRecorder {
     data_rows_path_hit: fn(),
     data_rows_scalar_fallback_hit: fn(),
     data_rows_slot_access: fn(bool),
-    distinct_candidate_row: fn(),
-    distinct_bounded_stop: fn(),
+    distinct: DistinctProjectionMetricsRecorder,
+}
+
+/// Query-scoped callback bundle for projected-row DISTINCT diagnostics.
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[derive(Clone, Copy)]
+pub(in crate::db) struct DistinctProjectionMetricsRecorder {
+    candidate_row: fn(),
+    bounded_stop: fn(),
+    adjacent_path_hit: fn(),
+    global_path_hit: fn(),
+    unique_rows: fn(u64),
+    peak_retained_entries: fn(u64),
+    peak_retained_backing_bytes: fn(u64),
 }
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -29,6 +41,45 @@ const fn ignore_projection_event() {}
 const fn ignore_projection_slot_event(_projected_slot: bool) {}
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
+const fn ignore_projection_count_event(_count: u64) {}
+
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+impl DistinctProjectionMetricsRecorder {
+    /// Construct one observer from adapter-owned DISTINCT counters.
+    pub(in crate::db) const fn new(
+        candidate_row: fn(),
+        bounded_stop: fn(),
+        adjacent_path_hit: fn(),
+        global_path_hit: fn(),
+        unique_rows: fn(u64),
+        peak_retained_entries: fn(u64),
+        peak_retained_backing_bytes: fn(u64),
+    ) -> Self {
+        Self {
+            candidate_row,
+            bounded_stop,
+            adjacent_path_hit,
+            global_path_hit,
+            unique_rows,
+            peak_retained_entries,
+            peak_retained_backing_bytes,
+        }
+    }
+
+    const fn none() -> Self {
+        Self::new(
+            ignore_projection_event,
+            ignore_projection_event,
+            ignore_projection_event,
+            ignore_projection_event,
+            ignore_projection_count_event,
+            ignore_projection_count_event,
+            ignore_projection_count_event,
+        )
+    }
+}
+
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 impl ProjectionMaterializationMetricsRecorder {
     /// Construct one observer from adapter-owned materialization counters.
     pub(in crate::db) const fn new(
@@ -36,16 +87,14 @@ impl ProjectionMaterializationMetricsRecorder {
         data_rows_path_hit: fn(),
         data_rows_scalar_fallback_hit: fn(),
         data_rows_slot_access: fn(bool),
-        distinct_candidate_row: fn(),
-        distinct_bounded_stop: fn(),
+        distinct: DistinctProjectionMetricsRecorder,
     ) -> Self {
         Self {
             slot_rows_path_hit,
             data_rows_path_hit,
             data_rows_scalar_fallback_hit,
             data_rows_slot_access,
-            distinct_candidate_row,
-            distinct_bounded_stop,
+            distinct,
         }
     }
 
@@ -56,8 +105,7 @@ impl ProjectionMaterializationMetricsRecorder {
             ignore_projection_event,
             ignore_projection_event,
             ignore_projection_slot_event,
-            ignore_projection_event,
-            ignore_projection_event,
+            DistinctProjectionMetricsRecorder::none(),
         )
     }
 
@@ -78,11 +126,31 @@ impl ProjectionMaterializationMetricsRecorder {
     }
 
     pub(super) fn record_distinct_candidate_row(self) {
-        (self.distinct_candidate_row)();
+        (self.distinct.candidate_row)();
     }
 
     pub(super) fn record_distinct_bounded_stop(self) {
-        (self.distinct_bounded_stop)();
+        (self.distinct.bounded_stop)();
+    }
+
+    pub(super) fn record_distinct_adjacent_path_hit(self) {
+        (self.distinct.adjacent_path_hit)();
+    }
+
+    pub(super) fn record_distinct_global_path_hit(self) {
+        (self.distinct.global_path_hit)();
+    }
+
+    pub(super) fn record_distinct_unique_rows(self, count: u64) {
+        (self.distinct.unique_rows)(count);
+    }
+
+    pub(super) fn record_distinct_peak_retained_entries(self, count: u64) {
+        (self.distinct.peak_retained_entries)(count);
+    }
+
+    pub(super) fn record_distinct_peak_retained_backing_bytes(self, bytes: u64) {
+        (self.distinct.peak_retained_backing_bytes)(bytes);
     }
 }
 
@@ -130,5 +198,25 @@ impl ProjectionMaterializationMetricsRecorder {
 
     pub(super) const fn record_distinct_bounded_stop(self) {
         let _ = self;
+    }
+
+    pub(super) const fn record_distinct_adjacent_path_hit(self) {
+        let _ = self;
+    }
+
+    pub(super) const fn record_distinct_global_path_hit(self) {
+        let _ = self;
+    }
+
+    pub(super) const fn record_distinct_unique_rows(self, count: u64) {
+        let _ = (self, count);
+    }
+
+    pub(super) const fn record_distinct_peak_retained_entries(self, count: u64) {
+        let _ = (self, count);
+    }
+
+    pub(super) const fn record_distinct_peak_retained_backing_bytes(self, bytes: u64) {
+        let _ = (self, bytes);
     }
 }

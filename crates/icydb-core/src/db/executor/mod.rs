@@ -90,8 +90,8 @@ pub(in crate::db) use mutation::{
     MutationCommitInterruption, interrupt_next_mutation_commit_for_tests,
 };
 pub(in crate::db::executor) use order::{
-    BoundedOrderWindow, OrderReadableRow, PendingOrderRows,
-    apply_structural_order_window_to_data_rows, compare_orderable_row_with_boundary,
+    BoundedOrderWindow, DataRowOrderWindow, OrderReadableRow, PendingOrderRows,
+    compare_orderable_row_with_boundary,
 };
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
@@ -128,6 +128,8 @@ pub(in crate::db::executor) use profiling::{
     record_ordering, record_projection, record_rows_after_predicate,
 };
 pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use projection::DistinctProjectionMetricsRecorder;
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use projection::{
     StructuralProjectionRequest, execute_structural_projection_page,

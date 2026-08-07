@@ -10,6 +10,8 @@ mod compile;
 #[cfg(feature = "diagnostics")]
 mod covering;
 #[cfg(feature = "diagnostics")]
+mod distinct;
+#[cfg(feature = "diagnostics")]
 mod execution;
 #[cfg(feature = "diagnostics")]
 mod output_blob;
@@ -24,6 +26,8 @@ pub use cache::SqlQueryCacheAttribution;
 pub use compile::SqlCompileAttribution;
 #[cfg(feature = "diagnostics")]
 pub use covering::{SqlHybridCoveringAttribution, SqlPureCoveringAttribution};
+#[cfg(feature = "diagnostics")]
+pub use distinct::SqlDistinctProjectionAttribution;
 #[cfg(feature = "diagnostics")]
 pub use execution::SqlExecutionAttribution;
 #[cfg(feature = "diagnostics")]

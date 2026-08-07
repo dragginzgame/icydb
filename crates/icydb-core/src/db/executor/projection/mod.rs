@@ -36,13 +36,17 @@ pub(in crate::db::executor) use grouped::*;
 pub(in crate::db::executor) use grouped::{
     GroupedRowView, compile_grouped_projection_expr, evaluate_grouped_having_expr,
 };
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use materialize::DistinctProjectionMetricsRecorder;
 pub(in crate::db) use materialize::MaterializedProjectionRows;
-pub(in crate::db::executor::projection) use materialize::ProjectionDistinctWindow;
 pub(in crate::db) use materialize::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use materialize::project;
 pub(in crate::db::executor::projection) use materialize::project_distinct;
 pub(in crate::db) use materialize::{
     PreparedProjectionContract, prepare_projection_contract_from_plan,
+};
+pub(in crate::db::executor::projection) use materialize::{
+    ProjectionDistinctStrategy, ProjectionDistinctWindow, projection_distinct_strategy,
 };
 pub(in crate::db::executor) use materialize::{
     ProjectionValidationRow, validate_prepared_projection_row,

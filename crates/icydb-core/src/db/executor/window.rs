@@ -9,12 +9,12 @@ use crate::db::{
     query::plan::AccessPlannedQuery,
 };
 
-fn compute_page_fetch_count(offset: u32, limit: u32) -> usize {
+fn compute_page_keep_count(offset: u32, limit: u32, lookahead_required: bool) -> usize {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let keep_count = offset.saturating_add(limit);
 
-    keep_count.saturating_add(1)
+    keep_count.saturating_add(usize::from(lookahead_required))
 }
 
 impl ExecutionKernel {
@@ -32,6 +32,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn bounded_order_keep_count(
         plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
+        lookahead_required: bool,
     ) -> Option<usize> {
         let logical = plan.scalar_plan();
         if !logical.mode.is_load() || cursor_boundary.is_some() {
@@ -41,9 +42,13 @@ impl ExecutionKernel {
         let page = logical.page.as_ref()?;
         let limit = page.limit?;
         if limit == 0 {
-            return None;
+            return Some(0);
         }
 
-        Some(compute_page_fetch_count(page.offset, limit))
+        Some(compute_page_keep_count(
+            page.offset,
+            limit,
+            lookahead_required,
+        ))
     }
 }

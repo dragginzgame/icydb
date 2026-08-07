@@ -198,9 +198,9 @@ pub use session::{
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{
-    SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
-    SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
-    SqlQueryExecutionAttribution,
+    SqlCompileAttribution, SqlDistinctProjectionAttribution, SqlExecutionAttribution,
+    SqlHybridCoveringAttribution, SqlOutputBlobAttribution, SqlPureCoveringAttribution,
+    SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
 };
 #[cfg(feature = "sql")]
 pub use session::{

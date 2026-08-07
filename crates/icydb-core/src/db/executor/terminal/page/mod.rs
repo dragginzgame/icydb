@@ -170,6 +170,20 @@ impl OrderReadableRow for KernelRow {
     fn order_slots_are_borrowed(&self) -> bool {
         self.has_materialized_slots()
     }
+
+    fn retained_order_backing_bytes(&self) -> u64 {
+        let inline = u64::try_from(std::mem::size_of::<Self>()).unwrap_or(u64::MAX);
+        let data_row = self
+            .data_row
+            .as_ref()
+            .map_or(0, |row| u64::try_from(row.1.len()).unwrap_or(u64::MAX));
+        let slots = match &self.slots {
+            KernelRowSlots::NotMaterialized => 0,
+            KernelRowSlots::Retained(slots) => slots.estimated_backing_bytes(),
+        };
+
+        inline.saturating_add(data_row).saturating_add(slots)
+    }
 }
 
 struct WindowedKernelRowsRequest<'a, 'r> {
@@ -216,6 +230,7 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
         plan,
         scan_rows,
         continuation.cursor_boundary(),
+        scalar_materialization_plan.cursor_emission(),
         scalar_materialization_plan.defer_retained_slot_distinct_window(),
     )?;
     scalar_materialization_plan.apply_post_scan_tail(rows.as_slice())?;

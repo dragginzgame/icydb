@@ -20,7 +20,6 @@ pub(super) use crate::db::diagnostics::measure_local_instruction_delta as measur
 ///
 
 #[cfg(feature = "diagnostics")]
-#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct DirectDataRowPhaseAttribution {
     pub(in crate::db) scan_local_instructions: u64,
@@ -30,6 +29,8 @@ pub(in crate::db) struct DirectDataRowPhaseAttribution {
     pub(in crate::db) store_get_local_instructions: u64,
     pub(in crate::db) order_window_local_instructions: u64,
     pub(in crate::db) page_window_local_instructions: u64,
+    pub(in crate::db) peak_retained_candidates: u64,
+    pub(in crate::db) peak_retained_backing_bytes: u64,
 }
 
 #[cfg(feature = "diagnostics")]
@@ -42,6 +43,8 @@ impl DirectDataRowPhaseAttribution {
             || self.store_get_local_instructions != 0
             || self.order_window_local_instructions != 0
             || self.page_window_local_instructions != 0
+            || self.peak_retained_candidates != 0
+            || self.peak_retained_backing_bytes != 0
     }
 }
 
@@ -65,6 +68,7 @@ pub(in crate::db) struct KernelRowPhaseAttribution {
     pub(in crate::db) retained_slot_values: u64,
     pub(in crate::db) retained_octet_length_values: u64,
     pub(in crate::db) peak_retained_candidates: u64,
+    pub(in crate::db) peak_retained_backing_bytes: u64,
 }
 
 #[cfg(feature = "diagnostics")]
@@ -79,6 +83,7 @@ impl KernelRowPhaseAttribution {
             || self.retained_slot_values != 0
             || self.retained_octet_length_values != 0
             || self.peak_retained_candidates != 0
+            || self.peak_retained_backing_bytes != 0
     }
 }
 
@@ -93,6 +98,8 @@ std::thread_local! {
             store_get_local_instructions: 0,
             order_window_local_instructions: 0,
             page_window_local_instructions: 0,
+            peak_retained_candidates: 0,
+            peak_retained_backing_bytes: 0,
         })
     };
 }
@@ -110,6 +117,7 @@ std::thread_local! {
             retained_slot_values: 0,
             retained_octet_length_values: 0,
             peak_retained_candidates: 0,
+            peak_retained_backing_bytes: 0,
         })
     };
 }
@@ -190,6 +198,26 @@ pub(super) fn record_direct_data_row_page_window_local_instructions(delta: u64) 
 }
 
 #[cfg(feature = "diagnostics")]
+pub(super) fn record_direct_data_row_peak_retained_candidates(candidate_count: usize) {
+    let candidate_count = usize_to_u64(candidate_count);
+    update_direct_data_row_phase_attribution(candidate_count, |current, candidate_count| {
+        current.peak_retained_candidates = current.peak_retained_candidates.max(candidate_count);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_direct_data_row_peak_retained_backing_bytes(retained_backing_bytes: u64) {
+    update_direct_data_row_phase_attribution(
+        retained_backing_bytes,
+        |current, retained_backing_bytes| {
+            current.peak_retained_backing_bytes = current
+                .peak_retained_backing_bytes
+                .max(retained_backing_bytes);
+        },
+    );
+}
+
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_kernel_row_scan_local_instructions(delta: u64) {
     update_kernel_row_phase_attribution(delta, |current, delta| {
         current.scan_local_instructions = current.scan_local_instructions.saturating_add(delta);
@@ -239,6 +267,21 @@ pub(super) fn record_kernel_row_peak_retained_candidates(candidate_count: usize)
     update_kernel_row_phase_attribution(candidate_count, |current, candidate_count| {
         current.peak_retained_candidates = current.peak_retained_candidates.max(candidate_count);
     });
+}
+
+// Record the complete unique backing estimate held by the largest live
+// kernel-row blocking window. Slot-only rows count their owned decoded values;
+// raw-row winners count the complete retained payload allocation.
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_kernel_row_peak_retained_backing_bytes(retained_backing_bytes: u64) {
+    update_kernel_row_phase_attribution(
+        retained_backing_bytes,
+        |current, retained_backing_bytes| {
+            current.peak_retained_backing_bytes = current
+                .peak_retained_backing_bytes
+                .max(retained_backing_bytes);
+        },
+    );
 }
 
 // Apply one direct-row phase counter update through the shared thread-local

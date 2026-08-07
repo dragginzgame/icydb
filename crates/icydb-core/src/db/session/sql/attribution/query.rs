@@ -2,9 +2,9 @@
 //! Does not own: SQL execution or individual attribution DTO definitions.
 
 use super::{
-    SqlCompileAttribution, SqlExecutePhaseAttribution, SqlExecutionAttribution,
-    SqlHybridCoveringAttribution, SqlOutputBlobAttribution, SqlPureCoveringAttribution,
-    SqlQueryCacheAttribution, output_blob::sql_output_blob_attribution,
+    SqlCompileAttribution, SqlDistinctProjectionAttribution, SqlExecutePhaseAttribution,
+    SqlExecutionAttribution, SqlHybridCoveringAttribution, SqlOutputBlobAttribution,
+    SqlPureCoveringAttribution, SqlQueryCacheAttribution, output_blob::sql_output_blob_attribution,
 };
 use crate::db::{
     DirectDataRowAttribution, GroupedExecutionAttribution, KernelRowAttribution,
@@ -40,6 +40,7 @@ pub struct SqlQueryExecutionAttribution {
     pub scalar_aggregate: Option<ScalarAggregateAttribution>,
     pub pure_covering: Option<SqlPureCoveringAttribution>,
     pub hybrid_covering: Option<SqlHybridCoveringAttribution>,
+    pub distinct_projection: Option<SqlDistinctProjectionAttribution>,
     pub output_blob: SqlOutputBlobAttribution,
     /// Query-scoped compound-range and membership/prefix structural work.
     pub structural_work: SqlStructuralWorkAttribution,
@@ -103,6 +104,9 @@ impl SqlQueryExecutionAttribution {
                 inputs.pure_covering_row_assembly_local_instructions,
             ),
             hybrid_covering: SqlHybridCoveringAttribution::from_projection_metrics(
+                inputs.projection_materialization,
+            ),
+            distinct_projection: SqlDistinctProjectionAttribution::from_projection_metrics(
                 inputs.projection_materialization,
             ),
             output_blob: sql_output_blob_attribution(result),

@@ -4,8 +4,9 @@ use crate::{
         data::DataRow,
         executor::{
             ExecutionKernel, PendingOrderRows, budget::charge_current_execution_budget,
-            compare_orderable_row_with_boundary, record_rows_after_predicate,
-            route::access_order_satisfied_by_route_mode, terminal::page::KernelRow,
+            compare_orderable_row_with_boundary, pipeline::contracts::CursorEmissionMode,
+            record_rows_after_predicate, route::access_order_satisfied_by_route_mode,
+            terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, ResolvedOrder},
     },
@@ -23,6 +24,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     plan: &AccessPlannedQuery,
     scan_rows: PendingOrderRows<KernelRow>,
     cursor: Option<&CursorBoundary>,
+    cursor_emission: CursorEmissionMode,
     defer_retained_slot_distinct_window: bool,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let logical = plan.scalar_plan();
@@ -53,7 +55,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
             apply_measured_structural_order_window(
                 scan_rows,
                 resolved_order,
-                ExecutionKernel::bounded_order_keep_count(plan, cursor),
+                ExecutionKernel::bounded_order_keep_count(plan, cursor, cursor_emission.enabled()),
             )?
         }
     } else {

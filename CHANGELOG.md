@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.222.md](docs/changelog/0.222.md)
 
+- `0.222.1` bounds projection, top-N, and `DISTINCT` retained state without
+  changing results or cursor/persisted formats; potentially breaking source
+  consumers must handle the added optional `distinct_projection` attribution.
+
 - `0.222.0` adds charged key-first index traversal and bounded sparse-index
   intersection, substantially reducing unnecessary row reads while preserving
   query results and public or persisted formats.

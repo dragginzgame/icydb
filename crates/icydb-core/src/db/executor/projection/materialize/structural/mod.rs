@@ -33,7 +33,7 @@ impl MaterializedProjectionRows {
     /// Build structural projection rows from local row views at the final
     /// response materialization boundary.
     pub(in crate::db::executor::projection::materialize::structural) fn from_row_views(
-        rows: Vec<RowView<'_>>,
+        rows: Vec<RowView>,
     ) -> Self {
         Self(rows.into_iter().map(RowView::into_owned).collect())
     }
@@ -58,25 +58,5 @@ impl MaterializedProjectionRows {
     /// Retain at most the caller-admitted output row count.
     pub(in crate::db) fn truncate(&mut self, limit: usize) {
         self.0.truncate(limit);
-    }
-}
-
-pub(super) struct RowViewCollector {
-    rows: Vec<Vec<Value>>,
-}
-
-impl RowViewCollector {
-    pub(super) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            rows: Vec::with_capacity(capacity),
-        }
-    }
-
-    pub(super) fn push(&mut self, row_view: RowView<'_>) {
-        self.rows.push(row_view.into_owned());
-    }
-
-    pub(super) fn finish(self) -> MaterializedProjectionRows {
-        MaterializedProjectionRows::from_value_rows(self.rows)
     }
 }

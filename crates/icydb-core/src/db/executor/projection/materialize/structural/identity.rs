@@ -7,10 +7,11 @@ use crate::{
     db::executor::{
         StructuralCursorPage,
         projection::materialize::{
-            execute::{visit_identity_data_row_views, visit_slot_row_views},
+            execute::{project_identity_data_row, project_slot_row},
             metrics::ProjectionMaterializationMetricsRecorder,
             plan::PreparedProjectionContract,
-            structural::{MaterializedProjectionRows, RowViewCollector},
+            row_view::RowView,
+            structural::MaterializedProjectionRows,
         },
         terminal::RowLayout,
     },
@@ -29,27 +30,21 @@ pub(in crate::db::executor::projection::materialize::structural) fn project_iden
     page.consume_projection_rows(
         |slot_rows| {
             metrics.record_slot_rows_path_hit();
+            let rows = slot_rows
+                .into_iter()
+                .map(|row| project_slot_row(prepared_projection, row).map(RowView::into_owned))
+                .collect::<Result<Vec<_>, InternalError>>()?;
 
-            let mut collector = RowViewCollector::with_capacity(slot_rows.len());
-            visit_slot_row_views(prepared_projection, slot_rows, |row_view| {
-                collector.push(row_view);
-
-                Ok(())
-            })?;
-
-            Ok(collector.finish())
+            Ok(MaterializedProjectionRows::from_value_rows(rows))
         },
         |data_rows| {
             metrics.record_data_rows_path_hit();
+            let rows = data_rows
+                .iter()
+                .map(|row| project_identity_data_row(&row_layout, row, metrics))
+                .collect::<Result<Vec<_>, InternalError>>()?;
 
-            let mut collector = RowViewCollector::with_capacity(data_rows.len());
-            visit_identity_data_row_views(row_layout, data_rows.as_slice(), metrics, |row_view| {
-                collector.push(row_view);
-
-                Ok(())
-            })?;
-
-            Ok(collector.finish())
+            Ok(MaterializedProjectionRows::from_value_rows(rows))
         },
     )
 }

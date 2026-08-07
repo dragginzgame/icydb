@@ -1,45 +1,48 @@
 //! Module: db::executor::projection::materialize::row_view
 //! Responsibility: projected-row transport before final response materialization.
 //! Does not own: projection evaluation, DISTINCT key storage, or DTO shaping.
-//! Boundary: carries either borrowed or owned projected row values locally.
+//! Boundary: owns projected values retained by DISTINCT or final output.
 
-use crate::value::Value;
+use crate::{db::executor::budget::runtime_value_work, value::Value};
 
 ///
 /// RowView
 ///
-/// RowView is the local projection-materialization transport used before the
-/// structural boundary builds the public row matrix.
-/// It lets identity projection borrow from a reusable decode buffer while
-/// preserving the owned fallback needed by expression and direct-slot paths.
+/// RowView is the compact owned projection-materialization transport used by
+/// blocking DISTINCT state before the structural boundary builds the public
+/// row matrix. Current-row evaluation may borrow from its raw-row owner, but
+/// crossing this boundary always requires explicit value ownership.
 ///
 
-pub(in crate::db::executor::projection::materialize) enum RowView<'a> {
-    Borrowed(&'a [Value]),
-    Owned(Vec<Value>),
-}
+pub(in crate::db::executor::projection::materialize) struct RowView(Vec<Value>);
 
-impl RowView<'_> {
+impl RowView {
+    #[must_use]
+    pub(in crate::db::executor::projection::materialize) const fn owned(
+        values: Vec<Value>,
+    ) -> Self {
+        Self(values)
+    }
+
     #[inline]
     pub(in crate::db::executor::projection::materialize) fn get(&self, idx: usize) -> &Value {
-        match self {
-            Self::Borrowed(slice) => &slice[idx],
-            Self::Owned(vec) => &vec[idx],
-        }
+        &self.0[idx]
     }
 
     pub(in crate::db::executor::projection::materialize) fn into_owned(self) -> Vec<Value> {
-        match self {
-            Self::Borrowed(slice) => slice.to_vec(),
-            Self::Owned(vec) => vec,
-        }
+        self.0
     }
 
     #[inline]
     pub(in crate::db::executor::projection::materialize) const fn values(&self) -> &[Value] {
-        match self {
-            Self::Borrowed(slice) => slice,
-            Self::Owned(vec) => vec.as_slice(),
-        }
+        self.0.as_slice()
+    }
+
+    /// Estimate the complete owned value backing retained by this projected row.
+    #[must_use]
+    pub(in crate::db::executor::projection::materialize) fn estimated_backing_bytes(&self) -> u64 {
+        self.0.iter().fold(0_u64, |total, value| {
+            total.saturating_add(runtime_value_work(value).0)
+        })
     }
 }

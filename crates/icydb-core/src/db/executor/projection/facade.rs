@@ -19,7 +19,8 @@ use crate::{
             planning::preparation::slot_map_for_model_plan,
             projection::{
                 MaterializedProjectionRows, PreparedCoveringProjectionRuntime,
-                ProjectionDistinctWindow, project, project_distinct,
+                ProjectionDistinctStrategy, ProjectionDistinctWindow, project, project_distinct,
+                projection_distinct_strategy,
                 try_execute_prepared_covering_projection_rows_for_canister,
             },
         },
@@ -85,6 +86,7 @@ pub(in crate::db) struct StructuralProjectionRequest {
     execution_lane: DiagnosticExecutionLane,
     continuation: crate::db::executor::ScalarContinuationContext,
     cursor_page_row_limit: Option<usize>,
+    distinct_output_offset: usize,
 }
 
 impl StructuralProjectionRequest {
@@ -106,6 +108,7 @@ impl StructuralProjectionRequest {
             execution_lane,
             continuation: crate::db::executor::ScalarContinuationContext::initial(),
             cursor_page_row_limit: None,
+            distinct_output_offset: 0,
         }
     }
 
@@ -133,6 +136,15 @@ impl StructuralProjectionRequest {
     #[must_use]
     pub(in crate::db) const fn with_cursor_emission(mut self, page_row_limit: usize) -> Self {
         self.cursor_page_row_limit = Some(page_row_limit);
+        self
+    }
+
+    /// Attach the number of DISTINCT output rows already emitted by an
+    /// authenticated continuation. Global DISTINCT replays from the beginning
+    /// and skips exactly this many completed output rows.
+    #[must_use]
+    pub(in crate::db) const fn with_distinct_output_offset(mut self, offset: usize) -> Self {
+        self.distinct_output_offset = offset;
         self
     }
 }
@@ -194,6 +206,7 @@ where
         execution_lane: _,
         continuation,
         cursor_page_row_limit,
+        distinct_output_offset,
     } = request;
     let emit_cursor = cursor_page_row_limit.is_some();
     let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
@@ -251,11 +264,52 @@ where
         prepared_projection_contract,
         scalar_runtime,
     } = prepared_plan.into_projection_runtime_handoff()?;
-    let distinct_window = distinct.then(|| {
-        ProjectionDistinctWindow::from_page(
-            scalar_runtime.plan_core.plan().scalar_plan().page.as_ref(),
-        )
+    let authored_page = scalar_runtime.plan_core.plan().scalar_plan().page.as_ref();
+    let authored_offset =
+        authored_page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX));
+    let authored_limit = authored_page
+        .and_then(|page| page.limit)
+        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+
+    let row_layout = authority.row_layout()?;
+    let prepared_projection = prepared_projection_contract
+        .as_deref()
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    let resolved_order = (emit_cursor || distinct)
+        .then(|| {
+            scalar_runtime
+                .plan_core
+                .plan()
+                .require_resolved_order()
+                .cloned()
+        })
+        .transpose()?;
+    let distinct_strategy = if distinct {
+        let order = resolved_order
+            .as_ref()
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        Some(projection_distinct_strategy(prepared_projection, order))
+    } else {
+        None
+    };
+    let distinct_window = distinct_strategy.map(|strategy| {
+        let offset = match strategy {
+            ProjectionDistinctStrategy::OrderedAdjacent if continuation.has_cursor_boundary() => 0,
+            ProjectionDistinctStrategy::OrderedAdjacent => authored_offset,
+            ProjectionDistinctStrategy::GlobalReplay => {
+                authored_offset.saturating_add(distinct_output_offset)
+            }
+        };
+        ProjectionDistinctWindow::new(offset, cursor_page_row_limit.or(authored_limit))
     });
+    let execution_continuation = if matches!(
+        distinct_strategy,
+        Some(ProjectionDistinctStrategy::GlobalReplay)
+    ) {
+        crate::db::executor::ScalarContinuationContext::initial()
+    } else {
+        continuation
+    };
     let scalar_runtime = if distinct {
         scalar_runtime.into_scalar_page_suppressed()
     } else {
@@ -265,25 +319,12 @@ where
     // Phase 2: execute the canonical scalar retained-slot path and let the
     // projection materializer choose slot-row, data-row, or scalar fallback
     // shaping behind the executor boundary.
-    let row_layout = authority.row_layout()?;
-    let prepared_projection = prepared_projection_contract
-        .as_deref()
-        .ok_or_else(InternalError::query_executor_invariant)?;
-    let resolved_order = emit_cursor
-        .then(|| {
-            scalar_runtime
-                .plan_core
-                .plan()
-                .require_resolved_order()
-                .cloned()
-        })
-        .transpose()?;
-    let (page, scanned_keys) = if continuation.has_cursor_boundary() {
+    let (page, scanned_keys) = if execution_continuation.has_cursor_boundary() {
         execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister(
             db,
             debug,
             scalar_runtime,
-            continuation,
+            execution_continuation,
             emit_cursor,
         )?
     } else {
@@ -302,47 +343,52 @@ where
         return Err(sql_scan_budget_exceeded_error(scan_budget, scanned_keys));
     }
 
-    let (last_emitted_logical, has_more) = match cursor_page_row_limit {
-        Some(page_row_limit) => {
-            let retained_count = page.row_count().min(page_row_limit);
-            let boundary = retained_count
-                .checked_sub(1)
-                .map(|row_index| {
-                    page.cursor_boundary_at(
-                        row_index,
-                        &row_layout,
-                        resolved_order
-                            .as_ref()
-                            .ok_or_else(InternalError::query_executor_invariant)?,
-                    )
-                })
-                .transpose()?
-                .flatten();
-            (boundary, page.row_count() >= page_row_limit)
-        }
-        None => (None, false),
-    };
-
-    let mut rows = if distinct {
-        project_distinct(
+    let (mut rows, last_emitted_logical, has_more) = if let Some(strategy) = distinct_strategy {
+        let projected = project_distinct(
             row_layout,
             prepared_projection,
+            strategy,
             distinct_window.ok_or_else(InternalError::query_executor_invariant)?,
+            emit_cursor.then_some(resolved_order.as_ref()).flatten(),
             page,
             materialization_metrics,
-        )?
+        )?;
+        projected.into_parts()
     } else {
-        project(
+        let (last_emitted_logical, has_more) = match cursor_page_row_limit {
+            Some(page_row_limit) => {
+                let retained_count = page.row_count().min(page_row_limit);
+                let boundary = retained_count
+                    .checked_sub(1)
+                    .map(|row_index| {
+                        page.cursor_boundary_at(
+                            row_index,
+                            &row_layout,
+                            resolved_order
+                                .as_ref()
+                                .ok_or_else(InternalError::query_executor_invariant)?,
+                        )
+                    })
+                    .transpose()?
+                    .flatten();
+                (boundary, page.row_count() >= page_row_limit)
+            }
+            None => (None, false),
+        };
+        let rows = project(
             row_layout,
             prepared_projection,
             page,
             materialization_metrics,
-        )?
+        )?;
+        (rows, last_emitted_logical, has_more)
     };
 
     charge_runtime_value_rows(rows.value_rows())?;
 
-    if let Some(page_row_limit) = cursor_page_row_limit {
+    if distinct_strategy.is_none()
+        && let Some(page_row_limit) = cursor_page_row_limit
+    {
         rows.truncate(page_row_limit);
     }
 
