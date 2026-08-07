@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty_metrics"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_dynamic_query"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_sql_query"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_typed_query"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_typed_query"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_bounded"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -334,9 +334,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9"
+checksum = "9066c49992464636f92905fa096ec58baaa4d57ec19a5c096c68d3e25ef3d136"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -695,9 +695,9 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+checksum = "26b73573e6edcd2af0cdf47bd6cb58f0b3839491263c314eaad1ccf24430e1de"
 
 [[package]]
 name = "flate2"
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "clap",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "getrandom 0.4.3",
@@ -1339,14 +1339,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "convert_case",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "convert_case",
  "darling",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "derive_more",
@@ -1399,7 +1399,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1409,7 +1409,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1429,7 +1429,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1449,7 +1449,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-endpoint-installation"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "blake3",
  "candid",
@@ -1474,14 +1474,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-schema-only"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "icydb-model",
 ]
 
 [[package]]
 name = "icydb-testing-model-typed-adapter"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "blake3",
  "serde",
@@ -1498,7 +1498,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "blake3",
  "icydb-testing-sql-generator",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.221.9"
+version = "0.222.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1526,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.221.9"
+version = "0.222.0"
 
 [[package]]
 name = "ident_case"
