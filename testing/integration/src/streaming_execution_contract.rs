@@ -636,6 +636,7 @@ mod tests {
                 "continuation_live_10k" | "continuation_exhaustive_10k"
             ) {
                 assert_eq!(fixture.expected_rows, STREAMING_EXECUTION_CONTINUATION_ROWS);
+                assert!(fixture.expected_rows > 10_000);
             } else {
                 assert!(fixture.expected_rows <= STREAMING_EXECUTION_FIXTURE_ROWS);
             }
@@ -653,7 +654,6 @@ mod tests {
             }
         }
         assert_eq!(STREAMING_EXECUTION_PREFIX_FANOUT, 16);
-        assert!(STREAMING_EXECUTION_CONTINUATION_ROWS > 10_000);
         assert_eq!(STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES.len(), 3);
     }
 
