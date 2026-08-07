@@ -15,6 +15,7 @@ use crate::{
             value_reducer::ValueReducerState,
         },
         budget::{charge_current_execution_budget, runtime_value_work},
+        group::{StableHash, StableHashBuildHasher, StableHashMap, stable_hash_value},
         projection::ProjectionEvalError,
         terminal::KernelRow,
     },
@@ -22,11 +23,79 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
+use std::collections::hash_map::Entry;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::aggregate::terminal_attribution::{
     ScalarAggregateTerminalAttribution, measure_phase,
 };
+
+///
+/// ScalarDistinctValueBucket
+///
+/// ScalarDistinctValueBucket keeps the overwhelmingly common one-value hash
+/// bucket inline. A heap allocation is introduced only for a genuine stable
+/// hash collision, while equality remains the existing exact `Value`
+/// equality contract.
+///
+
+enum ScalarDistinctValueBucket {
+    Single(Value),
+    Colliding(Vec<Value>),
+}
+
+impl ScalarDistinctValueBucket {
+    fn contains(&self, value: &Value) -> bool {
+        match self {
+            Self::Single(current) => current == value,
+            Self::Colliding(values) => values.iter().any(|current| current == value),
+        }
+    }
+
+    fn insert(&mut self, value: Value) {
+        match self {
+            Self::Single(current) => {
+                *self = Self::Colliding(vec![std::mem::replace(current, Value::Null), value]);
+            }
+            Self::Colliding(values) => values.push(value),
+        }
+    }
+}
+
+///
+/// ScalarDistinctValueSet
+///
+/// ScalarDistinctValueSet gives scalar aggregate DISTINCT admission bounded
+/// hash-bucket lookup instead of rescanning every previously retained value
+/// for every input row. Values remain owned only after admission.
+///
+
+struct ScalarDistinctValueSet {
+    buckets: StableHashMap<ScalarDistinctValueBucket>,
+}
+
+impl ScalarDistinctValueSet {
+    const fn new() -> Self {
+        Self {
+            buckets: StableHashMap::with_hasher(StableHashBuildHasher),
+        }
+    }
+
+    fn contains(&self, hash: StableHash, value: &Value) -> bool {
+        self.buckets
+            .get(&hash)
+            .is_some_and(|bucket| bucket.contains(value))
+    }
+
+    fn insert(&mut self, hash: StableHash, value: Value) {
+        match self.buckets.entry(hash) {
+            Entry::Occupied(mut occupied) => occupied.get_mut().insert(value),
+            Entry::Vacant(vacant) => {
+                vacant.insert(ScalarDistinctValueBucket::Single(value));
+            }
+        }
+    }
+}
 
 ///
 /// ScalarAggregateReducerState
@@ -39,24 +108,22 @@ use crate::db::executor::aggregate::terminal_attribution::{
 struct ScalarAggregateReducerState {
     output_index: usize,
     kind: ScalarAggregateTerminalKind,
-    distinct: bool,
-    distinct_values: Vec<Value>,
+    distinct_values: Option<ScalarDistinctValueSet>,
     reducer: ValueReducerState,
 }
 
 impl ScalarAggregateReducerState {
-    const fn new(output_index: usize, terminal: &InternedPreparedScalarAggregateTerminal) -> Self {
+    fn new(output_index: usize, terminal: &InternedPreparedScalarAggregateTerminal) -> Self {
         Self {
             output_index,
             kind: terminal.kind,
-            distinct: terminal.distinct,
-            distinct_values: Vec::new(),
+            distinct_values: terminal.distinct.then(ScalarDistinctValueSet::new),
             reducer: reducer_for_terminal_kind(terminal.kind),
         }
     }
 
     fn ingest_row(&mut self) -> Result<(), InternalError> {
-        if self.distinct {
+        if self.distinct_values.is_some() {
             return Err(InternalError::query_executor_invariant());
         }
 
@@ -69,7 +136,7 @@ impl ScalarAggregateReducerState {
     // already owns the payload. Non-DISTINCT reducers inspect the value without
     // cloning; extrema clone only if the value becomes the selected candidate.
     fn ingest_borrowed_value(&mut self, value: &Value) -> Result<(), InternalError> {
-        if self.distinct {
+        if self.distinct_values.is_some() {
             return self.ingest_distinct_borrowed_value(value);
         }
         if matches!(value, Value::Null) {
@@ -92,7 +159,12 @@ impl ScalarAggregateReducerState {
     // ownership boundary where the retained DISTINCT admission set must store
     // them beyond the source row/cache lifetime.
     fn ingest_distinct_borrowed_value(&mut self, value: &Value) -> Result<(), InternalError> {
-        if self.distinct_values.iter().any(|current| current == value) {
+        let value_hash = stable_hash_value(value)?;
+        let distinct_values = self
+            .distinct_values
+            .as_mut()
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        if distinct_values.contains(value_hash, value) {
             return Ok(());
         }
         let value_work = runtime_value_work(value);
@@ -105,7 +177,7 @@ impl ScalarAggregateReducerState {
             value_work.0,
         )?;
         if matches!(value, Value::Null) {
-            self.distinct_values.push(Value::Null);
+            distinct_values.insert(value_hash, Value::Null);
             return Ok(());
         }
 
@@ -116,7 +188,7 @@ impl ScalarAggregateReducerState {
             | ScalarAggregateTerminalKind::Min
             | ScalarAggregateTerminalKind::Max => {
                 self.reducer.ingest(value)?;
-                self.distinct_values.push(value.clone());
+                distinct_values.insert(value_hash, value.clone());
 
                 Ok(())
             }
@@ -396,5 +468,37 @@ impl ScalarAggregateReducerRuntime {
     #[cfg(feature = "diagnostics")]
     pub(super) const fn attribution(&self) -> ScalarAggregateTerminalAttribution {
         self.attribution
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScalarDistinctValueBucket, ScalarDistinctValueSet};
+    use crate::{db::executor::group::stable_hash_value, value::Value};
+
+    #[test]
+    fn scalar_distinct_value_set_uses_hash_buckets_without_changing_value_equality() {
+        let mut values = ScalarDistinctValueSet::new();
+        let first = Value::Text("first".to_string());
+        let second = Value::Text("second".to_string());
+        let first_hash = stable_hash_value(&first).expect("first hash");
+        let second_hash = stable_hash_value(&second).expect("second hash");
+
+        assert!(!values.contains(first_hash, &first));
+        values.insert(first_hash, first.clone());
+        assert!(values.contains(first_hash, &first));
+        assert!(!values.contains(second_hash, &second));
+        values.insert(second_hash, second.clone());
+        assert!(values.contains(second_hash, &second));
+    }
+
+    #[test]
+    fn scalar_distinct_collision_bucket_compares_exact_values() {
+        let mut bucket = ScalarDistinctValueBucket::Single(Value::Nat64(1));
+        bucket.insert(Value::Nat64(2));
+
+        assert!(bucket.contains(&Value::Nat64(1)));
+        assert!(bucket.contains(&Value::Nat64(2)));
+        assert!(!bucket.contains(&Value::Nat64(3)));
     }
 }

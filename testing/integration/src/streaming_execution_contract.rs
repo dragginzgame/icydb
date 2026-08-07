@@ -287,7 +287,7 @@ pub const STREAMING_EXECUTION_FIXTURES: &[StreamingExecutionFixture] = &[
     ),
     fixture(
         "group_ordered_mid_group",
-        "SELECT group_key, COUNT(*) FROM PerfAuditStreamingRow GROUP BY group_key ORDER BY group_key ASC LIMIT 10",
+        "SELECT group_key, COUNT(*) FROM PerfAuditStreamingRow WHERE group_key >= 0 AND group_key < 17 GROUP BY group_key ORDER BY group_key ASC LIMIT 10",
         10,
         10,
         StreamingFixtureDirection::Asc,
@@ -297,9 +297,9 @@ pub const STREAMING_EXECUTION_FIXTURES: &[StreamingExecutionFixture] = &[
     ),
     fixture(
         "group_hash_noncontiguous",
-        "SELECT label, COUNT(*) FROM PerfAuditStreamingRow GROUP BY label ORDER BY label ASC",
+        "SELECT label, COUNT(*) FROM PerfAuditStreamingRow GROUP BY label ORDER BY label ASC LIMIT 10",
         3,
-        0,
+        10,
         StreamingFixtureDirection::NotApplicable,
         StreamingFixtureContinuation::Live,
         StreamingFixtureEvidence::PeakRetainedBackingBytes,
@@ -607,7 +607,7 @@ pub const MATERIALIZATION_INVENTORY: &[MaterializationInventoryEntry] = &[
     MaterializationInventoryEntry {
         id: "scalar_aggregate_distinct_values",
         owner_file: "crates/icydb-core/src/db/executor/aggregate/scalar_terminals/reducer.rs",
-        owner_symbol: "distinct_values: Vec::new()",
+        owner_symbol: "struct ScalarDistinctValueSet",
         reason: MaterializationReason::SemanticBlockingState,
         lifetime: MaterializationLifetime::Operator,
         size_authority: MaterializationSizeAuthority::RowCount,

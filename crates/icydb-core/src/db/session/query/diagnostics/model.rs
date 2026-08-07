@@ -166,6 +166,8 @@ pub struct GroupedExecutionAttribution {
     pub peak_live_aggregate_states: u64,
     /// Peak number of simultaneously live grouped DISTINCT values.
     pub peak_live_distinct_values: u64,
+    /// Peak conservative grouped state bytes, including owned group-key backing.
+    pub peak_estimated_state_bytes: u64,
     /// Whether bounded ordered selection stopped the source scan early.
     pub early_scan_stop: bool,
     /// Dedicated grouped `COUNT(*)` hot-path attribution.
@@ -190,6 +192,7 @@ impl GroupedExecutionAttribution {
             peak_live_groups: runtime.peak_live_groups,
             peak_live_aggregate_states: runtime.peak_live_aggregate_states,
             peak_live_distinct_values: runtime.peak_live_distinct_values,
+            peak_estimated_state_bytes: runtime.peak_estimated_state_bytes,
             early_scan_stop: runtime.early_scan_stop,
             count: GroupedCountAttribution::from_executor(count),
         }

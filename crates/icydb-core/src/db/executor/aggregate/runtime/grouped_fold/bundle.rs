@@ -260,7 +260,7 @@ impl<State> OrderedGroupFoldState<State> {
         create_state: impl FnOnce() -> State,
         execution_context: &mut ExecutionContext,
     ) -> Result<(), GroupError> {
-        execution_context.reserve_ordered_group_states(self.aggregate_state_count)?;
+        execution_context.reserve_ordered_group_states(self.aggregate_state_count, &group_key)?;
         self.active = Some((group_key, create_state()));
 
         Ok(())
@@ -272,7 +272,7 @@ impl<State> OrderedGroupFoldState<State> {
         execution_context: &mut ExecutionContext,
     ) -> Option<(GroupKey, State)> {
         let active = self.active.take()?;
-        execution_context.release_ordered_group_states(self.aggregate_state_count);
+        execution_context.release_ordered_group_states(self.aggregate_state_count, &active.0);
 
         Some(active)
     }
@@ -468,6 +468,7 @@ impl GroupedAggregateBundle {
             group_count_before_insert,
             group_capacity_before_insert,
             self.aggregate_specs.len(),
+            &group_key,
         )?;
         let new_index = self.groups.len();
         let group_hash = group_key.hash();
@@ -659,6 +660,7 @@ mod tests {
                     AggregateKind, ExecutionConfig, ExecutionContext, GroupError,
                     contracts::GroupedDistinctExecutionMode,
                 },
+                budget::runtime_value_work,
                 pipeline::runtime::RowView,
             },
             query::plan::FieldSlot,
@@ -815,5 +817,54 @@ mod tests {
         assert_eq!(runtime_stats.groups_finalized(), 1);
         assert_eq!(runtime_stats.peak_live_groups(), 1);
         assert!(runtime_stats.early_scan_stop());
+    }
+
+    #[test]
+    fn ordered_grouped_fold_accounts_owned_group_key_backing_and_releases_it() {
+        let mut fold = count_rows_fold();
+        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+        let group_fields = [FieldSlot::from_test_slot(0, "group")];
+        let group_value = Value::Text("large-group-key".repeat(512));
+        let expected_key_bytes = runtime_value_work(&Value::List(vec![group_value.clone()])).0;
+
+        fold.ingest_row(
+            &mut context,
+            &data_key(1),
+            &RowView::new(vec![Some(group_value)]),
+            &group_fields,
+            Direction::Asc,
+            |_| Ok(false),
+        )
+        .expect("large ordered group key should be admitted");
+        assert!(context.budget().estimated_bytes() >= expected_key_bytes);
+
+        fold.finish(&mut context, |_| Ok(false))
+            .expect("large ordered group should close");
+        assert_eq!(context.budget().estimated_bytes(), 0);
+        assert!(
+            context
+                .successful_runtime_stats(false)
+                .peak_estimated_state_bytes()
+                >= expected_key_bytes
+        );
+    }
+
+    #[test]
+    fn ordered_grouped_fold_rejects_a_key_larger_than_the_group_state_budget() {
+        let mut fold = count_rows_fold();
+        let mut context = ExecutionContext::new(ExecutionConfig::with_hard_limits(8, 1_024));
+        let group_fields = [FieldSlot::from_test_slot(0, "group")];
+        let err = fold
+            .ingest_row(
+                &mut context,
+                &data_key(1),
+                &RowView::new(vec![Some(Value::Text("oversize".repeat(512)))]),
+                &group_fields,
+                Direction::Asc,
+                |_| Ok(false),
+            )
+            .expect_err("oversize retained group key must fail before insertion");
+
+        assert!(matches!(err, GroupError::MemoryLimitExceeded { .. }));
     }
 }

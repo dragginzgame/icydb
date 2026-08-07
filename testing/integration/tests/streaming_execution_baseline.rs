@@ -192,12 +192,101 @@ fn distinct_routes_publish_adjacent_and_global_ownership_evidence() {
     );
 }
 
+#[test]
+fn grouped_routes_publish_closed_ordered_and_complete_hash_state_evidence() {
+    let fixture = install_fixture_canister("sql_perf");
+    let facts: Result<StreamingExecutionFixtureFacts, Error> = fixture
+        .update_candid("load_streaming_execution_fixture", ())
+        .expect("streaming fixture facts should decode");
+    facts.expect("streaming fixture should load");
+
+    let ordered = query_with_perf(
+        &fixture,
+        "SELECT group_key, COUNT(*) FROM PerfAuditStreamingRow WHERE group_key >= 0 AND group_key < 17 GROUP BY group_key ORDER BY group_key ASC LIMIT 10",
+    );
+    let SqlQueryResult::Grouped(ordered_rows) = &ordered.result else {
+        panic!("ordered grouped fixture should return grouped rows");
+    };
+    assert_eq!(ordered_rows.row_count, 10);
+    assert_eq!(
+        ordered_rows.rows,
+        vec![
+            vec!["0".to_string(), "121".to_string()],
+            vec!["1".to_string(), "121".to_string()],
+            vec!["2".to_string(), "121".to_string()],
+            vec!["3".to_string(), "121".to_string()],
+            vec!["4".to_string(), "121".to_string()],
+            vec!["5".to_string(), "121".to_string()],
+            vec!["6".to_string(), "121".to_string()],
+            vec!["7".to_string(), "121".to_string()],
+            vec!["8".to_string(), "120".to_string()],
+            vec!["9".to_string(), "120".to_string()],
+        ],
+        "ordered execution must emit only complete closed groups",
+    );
+    assert!(ordered_rows.next_cursor.is_some());
+    let ordered_work = ordered
+        .attribution
+        .grouped
+        .expect("ordered grouping should publish attribution");
+    assert_eq!(ordered_work.groups_observed, ordered_work.groups_finalized);
+    assert_eq!(ordered_work.peak_live_groups, 1);
+    assert_eq!(ordered_work.peak_live_aggregate_states, 1);
+    assert!(ordered_work.early_scan_stop);
+    assert!(ordered_work.peak_estimated_state_bytes > 0);
+
+    let hash = query_with_perf(
+        &fixture,
+        "SELECT label, COUNT(*) FROM PerfAuditStreamingRow GROUP BY label ORDER BY label ASC LIMIT 10",
+    );
+    let SqlQueryResult::Grouped(hash_rows) = &hash.result else {
+        panic!("hash grouped fixture should return grouped rows");
+    };
+    assert_eq!(hash_rows.row_count, 3);
+    assert_eq!(
+        hash_rows.rows,
+        vec![
+            vec!["early-wide".to_string(), "1".to_string()],
+            vec!["late-match".to_string(), "1".to_string()],
+            vec!["ordinary".to_string(), "2046".to_string()],
+        ],
+        "hash execution must combine noncontiguous rows before emitting groups",
+    );
+    assert!(hash_rows.next_cursor.is_none());
+    let hash_work = hash
+        .attribution
+        .grouped
+        .expect("hash grouping should publish attribution");
+    assert_eq!(hash_work.rows_scanned, 2_048);
+    assert_eq!(hash_work.groups_observed, 3);
+    assert_eq!(hash_work.groups_finalized, 3);
+    assert_eq!(hash_work.peak_live_groups, 3);
+    assert_eq!(hash_work.peak_live_aggregate_states, 3);
+    assert!(!hash_work.early_scan_stop);
+    assert!(
+        hash_work.peak_estimated_state_bytes > ordered_work.peak_estimated_state_bytes,
+        "complete hash grouping should retain its three groups while ordered grouping retains one",
+    );
+
+    println!(
+        "icydb_0222_patch8 ordered_instructions={} ordered_rows_scanned={} ordered_peak_groups={} ordered_peak_bytes={} hash_instructions={} hash_rows_scanned={} hash_peak_groups={} hash_peak_bytes={}",
+        ordered.attribution.total_local_instructions,
+        ordered_work.rows_scanned,
+        ordered_work.peak_live_groups,
+        ordered_work.peak_estimated_state_bytes,
+        hash.attribution.total_local_instructions,
+        hash_work.rows_scanned,
+        hash_work.peak_live_groups,
+        hash_work.peak_estimated_state_bytes,
+    );
+}
+
 fn query_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> StreamingQueryPerfResult {
     let measured: Result<StreamingQueryPerfResult, Error> = fixture
         .query_candid("query_streaming_execution_with_perf", (sql.to_string(),))
         .expect("streaming perf query should decode");
 
-    measured.expect("streaming perf query should execute")
+    measured.unwrap_or_else(|error| panic!("streaming perf query should execute: {sql}: {error:?}"))
 }
 
 fn assert_patch_6_scalar_evidence(fixture_id: &str, attribution: &SqlQueryExecutionAttribution) {

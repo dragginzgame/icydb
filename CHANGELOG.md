@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.222.md](docs/changelog/0.222.md)
 
+- `0.222.2` bounds and reports grouped retained state and speeds aggregate
+  `DISTINCT` admission; potentially breaking Rust diagnostics consumers must
+  handle the added `peak_estimated_state_bytes` field.
+
 - `0.222.1` bounds projection, top-N, and `DISTINCT` retained state without
   changing results or cursor/persisted formats; potentially breaking source
   consumers must handle the added optional `distinct_projection` attribution.

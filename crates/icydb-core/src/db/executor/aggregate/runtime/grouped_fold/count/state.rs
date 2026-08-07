@@ -99,7 +99,11 @@ impl GroupedCountState {
         let group_count_before_insert = self.groups.len();
         let group_capacity_before_insert = self.groups.capacity();
         grouped_execution_context
-            .record_new_group(group_count_before_insert, group_capacity_before_insert)
+            .record_new_group(
+                group_count_before_insert,
+                group_capacity_before_insert,
+                &group_key,
+            )
             .map_err(GroupError::into_internal_error)?;
         let new_index = self.groups.len();
         self.groups.push((group_key, 1));

@@ -25,7 +25,7 @@ use crate::{
                     grouped_output::project_grouped_values_from_compiled_projection,
                 },
             },
-            budget::{charge_current_execution_budget, charge_sort_work},
+            budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
             group::GroupKey,
             pipeline::contracts::GroupedRouteStage,
             projection::{
@@ -239,6 +239,28 @@ impl PartialOrd for GroupedPageCandidate {
 }
 
 impl GroupedPageCandidate {
+    // Estimate all owned value backing retained by this candidate. Top-K order
+    // terms are separate owned values and therefore remain chargeable even
+    // when they are equal to one group or aggregate output value.
+    fn estimated_backing_bytes(&self) -> u64 {
+        let group_key_bytes = runtime_value_work(self.group_key.canonical_value()).0;
+        let aggregate_bytes = self.aggregate_values.iter().fold(0_u64, |total, value| {
+            total.saturating_add(runtime_value_work(value).0)
+        });
+        let ranking_bytes = match &self.ranking {
+            GroupedPageCandidateRanking::Canonical { .. } => 0,
+            GroupedPageCandidateRanking::TopK { terms } => {
+                terms.iter().fold(0_u64, |total, term| {
+                    total.saturating_add(runtime_value_work(&term.value).0)
+                })
+            }
+        };
+
+        group_key_bytes
+            .saturating_add(aggregate_bytes)
+            .saturating_add(ranking_bytes)
+    }
+
     // Finalize one grouped state bundle into one candidate row while
     // preserving the single-aggregate fast path's scalar finalize contract.
     fn from_finalized(
@@ -632,6 +654,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
                 charge_grouped_top_k_candidate::<GroupedPageCandidate>(
                     retained.len(),
                     selection_bound,
+                    candidate.estimated_backing_bytes(),
                 )?;
                 if retained.len() < selection_bound {
                     retained.push(candidate);
@@ -699,6 +722,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
 fn charge_grouped_top_k_candidate<R>(
     retained_count: usize,
     selection_bound: usize,
+    retained_backing_bytes: u64,
 ) -> Result<(), InternalError> {
     let comparisons = if retained_count == 0 {
         0
@@ -714,7 +738,9 @@ fn charge_grouped_top_k_candidate<R>(
     )?;
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::SortTemporaryBytes,
-        u64::try_from(std::mem::size_of::<R>()).unwrap_or(u64::MAX),
+        u64::try_from(std::mem::size_of::<R>())
+            .unwrap_or(u64::MAX)
+            .saturating_add(retained_backing_bytes),
     )
 }
 
@@ -820,7 +846,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{GroupedPageCandidate, finalize_grouped_page_rows_with_shaper};
+    use super::{
+        GroupedPageCandidate, GroupedPageCandidateRanking, ResolvedGroupedTopKOrderTerm,
+        finalize_grouped_page_rows_with_shaper,
+    };
     use crate::{
         db::{
             executor::{
@@ -917,5 +946,22 @@ mod tests {
             )]
         );
         assert_eq!(next_cursor_boundary, None);
+    }
+
+    #[test]
+    fn grouped_top_k_candidate_counts_owned_order_value_backing() {
+        let candidate = GroupedPageCandidate {
+            group_key: GroupKey::from_group_values(vec![Value::Text("group".repeat(64))])
+                .expect("candidate group key"),
+            aggregate_values: vec![Value::Text("aggregate".repeat(64))],
+            ranking: GroupedPageCandidateRanking::TopK {
+                terms: vec![ResolvedGroupedTopKOrderTerm {
+                    value: Value::Text("order".repeat(64)),
+                    direction: crate::db::query::plan::OrderDirection::Asc,
+                }],
+            },
+        };
+
+        assert!(candidate.estimated_backing_bytes() > 1_000);
     }
 }

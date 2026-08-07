@@ -334,6 +334,7 @@ pub(in crate::db) struct GroupedRuntimeAttribution {
     pub(in crate::db) peak_live_groups: u64,
     pub(in crate::db) peak_live_aggregate_states: u64,
     pub(in crate::db) peak_live_distinct_values: u64,
+    pub(in crate::db) peak_estimated_state_bytes: u64,
     pub(in crate::db) early_scan_stop: bool,
 }
 
@@ -349,6 +350,7 @@ impl GroupedRuntimeAttribution {
             peak_live_groups: stats.peak_live_groups(),
             peak_live_aggregate_states: stats.peak_live_aggregate_states(),
             peak_live_distinct_values: stats.peak_live_distinct_values(),
+            peak_estimated_state_bytes: stats.peak_estimated_state_bytes(),
             early_scan_stop: stats.early_scan_stop(),
         }
     }
@@ -363,6 +365,7 @@ impl GroupedRuntimeAttribution {
             peak_live_groups: 0,
             peak_live_aggregate_states: 0,
             peak_live_distinct_values: 0,
+            peak_estimated_state_bytes: 0,
             early_scan_stop: false,
         }
     }

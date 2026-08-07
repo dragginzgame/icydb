@@ -125,6 +125,7 @@ impl ExecutionBudget {
         new_group_key: bool,
         group_count_before_insert: usize,
         group_capacity_before_insert: usize,
+        group_key: &GroupKey,
     ) -> Result<(), GroupError> {
         let next_groups = if new_group_key {
             self.groups.saturating_add(1)
@@ -139,8 +140,16 @@ impl ExecutionBudget {
             ));
         }
 
-        let bytes_delta =
-            estimated_new_group_bytes(group_count_before_insert, group_capacity_before_insert);
+        let key_work = if new_group_key {
+            runtime_value_work(group_key.canonical_value())
+        } else {
+            (0, 0)
+        };
+        let bytes_delta = estimated_new_group_bytes(
+            group_count_before_insert,
+            group_capacity_before_insert,
+            key_work.0,
+        );
         let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
         if next_bytes > config.max_group_bytes() {
             return Err(GroupError::memory_limit_exceeded(
@@ -154,6 +163,11 @@ impl ExecutionBudget {
             charge_current_execution_budget(
                 DiagnosticExecutionBudgetResource::GroupDistinctEntries,
                 1,
+            )
+            .map_err(GroupError::from)?;
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::NestedValueSteps,
+                key_work.1,
             )
             .map_err(GroupError::from)?;
         }
@@ -188,6 +202,7 @@ impl ExecutionBudget {
         &mut self,
         config: &ExecutionConfig,
         aggregate_state_count: usize,
+        group_key: &GroupKey,
     ) -> Result<(), GroupError> {
         let next_groups = self.groups.saturating_add(1);
         if next_groups > config.max_groups() {
@@ -198,7 +213,8 @@ impl ExecutionBudget {
             ));
         }
 
-        let bytes_delta = ordered_active_group_bytes(aggregate_state_count);
+        let key_work = runtime_value_work(group_key.canonical_value());
+        let bytes_delta = ordered_active_group_bytes(aggregate_state_count, key_work.0);
         let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
         if next_bytes > config.max_group_bytes() {
             return Err(GroupError::memory_limit_exceeded(
@@ -210,6 +226,11 @@ impl ExecutionBudget {
 
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1)
             .map_err(GroupError::from)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            key_work.1,
+        )
+        .map_err(GroupError::from)?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
             bytes_delta,
@@ -239,8 +260,9 @@ impl ExecutionBudget {
 
     // Release one ordered active group's live state without erasing the
     // cumulative group and aggregate-state work already observed.
-    fn release_ordered_group_states(&mut self, aggregate_state_count: usize) {
-        let bytes_delta = ordered_active_group_bytes(aggregate_state_count);
+    fn release_ordered_group_states(&mut self, aggregate_state_count: usize, group_key: &GroupKey) {
+        let key_bytes = runtime_value_work(group_key.canonical_value()).0;
+        let bytes_delta = ordered_active_group_bytes(aggregate_state_count, key_bytes);
         debug_assert!(
             self.estimated_bytes >= bytes_delta,
             "ordered grouped state release must not exceed its live reservation",
@@ -314,6 +336,7 @@ pub(in crate::db::executor) struct GroupedRuntimeStats {
     peak_live_groups: u64,
     peak_live_aggregate_states: u64,
     peak_live_distinct_values: u64,
+    peak_estimated_state_bytes: u64,
     early_scan_stop: bool,
 }
 
@@ -347,6 +370,12 @@ impl GroupedRuntimeStats {
     #[must_use]
     pub(in crate::db::executor) const fn peak_live_distinct_values(&self) -> u64 {
         self.peak_live_distinct_values
+    }
+
+    /// Return the peak conservative grouped state estimate, including owned group-key backing.
+    #[must_use]
+    pub(in crate::db::executor) const fn peak_estimated_state_bytes(&self) -> u64 {
+        self.peak_estimated_state_bytes
     }
 
     /// Return whether bounded ordered page selection stopped the source scan early.
@@ -471,6 +500,7 @@ impl ExecutionContext {
             peak_live_groups: self.budget.peak_live_groups(),
             peak_live_aggregate_states: self.budget.peak_live_aggregate_states(),
             peak_live_distinct_values: self.budget.peak_live_distinct_values(),
+            peak_estimated_state_bytes: self.budget.peak_estimated_bytes(),
             early_scan_stop,
         }
     }
@@ -480,12 +510,14 @@ impl ExecutionContext {
         &mut self,
         group_count_before_insert: usize,
         group_capacity_before_insert: usize,
+        group_key: &GroupKey,
     ) -> Result<(), GroupError> {
         self.budget.record_new_group_state(
             &self.config,
             true,
             group_count_before_insert,
             group_capacity_before_insert,
+            group_key,
         )
     }
 
@@ -498,6 +530,7 @@ impl ExecutionContext {
         group_count_before_insert: usize,
         group_capacity_before_insert: usize,
         aggregate_state_count: usize,
+        group_key: &GroupKey,
     ) -> Result<(), GroupError> {
         debug_assert!(
             aggregate_state_count > 0,
@@ -508,7 +541,11 @@ impl ExecutionContext {
         // grouped count and other one-aggregate shapes do not pay the generic
         // bundle loop on every new group insert.
         if aggregate_state_count == 1 {
-            return self.record_new_group(group_count_before_insert, group_capacity_before_insert);
+            return self.record_new_group(
+                group_count_before_insert,
+                group_capacity_before_insert,
+                group_key,
+            );
         }
 
         // Count `max_groups` against caller-proven unique canonical group keys,
@@ -521,6 +558,7 @@ impl ExecutionContext {
                 state_index == 0,
                 group_count_before_insert,
                 group_capacity_before_insert,
+                group_key,
             )?;
         }
 
@@ -531,22 +569,24 @@ impl ExecutionContext {
     pub(in crate::db::executor::aggregate) fn reserve_ordered_group_states(
         &mut self,
         aggregate_state_count: usize,
+        group_key: &GroupKey,
     ) -> Result<(), GroupError> {
         if aggregate_state_count == 0 {
             return Err(GroupError::from(InternalError::query_executor_invariant()));
         }
 
         self.budget
-            .reserve_ordered_group_states(&self.config, aggregate_state_count)
+            .reserve_ordered_group_states(&self.config, aggregate_state_count, group_key)
     }
 
     /// Release the live state owned by one finalized ordered group.
     pub(in crate::db::executor::aggregate) fn release_ordered_group_states(
         &mut self,
         aggregate_state_count: usize,
+        group_key: &GroupKey,
     ) {
         self.budget
-            .release_ordered_group_states(aggregate_state_count);
+            .release_ordered_group_states(aggregate_state_count, group_key);
     }
 
     /// Record one admitted grouped DISTINCT value against the total budget.
@@ -604,13 +644,16 @@ impl ExecutionContext {
     pub(in crate::db::executor) fn record_implicit_single_group(
         &mut self,
     ) -> Result<(), GroupError> {
-        self.record_new_group(0, 0)
+        let implicit_key = GroupKey::from_group_values(Vec::new())
+            .map_err(|error| GroupError::from(error.into_internal_error()))?;
+        self.record_new_group(0, 0, &implicit_key)
     }
 }
 
 fn estimated_new_group_bytes(
     group_count_before_insert: usize,
     group_capacity_before_insert: usize,
+    retained_key_bytes: u64,
 ) -> u64 {
     let entry_size = size_of::<(GroupKey, GroupedTerminalAggregateState)>();
     let entry_growth = if group_count_before_insert < group_capacity_before_insert {
@@ -622,15 +665,15 @@ fn estimated_new_group_bytes(
             .saturating_mul(entry_size)
     };
 
-    saturating_u64_from_usize(entry_growth)
+    saturating_u64_from_usize(entry_growth).saturating_add(retained_key_bytes)
 }
 
-fn ordered_active_group_bytes(aggregate_state_count: usize) -> u64 {
+fn ordered_active_group_bytes(aggregate_state_count: usize, retained_key_bytes: u64) -> u64 {
     let bytes = size_of::<GroupKey>().saturating_add(
         aggregate_state_count.saturating_mul(size_of::<GroupedTerminalAggregateState>()),
     );
 
-    saturating_u64_from_usize(bytes)
+    saturating_u64_from_usize(bytes).saturating_add(retained_key_bytes)
 }
 
 const fn derived_max_distinct_values_per_group(max_group_bytes: u64) -> u64 {
