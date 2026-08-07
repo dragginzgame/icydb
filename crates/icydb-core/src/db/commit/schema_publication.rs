@@ -834,6 +834,10 @@ fn validate_user_index_domain_candidate(
 }
 
 #[cfg(not(feature = "sql"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the no-SQL domain is infallible while preserving the shared fallible publication callback"
+)]
 const fn apply_staged_schema_domains(
     _store: StoreHandle,
     domains: StagedSchemaDomains,
