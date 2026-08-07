@@ -71,7 +71,7 @@ fn executor_runtime_modules_have_no_raw_access_path_variant_matching() {
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
         let runtime_source = strip_cfg_test_items(source.as_str());
-        if runtime_source.contains("AccessPath::") {
+        if source_uses_raw_access_path_variant_matching(runtime_source.as_str()) {
             violations.push(source_path);
         }
     }
@@ -81,6 +81,16 @@ fn executor_runtime_modules_have_no_raw_access_path_variant_matching() {
         "executor runtime modules must not pattern-match raw AccessPath variants; violations: {}",
         join_display_paths(&violations),
     );
+}
+
+#[test]
+fn raw_access_path_variant_detector_requires_an_identifier_boundary() {
+    assert!(source_uses_raw_access_path_variant_matching(
+        "match access { AccessPath::ByKey => {} }",
+    ));
+    assert!(!source_uses_raw_access_path_variant_matching(
+        "RequestDiagnosticAccessPath::ByKey",
+    ));
 }
 
 #[test]

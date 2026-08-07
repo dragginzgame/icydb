@@ -1,7 +1,5 @@
 #![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
 
-use std::future::Future as _;
-
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 

@@ -23,6 +23,17 @@ fn source_uses_direct_store_or_registry_access(source: &str) -> bool {
     source.contains(".with_store(") || source.contains(".with_store_registry(")
 }
 
+// Detect the raw planner type without treating diagnostics-owned names ending
+// in `AccessPath` as planner-variant matches.
+fn source_uses_raw_access_path_variant_matching(source: &str) -> bool {
+    source.match_indices("AccessPath::").any(|(offset, _)| {
+        source[..offset]
+            .chars()
+            .next_back()
+            .is_none_or(|character| !(character.is_alphanumeric() || character == '_'))
+    })
+}
+
 // Render one deterministic path list without materializing an intermediate Vec
 // solely for separator joining in assertion messages.
 fn join_display_paths(paths: &[PathBuf]) -> String {

@@ -2689,12 +2689,15 @@ mod identity_pre_key_tests {
         HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
         with_query_execution_budget_for_tests,
     };
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    use crate::db::{
+        CompareProofAndAdvanceError, DynamicQuery, ExhaustiveReadError, RawDataStoreKey,
+        ReadSetRevisionError, ResumableJobAdvance, ResumableJobAdvanceRequest,
+        ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey,
+        ResumableJobStatus, asc,
+    };
     use crate::{
         db::{
-            CompareProofAndAdvanceError, DynamicQuery, ExhaustiveReadError, RawDataStoreKey,
-            ReadSetRevisionError, ResumableJobAdvance, ResumableJobAdvanceRequest,
-            ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
-            ResumableJobIdempotencyKey, ResumableJobStatus, asc,
             commit::{database_incarnation_id, forget_recovered_domain_for_tests},
             data::DataStore,
             executor::{MutationCommitInterruption, interrupt_next_mutation_commit_for_tests},
@@ -2725,11 +2728,9 @@ mod identity_pre_key_tests {
         value::{InputValue, OutputValue, Value},
     };
     use icydb_schema::{FieldSourceKey, ScalarType};
-    use std::{
-        cell::{Cell, RefCell},
-        collections::BTreeMap,
-        time::Instant,
-    };
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    use std::cell::Cell;
+    use std::{cell::RefCell, collections::BTreeMap, time::Instant};
 
     const STORE_PATH: &str = "session::write::identity_pre_key_tests::Store";
     const ENTITY_SOURCE: &str = "session::write::identity_pre_key_tests::Entity";
