@@ -294,6 +294,7 @@ impl<R> PendingOrderRows<R> {
     }
 
     /// Estimate complete backing bytes retained by the pending row set.
+    #[cfg(feature = "diagnostics")]
     #[must_use]
     pub(in crate::db::executor) fn retained_backing_bytes(&self) -> u64
     where
@@ -447,6 +448,7 @@ impl<'a> DataRowOrderWindow<'a> {
     }
 
     /// Return the largest complete backing total retained while selecting.
+    #[cfg(feature = "diagnostics")]
     #[must_use]
     pub(in crate::db::executor) const fn peak_retained_backing_bytes(&self) -> u64 {
         match &self.candidates {
@@ -546,6 +548,7 @@ where
     }
 
     /// Return the largest complete backing total retained while selecting.
+    #[cfg(feature = "diagnostics")]
     #[must_use]
     pub(in crate::db::executor) const fn peak_retained_backing_bytes(&self) -> u64 {
         match &self.candidates {
