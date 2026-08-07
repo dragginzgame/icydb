@@ -21,6 +21,7 @@ use crate::{
 /// Keeps consumption order explicit and exposes one end-of-traversal invariant check.
 ///
 
+#[derive(Clone, Copy)]
 pub(in crate::db::executor) struct AccessSpecCursor<'a> {
     prefixes: &'a [LoweredIndexPrefixSpec],
     ranges: &'a [LoweredIndexRangeSpec],

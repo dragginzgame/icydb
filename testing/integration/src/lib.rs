@@ -4,6 +4,7 @@ mod canister_build_cache;
 
 pub mod canister_artifact;
 pub mod sql_performance_contract;
+pub mod streaming_execution_contract;
 pub mod wasm_measurement;
 pub mod wasm_optimizer;
 

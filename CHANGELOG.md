@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.222.x] 🌊 - 2026-08-07 - Streaming Execution And Key-First Operators
+
+Detailed notes: [docs/changelog/0.222.md](docs/changelog/0.222.md)
+
+- `0.222.0` adds charged key-first index traversal and bounded sparse-index
+  intersection, substantially reducing unnecessary row reads while preserving
+  query results and public or persisted formats.
+
 ## [0.221.x] 🛡️ - 2026-08-05 - Request-Bounded Query Reliability And Resumable Reads
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)

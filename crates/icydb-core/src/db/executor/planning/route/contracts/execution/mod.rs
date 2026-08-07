@@ -279,7 +279,7 @@ pub(in crate::db::executor) struct IndexPrefixChildExpansionBudget {
 
 impl IndexPrefixChildExpansionBudget {
     const DEFAULT_PREFIXES: usize = 32;
-    const MAX_PREFIXES: usize = 128;
+    pub(in crate::db::executor) const MAX_PREFIXES: usize = 128;
 
     #[must_use]
     pub(in crate::db::executor) const fn from_fetch_limit(fetch_limit: Option<usize>) -> Self {

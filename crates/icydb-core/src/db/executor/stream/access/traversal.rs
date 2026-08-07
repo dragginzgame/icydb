@@ -5,9 +5,12 @@
 
 use crate::{
     db::{
+        data::{DecodedDataStoreKey, RawDataStoreKey},
         executor::{
             ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            budget::charge_current_execution_budget,
+            lowered_index_prefix_exact_cardinality,
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
             route::IndexPrefixChildExpansionHint,
             stream::{
@@ -18,7 +21,10 @@ use crate::{
                     },
                     physical,
                 },
-                key::{KeyOrderComparator, OrderedKeyStreamBox},
+                key::{
+                    KeyOrderComparator, OrderedKeyStreamBox,
+                    ordered_key_stream_from_materialized_keys,
+                },
             },
             traversal::IndexRangeTraversalContract,
         },
@@ -27,6 +33,8 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
+use std::mem::size_of;
 
 ///
 /// TraversalInputs
@@ -47,6 +55,50 @@ struct TraversalInputs<'a> {
     index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
+#[cfg(test)]
+mod exact_intersection_tests {
+    use super::{AccessPlanStreamResolver, ExactIntersectionPreflight};
+
+    fn preflight(child_cardinalities: &[u64]) -> ExactIntersectionPreflight {
+        ExactIntersectionPreflight {
+            child_cardinalities: child_cardinalities.to_vec(),
+            total_cardinality: child_cardinalities.iter().sum(),
+        }
+    }
+
+    #[test]
+    fn worst_case_cost_gate_accepts_sparse_fixtures_and_rejects_dense_ties() {
+        assert!(
+            AccessPlanStreamResolver::exact_intersection_probe_can_beat_single(&preflight(&[
+                21, 20
+            ]),)
+        );
+        assert!(
+            AccessPlanStreamResolver::exact_intersection_probe_can_beat_single(&preflight(&[
+                120, 21, 20
+            ]),)
+        );
+        assert!(
+            !AccessPlanStreamResolver::exact_intersection_probe_can_beat_single(&preflight(&[
+                20, 20
+            ]),)
+        );
+    }
+
+    #[test]
+    fn overflowed_cost_authority_fails_closed() {
+        assert!(
+            !AccessPlanStreamResolver::exact_intersection_cost_beats_single(
+                &ExactIntersectionPreflight {
+                    child_cardinalities: vec![u64::MAX, 1],
+                    total_cardinality: u64::MAX,
+                },
+                1,
+            )
+        );
+    }
+}
+
 impl<'a> TraversalInputs<'a> {
     // Clone this traversal envelope with one overridden physical fetch hint.
     const fn with_physical_fetch_hint(self, physical_fetch_hint: Option<usize>) -> Self {
@@ -65,6 +117,17 @@ impl<'a> TraversalInputs<'a> {
             execution_policy: self
                 .execution_policy
                 .with_index_leaf_order_policy(IndexLeafOrderPolicy::CanonicalKey),
+            ..self
+        }
+    }
+
+    // Exact-prefix intersection leaves retain physical primary-key suffix order
+    // so the bounded overlap probe can intersect them without reordering.
+    const fn with_physical_leaf_order(self) -> Self {
+        Self {
+            execution_policy: self
+                .execution_policy
+                .with_index_leaf_order_policy(IndexLeafOrderPolicy::PreservePhysicalLeaf),
             ..self
         }
     }
@@ -184,6 +247,23 @@ impl TraversalRuntime {
 
 struct AccessPlanStreamResolver;
 
+const MAX_ATOMIC_EXACT_INTERSECTION_ENTRIES: u64 = 256;
+const MAX_ATOMIC_EXACT_INTERSECTION_KEY_BYTES: u64 =
+    MAX_ATOMIC_EXACT_INTERSECTION_ENTRIES * RawDataStoreKey::MAX_STORED_SIZE_BYTES;
+const INTERSECTION_ROW_READ_COST_WEIGHT: u64 = 32;
+
+struct ExactIntersectionPreflight {
+    child_cardinalities: Vec<u64>,
+    total_cardinality: u64,
+}
+
+enum ExactIntersectionAdmission {
+    NotApplicable,
+    ConservativeFallback,
+    ProvenEmpty,
+    Probe(ExactIntersectionPreflight),
+}
+
 impl AccessPlanStreamResolver {
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment(
@@ -224,6 +304,166 @@ impl AccessPlanStreamResolver {
         }
 
         Ok(streams)
+    }
+
+    // Collect direct exact-prefix children while retaining their accepted
+    // primary-key suffix order for one bounded overlap probe.
+    fn collect_exact_intersection_child_streams(
+        runtime: &TraversalRuntime,
+        children: &[ExecutableAccessPlan<'_, Value>],
+        inputs: TraversalInputs<'_>,
+        spec_cursor: &mut AccessSpecCursor<'_>,
+    ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
+        let mut streams = Vec::with_capacity(children.len());
+        for child in children {
+            let child_inputs = inputs
+                .with_physical_fetch_hint(None)
+                .with_physical_leaf_order();
+            streams.push(Self::produce_key_stream(
+                runtime,
+                child,
+                child_inputs,
+                spec_cursor,
+            )?);
+        }
+
+        Ok(streams)
+    }
+
+    fn exact_intersection_admission(
+        runtime: &TraversalRuntime,
+        children: &[ExecutableAccessPlan<'_, Value>],
+        inputs: TraversalInputs<'_>,
+        spec_cursor: AccessSpecCursor<'_>,
+    ) -> ExactIntersectionAdmission {
+        if !(2..=3).contains(&children.len()) || inputs.index_predicate_execution.is_some() {
+            return ExactIntersectionAdmission::NotApplicable;
+        }
+
+        let mut metadata_cursor = spec_cursor;
+        let mut child_cardinalities = Vec::with_capacity(children.len());
+        let mut total_cardinality = 0u64;
+        for child in children {
+            let ExecutableAccessNode::Path(path) = child.node() else {
+                return ExactIntersectionAdmission::NotApplicable;
+            };
+            let ExecutionPathPayload::IndexPrefix { .. } = path else {
+                return ExactIntersectionAdmission::NotApplicable;
+            };
+            let path_facts = path.shape_facts();
+            if path_facts.index_prefix_spec_count() != 1 || path_facts.consumes_index_range_spec() {
+                return ExactIntersectionAdmission::NotApplicable;
+            }
+            let Some(spec) = metadata_cursor
+                .next_index_prefix_specs(1)
+                .and_then(|specs| specs.first())
+            else {
+                return ExactIntersectionAdmission::ConservativeFallback;
+            };
+            let Some(cardinality) = lowered_index_prefix_exact_cardinality(runtime.store, spec)
+            else {
+                return ExactIntersectionAdmission::ConservativeFallback;
+            };
+            if cardinality == 0 {
+                return ExactIntersectionAdmission::ProvenEmpty;
+            }
+            let Some(next_total) = total_cardinality.checked_add(cardinality) else {
+                return ExactIntersectionAdmission::ConservativeFallback;
+            };
+            if next_total > MAX_ATOMIC_EXACT_INTERSECTION_ENTRIES {
+                return ExactIntersectionAdmission::ConservativeFallback;
+            }
+            total_cardinality = next_total;
+            child_cardinalities.push(cardinality);
+        }
+
+        ExactIntersectionAdmission::Probe(ExactIntersectionPreflight {
+            child_cardinalities,
+            total_cardinality,
+        })
+    }
+
+    fn exact_intersection_cost_beats_single(
+        preflight: &ExactIntersectionPreflight,
+        overlap_cardinality: u64,
+    ) -> bool {
+        let Some(single_cardinality) = preflight.child_cardinalities.first().copied() else {
+            return false;
+        };
+        let Some(single_row_cost) = single_cardinality
+            .checked_mul(INTERSECTION_ROW_READ_COST_WEIGHT)
+            .and_then(|row_cost| row_cost.checked_add(single_cardinality))
+        else {
+            return false;
+        };
+        let Some(intersection_cost) = overlap_cardinality
+            .checked_mul(INTERSECTION_ROW_READ_COST_WEIGHT)
+            .and_then(|row_cost| row_cost.checked_add(preflight.total_cardinality))
+        else {
+            return false;
+        };
+
+        intersection_cost < single_row_cost
+    }
+
+    fn exact_intersection_probe_can_beat_single(preflight: &ExactIntersectionPreflight) -> bool {
+        let Some(maximum_overlap) = preflight.child_cardinalities.iter().copied().min() else {
+            return false;
+        };
+
+        Self::exact_intersection_cost_beats_single(preflight, maximum_overlap)
+    }
+
+    fn collect_exact_intersection_overlap(
+        streams: Vec<OrderedKeyStreamBox>,
+        comparator: KeyOrderComparator,
+        preflight: &ExactIntersectionPreflight,
+    ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
+        let maximum_keys_u64 = preflight
+            .child_cardinalities
+            .iter()
+            .copied()
+            .min()
+            .ok_or_else(InternalError::executor_invariant)?;
+        let maximum_keys =
+            usize::try_from(maximum_keys_u64).map_err(|_| InternalError::executor_invariant())?;
+        let slot_bytes = maximum_keys
+            .checked_mul(size_of::<DecodedDataStoreKey>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(slot_bytes).unwrap_or(u64::MAX),
+        )?;
+
+        let mut intersection = OrderedKeyStreamBox::intersect_all(streams, comparator);
+        let mut overlap = Vec::with_capacity(maximum_keys);
+        let mut retained_key_bytes = 0u64;
+        while let Some(key) = intersection.next_key()? {
+            if overlap.len() >= maximum_keys {
+                return Err(InternalError::executor_invariant());
+            }
+            let key_bytes = u64::try_from(key.raw_key()?.as_bytes().len()).unwrap_or(u64::MAX);
+            retained_key_bytes = retained_key_bytes
+                .checked_add(key_bytes)
+                .ok_or_else(InternalError::executor_invariant)?;
+            if retained_key_bytes > MAX_ATOMIC_EXACT_INTERSECTION_KEY_BYTES {
+                return Err(InternalError::executor_invariant());
+            }
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::TemporaryBytes,
+                key_bytes,
+            )?;
+            overlap.push(key);
+        }
+
+        Ok(overlap)
+    }
+
+    fn first_stream_or_empty(streams: Vec<OrderedKeyStreamBox>) -> OrderedKeyStreamBox {
+        streams
+            .into_iter()
+            .next()
+            .unwrap_or_else(OrderedKeyStreamBox::empty)
     }
 
     // Build an ordered key stream for this access plan.
@@ -282,9 +522,65 @@ impl AccessPlanStreamResolver {
         inputs: TraversalInputs<'_>,
         spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
+        let admission = Self::exact_intersection_admission(runtime, children, inputs, *spec_cursor);
+        match admission {
+            ExactIntersectionAdmission::NotApplicable => {
+                let streams =
+                    Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
+                Ok(OrderedKeyStreamBox::intersect_all(streams, key_comparator))
+            }
+            ExactIntersectionAdmission::ConservativeFallback => {
+                let streams = Self::collect_exact_intersection_child_streams(
+                    runtime,
+                    children,
+                    inputs,
+                    spec_cursor,
+                )?;
+                Ok(Self::first_stream_or_empty(streams))
+            }
+            ExactIntersectionAdmission::ProvenEmpty => {
+                let _consumed_streams = Self::collect_exact_intersection_child_streams(
+                    runtime,
+                    children,
+                    inputs,
+                    spec_cursor,
+                )?;
+                Ok(OrderedKeyStreamBox::empty())
+            }
+            ExactIntersectionAdmission::Probe(preflight) => {
+                if !Self::exact_intersection_probe_can_beat_single(&preflight) {
+                    let streams = Self::collect_exact_intersection_child_streams(
+                        runtime,
+                        children,
+                        inputs,
+                        spec_cursor,
+                    )?;
+                    return Ok(Self::first_stream_or_empty(streams));
+                }
 
-        Ok(OrderedKeyStreamBox::intersect_all(streams, key_comparator))
+                let mut probe_cursor = *spec_cursor;
+                let probe_streams = Self::collect_exact_intersection_child_streams(
+                    runtime,
+                    children,
+                    inputs,
+                    &mut probe_cursor,
+                )?;
+                let overlap = Self::collect_exact_intersection_overlap(
+                    probe_streams,
+                    key_comparator,
+                    &preflight,
+                )?;
+                *spec_cursor = probe_cursor;
+                if !Self::exact_intersection_cost_beats_single(
+                    &preflight,
+                    u64::try_from(overlap.len()).unwrap_or(u64::MAX),
+                ) {
+                    return Err(InternalError::executor_invariant());
+                }
+
+                Ok(ordered_key_stream_from_materialized_keys(overlap))
+            }
+        }
     }
 }

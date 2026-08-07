@@ -452,6 +452,31 @@ fn ordered_key_stream_box_merge_all_uses_flat_merge_stream() {
 }
 
 #[test]
+fn ordered_key_stream_box_flat_merge_handles_descending_duplicates() {
+    let streams = vec![
+        OrderedKeyStreamBox::materialized(vec![data_key(9), data_key(7), data_key(7)]),
+        OrderedKeyStreamBox::materialized(vec![data_key(8), data_key(7), data_key(5)]),
+        OrderedKeyStreamBox::materialized(vec![data_key(9), data_key(6), data_key(5)]),
+    ];
+    let mut merged = OrderedKeyStreamBox::merge_all(
+        streams,
+        KeyOrderComparator::from_direction(Direction::Desc),
+    );
+
+    let out = collect_stream(&mut merged).expect("descending flat merge should succeed");
+    assert_eq!(
+        out,
+        vec![
+            data_key(9),
+            data_key(8),
+            data_key(7),
+            data_key(6),
+            data_key(5),
+        ]
+    );
+}
+
+#[test]
 fn intersect_stream_asc_yields_shared_keys() {
     let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(3), data_key(5)]);
     let right = StaticOrderedKeyStream::new(vec![data_key(3), data_key(4), data_key(5)]);

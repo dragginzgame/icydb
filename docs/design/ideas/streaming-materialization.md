@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed / TODO
+Promoted into [0.222 Streaming Execution And Key-First
+Operators](../0.222-streaming-execution-and-key-first-operators/0.222-design.md).
+This note remains the historical idea source. The 0.222 design is authoritative
+where the current executor already supplies concrete ordered key streams,
+intersection, top-N seek contracts, resumable pages, and decode-once row access.
 
 ## Purpose
 

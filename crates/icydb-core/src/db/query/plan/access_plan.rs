@@ -221,6 +221,7 @@ pub(in crate::db) enum PlannedNonIndexAccessReason {
     ConstantFalsePredicate,
     PlannerFullScanFallback,
     PlannerCompositeNonIndex,
+    PlannerExactIndexIntersection,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

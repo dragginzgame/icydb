@@ -26,7 +26,8 @@ use icydb::{
 #[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser,
-    PerfAuditRelationSource, PerfAuditRelationTarget, PerfAuditToken, PerfAuditUser,
+    PerfAuditRelationSource, PerfAuditRelationTarget, PerfAuditStreamingCompoundRow,
+    PerfAuditStreamingRow, PerfAuditToken, PerfAuditUser,
 };
 
 icydb::start!();
@@ -131,6 +132,21 @@ struct ScaleFixtureFacts {
     payload_profile: ScalePayloadProfile,
 }
 
+/// Exact deterministic source facts for the 0.222 streaming executor fixture.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct StreamingExecutionFixtureFacts {
+    profile_version: u32,
+    seed: u64,
+    fixture_rows: u32,
+    lane_a_zero_rows: u32,
+    lane_b_zero_rows: u32,
+    sparse_overlap_rows: u32,
+    empty_overlap_rows: u32,
+    group_count: u32,
+    wide_payload_bytes: Vec<u32>,
+}
+
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
 struct StorageWritePerfResult {
@@ -193,6 +209,16 @@ const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 const SCALE_FIXTURE_PROFILE_VERSION: u32 = 1;
 #[cfg(feature = "sql")]
 const SCALE_FIXTURE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
+#[cfg(feature = "sql")]
+const STREAMING_EXECUTION_FIXTURE_PROFILE_VERSION: u32 = 1;
+#[cfg(feature = "sql")]
+const STREAMING_EXECUTION_FIXTURE_SEED: u64 = 3;
+#[cfg(feature = "sql")]
+const STREAMING_EXECUTION_FIXTURE_SEED_I32: i32 = 3;
+#[cfg(feature = "sql")]
+const STREAMING_EXECUTION_FIXTURE_ROWS: i32 = 2_048;
+#[cfg(feature = "sql")]
+const STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES: &[usize] = &[300 * 1_024, 150 * 1_024, 40 * 1_024];
 
 #[cfg(feature = "sql")]
 trait StructuralFixtureRow {
@@ -342,6 +368,38 @@ impl StructuralFixtureRow for PerfAuditToken {
             .field("collection_id", authored(self.collection_id))
             .field("stage", authored(self.stage))
             .field("title", authored(self.title))
+    }
+}
+
+#[cfg(feature = "sql")]
+impl StructuralFixtureRow for PerfAuditStreamingRow {
+    const ENTITY: &'static str = "PerfAuditStreamingRow";
+
+    fn into_structural_patch(self) -> StructuralPatch {
+        StructuralPatch::new()
+            .field("id", authored(self.id))
+            .field("lane_a", authored(self.lane_a))
+            .field("lane_b", authored(self.lane_b))
+            .field("group_key", authored(self.group_key))
+            .field("sort_key", authored(self.sort_key))
+            .field("label", authored(self.label))
+            .field("payload", authored(self.payload))
+    }
+}
+
+#[cfg(feature = "sql")]
+impl StructuralFixtureRow for PerfAuditStreamingCompoundRow {
+    const ENTITY: &'static str = "PerfAuditStreamingCompoundRow";
+
+    fn into_structural_patch(self) -> StructuralPatch {
+        StructuralPatch::new()
+            .field("id", authored(self.id))
+            .field("lane_a", authored(self.lane_a))
+            .field("lane_b", authored(self.lane_b))
+            .field("group_key", authored(self.group_key))
+            .field("sort_key", authored(self.sort_key))
+            .field("label", authored(self.label))
+            .field("payload", authored(self.payload))
     }
 }
 
@@ -923,6 +981,8 @@ fn reset_perf_fixtures() -> Result<(), icydb::Error> {
         "PerfAuditHeapUser",
         "PerfAuditJournaledUser",
         "PerfAuditRelationTarget",
+        "PerfAuditStreamingCompoundRow",
+        "PerfAuditStreamingRow",
         "PerfAuditToken",
         "PerfAuditUser",
     ] {
@@ -943,6 +1003,21 @@ fn load_perf_fixtures() -> Result<(), icydb::Error> {
     insert_fixture_rows(perf_audit_tokens())?;
 
     Ok(())
+}
+
+/// Load the fixed 0.222 key-stream/materialization baseline fixture.
+#[cfg(feature = "sql")]
+#[update]
+fn load_streaming_execution_fixture() -> Result<StreamingExecutionFixtureFacts, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let rows = perf_streaming_execution_rows();
+        let facts = streaming_execution_fixture_facts(rows.as_slice())?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
+        insert_fixture_rows(perf_streaming_execution_compound_rows())?;
+
+        Ok(facts)
+    })
 }
 
 /// Load only the deterministic user scale surface at one reviewed cardinality.
@@ -1265,6 +1340,48 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[cfg(feature = "sql")]
 #[query]
 fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
+    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
+}
+
+/// Execute one fixed 0.222 streaming-fixture query with full attribution.
+#[cfg(feature = "sql")]
+#[query]
+fn query_streaming_execution_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
+    })
+}
+
+/// Warm one fixed 0.222 streaming-fixture query under update instructions.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_streaming_execution_query_with_perf(
+    sql: String,
+) -> Result<SqlQueryPerfResult, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let (result, attribution) =
+            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
+
+        Ok(SqlQueryPerfResult {
+            result,
+            attribution,
+        })
+    })
+}
+
+/// Execute one fixed 0.222 streaming-fixture query repeatedly in one request.
+#[cfg(feature = "sql")]
+#[query]
+fn query_streaming_execution_loop_with_perf(
+    sql: String,
+    runs: u32,
+) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
@@ -2205,6 +2322,120 @@ fn perf_scale_blobs(row_count: i32) -> Vec<PerfAuditBlob> {
             }
         })
         .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_streaming_execution_rows() -> Vec<PerfAuditStreamingRow> {
+    (1..=STREAMING_EXECUTION_FIXTURE_ROWS)
+        .map(|id| PerfAuditStreamingRow {
+            id,
+            lane_a: streaming_lane_a(id),
+            lane_b: streaming_lane_b(id),
+            group_key: streaming_group_key(id),
+            sort_key: streaming_sort_key(id),
+            label: streaming_label(id).to_string(),
+            payload: perf_blob(id.to_le_bytes()[0], streaming_payload_len(id)),
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_streaming_execution_compound_rows() -> Vec<PerfAuditStreamingCompoundRow> {
+    (1..=STREAMING_EXECUTION_FIXTURE_ROWS)
+        .map(|id| PerfAuditStreamingCompoundRow {
+            id,
+            lane_a: streaming_lane_a(id),
+            lane_b: streaming_lane_b(id),
+            group_key: streaming_group_key(id),
+            sort_key: streaming_sort_key(id),
+            label: streaming_label(id).to_string(),
+            payload: perf_blob(id.to_le_bytes()[0], 32),
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+const fn streaming_lane_a(id: i32) -> i32 {
+    (id * 17 + STREAMING_EXECUTION_FIXTURE_SEED_I32) % 97
+}
+
+#[cfg(feature = "sql")]
+const fn streaming_lane_b(id: i32) -> i32 {
+    (id * 29 + STREAMING_EXECUTION_FIXTURE_SEED_I32 + 2) % 101
+}
+
+#[cfg(feature = "sql")]
+const fn streaming_group_key(id: i32) -> i32 {
+    (id - 1) % 17
+}
+
+#[cfg(feature = "sql")]
+const fn streaming_sort_key(id: i32) -> i32 {
+    (id * 37 + STREAMING_EXECUTION_FIXTURE_SEED_I32) % STREAMING_EXECUTION_FIXTURE_ROWS
+}
+
+#[cfg(feature = "sql")]
+const fn streaming_label(id: i32) -> &'static str {
+    match id {
+        1 => "early-wide",
+        STREAMING_EXECUTION_FIXTURE_ROWS => "late-match",
+        _ => "ordinary",
+    }
+}
+
+#[cfg(feature = "sql")]
+const fn streaming_payload_len(id: i32) -> usize {
+    match id {
+        1 => STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES[0],
+        2 => STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES[1],
+        3 => STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES[2],
+        _ => 32,
+    }
+}
+
+#[cfg(feature = "sql")]
+fn streaming_execution_fixture_facts(
+    rows: &[PerfAuditStreamingRow],
+) -> Result<StreamingExecutionFixtureFacts, icydb::Error> {
+    let fixture_rows = u32::try_from(rows.len()).map_err(|_| query_validate_error())?;
+    let first_lane_matches = u32::try_from(rows.iter().filter(|row| row.lane_a == 0).count())
+        .map_err(|_| query_validate_error())?;
+    let second_lane_matches = u32::try_from(rows.iter().filter(|row| row.lane_b == 0).count())
+        .map_err(|_| query_validate_error())?;
+    let sparse_overlap_rows = u32::try_from(
+        rows.iter()
+            .filter(|row| row.lane_a == 0 && row.lane_b == 0)
+            .count(),
+    )
+    .map_err(|_| query_validate_error())?;
+    let empty_overlap_rows = u32::try_from(
+        rows.iter()
+            .filter(|row| row.lane_a == 0 && row.lane_b == 1)
+            .count(),
+    )
+    .map_err(|_| query_validate_error())?;
+    let wide_payload_bytes = STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES
+        .iter()
+        .copied()
+        .map(u32::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| query_validate_error())?;
+
+    Ok(StreamingExecutionFixtureFacts {
+        profile_version: STREAMING_EXECUTION_FIXTURE_PROFILE_VERSION,
+        seed: STREAMING_EXECUTION_FIXTURE_SEED,
+        fixture_rows,
+        lane_a_zero_rows: first_lane_matches,
+        lane_b_zero_rows: second_lane_matches,
+        sparse_overlap_rows,
+        empty_overlap_rows,
+        group_count: 17,
+        wide_payload_bytes,
+    })
 }
 
 #[cfg(feature = "sql")]

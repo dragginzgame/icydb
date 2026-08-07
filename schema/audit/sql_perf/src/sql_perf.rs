@@ -203,3 +203,49 @@ pub struct PerfAuditAccount {}
     timestamps
 )]
 pub struct PerfAuditToken {}
+
+///
+/// PerfAuditStreamingRow
+///
+/// Deterministic 0.222 executor fixture with two independently selective
+/// indexes, their compound control, noncontiguous groups, incompatible order,
+/// and bounded wide payload sentinels.
+///
+
+#[entity(store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["lane_a", "id"]),
+    index(fields = ["lane_b", "id"]),
+    index(fields = ["group_key", "id"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "lane_a", value(item(prim = "Int32"))),
+        field(name = "lane_b", value(item(prim = "Int32"))),
+        field(name = "group_key", value(item(prim = "Int32"))),
+        field(name = "sort_key", value(item(prim = "Int32"))),
+        field(name = "label", value(item(prim = "Text", unbounded))),
+        field(name = "payload", value(item(prim = "Blob", unbounded)))
+    ),
+    timestamps
+)]
+pub struct PerfAuditStreamingRow {}
+
+/// Compound-index control with the same deterministic rows as
+/// `PerfAuditStreamingRow`.
+#[entity(store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["lane_a", "lane_b", "id"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "lane_a", value(item(prim = "Int32"))),
+        field(name = "lane_b", value(item(prim = "Int32"))),
+        field(name = "group_key", value(item(prim = "Int32"))),
+        field(name = "sort_key", value(item(prim = "Int32"))),
+        field(name = "label", value(item(prim = "Text", unbounded))),
+        field(name = "payload", value(item(prim = "Blob", unbounded)))
+    ),
+    timestamps
+)]
+pub struct PerfAuditStreamingCompoundRow {}

@@ -108,11 +108,19 @@ pub(super) fn plan_predicate(
                         .map(PlannedAccessSelection::into_access)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            let intersection_access = exact_index_intersection_candidate(
+                schema,
+                order,
+                grouped,
+                selected_index_access.as_ref(),
+                plans.as_slice(),
+            );
             let family_choice = choose_best_and_family_access(
                 schema,
                 order,
                 grouped,
                 plans.as_slice(),
+                intersection_access.as_ref(),
                 selected_index_access.as_ref(),
                 primary_key_range_access.as_ref(),
                 index_range_access.as_ref(),
@@ -175,6 +183,7 @@ fn choose_best_and_family_access(
     order: Option<&OrderSpec>,
     grouped: bool,
     child_plans: &[AccessPlan<Value>],
+    intersection_access: Option<&AccessPlan<Value>>,
     selected_index_access: Option<&AccessPlan<Value>>,
     primary_key_range_access: Option<&AccessPlan<Value>>,
     index_range_access: Option<&crate::db::access::SemanticIndexRangeSpec>,
@@ -215,6 +224,17 @@ fn choose_best_and_family_access(
             ),
         );
     }
+
+    update_best_and_family_candidate(
+        &mut chosen,
+        intersection_access.cloned().map(|access| {
+            PlannedAccessSelection::new(
+                access,
+                Some(PlannedNonIndexAccessReason::PlannerExactIndexIntersection),
+            )
+        }),
+        AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 5),
+    );
 
     update_best_and_family_candidate(
         &mut chosen,
@@ -279,6 +299,87 @@ fn choose_best_and_family_access(
     );
 
     chosen.map(|(_, access)| access)
+}
+
+const MAX_EXACT_INDEX_INTERSECTION_CHILDREN: usize = 3;
+
+// Build one bounded exact-prefix intersection candidate only when every child
+// has primary-key suffix order. Runtime synchronized cardinality and overlap
+// authority still decide whether this candidate executes or falls back to the
+// first (already planner-preferred) child.
+fn exact_index_intersection_candidate(
+    schema: &SchemaInfo,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+    selected_index_access: Option<&AccessPlan<Value>>,
+    child_plans: &[AccessPlan<Value>],
+) -> Option<AccessPlan<Value>> {
+    if grouped || !intersection_order_is_primary_key_compatible(schema, order) {
+        return None;
+    }
+
+    let selected = selected_index_access?;
+    if !exact_prefix_has_primary_key_suffix(schema, selected) {
+        return None;
+    }
+
+    let mut children = vec![selected.clone()];
+    for child in child_plans {
+        if !exact_prefix_has_primary_key_suffix(schema, child) {
+            continue;
+        }
+        let (child_index, _) = child.as_index_prefix_contract_path()?;
+        let duplicate_index = children.iter().any(|existing| {
+            existing
+                .as_index_prefix_contract_path()
+                .is_some_and(|(index, _)| {
+                    index.ordinal() == child_index.ordinal()
+                        && index.physical_generation() == child_index.physical_generation()
+                })
+        });
+        if !duplicate_index {
+            children.push(child.clone());
+        }
+        if children.len() == MAX_EXACT_INDEX_INTERSECTION_CHILDREN {
+            break;
+        }
+    }
+
+    (children.len() >= 2).then(|| AccessPlan::intersection(children))
+}
+
+fn intersection_order_is_primary_key_compatible(
+    schema: &SchemaInfo,
+    order: Option<&OrderSpec>,
+) -> bool {
+    let Some(order) = order else {
+        return true;
+    };
+    let primary_key_names = schema
+        .primary_key_names()
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+
+    order
+        .primary_key_only_direction_fields(primary_key_names.as_slice())
+        .is_some()
+}
+
+fn exact_prefix_has_primary_key_suffix(schema: &SchemaInfo, access: &AccessPlan<Value>) -> bool {
+    let Some((index, values)) = access.as_index_prefix_contract_path() else {
+        return false;
+    };
+    let primary_key_names = schema.primary_key_names();
+    if values.is_empty()
+        || values.len().saturating_add(primary_key_names.len()) != index.key_arity()
+    {
+        return false;
+    }
+
+    primary_key_names.iter().enumerate().all(|(offset, field)| {
+        index.key_field_at(values.len().saturating_add(offset)) == Some(field.as_str())
+    })
 }
 
 // Keep family-candidate accumulation on one helper so the main `AND` planner

@@ -6,15 +6,15 @@
 use crate::{
     db::{
         data::DecodedDataStoreKey,
-        executor::stream::{
-            FlatMergeOrderedChild, FlatMergeStream,
-            key::{KeyOrderComparator, OrderedKeyStream},
-        },
+        executor::budget::charge_current_execution_budget,
+        executor::stream::key::{KeyOrderComparator, OrderedKeyStream},
         key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
     types::EntityTag,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
+use std::{cmp::Ordering, collections::BinaryHeap, mem::size_of};
 
 type RowKeyWitness = (EntityTag, PrimaryKeyValue);
 
@@ -328,39 +328,41 @@ impl<S> KeyFlatMergeChild<S> {
     }
 }
 
-impl<S> FlatMergeOrderedChild for KeyFlatMergeChild<S>
+impl<S> KeyFlatMergeChild<S>
 where
     S: OrderedKeyStream,
 {
-    type Item = DecodedDataStoreKey;
-    type KeyWitness = RowKeyWitness;
-
     fn ensure_item(&mut self) -> Result<(), InternalError> {
         self.state.ensure_item(&mut self.stream)
     }
 
-    fn head_key(&self) -> Option<&DecodedDataStoreKey> {
+    const fn head_key(&self) -> Option<&DecodedDataStoreKey> {
         self.state.item.as_ref()
     }
 
-    fn take_item(&mut self) -> Option<Self::Item> {
+    fn take_item(&mut self) -> Option<DecodedDataStoreKey> {
         self.state.take_item()
     }
+}
 
-    fn clear_item(&mut self) {
-        self.state.clear_item();
+#[derive(Eq, PartialEq)]
+struct KeyFlatMergeHeapEntry {
+    key: DecodedDataStoreKey,
+    child_index: usize,
+    comparator: KeyOrderComparator,
+}
+
+impl Ord for KeyFlatMergeHeapEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.comparator
+            .compare_data_keys(&other.key, &self.key)
+            .then_with(|| other.child_index.cmp(&self.child_index))
     }
+}
 
-    fn item_key(item: &Self::Item) -> &DecodedDataStoreKey {
-        item
-    }
-
-    fn key_witness(key: &DecodedDataStoreKey) -> Self::KeyWitness {
-        row_key_witness(key)
-    }
-
-    fn witness_matches_key(witness: &Self::KeyWitness, key: &DecodedDataStoreKey) -> bool {
-        row_witness_matches_key(witness, key)
+impl PartialOrd for KeyFlatMergeHeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -377,7 +379,10 @@ pub(in crate::db::executor) struct FlatMergeOrderedKeyStream<S>
 where
     S: OrderedKeyStream,
 {
-    inner: FlatMergeStream<KeyFlatMergeChild<S>>,
+    children: Vec<KeyFlatMergeChild<S>>,
+    heap: BinaryHeap<KeyFlatMergeHeapEntry>,
+    comparator: KeyOrderComparator,
+    initialized: bool,
 }
 
 impl<S> FlatMergeOrderedKeyStream<S>
@@ -390,14 +395,75 @@ where
         streams: Vec<S>,
         comparator: KeyOrderComparator,
     ) -> Self {
-        let children = streams
+        let children: Vec<_> = streams
             .into_iter()
             .map(|stream| KeyFlatMergeChild::new(stream, comparator))
             .collect();
 
+        let heap = BinaryHeap::with_capacity(children.len());
         Self {
-            inner: FlatMergeStream::new(children, comparator),
+            children,
+            heap,
+            comparator,
+            initialized: false,
         }
+    }
+
+    fn initialize(&mut self) -> Result<(), InternalError> {
+        if self.initialized {
+            return Ok(());
+        }
+
+        let heap_bytes = self
+            .children
+            .len()
+            .checked_mul(size_of::<KeyFlatMergeHeapEntry>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(heap_bytes).unwrap_or(u64::MAX),
+        )?;
+
+        for child_index in 0..self.children.len() {
+            self.refresh_child(child_index)?;
+        }
+        self.initialized = true;
+        Ok(())
+    }
+
+    fn refresh_child(&mut self, child_index: usize) -> Result<(), InternalError> {
+        let Some(child) = self.children.get_mut(child_index) else {
+            return Err(InternalError::executor_invariant());
+        };
+        child.ensure_item()?;
+        let Some(key) = child.head_key() else {
+            return Ok(());
+        };
+
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
+        self.heap.push(KeyFlatMergeHeapEntry {
+            key: key.clone(),
+            child_index,
+            comparator: self.comparator,
+        });
+        Ok(())
+    }
+
+    fn consume_entry(
+        &mut self,
+        entry: KeyFlatMergeHeapEntry,
+    ) -> Result<DecodedDataStoreKey, InternalError> {
+        let Some(child) = self.children.get_mut(entry.child_index) else {
+            return Err(InternalError::executor_invariant());
+        };
+        if child.head_key() != Some(&entry.key) {
+            return Err(InternalError::executor_invariant());
+        }
+        let Some(item) = child.take_item() else {
+            return Err(InternalError::executor_invariant());
+        };
+        self.refresh_child(entry.child_index)?;
+        Ok(item)
     }
 }
 
@@ -406,7 +472,27 @@ where
     S: OrderedKeyStream,
 {
     fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        self.inner.next_item()
+        self.initialize()?;
+        let Some(entry) = self.heap.pop() else {
+            return Ok(None);
+        };
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
+        let next = self.consume_entry(entry)?;
+        let emitted = row_key_witness(&next);
+
+        while self
+            .heap
+            .peek()
+            .is_some_and(|entry| row_witness_matches_key(&emitted, &entry.key))
+        {
+            let Some(duplicate) = self.heap.pop() else {
+                return Err(InternalError::executor_invariant());
+            };
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
+            let _discarded_duplicate = self.consume_entry(duplicate)?;
+        }
+
+        Ok(Some(next))
     }
 }
 

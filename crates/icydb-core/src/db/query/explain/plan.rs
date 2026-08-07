@@ -17,8 +17,8 @@ use crate::{
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
-                AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessPlannedQuery,
-                AggregateKind, DeleteLimitSpec, GroupedPlanAggregateFamily,
+                AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessChoiceSelectedReason,
+                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanAggregateFamily,
                 GroupedPlanFallbackReason, GroupedPlanStrategy, LogicalPlan, OrderDirection,
                 OrderSpec, PageSpec, QueryMode, ScalarPlan, explain_access_strategy_label,
                 expr::Expr, grouped_plan_strategy, render_scalar_filter_expr_plan_label,
@@ -512,6 +512,7 @@ impl ExplainAccessDecision {
             residual: ExplainResidualSummary::from_selected_access_and_candidate(
                 selected_access,
                 selected_candidate,
+                snapshot.chosen_reason(),
             ),
         }
     }
@@ -686,9 +687,10 @@ impl ExplainResidualSummary {
     fn from_selected_access_and_candidate(
         selected_access: &ExplainAccessPath,
         selected_candidate: Option<&AccessChoiceCandidateExplainSummary>,
+        selected_reason: AccessChoiceSelectedReason,
     ) -> Self {
-        match selected_candidate {
-            Some(candidate) => Self {
+        if let Some(candidate) = selected_candidate {
+            Self {
                 burden_class: candidate.residual_burden.label(),
                 has_residual_filter: matches!(
                     candidate.residual_burden,
@@ -697,14 +699,29 @@ impl ExplainResidualSummary {
                 has_residual_predicate: candidate.residual_predicate_terms > 0,
                 access_bound_predicate_count: access_bound_predicate_count(selected_access),
                 residual_predicate_count: candidate.residual_predicate_terms,
-            },
-            None => Self {
-                burden_class: AccessChoiceResidualBurden::None.label(),
-                has_residual_filter: false,
-                has_residual_predicate: false,
-                access_bound_predicate_count: access_bound_predicate_count(selected_access),
-                residual_predicate_count: 0,
-            },
+            }
+        } else {
+            let access_bound_predicate_count = access_bound_predicate_count(selected_access);
+            if matches!(
+                selected_reason,
+                AccessChoiceSelectedReason::PlannerExactIndexIntersection
+            ) {
+                Self {
+                    burden_class: AccessChoiceResidualBurden::PredicateOnly.label(),
+                    has_residual_filter: false,
+                    has_residual_predicate: true,
+                    access_bound_predicate_count,
+                    residual_predicate_count: access_bound_predicate_count,
+                }
+            } else {
+                Self {
+                    burden_class: AccessChoiceResidualBurden::None.label(),
+                    has_residual_filter: false,
+                    has_residual_predicate: false,
+                    access_bound_predicate_count,
+                    residual_predicate_count: 0,
+                }
+            }
         }
     }
 }

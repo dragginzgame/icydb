@@ -65,5 +65,9 @@ name = "endpoint_cost_closeout"
 path = "tests/endpoint_cost_closeout.rs"
 
 [[test]]
+name = "streaming_execution_baseline"
+path = "tests/streaming_execution_baseline.rs"
+
+[[test]]
 name = "schema_migration_closeout"
 path = "tests/schema_migration_closeout.rs"

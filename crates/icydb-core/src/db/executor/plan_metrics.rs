@@ -131,6 +131,7 @@ const fn plan_choice_reason(reason: AccessChoiceSelectedReason) -> Option<PlanCh
         AccessChoiceSelectedReason::BestPrefixLen
         | AccessChoiceSelectedReason::ByKeyAccess
         | AccessChoiceSelectedReason::ByKeysAccess
+        | AccessChoiceSelectedReason::PlannerExactIndexIntersection
         | AccessChoiceSelectedReason::PrimaryKeyRangeAccess
         | AccessChoiceSelectedReason::Ranked(_)
         | AccessChoiceSelectedReason::SelectedIndexNotProjected

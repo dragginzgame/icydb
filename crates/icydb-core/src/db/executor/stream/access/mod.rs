@@ -14,7 +14,9 @@ mod traversal;
 pub(in crate::db::executor) use bindings::{
     AccessStreamExecutionPolicy, ExecutableAccess, IndexLeafOrderPolicy,
 };
-pub(in crate::db::executor) use physical::{IndexRangeKeyStream, PrimaryRangeKeyStream};
+pub(in crate::db::executor) use physical::{
+    IndexRangeKeyStream, PrimaryRangeKeyStream, SeekableIndexRangeKeyStream,
+};
 pub(in crate::db::executor) use scan::{
     ACCESS_SCAN_CHUNK_ENTRIES, IndexComponentRow, IndexComponentRows, IndexComponentValues,
     IndexScan, PrimaryScan, active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,

@@ -113,6 +113,30 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness(
     })
 }
 
+/// Return synchronized exact cardinality for one complete lowered index prefix.
+///
+/// Missing, stale, or undecodable metadata is deliberately reported as
+/// `None`; runtime route selection must then keep the conservative single-index
+/// path rather than attempting a bounded intersection probe.
+#[must_use]
+pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinality(
+    store: StoreHandle,
+    spec: &LoweredIndexPrefixSpec,
+) -> Option<u64> {
+    let cardinality_key =
+        user_index_prefix_cardinality_key_from_lowered_spec(spec, spec.prefix_components().len())?;
+    let data_generation = store.with_data(DataStore::generation);
+
+    store.with_index(|index_store| {
+        index_store.exact_prefix_cardinality(
+            data_generation,
+            IndexKeyKind::User,
+            cardinality_key.index_id(),
+            cardinality_key.prefix_components(),
+        )
+    })
+}
+
 /// Expand each exact parent prefix by one metadata-proven child slot.
 ///
 /// This is the shared runtime side of the sparse prefix-family route contract:

@@ -17,13 +17,18 @@ use crate::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
             OrderedKeyStreamBox, PrefixSetExecutionShape, PrefixSetMergeSafety, PrimaryScan,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
-            branch_stream_chunk_entries, budget::charge_current_execution_budget,
+            branch_stream_chunk_entries,
+            budget::charge_current_execution_budget,
             expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, lowered_index_prefix_liveness,
             ordered_key_stream_from_materialized_keys,
-            pipeline::contracts::AccessScanContinuationInput, route::IndexPrefixChildExpansionHint,
-            route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
+            pipeline::contracts::AccessScanContinuationInput,
+            route::primary_scan_fetch_hint_shape_supported,
+            route::{IndexPrefixChildExpansionBudget, IndexPrefixChildExpansionHint},
+            stream::key::{
+                HeldHeadKeyStream, HeldHeadSeekOutcome, HeldHeadSeekWork, KeyOrderComparator,
+            },
             traversal::IndexRangeTraversalContract,
         },
         index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
@@ -35,7 +40,7 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::ops::Bound;
+use std::{mem::size_of, ops::Bound};
 
 ///
 /// KeyOrderState
@@ -64,9 +69,6 @@ enum PrefixMergeResumePolicy {
     None,
     PrimaryKeySuffix,
 }
-
-const MATERIALIZED_PREFIX_FAMILY_MAX_ACTIVE_PREFIXES: usize = 16;
-const MATERIALIZED_PREFIX_FAMILY_MAX_SCANNED_KEYS: usize = 1024;
 
 impl PrefixMergeResumePolicy {
     const fn from_index_leaf_order_policy(policy: IndexLeafOrderPolicy) -> Self {
@@ -468,10 +470,6 @@ impl KeyAccessRuntime {
             PrefixMergeResumePolicy::PrimaryKeySuffix,
         );
 
-        if let Some(stream) = self.try_materialized_bounded_prefix_family_stream(request)? {
-            return Ok(Some(stream));
-        }
-
         self.resolve_merged_index_prefix_streams(request).map(Some)
     }
 
@@ -485,6 +483,7 @@ impl KeyAccessRuntime {
 
         let active_specs =
             active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
+        charge_prefix_family_construction(active_specs.as_slice())?;
         match PrefixSetExecutionShape::from_active_prefixes(
             active_specs,
             PrefixSetMergeSafety::OrderedMergeSafe,
@@ -560,76 +559,27 @@ impl KeyAccessRuntime {
             branch_stream_chunk_entries(request.index_fetch_hint, active_branch_count);
         let resume_anchor = request.resume_anchor_for(spec)?;
 
-        Ok(OrderedKeyStreamBox::index_range(
-            IndexRangeKeyStream::from_prefix(
-                self.store,
-                self.entity_tag,
-                spec,
-                request.continuation.direction(),
-                resume_anchor,
-                request.index_fetch_hint,
-                branch_chunk_entries,
-            )?,
-        ))
-    }
-
-    fn try_materialized_bounded_prefix_family_stream(
-        &self,
-        request: MergedIndexPrefixStreamSpec<'_>,
-    ) -> Result<Option<OrderedKeyStreamBox>, InternalError> {
-        let Some(fetch_limit) = request.index_fetch_hint else {
-            return Ok(None);
-        };
-        if !matches!(
+        let primary_key_ordered = matches!(
             request.resume_policy,
             PrefixMergeResumePolicy::PrimaryKeySuffix
-        ) || request.continuation.primary_key_boundary().is_some()
-            || request
-                .continuation
-                .index_scan_continuation()
-                .anchor()
-                .is_some()
-        {
-            return Ok(None);
-        }
-        if fetch_limit == 0 {
-            return Ok(Some(ordered_key_stream_from_materialized_keys(Vec::new())));
-        }
+        );
+        let stream = IndexRangeKeyStream::from_prefix(
+            self.store,
+            self.entity_tag,
+            request.index,
+            spec,
+            request.continuation.direction(),
+            resume_anchor,
+            request.index_fetch_hint,
+            branch_chunk_entries,
+            primary_key_ordered,
+        )?;
 
-        let active_specs =
-            active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
-        if active_specs.is_empty() {
-            return Ok(Some(ordered_key_stream_from_materialized_keys(Vec::new())));
-        }
-        if active_specs.len() > MATERIALIZED_PREFIX_FAMILY_MAX_ACTIVE_PREFIXES
-            || active_specs.len().saturating_mul(fetch_limit)
-                > MATERIALIZED_PREFIX_FAMILY_MAX_SCANNED_KEYS
-        {
-            return Ok(None);
-        }
-
-        let mut keys = Vec::with_capacity(fetch_limit.min(ACCESS_SCAN_CHUNK_ENTRIES));
-        for spec in active_specs {
-            keys.extend(IndexScan::prefix_structural(
-                self.store,
-                self.entity_tag,
-                spec,
-                request.continuation.direction(),
-                fetch_limit,
-                None,
-            )?);
-        }
-
-        keys.sort_unstable();
-        keys.dedup();
-        if matches!(request.continuation.direction(), Direction::Desc) {
-            keys.reverse();
-        }
-        if keys.len() > fetch_limit {
-            keys.truncate(fetch_limit);
-        }
-
-        Ok(Some(ordered_key_stream_from_materialized_keys(keys)))
+        Ok(if primary_key_ordered && active_branch_count > 1 {
+            OrderedKeyStreamBox::seekable_index_range(SeekableIndexRangeKeyStream::new(stream))
+        } else {
+            OrderedKeyStreamBox::index_range(stream)
+        })
     }
 
     // Resolve one secondary-index range scan.
@@ -678,6 +628,52 @@ impl KeyAccessRuntime {
                 index_fetch_hint,
             ),
         ))
+    }
+}
+
+fn charge_prefix_family_construction(
+    specs: &[&LoweredIndexPrefixSpec],
+) -> Result<(), InternalError> {
+    validate_prefix_family_child_count(specs.len())?;
+
+    let mut descriptor_bytes = specs
+        .len()
+        .checked_mul(size_of::<OrderedKeyStreamBox>())
+        .ok_or_else(InternalError::executor_invariant)?;
+    for spec in specs {
+        for component in spec.prefix_components() {
+            descriptor_bytes = descriptor_bytes
+                .checked_add(component.len())
+                .ok_or_else(InternalError::executor_invariant)?;
+        }
+        let (lower, upper) = spec.raw_bounds()?;
+        descriptor_bytes = descriptor_bytes
+            .checked_add(bound_raw_index_key_bytes(lower))
+            .and_then(|bytes| bytes.checked_add(bound_raw_index_key_bytes(upper)))
+            .ok_or_else(InternalError::executor_invariant)?;
+    }
+
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::CursorSteps,
+        u64::try_from(specs.len()).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        u64::try_from(descriptor_bytes).unwrap_or(u64::MAX),
+    )
+}
+
+fn validate_prefix_family_child_count(count: usize) -> Result<(), InternalError> {
+    if count > IndexPrefixChildExpansionBudget::MAX_PREFIXES {
+        return Err(InternalError::query_executor_invariant());
+    }
+    Ok(())
+}
+
+fn bound_raw_index_key_bytes(bound: &Bound<RawIndexStoreKey>) -> usize {
+    match bound {
+        Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
+        Bound::Unbounded => 0,
     }
 }
 
@@ -780,6 +776,27 @@ fn primary_key_suffix_values(
     Ok((primary_key, values))
 }
 
+fn raw_key_within_bounds<K: Ord>(key: &K, lower: &Bound<K>, upper: &Bound<K>) -> bool {
+    let above_lower = match lower {
+        Bound::Included(lower) => key >= lower,
+        Bound::Excluded(lower) => key > lower,
+        Bound::Unbounded => true,
+    };
+    let below_upper = match upper {
+        Bound::Included(upper) => key <= upper,
+        Bound::Excluded(upper) => key < upper,
+        Bound::Unbounded => true,
+    };
+    above_lower && below_upper
+}
+
+fn held_head_outcome(
+    held: Option<&DecodedDataStoreKey>,
+) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+    held.map(HeldHeadSeekOutcome::Held)
+        .map_or(Ok(HeldHeadSeekOutcome::Exhausted), Ok)
+}
+
 ///
 /// PrimaryRangeKeyStream
 ///
@@ -791,13 +808,14 @@ fn primary_key_suffix_values(
 
 pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     store: StoreHandle,
-    lower_raw: RawDataStoreKey,
+    entity_tag: EntityTag,
+    lower_bound: Bound<RawDataStoreKey>,
     upper_bound: Bound<RawDataStoreKey>,
     direction: Direction,
     remaining: Option<usize>,
-    last_raw_key: Option<RawDataStoreKey>,
     buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
+    held: Option<DecodedDataStoreKey>,
     exhausted: bool,
 }
 
@@ -812,13 +830,14 @@ impl PrimaryRangeKeyStream {
     ) -> Result<Self, InternalError> {
         Ok(Self {
             store,
-            lower_raw: start.to_raw()?,
+            entity_tag: start.entity_tag(),
+            lower_bound: Bound::Included(start.to_raw()?),
             upper_bound: Bound::Included(end.to_raw()?),
             direction,
             remaining: limit,
-            last_raw_key: None,
             buffer: Vec::new(),
             buffer_pos: 0,
+            held: None,
             exhausted: false,
         })
     }
@@ -832,7 +851,7 @@ impl PrimaryRangeKeyStream {
         limit: Option<usize>,
     ) -> Self {
         let range = RawDataStoreKeyRange::entity_prefix(entity);
-        let lower_raw = RawDataStoreKey::store_range_lower_key(&range);
+        let lower_bound = Bound::Included(RawDataStoreKey::store_range_lower_key(&range));
         let upper_bound = range
             .upper_exclusive()
             .map(RawDataStoreKey::from_store_range_bound)
@@ -840,13 +859,14 @@ impl PrimaryRangeKeyStream {
 
         Self {
             store,
-            lower_raw,
+            entity_tag: entity,
+            lower_bound,
             upper_bound,
             direction,
             remaining: limit,
-            last_raw_key: None,
             buffer: Vec::new(),
             buffer_pos: 0,
+            held: None,
             exhausted: false,
         }
     }
@@ -872,32 +892,27 @@ impl PrimaryRangeKeyStream {
 
             match self.direction {
                 Direction::Asc => {
-                    let lower = self
-                        .last_raw_key
-                        .clone()
-                        .map_or_else(|| Bound::Included(self.lower_raw.clone()), Bound::Excluded);
-                    store.visit_key_range((lower, self.upper_bound.clone()), |raw_key| {
-                        charge_current_execution_budget(
-                            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-                            1,
-                        )?;
-                        let raw_key = raw_key.clone();
-                        keys.push(PrimaryScan::decode_data_key(&raw_key)?);
-                        last_raw_key = Some(raw_key);
-                        Ok::<StoreVisit, InternalError>(if keys.len() == chunk_limit {
-                            StoreVisit::Stop
-                        } else {
-                            StoreVisit::Continue
-                        })
-                    })?;
+                    store.visit_key_range(
+                        (self.lower_bound.clone(), self.upper_bound.clone()),
+                        |raw_key| {
+                            charge_current_execution_budget(
+                                DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                                1,
+                            )?;
+                            let raw_key = raw_key.clone();
+                            keys.push(PrimaryScan::decode_data_key(&raw_key)?);
+                            last_raw_key = Some(raw_key);
+                            Ok::<StoreVisit, InternalError>(if keys.len() == chunk_limit {
+                                StoreVisit::Stop
+                            } else {
+                                StoreVisit::Continue
+                            })
+                        },
+                    )?;
                 }
                 Direction::Desc => {
-                    let upper = self
-                        .last_raw_key
-                        .clone()
-                        .map_or_else(|| self.upper_bound.clone(), Bound::Excluded);
                     store.visit_key_range_rev(
-                        (Bound::Included(self.lower_raw.clone()), upper),
+                        (self.lower_bound.clone(), self.upper_bound.clone()),
                         |raw_key| {
                             charge_current_execution_budget(
                                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
@@ -924,7 +939,10 @@ impl PrimaryRangeKeyStream {
         self.buffer_pos = 0;
 
         if let Some(raw_key) = last_raw_key {
-            self.last_raw_key = Some(raw_key);
+            match self.direction {
+                Direction::Asc => self.lower_bound = Bound::Excluded(raw_key),
+                Direction::Desc => self.upper_bound = Bound::Excluded(raw_key),
+            }
         } else {
             self.exhausted = true;
         }
@@ -942,10 +960,8 @@ impl PrimaryRangeKeyStream {
 
         Ok(())
     }
-}
 
-impl OrderedKeyStream for PrimaryRangeKeyStream {
-    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+    fn pull_next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         if self.buffer_pos == self.buffer.len() {
             self.load_next_chunk()?;
         }
@@ -955,8 +971,69 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
 
         let key = self.buffer[self.buffer_pos].clone();
         self.buffer_pos += 1;
-
         Ok(Some(key))
+    }
+
+    fn configure_physical_seek(
+        &mut self,
+        target: &DecodedDataStoreKey,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<bool, InternalError> {
+        if self.remaining.is_some() {
+            return Ok(false);
+        }
+
+        let raw_target = target.to_raw()?;
+        if !raw_key_within_bounds(&raw_target, &self.lower_bound, &self.upper_bound) {
+            self.buffer.clear();
+            self.buffer_pos = 0;
+            self.exhausted = true;
+            return Ok(true);
+        }
+
+        let bound_bytes = u64::try_from(raw_target.as_bytes().len()).unwrap_or(u64::MAX);
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            bound_bytes,
+        )?;
+        work.record_physical_seek(bound_bytes)?;
+
+        match self.direction {
+            Direction::Asc => self.lower_bound = Bound::Included(raw_target),
+            Direction::Desc => self.upper_bound = Bound::Included(raw_target),
+        }
+        self.buffer.clear();
+        self.buffer_pos = 0;
+        self.exhausted = false;
+        Ok(true)
+    }
+
+    fn ensure_physical_head(
+        &mut self,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+        if self.held.is_some() {
+            return held_head_outcome(self.held.as_ref());
+        }
+        if self.exhausted && self.buffer_pos == self.buffer.len() {
+            return Ok(HeldHeadSeekOutcome::Exhausted);
+        }
+        if !work.admits_pull() {
+            return Ok(HeldHeadSeekOutcome::PageStop);
+        }
+        work.record_pull_attempt()?;
+        self.held = self.pull_next_key()?;
+        held_head_outcome(self.held.as_ref())
+    }
+}
+
+impl OrderedKeyStream for PrimaryRangeKeyStream {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        if self.held.is_some() {
+            return Ok(self.held.take());
+        }
+        self.pull_next_key()
     }
 
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
@@ -965,6 +1042,57 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
         }
 
         None
+    }
+}
+
+impl HeldHeadKeyStream for PrimaryRangeKeyStream {
+    fn ensure_head(
+        &mut self,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+        self.ensure_physical_head(work)
+    }
+
+    fn seek_head_at_or_after(
+        &mut self,
+        target: &DecodedDataStoreKey,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+        if target.entity_tag() != self.entity_tag {
+            return Err(InternalError::executor_invariant());
+        }
+
+        loop {
+            let direction = self.direction;
+            let held_before_target = match self.ensure_physical_head(work)? {
+                HeldHeadSeekOutcome::Held(held) => {
+                    work.record_comparison()?;
+                    KeyOrderComparator::from_direction(direction)
+                        .compare_data_keys(held, target)
+                        .is_lt()
+                }
+                HeldHeadSeekOutcome::Exhausted => return Ok(HeldHeadSeekOutcome::Exhausted),
+                HeldHeadSeekOutcome::PageStop => return Ok(HeldHeadSeekOutcome::PageStop),
+            };
+            if !held_before_target {
+                return held_head_outcome(self.held.as_ref());
+            }
+
+            work.record_skipped_consumptions(1)?;
+            self.held = None;
+            self.configure_physical_seek(target, work)?;
+        }
+    }
+
+    fn consume_head(
+        &mut self,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        if self.held.is_none() {
+            return Ok(None);
+        }
+        work.record_consumed()?;
+        Ok(self.held.take())
     }
 }
 
@@ -988,21 +1116,123 @@ pub(in crate::db::executor) struct IndexRangeKeyStream {
     chunk_entries: usize,
     buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
+    held: Option<DecodedDataStoreKey>,
+    primary_key_seek: Option<IndexPrimaryKeySeek>,
     exhausted: bool,
+}
+
+/// Ordered polling adapter for an index leaf that retains held-head work state.
+///
+/// Prefix-family merges use this concrete shape so they no longer materialize
+/// sibling candidate vectors and so later seek-aware owners can position the
+/// same physical leaf without changing its consumption semantics.
+pub(in crate::db::executor) struct SeekableIndexRangeKeyStream {
+    inner: IndexRangeKeyStream,
+    work: HeldHeadSeekWork,
+    pending_target: Option<DecodedDataStoreKey>,
+}
+
+impl SeekableIndexRangeKeyStream {
+    #[must_use]
+    const fn new(inner: IndexRangeKeyStream) -> Self {
+        Self {
+            inner,
+            work: HeldHeadSeekWork::unbounded(),
+            pending_target: None,
+        }
+    }
+}
+
+impl OrderedKeyStream for SeekableIndexRangeKeyStream {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        let Some(target) = self.pending_target.take() else {
+            return self.inner.next_key();
+        };
+        let outcome = self.inner.seek_head_at_or_after(&target, &mut self.work)?;
+        let next = match outcome {
+            HeldHeadSeekOutcome::Held(key) => Some(key.clone()),
+            HeldHeadSeekOutcome::Exhausted => None,
+            HeldHeadSeekOutcome::PageStop => return Err(InternalError::executor_invariant()),
+        };
+        if next.is_none() {
+            return Ok(None);
+        }
+
+        let consumed = self.inner.consume_head(&mut self.work)?;
+        if consumed != next {
+            return Err(InternalError::executor_invariant());
+        }
+        Ok(consumed)
+    }
+}
+
+struct IndexPrimaryKeySeek {
+    prefix_start: IndexKey,
+    prefix_len: usize,
+    suffix_len: usize,
+}
+
+impl IndexPrimaryKeySeek {
+    fn new(
+        index: &IndexShapeDetails,
+        spec: &LoweredIndexPrefixSpec,
+    ) -> Result<Self, InternalError> {
+        let prefix_len = index.slot_arity();
+        let key_arity = index.key_arity();
+        if prefix_len > key_arity || spec.prefix_components().len() != prefix_len {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let prefix_start = lowered_prefix_start_key(spec)?;
+        if prefix_start.component_count() != key_arity {
+            return Err(InternalError::query_executor_invariant());
+        }
+
+        Ok(Self {
+            prefix_start,
+            prefix_len,
+            suffix_len: key_arity.saturating_sub(prefix_len),
+        })
+    }
+
+    fn raw_target(&self, target: &DecodedDataStoreKey) -> Result<RawIndexStoreKey, InternalError> {
+        let mut suffix_values = Vec::with_capacity(self.suffix_len);
+        for component_index in 0..self.suffix_len {
+            suffix_values.push(target.primary_key_component_runtime_value(component_index)?);
+        }
+
+        Ok(
+            IndexKey::new_from_existing_prefix_and_suffix_values_with_primary_key_value(
+                &self.prefix_start,
+                self.prefix_len,
+                suffix_values.as_slice(),
+                &target.primary_key_value(),
+            )?
+            .to_raw()?,
+        )
+    }
 }
 
 impl IndexRangeKeyStream {
     // Build one index stream from a lowered prefix envelope.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one physical leaf freezes store, index, bounds, continuation, window, and seek authority together"
+    )]
     fn from_prefix(
         store: StoreHandle,
         entity_tag: EntityTag,
+        index: &IndexShapeDetails,
         spec: &LoweredIndexPrefixSpec,
         direction: Direction,
         anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
         chunk_entries: usize,
+        primary_key_ordered: bool,
     ) -> Result<Self, InternalError> {
         let (lower, upper) = spec.raw_bounds()?;
+        let primary_key_seek = primary_key_ordered
+            .then(|| IndexPrimaryKeySeek::new(index, spec))
+            .transpose()?;
         Ok(Self::new(
             store,
             entity_tag,
@@ -1011,6 +1241,7 @@ impl IndexRangeKeyStream {
             anchor,
             limit,
             chunk_entries,
+            primary_key_seek,
         ))
     }
 
@@ -1030,9 +1261,14 @@ impl IndexRangeKeyStream {
             continuation.anchor().cloned(),
             limit,
             ACCESS_SCAN_CHUNK_ENTRIES,
+            None,
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one physical leaf freezes its complete bounded traversal state"
+    )]
     fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
@@ -1041,6 +1277,7 @@ impl IndexRangeKeyStream {
         anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
         chunk_entries: usize,
+        primary_key_seek: Option<IndexPrimaryKeySeek>,
     ) -> Self {
         let (lower, upper) = bounds;
         Self {
@@ -1054,6 +1291,8 @@ impl IndexRangeKeyStream {
             chunk_entries,
             buffer: Vec::new(),
             buffer_pos: 0,
+            held: None,
+            primary_key_seek,
             exhausted: false,
         }
     }
@@ -1092,10 +1331,8 @@ impl IndexRangeKeyStream {
 
         Ok(())
     }
-}
 
-impl OrderedKeyStream for IndexRangeKeyStream {
-    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+    fn pull_next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         while self.buffer_pos == self.buffer.len() && !self.exhausted {
             self.load_next_chunk()?;
         }
@@ -1105,8 +1342,123 @@ impl OrderedKeyStream for IndexRangeKeyStream {
 
         let key = self.buffer[self.buffer_pos].clone();
         self.buffer_pos += 1;
-
         Ok(Some(key))
+    }
+
+    fn configure_physical_seek(
+        &mut self,
+        target: &DecodedDataStoreKey,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<bool, InternalError> {
+        if self.remaining.is_some() {
+            return Ok(false);
+        }
+        let Some(seek) = self.primary_key_seek.as_ref() else {
+            return Ok(false);
+        };
+        let raw_target = seek.raw_target(target)?;
+        if !raw_key_within_bounds(&raw_target, &self.lower, &self.upper) {
+            self.buffer.clear();
+            self.buffer_pos = 0;
+            self.exhausted = true;
+            return Ok(true);
+        }
+
+        let bound_bytes = u64::try_from(raw_target.as_bytes().len()).unwrap_or(u64::MAX);
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            bound_bytes,
+        )?;
+        work.record_physical_seek(bound_bytes)?;
+
+        match self.direction {
+            Direction::Asc => self.lower = Bound::Included(raw_target),
+            Direction::Desc => self.upper = Bound::Included(raw_target),
+        }
+        self.anchor = None;
+        self.buffer.clear();
+        self.buffer_pos = 0;
+        self.exhausted = false;
+        Ok(true)
+    }
+
+    fn ensure_physical_head(
+        &mut self,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+        if self.held.is_some() {
+            return held_head_outcome(self.held.as_ref());
+        }
+        if self.exhausted && self.buffer_pos == self.buffer.len() {
+            return Ok(HeldHeadSeekOutcome::Exhausted);
+        }
+        if !work.admits_pull() {
+            return Ok(HeldHeadSeekOutcome::PageStop);
+        }
+        work.record_pull_attempt()?;
+        self.held = self.pull_next_key()?;
+        held_head_outcome(self.held.as_ref())
+    }
+}
+
+impl OrderedKeyStream for IndexRangeKeyStream {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        if self.held.is_some() {
+            return Ok(self.held.take());
+        }
+        self.pull_next_key()
+    }
+}
+
+impl HeldHeadKeyStream for IndexRangeKeyStream {
+    fn ensure_head(
+        &mut self,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+        self.ensure_physical_head(work)
+    }
+
+    fn seek_head_at_or_after(
+        &mut self,
+        target: &DecodedDataStoreKey,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+        if target.entity_tag() != self.entity_tag {
+            return Err(InternalError::executor_invariant());
+        }
+
+        loop {
+            let direction = self.direction;
+            let held_before_target = match self.ensure_physical_head(work)? {
+                HeldHeadSeekOutcome::Held(held) => {
+                    work.record_comparison()?;
+                    KeyOrderComparator::from_direction(direction)
+                        .compare_data_keys(held, target)
+                        .is_lt()
+                }
+                HeldHeadSeekOutcome::Exhausted => return Ok(HeldHeadSeekOutcome::Exhausted),
+                HeldHeadSeekOutcome::PageStop => return Ok(HeldHeadSeekOutcome::PageStop),
+            };
+            if !held_before_target {
+                return held_head_outcome(self.held.as_ref());
+            }
+
+            work.record_skipped_consumptions(1)?;
+            self.held = None;
+            self.configure_physical_seek(target, work)?;
+        }
+    }
+
+    fn consume_head(
+        &mut self,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        if self.held.is_none() {
+            return Ok(None);
+        }
+        work.record_consumed()?;
+        Ok(self.held.take())
     }
 }
 
@@ -1401,5 +1753,254 @@ impl ExecutionPathPayload<'_, Value> {
         };
 
         resolve_physical_key_stream(self, bindings, &runtime)
+    }
+}
+
+#[cfg(test)]
+mod physical_seek_tests {
+    use super::*;
+    use crate::{
+        db::{
+            data::{DataStore, RawRow},
+            index::{IndexEntryValue, IndexId, IndexKeyKind, IndexStore},
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
+            schema::SchemaStore,
+        },
+        types::EntityTag,
+    };
+    use ic_stable_structures::Storable;
+    use std::{borrow::Cow, cell::RefCell};
+
+    const ENTITY: EntityTag = EntityTag::new(0x222);
+
+    thread_local! {
+        static DATA: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+        static INDEX: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+        static SCHEMA: RefCell<SchemaStore> = const { RefCell::new(SchemaStore::init_heap()) };
+    }
+
+    const STORE: StoreHandle = StoreHandle::new(
+        &DATA,
+        &INDEX,
+        &SCHEMA,
+        StoreAllocationIdentities::absent(),
+        StoreRuntimeStorageCapabilities::heap(),
+    );
+
+    fn data_key(value: u64) -> DecodedDataStoreKey {
+        DecodedDataStoreKey::new(
+            ENTITY,
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(value)),
+        )
+    }
+
+    fn index_key(index_id: &IndexId, component: &[u8], value: u64) -> IndexKey {
+        IndexKey::new_from_components_with_primary_key_value(
+            index_id,
+            IndexKeyKind::User,
+            &[component.to_vec()],
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(value)),
+        )
+        .expect("test index key should build")
+    }
+
+    fn reset_heap_stores() {
+        DATA.with_borrow_mut(|store| *store = DataStore::init_heap());
+        INDEX.with_borrow_mut(|store| *store = IndexStore::init_heap());
+    }
+
+    fn load_primary_keys() {
+        DATA.with_borrow_mut(|store| {
+            for value in 1..=100 {
+                store.insert_raw_for_test(
+                    data_key(value)
+                        .to_raw()
+                        .expect("test data key should encode"),
+                    RawRow::try_new(vec![0]).expect("test row should be bounded"),
+                );
+            }
+        });
+    }
+
+    fn load_index_keys(index_id: &IndexId, component: &[u8]) {
+        INDEX.with_borrow_mut(|store| {
+            for value in 1..=100 {
+                store.insert(
+                    index_key(index_id, component, value)
+                        .to_raw()
+                        .expect("test index key should encode"),
+                    IndexEntryValue::presence(),
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn primary_leaf_physically_repositions_in_both_directions() {
+        reset_heap_stores();
+        load_primary_keys();
+
+        for (direction, first, target, next) in
+            [(Direction::Asc, 1, 80, 81), (Direction::Desc, 100, 20, 19)]
+        {
+            let mut stream =
+                PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), direction, None)
+                    .expect("primary stream should build");
+            let mut work = HeldHeadSeekWork::unbounded();
+
+            assert_eq!(
+                stream
+                    .ensure_head(&mut work)
+                    .expect("first head should load"),
+                HeldHeadSeekOutcome::Held(&data_key(first)),
+            );
+            assert_eq!(
+                stream
+                    .seek_head_at_or_after(&data_key(target), &mut work)
+                    .expect("physical seek should position"),
+                HeldHeadSeekOutcome::Held(&data_key(target)),
+            );
+            assert_eq!(work.physical_seeks(), 1);
+            assert!(work.reposition_bound_bytes() > 0);
+            assert_eq!(
+                stream
+                    .consume_head(&mut work)
+                    .expect("target should consume"),
+                Some(data_key(target)),
+            );
+            assert_eq!(
+                stream
+                    .ensure_head(&mut work)
+                    .expect("successor should load"),
+                HeldHeadSeekOutcome::Held(&data_key(next)),
+            );
+        }
+    }
+
+    #[test]
+    fn limited_primary_leaf_uses_equivalent_repeated_progress() {
+        reset_heap_stores();
+        load_primary_keys();
+
+        let mut stream =
+            PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), Direction::Asc, Some(10))
+                .expect("limited primary stream should build");
+        let mut work = HeldHeadSeekWork::unbounded();
+
+        assert_eq!(
+            stream
+                .seek_head_at_or_after(&data_key(8), &mut work)
+                .expect("limited seek should progress"),
+            HeldHeadSeekOutcome::Held(&data_key(8)),
+        );
+        assert_eq!(work.physical_seeks(), 0);
+        assert_eq!(work.skipped_occurrences(), 7);
+    }
+
+    #[test]
+    fn primary_key_ordered_index_leaf_repositions_without_visiting_the_gap() {
+        reset_heap_stores();
+        let index_id = IndexId::new(ENTITY, 1);
+        let component = b"lane";
+        load_index_keys(&index_id, component);
+
+        let lower = index_key(&index_id, component, 1)
+            .to_raw()
+            .expect("lower index key should encode");
+        let upper = index_key(&index_id, component, 100)
+            .to_raw()
+            .expect("upper index key should encode");
+        let seek = IndexPrimaryKeySeek {
+            prefix_start: index_key(&index_id, component, 1),
+            prefix_len: 1,
+            suffix_len: 0,
+        };
+        let mut stream = IndexRangeKeyStream::new(
+            STORE,
+            ENTITY,
+            (Bound::Included(lower), Bound::Included(upper)),
+            Direction::Asc,
+            None,
+            None,
+            ACCESS_SCAN_CHUNK_ENTRIES,
+            Some(seek),
+        );
+        let mut work = HeldHeadSeekWork::unbounded();
+
+        assert_eq!(
+            stream
+                .ensure_head(&mut work)
+                .expect("first index head should load"),
+            HeldHeadSeekOutcome::Held(&data_key(1)),
+        );
+        assert_eq!(
+            stream
+                .seek_head_at_or_after(&data_key(80), &mut work)
+                .expect("index seek should position"),
+            HeldHeadSeekOutcome::Held(&data_key(80)),
+        );
+        assert_eq!(work.physical_seeks(), 1);
+        assert_eq!(work.skipped_occurrences(), 1);
+        assert_eq!(work.pull_attempts(), 2);
+    }
+
+    #[test]
+    fn physical_leaf_page_stop_does_not_start_a_store_pull() {
+        reset_heap_stores();
+        load_primary_keys();
+        let mut stream =
+            PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), Direction::Asc, None)
+                .expect("primary stream should build");
+        let mut work = HeldHeadSeekWork::with_pull_attempt_limit(0);
+
+        assert_eq!(
+            stream.ensure_head(&mut work).expect("page stop is success"),
+            HeldHeadSeekOutcome::PageStop,
+        );
+        assert_eq!(work.pull_attempts(), 0);
+        assert_eq!(work.physical_seeks(), 0);
+    }
+
+    #[test]
+    fn prefix_family_child_count_rejects_max_plus_one_before_allocation() {
+        assert!(
+            validate_prefix_family_child_count(IndexPrefixChildExpansionBudget::MAX_PREFIXES)
+                .is_ok()
+        );
+        assert!(
+            validate_prefix_family_child_count(IndexPrefixChildExpansionBudget::MAX_PREFIXES + 1,)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn index_leaf_propagates_malformed_entry_corruption() {
+        reset_heap_stores();
+        let index_id = IndexId::new(ENTITY, 1);
+        let component = b"lane";
+        let raw_key = index_key(&index_id, component, 50)
+            .to_raw()
+            .expect("index key should encode");
+        INDEX.with_borrow_mut(|store| {
+            store.insert(
+                raw_key.clone(),
+                <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff])),
+            );
+        });
+        let mut stream = IndexRangeKeyStream::new(
+            STORE,
+            ENTITY,
+            (Bound::Included(raw_key.clone()), Bound::Included(raw_key)),
+            Direction::Asc,
+            None,
+            None,
+            ACCESS_SCAN_CHUNK_ENTRIES,
+            None,
+        );
+        let mut work = HeldHeadSeekWork::unbounded();
+
+        assert!(stream.ensure_head(&mut work).is_err());
+        assert_eq!(work.pull_attempts(), 1);
     }
 }

@@ -94,6 +94,9 @@ impl AccessChoiceExplainSnapshot {
             PlannedNonIndexAccessReason::PlannerCompositeNonIndex => {
                 AccessChoiceSelectedReason::PlannerCompositeNonIndex
             }
+            PlannedNonIndexAccessReason::PlannerExactIndexIntersection => {
+                AccessChoiceSelectedReason::PlannerExactIndexIntersection
+            }
         };
 
         Self {
@@ -314,6 +317,7 @@ pub(in crate::db) enum AccessChoiceSelectedReason {
     ConstantFalsePredicate,
     PlannerFullScanFallback,
     PlannerCompositeNonIndex,
+    PlannerExactIndexIntersection,
     FullScanAccess,
     SelectedIndexNotProjected,
     SingleCandidate,
@@ -347,6 +351,7 @@ impl AccessChoiceSelectedReason {
             Self::ConstantFalsePredicate => "constant_false_predicate",
             Self::PlannerFullScanFallback => "planner_full_scan_fallback",
             Self::PlannerCompositeNonIndex => "planner_composite_non_index",
+            Self::PlannerExactIndexIntersection => "planner_exact_index_intersection",
             Self::FullScanAccess => "full_scan_access",
             Self::SelectedIndexNotProjected => "selected_index_not_projected",
             Self::SingleCandidate => "single_candidate",
