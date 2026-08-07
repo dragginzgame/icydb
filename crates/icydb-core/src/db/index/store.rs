@@ -118,6 +118,7 @@ pub struct IndexStore {
     pub(super) backend: IndexStoreBackend,
     generation: u64,
     state: IndexState,
+    access_state_revision: u64,
     prefix_cardinality: IndexPrefixCardinality,
 }
 
@@ -152,6 +153,7 @@ impl IndexStore {
             backend: IndexStoreBackend::Heap(HeapBTreeMap::new()),
             generation: 0,
             state: IndexState::Ready,
+            access_state_revision: 1,
             prefix_cardinality: IndexPrefixCardinality::synchronized_empty(),
         }
     }
@@ -170,6 +172,7 @@ impl IndexStore {
             },
             generation: 0,
             state: IndexState::Ready,
+            access_state_revision: 1,
             prefix_cardinality: IndexPrefixCardinality::synchronized_empty(),
         };
         store.rebuild_prefix_cardinality_from_entries(Some(0));
@@ -256,6 +259,12 @@ impl IndexStore {
         self.state
     }
 
+    /// Return the current physical access-readiness revision.
+    #[must_use]
+    pub(in crate::db) const fn access_state_revision(&self) -> u64 {
+        self.access_state_revision
+    }
+
     /// Return an exact user-index prefix count when the index metadata is
     /// synchronized with the caller's authoritative row-store generation.
     #[must_use]
@@ -318,13 +327,9 @@ impl IndexStore {
 
     /// Mark this index store as in-progress and therefore ineligible for
     /// planner visibility until a full authoritative rebuild ends.
-    pub(in crate::db) const fn mark_building(&mut self) {
-        self.state = IndexState::Building;
-    }
-
-    /// Mark this index store as fully built and planner-visible again.
-    pub(in crate::db) const fn mark_ready(&mut self) {
-        self.state = IndexState::Ready;
+    pub(in crate::db) const fn set_access_state(&mut self, state: IndexState, revision: u64) {
+        self.state = state;
+        self.access_state_revision = revision;
     }
 
     pub(crate) fn insert(

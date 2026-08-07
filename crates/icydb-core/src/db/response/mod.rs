@@ -11,5 +11,5 @@ mod rows;
 #[doc(hidden)]
 pub use exact_key::ExactKeyBatchProjectionOutput;
 pub use grouped::{GroupedQueryOutput, GroupedRow};
-pub use page::{LiveQueryPageOutput, ScalarPageWork};
+pub use page::{ExhaustiveQueryPageOutput, LiveQueryPageOutput, ScalarPageWork};
 pub use rows::RowProjectionOutput;

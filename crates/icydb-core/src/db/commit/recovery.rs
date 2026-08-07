@@ -230,7 +230,7 @@ fn perform_recovery<C: CanisterKind>(
     // Phase 7: authoritative rebuild succeeded, so every registered index is
     // query-visible again.
     if !private_migration_state {
-        db.mark_all_registered_index_stores_ready();
+        db.mark_all_registered_index_stores_ready()?;
     }
     mark_commit_marker_verified_absent();
 

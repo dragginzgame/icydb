@@ -283,6 +283,26 @@ historical proof may require multiple calls. Resource exhaustion leaves the job
 in an incomplete, resumable state and cannot be interpreted as validation
 success.
 
+## Revision-Bound Application Progress
+
+Durable application validation/export jobs retain progress in the dedicated
+integrity-progress allocation, never in a protected source store. Their
+canonical read-set proof binds database incarnation, accepted runtime root,
+and each participating physical store's data and access-state revisions.
+Journaled source stores are required for cross-upgrade jobs; heap sources may
+only support one-call exhaustive traversal.
+
+One synchronous `compare_proof_and_advance` transition checks the complete
+proof before and after application page work, then retains either the bounded
+next state or a typed invalidation receipt. The same sequence and idempotency
+key replays that receipt without executing page or accumulator work again.
+Mutations to stores absent from the proof do not invalidate the job; any row
+mutation in a participating physical store conservatively does, including a
+different entity sharing that store. Null continuation commits an explicit
+completed state. Sequence-checked terminal acknowledgement is idempotent and
+removes completed/invalidated records so the bounded progress allocation does
+not leak capacity.
+
 ## Stable Memory Partitioning
 
 Stable-memory memory IDs are part of the durable store allocation contract.

@@ -16,8 +16,10 @@ pub(crate) mod integrity;
 pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
 pub(crate) mod query;
+mod read_set;
 pub(crate) mod registry;
 pub(crate) mod response;
+mod resumable_job;
 pub(crate) mod runtime_entity_catalog;
 pub(crate) mod scalar_expr;
 pub(crate) mod schema;
@@ -135,6 +137,10 @@ pub use query::{
     read_intent::ReadIntentKind,
     trace::TraceReuseEvent,
 };
+pub use read_set::{
+    ExhaustiveReadError, MAX_READ_SET_PROOF_BYTES, MAX_READ_SET_PROOF_STORES, ReadSetRevisionError,
+    ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision,
+};
 pub use registry::{
     StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
     StoreCommitParticipation, StoreDurability, StoreRecoveryCapability, StoreRegistry,
@@ -144,7 +150,16 @@ pub use registry::{
 #[doc(hidden)]
 pub use response::ExactKeyBatchProjectionOutput;
 pub use response::{
-    GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, RowProjectionOutput, ScalarPageWork,
+    ExhaustiveQueryPageOutput, GroupedQueryOutput, GroupedRow, LiveQueryPageOutput,
+    RowProjectionOutput, ScalarPageWork,
+};
+pub(in crate::db) use resumable_job::ResumableJobRecord;
+pub use resumable_job::{
+    CompareProofAndAdvanceError, MAX_RESUMABLE_JOB_CONTINUATION_BYTES,
+    MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES, MAX_RESUMABLE_JOB_RECEIPT_BYTES,
+    MAX_RESUMABLE_JOB_STATE_BYTES, ResumableJobAdvance, ResumableJobAdvanceReceipt,
+    ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
+    ResumableJobIdempotencyKey, ResumableJobState, ResumableJobStatus,
 };
 #[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
@@ -279,12 +294,16 @@ impl<C: CanisterKind> Db<C> {
     ///
     /// Recovery restores visibility only after rebuild and post-recovery
     /// integrity validation complete successfully.
-    pub(in crate::db) fn mark_all_registered_index_stores_ready(&self) {
+    pub(in crate::db) fn mark_all_registered_index_stores_ready(
+        &self,
+    ) -> Result<(), InternalError> {
         self.with_store_registry(|registry| {
             for (_, handle) in registry.iter() {
-                handle.mark_index_ready();
+                handle.mark_index_ready()?;
             }
-        });
+            Ok::<(), InternalError>(())
+        })?;
+        Ok(())
     }
 
     /// Build one storage diagnostics report for registered stores/entities.

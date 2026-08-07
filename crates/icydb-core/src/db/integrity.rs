@@ -48,6 +48,7 @@ pub(in crate::db) use job::{
     IntegrityCheckpoint, IntegrityJob, IntegrityJobState, IntegrityReceiptEnvelope,
     IntegrityReceiptReplayKey, MAX_INTEGRITY_IN_PROGRESS_PAGES,
 };
+pub(in crate::db) use progress_store::with_resumable_progress_store;
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
 pub(in crate::db) use row::{
     PhysicalUnitCheckpoint, RowInspectionLimits, execute_row_integrity_page,

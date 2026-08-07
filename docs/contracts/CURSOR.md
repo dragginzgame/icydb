@@ -1,91 +1,76 @@
 # IcyDB Cursor Pagination Contract
 
-This document describes the current cursor representation and implementation
-boundary. The normative pagination semantics are defined in
-[`QUERY_CONTRACT.md`](QUERY_CONTRACT.md).
+This document describes the maintained continuation boundary. Normative query
+semantics also live in [`QUERY_CONTRACT.md`](QUERY_CONTRACT.md).
 
-The current source owners are:
+## External Boundary
 
-- `crates/icydb-core/src/db/cursor/token/codec.rs` for bounded binary encoding;
-- `crates/icydb-core/src/db/cursor/string.rs` for external hex text;
-- `crates/icydb-core/src/db/cursor/spine.rs` for decode and validation;
-- executor continuation planning for route-specific resume behavior.
+Continuations are opaque and authenticated, but not encrypted. Applications
+must pass them back unchanged, authorize every ordered field represented by a
+cursor, and must not treat cursor contents as a field-level secrecy boundary.
 
-## External Token Boundary
+IcyDB emits lowercase hexadecimal text over a bounded binary token. Decode
+accepts either hex case. Empty, odd-length, non-hexadecimal, oversized,
+truncated, modified, wrong-database, and unsupported-version tokens fail
+closed before execution. Binary scalar tokens are capped at 8 KiB.
 
-Cursor tokens are opaque to callers, but they are not confidential. Applications
-must pass them back unchanged and must not parse fields or depend on their wire
-layout.
+## Current Wires
 
-IcyDB emits lowercase hexadecimal text over the binary token. Decode accepts
-lowercase or uppercase hexadecimal digits. Empty, whitespace-only, odd-length,
-non-hexadecimal, and oversized tokens fail closed with typed cursor errors.
+Grouped continuation retains the sole current bounded version-1 wire. Scalar
+live and exhaustive pages use the sole current authenticated version-2 wire.
+No legacy scalar decoder or translation path exists.
 
-The binary token is bounded to 8 KiB. The external hex form is bounded to twice
-that size before decode, so untrusted input cannot force an unbounded allocation.
+The scalar MAC covers the current payload before semantic fields are used. Its
+contract binds:
 
-## Current Binary Wire
+- live or exhaustive mode;
+- canonical query shape and bound parameter identity;
+- database incarnation, accepted runtime root, entity, and access authority;
+- every explicit and hidden order term with its own direction and canonical
+  null/comparison semantics;
+- total query window and immutable page-envelope identity;
+- last emitted logical boundary, consumed physical progress, and bounded
+  unconsumed lookahead state; and
+- in exhaustive mode, the complete `ReadSetRevisionProof` identity.
 
-There is one accepted binary wire: the `ICYQ` magic followed by
-`TOKEN_WIRE_VERSION = 1`. IcyDB does not retain a decoder or translate older
-cursor formats. A magic or version mismatch, wrong scalar/grouped variant,
-truncated field, invalid value tag, invalid direction, invalid optional-field
-marker, or trailing byte is rejected.
+Changing any bound fact rejects the token. Ordered boundary values are capped
+at 4 KiB across at most 32 terms; a single unrepresentable boundary fails with
+the typed terminal page-unit error rather than returning a looping cursor.
 
-Both scalar and grouped tokens begin with the magic, wire version, and token
-variant. The current payloads then carry:
+## Ordering And Progress
 
-- a continuation signature bound to the canonical query shape;
-- traversal direction;
-- the initial offset owned by the first page;
-- scalar canonical boundary slots and an optional index-range anchor, or the
-  grouped continuation key tuple.
+Continuation is strict, deterministic, and forward-only in the canonical
+mixed-direction order. IcyDB appends missing primary-key components as hidden
+tie breakers while preserving explicitly supplied primary-key terms and their
+directions. Null and value comparison use the frozen canonical comparison
+contract rather than locale collation.
 
-The wire version is an internal protocol discriminator. Public APIs promise an
-opaque token, not a stable field layout.
+A non-null continuation means traversal has not been proven exhausted. It
+does not guarantee another matching row exists. Page-envelope exhaustion may
+therefore return an empty page with continuation after consuming only
+nonmatching physical entries.
 
-## Validation and Continuation
+Lookahead never consumes an unreturned match. The cursor either remains before
+that match or retains enough bounded state to return it on the next page. If
+lookahead proves physical exhaustion, continuation is null even when the page
+is exactly full.
 
-Decode is only the first gate. The cursor validation spine checks the token
-against the current entity and canonical query shape before execution. A cursor
-cannot be reused after changing the predicate, access shape, ordering, entity,
-direction, or other signature-owned pagination facts.
+## Live And Exhaustive Modes
 
-Continuation is strict and forward-only:
+Live pages are revision-tolerant keyset traversal for ordinary UI browsing.
+Concurrent writes may change which rows remain after the validated boundary;
+live pages do not claim snapshot completeness.
 
-`next page := rows whose canonical order is greater than the boundary`
-
-The canonical order is the requested order plus the primary-key tie-breaker.
-Cursor and non-zero offset modes cannot be mixed.
-
-## Execution Model
-
-Cursor semantics do not depend on the selected physical route. Every route must
-preserve the same canonical ordering, residual filtering, strict boundary, page
-limit, and lookahead behavior.
-
-When planning proves that an ordered access route can resume safely, execution
-may seek or stream from the continuation boundary and stop at the bounded page.
-Index-range routes may carry the validated raw-key anchor needed for that resume.
-When the proof is unavailable, execution uses the admitted materialize/filter/
-order/cursor/window path. A broader runtime fallback cannot bypass public-read
-admission.
-
-Diagnostics report the route and continuation mode chosen for the execution;
-they do not reconstruct a second cursor contract.
-
-## Live-State Semantics
-
-Pagination is best-effort and forward-only over live state. It is not snapshot
-isolated across requests. With a fixed query shape and stable ordered keys,
-pages do not overlap. Concurrent inserts, deletes, or updates to ordered fields
-may change which rows remain after the boundary.
+Exhaustive pages are revision-strict. The first page captures or accepts one
+canonical bounded proof for all participating physical stores. Every resume
+must supply that proof beside the continuation. IcyDB compares it before and
+after page execution; a protected row, accepted-root, database-incarnation,
+or access-state change returns a typed revision failure. Completion is only a
+null continuation under one unchanged proof.
 
 ## Non-Goals
 
-The current cursor contract does not provide:
-
-- backward or random-page traversal;
-- snapshot isolation across page requests;
-- encryption, authentication, or server-side cursor storage;
-- decoding or translation of retired wire formats.
+The cursor contract does not provide backward/random-page traversal,
+confidential cursor fields, compatibility decoding, or automatic application
+job authorization. Durable multi-call accumulation uses the separate
+idempotent resumable-job boundary.

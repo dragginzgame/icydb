@@ -88,6 +88,45 @@ before crossing the existing `InputValue` / `OutputValue` boundary.
 Always return or consume `page.continuation`; a non-null value proves the read
 has not yet established exhaustion.
 
+Use `execute_exhaustive_page` for validation, export, or any operation that
+must prove it visited one complete unchanged set. Its page additionally
+returns a `ReadSetRevisionProof`. Persist that proof beside the continuation
+and pass both back unchanged. For work that reads several entities, capture
+the complete proof before the first page:
+
+```rust,ignore
+let proof = db!()?.capture_read_set_revision_proof(&[
+    "Token",
+    "GeneratorTokenProvenance",
+    "GeneratorExportSnapshot",
+])?;
+
+let page = db!()?.execute_exhaustive_page(
+    &request,
+    prior_continuation.as_deref(),
+    Some(&proof),
+)?;
+```
+
+A source-row, accepted-root, or physical access-state change returns a typed
+revision error; restart from a new proof rather than retrying the same page.
+Mutations in stores absent from the proof do not invalidate it. Heap stores
+may be used for one-call exhaustive reads but cannot back durable cross-call
+jobs.
+
+Long-running update workflows use `start_resumable_job` and
+`compare_proof_and_advance`. The latter runs one synchronous page closure,
+rechecks the proof, and atomically retains the next bounded application state
+and receipt in IcyDB's excluded progress domain. Replaying the same sequence
+and idempotency key returns the retained receipt without executing the closure
+again. The application still owns job authorization, accumulator meaning, and
+restart policy. A null continuation commits `Completed`; only exact replay or
+sequence-checked `acknowledge_resumable_job` remains. Acknowledgement is
+terminal-only and idempotent so its lost reply can be retried while freeing
+bounded progress capacity. Proof capture and every progress-control operation
+charge the same request-wide execution counter used by ordinary database
+calls; opening another session cannot reset that allowance.
+
 Grouped reads use the same accepted-schema planner, plan cache, executor, and
 public-value conversion as SQL. They do not require the SQL parser or SQL
 response types:
@@ -111,10 +150,12 @@ trusted `execute_trusted_dynamic_grouped_query` terminal.
 
 Ordinary public reads:
 
-- require a positive `LIMIT` no greater than 100;
+- return at most 100 rows per page; an optional query `LIMIT` bounds the total
+  window across all pages;
 - require a planner-proven bounded/index-backed route;
 - reject full scans and materialized sorts;
-- do not expose scalar cursor, page, or offset APIs.
+- expose only IcyDB-issued scalar continuation; callers cannot supply offsets
+  or page-policy controls.
 
 See [READ_ADMISSION.md](../contracts/READ_ADMISSION.md).
 

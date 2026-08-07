@@ -15,6 +15,7 @@ mod write;
 use crate::{metrics::MetricsSink, traits::CanisterKind};
 
 use icydb_core as core;
+use std::{error::Error as StdError, fmt};
 
 // re-exports
 pub use integrity::IntegrityCheckError;
@@ -33,6 +34,35 @@ pub use write::{
     TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite,
     TypedWriteAdapter, TypedWriteError, WriteCell,
 };
+
+/// Failure while capturing or executing one revision-strict exhaustive read.
+#[derive(Debug)]
+pub enum ExhaustiveReadError {
+    /// Planning, admission, execution, or database authority failed.
+    Database(crate::Error),
+    /// The bounded source proof was invalid or changed.
+    Revision(core::db::ReadSetRevisionError),
+}
+
+impl fmt::Display for ExhaustiveReadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Database(error) => error.fmt(formatter),
+            Self::Revision(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl StdError for ExhaustiveReadError {}
+
+impl From<core::db::ExhaustiveReadError> for ExhaustiveReadError {
+    fn from(error: core::db::ExhaustiveReadError) -> Self {
+        match error {
+            core::db::ExhaustiveReadError::Query(error) => Self::Database(error.into()),
+            core::db::ExhaustiveReadError::Revision(error) => Self::Revision(error),
+        }
+    }
+}
 #[doc(hidden)]
 pub use write::{TypedFieldBindingRequest, TypedFieldType};
 
@@ -93,6 +123,81 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
+    /// Capture one canonical proof for every physical store behind the named entities.
+    pub fn capture_read_set_revision_proof(
+        &self,
+        entity_names: &[&str],
+    ) -> Result<crate::db::ReadSetRevisionProof, ExhaustiveReadError> {
+        self.inner
+            .capture_read_set_revision_proof(entity_names)
+            .map_err(Into::into)
+    }
+
+    /// Execute one ordinary revision-strict bounded dynamic page.
+    pub fn execute_exhaustive_page(
+        &self,
+        request: &crate::db::DynamicQuery,
+        continuation: Option<&str>,
+        proof: Option<&crate::db::ReadSetRevisionProof>,
+    ) -> Result<crate::db::ExhaustiveQueryPageOutput, ExhaustiveReadError> {
+        self.inner
+            .execute_public_exhaustive_page(request, continuation, proof)
+            .map_err(Into::into)
+    }
+
+    /// Execute one trusted revision-strict bounded dynamic page.
+    pub fn execute_trusted_exhaustive_page(
+        &self,
+        request: &crate::db::DynamicQuery,
+        continuation: Option<&str>,
+        proof: Option<&crate::db::ReadSetRevisionProof>,
+    ) -> Result<crate::db::ExhaustiveQueryPageOutput, ExhaustiveReadError> {
+        self.inner
+            .execute_trusted_exhaustive_page(request, continuation, proof)
+            .map_err(Into::into)
+    }
+
+    /// Create one durable application-owned progress job.
+    pub fn start_resumable_job(
+        &self,
+        job_id: crate::db::ResumableJobId,
+        proof: crate::db::ReadSetRevisionProof,
+        initial_application_state: Vec<u8>,
+    ) -> Result<crate::db::ResumableJobState, crate::db::ResumableJobError> {
+        self.inner
+            .start_resumable_job(job_id, proof, initial_application_state)
+    }
+
+    /// Load one retained application-owned progress job.
+    pub fn resumable_job_state(
+        &self,
+        job_id: crate::db::ResumableJobId,
+    ) -> Result<crate::db::ResumableJobState, crate::db::ResumableJobError> {
+        self.inner.resumable_job_state(job_id)
+    }
+
+    /// Idempotently remove one terminal job after consuming its result.
+    pub fn acknowledge_resumable_job(
+        &self,
+        job_id: crate::db::ResumableJobId,
+        expected_sequence: u64,
+    ) -> Result<(), crate::db::ResumableJobError> {
+        self.inner
+            .acknowledge_resumable_job(job_id, expected_sequence)
+    }
+
+    /// Execute and atomically retain one proof-checked application page.
+    pub fn compare_proof_and_advance<E>(
+        &self,
+        request: &crate::db::ResumableJobAdvanceRequest,
+        operation: impl FnOnce(
+            &crate::db::ResumableJobState,
+        ) -> Result<crate::db::ResumableJobAdvance, E>,
+    ) -> Result<crate::db::ResumableJobAdvanceReceipt, crate::db::CompareProofAndAdvanceError<E>>
+    {
+        self.inner.compare_proof_and_advance(request, operation)
+    }
+
     /// Execute one ordinary entity-name-driven bounded grouped read.
     pub fn execute_public_dynamic_grouped_query(
         &self,
@@ -121,6 +226,23 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Option<crate::db::LiveQueryPageOutput>, crate::Error> {
         self.inner
             .execute_public_live_page_for_typed_binding(binding.inner(), request, continuation)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn execute_public_typed_exhaustive_page(
+        &self,
+        binding: &TypedEntityBinding,
+        request: &crate::db::DynamicQuery,
+        continuation: Option<&str>,
+        proof: Option<&crate::db::ReadSetRevisionProof>,
+    ) -> Result<Option<crate::db::ExhaustiveQueryPageOutput>, ExhaustiveReadError> {
+        self.inner
+            .execute_public_exhaustive_page_for_typed_binding(
+                binding.inner(),
+                request,
+                continuation,
+                proof,
+            )
             .map_err(Into::into)
     }
 

@@ -5,8 +5,10 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, DynamicTypedEntityBinding, GroupedQueryOutput,
-        LiveQueryPageOutput, MissingRowPolicy, QueryError, ScalarPageWork,
+        DbSession, DynamicQuery, DynamicTypedEntityBinding, ExhaustiveQueryPageOutput,
+        ExhaustiveReadError, GroupedQueryOutput, LiveQueryPageOutput, MissingRowPolicy, QueryError,
+        ReadSetRevisionError, ReadSetRevisionProof, ScalarPageWork,
+        codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         commit::{cursor_authentication_key, database_incarnation_id},
         cursor::{
             CursorPlanError, ScalarOrderTermContract, ScalarPageMode, ScalarPageToken,
@@ -31,6 +33,7 @@ use icydb_diagnostic_code::{
     DiagnosticDecodeReason, DiagnosticExecutionBudgetResource, DiagnosticExecutionLane,
     QueryReadAdmissionCode,
 };
+use sha2::Digest;
 
 #[cfg(not(test))]
 const SCALAR_PAGE_OUTPUT_ROWS: usize = 1_024;
@@ -43,7 +46,7 @@ enum DynamicReadLane {
     Trusted,
 }
 
-struct ScalarLiveCursorContract {
+struct ScalarCursorContract {
     signature: crate::db::cursor::ContinuationSignature,
     authority: ScalarPageTokenAuthority,
     window: ScalarPageTokenWindow,
@@ -130,15 +133,29 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn scalar_live_cursor_contract(
+    fn scalar_cursor_contract(
         request: &DynamicQuery,
         catalog: &AcceptedSchemaCatalogContext,
         envelope: PageWorkEnvelope,
         prepared_plan: &crate::db::executor::SharedPreparedExecutionPlan,
-    ) -> Result<ScalarLiveCursorContract, QueryError> {
-        let signature = prepared_plan
+        mode: ScalarPageMode,
+        proof: Option<&ReadSetRevisionProof>,
+    ) -> Result<ScalarCursorContract, QueryError> {
+        let mut signature = prepared_plan
             .continuation_signature_for_runtime()
             .map_err(QueryError::execute)?;
+        match (mode, proof) {
+            (ScalarPageMode::Live, None) => {}
+            (ScalarPageMode::Exhaustive, Some(proof)) => {
+                let mut hasher = new_hash_sha256_prefixed(b"icydb.exhaustive-cursor-proof.v1");
+                hasher.update(signature.into_bytes());
+                hasher.update(proof.signature_bytes());
+                signature = crate::db::cursor::ContinuationSignature::from_bytes(
+                    finalize_hash_sha256(hasher),
+                );
+            }
+            _ => return Err(Self::scalar_page_cursor_error()),
+        }
         let root_identity = catalog.runtime_root_identity();
         let (root_fingerprint_method, root_fingerprint) = root_identity.fingerprint();
         let authority = ScalarPageTokenAuthority::new(
@@ -164,7 +181,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|term| ScalarOrderTermContract::new(term.rendered_label(), term.direction()))
             .collect::<Vec<_>>();
 
-        Ok(ScalarLiveCursorContract {
+        Ok(ScalarCursorContract {
             signature,
             authority,
             window,
@@ -238,21 +255,39 @@ impl<C: CanisterKind> DbSession<C> {
         clippy::too_many_lines,
         reason = "live-page orchestration keeps planning, cursor validation, execution, and response proof in one auditable boundary"
     )]
-    fn execute_live_page_against_catalog(
+    fn execute_scalar_page_against_catalog(
         &self,
         request: &DynamicQuery,
         continuation: Option<&str>,
         lane: DynamicReadLane,
         catalog: AcceptedSchemaCatalogContext,
-    ) -> Result<LiveQueryPageOutput, QueryError> {
+        mode: ScalarPageMode,
+        supplied_proof: Option<&ReadSetRevisionProof>,
+    ) -> Result<(LiveQueryPageOutput, Option<ReadSetRevisionProof>), ExhaustiveReadError> {
         if request.has_grouping()
             || request.grouped_execution_limits().is_some()
             || request.continuation_cursor().is_some()
         {
-            return Err(QueryError::intent(
-                IntentError::scalar_terminal_requires_scalar_query(),
-            ));
+            return Err(
+                QueryError::intent(IntentError::scalar_terminal_requires_scalar_query()).into(),
+            );
         }
+
+        let exhaustive_proof = match mode {
+            ScalarPageMode::Live => None,
+            ScalarPageMode::Exhaustive => {
+                if continuation.is_some() && supplied_proof.is_none() {
+                    return Err(ReadSetRevisionError::ResumeProofRequired.into());
+                }
+                let proof = supplied_proof.cloned().map_or_else(
+                    || self.capture_entity_read_set_revision_proof(catalog.identity().store_path()),
+                    Ok,
+                )?;
+                Self::ensure_read_set_contains_store(&proof, catalog.identity().store_path())?;
+                self.verify_read_set_revision_proof(&proof)?;
+                Some(proof)
+            }
+        };
 
         let envelope = match lane {
             DynamicReadLane::Public => PageWorkEnvelope::public_scalar(),
@@ -335,7 +370,7 @@ impl<C: CanisterKind> DbSession<C> {
                 prepared_plan.logical_plan(),
             ));
             if let Some(rejection) = summary.rejection() {
-                return Err(QueryError::from(rejection.code()));
+                return Err(QueryError::from(rejection.code()).into());
             }
         }
 
@@ -343,11 +378,17 @@ impl<C: CanisterKind> DbSession<C> {
         let cursor_contract = decoded_token
             .as_ref()
             .map(|token| {
-                let contract =
-                    Self::scalar_live_cursor_contract(request, &catalog, envelope, &prepared_plan)?;
+                let contract = Self::scalar_cursor_contract(
+                    request,
+                    &catalog,
+                    envelope,
+                    &prepared_plan,
+                    mode,
+                    exhaustive_proof.as_ref(),
+                )?;
                 Self::validate_scalar_page_token(
                     token,
-                    ScalarPageMode::Live,
+                    mode,
                     contract.signature,
                     contract.authority,
                     contract.window,
@@ -367,7 +408,7 @@ impl<C: CanisterKind> DbSession<C> {
                 ScalarContinuationContext::resumed,
             );
         if decoded_token.is_some() && !continuation_context.has_cursor_boundary() {
-            return Err(Self::scalar_page_cursor_error());
+            return Err(Self::scalar_page_cursor_error().into());
         }
 
         let value_catalog = prepared_plan
@@ -424,10 +465,17 @@ impl<C: CanisterKind> DbSession<C> {
                 let prepared_plan = deferred_cursor_plan
                     .as_ref()
                     .ok_or_else(Self::scalar_page_cursor_error)?;
-                Self::scalar_live_cursor_contract(request, &catalog, envelope, prepared_plan)?
+                Self::scalar_cursor_contract(
+                    request,
+                    &catalog,
+                    envelope,
+                    prepared_plan,
+                    mode,
+                    exhaustive_proof.as_ref(),
+                )?
             };
             let token = ScalarPageToken::new(
-                ScalarPageMode::Live,
+                mode,
                 cursor_contract.signature,
                 cursor_contract.authority,
                 cursor_contract.window,
@@ -448,18 +496,25 @@ impl<C: CanisterKind> DbSession<C> {
             None
         };
 
-        Ok(LiveQueryPageOutput {
-            entity: catalog.snapshot().entity_name().to_string(),
-            columns,
-            rows,
-            row_count,
-            continuation,
-            work: ScalarPageWork {
-                envelope_identity: envelope.identity(),
-                entries_visited: page.scanned_keys as u64,
-                result_rows: row_count,
+        if let Some(proof) = exhaustive_proof.as_ref() {
+            self.verify_read_set_revision_proof(proof)?;
+        }
+
+        Ok((
+            LiveQueryPageOutput {
+                entity: catalog.snapshot().entity_name().to_string(),
+                columns,
+                rows,
+                row_count,
+                continuation,
+                work: ScalarPageWork {
+                    envelope_identity: envelope.identity(),
+                    entries_visited: page.scanned_keys as u64,
+                    result_rows: row_count,
+                },
             },
-        })
+            exhaustive_proof,
+        ))
     }
 
     /// Execute one revision-tolerant bounded scalar page.
@@ -471,12 +526,16 @@ impl<C: CanisterKind> DbSession<C> {
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
-        self.execute_live_page_against_catalog(
+        self.execute_scalar_page_against_catalog(
             request,
             continuation,
             DynamicReadLane::Public,
             catalog,
+            ScalarPageMode::Live,
+            None,
         )
+        .map(|(page, _)| page)
+        .map_err(Self::live_page_error)
     }
 
     /// Execute one live page through a typed binding's immutable accepted
@@ -494,13 +553,16 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
-        self.execute_live_page_against_catalog(
+        self.execute_scalar_page_against_catalog(
             request,
             continuation,
             DynamicReadLane::Public,
             catalog,
+            ScalarPageMode::Live,
+            None,
         )
-        .map(Some)
+        .map(|(page, _)| Some(page))
+        .map_err(Self::live_page_error)
     }
 
     /// Execute one ordinary entity-name-driven bounded grouped read.
@@ -570,11 +632,88 @@ impl<C: CanisterKind> DbSession<C> {
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
-        self.execute_live_page_against_catalog(
+        self.execute_scalar_page_against_catalog(
             request,
             continuation,
             DynamicReadLane::Trusted,
             catalog,
+            ScalarPageMode::Live,
+            None,
         )
+        .map(|(page, _)| page)
+        .map_err(Self::live_page_error)
+    }
+
+    /// Execute one revision-strict bounded dynamic page.
+    pub fn execute_public_exhaustive_page(
+        &self,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+        proof: Option<&ReadSetRevisionProof>,
+    ) -> Result<ExhaustiveQueryPageOutput, ExhaustiveReadError> {
+        let catalog =
+            self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
+        let (page, proof) = self.execute_scalar_page_against_catalog(
+            request,
+            continuation,
+            DynamicReadLane::Public,
+            catalog,
+            ScalarPageMode::Exhaustive,
+            proof,
+        )?;
+        let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
+        Ok(ExhaustiveQueryPageOutput::from_live_page(page, proof))
+    }
+
+    /// Execute one exhaustive page through a typed binding's accepted identity.
+    #[doc(hidden)]
+    pub fn execute_public_exhaustive_page_for_typed_binding(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+        proof: Option<&ReadSetRevisionProof>,
+    ) -> Result<Option<ExhaustiveQueryPageOutput>, ExhaustiveReadError> {
+        let Some(catalog) = self.current_typed_entity_binding_catalog(binding)? else {
+            return Ok(None);
+        };
+        let (page, proof) = self.execute_scalar_page_against_catalog(
+            request,
+            continuation,
+            DynamicReadLane::Public,
+            catalog,
+            ScalarPageMode::Exhaustive,
+            proof,
+        )?;
+        let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
+        Ok(Some(ExhaustiveQueryPageOutput::from_live_page(page, proof)))
+    }
+
+    /// Execute one trusted revision-strict bounded dynamic page.
+    pub fn execute_trusted_exhaustive_page(
+        &self,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+        proof: Option<&ReadSetRevisionProof>,
+    ) -> Result<ExhaustiveQueryPageOutput, ExhaustiveReadError> {
+        let catalog =
+            self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
+        let (page, proof) = self.execute_scalar_page_against_catalog(
+            request,
+            continuation,
+            DynamicReadLane::Trusted,
+            catalog,
+            ScalarPageMode::Exhaustive,
+            proof,
+        )?;
+        let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
+        Ok(ExhaustiveQueryPageOutput::from_live_page(page, proof))
+    }
+
+    fn live_page_error(error: ExhaustiveReadError) -> QueryError {
+        match error {
+            ExhaustiveReadError::Query(error) => error,
+            ExhaustiveReadError::Revision(_) => QueryError::invariant(),
+        }
     }
 }

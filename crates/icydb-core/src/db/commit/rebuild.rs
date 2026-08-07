@@ -112,7 +112,7 @@ fn rebuild_secondary_indexes_in_place(
     // Phase 1: fail closed during rebuild so no query path can treat one
     // partially rebuilt secondary index as authoritative.
     for (_, handle) in stores {
-        handle.mark_index_building();
+        handle.mark_index_building()?;
     }
 
     // Phase 2: clear all index stores before deterministic full rebuild.

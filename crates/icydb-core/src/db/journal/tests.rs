@@ -484,6 +484,35 @@ fn validation_job_appends_do_not_change_the_durable_data_revision() {
 }
 
 #[test]
+fn access_state_revision_is_durable_and_not_a_journal_batch() {
+    let memory = test_memory(253);
+    let mut store = JournalTailStore::init(memory.clone());
+    assert_eq!(
+        store
+            .access_state_revision()
+            .expect("initial access-state revision should load"),
+        1,
+    );
+    assert_eq!(
+        store
+            .advance_access_state_revision()
+            .expect("access-state transition should advance"),
+        2,
+    );
+    assert_eq!(store.len(), 0);
+
+    drop(store);
+    let reopened = JournalTailStore::init(memory);
+    assert_eq!(
+        reopened
+            .access_state_revision()
+            .expect("access-state revision should survive reopen"),
+        2,
+    );
+    assert_eq!(reopened.len(), 0);
+}
+
+#[test]
 fn accepted_schema_publication_record_rejects_revision_gap() {
     let candidate =
         empty_accepted_schema_candidate_for_tests("test::Store", AcceptedSchemaRevision::new(3));

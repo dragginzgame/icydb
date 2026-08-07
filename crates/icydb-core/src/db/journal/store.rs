@@ -19,12 +19,16 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 const FOLD_WATERMARK_CONTROL_SEQUENCE: JournalSequence = JournalSequence::new(0);
 const DATA_MUTATION_REVISION_CONTROL_CHUNK: u32 = 1;
+const ACCESS_STATE_REVISION_CONTROL_CHUNK: u32 = 2;
 const FOLD_WATERMARK_MAGIC: &[u8] = b"ICYDB-FOLD-WATERMARK";
 const FOLD_WATERMARK_VERSION: u8 = 1;
 const FOLD_WATERMARK_BYTES: usize = FOLD_WATERMARK_MAGIC.len() + 1 + 8 + 8;
 const DATA_MUTATION_REVISION_MAGIC: &[u8] = b"ICYDB-DATA-REVISION";
 const DATA_MUTATION_REVISION_VERSION: u8 = 1;
 const DATA_MUTATION_REVISION_BYTES: usize = DATA_MUTATION_REVISION_MAGIC.len() + 1 + 8;
+const ACCESS_STATE_REVISION_MAGIC: &[u8] = b"ICYDB-ACCESS-REVISION";
+const ACCESS_STATE_REVISION_VERSION: u8 = 1;
+const ACCESS_STATE_REVISION_BYTES: usize = ACCESS_STATE_REVISION_MAGIC.len() + 1 + 8;
 pub(in crate::db::journal) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
 const JOURNAL_TAIL_KEY_BYTES: u32 = 12;
 const MAX_JOURNAL_INSPECTION_BATCHES_PER_PAGE: usize = 2;
@@ -282,6 +286,13 @@ impl JournalTailKey {
             DATA_MUTATION_REVISION_CONTROL_CHUNK,
         )
     }
+
+    const fn access_state_revision() -> Self {
+        Self::new(
+            FOLD_WATERMARK_CONTROL_SEQUENCE,
+            ACCESS_STATE_REVISION_CONTROL_CHUNK,
+        )
+    }
 }
 
 impl Storable for JournalTailKey {
@@ -434,6 +445,26 @@ impl JournalTailStore {
             .next()
             .map(JournalSequence::get)
             .ok_or_else(InternalError::journal_mutation_revision_exhausted)
+    }
+
+    /// Return the durable revision of physical access readiness for this store.
+    pub(in crate::db) fn access_state_revision(&self) -> Result<u64, InternalError> {
+        self.map
+            .get(&JournalTailKey::access_state_revision())
+            .map_or(Ok(1), |raw| decode_access_state_revision(raw.as_bytes()))
+    }
+
+    /// Advance physical access readiness after one actual lifecycle transition.
+    pub(in crate::db) fn advance_access_state_revision(&mut self) -> Result<u64, InternalError> {
+        let revision = self
+            .access_state_revision()?
+            .checked_add(1)
+            .ok_or_else(journal_tail_corruption)?;
+        self.map.insert(
+            JournalTailKey::access_state_revision(),
+            RawJournalChunk::from_bytes(encode_access_state_revision(revision)),
+        );
+        Ok(revision)
     }
 
     /// Capture the exact durable and physical identity inspected by Deep.
@@ -1101,6 +1132,31 @@ fn decode_data_mutation_revision(bytes: &[u8]) -> Result<JournalSequence, Intern
         return Err(journal_tail_corruption());
     }
     Ok(sequence)
+}
+
+fn encode_access_state_revision(revision: u64) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(ACCESS_STATE_REVISION_BYTES);
+    bytes.extend_from_slice(ACCESS_STATE_REVISION_MAGIC);
+    bytes.push(ACCESS_STATE_REVISION_VERSION);
+    bytes.extend_from_slice(&revision.to_be_bytes());
+    bytes
+}
+
+fn decode_access_state_revision(bytes: &[u8]) -> Result<u64, InternalError> {
+    if bytes.len() != ACCESS_STATE_REVISION_BYTES
+        || !bytes.starts_with(ACCESS_STATE_REVISION_MAGIC)
+        || bytes[ACCESS_STATE_REVISION_MAGIC.len()] != ACCESS_STATE_REVISION_VERSION
+    {
+        return Err(journal_tail_corruption());
+    }
+    let revision_start = ACCESS_STATE_REVISION_MAGIC.len() + 1;
+    let mut revision = [0; size_of::<u64>()];
+    revision.copy_from_slice(&bytes[revision_start..]);
+    let revision = u64::from_be_bytes(revision);
+    if revision == 0 {
+        return Err(journal_tail_corruption());
+    }
+    Ok(revision)
 }
 
 fn journal_tail_corruption() -> InternalError {

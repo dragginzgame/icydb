@@ -1454,7 +1454,7 @@ fn publish_completed_physical_migration<C: CanisterKind>(
             DatabaseControlOp::SchemaMigration(migration),
         ],
     )?;
-    db.mark_all_registered_index_stores_ready();
+    db.mark_all_registered_index_stores_ready()?;
     let applied_target = schema_application_target(db)?;
     active_migration_status(proposal, &applied_target, &applied)
 }

@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         database_format::crc32c,
         integrity::{
             IntegrityJob, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
@@ -12,6 +13,10 @@ use crate::{
                 MAX_INTEGRITY_JOB_PAYLOAD_BYTES, decode_integrity_job_payload,
                 encode_integrity_job_payload,
             },
+        },
+        resumable_job::{
+            ResumableJobError, ResumableJobId, ResumableJobRecord, decode_resumable_job_payload,
+            encode_resumable_job_payload,
         },
     },
     traits::CanisterKind,
@@ -22,6 +27,7 @@ use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound,
 };
+use sha2::Digest;
 use std::borrow::Cow;
 #[cfg(test)]
 use std::cell::RefCell;
@@ -34,6 +40,10 @@ const PROGRESS_HEADER_BYTES: usize = 8 + 1 + 4;
 const JOB_RECORD_MAGIC: &[u8; 8] = b"ICYIJPTH";
 const JOB_RECORD_VERSION: u8 = 2;
 const JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
+const RESUMABLE_JOB_KEY_DOMAIN: &[u8] = b"icydb.resumable-job.progress-key.v1";
+const RESUMABLE_JOB_RECORD_MAGIC: &[u8; 8] = b"ICYRJOB1";
+const RESUMABLE_JOB_RECORD_VERSION: u8 = 1;
+const RESUMABLE_JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const MAX_PROGRESS_RECORD_BYTES: u32 = 512 * 1024;
 const MAX_PROGRESS_JOBS_GLOBAL: u64 = 64;
 const MAX_PROGRESS_JOBS_PER_OWNER: u64 = 8;
@@ -44,6 +54,16 @@ struct ProgressRecordKey([u8; 32]);
 impl ProgressRecordKey {
     const fn from_job_id(job_id: IntegrityJobId) -> Self {
         Self(job_id.to_bytes())
+    }
+
+    fn from_resumable_job_id(job_id: ResumableJobId) -> Result<Self, ResumableJobError> {
+        let mut hasher = new_hash_sha256_prefixed(RESUMABLE_JOB_KEY_DOMAIN);
+        hasher.update(job_id.to_bytes());
+        let key = finalize_hash_sha256(hasher);
+        if key == PROGRESS_HEADER_KEY.0 {
+            return Err(ResumableJobError::InvalidJobId);
+        }
+        Ok(Self(key))
     }
 }
 
@@ -102,7 +122,7 @@ pub(super) struct ProgressScanPage {
     pub(super) exhausted: bool,
 }
 
-pub(super) struct InspectionProgressStore {
+pub(in crate::db) struct InspectionProgressStore {
     map: StableBTreeMap<ProgressRecordKey, ProgressRecordBytes, VirtualMemory<DefaultMemoryImpl>>,
 }
 
@@ -172,6 +192,63 @@ impl InspectionProgressStore {
         Ok(())
     }
 
+    pub(in crate::db) fn load_resumable(
+        &self,
+        job_id: ResumableJobId,
+    ) -> Result<ResumableJobRecord, ResumableJobError> {
+        let key = ProgressRecordKey::from_resumable_job_id(job_id)?;
+        let raw = self.map.get(&key).ok_or(ResumableJobError::NotFound)?;
+        decode_resumable_job_record(&raw.0, job_id)
+    }
+
+    pub(in crate::db) fn insert_resumable(
+        &mut self,
+        record: &ResumableJobRecord,
+    ) -> Result<(), ResumableJobError> {
+        record.validate()?;
+        let key = ProgressRecordKey::from_resumable_job_id(record.state().job_id)?;
+        if self.map.contains_key(&key) {
+            return Err(ResumableJobError::AlreadyExists);
+        }
+        if self.job_count().map_err(map_integrity_store_error)? >= MAX_PROGRESS_JOBS_GLOBAL {
+            return Err(ResumableJobError::CapacityExceeded);
+        }
+        self.map.insert(
+            key,
+            ProgressRecordBytes(encode_resumable_job_record(record)?),
+        );
+        Ok(())
+    }
+
+    pub(in crate::db) fn replace_resumable(
+        &mut self,
+        record: &ResumableJobRecord,
+    ) -> Result<(), ResumableJobError> {
+        record.validate()?;
+        let key = ProgressRecordKey::from_resumable_job_id(record.state().job_id)?;
+        if !self.map.contains_key(&key) {
+            return Err(ResumableJobError::NotFound);
+        }
+        self.map.insert(
+            key,
+            ProgressRecordBytes(encode_resumable_job_record(record)?),
+        );
+        Ok(())
+    }
+
+    pub(in crate::db) fn remove_resumable(
+        &mut self,
+        job_id: ResumableJobId,
+    ) -> Result<(), ResumableJobError> {
+        let key = ProgressRecordKey::from_resumable_job_id(job_id)?;
+        let Some(raw) = self.map.get(&key) else {
+            return Ok(());
+        };
+        decode_resumable_job_record(&raw.0, job_id)?;
+        let _ = self.map.remove(&key);
+        Ok(())
+    }
+
     pub(super) fn remove(&mut self, job_id: IntegrityJobId) -> Result<(), IntegrityJobError> {
         if self
             .map
@@ -195,11 +272,14 @@ impl InspectionProgressStore {
         let mut job_ids = Vec::with_capacity(limit);
         let mut has_more = false;
         for entry in self.map.range((Excluded(lower), Unbounded)) {
+            let Ok(job_id) = integrity_job_id_from_record(&entry.value().0) else {
+                continue;
+            };
             if job_ids.len() == limit {
                 has_more = true;
                 break;
             }
-            job_ids.push(IntegrityJobId::try_from_bytes(entry.key().0)?);
+            job_ids.push(job_id);
         }
         Ok(ProgressScanPage {
             job_ids,
@@ -323,11 +403,97 @@ fn decode_job_record(
     Ok(job)
 }
 
-pub(super) fn with_progress_store<C: CanisterKind, R>(
+fn integrity_job_id_from_record(bytes: &[u8]) -> Result<IntegrityJobId, IntegrityJobError> {
+    if bytes.len() < JOB_RECORD_HEADER_BYTES || !bytes.starts_with(JOB_RECORD_MAGIC) {
+        return Err(IntegrityJobError::CorruptProgressRecord);
+    }
+    let payload_len_offset = JOB_RECORD_MAGIC.len() + 1;
+    let checksum_offset = payload_len_offset + 4;
+    let payload_offset = checksum_offset + 4;
+    let payload = bytes
+        .get(payload_offset..)
+        .ok_or(IntegrityJobError::CorruptProgressRecord)?;
+    let job = decode_integrity_job_payload(payload)
+        .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
+    decode_job_record(bytes, job.id).map(|job| job.id)
+}
+
+fn encode_resumable_job_record(record: &ResumableJobRecord) -> Result<Vec<u8>, ResumableJobError> {
+    let payload = encode_resumable_job_payload(record)?;
+    let total_len = RESUMABLE_JOB_RECORD_HEADER_BYTES
+        .checked_add(payload.len())
+        .ok_or(ResumableJobError::PayloadTooLarge)?;
+    if total_len > MAX_PROGRESS_RECORD_BYTES as usize {
+        return Err(ResumableJobError::PayloadTooLarge);
+    }
+    let payload_len =
+        u32::try_from(payload.len()).map_err(|_| ResumableJobError::PayloadTooLarge)?;
+    let mut bytes = Vec::with_capacity(total_len);
+    bytes.extend_from_slice(RESUMABLE_JOB_RECORD_MAGIC);
+    bytes.push(RESUMABLE_JOB_RECORD_VERSION);
+    bytes.extend_from_slice(&payload_len.to_be_bytes());
+    bytes.extend_from_slice(&crc32c(payload.as_slice()).to_be_bytes());
+    bytes.extend_from_slice(&payload);
+    Ok(bytes)
+}
+
+fn decode_resumable_job_record(
+    bytes: &[u8],
+    expected_id: ResumableJobId,
+) -> Result<ResumableJobRecord, ResumableJobError> {
+    if bytes.len() < RESUMABLE_JOB_RECORD_HEADER_BYTES
+        || !bytes.starts_with(RESUMABLE_JOB_RECORD_MAGIC)
+        || bytes[RESUMABLE_JOB_RECORD_MAGIC.len()] != RESUMABLE_JOB_RECORD_VERSION
+    {
+        return Err(ResumableJobError::IncompatibleProgressFormat);
+    }
+    if bytes.len() > MAX_PROGRESS_RECORD_BYTES as usize {
+        return Err(ResumableJobError::CorruptProgressStore);
+    }
+    let payload_len_offset = RESUMABLE_JOB_RECORD_MAGIC.len() + 1;
+    let checksum_offset = payload_len_offset + 4;
+    let payload_offset = checksum_offset + 4;
+    let mut payload_len = [0; 4];
+    payload_len.copy_from_slice(&bytes[payload_len_offset..checksum_offset]);
+    if u32::from_be_bytes(payload_len) as usize != bytes.len() - payload_offset {
+        return Err(ResumableJobError::CorruptProgressStore);
+    }
+    let payload = &bytes[payload_offset..];
+    let mut checksum = [0; 4];
+    checksum.copy_from_slice(&bytes[checksum_offset..payload_offset]);
+    if u32::from_be_bytes(checksum) != crc32c(payload) {
+        return Err(ResumableJobError::CorruptProgressStore);
+    }
+    let record = decode_resumable_job_payload(payload)?;
+    if record.state().job_id != expected_id {
+        return Err(ResumableJobError::CorruptProgressStore);
+    }
+    Ok(record)
+}
+
+const fn map_integrity_store_error(error: IntegrityJobError) -> ResumableJobError {
+    match error {
+        IntegrityJobError::IncompatibleProgressFormat => {
+            ResumableJobError::IncompatibleProgressFormat
+        }
+        IntegrityJobError::CapacityExceeded => ResumableJobError::CapacityExceeded,
+        _ => ResumableJobError::CorruptProgressStore,
+    }
+}
+
+pub(in crate::db) fn with_progress_store<C: CanisterKind, R>(
     f: impl FnOnce(&mut InspectionProgressStore) -> Result<R, IntegrityJobError>,
 ) -> Result<R, IntegrityJobError> {
     let memory = progress_memory::<C>()?;
     let mut store = InspectionProgressStore::open(memory)?;
+    f(&mut store)
+}
+
+pub(in crate::db) fn with_resumable_progress_store<C: CanisterKind, R>(
+    f: impl FnOnce(&mut InspectionProgressStore) -> Result<R, ResumableJobError>,
+) -> Result<R, ResumableJobError> {
+    let memory = progress_memory::<C>().map_err(map_integrity_store_error)?;
+    let mut store = InspectionProgressStore::open(memory).map_err(map_integrity_store_error)?;
     f(&mut store)
 }
 
@@ -370,7 +536,35 @@ fn progress_memory<C: CanisterKind>() -> Result<VirtualMemory<DefaultMemoryImpl>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::integrity::progress_codec::current_job_codec_fixture;
+    use crate::{
+        db::{
+            ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision,
+            integrity::progress_codec::current_job_codec_fixture,
+        },
+        testing::test_memory,
+    };
+
+    fn current_resumable_record() -> ResumableJobRecord {
+        let proof = ReadSetRevisionProof::from_parts(
+            [1; 16],
+            7,
+            1,
+            [2; 32],
+            vec![ReadSetStoreRevision::new(
+                ReadSetStoreIdentity::from_bytes([3; 32]),
+                11,
+                13,
+            )],
+        )
+        .expect("bounded canonical proof should admit");
+        ResumableJobRecord::new(
+            ResumableJobId::try_from_bytes([4; 32])
+                .expect("nonzero resumable job identity should admit"),
+            proof,
+            vec![5, 6],
+        )
+        .expect("current resumable record should admit")
+    }
 
     #[test]
     fn progress_header_rejects_future_version_and_checksum_corruption() {
@@ -420,5 +614,60 @@ mod tests {
             decode_job_record(&corrupt, job.id),
             Err(IntegrityJobError::CorruptProgressRecord),
         );
+    }
+
+    #[test]
+    fn current_resumable_record_is_direct_bounded_and_checksum_protected() {
+        let record = current_resumable_record();
+        let encoded =
+            encode_resumable_job_record(&record).expect("current resumable record should encode");
+
+        assert_eq!(encoded.len(), 175);
+        assert_eq!(encoded[RESUMABLE_JOB_RECORD_MAGIC.len()], 1);
+        assert!(!encoded[RESUMABLE_JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
+        assert_eq!(
+            decode_resumable_job_record(&encoded, record.state().job_id)
+                .expect("current resumable record should decode"),
+            record,
+        );
+
+        let mut future = encoded.clone();
+        future[RESUMABLE_JOB_RECORD_MAGIC.len()] = RESUMABLE_JOB_RECORD_VERSION + 1;
+        assert_eq!(
+            decode_resumable_job_record(&future, record.state().job_id),
+            Err(ResumableJobError::IncompatibleProgressFormat),
+        );
+
+        let mut corrupt = encoded;
+        let last = corrupt
+            .last_mut()
+            .expect("current resumable record has a payload");
+        *last ^= 0xff;
+        assert_eq!(
+            decode_resumable_job_record(&corrupt, record.state().job_id),
+            Err(ResumableJobError::CorruptProgressStore),
+        );
+    }
+
+    #[test]
+    fn integrity_scan_skips_generic_resumable_progress_records() {
+        let mut store = InspectionProgressStore::open(test_memory(252))
+            .expect("isolated progress store should open");
+        let integrity = current_job_codec_fixture();
+        assert!(matches!(
+            store
+                .insert_new(&integrity)
+                .expect("integrity job should insert"),
+            InsertJobResult::Inserted,
+        ));
+        store
+            .insert_resumable(&current_resumable_record())
+            .expect("generic resumable job should insert");
+
+        let page = store
+            .scan_after(None, 8)
+            .expect("integrity scan should ignore other record families");
+        assert_eq!(page.job_ids, vec![integrity.id]);
+        assert!(page.exhausted);
     }
 }

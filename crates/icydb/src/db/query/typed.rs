@@ -7,8 +7,8 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, GroupedQueryOutput, TypedBindingError, TypedEntityAdapter,
-        TypedEntityBinding, TypedRowError,
+        DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput, TypedBindingError,
+        TypedEntityAdapter, TypedEntityBinding, TypedRowError,
     },
     traits::{CanisterKind, EntityKey},
     types::Id,
@@ -37,6 +37,37 @@ pub struct LivePage<Row> {
     /// Bounded work observed while producing the page.
     pub work: crate::db::ScalarPageWork,
 }
+
+/// One revision-strict bounded typed page.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ExhaustivePage<Row> {
+    /// Decoded typed rows returned by this page.
+    pub rows: Vec<Row>,
+    /// Authenticated continuation, or `None` after proof-bound exhaustion.
+    pub continuation: Option<String>,
+    /// Bounded work observed while producing this page.
+    pub work: crate::db::ScalarPageWork,
+    /// Complete source proof that must accompany the next resume.
+    pub proof: crate::db::ReadSetRevisionProof,
+}
+
+/// Failure while decoding or executing one typed exhaustive page.
+#[derive(Debug)]
+pub enum TypedExhaustiveQueryError {
+    Exhaustive(ExhaustiveReadError),
+    Row(TypedRowError),
+}
+
+impl fmt::Display for TypedExhaustiveQueryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Exhaustive(error) => error.fmt(formatter),
+            Self::Row(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl StdError for TypedExhaustiveQueryError {}
 
 impl fmt::Display for TypedQueryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -186,6 +217,46 @@ where
             rows,
             continuation: result.continuation,
             work: result.work,
+        })
+    }
+
+    /// Execute one revision-strict bounded page and decode its typed rows.
+    ///
+    /// Supply the prior page's continuation and proof together. Omitting both
+    /// starts a single-store proof; a pre-captured multi-store proof may be
+    /// supplied on the first call for a larger validation job.
+    pub fn execute_exhaustive_page(
+        self,
+        continuation: Option<&str>,
+        proof: Option<&crate::db::ReadSetRevisionProof>,
+    ) -> Result<ExhaustivePage<E::Row>, TypedExhaustiveQueryError> {
+        let result = self
+            .session
+            .execute_public_typed_exhaustive_page(&self.binding, &self.request, continuation, proof)
+            .map_err(TypedExhaustiveQueryError::Exhaustive)?
+            .ok_or({
+                TypedExhaustiveQueryError::Row(TypedRowError::Adapter(
+                    crate::db::TypedAdapterError::StaleBinding,
+                ))
+            })?;
+        let mut rows = Vec::with_capacity(result.rows.len());
+        for row_index in 0..result.rows.len() {
+            let row = self
+                .session
+                .typed_exhaustive_page_row(&self.binding, &result, row_index)
+                .map_err(TypedExhaustiveQueryError::Row)?;
+            rows.push(
+                E::decode_row(&self.binding, row).map_err(|error| {
+                    TypedExhaustiveQueryError::Row(TypedRowError::Adapter(error))
+                })?,
+            );
+        }
+
+        Ok(ExhaustivePage {
+            rows,
+            continuation: result.continuation,
+            work: result.work,
+            proof: result.proof,
         })
     }
 

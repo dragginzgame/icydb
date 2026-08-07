@@ -34,9 +34,12 @@ owns authorization and the resource policy.
 | --- | --- | --- |
 | `DbSession::query::<E>()?.execute_live_page(...)` | `PublicRead` | Generated binding and decode around an authenticated bounded live page. |
 | `execute_live_page` | `PublicRead` | Entity/field names resolve against accepted schema; built-in bounded admission and explicit continuation apply. |
+| `DbSession::query::<E>()?.execute_exhaustive_page(...)` | `PublicRead` | Generated binding and decode around a revision-strict page; resume requires its complete source proof. |
+| `execute_exhaustive_page` | `PublicRead` | Bounded scalar execution plus pre/post comparison of the canonical participating-store proof. |
 | `DbSession::query::<E>()?.execute_grouped()` | `PublicRead` | Generated binding selects accepted entity identity; the engine-neutral grouped result remains structural. |
 | `execute_public_dynamic_grouped_query` | `PublicRead` | Grouped dynamic execution requires explicit limits and exposes an opaque continuation cursor. |
 | `execute_trusted_live_page` | trusted bypass | Explicit maintenance/admin dynamic page. |
+| `execute_trusted_exhaustive_page` | trusted bypass | Authorized maintenance page with the same revision-strict proof contract. |
 | `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
 | generated `icydb_query` | trusted bypass | Controller-gated admin SQL using `execute_trusted_sql_query_with_perf_attribution`. |
@@ -51,6 +54,8 @@ admission-policy controls.
 - Known generated row type: `query::<E>()`; runtime adapters are automatic.
 - Runtime entity/field names: `DynamicQuery` plus
   `execute_live_page`.
+- Complete unchanged-set traversal: typed or dynamic
+  `execute_exhaustive_page`, retaining both continuation and proof.
 - Grouped typed/dynamic rows: ordered `.group_by(...)` and `.aggregate(...)`
   declarations, explicit `.grouped_limits(...)`, and the grouped terminal.
 - Controller/admin maintenance: `execute_trusted_live_page`.
@@ -58,8 +63,14 @@ admission-policy controls.
 - Planner inspection: trusted SQL `EXPLAIN`.
 
 Ordinary typed and dynamic pages require a safe selected route and return at
-most 100 rows. A query `LIMIT` is the total traversal limit, not a per-page
-limit. Do not emulate continuation with hidden offsets.
+most 100 rows. A query `LIMIT`, when supplied, is the total traversal limit,
+not a per-page limit. Do not emulate continuation with hidden offsets.
+
+Live pages tolerate source mutations and provide forward keyset progress, not
+snapshot completeness. Exhaustive pages compare the complete bounded physical
+store proof before and after every page. A non-null continuation means only
+that exhaustion has not been proved; completion requires a null continuation
+under one unchanged proof.
 
 Grouped calls additionally require positive `max_groups` and
 `max_group_bytes` values. Public calls must remain within the frozen ceilings;
@@ -79,7 +90,8 @@ admin surface, not a public endpoint template.
 ## Public Endpoint Guidance
 
 Authorize the caller before entering IcyDB. Use the ordinary typed or dynamic
-lane, supply a small explicit limit, and shape a bounded response:
+lane and shape a bounded response; add a small query limit only when the whole
+logical traversal needs a smaller cap than the built-in page envelope:
 
 Generated IcyDB endpoints establish the request scope automatically. A manual
 IC-CDK, Canic, lifecycle, or timer entry uses
@@ -124,7 +136,7 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 - internal and public rejection enums remain one-to-one;
 - default budgets remain synchronized with this contract;
 - typed execution enters the identity-bound
-  `execute_public_typed_live_page` boundary;
+  live or exhaustive page boundary;
 - trusted SQL documentation and generated-controller ownership remain intact;
 - public reads enter through the maintained typed or dynamic admission
   boundaries.

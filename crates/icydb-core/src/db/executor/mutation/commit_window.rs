@@ -698,7 +698,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_window_for_path<C: CanisterK
         || emit_index_delta_metrics_for_path(entity_path, &delta),
         || {},
     )?;
-    mark_store_handles_index_ready(synchronized_store_handles.as_slice());
+    mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
     Ok(())
 }
 /// Resolve the exact registered store pairs that one prepared-op batch
@@ -1003,10 +1003,11 @@ pub(in crate::db::executor) fn record_mutation_commit_plan(
 
 // Mark one batch of synchronized index stores as `Ready` after commit apply
 // succeeds and the commit marker is already closed.
-fn mark_store_handles_index_ready(handles: &[StoreHandle]) {
+fn mark_store_handles_index_ready(handles: &[StoreHandle]) -> Result<(), InternalError> {
     for handle in handles {
-        handle.mark_index_ready();
+        handle.mark_index_ready()?;
     }
+    Ok(())
 }
 
 fn index_store_id(index_store: &'static LocalKey<RefCell<IndexStore>>) -> usize {

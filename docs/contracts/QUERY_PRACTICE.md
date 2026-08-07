@@ -302,15 +302,17 @@ Validation is mandatory and occurs before evaluation:
 * `CoercionSpec` is allowed for the field type and operator.
 * List/map predicates use correctly typed literals.
 * Ordering operators are only used on orderable domains.
-* Bounded row windows and pagination require explicit ordering.
+* Bounded row windows require deterministic total ordering; scalar page
+  execution supplies accepted primary-key order when no term is authored.
 
 Validation failures produce **Unsupported** errors.
 Evaluation must never panic.
 
 ### Pagination Rule (Determinism)
 
-Bounded row windows without `order_term(...)` are rejected by design.
-Use order terms that produce a total order for stable pagination.
+Authored order terms must produce a total order for stable pagination; IcyDB
+appends missing primary-key components as hidden tie breakers. With no authored
+term, scalar page execution uses accepted primary-key order.
 For caller-facing read APIs, use the maintained bounded typed/dynamic surface
 described in [`docs/guides/read-intent.md`](../guides/read-intent.md).
 `Query::limit(...)` supplies the returned-row bound, while accepted planning
@@ -321,8 +323,10 @@ Rationale:
 * Unordered pagination is non-deterministic.
 * Physical/index/storage iteration order is not a query semantic.
 
-The scalar typed/dynamic API does not expose cursor or offset continuation.
-Callers must not reconstruct continuation from physical iteration order.
+The scalar typed/dynamic API exposes only its authenticated continuation.
+Callers must pass it back unchanged and must not reconstruct continuation from
+physical iteration order. Use live pages for ordinary browsing and exhaustive
+pages plus their unchanged `ReadSetRevisionProof` for complete-set work.
 
 ### Semantic Contract (Non-Negotiable)
 

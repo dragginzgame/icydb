@@ -514,14 +514,38 @@ impl StoreHandle {
         self.with_index(IndexStore::state)
     }
 
+    /// Return the monotonic physical access-readiness revision.
+    pub(in crate::db) fn access_state_revision(&self) -> Result<u64, crate::error::InternalError> {
+        self.journal.map_or_else(
+            || Ok(self.with_index(IndexStore::access_state_revision)),
+            |journal| journal.with_borrow(JournalTailStore::access_state_revision),
+        )
+    }
+
     /// Mark the bound index store as Building.
-    pub(in crate::db) fn mark_index_building(&self) {
-        self.with_index_mut(IndexStore::mark_building);
+    pub(in crate::db) fn mark_index_building(&self) -> Result<(), crate::error::InternalError> {
+        self.set_index_state(IndexState::Building)
     }
 
     /// Mark the bound index store as Ready.
-    pub(in crate::db) fn mark_index_ready(&self) {
-        self.with_index_mut(IndexStore::mark_ready);
+    pub(in crate::db) fn mark_index_ready(&self) -> Result<(), crate::error::InternalError> {
+        self.set_index_state(IndexState::Ready)
+    }
+
+    fn set_index_state(&self, state: IndexState) -> Result<(), crate::error::InternalError> {
+        if self.index_state() == state {
+            return Ok(());
+        }
+        let revision = self.journal.map_or_else(
+            || {
+                self.with_index(IndexStore::access_state_revision)
+                    .checked_add(1)
+                    .ok_or_else(crate::error::InternalError::store_invariant)
+            },
+            |journal| journal.with_borrow_mut(JournalTailStore::advance_access_state_revision),
+        )?;
+        self.with_index_mut(|index| index.set_access_state(state, revision));
+        Ok(())
     }
 
     /// Return the raw row-store accessor.

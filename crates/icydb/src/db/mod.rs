@@ -15,8 +15,14 @@ pub mod sql;
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
 pub use icydb_core::db::{
-    DynamicQuery, GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, RowProjectionOutput,
-    ScalarPageWork,
+    CompareProofAndAdvanceError, DynamicQuery, ExhaustiveQueryPageOutput, GroupedQueryOutput,
+    GroupedRow, LiveQueryPageOutput, MAX_READ_SET_PROOF_BYTES, MAX_READ_SET_PROOF_STORES,
+    MAX_RESUMABLE_JOB_CONTINUATION_BYTES, MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES,
+    MAX_RESUMABLE_JOB_RECEIPT_BYTES, MAX_RESUMABLE_JOB_STATE_BYTES, ReadSetRevisionError,
+    ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision, ResumableJobAdvance,
+    ResumableJobAdvanceReceipt, ResumableJobAdvanceRequest, ResumableJobAdvanceStatus,
+    ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey, ResumableJobState,
+    ResumableJobStatus, RowProjectionOutput, ScalarPageWork,
 };
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{
@@ -34,11 +40,11 @@ pub use response::ExecutionTrace;
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
 pub use session::{
-    DbSession, IntegrityCheckError, OutputRow, RequestExecutionFuture, RequestExecutionRoot,
-    StructuralMutation, StructuralPatch, TypedAdapterError, TypedBindingError, TypedEntityAdapter,
-    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
-    TypedWriteError, WriteCell, with_request_execution, with_request_execution_async,
-    with_request_execution_root,
+    DbSession, ExhaustiveReadError, IntegrityCheckError, OutputRow, RequestExecutionFuture,
+    RequestExecutionRoot, StructuralMutation, StructuralPatch, TypedAdapterError,
+    TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError,
+    TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell, with_request_execution,
+    with_request_execution_async, with_request_execution_root,
 };
 
 /// Build the compact error returned when `db!()` has no active request scope.

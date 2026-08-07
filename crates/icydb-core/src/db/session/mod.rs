@@ -8,8 +8,10 @@ mod bounded_cache;
 mod catalog;
 mod integrity;
 mod query;
+mod read_set;
 mod request;
 mod response;
+mod resumable_job;
 #[cfg(feature = "sql")]
 mod sql;
 mod write;

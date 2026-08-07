@@ -425,7 +425,7 @@ fn publish_live_candidate_with_prepared_domains(
                 candidate,
             )
         })?;
-        apply_staged_schema_domains(store, domains);
+        apply_staged_schema_domains(store, domains)?;
         Ok(())
     })
 }
@@ -477,7 +477,7 @@ fn publish_journaled_candidate(
             )
         })?;
         apply_constraint_validation_job_change(store, job_change)?;
-        apply_staged_schema_domains(store, domains);
+        apply_staged_schema_domains(store, domains)?;
         if let Some(operation) = application_record.as_ref() {
             apply_schema_application_record_op(operation)?;
         }
@@ -834,36 +834,45 @@ fn validate_user_index_domain_candidate(
 }
 
 #[cfg(not(feature = "sql"))]
-const fn apply_staged_schema_domains(_store: StoreHandle, domains: StagedSchemaDomains) {
+const fn apply_staged_schema_domains(
+    _store: StoreHandle,
+    domains: StagedSchemaDomains,
+) -> Result<(), InternalError> {
     match domains {
         StagedSchemaDomains::None => {}
     }
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
-fn apply_staged_schema_domains(store: StoreHandle, domains: StagedSchemaDomains) {
+fn apply_staged_schema_domains(
+    store: StoreHandle,
+    domains: StagedSchemaDomains,
+) -> Result<(), InternalError> {
     match domains {
         StagedSchemaDomains::None => {}
         StagedSchemaDomains::UserIndexes(replacements) => {
-            apply_user_index_domain_replacements(store, replacements);
+            apply_user_index_domain_replacements(store, replacements)?;
         }
     }
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
 fn apply_user_index_domain_replacements(
     store: StoreHandle,
     replacements: Vec<StagedUserIndexDomainReplacement>,
-) {
+) -> Result<(), InternalError> {
     let data_generation = store.with_data(DataStore::generation);
+    store.mark_index_building()?;
     store.with_index_mut(|index_store| {
-        index_store.mark_building();
         for replacement in replacements {
             apply_user_index_domain_replacement(index_store, replacement);
         }
         index_store.mark_prefix_cardinality_data_generation(data_generation);
-        index_store.mark_ready();
     });
+    store.mark_index_ready()?;
+    Ok(())
 }
 
 #[cfg(feature = "sql")]

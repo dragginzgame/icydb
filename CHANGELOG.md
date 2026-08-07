@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.221.md](docs/changelog/0.221.md)
 
+- `0.221.8` adds revision-strict exhaustive pages and replay-safe durable
+  validation jobs, allowing large reads to finish completely without one
+  unbounded query or any source-data migration.
+
 - `0.221.7` is potentially breaking: scalar enumeration now uses authenticated
   bounded live pages and current cursor authority, requiring caller updates
   and affected development-state recreation; canister builds and release

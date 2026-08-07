@@ -465,6 +465,14 @@ thread_local! {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    pub(in crate::db) fn current_accepted_runtime_root_identity(
+        &self,
+    ) -> Result<AcceptedSchemaRuntimeRootIdentity, InternalError> {
+        self.accepted_schema_runtime_root()
+            .map(|root| root.identity())
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)
+    }
+
     fn capture_accepted_runtime_store_roots(
         &self,
     ) -> Result<Vec<AcceptedSchemaRuntimeStoreRoot>, InternalError> {

@@ -97,13 +97,11 @@ It is not snapshot-based and does not provide transactional consistency across p
 
 Pagination requires:
 
-- An explicit ORDER BY clause.
 - A total ordering over the result set.
 
 IcyDB enforces canonical total ordering by automatically appending the entity's
-primary key as a terminal tie-break field when necessary.
-
-Unordered pagination is rejected at planning time.
+primary key as a terminal tie-break field when necessary. If the caller omits
+ordering, scalar page execution uses accepted primary-key order.
 
 ### 2. Canonical Ordering
 
@@ -124,7 +122,8 @@ Pagination uses an opaque continuation cursor.
 The cursor:
 
 - Encodes the last returned row's canonical boundary values.
-- Is cryptographically hashed against the canonical query shape.
+- Is authenticated over the complete query, authority, ordering, window, and
+  progress contract.
 - Is versioned and type-validated during decode.
 - Is rejected if reused with a different entity, predicate, access path, or ordering.
 
@@ -175,8 +174,10 @@ This means:
 
 This behavior is intentional and documented.
 
-Applications requiring snapshot-consistent iteration must implement external
-version pinning or application-level snapshot mechanisms.
+Applications requiring proof of complete traversal over unchanged source data
+must use revision-strict exhaustive pages and retain their complete
+`ReadSetRevisionProof`. This detects change and requires restart; it is not a
+multi-version snapshot.
 
 ### 7. Performance Model
 

@@ -2689,6 +2689,10 @@ mod identity_pre_key_tests {
     };
     use crate::{
         db::{
+            CompareProofAndAdvanceError, DynamicQuery, ExhaustiveReadError, RawDataStoreKey,
+            ReadSetRevisionError, ResumableJobAdvance, ResumableJobAdvanceRequest,
+            ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
+            ResumableJobIdempotencyKey, ResumableJobStatus, asc,
             commit::{database_incarnation_id, forget_recovered_domain_for_tests},
             data::DataStore,
             executor::{MutationCommitInterruption, interrupt_next_mutation_commit_for_tests},
@@ -2719,7 +2723,11 @@ mod identity_pre_key_tests {
         value::{InputValue, OutputValue, Value},
     };
     use icydb_schema::{FieldSourceKey, ScalarType};
-    use std::{cell::RefCell, collections::BTreeMap, time::Instant};
+    use std::{
+        cell::{Cell, RefCell},
+        collections::BTreeMap,
+        time::Instant,
+    };
 
     const STORE_PATH: &str = "session::write::identity_pre_key_tests::Store";
     const ENTITY_SOURCE: &str = "session::write::identity_pre_key_tests::Entity";
@@ -2728,6 +2736,7 @@ mod identity_pre_key_tests {
     const ENTITY_NAME: &str = "IdentityRow";
     const ENTITY_TAG: EntityTag = EntityTag::new(93);
     const JOURNALED_STORE_PATH: &str = "session::write::identity_pre_key_tests::JournaledStore";
+    const UNRELATED_STORE_PATH: &str = "session::write::identity_pre_key_tests::UnrelatedStore";
 
     struct TestCanister;
 
@@ -2748,6 +2757,12 @@ mod identity_pre_key_tests {
         static INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
         static SCHEMA_STORE: RefCell<SchemaStore> =
             const { RefCell::new(SchemaStore::init_heap()) };
+        static UNRELATED_DATA_STORE: RefCell<DataStore> =
+            const { RefCell::new(DataStore::init_heap()) };
+        static UNRELATED_INDEX_STORE: RefCell<IndexStore> =
+            const { RefCell::new(IndexStore::init_heap()) };
+        static UNRELATED_SCHEMA_STORE: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
         static STORE_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_store(
@@ -2758,6 +2773,14 @@ mod identity_pre_key_tests {
                 StoreAllocationIdentities::absent(),
                 StoreRuntimeStorageCapabilities::heap(),
             ).expect("identity pre-key test store should register");
+            registry.register_store(
+                UNRELATED_STORE_PATH,
+                &UNRELATED_DATA_STORE,
+                &UNRELATED_INDEX_STORE,
+                &UNRELATED_SCHEMA_STORE,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("unrelated identity test store should register");
             registry
         };
         static JOURNALED_DATA_STORE: RefCell<DataStore> =
@@ -2869,6 +2892,9 @@ mod identity_pre_key_tests {
         DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        UNRELATED_DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        UNRELATED_INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        UNRELATED_SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
         let session = DbSession::<TestCanister>::new(
             &STORE_REGISTRY,
             &crate::db::RequestExecutionRoot::__new_runtime_root(),
@@ -2900,11 +2926,12 @@ mod identity_pre_key_tests {
         session
     }
 
-    fn initialize_journaled() -> DbSession<JournaledTestCanister> {
-        let session = DbSession::<JournaledTestCanister>::new(
-            &JOURNALED_STORE_REGISTRY,
-            &crate::db::RequestExecutionRoot::__new_runtime_root(),
-        );
+    fn initialize_journaled_with_root() -> (
+        DbSession<JournaledTestCanister>,
+        crate::db::RequestExecutionRoot,
+    ) {
+        let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        let session = DbSession::<JournaledTestCanister>::new(&JOURNALED_STORE_REGISTRY, &root);
         session
             .db
             .ensure_recovered_state()
@@ -2929,7 +2956,11 @@ mod identity_pre_key_tests {
             &candidate,
         )
         .expect("journaled identity candidate should publish");
-        session
+        (session, root)
+    }
+
+    fn initialize_journaled() -> DbSession<JournaledTestCanister> {
+        initialize_journaled_with_root().0
     }
 
     fn payload_patch(value: u64) -> AcceptedMutationIntentPatch {
@@ -3026,6 +3057,341 @@ mod identity_pre_key_tests {
     fn exact_key_batches_preserve_semantics_across_heap_and_journaled_stores() {
         assert_exact_key_batch(&initialize());
         assert_exact_key_batch(&initialize_journaled());
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn exhaustive_pages_require_and_recompare_the_complete_source_proof() {
+        let session = initialize();
+        let first = insert_exact_key_fixture(&session, 41);
+        let second = insert_exact_key_fixture(&session, 42);
+        let third = insert_exact_key_fixture(&session, 43);
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .select(["id", "payload"])
+            .order_by(asc("id"));
+
+        let page = session
+            .execute_trusted_exhaustive_page(&query, None, None)
+            .expect("initial exhaustive page should capture its source proof");
+        assert_eq!(
+            page.rows,
+            vec![
+                expected_dynamic_row(first, 41),
+                expected_dynamic_row(second, 42),
+            ],
+        );
+        let continuation = page
+            .continuation
+            .as_deref()
+            .expect("unreturned row should retain exhaustive continuation");
+        assert!(matches!(
+            session.execute_trusted_exhaustive_page(&query, Some(continuation), None),
+            Err(ExhaustiveReadError::Revision(
+                ReadSetRevisionError::ResumeProofRequired
+            )),
+        ));
+        let resumed = session
+            .execute_trusted_exhaustive_page(&query, Some(continuation), Some(&page.proof))
+            .expect("unchanged proof should resume exhaustive traversal");
+        assert_eq!(resumed.rows, vec![expected_dynamic_row(third, 43)]);
+        assert_eq!(resumed.continuation, None);
+
+        let stale_page = session
+            .execute_trusted_exhaustive_page(&query, None, None)
+            .expect("fresh exhaustive page should capture current revision");
+        let stale_continuation = stale_page
+            .continuation
+            .as_deref()
+            .expect("fresh three-row traversal should retain continuation");
+        let _ = insert_exact_key_fixture(&session, 44);
+        assert!(matches!(
+            session.execute_trusted_exhaustive_page(
+                &query,
+                Some(stale_continuation),
+                Some(&stale_page.proof),
+            ),
+            Err(ExhaustiveReadError::Revision(
+                ReadSetRevisionError::StoreDataChanged { .. }
+            )),
+        ));
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn heap_sources_cannot_back_durable_resumable_jobs() {
+        let session = initialize();
+        let proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("heap source proof should capture for one-call exhaustive reads");
+        let job_id = ResumableJobId::try_from_bytes([70; 32])
+            .expect("nonzero heap test job identity should admit");
+
+        assert!(matches!(
+            session.start_resumable_job(job_id, proof, Vec::new()),
+            Err(ResumableJobError::SourceProof(
+                ReadSetRevisionError::DurableStoreRequired { .. }
+            )),
+        ));
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn proof_and_progress_controls_charge_one_shared_request_scope() {
+        let (session, root) = initialize_journaled_with_root();
+        let resource = icydb_diagnostic_code::DiagnosticExecutionBudgetResource::QueryExecutions;
+        let before = root.observed(resource);
+        let proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("proof capture should use the retained request scope");
+        let job_id = ResumableJobId::try_from_bytes([75; 32])
+            .expect("nonzero accounting job identity should admit");
+        session
+            .start_resumable_job(job_id, proof, Vec::new())
+            .expect("job start should use the same retained request scope");
+        let _ = session
+            .resumable_job_state(job_id)
+            .expect("job load should use the same retained request scope");
+
+        assert_eq!(root.observed(resource).saturating_sub(before), 3);
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn source_proofs_ignore_unrelated_stores_but_bind_access_state_changes() {
+        let session = initialize();
+        let proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("source proof should cover only the entity's physical store");
+        let shared_store_proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME, ENTITY_NAME])
+            .expect("entities sharing one physical source should deduplicate");
+        assert_eq!(shared_store_proof, proof);
+        assert_eq!(shared_store_proof.stores().len(), 1);
+        let unrelated = session
+            .db
+            .store_handle(UNRELATED_STORE_PATH)
+            .expect("unrelated registered store should resolve");
+        unrelated.with_data_mut(|store| {
+            let _ = store.remove(&RawDataStoreKey::from_persisted_bytes(vec![1]));
+        });
+        session
+            .verify_read_set_revision_proof(&proof)
+            .expect("a nonparticipating store mutation must not invalidate the proof");
+
+        let source = session
+            .db
+            .store_handle(STORE_PATH)
+            .expect("participating source store should resolve");
+        source
+            .mark_index_building()
+            .expect("source access-state transition should advance its revision");
+        assert!(matches!(
+            session.verify_read_set_revision_proof(&proof),
+            Err(ExhaustiveReadError::Revision(
+                ReadSetRevisionError::StoreAccessChanged { .. }
+            )),
+        ));
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one lifecycle test proves successful replay plus pre-page and post-page source invalidation without sharing progress state across tests"
+    )]
+    #[test]
+    fn journaled_job_advance_is_idempotent_and_revision_checked_on_both_sides() {
+        let session = initialize_journaled();
+        let proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("journaled source proof should capture");
+        let job_id =
+            ResumableJobId::try_from_bytes([71; 32]).expect("nonzero job identity should admit");
+        session
+            .start_resumable_job(job_id, proof, vec![0])
+            .expect("journaled job should start outside its protected source revision");
+        let request = ResumableJobAdvanceRequest::new(
+            job_id,
+            0,
+            ResumableJobIdempotencyKey::new("page-0")
+                .expect("bounded idempotency key should admit"),
+        );
+        let calls = Cell::new(0_u8);
+        let receipt = session
+            .compare_proof_and_advance(&request, |state| {
+                calls.set(calls.get() + 1);
+                assert_eq!(state.application_state, vec![0]);
+                Ok::<_, ()>(
+                    ResumableJobAdvance::new(Some("cursor-1".to_string()), vec![1], vec![9])
+                        .expect("bounded application advance should admit"),
+                )
+            })
+            .expect("unchanged source should advance exactly once");
+        assert_eq!(calls.get(), 1);
+        assert_eq!(receipt.status, ResumableJobAdvanceStatus::Advanced);
+        assert_eq!(receipt.committed_sequence, 1);
+
+        let replay = session
+            .compare_proof_and_advance::<()>(&request, |_| {
+                panic!("lost-response replay must not execute application work")
+            })
+            .expect("same request identity should return its persisted receipt");
+        assert_eq!(replay, receipt);
+        let retained = session
+            .resumable_job_state(job_id)
+            .expect("advanced state should remain durable");
+        assert_eq!(retained.sequence, 1);
+        assert_eq!(retained.application_state, vec![1]);
+
+        let _ = insert_exact_key_fixture(&session, 51);
+        let pre_change_request = ResumableJobAdvanceRequest::new(
+            job_id,
+            1,
+            ResumableJobIdempotencyKey::new("page-1")
+                .expect("bounded idempotency key should admit"),
+        );
+        let pre_change_calls = Cell::new(0_u8);
+        let invalidated = session
+            .compare_proof_and_advance::<()>(&pre_change_request, |_| {
+                pre_change_calls.set(pre_change_calls.get() + 1);
+                unreachable!("pre-page proof failure must reject before application work")
+            })
+            .expect("source drift should persist one replayable invalidation receipt");
+        assert_eq!(pre_change_calls.get(), 0);
+        assert_eq!(invalidated.status, ResumableJobAdvanceStatus::Invalidated);
+        let invalidated_state = session
+            .resumable_job_state(job_id)
+            .expect("invalidated job should remain inspectable");
+        assert_eq!(invalidated_state.status, ResumableJobStatus::Invalidated);
+        assert_eq!(invalidated_state.continuation, None);
+        assert_eq!(invalidated_state.application_state, vec![1]);
+        assert_eq!(
+            session
+                .compare_proof_and_advance::<()>(&pre_change_request, |_| {
+                    panic!("invalidation replay must not execute application work")
+                })
+                .expect("lost invalidation reply should replay exactly"),
+            invalidated,
+        );
+
+        let post_proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("post-change journaled proof should capture");
+        let post_job_id = ResumableJobId::try_from_bytes([72; 32])
+            .expect("nonzero post-change job identity should admit");
+        session
+            .start_resumable_job(post_job_id, post_proof, vec![7])
+            .expect("post-change journaled job should start");
+        let post_request = ResumableJobAdvanceRequest::new(
+            post_job_id,
+            0,
+            ResumableJobIdempotencyKey::new("post-page-0")
+                .expect("bounded idempotency key should admit"),
+        );
+        let post_receipt = session
+            .compare_proof_and_advance::<()>(&post_request, |_| {
+                let _ = insert_exact_key_fixture(&session, 52);
+                Ok(ResumableJobAdvance::new(None, vec![8], vec![10])
+                    .expect("bounded post-change candidate should admit"))
+            })
+            .expect("post-page drift should discard the candidate and persist invalidation");
+        assert_eq!(post_receipt.status, ResumableJobAdvanceStatus::Invalidated);
+        let post_state = session
+            .resumable_job_state(post_job_id)
+            .expect("post-page invalidation should remain inspectable");
+        assert_eq!(post_state.status, ResumableJobStatus::Invalidated);
+        assert_eq!(post_state.application_state, vec![7]);
+        session
+            .acknowledge_resumable_job(post_job_id, post_state.sequence)
+            .expect("terminal job acknowledgement should remove retained progress");
+        session
+            .acknowledge_resumable_job(post_job_id, post_state.sequence)
+            .expect("lost acknowledgement reply should be safely replayable");
+        assert_eq!(
+            session.resumable_job_state(post_job_id),
+            Err(ResumableJobError::NotFound),
+        );
+
+        let completed_job_id = ResumableJobId::try_from_bytes([74; 32])
+            .expect("nonzero completed job identity should admit");
+        let completed_proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("completed-job source proof should capture");
+        session
+            .start_resumable_job(completed_job_id, completed_proof, Vec::new())
+            .expect("completed-job fixture should start");
+        let completed_request = ResumableJobAdvanceRequest::new(
+            completed_job_id,
+            0,
+            ResumableJobIdempotencyKey::new("complete")
+                .expect("bounded completion key should admit"),
+        );
+        let completed_receipt = session
+            .compare_proof_and_advance::<()>(&completed_request, |_| {
+                Ok(ResumableJobAdvance::new(None, vec![99], vec![100])
+                    .expect("bounded terminal advance should admit"))
+            })
+            .expect("null continuation should commit terminal completion");
+        let completed_state = session
+            .resumable_job_state(completed_job_id)
+            .expect("completed state should remain replayable before acknowledgement");
+        assert_eq!(completed_state.status, ResumableJobStatus::Completed);
+        assert_eq!(
+            session
+                .compare_proof_and_advance::<()>(&completed_request, |_| {
+                    panic!("completed request replay must not execute application work")
+                })
+                .expect("completed request should replay until acknowledgement"),
+            completed_receipt,
+        );
+        let after_completion = ResumableJobAdvanceRequest::new(
+            completed_job_id,
+            1,
+            ResumableJobIdempotencyKey::new("after-complete")
+                .expect("bounded post-completion key should admit"),
+        );
+        assert!(matches!(
+            session.compare_proof_and_advance::<()>(&after_completion, |_| {
+                panic!("completed jobs cannot execute another page")
+            }),
+            Err(CompareProofAndAdvanceError::Protocol(
+                ResumableJobError::Completed
+            )),
+        ));
+        session
+            .acknowledge_resumable_job(completed_job_id, completed_state.sequence)
+            .expect("completed job should acknowledge and free capacity");
+        session
+            .acknowledge_resumable_job(completed_job_id, completed_state.sequence)
+            .expect("completion acknowledgement should be idempotent");
+
+        let stale_job_id = ResumableJobId::try_from_bytes([73; 32])
+            .expect("nonzero stale-sequence job identity should admit");
+        let stale_proof = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("stale-sequence source proof should capture");
+        session
+            .start_resumable_job(stale_job_id, stale_proof, Vec::new())
+            .expect("stale-sequence job should start");
+        let stale_request = ResumableJobAdvanceRequest::new(
+            stale_job_id,
+            4,
+            ResumableJobIdempotencyKey::new("stale").expect("bounded idempotency key should admit"),
+        );
+        assert!(matches!(
+            session.compare_proof_and_advance::<()>(&stale_request, |_| {
+                panic!("stale sequence must reject before application work")
+            }),
+            Err(CompareProofAndAdvanceError::Protocol(
+                ResumableJobError::StaleSequence {
+                    expected: 4,
+                    actual: 0,
+                }
+            )),
+        ));
+        assert_eq!(
+            session.acknowledge_resumable_job(stale_job_id, 0),
+            Err(ResumableJobError::NotTerminal),
+        );
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
