@@ -106,7 +106,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
                 .is_none_or(|order| order.fields.is_empty())
             || !access_order_satisfied_by_route_mode(plan)
             || self.defer_retained_slot_distinct_window
-            || (continuation.has_cursor_boundary() && !scalar_order_is_primary_key_only(plan))
+            || (continuation.has_progress() && !scalar_order_is_primary_key_only(plan))
         {
             return None;
         }

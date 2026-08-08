@@ -192,8 +192,8 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SchemaSurfaceControllerRequired });
     RUNTIME_BOUNDARY_SQL_QUERY_NO_CONFIGURED_ENTITIES = 27 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlQueryNoConfiguredEntities });
-    RUNTIME_BOUNDARY_SQL_QUERY_ENTITY_NOT_CONFIGURED = 28 => RuntimeUnsupported,
-        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlQueryEntityNotConfigured });
+    RUNTIME_BOUNDARY_SQL_QUERY_ENTITY_NOT_FOUND = 28 => RuntimeNotFound,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlQueryEntityNotFound });
     RUNTIME_BOUNDARY_SQL_DDL_TARGET_REQUIRED = 29 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlDdlTargetRequired });
     RUNTIME_BOUNDARY_SQL_DDL_ENTITY_NOT_CONFIGURED = 30 => RuntimeUnsupported,

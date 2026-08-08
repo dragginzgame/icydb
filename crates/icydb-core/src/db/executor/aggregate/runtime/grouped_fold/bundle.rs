@@ -28,7 +28,11 @@ use crate::{
                 },
             },
             budget::charge_sort_work,
-            group::{GroupKey, StableHash, StableHashBuildHasher, StableHashMap},
+            group::{
+                GroupKey, StableHash, StableHashBuildHasher, StableHashMap,
+                retained_hash_entry_backing_bytes, try_reserve_hash_entry,
+                try_reserve_vec_elements,
+            },
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
@@ -418,17 +422,11 @@ pub(super) struct GroupedAggregateBundle {
 impl GroupedAggregateBundle {
     /// Build one empty grouped aggregate bundle.
     #[must_use]
-    pub(super) fn new(
-        aggregate_specs: Vec<GroupedAggregateBundleSpec>,
-        group_capacity_hint: usize,
-    ) -> Self {
+    pub(super) const fn new(aggregate_specs: Vec<GroupedAggregateBundleSpec>) -> Self {
         Self {
             aggregate_specs,
-            bucket_index: StableHashMap::with_capacity_and_hasher(
-                group_capacity_hint,
-                StableHashBuildHasher,
-            ),
-            groups: Vec::with_capacity(group_capacity_hint),
+            bucket_index: StableHashMap::with_hasher(StableHashBuildHasher),
+            groups: Vec::new(),
         }
     }
 
@@ -472,14 +470,26 @@ impl GroupedAggregateBundle {
         )?;
         let new_index = self.groups.len();
         let group_hash = group_key.hash();
+        let new_hash_bucket = !self.bucket_index.contains_key(&group_hash);
+        let index_backing_bytes = self.bucket_index.get(&group_hash).map_or_else(
+            retained_hash_entry_backing_bytes::<StableHash, GroupIndexBucket>,
+            GroupIndexBucket::retained_insert_backing_bytes,
+        );
+        execution_context.record_structural_backing(index_backing_bytes)?;
+        try_reserve_vec_elements(&mut self.groups, 1).map_err(GroupError::from)?;
+        if new_hash_bucket {
+            try_reserve_hash_entry(&mut self.bucket_index).map_err(GroupError::from)?;
+        }
         self.groups.push(GroupedAggregateGroupEntry::from_specs(
             group_key,
             self.aggregate_specs.as_slice(),
         ));
-        self.bucket_index
-            .entry(group_hash)
-            .and_modify(|bucket| bucket.push_index(new_index))
-            .or_insert_with(|| GroupIndexBucket::single(new_index));
+        if let Some(bucket) = self.bucket_index.get_mut(&group_hash) {
+            bucket.push_index(new_index).map_err(GroupError::from)?;
+        } else {
+            self.bucket_index
+                .insert(group_hash, GroupIndexBucket::single(new_index));
+        }
 
         Ok(new_index)
     }

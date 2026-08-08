@@ -15,11 +15,14 @@ use icydb::types::{Blob, Timestamp, Ulid};
 use icydb::{
     ErrorCode, ErrorOrigin,
     db::{
-        EntitySchemaDescription, GroupedCountAttribution, GroupedExecutionAttribution,
-        IntegrityCheckError, IntegrityCheckResult, IntegrityJobOwner, SqlCompileAttribution,
-        SqlExecutionAttribution, SqlIntegrityError, SqlPureCoveringAttribution,
-        SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
-        StructuralMutation, StructuralPatch, WriteCell, sql::SqlQueryResult,
+        DynamicQuery, EntitySchemaDescription, ExhaustiveQueryPageOutput, ExhaustiveReadError,
+        GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
+        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, ReadSetRevisionError,
+        ReadSetRevisionProof, SqlCompileAttribution, SqlExecutionAttribution, SqlIntegrityError,
+        SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
+        SqlStructuralWorkAttribution, StructuralMutation, StructuralPatch, WriteCell,
+        query::{FieldRef, asc},
+        sql::SqlQueryResult,
     },
     value::InputValue,
 };
@@ -218,7 +221,28 @@ const STREAMING_EXECUTION_FIXTURE_SEED_I32: i32 = 3;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_FIXTURE_ROWS: i32 = 2_048;
 #[cfg(feature = "sql")]
+const STREAMING_EXECUTION_CONTINUATION_ROWS: i32 = 10_001;
+#[cfg(feature = "sql")]
+const STREAMING_EXECUTION_CONTINUATION_LOAD_BATCH_ROWS: i32 = 4_096;
+#[cfg(feature = "sql")]
 const STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES: &[usize] = &[300 * 1_024, 150 * 1_024, 40 * 1_024];
+
+#[derive(CandidType, Debug, Deserialize)]
+#[cfg(feature = "sql")]
+enum StreamingExhaustivePageError {
+    Database(icydb::Error),
+    Revision(ReadSetRevisionError),
+}
+
+#[cfg(feature = "sql")]
+impl From<ExhaustiveReadError> for StreamingExhaustivePageError {
+    fn from(error: ExhaustiveReadError) -> Self {
+        match error {
+            ExhaustiveReadError::Database(error) => Self::Database(error),
+            ExhaustiveReadError::Revision(error) => Self::Revision(error),
+        }
+    }
+}
 
 #[cfg(feature = "sql")]
 trait StructuralFixtureRow {
@@ -1018,6 +1042,68 @@ fn load_streaming_execution_fixture() -> Result<StreamingExecutionFixtureFacts, 
 
         Ok(facts)
     })
+}
+
+/// Load the frozen 10,001-row continuation fixture without attempting to
+/// process it in the same message. The bounded insert batches are setup work;
+/// live and exhaustive traversal happens through separate query calls below.
+#[cfg(feature = "sql")]
+#[update]
+fn load_streaming_execution_continuation_fixture() -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        let mut first = 1;
+        while first <= STREAMING_EXECUTION_CONTINUATION_ROWS {
+            let last = first
+                .saturating_add(STREAMING_EXECUTION_CONTINUATION_LOAD_BATCH_ROWS - 1)
+                .min(STREAMING_EXECUTION_CONTINUATION_ROWS);
+            insert_fixture_rows(perf_streaming_execution_rows_range(first, last))?;
+            first = last.saturating_add(1);
+        }
+
+        u32::try_from(STREAMING_EXECUTION_CONTINUATION_ROWS).map_err(|_| query_validate_error())
+    })
+}
+
+/// Execute one revision-tolerant page of the frozen 10,001-row fixture.
+#[cfg(feature = "sql")]
+#[query]
+fn query_streaming_execution_live_page(
+    continuation: Option<String>,
+) -> Result<LiveQueryPageOutput, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        db()?.execute_trusted_live_page(
+            &streaming_execution_continuation_query(),
+            continuation.as_deref(),
+        )
+    })
+}
+
+/// Execute one revision-strict page of the frozen 10,001-row fixture.
+#[cfg(feature = "sql")]
+#[query]
+fn query_streaming_execution_exhaustive_page(
+    continuation: Option<String>,
+    proof: Option<ReadSetRevisionProof>,
+) -> Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError> {
+    icydb::db::with_request_execution(|| {
+        let session = db().map_err(StreamingExhaustivePageError::Database)?;
+        session
+            .execute_trusted_exhaustive_page(
+                &streaming_execution_continuation_query(),
+                continuation.as_deref(),
+                proof.as_ref(),
+            )
+            .map_err(Into::into)
+    })
+}
+
+#[cfg(feature = "sql")]
+fn streaming_execution_continuation_query() -> DynamicQuery {
+    DynamicQuery::new("PerfAuditStreamingRow")
+        .filter(FieldRef::new("lane_a").gte(0_i32))
+        .order_by(asc("id"))
+        .select(["id"])
 }
 
 /// Load only the deterministic user scale surface at one reviewed cardinality.
@@ -2326,7 +2412,12 @@ fn perf_scale_blobs(row_count: i32) -> Vec<PerfAuditBlob> {
 
 #[cfg(feature = "sql")]
 fn perf_streaming_execution_rows() -> Vec<PerfAuditStreamingRow> {
-    (1..=STREAMING_EXECUTION_FIXTURE_ROWS)
+    perf_streaming_execution_rows_range(1, STREAMING_EXECUTION_FIXTURE_ROWS)
+}
+
+#[cfg(feature = "sql")]
+fn perf_streaming_execution_rows_range(first: i32, last: i32) -> Vec<PerfAuditStreamingRow> {
+    (first..=last)
         .map(|id| PerfAuditStreamingRow {
             id,
             lane_a: streaming_lane_a(id),

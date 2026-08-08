@@ -17,8 +17,9 @@ use crate::{
             KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
             active_lowered_index_prefix_specs, apply_data_key_ordered_dedup_window,
             apply_index_scan_chunk_progress, branch_stream_chunk_entries,
-            index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
-            index_stream_output_limit_for_chunk,
+            budget::charge_current_execution_budget, index_predicate_rejects_prefix_components,
+            index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
+            route::IndexPrefixChildExpansionBudget,
         },
         index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
@@ -30,7 +31,8 @@ use crate::{
     types::Ulid,
     value::{Value, ValueTag},
 };
-use std::{ops::Bound, sync::Arc};
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
+use std::{mem::size_of, ops::Bound, sync::Arc};
 
 const COVERING_BOOL_PAYLOAD_LEN: usize = 1;
 const COVERING_U64_PAYLOAD_LEN: usize = 8;
@@ -39,6 +41,8 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
+
+type RawIndexBounds = (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>);
 
 fn read_row_presence_with_consistency_from_data_store(
     data: &DataStore,
@@ -259,6 +263,23 @@ where
             )
         }
         PrefixSetExecutionShape::OrderedMerge(active_specs) => {
+            if scan.component_indices.is_empty() && scan.predicate_execution.is_none() {
+                let store = active_specs
+                    .first()
+                    .map(|active| active.store)
+                    .ok_or_else(InternalError::query_executor_invariant)?;
+                let bounds = direct_covering_prefix_merge_bounds(active_specs.as_slice())?;
+                if let Some(rows) = IndexScan::merged_components_without_index_values(
+                    store,
+                    entity_tag,
+                    bounds.as_slice(),
+                    scan.direction,
+                    scan.limit,
+                )? {
+                    return Ok(rows);
+                }
+            }
+
             let index_fetch_hint = Some(scan.limit);
             let chunk_entries =
                 covering_branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
@@ -288,6 +309,57 @@ where
 
             stream.collect_limit(scan.limit)
         }
+    }
+}
+
+fn direct_covering_prefix_merge_bounds(
+    active_specs: &[ActiveCoveringPrefixSpec<'_>],
+) -> Result<Vec<RawIndexBounds>, InternalError> {
+    validate_direct_covering_prefix_child_count(active_specs.len())?;
+
+    let slot_bytes = active_specs
+        .len()
+        .checked_mul(size_of::<RawIndexBounds>())
+        .ok_or_else(InternalError::executor_invariant)?;
+    let retained_bytes = active_specs.iter().try_fold(slot_bytes, |bytes, active| {
+        let (lower, upper) = active.prefix.raw_bounds()?;
+        bytes
+            .checked_add(bound_raw_index_key_bytes(lower))
+            .and_then(|bytes| bytes.checked_add(bound_raw_index_key_bytes(upper)))
+            .ok_or_else(InternalError::executor_invariant)
+    })?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::CursorSteps,
+        u64::try_from(active_specs.len()).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        u64::try_from(retained_bytes).unwrap_or(u64::MAX),
+    )?;
+
+    let mut bounds = Vec::new();
+    bounds
+        .try_reserve_exact(active_specs.len())
+        .map_err(|_| InternalError::executor_internal())?;
+    for active in active_specs {
+        let (lower, upper) = active.prefix.raw_bounds()?;
+        bounds.push((lower.clone(), upper.clone()));
+    }
+
+    Ok(bounds)
+}
+
+fn validate_direct_covering_prefix_child_count(count: usize) -> Result<(), InternalError> {
+    if count > IndexPrefixChildExpansionBudget::MAX_PREFIXES {
+        return Err(InternalError::query_executor_invariant());
+    }
+    Ok(())
+}
+
+fn bound_raw_index_key_bytes(bound: &Bound<RawIndexStoreKey>) -> usize {
+    match bound {
+        Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
+        Bound::Unbounded => 0,
     }
 }
 
@@ -761,10 +833,6 @@ impl FlatMergeOrderedChild for CoveringComponentFlatMergeChild<'_> {
         self.state.take_row()
     }
 
-    fn clear_item(&mut self) {
-        self.state.clear_row();
-    }
-
     fn item_key(item: &Self::Item) -> &DecodedDataStoreKey {
         &item.0
     }
@@ -1159,5 +1227,21 @@ mod tests {
             .expect("text payload should remain supported");
 
         assert_eq!(decoded, Value::Text(String::from("text")));
+    }
+
+    #[test]
+    fn direct_prefix_merge_rejects_max_plus_one_children() {
+        assert!(
+            validate_direct_covering_prefix_child_count(
+                IndexPrefixChildExpansionBudget::MAX_PREFIXES,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_direct_covering_prefix_child_count(
+                IndexPrefixChildExpansionBudget::MAX_PREFIXES + 1,
+            )
+            .is_err()
+        );
     }
 }

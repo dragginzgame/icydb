@@ -1007,8 +1007,8 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::SqlQueryNoConfiguredEntities => {
             "SQL query endpoint has no configured entities"
         }
-        RuntimeBoundaryCode::SqlQueryEntityNotConfigured => {
-            "SQL query target entity is not configured for this canister"
+        RuntimeBoundaryCode::SqlQueryEntityNotFound => {
+            "SQL query target entity was not found in the accepted schema"
         }
         RuntimeBoundaryCode::SqlDdlTargetRequired => "SQL DDL requires one target entity",
         RuntimeBoundaryCode::SqlDdlEntityNotConfigured => {
@@ -2152,6 +2152,10 @@ mod tests {
     #[test]
     fn renders_runtime_boundary_details() {
         let cases = [
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::SqlQueryEntityNotFound,
+                "E_RUNTIME_NOT_FOUND: SQL query target entity was not found in the accepted schema",
+            ),
             (
                 icydb::diagnostic::RuntimeBoundaryCode::OperationalSurfaceControllerRequired,
                 "E_RUNTIME_UNSUPPORTED: operational endpoint requires controller access",

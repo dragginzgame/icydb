@@ -4,8 +4,8 @@ use crate::{
     db::{
         DbSession, DynamicQuery, DynamicStructuralPatch, DynamicTypedEntityBinding,
         DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicWriteCell, FieldRef,
-        SqlStatementResult, asc,
-        data::DataStore,
+        FilterExpr, QueryError, QueryExecutionError, SqlStatementResult, asc,
+        data::{DataStore, DecodedDataStoreKey},
         index::IndexStore,
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
         schema::{
@@ -27,9 +27,10 @@ use crate::{
             reset_accepted_schema_runtime_build_counts_for_tests,
         },
     },
+    error::ErrorOrigin,
     traits::{CanisterKind, Path},
     types::EntityTag,
-    value::{InputValue, OutputValue},
+    value::{InputValue, OutputValue, Value},
 };
 use icydb_schema::{FieldSourceKey, ScalarType};
 use std::{cell::RefCell, collections::BTreeMap};
@@ -162,6 +163,72 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
 }
 
 #[test]
+fn accepted_index_missing_row_is_typed_store_corruption() {
+    let session = initialize();
+    seed_singleton(&session);
+    let raw_key = DecodedDataStoreKey::try_from_structural_key(ENTITY_TAG, &Value::Unit)
+        .expect("Unit data key should decode")
+        .to_raw()
+        .expect("Unit data key should encode");
+    let store = session
+        .db
+        .store_handle(STORE_PATH)
+        .expect("Unit ordering store should resolve");
+    assert!(
+        store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
+        "corruption fixture must remove the authoritative row only",
+    );
+
+    let primary_lookup = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("id").eq(InputValue::Unit))
+        .select(["id"]);
+    assert!(
+        session
+            .execute_trusted_live_page(&primary_lookup, None)
+            .expect("an ordinary missing primary lookup keeps Ignore semantics")
+            .rows
+            .is_empty(),
+    );
+
+    let mixed_union = DynamicQuery::new(ENTITY_NAME)
+        .filter(FilterExpr::or(vec![
+            FieldRef::new("id").eq(InputValue::Unit),
+            FieldRef::new("label").eq(InputValue::Text("other".to_string())),
+        ]))
+        .select(["id"]);
+    assert!(
+        session
+            .execute_trusted_live_page(&mixed_union, None)
+            .expect("a missing exact-key OR branch remains an ordinary absent row")
+            .rows
+            .is_empty(),
+    );
+
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .select(["id", "label"])
+        .order_by(asc("label"));
+    let error = session
+        .execute_trusted_live_page(&query, None)
+        .expect_err("an accepted index must not hide its missing row");
+    assert_store_corruption(error);
+
+    let error = session
+        .execute_trusted_sql_query(
+            "SELECT id FROM Singleton WHERE label = 'singleton' ORDER BY label LIMIT 100",
+        )
+        .expect_err("a covering accepted index must still prove row presence");
+    assert_store_corruption(error);
+}
+
+fn assert_store_corruption(error: QueryError) {
+    let QueryError::Execute(QueryExecutionError::Corruption(error)) = error else {
+        panic!("missing accepted-index row should retain corruption taxonomy");
+    };
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
 fn accepted_entity_display_name_lookup_is_case_insensitive() {
     let session = initialize();
     seed_singleton(&session);
@@ -194,6 +261,26 @@ fn accepted_entity_display_name_lookup_is_case_insensitive() {
             .expect("source-key lookup should remain valid")
             .is_none(),
         "immutable source-key lookup must remain exact",
+    );
+}
+
+#[test]
+fn missing_describe_entity_reports_accepted_schema_not_found() {
+    let session = initialize();
+
+    let error = session
+        .execute_trusted_sql_query("DESCRIBE Card")
+        .expect_err("a missing DESCRIBE target should fail");
+
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeNotFound,
+    );
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::SqlQueryEntityNotFound,
+        },),
     );
 }
 

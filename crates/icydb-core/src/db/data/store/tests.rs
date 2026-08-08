@@ -44,6 +44,32 @@ fn seed_heap_store(entries: &[(u64, u64, u8)]) -> DataStore {
 }
 
 #[test]
+fn data_store_read_borrows_heap_and_live_rows_but_owns_stable_rows() {
+    let heap = seed_heap_store(&[(1, 1, 11)]);
+    assert!(matches!(
+        heap.read(&raw_key(1, 1)),
+        StoredRowRead::Borrowed(row) if row.as_bytes() == [11]
+    ));
+
+    let mut journaled = DataStore::init_journaled(test_memory(228));
+    journaled
+        .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
+        .expect("canonical row should fold");
+    assert!(matches!(
+        journaled.read(&raw_key(1, 1)),
+        StoredRowRead::Owned(row) if row.as_bytes() == [11]
+    ));
+
+    journaled
+        .apply_recovered_journal_put(raw_key(1, 1), raw_row(22))
+        .expect("live override should apply");
+    assert!(matches!(
+        journaled.read(&raw_key(1, 1)),
+        StoredRowRead::Borrowed(row) if row.as_bytes() == [22]
+    ));
+}
+
+#[test]
 fn data_store_tiny_fold_stays_within_one_memory_manager_bucket() {
     let memory = VectorMemory::default();
     let manager = MemoryManager::init(memory.clone());
@@ -96,6 +122,38 @@ fn data_store_visit_range_preserves_raw_key_bounds() {
     );
 
     assert_eq!(visited, vec![(raw_key(1, 2), 12), (raw_key(1, 3), 13)]);
+}
+
+#[test]
+fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
+    let store = seed_store(229, &[(1, 1, 11), (1, 2, 12), (1, 3, 13)]);
+    let mut preflighted = Vec::new();
+    let mut visited = Vec::new();
+
+    let exhausted = store
+        .try_visit_range_with_row_preflight(
+            (
+                Bound::Included(raw_key(1, 1)),
+                Bound::Included(raw_key(1, 3)),
+            ),
+            |key| {
+                preflighted.push(key.clone());
+                Ok::<_, Infallible>(if key == &raw_key(1, 2) {
+                    StoreVisit::Stop
+                } else {
+                    StoreVisit::Continue
+                })
+            },
+            |key, row| {
+                visited.push((key.clone(), row.as_bytes()[0]));
+                Ok::<_, Infallible>(StoreVisit::Continue)
+            },
+        )
+        .expect("stable-only range should use the fused visitor");
+
+    assert_eq!(exhausted, Some(false));
+    assert_eq!(preflighted, vec![raw_key(1, 1), raw_key(1, 2)]);
+    assert_eq!(visited, vec![(raw_key(1, 1), 11)]);
 }
 
 #[test]

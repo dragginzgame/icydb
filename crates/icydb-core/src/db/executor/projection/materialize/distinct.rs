@@ -8,7 +8,11 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             budget::{charge_current_execution_budget, runtime_value_work},
-            group::{GroupKey, KeyCanonicalError, StableHash, stable_hash_from_digest},
+            group::{
+                GroupKey, KeyCanonicalError, StableHash, retained_hash_entry_backing_bytes,
+                retained_vec_element_backing_bytes, stable_hash_from_digest,
+                try_reserve_hash_entry, try_reserve_vec_elements,
+            },
             projection::materialize::{plan::PreparedProjectionContract, row_view::RowView},
         },
         query::plan::ResolvedOrder,
@@ -199,9 +203,7 @@ impl DistinctProjectionRowSet {
             .map_err(KeyCanonicalError::into_internal_error)?
             .into_canonical_value();
         let canonical_bytes = charge_distinct_key(&canonical)?;
-        self.buckets.entry(hash).or_default().push(canonical);
-        self.entries = self.entries.saturating_add(1);
-        self.retained_backing_bytes = self.retained_backing_bytes.saturating_add(canonical_bytes);
+        self.retain_unique_canonical(hash, canonical, canonical_bytes)?;
 
         Ok(true)
     }
@@ -223,11 +225,41 @@ impl DistinctProjectionRowSet {
         }
 
         let canonical_bytes = charge_distinct_key(&canonical)?;
-        self.buckets.entry(hash).or_default().push(canonical);
-        self.entries = self.entries.saturating_add(1);
-        self.retained_backing_bytes = self.retained_backing_bytes.saturating_add(canonical_bytes);
+        self.retain_unique_canonical(hash, canonical, canonical_bytes)?;
 
         Ok(true)
+    }
+
+    // Retain one caller-proven unique canonical key only after charging and
+    // fallibly reserving the complete hash-entry and collision-vector backing.
+    fn retain_unique_canonical(
+        &mut self,
+        hash: StableHash,
+        canonical: Value,
+        canonical_bytes: u64,
+    ) -> Result<(), InternalError> {
+        let new_hash_bucket = !self.buckets.contains_key(&hash);
+        let structural_bytes =
+            retained_vec_element_backing_bytes::<Value>().saturating_add(if new_hash_bucket {
+                retained_hash_entry_backing_bytes::<StableHash, Vec<Value>>()
+            } else {
+                0
+            });
+        charge_distinct_structural_backing(structural_bytes)?;
+
+        if new_hash_bucket {
+            try_reserve_hash_entry(&mut self.buckets)?;
+        }
+        let bucket = self.buckets.entry(hash).or_default();
+        try_reserve_vec_elements(bucket, 1)?;
+        bucket.push(canonical);
+        self.entries = self.entries.saturating_add(1);
+        self.retained_backing_bytes = self
+            .retained_backing_bytes
+            .saturating_add(canonical_bytes)
+            .saturating_add(structural_bytes);
+
+        Ok(())
     }
 }
 
@@ -239,22 +271,28 @@ struct GlobalDistinctAccumulator {
     window: ProjectionDistinctWindow,
     candidate_rows: u64,
     peak_retained_backing_bytes: u64,
+    output_envelope_full: bool,
 }
 
 impl GlobalDistinctAccumulator {
     fn new(window: ProjectionDistinctWindow) -> Self {
         Self {
             distinct_rows: DistinctProjectionRowSet::new(),
-            output_rows: Vec::with_capacity(window.limit.unwrap_or(0)),
+            output_rows: Vec::new(),
             output_row_backing_bytes: 0,
             last_emitted_logical: None,
             window,
             candidate_rows: 0,
             peak_retained_backing_bytes: 0,
+            output_envelope_full: false,
         }
     }
 
-    fn consider_row(&mut self, candidate: DistinctProjectedRow) -> Result<(), InternalError> {
+    fn consider_row(
+        &mut self,
+        candidate: DistinctProjectedRow,
+        admit_output: &mut impl FnMut(&RowView) -> Result<bool, InternalError>,
+    ) -> Result<(), InternalError> {
         self.candidate_rows = self.candidate_rows.saturating_add(1);
         if !self.distinct_rows.insert_row(&candidate.row)? {
             return Ok(());
@@ -266,9 +304,19 @@ impl GlobalDistinctAccumulator {
                 .window
                 .limit
                 .is_none_or(|limit| distinct_index < self.window.offset.saturating_add(limit));
-        if within_window {
+        if within_window && !self.output_envelope_full {
+            if !admit_output(&candidate.row)? {
+                self.output_envelope_full = true;
+                return Ok(());
+            }
             let row_bytes = charge_distinct_output_row(&candidate.row)?;
-            self.output_row_backing_bytes = self.output_row_backing_bytes.saturating_add(row_bytes);
+            let structural_bytes = retained_vec_element_backing_bytes::<RowView>();
+            charge_distinct_structural_backing(structural_bytes)?;
+            try_reserve_vec_elements(&mut self.output_rows, 1)?;
+            self.output_row_backing_bytes = self
+                .output_row_backing_bytes
+                .saturating_add(row_bytes)
+                .saturating_add(structural_bytes);
             self.last_emitted_logical = candidate.boundary;
             self.output_rows.push(candidate.row);
         }
@@ -284,7 +332,7 @@ impl GlobalDistinctAccumulator {
     fn finish(self, mut record_bounded_stop: impl FnMut()) -> DistinctProjectionPage {
         let distinct_count = self.distinct_rows.entries;
         let end = self.window.output_end(distinct_count);
-        let has_more = end < distinct_count;
+        let has_more = end < distinct_count || self.output_envelope_full;
         if has_more {
             record_bounded_stop();
         }
@@ -326,10 +374,10 @@ struct AdjacentDistinctAccumulator {
 }
 
 impl AdjacentDistinctAccumulator {
-    fn new(window: ProjectionDistinctWindow) -> Self {
+    const fn new(window: ProjectionDistinctWindow) -> Self {
         Self {
             current: None,
-            output_rows: Vec::with_capacity(window.limit.unwrap_or(0)),
+            output_rows: Vec::new(),
             output_backing_bytes: 0,
             last_emitted_logical: None,
             window,
@@ -345,6 +393,7 @@ impl AdjacentDistinctAccumulator {
         &mut self,
         candidate: DistinctProjectedRow,
         mut record_bounded_stop: impl FnMut(),
+        admit_output: &mut impl FnMut(&RowView) -> Result<bool, InternalError>,
     ) -> Result<bool, InternalError> {
         self.candidate_rows = self.candidate_rows.saturating_add(1);
         if let Some(current) = self.current.as_mut()
@@ -356,7 +405,11 @@ impl AdjacentDistinctAccumulator {
             return Ok(true);
         }
 
-        self.close_current_group();
+        if !self.close_current_group(admit_output)? {
+            self.has_more = true;
+            record_bounded_stop();
+            return Ok(false);
+        }
         if self
             .window
             .limit
@@ -389,16 +442,31 @@ impl AdjacentDistinctAccumulator {
         Ok(true)
     }
 
-    fn close_current_group(&mut self) {
+    fn close_current_group(
+        &mut self,
+        admit_output: &mut impl FnMut(&RowView) -> Result<bool, InternalError>,
+    ) -> Result<bool, InternalError> {
         let Some(group) = self.current.take() else {
-            return;
+            return Ok(true);
         };
         if let Some(output) = group.output {
+            if !admit_output(&output.row)? {
+                self.has_more = true;
+                return Ok(false);
+            }
+            let structural_bytes = retained_vec_element_backing_bytes::<RowView>();
+            charge_distinct_structural_backing(structural_bytes)?;
+            try_reserve_vec_elements(&mut self.output_rows, 1)?;
             self.last_emitted_logical = output.boundary;
             self.output_rows.push(output.row);
-            self.output_backing_bytes =
-                self.output_backing_bytes.saturating_add(group.output_bytes);
+            self.output_backing_bytes = self
+                .output_backing_bytes
+                .saturating_add(group.output_bytes)
+                .saturating_add(structural_bytes);
         }
+        self.record_peak();
+
+        Ok(true)
     }
 
     fn record_peak(&mut self) {
@@ -414,9 +482,12 @@ impl AdjacentDistinctAccumulator {
             .max(self.output_backing_bytes.saturating_add(current_backing));
     }
 
-    fn finish(mut self) -> DistinctProjectionPage {
-        self.close_current_group();
-        DistinctProjectionPage {
+    fn finish(
+        mut self,
+        admit_output: &mut impl FnMut(&RowView) -> Result<bool, InternalError>,
+    ) -> Result<DistinctProjectionPage, InternalError> {
+        let _ = self.close_current_group(admit_output)?;
+        Ok(DistinctProjectionPage {
             rows: self.output_rows,
             last_emitted_logical: self.last_emitted_logical,
             has_more: self.has_more,
@@ -427,7 +498,7 @@ impl AdjacentDistinctAccumulator {
                 peak_retained_entries: self.peak_retained_entries,
                 peak_retained_backing_bytes: self.peak_retained_backing_bytes,
             },
-        }
+        })
     }
 }
 
@@ -437,6 +508,7 @@ pub(super) fn collect_distinct_projected_rows<I>(
     rows: impl IntoIterator<Item = I>,
     mut record_candidate_row: impl FnMut(),
     mut record_bounded_stop: impl FnMut(),
+    mut admit_output: impl FnMut(&RowView) -> Result<bool, InternalError>,
     mut project_row: impl FnMut(I) -> Result<DistinctProjectedRow, InternalError>,
 ) -> Result<DistinctProjectionPage, InternalError> {
     if matches!(window.limit, Some(0)) {
@@ -460,18 +532,22 @@ pub(super) fn collect_distinct_projected_rows<I>(
             for row in rows {
                 let projected = project_row(row)?;
                 record_candidate_row();
-                if !accumulator.consider_row(projected, &mut record_bounded_stop)? {
+                if !accumulator.consider_row(
+                    projected,
+                    &mut record_bounded_stop,
+                    &mut admit_output,
+                )? {
                     break;
                 }
             }
-            Ok(accumulator.finish())
+            accumulator.finish(&mut admit_output)
         }
         ProjectionDistinctStrategy::GlobalReplay => {
             let mut accumulator = GlobalDistinctAccumulator::new(window);
             for row in rows {
                 let projected = project_row(row)?;
                 record_candidate_row();
-                accumulator.consider_row(projected)?;
+                accumulator.consider_row(projected, &mut admit_output)?;
             }
             Ok(accumulator.finish(record_bounded_stop))
         }
@@ -529,6 +605,13 @@ fn charge_distinct_output_row(row: &RowView) -> Result<u64, InternalError> {
     )?;
 
     Ok(bytes)
+}
+
+fn charge_distinct_structural_backing(bytes: u64) -> Result<(), InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+        bytes,
+    )
 }
 
 fn stable_hash_projected_row(row: &RowView) -> Result<StableHash, KeyCanonicalError> {
@@ -623,13 +706,40 @@ mod tests {
     ) -> Result<DistinctProjectionPage, QueryError> {
         let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
         with_query_execution_budget_for_tests(budget, TEST_CONTEXT, || {
-            collect_distinct_projected_rows(strategy, window, rows, || {}, || {}, Ok)
+            collect_distinct_projected_rows(strategy, window, rows, || {}, || {}, |_| Ok(true), Ok)
                 .map_err(QueryError::execute)
         })
     }
 
     fn text_rows(rows: Vec<RowView>) -> Vec<Vec<Value>> {
         rows.into_iter().map(RowView::into_owned).collect()
+    }
+
+    fn collect_with_output_limit(
+        strategy: ProjectionDistinctStrategy,
+        rows: Vec<DistinctProjectedRow>,
+        output_limit: usize,
+    ) -> Result<DistinctProjectionPage, QueryError> {
+        let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
+        with_query_execution_budget_for_tests(budget, TEST_CONTEXT, || {
+            let mut admitted = 0_usize;
+            collect_distinct_projected_rows(
+                strategy,
+                ProjectionDistinctWindow::new(0, None),
+                rows,
+                || {},
+                || {},
+                |_| {
+                    if admitted >= output_limit {
+                        return Ok(false);
+                    }
+                    admitted = admitted.saturating_add(1);
+                    Ok(true)
+                },
+                Ok,
+            )
+            .map_err(QueryError::execute)
+        })
     }
 
     #[test]
@@ -736,6 +846,12 @@ mod tests {
         assert_eq!(stats.candidate_rows, 5);
         assert_eq!(stats.unique_rows, 3);
         assert_eq!(stats.peak_retained_entries, 3);
+        let minimum_structural_backing =
+            retained_hash_entry_backing_bytes::<StableHash, Vec<Value>>()
+                .saturating_mul(3)
+                .saturating_add(retained_vec_element_backing_bytes::<Value>().saturating_mul(3))
+                .saturating_add(retained_vec_element_backing_bytes::<RowView>().saturating_mul(2));
+        assert!(stats.peak_retained_backing_bytes >= minimum_structural_backing);
 
         let second = collect(
             ProjectionDistinctStrategy::GlobalReplay,
@@ -748,6 +864,35 @@ mod tests {
         assert_eq!(text_rows(rows), vec![vec![Value::Text("c".to_string())]]);
         assert_eq!(last_emitted, Some(boundary(4)));
         assert!(!has_more);
+    }
+
+    #[test]
+    fn distinct_output_admission_preserves_the_last_returned_group_boundary() {
+        for strategy in [
+            ProjectionDistinctStrategy::OrderedAdjacent,
+            ProjectionDistinctStrategy::GlobalReplay,
+        ] {
+            let page = collect_with_output_limit(
+                strategy,
+                vec![
+                    text_candidate("a", 1),
+                    text_candidate("a", 2),
+                    text_candidate("b", 3),
+                    text_candidate("c", 4),
+                ],
+                1,
+            )
+            .expect("output admission should return resumable DISTINCT progress");
+            let (rows, last_emitted, has_more, _) = page.into_parts();
+
+            assert_eq!(text_rows(rows), vec![vec![Value::Text("a".to_string())]]);
+            let expected_boundary = match strategy {
+                ProjectionDistinctStrategy::OrderedAdjacent => boundary(2),
+                ProjectionDistinctStrategy::GlobalReplay => boundary(1),
+            };
+            assert_eq!(last_emitted, Some(expected_boundary));
+            assert!(has_more);
+        }
     }
 
     #[test]
@@ -799,12 +944,47 @@ mod tests {
                 vec![text_candidate("too-large", 1)],
                 || {},
                 || {},
+                |_| Ok(true),
                 Ok,
             )
             .map_err(QueryError::execute)
         });
         let Err(error) = result else {
             panic!("DISTINCT state must obey the hard budget")
+        };
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+    }
+
+    #[test]
+    fn global_distinct_hash_capacity_is_part_of_the_typed_state_budget() {
+        let candidate = text_candidate("one", 1);
+        let canonical = canonical_projected_row(&candidate.row).expect("canonical key");
+        let canonical_bytes = runtime_value_work(&canonical).0;
+        let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(
+                DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+                canonical_bytes,
+            );
+        let result = with_query_execution_budget_for_tests(budget, TEST_CONTEXT, || {
+            collect_distinct_projected_rows(
+                ProjectionDistinctStrategy::GlobalReplay,
+                ProjectionDistinctWindow::new(0, None),
+                vec![candidate],
+                || {},
+                || {},
+                |_| Ok(true),
+                Ok,
+            )
+            .map_err(QueryError::execute)
+        });
+        let Err(error) = result else {
+            panic!("canonical bytes alone must not admit hidden hash capacity")
         };
 
         assert!(matches!(

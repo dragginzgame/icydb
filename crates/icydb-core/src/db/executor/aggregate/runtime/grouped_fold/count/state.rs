@@ -8,7 +8,10 @@ use crate::{
             ExecutionContext, GroupError,
             runtime::grouped_fold::{metrics, utils::GroupIndexBucket},
         },
-        group::{GroupKey, StableHash, StableHashBuildHasher, StableHashMap},
+        group::{
+            GroupKey, StableHash, StableHashBuildHasher, StableHashMap,
+            retained_hash_entry_backing_bytes, try_reserve_hash_entry, try_reserve_vec_elements,
+        },
     },
     error::InternalError,
 };
@@ -28,18 +31,10 @@ pub(super) struct GroupedCountState {
 
 impl GroupedCountState {
     // Build one empty grouped-count state container.
-    #[cfg(test)]
-    pub(super) fn new() -> Self {
-        Self::with_capacity(0)
-    }
-
-    // Build one grouped-count state container with caller-provided capacity
-    // hints from the resolved key stream. Group cardinality is bounded by row
-    // cardinality, so this avoids repeated table growth on exact streams.
-    pub(super) fn with_capacity(capacity: usize) -> Self {
+    pub(super) const fn new() -> Self {
         Self {
-            groups: Vec::with_capacity(capacity),
-            bucket_index: StableHashMap::with_capacity_and_hasher(capacity, StableHashBuildHasher),
+            groups: Vec::new(),
+            bucket_index: StableHashMap::with_hasher(StableHashBuildHasher),
         }
     }
 
@@ -106,11 +101,25 @@ impl GroupedCountState {
             )
             .map_err(GroupError::into_internal_error)?;
         let new_index = self.groups.len();
+        let new_hash_bucket = !self.bucket_index.contains_key(&group_hash);
+        let index_backing_bytes = self.bucket_index.get(&group_hash).map_or_else(
+            retained_hash_entry_backing_bytes::<StableHash, GroupIndexBucket>,
+            GroupIndexBucket::retained_insert_backing_bytes,
+        );
+        grouped_execution_context
+            .record_structural_backing(index_backing_bytes)
+            .map_err(GroupError::into_internal_error)?;
+        try_reserve_vec_elements(&mut self.groups, 1)?;
+        if new_hash_bucket {
+            try_reserve_hash_entry(&mut self.bucket_index)?;
+        }
         self.groups.push((group_key, 1));
-        self.bucket_index
-            .entry(group_hash)
-            .and_modify(|bucket| bucket.push_index(new_index))
-            .or_insert_with(|| GroupIndexBucket::single(new_index));
+        if let Some(bucket) = self.bucket_index.get_mut(&group_hash) {
+            bucket.push_index(new_index)?;
+        } else {
+            self.bucket_index
+                .insert(group_hash, GroupIndexBucket::single(new_index));
+        }
         Ok(())
     }
 

@@ -398,21 +398,26 @@ impl GroupedIndexOrderContract {
         })
     }
 
-    /// Return true when this grouped order matches one full canonical index
-    /// order.
+    /// Return true when this grouped order is the leading sequence of one
+    /// canonical index order.
+    ///
+    /// Trailing index terms do not break grouped-key contiguity. For example,
+    /// an index ordered by `(group_key, id)` satisfies grouped output ordered
+    /// by `group_key` even though `id` is not part of the grouped result.
     #[must_use]
     pub(in crate::db) fn matches_index_full<S>(&self, index_fields: &[S]) -> bool
     where
         S: AsRef<str>,
     {
-        self.terms
-            .iter()
-            .map(String::as_str)
-            .eq(index_fields.iter().map(AsRef::as_ref))
+        self.terms.len() <= index_fields.len()
+            && self.terms.iter().map(String::as_str).eq(index_fields
+                .iter()
+                .take(self.terms.len())
+                .map(AsRef::as_ref))
     }
 
-    /// Return true when this grouped order matches one canonical index suffix
-    /// after one equality-bound prefix.
+    /// Return true when this grouped order is the leading sequence of one
+    /// canonical index suffix after one equality-bound prefix.
     #[must_use]
     pub(in crate::db) fn matches_index_suffix<S>(
         &self,
@@ -426,10 +431,13 @@ impl GroupedIndexOrderContract {
             return false;
         }
 
-        self.terms
-            .iter()
-            .map(String::as_str)
-            .eq(index_fields[prefix_len..].iter().map(AsRef::as_ref))
+        let suffix = &index_fields[prefix_len..];
+        self.terms.len() <= suffix.len()
+            && self
+                .terms
+                .iter()
+                .map(String::as_str)
+                .eq(suffix.iter().take(self.terms.len()).map(AsRef::as_ref))
     }
 
     /// Classify how this grouped order matches one canonical index key order
@@ -629,4 +637,50 @@ fn has_exact_ordered_primary_key_tie_break_fields(
         term.direct_field()
             .is_some_and(|field| primary_key_names.contains(&field))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GroupedIndexOrderContract, GroupedIndexOrderMatch};
+    use crate::db::query::plan::OrderDirection;
+
+    fn grouped_contract(terms: &[&str]) -> GroupedIndexOrderContract {
+        GroupedIndexOrderContract {
+            terms: terms.iter().map(ToString::to_string).collect(),
+            direction: OrderDirection::Asc,
+        }
+    }
+
+    #[test]
+    fn grouped_order_accepts_trailing_index_tie_break_terms() {
+        let contract = grouped_contract(&["group_key"]);
+        let index = ["group_key", "id"];
+
+        assert_eq!(
+            contract.classify_index_match(&index, 0),
+            GroupedIndexOrderMatch::Full
+        );
+    }
+
+    #[test]
+    fn grouped_order_accepts_trailing_terms_after_equality_prefix() {
+        let contract = grouped_contract(&["group_key"]);
+        let index = ["tenant_id", "group_key", "id"];
+
+        assert_eq!(
+            contract.classify_index_match(&index, 1),
+            GroupedIndexOrderMatch::Suffix
+        );
+    }
+
+    #[test]
+    fn grouped_order_rejects_a_gap_before_the_group_key() {
+        let contract = grouped_contract(&["group_key"]);
+        let index = ["tenant_id", "created_at", "group_key", "id"];
+
+        assert_eq!(
+            contract.classify_index_match(&index, 1),
+            GroupedIndexOrderMatch::None
+        );
+    }
 }

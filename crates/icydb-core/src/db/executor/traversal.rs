@@ -66,8 +66,8 @@ impl IndexRangeTraversalContract {
 
 /// Derive row-read missing-row policy for one executor-consumed logical plan.
 #[must_use]
-pub(in crate::db::executor) const fn row_read_consistency_for_plan(
+pub(in crate::db::executor) fn row_read_consistency_for_plan(
     plan: &AccessPlannedQuery,
 ) -> MissingRowPolicy {
-    plan.scalar_plan().consistency
+    plan.scalar_consistency()
 }

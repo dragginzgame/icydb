@@ -492,7 +492,7 @@ pub enum RuntimeBoundaryCode {
     SqlSurfaceControllerRequired,
     SchemaSurfaceControllerRequired,
     SqlQueryNoConfiguredEntities,
-    SqlQueryEntityNotConfigured,
+    SqlQueryEntityNotFound,
     SqlDdlTargetRequired,
     SqlDdlEntityNotConfigured,
     QueryResponseRowsRequired,

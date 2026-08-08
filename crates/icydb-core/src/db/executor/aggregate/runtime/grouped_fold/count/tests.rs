@@ -5,8 +5,11 @@ use crate::{
                 ExecutionConfig, ExecutionContext,
                 runtime::grouped_fold::{
                     count::{GroupedCountState, window::GroupedCountWindowSelection},
-                    utils::stable_hash_group_values_from_row_view,
+                    utils::{GroupIndexBucket, stable_hash_group_values_from_row_view},
                 },
+            },
+            group::{
+                StableHash, retained_hash_entry_backing_bytes, retained_vec_element_backing_bytes,
             },
             pipeline::runtime::RowView,
         },
@@ -130,6 +133,11 @@ fn grouped_count_fast_path_handles_hash_collisions_without_merging_groups() {
                 &mut grouped_execution_context,
             )
             .expect("alpha insert");
+        let after_alpha = grouped_execution_context.budget().estimated_bytes();
+        assert!(
+            after_alpha >= retained_hash_entry_backing_bytes::<StableHash, GroupIndexBucket>(),
+            "first group must account for the grouped hash-index allocation",
+        );
         grouped_counts
             .increment_row_borrowed_group_probe(
                 &beta,
@@ -137,6 +145,12 @@ fn grouped_count_fast_path_handles_hash_collisions_without_merging_groups() {
                 &mut grouped_execution_context,
             )
             .expect("beta insert");
+        let after_beta = grouped_execution_context.budget().estimated_bytes();
+        assert!(
+            after_beta.saturating_sub(after_alpha)
+                >= retained_vec_element_backing_bytes::<usize>().saturating_mul(2),
+            "same-hash promotion must account for both collision-vector indexes",
+        );
         grouped_counts
             .increment_row_borrowed_group_probe(
                 &alpha,

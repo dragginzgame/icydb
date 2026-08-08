@@ -234,10 +234,16 @@ impl<K> AccessPlan<K> {
         selected
     }
 
-    /// Return true when this plan selects one secondary-index access shape.
+    /// Return true when this plan or any composite child selects an accepted
+    /// secondary-index access shape.
     #[must_use]
     pub(in crate::db) fn has_selected_index_access_path(&self) -> bool {
-        self.shape_facts().has_selected_index_access_path()
+        match self {
+            Self::Path(path) => path.selected_index_contract().is_some(),
+            Self::Union(children) | Self::Intersection(children) => {
+                children.iter().any(Self::has_selected_index_access_path)
+            }
+        }
     }
 
     /// Project this semantic access tree into one executable contract.
@@ -367,7 +373,28 @@ impl<K> From<AccessPath<K>> for AccessPlan<K> {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::access::AccessPlan;
+    use crate::{
+        db::access::{
+            AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItem,
+            path::SemanticIndexAccessContractInner,
+        },
+        value::Value,
+    };
+    use std::sync::Arc;
+
+    fn accepted_index_contract() -> SemanticIndexAccessContract {
+        SemanticIndexAccessContract {
+            inner: Arc::new(SemanticIndexAccessContractInner {
+                ordinal: 1,
+                physical_generation: 1,
+                name: "by_label".to_string(),
+                store_path: "test::Store".to_string(),
+                key_items: vec![SemanticIndexKeyItem::Field("label".to_string())],
+                unique: false,
+                predicate_semantics: None,
+            }),
+        }
+    }
 
     #[test]
     fn union_constructor_flattens_and_collapses_single_child() {
@@ -433,5 +460,19 @@ mod tests {
         ])]);
 
         assert_eq!(plan, AccessPlan::by_keys(Vec::new()));
+    }
+
+    #[test]
+    fn composite_plan_reports_nested_accepted_index_access() {
+        let plan = AccessPlan::intersection(vec![
+            AccessPlan::by_key(Value::Unit),
+            AccessPlan::index_prefix_from_contract(
+                accepted_index_contract(),
+                vec![Value::Text("singleton".to_string())],
+            ),
+        ]);
+
+        assert!(plan.has_selected_index_access_path());
+        assert!(!AccessPlan::<Value>::by_key(Value::Unit).has_selected_index_access_path());
     }
 }

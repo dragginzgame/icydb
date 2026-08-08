@@ -1,10 +1,13 @@
 use crate::{
     db::{
-        data::{DataRow, DecodedDataStoreKey},
+        data::{DataRow, DecodedDataStoreKey, RawRow, StoreVisit},
         executor::{
             BoundedOrderWindow, DataRowOrderWindow, OrderedKeyStreamBox, PendingOrderRows,
-            ScalarContinuationContext, exact_output_key_count_hint, key_stream_budget_is_redundant,
-            measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
+            ScalarContinuationContext, begin_production_scalar_page_unit,
+            exact_output_key_count_hint, finish_production_scalar_page_unit,
+            key_stream_budget_is_redundant, measure_execution_stats_phase,
+            production_scalar_page_work_is_active, record_key_stream_micros,
+            record_key_stream_yield,
             route::LoadOrderRouteMode,
             terminal::page::{
                 KernelRow, KernelRowOrderWindow, KernelRowScanStrategy, RetainedSlotLayout,
@@ -16,6 +19,7 @@ use crate::{
     },
     error::InternalError,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
@@ -347,7 +351,7 @@ fn scan_kernel_rows_with(
         bounds.row_keep_cap,
         bounds.row_skip_count,
         next_kernel_scan_key,
-        |key| read_kernel_scan_row(key, &mut read_row),
+        |_key_stream, key| read_kernel_scan_row(key, &mut read_row),
     )?;
 
     Ok((PendingOrderRows::plain(result.rows), result.rows_scanned))
@@ -369,11 +373,22 @@ fn scan_kernel_rows_with_bounded_order_window(
     let mut rows_scanned = 0usize;
     let mut window = BoundedOrderWindow::new(order_window.keep_count, order_window.resolved_order);
 
-    while let Some(key) = next_kernel_scan_key(key_stream)? {
+    loop {
+        let page_unit = begin_scan_page_unit(key_stream)?;
+        if matches!(page_unit, ScanPageUnit::EnvelopeFull) {
+            break;
+        }
+        let key = next_kernel_scan_key(key_stream)?;
+        let Some(key) = key else {
+            finish_scan_page_unit(page_unit)?;
+            break;
+        };
         record_key_stream_yield();
 
         rows_scanned = rows_scanned.saturating_add(1);
-        let Some(row) = read_kernel_scan_row(key, &mut read_row)? else {
+        let row = read_kernel_scan_row(key, &mut read_row)?;
+        finish_scan_page_unit(page_unit)?;
+        let Some(row) = row else {
             continue;
         };
         if !row.has_materialized_slots() {
@@ -389,6 +404,67 @@ fn scan_kernel_rows_with_bounded_order_window(
     Ok((window.into_pending_rows(), rows_scanned))
 }
 
+fn try_scan_borrowed_primary_rows_with_bounded_order_window(
+    key_stream: &mut OrderedKeyStreamBox,
+    bounds: KernelRowScanBounds<'_>,
+    mut read_row: impl FnMut(&DecodedDataStoreKey, &RawRow) -> Result<Option<KernelRow>, InternalError>,
+) -> Result<Option<(PendingOrderRows<KernelRow>, usize)>, InternalError> {
+    let Some(order_window) = bounds.order_window else {
+        return Ok(None);
+    };
+    if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
+        return Err(InternalError::query_executor_invariant());
+    }
+    if order_window.keep_count == 0 {
+        return Ok(Some((PendingOrderRows::plain(Vec::new()), 0)));
+    }
+
+    let rows_scanned = std::cell::Cell::new(0usize);
+    let envelope_stopped = std::cell::Cell::new(false);
+    let active_unit = std::cell::Cell::new(ScanPageUnit::Untracked);
+    let mut window = BoundedOrderWindow::new(order_window.keep_count, order_window.resolved_order);
+    let mut begin_row = || {
+        let page_unit = begin_direct_row_scan_page_unit()?;
+        if matches!(page_unit, ScanPageUnit::EnvelopeFull) {
+            envelope_stopped.set(true);
+            return Ok(false);
+        }
+        active_unit.set(page_unit);
+        Ok(true)
+    };
+    let mut visit_row = |key: DecodedDataStoreKey, row: &RawRow| {
+        record_key_stream_yield();
+        rows_scanned.set(rows_scanned.get().saturating_add(1));
+        let decoded = read_borrowed_kernel_scan_row(&key, row, &mut read_row)?;
+        finish_scan_page_unit(active_unit.replace(ScanPageUnit::Untracked))?;
+        if let Some(decoded) = decoded {
+            if !decoded.has_materialized_slots() {
+                return Err(InternalError::query_executor_invariant());
+            }
+            window.push(decoded)?;
+        }
+
+        Ok(StoreVisit::Continue)
+    };
+
+    let Some(()) = key_stream.try_visit_primary_rows_direct(&mut begin_row, &mut visit_row)? else {
+        return Ok(None);
+    };
+    if envelope_stopped.get() {
+        let observed = u64::try_from(rows_scanned.get()).unwrap_or(u64::MAX);
+        return Err(InternalError::page_unit_too_large(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            observed,
+            observed.saturating_add(1),
+        ));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    record_kernel_row_peak_retained_backing_bytes(window.peak_retained_backing_bytes());
+
+    Ok(Some((window.into_pending_rows(), rows_scanned.get())))
+}
+
 // Scan one ordered key stream into caller-owned row payloads while preserving
 // the shared matched-row skip/keep accounting contract.
 fn scan_rows_with<T>(
@@ -398,7 +474,10 @@ fn scan_rows_with<T>(
     mut next_key: impl FnMut(
         &mut OrderedKeyStreamBox,
     ) -> Result<Option<DecodedDataStoreKey>, InternalError>,
-    mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<T>, InternalError>,
+    mut read_row: impl FnMut(
+        &mut OrderedKeyStreamBox,
+        DecodedDataStoreKey,
+    ) -> Result<Option<T>, InternalError>,
 ) -> Result<RowScanResult<T>, InternalError> {
     if row_keep_cap == Some(0) {
         return Ok(RowScanResult {
@@ -413,11 +492,22 @@ fn scan_rows_with<T>(
     let mut rows = Vec::with_capacity(staged_capacity);
     let mut rows_matched = 0usize;
     let Some(row_keep_cap) = row_keep_cap else {
-        while let Some(key) = next_key(key_stream)? {
+        loop {
+            let page_unit = begin_scan_page_unit(key_stream)?;
+            if matches!(page_unit, ScanPageUnit::EnvelopeFull) {
+                break;
+            }
+            let key = next_key(key_stream)?;
+            let Some(key) = key else {
+                finish_scan_page_unit(page_unit)?;
+                break;
+            };
             record_key_stream_yield();
 
             rows_scanned = rows_scanned.saturating_add(1);
-            let Some(row) = read_row(key)? else {
+            let row = read_row(key_stream, key)?;
+            finish_scan_page_unit(page_unit)?;
+            let Some(row) = row else {
                 continue;
             };
             retain_scanned_row(row, row_skip_count, rows_matched, &mut rows);
@@ -431,11 +521,22 @@ fn scan_rows_with<T>(
         });
     };
 
-    while let Some(key) = next_key(key_stream)? {
+    loop {
+        let page_unit = begin_scan_page_unit(key_stream)?;
+        if matches!(page_unit, ScanPageUnit::EnvelopeFull) {
+            break;
+        }
+        let key = next_key(key_stream)?;
+        let Some(key) = key else {
+            finish_scan_page_unit(page_unit)?;
+            break;
+        };
         record_key_stream_yield();
 
         rows_scanned = rows_scanned.saturating_add(1);
-        let Some(row) = read_row(key)? else {
+        let row = read_row(key_stream, key)?;
+        finish_scan_page_unit(page_unit)?;
+        let Some(row) = row else {
             continue;
         };
         retain_scanned_row(row, row_skip_count, rows_matched, &mut rows);
@@ -450,6 +551,46 @@ fn scan_rows_with<T>(
         rows_scanned,
         rows_matched,
     })
+}
+
+#[derive(Clone, Copy)]
+enum ScanPageUnit {
+    Untracked,
+    Started,
+    EnvelopeFull,
+}
+
+fn begin_scan_page_unit(key_stream: &OrderedKeyStreamBox) -> Result<ScanPageUnit, InternalError> {
+    let Some(access_entry_bound) = key_stream.page_access_entry_bound() else {
+        if production_scalar_page_work_is_active()? {
+            return Err(InternalError::query_executor_invariant());
+        }
+        return Ok(ScanPageUnit::Untracked);
+    };
+    if begin_production_scalar_page_unit(access_entry_bound)? {
+        Ok(ScanPageUnit::Started)
+    } else {
+        Ok(ScanPageUnit::EnvelopeFull)
+    }
+}
+
+fn begin_direct_row_scan_page_unit() -> Result<ScanPageUnit, InternalError> {
+    if !production_scalar_page_work_is_active()? {
+        return Ok(ScanPageUnit::Untracked);
+    }
+    if begin_production_scalar_page_unit(1)? {
+        Ok(ScanPageUnit::Started)
+    } else {
+        Ok(ScanPageUnit::EnvelopeFull)
+    }
+}
+
+fn finish_scan_page_unit(unit: ScanPageUnit) -> Result<(), InternalError> {
+    if matches!(unit, ScanPageUnit::Started) {
+        finish_production_scalar_page_unit()?;
+    }
+
+    Ok(())
 }
 
 fn next_kernel_scan_key(
@@ -479,6 +620,21 @@ fn read_kernel_scan_row(
     record_kernel_row_row_read_local_instructions(row_read_local_instructions);
 
     row
+}
+
+fn read_borrowed_kernel_scan_row(
+    key: &DecodedDataStoreKey,
+    row: &RawRow,
+    read_row: &mut impl FnMut(&DecodedDataStoreKey, &RawRow) -> Result<Option<KernelRow>, InternalError>,
+) -> Result<Option<KernelRow>, InternalError> {
+    #[cfg(feature = "diagnostics")]
+    let (row_read_local_instructions, decoded) = measure_kernel_row_phase(|| read_row(key, row));
+    #[cfg(not(feature = "diagnostics"))]
+    let decoded = read_row(key, row);
+    #[cfg(feature = "diagnostics")]
+    record_kernel_row_row_read_local_instructions(row_read_local_instructions);
+
+    decoded
 }
 
 // Compute the staged row capacity after the caller has converted a cursorless
@@ -533,7 +689,7 @@ fn scan_data_rows_direct_with_reader(
         row_keep_cap,
         row_skip_count,
         next_direct_data_row_scan_key,
-        |key| read_direct_data_row_scan_row(key, &mut read_data_row),
+        |_key_stream, key| read_direct_data_row_scan_row(key, &mut read_data_row),
     )
 }
 
@@ -764,6 +920,15 @@ fn scan_slot_rows_into_kernel(
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
+    if let Some(rows) =
+        try_scan_borrowed_primary_rows_with_bounded_order_window(key_stream, bounds, |key, row| {
+            row_runtime
+                .read_borrowed_slot_only(key, row, retained_slot_layout)
+                .map(Some)
+        })?
+    {
+        return Ok(rows);
+    }
     scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {
         row_runtime.read_slot_only(consistency, &key, retained_slot_layout)
     })
@@ -789,6 +954,18 @@ fn scan_slot_rows_into_kernel_with_filter_program(
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
+    if let Some(rows) =
+        try_scan_borrowed_primary_rows_with_bounded_order_window(key_stream, bounds, |key, row| {
+            row_runtime.read_borrowed_slot_only_with_filter_program(
+                key,
+                row,
+                filter_program,
+                retained_slot_layout,
+            )
+        })?
+    {
+        return Ok(rows);
+    }
     scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {
         row_runtime.read_slot_only_with_filter_program(
             consistency,

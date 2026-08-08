@@ -1871,7 +1871,7 @@ mod typed_adapter_tests {
                 .filter(crate::db::FieldRef::new("id").eq(1_u64))
                 .group_by("value")
                 .aggregate(crate::db::count())
-                .grouped_limits(1, 1024)
+                .grouped_limits(1, 16 * 1024)
                 .limit(1);
             let grouped = session
                 .execute_public_dynamic_grouped_query(&grouped_query)
@@ -1906,6 +1906,23 @@ mod typed_adapter_tests {
                 &[crate::value::OutputValue::Nat64(1)]
             );
             assert_eq!(grouped.next_cursor, None);
+
+            let grouped_state_error = session
+                .execute_trusted_dynamic_grouped_query(&grouped_query.clone().grouped_limits(1, 1))
+                .expect_err("grouped retained state must respect its explicit byte ceiling");
+            assert!(matches!(
+                grouped_state_error.diagnostic().detail(),
+                Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: icydb_diagnostic_code::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+                })
+            ));
+            assert_eq!(
+                grouped_state_error.diagnostic_facts()[0],
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                    icydb_diagnostic_code::DiagnosticExecutionBudgetResource::GroupDistinctStateBytes.raw(),
+                ),
+            );
 
             assert_query_diagnostic(
                 session
@@ -1963,7 +1980,7 @@ mod typed_adapter_tests {
             let paged_query = crate::db::DynamicQuery::new("RenamedEntity")
                 .group_by("value")
                 .aggregate(crate::db::count())
-                .grouped_limits(2, 2 * 1024)
+                .grouped_limits(2, 16 * 1024)
                 .limit(1);
             assert_query_diagnostic(
                 session
@@ -2021,6 +2038,7 @@ mod mixed_relation_batch_tests {
             data::DataStore,
             desc,
             index::IndexStore,
+            query::expr::FilterExpr,
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::{
                 AcceptedConstraintCatalog, AcceptedFieldKind, AcceptedSchemaRevision, FieldId,
@@ -2447,6 +2465,126 @@ mod mixed_relation_batch_tests {
             error.diagnostic_code(),
             icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
         );
+    }
+
+    #[test]
+    fn live_pages_resume_when_output_bytes_fill_before_the_row_window() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                insert(1, None),
+                insert(2, None),
+                insert(3, None),
+            ])
+            .expect("output-envelope rows should insert");
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .order_by(desc("code"));
+        let mut continuation = None;
+        let mut returned = Vec::new();
+        for (page_index, expected_id) in [3_u64, 2, 1].into_iter().enumerate() {
+            let page = session
+                .execute_trusted_live_page_with_result_bytes_limit_for_tests(
+                    &query,
+                    continuation.as_deref(),
+                    32,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "output-bounded page {page_index} should remain resumable: {error:?}, facts={:?}",
+                        error.diagnostic_facts(),
+                    )
+                });
+            assert_eq!(page.rows, vec![vec![OutputValue::Nat64(expected_id)]]);
+            returned.extend(page.rows);
+            continuation = page.continuation;
+            assert_eq!(continuation.is_some(), page_index < 2);
+        }
+
+        assert_eq!(
+            returned,
+            vec![
+                vec![OutputValue::Nat64(3)],
+                vec![OutputValue::Nat64(2)],
+                vec![OutputValue::Nat64(1)],
+            ]
+        );
+    }
+
+    #[test]
+    fn selective_live_pages_publish_monotonic_empty_physical_progress() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(
+                (1..=9)
+                    .map(|id| {
+                        let parent = match id {
+                            1 => Some(2),
+                            9 => Some(1),
+                            _ => None,
+                        };
+                        insert(id, parent)
+                    })
+                    .collect(),
+            )
+            .expect("selective live-page rows should insert");
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .filter(FilterExpr::eq("parent_id", 1_u64))
+            .order_by(asc("id"))
+            .limit(1);
+
+        let first = session
+            .execute_trusted_live_page(&query, None)
+            .expect("first selective page should stop with physical progress");
+        assert!(first.rows.is_empty());
+        assert_eq!(first.work.entries_visited, 4);
+        let first_cursor = first
+            .continuation
+            .expect("filtered physical progress must return a continuation");
+
+        let second = session
+            .execute_trusted_live_page(&query, Some(first_cursor.as_str()))
+            .expect("second selective page should resume after the first physical frontier");
+        assert!(second.rows.is_empty());
+        assert_eq!(second.work.entries_visited, 4);
+        let second_cursor = second
+            .continuation
+            .expect("second filtered frontier must remain resumable");
+        assert_ne!(second_cursor, first_cursor);
+
+        let third = session
+            .execute_trusted_live_page(&query, Some(second_cursor.as_str()))
+            .expect("final selective page should return the late match");
+        assert_eq!(third.rows, vec![vec![OutputValue::Nat64(9)]]);
+        assert_eq!(third.work.entries_visited, 1);
+        assert_eq!(third.continuation, None);
+
+        let descending = DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .filter(FilterExpr::eq("parent_id", 2_u64))
+            .order_by(desc("id"))
+            .limit(1);
+        let descending_first = session
+            .execute_trusted_live_page(&descending, None)
+            .expect("descending selective page should stop with physical progress");
+        assert!(descending_first.rows.is_empty());
+        let descending_first_cursor = descending_first
+            .continuation
+            .expect("descending filtered progress must return a continuation");
+        let descending_second = session
+            .execute_trusted_live_page(&descending, Some(descending_first_cursor.as_str()))
+            .expect("descending progress should resume after its physical frontier");
+        assert!(descending_second.rows.is_empty());
+        let descending_second_cursor = descending_second
+            .continuation
+            .expect("descending second frontier must remain resumable");
+        assert_ne!(descending_second_cursor, descending_first_cursor);
+        let descending_third = session
+            .execute_trusted_live_page(&descending, Some(descending_second_cursor.as_str()))
+            .expect("descending final page should return the late match");
+        assert_eq!(descending_third.rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(descending_third.continuation, None);
     }
 
     #[test]

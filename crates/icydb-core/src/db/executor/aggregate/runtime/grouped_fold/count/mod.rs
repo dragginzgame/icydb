@@ -22,7 +22,6 @@ use crate::{
                 dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
                 generic::OrderedGroupedPageSelection,
                 metrics,
-                utils::group_capacity_hint,
             },
             value_reducer::finalize_count,
         },
@@ -63,11 +62,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let consistency = route.consistency();
     let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
-    let group_capacity_hint = group_capacity_hint(
-        resolved.cheap_access_candidate_count_hint(),
-        grouped_execution_context.config().max_groups(),
-    );
-    let mut grouped_counts = GroupedCountState::with_capacity(group_capacity_hint);
+    let mut grouped_counts = GroupedCountState::new();
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
 

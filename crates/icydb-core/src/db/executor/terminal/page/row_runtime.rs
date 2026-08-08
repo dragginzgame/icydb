@@ -94,6 +94,53 @@ impl ScalarRowRuntimeState {
         }
     }
 
+    // Read one row for current-row-only slot evaluation. Heap and journal-live
+    // payloads remain borrowed through the store guard; stable rows are owned
+    // by the store read. No full payload survives this callback.
+    fn read_row_borrowed<R>(
+        &self,
+        consistency: MissingRowPolicy,
+        key: &DecodedDataStoreKey,
+        evaluate: impl FnOnce(&RawRow) -> Result<R, InternalError>,
+    ) -> Result<Option<R>, InternalError> {
+        #[cfg(feature = "diagnostics")]
+        let (key_encode_local_instructions, raw_key_result) =
+            measure_direct_data_row_phase(|| key.raw_key());
+        #[cfg(not(feature = "diagnostics"))]
+        let raw_key_result = key.raw_key();
+        let raw_key = raw_key_result?;
+        #[cfg(feature = "diagnostics")]
+        record_direct_data_row_key_encode_local_instructions(key_encode_local_instructions);
+
+        let result = self.store.with_data(|store| {
+            #[cfg(feature = "diagnostics")]
+            let (store_get_local_instructions, row) =
+                measure_direct_data_row_phase(|| store.read(raw_key));
+            #[cfg(not(feature = "diagnostics"))]
+            let row = store.read(raw_key);
+            #[cfg(feature = "diagnostics")]
+            record_direct_data_row_store_get_local_instructions(store_get_local_instructions);
+
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+            let Some(row) = row.as_row() else {
+                return Ok(None);
+            };
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::StoredBytesRead,
+                u64::try_from(row.len()).unwrap_or(u64::MAX),
+            )?;
+
+            evaluate(row).map(Some)
+        })?;
+
+        match consistency {
+            MissingRowPolicy::Error => result
+                .map(Some)
+                .ok_or_else(|| InternalError::from(ExecutorError::missing_row(key))),
+            MissingRowPolicy::Ignore => Ok(result),
+        }
+    }
+
     // Read one full structural row without decoding any slot values when the
     // caller can prove no later executor phase will consume them.
     fn read_data_row_only(
@@ -202,18 +249,37 @@ impl ScalarRowRuntimeState {
         key: &DecodedDataStoreKey,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
-        let Some(row) = self.read_row(consistency, key)? else {
-            return Ok(None);
-        };
-        charge_decoded_row(&row, retained_slot_layout.required_slots().len())?;
+        self.read_row_borrowed(consistency, key, |row| {
+            charge_decoded_row(row, retained_slot_layout.required_slots().len())?;
+            let slots = RowDecoder::decode_retained_slots_from_data_key(
+                &self.row_layout,
+                key,
+                row,
+                retained_slot_layout,
+            )?;
+
+            Ok(KernelRow::new_slot_only(slots))
+        })
+    }
+
+    // Decode compact slots while a fused primary traversal still owns the
+    // stable row payload. No full row clone survives the callback.
+    fn read_borrowed_slot_only(
+        &self,
+        key: &DecodedDataStoreKey,
+        row: &RawRow,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<KernelRow, InternalError> {
+        charge_borrowed_traversal_row(row)?;
+        charge_decoded_row(row, retained_slot_layout.required_slots().len())?;
         let slots = RowDecoder::decode_retained_slots_from_data_key(
             &self.row_layout,
             key,
-            &row,
+            row,
             retained_slot_layout,
         )?;
 
-        Ok(Some(KernelRow::new_slot_only(slots)))
+        Ok(KernelRow::new_slot_only(slots))
     }
 
     // Decode one compact slot-only structural row and drop it early when the
@@ -225,16 +291,24 @@ impl ScalarRowRuntimeState {
         filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
-        let Some(row) = self.read_row(consistency, key)? else {
-            return Ok(None);
-        };
-        let Some(retained_slots) =
-            self.retained_slots_from_filtered_row(key, &row, filter_program, retained_slot_layout)?
-        else {
-            return Ok(None);
-        };
+        self.read_row_borrowed(consistency, key, |row| {
+            self.retained_slots_from_filtered_row(key, row, filter_program, retained_slot_layout)
+                .map(|retained_slots| retained_slots.map(KernelRow::new_slot_only))
+        })
+        .map(Option::flatten)
+    }
 
-        Ok(Some(KernelRow::new_slot_only(retained_slots)))
+    // Evaluate one fused primary row without cloning its backing payload.
+    fn read_borrowed_slot_only_with_filter_program(
+        &self,
+        key: &DecodedDataStoreKey,
+        row: &RawRow,
+        filter_program: &EffectiveRuntimeFilterProgram,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Option<KernelRow>, InternalError> {
+        charge_borrowed_traversal_row(row)?;
+        self.retained_slots_from_filtered_row(key, row, filter_program, retained_slot_layout)
+            .map(|slots| slots.map(KernelRow::new_slot_only))
     }
 
     // Evaluate the residual filter and decode retained slots from one opened
@@ -282,6 +356,14 @@ fn charge_decoded_row(row: &RawRow, nested_steps: usize) -> Result<(), InternalE
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::NestedValueSteps,
         u64::try_from(nested_steps).unwrap_or(u64::MAX),
+    )
+}
+
+fn charge_borrowed_traversal_row(row: &RawRow) -> Result<(), InternalError> {
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::StoredBytesRead,
+        u64::try_from(row.len()).unwrap_or(u64::MAX),
     )
 }
 
@@ -401,6 +483,17 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
             .read_slot_only(consistency, key, retained_slot_layout)
     }
 
+    /// Decode one compact slot row borrowed from an open primary traversal.
+    pub(in crate::db::executor) fn read_borrowed_slot_only(
+        &self,
+        key: &DecodedDataStoreKey,
+        row: &RawRow,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<KernelRow, InternalError> {
+        self.state
+            .read_borrowed_slot_only(key, row, retained_slot_layout)
+    }
+
     /// Read one compact slot-only structural row and apply the residual
     /// filter program before the row enters shared kernel control flow.
     pub(in crate::db::executor) fn read_slot_only_with_filter_program(
@@ -413,6 +506,22 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         self.state.read_slot_only_with_filter_program(
             consistency,
             key,
+            filter_program,
+            retained_slot_layout,
+        )
+    }
+
+    /// Decode and filter one compact row borrowed from an open primary traversal.
+    pub(in crate::db::executor) fn read_borrowed_slot_only_with_filter_program(
+        &self,
+        key: &DecodedDataStoreKey,
+        row: &RawRow,
+        filter_program: &EffectiveRuntimeFilterProgram,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Option<KernelRow>, InternalError> {
+        self.state.read_borrowed_slot_only_with_filter_program(
+            key,
+            row,
             filter_program,
             retained_slot_layout,
         )

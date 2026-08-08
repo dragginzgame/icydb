@@ -287,7 +287,7 @@ pub const STREAMING_EXECUTION_FIXTURES: &[StreamingExecutionFixture] = &[
     ),
     fixture(
         "group_ordered_mid_group",
-        "SELECT group_key, COUNT(*) FROM PerfAuditStreamingRow WHERE group_key >= 0 AND group_key < 17 GROUP BY group_key ORDER BY group_key ASC LIMIT 10",
+        "SELECT group_key, COUNT(*) FROM PerfAuditStreamingRow GROUP BY group_key ORDER BY group_key ASC LIMIT 10",
         10,
         10,
         StreamingFixtureDirection::Asc,
@@ -297,9 +297,9 @@ pub const STREAMING_EXECUTION_FIXTURES: &[StreamingExecutionFixture] = &[
     ),
     fixture(
         "group_hash_noncontiguous",
-        "SELECT label, COUNT(*) FROM PerfAuditStreamingRow GROUP BY label ORDER BY label ASC LIMIT 10",
+        "SELECT label, COUNT(*) FROM PerfAuditStreamingRow GROUP BY label ORDER BY label ASC",
         3,
-        10,
+        0,
         StreamingFixtureDirection::NotApplicable,
         StreamingFixtureContinuation::Live,
         StreamingFixtureEvidence::PeakRetainedBackingBytes,
@@ -481,6 +481,17 @@ pub const MATERIALIZATION_INVENTORY: &[MaterializationInventoryEntry] = &[
         size_authority: MaterializationSizeAuthority::QueryShape,
         backing: MaterializationBacking::CompactOwned,
         resumability: MaterializationResumability::CursorFrontier,
+        action_patch: 3,
+    },
+    MaterializationInventoryEntry {
+        id: "materialized_secondary_index_predicate_keys",
+        owner_file: "crates/icydb-core/src/db/executor/stream/access/physical.rs",
+        owner_symbol: "fn charge_materialized_secondary_index_keys(",
+        reason: MaterializationReason::AvoidableConvenience,
+        lifetime: MaterializationLifetime::Operator,
+        size_authority: MaterializationSizeAuthority::RowCount,
+        backing: MaterializationBacking::CompactOwned,
+        resumability: MaterializationResumability::Blocking,
         action_patch: 3,
     },
     MaterializationInventoryEntry {
@@ -677,6 +688,24 @@ mod tests {
         }
         assert_eq!(STREAMING_EXECUTION_PREFIX_FANOUT, 16);
         assert_eq!(STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES.len(), 3);
+
+        let ordered_group = STREAMING_EXECUTION_FIXTURES
+            .iter()
+            .find(|fixture| fixture.id == "group_ordered_mid_group")
+            .expect("ordered grouped fixture must remain declared");
+        assert_eq!(
+            ordered_group.sql,
+            "SELECT group_key, COUNT(*) FROM PerfAuditStreamingRow GROUP BY group_key ORDER BY group_key ASC LIMIT 10",
+        );
+        let hash_group = STREAMING_EXECUTION_FIXTURES
+            .iter()
+            .find(|fixture| fixture.id == "group_hash_noncontiguous")
+            .expect("hash grouped fixture must remain declared");
+        assert_eq!(
+            hash_group.sql,
+            "SELECT label, COUNT(*) FROM PerfAuditStreamingRow GROUP BY label ORDER BY label ASC",
+        );
+        assert_eq!(hash_group.page_limit, 0);
     }
 
     #[test]

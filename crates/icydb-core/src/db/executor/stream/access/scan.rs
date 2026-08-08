@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        PrimaryKeyValue,
         cursor::{ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput},
         data::{DataStore, DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
@@ -26,7 +27,7 @@ use crate::{
     types::EntityTag,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::{borrow::Cow, ops::Bound, sync::Arc};
+use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound, sync::Arc};
 
 pub(in crate::db::executor) type IndexComponentValues = Arc<[Vec<u8>]>;
 
@@ -37,6 +38,42 @@ pub(in crate::db::executor) type IndexComponentRow = (
 );
 
 pub(in crate::db::executor) type IndexComponentRows = Vec<IndexComponentRow>;
+
+struct ExactIntersectionPrimaryKey {
+    value: PrimaryKeyValue,
+}
+
+struct MergedPrimaryKeyOrder {
+    value: PrimaryKeyValue,
+    bytes_len: usize,
+}
+
+impl Eq for MergedPrimaryKeyOrder {}
+
+impl PartialEq for MergedPrimaryKeyOrder {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Ord for MergedPrimaryKeyOrder {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.cmp(&other.value)
+    }
+}
+
+impl PartialOrd for MergedPrimaryKeyOrder {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn charge_merged_range_structural_bytes(bytes: usize) -> Result<(), InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        u64::try_from(bytes).unwrap_or(u64::MAX),
+    )
+}
 
 pub(in crate::db::executor) const ACCESS_SCAN_CHUNK_ENTRIES: usize = 64;
 const PREFIX_STREAM_SMALL_CHUNK_ENTRIES: usize = 2;
@@ -262,6 +299,244 @@ impl IndexScan {
     // the first growth step without reserving pathologically large vectors from
     // caller-supplied limits.
     const LIMITED_SCAN_PREALLOC_CAP: usize = 32;
+
+    fn collect_exact_intersection_child(
+        store: StoreHandle,
+        spec: &LoweredIndexPrefixSpec,
+        expected_cardinality: u64,
+        direction: Direction,
+    ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
+        let expected = usize::try_from(expected_cardinality)
+            .map_err(|_| InternalError::executor_invariant())?;
+        let retained_capacity_bytes = expected
+            .checked_mul(size_of::<ExactIntersectionPrimaryKey>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(retained_capacity_bytes).unwrap_or(u64::MAX),
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            expected_cardinality,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::CursorSteps,
+            expected_cardinality,
+        )?;
+        let mut keys = Vec::with_capacity(expected);
+        let (lower, upper) = spec.raw_bounds()?;
+        let mut raw_bytes_read = 0u64;
+        let scan_result = store.with_index(|index_store| {
+            index_store.visit_raw_entries_in_range((lower, upper), direction, |raw_key, entry| {
+                let raw_bytes = u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX);
+                raw_bytes_read = raw_bytes_read
+                    .checked_add(raw_bytes)
+                    .ok_or_else(InternalError::executor_invariant)?;
+                let (primary_key, _primary_key_bytes) =
+                    IndexKey::primary_key_value_and_bytes_from_raw(raw_key).map_err(|error| {
+                        InternalError::index_scan_key_corrupted_during(
+                            "exact intersection probe",
+                            error,
+                        )
+                    })?;
+                entry
+                    .decode_row_witness_from_primary_key_value(&primary_key)
+                    .map_err(|_| InternalError::index_entry_decode_failed())?;
+                keys.push(ExactIntersectionPrimaryKey { value: primary_key });
+
+                Ok(keys.len() == expected)
+            })
+        });
+        // The preflight bounds this atomic route to 256 entries. Charge all
+        // completed physical work even when validation reports corruption.
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::StoredBytesRead,
+            raw_bytes_read,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            raw_bytes_read,
+        )?;
+        scan_result?;
+        if keys.len() != expected {
+            return Err(InternalError::executor_invariant());
+        }
+
+        Ok(keys)
+    }
+
+    fn intersect_exact_primary_keys(
+        overlap: Vec<ExactIntersectionPrimaryKey>,
+        keys: &[ExactIntersectionPrimaryKey],
+        direction: Direction,
+    ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
+        let capacity = overlap.len().min(keys.len());
+        let capacity_bytes = capacity
+            .checked_mul(size_of::<ExactIntersectionPrimaryKey>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(capacity_bytes).unwrap_or(u64::MAX),
+        )?;
+        let mut next = Vec::with_capacity(capacity);
+        let mut left = overlap.into_iter().peekable();
+        let mut right = keys.iter().peekable();
+        while let (Some(left_key), Some(right_key)) = (left.peek(), right.peek()) {
+            let order = match direction {
+                Direction::Asc => left_key.value.cmp(&right_key.value),
+                Direction::Desc => right_key.value.cmp(&left_key.value),
+            };
+            match order {
+                std::cmp::Ordering::Less => {
+                    let _ = left.next();
+                }
+                std::cmp::Ordering::Greater => {
+                    let _ = right.next();
+                }
+                std::cmp::Ordering::Equal => {
+                    let key = left.next().ok_or_else(InternalError::executor_invariant)?;
+                    let _ = right.next();
+                    next.push(key);
+                }
+            }
+        }
+
+        Ok(next)
+    }
+
+    /// Resolve one cursorless, cardinality-bounded exact-prefix intersection
+    /// while retaining compact primary-key candidates rather than complete
+    /// data keys for entries that cannot survive the intersection.
+    pub(in crate::db::executor) fn exact_prefix_intersection_structural(
+        store: StoreHandle,
+        entity: EntityTag,
+        specs: &[&LoweredIndexPrefixSpec],
+        child_cardinalities: &[u64],
+        direction: Direction,
+    ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
+        if specs.len() != child_cardinalities.len() || specs.is_empty() {
+            return Err(InternalError::executor_invariant());
+        }
+
+        let mut children = Vec::with_capacity(specs.len());
+        for (spec, expected_cardinality) in specs.iter().zip(child_cardinalities.iter().copied()) {
+            children.push(Self::collect_exact_intersection_child(
+                store,
+                spec,
+                expected_cardinality,
+                direction,
+            )?);
+        }
+
+        let mut children = children.into_iter();
+        let Some(mut overlap) = children.next() else {
+            return Err(InternalError::executor_invariant());
+        };
+        for keys in children {
+            overlap = Self::intersect_exact_primary_keys(overlap, &keys, direction)?;
+            if overlap.is_empty() {
+                break;
+            }
+        }
+
+        let mut result = Vec::with_capacity(overlap.len());
+        for key in overlap {
+            result.push(DecodedDataStoreKey::new_primary_key_value(
+                entity, &key.value,
+            ));
+        }
+
+        Ok(result)
+    }
+
+    /// Resolve disjoint exact-prefix ranges through one physical merge when
+    /// the index store can expose one non-overlay backing.
+    pub(in crate::db::executor) fn merged_components_without_index_values(
+        store: StoreHandle,
+        entity: EntityTag,
+        bounds: &[(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>)],
+        direction: Direction,
+        limit: usize,
+    ) -> Result<Option<IndexComponentRows>, InternalError> {
+        let mut rows = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
+        let mut entries_visited = 0u64;
+        let mut raw_bytes_read = 0u64;
+        let scan_result = store.with_index(|index_store| {
+            index_store.visit_raw_entries_in_merged_ranges(
+                bounds,
+                direction,
+                charge_merged_range_structural_bytes,
+                |raw_key| {
+                    entries_visited = entries_visited
+                        .checked_add(1)
+                        .ok_or_else(InternalError::executor_invariant)?;
+                    let raw_key_bytes = u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX);
+                    raw_bytes_read = raw_bytes_read
+                        .checked_add(raw_key_bytes)
+                        .ok_or_else(InternalError::executor_invariant)?;
+                    let (primary_key_value, primary_key_bytes) =
+                        IndexKey::primary_key_value_and_bytes_from_raw(raw_key).map_err(
+                            |error| {
+                                InternalError::index_scan_key_corrupted_during(
+                                    "merged component stream",
+                                    error,
+                                )
+                            },
+                        )?;
+
+                    Ok(MergedPrimaryKeyOrder {
+                        value: primary_key_value,
+                        bytes_len: primary_key_bytes.len(),
+                    })
+                },
+                |order_key, raw_key, value| {
+                    let primary_key_value = order_key.value;
+                    let row_witness = value
+                        .decode_row_witness_from_primary_key_value(&primary_key_value)
+                        .map_err(|_| InternalError::index_entry_decode_failed())?;
+                    let bytes_start = raw_key
+                        .as_bytes()
+                        .len()
+                        .checked_sub(order_key.bytes_len)
+                        .ok_or_else(InternalError::executor_invariant)?;
+                    let primary_key_bytes = raw_key
+                        .as_bytes()
+                        .get(bytes_start..)
+                        .ok_or_else(InternalError::executor_invariant)?;
+                    let data_key = DecodedDataStoreKey::new_with_raw_primary_key_value(
+                        entity,
+                        &primary_key_value,
+                        RawDataStoreKey::from_entity_and_primary_key_bytes(
+                            entity,
+                            primary_key_bytes,
+                        ),
+                    );
+                    rows.push((data_key, row_witness.existence_witness(), Arc::default()));
+
+                    Ok(rows.len() == limit)
+                },
+            )
+        });
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            entries_visited,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::StoredBytesRead,
+            raw_bytes_read,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::CursorSteps,
+            entries_visited,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            raw_bytes_read,
+        )?;
+        let supported = scan_result?;
+
+        Ok(supported.then_some(rows))
+    }
 
     /// Resolve one lowered index-prefix envelope through structural store authority.
     pub(in crate::db::executor) fn prefix_structural(
@@ -642,6 +917,12 @@ impl IndexScan {
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
+        if component_indices.is_empty() && index_predicate_execution.is_none() {
+            return Self::decode_index_entry_and_push_without_components(
+                entity, raw_key, value, out, limit, context,
+            );
+        }
+
         // Phase 1: decode the raw key once, extract requested components, and
         // evaluate any optional index-only predicate against that decoded view.
         let decoded_key = IndexKey::try_from_raw(raw_key)
@@ -692,6 +973,37 @@ impl IndexScan {
         Ok(false)
     }
 
+    fn decode_index_entry_and_push_without_components(
+        entity: EntityTag,
+        raw_key: &RawIndexStoreKey,
+        value: &IndexEntryValue,
+        out: &mut IndexComponentRows,
+        limit: Option<usize>,
+        context: &'static str,
+    ) -> Result<bool, InternalError> {
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
+        )?;
+        let (primary_key_value, primary_key_bytes) =
+            IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+                .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+        let row_witness = value
+            .decode_row_witness_from_primary_key_value(&primary_key_value)
+            .map_err(|_| InternalError::index_entry_decode_failed())?;
+        out.push((
+            Self::data_key_from_row_witness_with_primary_key_bytes(
+                entity,
+                &row_witness,
+                primary_key_bytes,
+            ),
+            row_witness.existence_witness(),
+            Arc::default(),
+        ));
+
+        Ok(limit.is_some_and(|limit| out.len() == limit))
+    }
+
     // Rebuild one data key from the raw row-witness payload without re-encoding
     // the primary key through the value layer.
     fn data_key_from_row_witness(
@@ -716,5 +1028,53 @@ impl IndexScan {
             row_witness.primary_key_value(),
             RawDataStoreKey::from_entity_and_primary_key_bytes(entity, primary_key_bytes),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        QueryError,
+        executor::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            with_query_execution_budget_for_tests,
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticDetail, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
+        DiagnosticFactTag, RuntimeBoundaryCode,
+    };
+
+    #[test]
+    fn merged_range_structure_returns_typed_temporary_byte_exhaustion() {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(DiagnosticExecutionBudgetResource::TemporaryBytes, 0);
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            DiagnosticExecutionLane::TrustedRead,
+            0x6d65_7267_6564_7261,
+        );
+        let error = with_query_execution_budget_for_tests(budget, context, || {
+            charge_merged_range_structural_bytes(1).map_err(QueryError::execute)
+        })
+        .expect_err("merged-range structure must consume the temporary-byte budget");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            error.diagnostic_facts()[0],
+            (
+                DiagnosticFactTag::BudgetResource,
+                DiagnosticExecutionBudgetResource::TemporaryBytes.raw(),
+            ),
+        );
     }
 }

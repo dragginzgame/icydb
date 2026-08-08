@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         executor::{
-            StructuralCursorPage,
+            ProductionScalarOutputWork, StructuralCursorPage,
             order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
             projection::materialize::{
                 ProjectionDistinctStrategy, ProjectionDistinctWindow,
@@ -23,6 +23,7 @@ use crate::{
     },
     error::InternalError,
 };
+use std::cell::RefCell;
 
 /// Final DISTINCT projection rows plus strategy-owned cursor progress.
 pub(in crate::db::executor::projection) struct MaterializedDistinctProjectionPage {
@@ -39,15 +40,42 @@ impl MaterializedDistinctProjectionPage {
     }
 }
 
+/// Runtime-only output authority for one DISTINCT projection page.
+pub(in crate::db::executor::projection) struct DistinctProjectionRuntime<'a> {
+    resolved_order: Option<&'a ResolvedOrder>,
+    output_work: Option<&'a mut ProductionScalarOutputWork>,
+    metrics: ProjectionMaterializationMetricsRecorder,
+}
+
+impl<'a> DistinctProjectionRuntime<'a> {
+    #[must_use]
+    pub(in crate::db::executor::projection) const fn new(
+        resolved_order: Option<&'a ResolvedOrder>,
+        output_work: Option<&'a mut ProductionScalarOutputWork>,
+        metrics: ProjectionMaterializationMetricsRecorder,
+    ) -> Self {
+        Self {
+            resolved_order,
+            output_work,
+            metrics,
+        }
+    }
+}
+
 pub(in crate::db::executor::projection) fn project_distinct(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,
     strategy: ProjectionDistinctStrategy,
     window: ProjectionDistinctWindow,
-    resolved_order: Option<&ResolvedOrder>,
     page: StructuralCursorPage,
-    metrics: ProjectionMaterializationMetricsRecorder,
+    runtime: DistinctProjectionRuntime<'_>,
 ) -> Result<MaterializedDistinctProjectionPage, InternalError> {
+    let DistinctProjectionRuntime {
+        resolved_order,
+        output_work,
+        metrics,
+    } = runtime;
+    let output_work = RefCell::new(output_work);
     let projected = page.consume_projection_rows(
         |slot_rows| {
             metrics.record_slot_rows_path_hit();
@@ -58,6 +86,12 @@ pub(in crate::db::executor::projection) fn project_distinct(
                 slot_rows,
                 || metrics.record_distinct_candidate_row(),
                 || metrics.record_distinct_bounded_stop(),
+                |row| {
+                    output_work
+                        .borrow_mut()
+                        .as_deref_mut()
+                        .map_or(Ok(true), |work| work.admit_row(row.values()))
+                },
                 |row| {
                     let boundary =
                         resolved_order.map(|order| cursor_boundary_from_orderable_row(&row, order));
@@ -75,6 +109,12 @@ pub(in crate::db::executor::projection) fn project_distinct(
                 data_rows,
                 || metrics.record_distinct_candidate_row(),
                 || metrics.record_distinct_bounded_stop(),
+                |row| {
+                    output_work
+                        .borrow_mut()
+                        .as_deref_mut()
+                        .map_or(Ok(true), |work| work.admit_row(row.values()))
+                },
                 |row| {
                     let boundary = resolved_order
                         .map(|order| cursor_boundary_from_data_row(&row, &row_layout, order))

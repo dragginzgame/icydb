@@ -32,22 +32,25 @@ pub(in crate::db::query) fn validate_group_cursor_constraints(
     logical: &ScalarPlan,
     group: &GroupSpec,
 ) -> Result<(), PlanError> {
-    // Grouped pagination/order constraints are cursor-domain policy:
-    // aggregate ORDER BY requires LIMIT for bounded execution and must align
-    // with the grouped-key prefix.
+    // Grouped pagination/order constraints are cursor-domain policy. A finite
+    // canonical group-key order may return its complete bounded group set
+    // without a row LIMIT. Aggregate-driven ordering still needs a finite
+    // Top-K window because its retained candidate bound comes from LIMIT.
     let Some(order) = logical.order.as_ref() else {
         return Ok(());
     };
-    let page = logical
-        .page
-        .as_ref()
-        .ok_or_else(|| PlanError::from(GroupPlanError::order_requires_limit()))?;
 
-    page.limit
-        .map(|_| ())
-        .ok_or_else(|| PlanError::from(GroupPlanError::order_requires_limit()))?;
-
-    let _ = validate_order_lane(order, group.group_fields.as_slice())?;
+    let lane = validate_order_lane(order, group.group_fields.as_slice())?;
+    let has_limit = logical.page.as_ref().and_then(|page| page.limit).is_some();
+    if matches!(lane, GroupedOrderCursorLane::TopK) && !has_limit {
+        return Err(PlanError::from(GroupPlanError::order_requires_limit()));
+    }
+    if matches!(lane, GroupedOrderCursorLane::Canonical)
+        && !has_limit
+        && !group.execution.is_finite_bounded()
+    {
+        return Err(PlanError::from(GroupPlanError::order_requires_limit()));
+    }
 
     Ok(())
 }

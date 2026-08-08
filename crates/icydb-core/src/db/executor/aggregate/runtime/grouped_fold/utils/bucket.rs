@@ -2,6 +2,11 @@
 //! Responsibility: compact grouped stable-hash bucket storage.
 //! Boundary: stores group indexes for stable-hash side maps only.
 
+use crate::{
+    db::executor::group::{retained_vec_element_backing_bytes, try_reserve_vec_elements},
+    error::InternalError,
+};
+
 ///
 /// GroupIndexBucket
 ///
@@ -26,18 +31,39 @@ impl GroupIndexBucket {
         }
     }
 
-    // Insert one group index, promoting to heap storage only when this stable
-    // hash actually has more than one candidate group.
+    // Return the structural backing reservation required by the next insert.
+    // Promotion owns both the former inline index and the new colliding index.
+    pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn retained_insert_backing_bytes(
+        &self,
+    ) -> u64 {
+        let retained_elements = match self {
+            Self::Single(_) => 2,
+            Self::Colliding(_) => 1,
+        };
+        retained_vec_element_backing_bytes::<usize>().saturating_mul(retained_elements)
+    }
+
+    // Insert one group index through fallible storage after its complete
+    // backing reservation has been admitted.
     pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn push_index(
         &mut self,
         new_index: usize,
-    ) {
+    ) -> Result<(), InternalError> {
         match self {
             Self::Single(existing_index) => {
-                *self = Self::Colliding(vec![*existing_index, new_index]);
+                let mut indexes = Vec::new();
+                try_reserve_vec_elements(&mut indexes, 2)?;
+                indexes.push(*existing_index);
+                indexes.push(new_index);
+                *self = Self::Colliding(indexes);
             }
-            Self::Colliding(indexes) => indexes.push(new_index),
+            Self::Colliding(indexes) => {
+                try_reserve_vec_elements(indexes, 1)?;
+                indexes.push(new_index);
+            }
         }
+
+        Ok(())
     }
 
     // Build one collision-free bucket.

@@ -2,6 +2,10 @@
 //! Responsibility: scalar aggregate reducer state and row ingestion runtime.
 //! Boundary: owns row-loop execution over pre-classified reducer paths.
 
+#[cfg(feature = "diagnostics")]
+use crate::db::executor::aggregate::terminal_attribution::{
+    ScalarAggregateTerminalAttribution, measure_phase,
+};
 use crate::{
     db::executor::{
         aggregate::{
@@ -15,7 +19,11 @@ use crate::{
             value_reducer::ValueReducerState,
         },
         budget::{charge_current_execution_budget, runtime_value_work},
-        group::{StableHash, StableHashBuildHasher, StableHashMap, stable_hash_value},
+        group::{
+            StableHash, StableHashBuildHasher, StableHashMap, retained_hash_entry_backing_bytes,
+            retained_vec_element_backing_bytes, stable_hash_value, try_reserve_hash_entry,
+            try_reserve_vec_elements,
+        },
         projection::ProjectionEvalError,
         terminal::KernelRow,
     },
@@ -23,12 +31,6 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::collections::hash_map::Entry;
-
-#[cfg(feature = "diagnostics")]
-use crate::db::executor::aggregate::terminal_attribution::{
-    ScalarAggregateTerminalAttribution, measure_phase,
-};
 
 ///
 /// ScalarDistinctValueBucket
@@ -52,13 +54,30 @@ impl ScalarDistinctValueBucket {
         }
     }
 
-    fn insert(&mut self, value: Value) {
+    fn retained_backing_reservation_bytes(&self) -> u64 {
+        let retained_elements = match self {
+            Self::Single(_) => 2,
+            Self::Colliding(_) => 1,
+        };
+        retained_vec_element_backing_bytes::<Value>().saturating_mul(retained_elements)
+    }
+
+    fn insert(&mut self, value: Value) -> Result<(), InternalError> {
         match self {
             Self::Single(current) => {
-                *self = Self::Colliding(vec![std::mem::replace(current, Value::Null), value]);
+                let mut values = Vec::new();
+                try_reserve_vec_elements(&mut values, 2)?;
+                values.push(std::mem::replace(current, Value::Null));
+                values.push(value);
+                *self = Self::Colliding(values);
             }
-            Self::Colliding(values) => values.push(value),
+            Self::Colliding(values) => {
+                try_reserve_vec_elements(values, 1)?;
+                values.push(value);
+            }
         }
+
+        Ok(())
     }
 }
 
@@ -87,13 +106,27 @@ impl ScalarDistinctValueSet {
             .is_some_and(|bucket| bucket.contains(value))
     }
 
-    fn insert(&mut self, hash: StableHash, value: Value) {
-        match self.buckets.entry(hash) {
-            Entry::Occupied(mut occupied) => occupied.get_mut().insert(value),
-            Entry::Vacant(vacant) => {
-                vacant.insert(ScalarDistinctValueBucket::Single(value));
-            }
+    fn insert(&mut self, hash: StableHash, value: Value) -> Result<(), InternalError> {
+        if let Some(bucket) = self.buckets.get_mut(&hash) {
+            let structural_bytes = bucket.retained_backing_reservation_bytes();
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+                structural_bytes,
+            )?;
+            return bucket.insert(value);
         }
+
+        let structural_bytes =
+            retained_hash_entry_backing_bytes::<StableHash, ScalarDistinctValueBucket>();
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+            structural_bytes,
+        )?;
+        try_reserve_hash_entry(&mut self.buckets)?;
+        self.buckets
+            .insert(hash, ScalarDistinctValueBucket::Single(value));
+
+        Ok(())
     }
 }
 
@@ -176,8 +209,12 @@ impl ScalarAggregateReducerState {
             DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
             value_work.0,
         )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            value_work.1,
+        )?;
         if matches!(value, Value::Null) {
-            distinct_values.insert(value_hash, Value::Null);
+            distinct_values.insert(value_hash, Value::Null)?;
             return Ok(());
         }
 
@@ -188,7 +225,7 @@ impl ScalarAggregateReducerState {
             | ScalarAggregateTerminalKind::Min
             | ScalarAggregateTerminalKind::Max => {
                 self.reducer.ingest(value)?;
-                distinct_values.insert(value_hash, value.clone());
+                distinct_values.insert(value_hash, value.clone())?;
 
                 Ok(())
             }
@@ -474,7 +511,31 @@ impl ScalarAggregateReducerRuntime {
 #[cfg(test)]
 mod tests {
     use super::{ScalarDistinctValueBucket, ScalarDistinctValueSet};
-    use crate::{db::executor::group::stable_hash_value, value::Value};
+    use crate::{
+        db::{
+            QueryError,
+            executor::{
+                budget::{
+                    HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                    charge_current_execution_budget, runtime_value_work,
+                    with_query_execution_budget_for_tests,
+                },
+                group::stable_hash_value,
+            },
+        },
+        value::Value,
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
+        DiagnosticExecutionLane, RuntimeBoundaryCode,
+    };
+
+    const TEST_HEADROOM: HardExecutionFailureHeadroom = HardExecutionFailureHeadroom::new(500, 256);
+    const TEST_CONTEXT: HardExecutionContext = HardExecutionContext::new(
+        DiagnosticExecutionBudgetScope::Execution,
+        DiagnosticExecutionLane::TrustedRead,
+        0x2220_0008_0000_0001,
+    );
 
     #[test]
     fn scalar_distinct_value_set_uses_hash_buckets_without_changing_value_equality() {
@@ -485,20 +546,57 @@ mod tests {
         let second_hash = stable_hash_value(&second).expect("second hash");
 
         assert!(!values.contains(first_hash, &first));
-        values.insert(first_hash, first.clone());
+        values
+            .insert(first_hash, first.clone())
+            .expect("first retained value");
         assert!(values.contains(first_hash, &first));
         assert!(!values.contains(second_hash, &second));
-        values.insert(second_hash, second.clone());
+        values
+            .insert(second_hash, second.clone())
+            .expect("second retained value");
         assert!(values.contains(second_hash, &second));
     }
 
     #[test]
     fn scalar_distinct_collision_bucket_compares_exact_values() {
         let mut bucket = ScalarDistinctValueBucket::Single(Value::Nat64(1));
-        bucket.insert(Value::Nat64(2));
+        bucket
+            .insert(Value::Nat64(2))
+            .expect("collision bucket promotion");
 
         assert!(bucket.contains(&Value::Nat64(1)));
         assert!(bucket.contains(&Value::Nat64(2)));
         assert!(!bucket.contains(&Value::Nat64(3)));
+    }
+
+    #[test]
+    fn scalar_distinct_hash_capacity_is_part_of_the_typed_state_budget() {
+        let value = Value::Text("retained".to_string());
+        let hash = stable_hash_value(&value).expect("stable hash");
+        let value_bytes = runtime_value_work(&value).0;
+        let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(
+                DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+                value_bytes,
+            );
+        let result = with_query_execution_budget_for_tests(budget, TEST_CONTEXT, || {
+            let mut values = ScalarDistinctValueSet::new();
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+                value_bytes,
+            )
+            .map_err(QueryError::execute)?;
+            values.insert(hash, value).map_err(QueryError::execute)
+        });
+        let Err(error) = result else {
+            panic!("value bytes alone must not admit hidden scalar hash capacity")
+        };
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
     }
 }

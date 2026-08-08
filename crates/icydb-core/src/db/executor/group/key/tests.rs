@@ -66,7 +66,8 @@ fn group_key_set_deduplicates_canonical_equivalents() {
             first
                 .canonical_key()
                 .expect("first key should canonicalize")
-        ),
+        )
+        .expect("first set insert"),
         "first insert should be new"
     );
     assert!(
@@ -74,7 +75,8 @@ fn group_key_set_deduplicates_canonical_equivalents() {
             second
                 .canonical_key()
                 .expect("second key should canonicalize")
-        ),
+        )
+        .expect("second set insert"),
         "second insert should be deduplicated by canonical key equality"
     );
 }
@@ -154,19 +156,19 @@ fn group_key_set_handles_hash_collisions_with_equality_check() {
             "collision pair must remain distinct by canonical equality",
         );
         assert!(
-            set.insert_key(first.clone()),
+            set.insert_key(first.clone()).expect("first set insert"),
             "first colliding key should insert as new",
         );
         assert!(
-            set.insert_key(second.clone()),
+            set.insert_key(second.clone()).expect("second set insert"),
             "second colliding key must not be dropped on hash match alone",
         );
         assert!(
-            !set.insert_key(first),
+            !set.insert_key(first).expect("first duplicate insert"),
             "re-inserting first key should dedupe by canonical equality",
         );
         assert!(
-            !set.insert_key(second),
+            !set.insert_key(second).expect("second duplicate insert"),
             "re-inserting second key should dedupe by canonical equality",
         );
     });

@@ -8,7 +8,7 @@ use crate::{
         access::{ExecutionPathPayload, IndexShapeDetails},
         cursor::{CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput},
         data::{
-            DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
+            DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
             primary_key_value_from_structural_value,
         },
         direction::Direction,
@@ -18,12 +18,13 @@ use crate::{
             OrderedKeyStreamBox, PrefixSetExecutionShape, PrefixSetMergeSafety, PrimaryScan,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
             branch_stream_chunk_entries,
-            budget::charge_current_execution_budget,
+            budget::{charge_current_execution_budget, charge_sort_work},
             expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, lowered_index_prefix_liveness,
             ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
+            production_scalar_page_access_entry_limit,
             route::primary_scan_fetch_hint_shape_supported,
             route::{IndexPrefixChildExpansionBudget, IndexPrefixChildExpansionHint},
             stream::key::{
@@ -40,7 +41,7 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::{mem::size_of, ops::Bound};
+use std::{cell::Cell, mem::size_of, ops::Bound};
 
 ///
 /// KeyOrderState
@@ -241,29 +242,44 @@ impl KeyAccessRuntime {
         &self,
         start: Value,
         end: Value,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let start = DecodedDataStoreKey::try_from_structural_key(self.entity_tag, &start)?;
         let end = DecodedDataStoreKey::try_from_structural_key(self.entity_tag, &end)?;
+        let mut stream = PrimaryRangeKeyStream::new(
+            self.store,
+            start,
+            end,
+            continuation.direction(),
+            primary_scan_fetch_hint,
+        )?;
+        if let Some(boundary) = continuation.primary_key_boundary() {
+            stream
+                .resume_strictly_after(primary_key_boundary_data_key(self.entity_tag, boundary)?)?;
+        }
 
-        Ok(OrderedKeyStreamBox::primary_range(
-            PrimaryRangeKeyStream::new(self.store, start, end, direction, primary_scan_fetch_hint)?,
-        ))
+        Ok(OrderedKeyStreamBox::primary_range(stream))
     }
 
     // Resolve one full primary-key scan as a dynamic ordered stream.
     fn resolve_full_scan_stream(
         &self,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> OrderedKeyStreamBox {
-        OrderedKeyStreamBox::primary_range(PrimaryRangeKeyStream::new_full_scan(
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let mut stream = PrimaryRangeKeyStream::new_full_scan(
             self.store,
             self.entity_tag,
-            direction,
+            continuation.direction(),
             primary_scan_fetch_hint,
-        ))
+        )?;
+        if let Some(boundary) = continuation.primary_key_boundary() {
+            stream
+                .resume_strictly_after(primary_key_boundary_data_key(self.entity_tag, boundary)?)?;
+        }
+
+        Ok(OrderedKeyStreamBox::primary_range(stream))
     }
 
     // Resolve one single-prefix secondary-index scan.
@@ -300,6 +316,7 @@ impl KeyAccessRuntime {
             index_fetch_hint.unwrap_or(usize::MAX),
             index_predicate_execution,
         )?;
+        charge_materialized_secondary_index_keys(keys.as_slice(), keys.capacity())?;
 
         Ok((keys, key_order_state))
     }
@@ -366,18 +383,23 @@ impl KeyAccessRuntime {
             hint.saturating_mul(active_specs.len())
                 .min(ACCESS_SCAN_CHUNK_ENTRIES)
         });
-        let mut keys = Vec::with_capacity(key_capacity);
+        let mut keys = new_materialized_secondary_index_key_vector(key_capacity)?;
         for spec in active_specs {
-            keys.extend(IndexScan::prefix_structural(
+            let child = IndexScan::prefix_structural(
                 self.store,
                 self.entity_tag,
                 spec,
                 direction,
                 per_prefix_limit,
                 index_predicate_execution,
-            )?);
+            )?;
+            charge_materialized_secondary_index_keys(child.as_slice(), child.capacity())?;
+            reserve_materialized_secondary_index_key_capacity(&mut keys, child.len())?;
+            keys.extend(child);
         }
+        charge_sort_work::<DecodedDataStoreKey>(keys.len())?;
         keys.sort_unstable();
+        charge_materialized_key_dedup_comparisons(keys.len())?;
         keys.dedup();
 
         Ok((keys, KeyOrderState::AscendingSorted))
@@ -606,6 +628,7 @@ impl KeyAccessRuntime {
             fetch_limit,
             index_predicate_execution,
         )?;
+        charge_materialized_secondary_index_keys(keys.as_slice(), keys.capacity())?;
 
         Ok((keys, key_order_state))
     }
@@ -776,6 +799,18 @@ fn primary_key_suffix_values(
     Ok((primary_key, values))
 }
 
+fn primary_key_boundary_data_key(
+    entity_tag: EntityTag,
+    boundary: &CursorBoundary,
+) -> Result<DecodedDataStoreKey, InternalError> {
+    let (primary_key, _values) = primary_key_suffix_values(boundary, boundary.slots.len())?;
+
+    Ok(DecodedDataStoreKey::new_primary_key_value(
+        entity_tag,
+        &primary_key,
+    ))
+}
+
 fn raw_key_within_bounds<K: Ord>(key: &K, lower: &Bound<K>, upper: &Bound<K>) -> bool {
     let above_lower = match lower {
         Bound::Included(lower) => key >= lower,
@@ -813,6 +848,7 @@ pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     upper_bound: Bound<RawDataStoreKey>,
     direction: Direction,
     remaining: Option<usize>,
+    chunk_entries: usize,
     buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
     held: Option<DecodedDataStoreKey>,
@@ -835,6 +871,7 @@ impl PrimaryRangeKeyStream {
             upper_bound: Bound::Included(end.to_raw()?),
             direction,
             remaining: limit,
+            chunk_entries: primary_range_chunk_entries_for_active_page()?,
             buffer: Vec::new(),
             buffer_pos: 0,
             held: None,
@@ -849,7 +886,7 @@ impl PrimaryRangeKeyStream {
         entity: EntityTag,
         direction: Direction,
         limit: Option<usize>,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
         let range = RawDataStoreKeyRange::entity_prefix(entity);
         let lower_bound = Bound::Included(RawDataStoreKey::store_range_lower_key(&range));
         let upper_bound = range
@@ -857,25 +894,147 @@ impl PrimaryRangeKeyStream {
             .map(RawDataStoreKey::from_store_range_bound)
             .map_or(Bound::Unbounded, Bound::Excluded);
 
-        Self {
+        Ok(Self {
             store,
             entity_tag: entity,
             lower_bound,
             upper_bound,
             direction,
             remaining: limit,
+            chunk_entries: primary_range_chunk_entries_for_active_page()?,
             buffer: Vec::new(),
             buffer_pos: 0,
             held: None,
             exhausted: false,
+        })
+    }
+
+    /// Visit ASC primary rows through one open physical range when the store
+    /// has a single visible backing and this leaf has not otherwise advanced.
+    pub(in crate::db::executor) fn try_visit_rows_direct(
+        &mut self,
+        begin_row: &mut dyn FnMut() -> Result<bool, InternalError>,
+        visit_row: &mut dyn for<'row> FnMut(
+            DecodedDataStoreKey,
+            &'row RawRow,
+        ) -> Result<StoreVisit, InternalError>,
+    ) -> Result<Option<()>, InternalError> {
+        if !matches!(self.direction, Direction::Asc)
+            || self.buffer_pos != 0
+            || !self.buffer.is_empty()
+            || self.held.is_some()
+        {
+            return Ok(None);
         }
+        if self.exhausted || matches!(self.remaining, Some(0)) {
+            self.exhausted = true;
+            return Ok(Some(()));
+        }
+
+        let row_limit = self.remaining;
+        let visited = Cell::new(0usize);
+        let mut last_raw_key = None;
+        let outcome = self.store.with_data(|store| {
+            store.try_visit_range_with_row_preflight(
+                (self.lower_bound.clone(), self.upper_bound.clone()),
+                |_raw_key| {
+                    if row_limit.is_some_and(|limit| visited.get() >= limit) || !begin_row()? {
+                        return Ok::<StoreVisit, InternalError>(StoreVisit::Stop);
+                    }
+
+                    Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+                },
+                |raw_key, row| {
+                    charge_current_execution_budget(
+                        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                        1,
+                    )?;
+                    let key = PrimaryScan::decode_data_key(raw_key)?;
+                    let visit = visit_row(key, row)?;
+                    visited.set(visited.get().saturating_add(1));
+                    last_raw_key = Some(raw_key.clone());
+
+                    Ok(visit)
+                },
+            )
+        })?;
+        let Some(naturally_exhausted) = outcome else {
+            return Ok(None);
+        };
+
+        if let Some(raw_key) = last_raw_key {
+            self.lower_bound = Bound::Excluded(raw_key);
+        }
+        if let Some(remaining) = self.remaining.as_mut() {
+            *remaining = remaining.saturating_sub(visited.get());
+        }
+        self.exhausted = naturally_exhausted || matches!(self.remaining, Some(0));
+
+        Ok(Some(()))
+    }
+
+    // Bind an authenticated primary-key continuation directly into this
+    // stream's raw range before its first pull. The route fetch hint is then
+    // page-local rather than being consumed while replaying earlier pages.
+    fn resume_strictly_after(
+        &mut self,
+        boundary: DecodedDataStoreKey,
+    ) -> Result<(), InternalError> {
+        if boundary.entity_tag() != self.entity_tag
+            || self.buffer_pos != 0
+            || !self.buffer.is_empty()
+            || self.held.is_some()
+        {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let raw_boundary = boundary.to_raw()?;
+        let bound_bytes = u64::try_from(raw_boundary.as_bytes().len()).unwrap_or(u64::MAX);
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            bound_bytes,
+        )?;
+
+        match self.direction {
+            Direction::Asc => {
+                if lower_bound_precedes_raw(&self.lower_bound, &raw_boundary) {
+                    self.lower_bound = Bound::Excluded(raw_boundary);
+                }
+            }
+            Direction::Desc => {
+                if upper_bound_follows_raw(&self.upper_bound, &raw_boundary) {
+                    self.upper_bound = Bound::Excluded(raw_boundary);
+                }
+            }
+        }
+        self.held = None;
+        self.exhausted = !raw_bounds_may_contain_key(&self.lower_bound, &self.upper_bound);
+
+        Ok(())
     }
 
     // Return the maximum number of keys to read during the next store borrow.
-    fn next_chunk_limit(&self) -> usize {
-        self.remaining
-            .unwrap_or(ACCESS_SCAN_CHUNK_ENTRIES)
-            .min(ACCESS_SCAN_CHUNK_ENTRIES)
+    const fn next_chunk_limit(&self) -> usize {
+        match self.remaining {
+            Some(remaining) if remaining < self.chunk_entries => remaining,
+            Some(_) | None => self.chunk_entries,
+        }
+    }
+
+    // Return the complete physical-entry bound for the next pull. Buffered or
+    // held keys require no new storage traversal; an empty buffer may refill
+    // one already-bounded chunk. The page owner reserves this amount before
+    // polling, so batching does not advance unadmitted storage work.
+    const fn next_pull_entry_bound(&self) -> usize {
+        if self.held.is_some()
+            || self.buffer_pos < self.buffer.len()
+            || self.exhausted
+            || matches!(self.remaining, Some(0))
+        {
+            0
+        } else {
+            self.next_chunk_limit()
+        }
     }
 
     // Re-enter the data store for one bounded range chunk.
@@ -1028,6 +1187,42 @@ impl PrimaryRangeKeyStream {
     }
 }
 
+fn primary_range_chunk_entries_for_active_page() -> Result<usize, InternalError> {
+    let Some(page_entry_limit) = production_scalar_page_access_entry_limit()? else {
+        return Ok(ACCESS_SCAN_CHUNK_ENTRIES);
+    };
+
+    Ok(ACCESS_SCAN_CHUNK_ENTRIES.min(page_entry_limit.max(1)))
+}
+
+fn lower_bound_precedes_raw(lower: &Bound<RawDataStoreKey>, raw: &RawDataStoreKey) -> bool {
+    match lower {
+        Bound::Included(value) => value <= raw,
+        Bound::Excluded(value) => value < raw,
+        Bound::Unbounded => true,
+    }
+}
+
+fn upper_bound_follows_raw(upper: &Bound<RawDataStoreKey>, raw: &RawDataStoreKey) -> bool {
+    match upper {
+        Bound::Included(value) => value >= raw,
+        Bound::Excluded(value) => value > raw,
+        Bound::Unbounded => true,
+    }
+}
+
+fn raw_bounds_may_contain_key(
+    lower: &Bound<RawDataStoreKey>,
+    upper: &Bound<RawDataStoreKey>,
+) -> bool {
+    match (lower, upper) {
+        (Bound::Unbounded, _) | (_, Bound::Unbounded) => true,
+        (Bound::Included(lower), Bound::Included(upper)) => lower <= upper,
+        (Bound::Included(lower) | Bound::Excluded(lower), Bound::Excluded(upper))
+        | (Bound::Excluded(lower), Bound::Included(upper)) => lower < upper,
+    }
+}
+
 impl OrderedKeyStream for PrimaryRangeKeyStream {
     fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         if self.held.is_some() {
@@ -1042,6 +1237,10 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
         }
 
         None
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        Some(self.next_pull_entry_bound())
     }
 }
 
@@ -1163,6 +1362,10 @@ impl OrderedKeyStream for SeekableIndexRangeKeyStream {
             return Err(InternalError::executor_invariant());
         }
         Ok(consumed)
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        self.inner.page_access_entry_bound()
     }
 }
 
@@ -1297,6 +1500,27 @@ impl IndexRangeKeyStream {
         }
     }
 
+    // Return the maximum raw index entries one empty-buffer pull may visit.
+    const fn next_chunk_limit(&self) -> usize {
+        index_stream_chunk_entries_for_remaining(self.chunk_entries, self.remaining)
+    }
+
+    // Return the complete physical-entry bound for the next pull. The bound
+    // falls to zero while decoded keys remain buffered, allowing page-local
+    // admission to preserve chunked store traversal without over-reserving
+    // every candidate.
+    const fn next_pull_entry_bound(&self) -> usize {
+        if self.held.is_some()
+            || self.buffer_pos < self.buffer.len()
+            || self.exhausted
+            || matches!(self.remaining, Some(0))
+        {
+            0
+        } else {
+            self.next_chunk_limit()
+        }
+    }
+
     // Re-enter the index store for one bounded raw-index chunk.
     fn load_next_chunk(&mut self) -> Result<(), InternalError> {
         if self.exhausted || matches!(self.remaining, Some(0)) {
@@ -1304,8 +1528,7 @@ impl IndexRangeKeyStream {
             return Ok(());
         }
 
-        let chunk_entries =
-            index_stream_chunk_entries_for_remaining(self.chunk_entries, self.remaining);
+        let chunk_entries = self.next_chunk_limit();
         let continuation = IndexScanContinuationInput::new(self.anchor.as_ref(), self.direction);
         let chunk = IndexScan::chunk_structural(
             self.store,
@@ -1409,6 +1632,10 @@ impl OrderedKeyStream for IndexRangeKeyStream {
         }
         self.pull_next_key()
     }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        Some(self.next_pull_entry_bound())
+    }
 }
 
 impl HeldHeadKeyStream for IndexRangeKeyStream {
@@ -1482,6 +1709,80 @@ fn normalize_ordered_keys(
             }
         }
     }
+}
+
+// Charge the complete retained owner of one materialized secondary-index key
+// vector. `DecodedDataStoreKey` keeps its raw persisted key in an owned cache,
+// so both vector capacity and every live raw-key allocation belong to this
+// blocking fallback rather than only the logical key count.
+pub(in crate::db::executor) fn charge_materialized_secondary_index_keys(
+    keys: &[DecodedDataStoreKey],
+    capacity: usize,
+) -> Result<(), InternalError> {
+    charge_materialized_secondary_index_key_capacity(capacity)?;
+
+    let mut raw_key_bytes = 0usize;
+    for key in keys {
+        raw_key_bytes = raw_key_bytes
+            .checked_add(key.raw_key()?.as_bytes().len())
+            .ok_or_else(InternalError::executor_invariant)?;
+    }
+
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        u64::try_from(raw_key_bytes).unwrap_or(u64::MAX),
+    )
+}
+
+fn charge_materialized_secondary_index_key_capacity(capacity: usize) -> Result<(), InternalError> {
+    let bytes = capacity
+        .checked_mul(size_of::<DecodedDataStoreKey>())
+        .ok_or_else(InternalError::executor_invariant)?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        u64::try_from(bytes).unwrap_or(u64::MAX),
+    )
+}
+
+fn new_materialized_secondary_index_key_vector(
+    capacity: usize,
+) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
+    charge_materialized_secondary_index_key_capacity(capacity)?;
+    let mut keys = Vec::new();
+    keys.try_reserve_exact(capacity)
+        .map_err(|_| InternalError::executor_internal())?;
+    let uncharged_capacity = keys.capacity().saturating_sub(capacity);
+    charge_materialized_secondary_index_key_capacity(uncharged_capacity)?;
+
+    Ok(keys)
+}
+
+fn reserve_materialized_secondary_index_key_capacity(
+    keys: &mut Vec<DecodedDataStoreKey>,
+    additional: usize,
+) -> Result<(), InternalError> {
+    let required = keys
+        .len()
+        .checked_add(additional)
+        .ok_or_else(InternalError::executor_invariant)?;
+    if required <= keys.capacity() {
+        return Ok(());
+    }
+
+    let prior_capacity = keys.capacity();
+    let minimum_growth = required.saturating_sub(prior_capacity);
+    charge_materialized_secondary_index_key_capacity(minimum_growth)?;
+    keys.try_reserve_exact(additional)
+        .map_err(|_| InternalError::executor_internal())?;
+    let actual_growth = keys.capacity().saturating_sub(prior_capacity);
+    charge_materialized_secondary_index_key_capacity(actual_growth.saturating_sub(minimum_growth))
+}
+
+fn charge_materialized_key_dedup_comparisons(entries: usize) -> Result<(), InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortComparisons,
+        u64::try_from(entries.saturating_sub(1)).unwrap_or(u64::MAX),
+    )
 }
 
 // Return whether one secondary-index path can preserve raw index traversal
@@ -1682,15 +1983,12 @@ fn resolve_physical_key_stream(
             return runtime.resolve_key_range_stream(
                 (*start).clone(),
                 (*end).clone(),
-                request.continuation.direction(),
+                request.continuation,
                 primary_scan_fetch_hint,
             );
         }
         ExecutionPathPayload::FullScan => {
-            return Ok(runtime.resolve_full_scan_stream(
-                request.continuation.direction(),
-                primary_scan_fetch_hint,
-            ));
+            return runtime.resolve_full_scan_stream(request.continuation, primary_scan_fetch_hint);
         }
         ExecutionPathPayload::IndexPrefix { .. }
         | ExecutionPathPayload::IndexMultiLookup { .. }
@@ -1724,6 +2022,9 @@ fn resolve_physical_key_stream(
         key_order_state = KeyOrderState::FinalOrder;
     }
 
+    if matches!(key_order_state, KeyOrderState::Unordered) {
+        charge_sort_work::<DecodedDataStoreKey>(candidates.len())?;
+    }
     normalize_ordered_keys(
         &mut candidates,
         request.continuation.direction(),
@@ -1761,7 +2062,12 @@ mod physical_seek_tests {
     use super::*;
     use crate::{
         db::{
+            QueryError,
             data::{DataStore, RawRow},
+            executor::budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                with_query_execution_budget_for_tests,
+            },
             index::{IndexEntryValue, IndexId, IndexStore},
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
             registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
@@ -1771,6 +2077,10 @@ mod physical_seek_tests {
         types::EntityTag,
     };
     use ic_stable_structures::Storable;
+    use icydb_diagnostic_code::{
+        DiagnosticDetail, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
+        DiagnosticFactTag, RuntimeBoundaryCode,
+    };
     use std::{borrow::Cow, cell::RefCell};
 
     const ENTITY: EntityTag = EntityTag::new(0x222);
@@ -1894,6 +2204,35 @@ mod physical_seek_tests {
     }
 
     #[test]
+    fn limited_primary_leaf_applies_page_fetch_hint_after_resume_boundary() {
+        reset_heap_stores();
+        load_primary_keys();
+
+        for (direction, expected) in [
+            (Direction::Asc, [51, 52, 53]),
+            (Direction::Desc, [49, 48, 47]),
+        ] {
+            let mut stream =
+                PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), direction, Some(3))
+                    .expect("limited primary stream should build");
+            stream
+                .resume_strictly_after(data_key(50))
+                .expect("primary continuation boundary should apply");
+
+            for expected_key in expected {
+                assert_eq!(
+                    stream.next_key().expect("resumed key should load"),
+                    Some(data_key(expected_key)),
+                );
+            }
+            assert_eq!(
+                stream.next_key().expect("fetch hint should end the page"),
+                None,
+            );
+        }
+    }
+
+    #[test]
     fn primary_key_ordered_index_leaf_repositions_without_visiting_the_gap() {
         reset_heap_stores();
         let index_id = IndexId::new(ENTITY, 1);
@@ -1958,6 +2297,23 @@ mod physical_seek_tests {
     }
 
     #[test]
+    fn primary_leaf_caps_refills_to_the_active_page_entry_limit() {
+        for (page_limit, expected_refill) in [(4, 4), (100, 64), (0, 1)] {
+            let envelope = crate::db::executor::PageWorkEnvelope::default_scalar()
+                .with_limit_for_tests(
+                    DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                    page_limit,
+                );
+            let bounded = crate::db::executor::with_production_scalar_page_work(envelope, || {
+                PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), Direction::Asc, None)
+            })
+            .expect("primary leaf should inherit the active page envelope");
+
+            assert_eq!(bounded.value.next_pull_entry_bound(), expected_refill);
+        }
+    }
+
+    #[test]
     fn prefix_family_child_count_rejects_max_plus_one_before_allocation() {
         assert!(
             validate_prefix_family_child_count(IndexPrefixChildExpansionBudget::MAX_PREFIXES)
@@ -1966,6 +2322,40 @@ mod physical_seek_tests {
         assert!(
             validate_prefix_family_child_count(IndexPrefixChildExpansionBudget::MAX_PREFIXES + 1,)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn materialized_secondary_index_keys_charge_complete_temporary_backing() {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(DiagnosticExecutionBudgetResource::TemporaryBytes, 0);
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            DiagnosticExecutionLane::TrustedRead,
+            0x6d61_7465_7269_616c,
+        );
+        let keys = vec![data_key(1)];
+        let error = with_query_execution_budget_for_tests(budget, context, || {
+            charge_materialized_secondary_index_keys(keys.as_slice(), keys.capacity())
+                .map_err(QueryError::execute)
+        })
+        .expect_err("materialized key-vector capacity must consume the temporary-byte budget");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            error.diagnostic_facts()[0],
+            (
+                DiagnosticFactTag::BudgetResource,
+                DiagnosticExecutionBudgetResource::TemporaryBytes.raw(),
+            ),
         );
     }
 

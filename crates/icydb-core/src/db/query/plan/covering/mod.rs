@@ -260,7 +260,7 @@ pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
 
     Some(covering_hybrid_read_execution_plan(
         covering,
-        CoveringExistingRowMode::ProvenByPlanner,
+        CoveringExistingRowMode::RequiresRowPresenceCheck,
         strict_predicate_compatible,
     ))
 }
@@ -278,7 +278,7 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
     {
         return Some(covering_read_execution_plan(
             covering,
-            CoveringExistingRowMode::ProvenByPlanner,
+            CoveringExistingRowMode::RequiresRowPresenceCheck,
             strict_predicate_compatible,
         ));
     }

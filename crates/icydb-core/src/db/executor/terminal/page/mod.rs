@@ -50,6 +50,11 @@ use post_access::apply_post_access_to_kernel_rows_dyn;
 use scan::execute_scalar_page_kernel_dyn;
 
 pub(in crate::db) use coordinator::PageWorkEnvelope;
+pub(in crate::db::executor) use coordinator::{
+    ProductionScalarOutputWork, begin_production_scalar_page_unit,
+    finish_production_scalar_page_unit, production_scalar_page_access_entry_limit,
+    production_scalar_page_work_is_active, with_production_scalar_page_work,
+};
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use metrics::{

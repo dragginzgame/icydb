@@ -19,6 +19,24 @@ fn grouped_execution_config_from_planner_config_prefers_planner_limits() {
 }
 
 #[test]
+fn planner_default_grouped_execution_authority_is_finite() {
+    let planner_default = GroupedExecutionConfig::planner_default_bounded();
+    let executor_default = grouped_execution_config_from_planner_config(None);
+
+    assert!(planner_default.is_finite_bounded());
+    assert_eq!(planner_default.max_groups(), 10_000);
+    assert_eq!(planner_default.max_group_bytes(), 16 * 1024 * 1024);
+    assert_eq!(executor_default.max_groups(), planner_default.max_groups());
+    assert_eq!(
+        executor_default.max_group_bytes(),
+        planner_default.max_group_bytes(),
+    );
+    assert!(!GroupedExecutionConfig::unbounded().is_finite_bounded());
+    assert!(!GroupedExecutionConfig::with_hard_limits(0, 1).is_finite_bounded());
+    assert!(!GroupedExecutionConfig::with_hard_limits(1, 0).is_finite_bounded());
+}
+
+#[test]
 fn grouped_execution_context_from_planner_config_defaults_when_absent() {
     let context = grouped_execution_context_from_planner_config(None);
 

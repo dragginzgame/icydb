@@ -389,6 +389,18 @@ impl InternalError {
         )
     }
 
+    /// Construct a query-boundary error for a named entity absent from accepted schema authority.
+    pub(crate) fn sql_query_entity_not_found() -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::NotFound,
+            ErrorOrigin::Interface,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::SqlQueryEntityNotFound,
+            }),
+            Vec::new(),
+        )
+    }
+
     /// Construct an executor-origin hard execution-budget rejection.
     #[cold]
     #[inline(never)]

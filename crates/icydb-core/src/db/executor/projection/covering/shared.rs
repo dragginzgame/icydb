@@ -9,6 +9,7 @@ use crate::{
             apply_offset_limit_window,
             budget::charge_current_execution_budget,
             expand_index_prefix_family_with_exact_child_prefixes,
+            lowered_index_prefix_exact_cardinality,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
                 CoveringReadField, CoveringReadFieldSource, PageSpec,
@@ -34,6 +35,7 @@ pub(super) struct PreparedCoveringIndexScan {
     pub(super) scan_window: CoveringScanWindow,
     pub(super) stream_order_satisfies_projection_order: bool,
     pub(super) store: StoreHandle,
+    pub(super) existing_row_mode: CoveringExistingRowMode,
 }
 
 pub(super) struct CoveringScanWindow {
@@ -134,10 +136,19 @@ where
     let index_prefix_specs = expanded_index_prefix_specs
         .as_deref()
         .unwrap_or(request.index_prefix_specs);
+    let existing_row_mode = if !index_prefix_specs.is_empty()
+        && index_prefix_specs
+            .iter()
+            .all(|spec| lowered_index_prefix_exact_cardinality(store, spec).is_some())
+    {
+        CoveringExistingRowMode::ProvenByPlanner
+    } else {
+        request.existing_row_mode
+    };
     let scan_window = covering_scan_window(
         request.order_contract,
         primary_key_order_scan_safe,
-        request.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
+        existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
         request.plan.scalar_plan().distinct,
         request.plan.scalar_plan().page.as_ref(),
     );
@@ -180,6 +191,7 @@ where
         scan_window,
         stream_order_satisfies_projection_order,
         store,
+        existing_row_mode,
     }))
 }
 

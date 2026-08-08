@@ -21,7 +21,10 @@ use crate::db::{
     query::{
         builder::AggregateExpr,
         intent::{QueryError, StructuralQuery},
-        plan::expr::{Expr, FieldPath, ProjectionSelection},
+        plan::{
+            GroupedExecutionConfig,
+            expr::{Expr, FieldPath, ProjectionSelection},
+        },
     },
     schema::SchemaInfo,
     sql::parser::{
@@ -344,9 +347,20 @@ fn apply_lowered_select_shape_with_schema(
         order_by.as_slice(),
     )?;
 
-    // Phase 1: apply grouped declaration semantics.
+    // Phase 1: apply grouped declaration semantics. SQL has no grouped-budget
+    // syntax, so its lowering boundary must attach the planner's finite
+    // conservative authority rather than leaving complete hash state
+    // unbounded.
+    let is_grouped = !group_by_fields.is_empty();
     for field in group_by_fields {
         query = query.group_by_with_schema(field, schema)?;
+    }
+    if is_grouped {
+        let grouped_execution = GroupedExecutionConfig::planner_default_bounded();
+        query = query.grouped_limits(
+            grouped_execution.max_groups(),
+            grouped_execution.max_group_bytes(),
+        );
     }
 
     // Phase 2: apply scalar DISTINCT and projection contracts.

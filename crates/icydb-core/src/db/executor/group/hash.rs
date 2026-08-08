@@ -8,8 +8,9 @@ use crate::{
     value::{Value, hash_value},
 };
 use std::{
-    collections::HashMap,
-    hash::{BuildHasher, Hasher},
+    collections::{HashMap, HashSet},
+    hash::{BuildHasher, Hash, Hasher},
+    mem::size_of,
 };
 
 ///
@@ -29,6 +30,66 @@ pub(in crate::db::executor) type StableHash = u64;
 ///
 
 pub(in crate::db::executor) type StableHashMap<V> = HashMap<StableHash, V, StableHashBuildHasher>;
+
+// Reserve four physical slots per retained logical entry. Incrementally grown
+// standard hash tables and vectors stay within this envelope under the pinned
+// toolchain, including their lowest-cardinality allocation. Hash-table slots
+// additionally include one machine word for control/alignment overhead.
+const RETAINED_CAPACITY_SLOTS_PER_ENTRY: usize = 4;
+
+/// Return the conservative backing reservation charged before one logical hash
+/// table entry may allocate.
+#[must_use]
+pub(in crate::db::executor) fn retained_hash_entry_backing_bytes<K, V>() -> u64 {
+    let physical_slot_bytes = size_of::<(K, V)>().saturating_add(size_of::<usize>());
+    u64::try_from(physical_slot_bytes.saturating_mul(RETAINED_CAPACITY_SLOTS_PER_ENTRY))
+        .unwrap_or(u64::MAX)
+}
+
+/// Return the conservative backing reservation charged before one retained
+/// vector element may allocate.
+#[must_use]
+pub(in crate::db::executor) fn retained_vec_element_backing_bytes<T>() -> u64 {
+    u64::try_from(size_of::<T>().saturating_mul(RETAINED_CAPACITY_SLOTS_PER_ENTRY))
+        .unwrap_or(u64::MAX)
+}
+
+/// Fallibly reserve one additional hash-map entry after its conservative
+/// backing reservation has been charged.
+pub(in crate::db::executor) fn try_reserve_hash_entry<K, V, S>(
+    map: &mut HashMap<K, V, S>,
+) -> Result<(), InternalError>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    map.try_reserve(1)
+        .map_err(|_| InternalError::executor_internal())
+}
+
+/// Fallibly reserve one additional hash-set entry after its conservative
+/// backing reservation has been charged.
+pub(in crate::db::executor) fn try_reserve_hash_set_entry<K, S>(
+    set: &mut HashSet<K, S>,
+) -> Result<(), InternalError>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    set.try_reserve(1)
+        .map_err(|_| InternalError::executor_internal())
+}
+
+/// Fallibly reserve vector elements after their conservative backing
+/// reservation has been charged.
+pub(in crate::db::executor) fn try_reserve_vec_elements<T>(
+    values: &mut Vec<T>,
+    additional: usize,
+) -> Result<(), InternalError> {
+    values
+        .try_reserve(additional)
+        .map_err(|_| InternalError::executor_internal())
+}
 
 ///
 /// StableHashBuildHasher
@@ -109,6 +170,23 @@ pub(in crate::db::executor) fn stable_hash_value(
 mod tests {
     use super::*;
     use crate::{types::Decimal, value::Value};
+
+    #[test]
+    fn incremental_hash_and_vector_capacity_stays_inside_retained_envelope() {
+        let mut map = StableHashMap::<usize>::with_hasher(StableHashBuildHasher);
+        let mut values = Vec::<usize>::new();
+
+        for entry in 1..=1_024_usize {
+            try_reserve_hash_entry(&mut map).expect("hash capacity reservation");
+            map.insert(u64::try_from(entry).expect("test key"), entry);
+            try_reserve_vec_elements(&mut values, 1).expect("vector capacity reservation");
+            values.push(entry);
+
+            let admitted_slots = entry.saturating_mul(RETAINED_CAPACITY_SLOTS_PER_ENTRY);
+            assert!(map.capacity() <= admitted_slots);
+            assert!(values.capacity() <= admitted_slots);
+        }
+    }
 
     #[test]
     fn stable_hash_uses_digest_prefix_contract() {

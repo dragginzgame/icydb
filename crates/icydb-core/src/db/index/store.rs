@@ -460,6 +460,13 @@ impl IndexStore {
         record_index_store_range_scan_call();
     }
 
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    pub(in crate::db::index) fn record_merged_entry_reads(count: u64) {
+        INDEX_STORE_ENTRY_READ_COUNT.with(|total| {
+            total.set(total.get().saturating_add(count));
+        });
+    }
+
     const fn bump_generation(&mut self) {
         self.generation = self.generation.saturating_add(1);
     }

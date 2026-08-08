@@ -7,7 +7,7 @@ use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
         executor::{
-            ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
+            ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload, IndexScan,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             budget::charge_current_execution_budget,
             lowered_index_prefix_exact_cardinality,
@@ -459,6 +459,48 @@ impl AccessPlanStreamResolver {
         Ok(overlap)
     }
 
+    // Resolve one bounded exact-prefix intersection without allocating the
+    // general held-head stream tree. This route is limited to a cursorless
+    // atomic probe; resumed traversal retains the ordinary stream contract.
+    fn collect_direct_exact_intersection_overlap(
+        runtime: &TraversalRuntime,
+        children: &[ExecutableAccessPlan<'_, Value>],
+        inputs: TraversalInputs<'_>,
+        spec_cursor: &mut AccessSpecCursor<'_>,
+        preflight: &ExactIntersectionPreflight,
+    ) -> Result<Option<Vec<DecodedDataStoreKey>>, InternalError> {
+        if inputs.continuation.primary_key_boundary().is_some()
+            || inputs
+                .continuation
+                .index_scan_continuation()
+                .anchor()
+                .is_some()
+        {
+            return Ok(None);
+        }
+
+        let mut specs = Vec::with_capacity(children.len());
+        for child in children {
+            let ExecutableAccessNode::Path(path) = child.node() else {
+                return Err(InternalError::executor_invariant());
+            };
+            let child_specs = spec_cursor.require_next_index_prefix_specs(1)?;
+            Self::validate_index_prefix_spec_alignment(path, child_specs)?;
+            let spec = child_specs
+                .first()
+                .ok_or_else(InternalError::executor_invariant)?;
+            specs.push(spec);
+        }
+        let overlap = IndexScan::exact_prefix_intersection_structural(
+            runtime.store,
+            runtime.entity_tag,
+            specs.as_slice(),
+            preflight.child_cardinalities.as_slice(),
+            inputs.continuation.direction(),
+        )?;
+        Ok(Some(overlap))
+    }
+
     fn first_stream_or_empty(streams: Vec<OrderedKeyStreamBox>) -> OrderedKeyStreamBox {
         streams
             .into_iter()
@@ -509,10 +551,131 @@ impl AccessPlanStreamResolver {
         inputs: TraversalInputs<'_>,
         spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
+        let union_uses_accepted_index = children.iter().any(Self::plan_uses_accepted_index);
+        let mut streams = Vec::with_capacity(children.len());
+        for child in children {
+            let child_inputs = inputs
+                .with_physical_fetch_hint(None)
+                .without_leaf_index_order_preservation();
+            let stream = Self::produce_key_stream(runtime, child, child_inputs, spec_cursor)?;
+            let stream = if union_uses_accepted_index
+                && !Self::plan_uses_accepted_index(child)
+                && Self::plan_may_emit_unverified_primary_lookup(child)
+            {
+                Self::filter_existing_primary_union_keys(runtime, child, stream)?
+            } else {
+                stream
+            };
+            streams.push(stream);
+        }
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
         Ok(OrderedKeyStreamBox::merge_all(streams, key_comparator))
+    }
+
+    // An accepted-index union uses strict missing-row consistency at the final
+    // row boundary. Exact primary-key siblings therefore remove ordinary
+    // absent lookup candidates before the merge, so a missing key that reaches
+    // the strict boundary still carries accepted-index provenance.
+    fn filter_existing_primary_union_keys(
+        runtime: &TraversalRuntime,
+        plan: &ExecutableAccessPlan<'_, Value>,
+        mut stream: OrderedKeyStreamBox,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let capacity = Self::primary_lookup_candidate_upper_bound(plan)
+            .ok_or_else(InternalError::executor_invariant)?;
+        let slot_bytes = capacity
+            .checked_mul(size_of::<DecodedDataStoreKey>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(slot_bytes).unwrap_or(u64::MAX),
+        )?;
+        let mut existing = Vec::new();
+        existing
+            .try_reserve_exact(capacity)
+            .map_err(|_| InternalError::executor_internal())?;
+        let extra_capacity = existing.capacity().saturating_sub(capacity);
+        let extra_slot_bytes = extra_capacity
+            .checked_mul(size_of::<DecodedDataStoreKey>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(extra_slot_bytes).unwrap_or(u64::MAX),
+        )?;
+        while let Some(key) = stream.next_key()? {
+            let raw = key.to_raw()?;
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::TemporaryBytes,
+                u64::try_from(raw.as_bytes().len()).unwrap_or(u64::MAX),
+            )?;
+            if runtime.store.with_data(|store| store.contains(&raw)) {
+                existing.push(key);
+            }
+        }
+
+        Ok(ordered_key_stream_from_materialized_keys(existing))
+    }
+
+    fn plan_uses_accepted_index(plan: &ExecutableAccessPlan<'_, Value>) -> bool {
+        match plan.node() {
+            ExecutableAccessNode::Path(path) => matches!(
+                path,
+                ExecutionPathPayload::IndexPrefix { .. }
+                    | ExecutionPathPayload::IndexMultiLookup { .. }
+                    | ExecutionPathPayload::IndexBranchSet { .. }
+                    | ExecutionPathPayload::IndexRange { .. }
+            ),
+            ExecutableAccessNode::Union(children)
+            | ExecutableAccessNode::Intersection(children) => {
+                children.iter().any(Self::plan_uses_accepted_index)
+            }
+        }
+    }
+
+    fn plan_may_emit_unverified_primary_lookup(plan: &ExecutableAccessPlan<'_, Value>) -> bool {
+        match plan.node() {
+            ExecutableAccessNode::Path(path) => matches!(
+                path,
+                ExecutionPathPayload::ByKey(_) | ExecutionPathPayload::ByKeys(_)
+            ),
+            ExecutableAccessNode::Union(children) => children
+                .iter()
+                .any(Self::plan_may_emit_unverified_primary_lookup),
+            ExecutableAccessNode::Intersection(children) => children
+                .iter()
+                .all(Self::plan_may_emit_unverified_primary_lookup),
+        }
+    }
+
+    fn primary_lookup_candidate_upper_bound(
+        plan: &ExecutableAccessPlan<'_, Value>,
+    ) -> Option<usize> {
+        match plan.node() {
+            ExecutableAccessNode::Path(ExecutionPathPayload::ByKey(_)) => Some(1),
+            ExecutableAccessNode::Path(ExecutionPathPayload::ByKeys(keys)) => Some(keys.len()),
+            ExecutableAccessNode::Path(
+                ExecutionPathPayload::KeyRange { .. }
+                | ExecutionPathPayload::IndexPrefix { .. }
+                | ExecutionPathPayload::IndexMultiLookup { .. }
+                | ExecutionPathPayload::IndexBranchSet { .. }
+                | ExecutionPathPayload::IndexRange { .. }
+                | ExecutionPathPayload::FullScan,
+            ) => None,
+            ExecutableAccessNode::Union(children) => {
+                children.iter().try_fold(0usize, |total, child| {
+                    total.checked_add(Self::primary_lookup_candidate_upper_bound(child)?)
+                })
+            }
+            ExecutableAccessNode::Intersection(children) => {
+                let mut children = children.iter();
+                let first = Self::primary_lookup_candidate_upper_bound(children.next()?)?;
+                children.try_fold(first, |minimum, child| {
+                    Some(minimum.min(Self::primary_lookup_candidate_upper_bound(child)?))
+                })
+            }
+        }
     }
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
@@ -557,6 +720,25 @@ impl AccessPlanStreamResolver {
                         spec_cursor,
                     )?;
                     return Ok(Self::first_stream_or_empty(streams));
+                }
+
+                let mut direct_cursor = *spec_cursor;
+                if let Some(overlap) = Self::collect_direct_exact_intersection_overlap(
+                    runtime,
+                    children,
+                    inputs,
+                    &mut direct_cursor,
+                    &preflight,
+                )? {
+                    *spec_cursor = direct_cursor;
+                    if !Self::exact_intersection_cost_beats_single(
+                        &preflight,
+                        u64::try_from(overlap.len()).unwrap_or(u64::MAX),
+                    ) {
+                        return Err(InternalError::executor_invariant());
+                    }
+
+                    return Ok(ordered_key_stream_from_materialized_keys(overlap));
                 }
 
                 let mut probe_cursor = *spec_cursor;

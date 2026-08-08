@@ -13,7 +13,6 @@ use crate::{
                 },
                 dispatch::group_fields_support_borrowed_group_probe,
                 generic::{OrderedGroupedPageSelection, page_finalize::finalize_grouped_page},
-                utils::group_capacity_hint,
             },
         },
         pipeline::{
@@ -291,15 +290,6 @@ fn build_grouped_specs(
         .collect::<Result<Vec<_>, _>>()
 }
 
-// Build the hash-materialized grouped aggregate bundle for canonical grouped
-// terminal projection layout.
-fn build_grouped_bundle(
-    grouped_specs: Vec<GroupedAggregateBundleSpec>,
-    group_capacity_hint: usize,
-) -> GroupedAggregateBundle {
-    GroupedAggregateBundle::new(grouped_specs, group_capacity_hint)
-}
-
 // Execute the canonical grouped reducer/finalize path for every grouped shape
 // that does not use a dedicated grouped fast path.
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn execute_generic_grouped_fold_stage(
@@ -320,11 +310,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn execute_generic
         );
     }
 
-    let group_capacity_hint = group_capacity_hint(
-        stream.cheap_access_candidate_count_hint(),
-        grouped_execution_context.config().max_groups(),
-    );
-    let grouped_bundle = build_grouped_bundle(grouped_specs, group_capacity_hint);
+    let grouped_bundle = GroupedAggregateBundle::new(grouped_specs);
 
     GenericGroupedFoldRunner::new(route, grouped_projection_spec).execute(
         stream,

@@ -3,7 +3,8 @@
 //! Does not own: planner-owned logical aggregate validation semantics.
 //! Boundary: typed runtime failures shared by aggregate execution contracts.
 
-use crate::error::InternalError;
+use crate::{db::executor::budget::current_execution_budget_exceeded, error::InternalError};
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 ///
 /// GroupBudgetResourceCode
@@ -17,6 +18,17 @@ pub(in crate::db::executor) enum GroupBudgetResourceCode {
     DistinctValuesTotal,
     EstimatedBytes,
     Groups,
+}
+
+impl GroupBudgetResourceCode {
+    const fn execution_resource(self) -> DiagnosticExecutionBudgetResource {
+        match self {
+            Self::DistinctValuesPerGroup | Self::DistinctValuesTotal | Self::Groups => {
+                DiagnosticExecutionBudgetResource::GroupDistinctEntries
+            }
+            Self::EstimatedBytes => DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+        }
+    }
 }
 
 ///
@@ -93,10 +105,7 @@ impl GroupError {
                 resource,
                 attempted,
                 limit,
-            } => {
-                let _ = (resource, attempted, limit);
-                InternalError::executor_internal()
-            }
+            } => current_execution_budget_exceeded(resource.execution_resource(), limit, attempted),
             Self::Internal(inner) => inner,
         }
     }
@@ -105,5 +114,69 @@ impl GroupError {
 impl From<InternalError> for GroupError {
     fn from(err: InternalError) -> Self {
         Self::Internal(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GroupBudgetResourceCode, GroupError};
+    use crate::db::{
+        QueryError,
+        executor::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            with_query_execution_budget_for_tests,
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
+        DiagnosticExecutionLane, DiagnosticFactTag, RuntimeBoundaryCode,
+    };
+
+    #[test]
+    fn grouped_local_limit_exhaustion_preserves_typed_execution_context() {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        );
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            DiagnosticExecutionLane::TrustedRead,
+            0x6772_6f75_702d_6361,
+        );
+        let error = with_query_execution_budget_for_tests(budget, context, || {
+            Err::<(), _>(QueryError::execute(
+                GroupError::memory_limit_exceeded(
+                    GroupBudgetResourceCode::EstimatedBytes,
+                    2_048,
+                    1_024,
+                )
+                .into_internal_error(),
+            ))
+        })
+        .expect_err("grouped local state exhaustion should remain typed");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (
+                    DiagnosticFactTag::BudgetResource,
+                    DiagnosticExecutionBudgetResource::GroupDistinctStateBytes.raw(),
+                ),
+                (DiagnosticFactTag::Limit, 1_024),
+                (DiagnosticFactTag::Actual, 2_048),
+                (DiagnosticFactTag::ExecutionBudgetScope, 1),
+                (DiagnosticFactTag::ExecutionLane, 2),
+                (
+                    DiagnosticFactTag::QueryShapeFingerprintPrefix,
+                    0x6772_6f75_702d_6361,
+                ),
+            ],
+        );
     }
 }

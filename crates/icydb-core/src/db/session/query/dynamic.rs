@@ -11,10 +11,11 @@ use crate::{
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         commit::{cursor_authentication_key, database_incarnation_id},
         cursor::{
-            CursorPlanError, ScalarOrderTermContract, ScalarPageMode, ScalarPageToken,
-            ScalarPageTokenAuthority, ScalarPageTokenProgress, ScalarPageTokenWindow,
-            decode_optional_cursor_token, encode_cursor,
+            CursorBoundary, CursorBoundarySlot, CursorPlanError, ScalarOrderTermContract,
+            ScalarPageMode, ScalarPageToken, ScalarPageTokenAuthority, ScalarPageTokenProgress,
+            ScalarPageTokenWindow, decode_optional_cursor_token, encode_cursor,
         },
+        data::{DecodedDataStoreKey, RawDataStoreKey},
         executor::{
             CoveringProjectionMetricsRecorder, PageWorkEnvelope,
             ProjectionMaterializationMetricsRecorder, ScalarContinuationContext,
@@ -34,11 +35,30 @@ use icydb_diagnostic_code::{
     QueryReadAdmissionCode,
 };
 use sha2::Digest;
+#[cfg(test)]
+use std::cell::Cell;
 
 #[cfg(not(test))]
 const SCALAR_PAGE_OUTPUT_ROWS: usize = 1_024;
 #[cfg(test)]
 const SCALAR_PAGE_OUTPUT_ROWS: usize = 2;
+#[cfg(test)]
+const SCALAR_PAGE_KEY_ENTRIES: u64 = 4;
+
+#[cfg(test)]
+std::thread_local! {
+    static SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+#[cfg(test)]
+struct ScalarPageResultBytesLimitGuard(Option<u64>);
+
+#[cfg(test)]
+impl Drop for ScalarPageResultBytesLimitGuard {
+    fn drop(&mut self) {
+        SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE.with(|limit| limit.set(self.0));
+    }
+}
 
 #[derive(Clone, Copy)]
 enum DynamicReadLane {
@@ -218,6 +238,28 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(())
     }
 
+    fn physical_primary_key_boundary(
+        bytes: &[u8],
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<CursorBoundary, QueryError> {
+        let raw = RawDataStoreKey::from_persisted_bytes(bytes.to_vec());
+        let key = DecodedDataStoreKey::try_from_raw(&raw)
+            .map_err(|_| Self::scalar_page_cursor_error())?;
+        if key.entity_tag() != catalog.accepted_entity_authority().entity_tag() {
+            return Err(Self::scalar_page_cursor_error());
+        }
+        let primary_key_arity = catalog.accepted_schema_info().primary_key_names().len();
+        let mut slots = Vec::with_capacity(primary_key_arity);
+        for component_index in 0..primary_key_arity {
+            slots.push(CursorBoundarySlot::Present(
+                key.primary_key_component_runtime_value(component_index)
+                    .map_err(|_| Self::scalar_page_cursor_error())?,
+            ));
+        }
+
+        Ok(CursorBoundary { slots })
+    }
+
     fn execute_dynamic_grouped_query_against_catalog(
         &self,
         request: &DynamicQuery,
@@ -293,6 +335,17 @@ impl<C: CanisterKind> DbSession<C> {
             DynamicReadLane::Public => PageWorkEnvelope::public_scalar(),
             DynamicReadLane::Trusted => PageWorkEnvelope::default_scalar(),
         };
+        #[cfg(test)]
+        let envelope = SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE.with(|limit| {
+            limit.get().map_or(envelope, |limit| {
+                envelope.with_limit_for_tests(DiagnosticExecutionBudgetResource::ResultBytes, limit)
+            })
+        });
+        #[cfg(test)]
+        let envelope = envelope.with_limit_for_tests(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            SCALAR_PAGE_KEY_ENTRIES,
+        );
         let page_row_limit = envelope
             .limit(DiagnosticExecutionBudgetResource::ResultRows)
             .and_then(|limit| usize::try_from(limit).ok())
@@ -345,7 +398,7 @@ impl<C: CanisterKind> DbSession<C> {
         let initial_is_exact_exhaustion =
             initial_plan.as_ref().is_some_and(|(prepared_plan, _, _)| {
                 Self::exact_primary_key_candidate_bound(prepared_plan)
-                    .is_some_and(|bound| bound <= page_output_limit)
+                    .is_some_and(|bound| bound == 1 && bound <= page_output_limit)
             });
         let (prepared_plan, projection, _) = if initial_is_exact_exhaustion {
             initial_plan.ok_or_else(Self::scalar_page_cursor_error)?
@@ -400,14 +453,26 @@ impl<C: CanisterKind> DbSession<C> {
             .transpose()?;
         let deferred_cursor_plan =
             (!exact_initial_exhaustion && decoded_token.is_none()).then(|| prepared_plan.clone());
-        let continuation_context = decoded_token
-            .as_ref()
-            .and_then(|token| token.progress().last_emitted_logical().cloned())
-            .map_or_else(
-                ScalarContinuationContext::initial,
-                ScalarContinuationContext::resumed,
-            );
-        if decoded_token.is_some() && !continuation_context.has_cursor_boundary() {
+        let continuation_context = match decoded_token.as_ref() {
+            None => ScalarContinuationContext::initial(),
+            Some(token) if token.progress().unconsumed_lookahead().is_some() => {
+                return Err(Self::scalar_page_cursor_error().into());
+            }
+            Some(token) => {
+                let logical = token.progress().last_emitted_logical().cloned();
+                match token.progress().last_consumed_physical() {
+                    Some(physical) => ScalarContinuationContext::resumed_with_primary_progress(
+                        logical,
+                        Self::physical_primary_key_boundary(physical, &catalog)?,
+                    ),
+                    None => logical.map_or_else(
+                        ScalarContinuationContext::initial,
+                        ScalarContinuationContext::resumed,
+                    ),
+                }
+            }
+        };
+        if decoded_token.is_some() && !continuation_context.has_progress() {
             return Err(Self::scalar_page_cursor_error().into());
         }
 
@@ -425,7 +490,8 @@ impl<C: CanisterKind> DbSession<C> {
             ProjectionMaterializationMetricsRecorder::none(),
             execution_lane,
         )
-        .with_distinct_output_offset(usize::try_from(prior_rows_emitted).unwrap_or(usize::MAX));
+        .with_distinct_output_offset(usize::try_from(prior_rows_emitted).unwrap_or(usize::MAX))
+        .with_page_work_envelope(envelope);
         let projection_request = if exact_initial_exhaustion {
             projection_request
         } else {
@@ -457,9 +523,9 @@ impl<C: CanisterKind> DbSession<C> {
             .row_limit()
             .is_some_and(|limit| rows_emitted >= u64::from(limit));
         let continuation = if page.has_more && !total_limit_reached {
-            let logical_boundary = page
-                .last_emitted_logical
-                .ok_or_else(Self::scalar_page_cursor_error)?;
+            if page.last_emitted_logical.is_none() && page.last_consumed_physical.is_none() {
+                return Err(Self::scalar_page_cursor_error().into());
+            }
             let cursor_contract = if let Some(contract) = cursor_contract {
                 contract
             } else {
@@ -481,7 +547,15 @@ impl<C: CanisterKind> DbSession<C> {
                 cursor_contract.authority,
                 cursor_contract.window,
                 cursor_contract.order_terms,
-                ScalarPageTokenProgress::new(Some(logical_boundary), None, None, 0, rows_emitted),
+                ScalarPageTokenProgress::new(
+                    page.last_emitted_logical,
+                    page.last_consumed_physical,
+                    None,
+                    decoded_token
+                        .as_ref()
+                        .map_or(0, |token| token.progress().matching_rows_skipped()),
+                    rows_emitted,
+                ),
             );
             Some(encode_cursor(
                 token
@@ -643,6 +717,19 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map(|(page, _)| page)
         .map_err(Self::live_page_error)
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn execute_trusted_live_page_with_result_bytes_limit_for_tests(
+        &self,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+        result_bytes_limit: u64,
+    ) -> Result<LiveQueryPageOutput, QueryError> {
+        let previous = SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE
+            .with(|limit| limit.replace(Some(result_bytes_limit)));
+        let _guard = ScalarPageResultBytesLimitGuard(previous);
+        self.execute_trusted_live_page(request, continuation)
     }
 
     /// Execute one revision-strict bounded dynamic page.

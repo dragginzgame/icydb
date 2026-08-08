@@ -4,7 +4,7 @@
 //! Boundary: canonical equality/hash substrate for grouped execution.
 
 use crate::{
-    db::executor::group::{StableHash, stable_hash_value},
+    db::executor::group::{StableHash, stable_hash_value, try_reserve_hash_set_entry},
     error::InternalError,
     value::{MapValueError, Value},
 };
@@ -323,8 +323,15 @@ impl GroupKeySet {
     }
 
     /// Insert one canonical key and return true if it was newly observed.
-    pub(in crate::db::executor) fn insert_key(&mut self, key: GroupKey) -> bool {
-        self.keys.insert(key)
+    pub(in crate::db::executor) fn insert_key(
+        &mut self,
+        key: GroupKey,
+    ) -> Result<bool, InternalError> {
+        if self.keys.contains(&key) {
+            return Ok(false);
+        }
+        try_reserve_hash_set_entry(&mut self.keys)?;
+        Ok(self.keys.insert(key))
     }
 }
 

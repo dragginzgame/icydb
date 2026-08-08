@@ -21,6 +21,7 @@ use crate::{
     },
     error::InternalError,
 };
+use std::{cell::RefCell, rc::Rc};
 
 ///
 /// ExecutionAttemptKernel
@@ -106,6 +107,15 @@ impl<'a> ExecutionAttemptKernel<'a> {
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
         self.apply_enforced_scan_probe(resolved.key_stream_mut());
+        let last_scanned_key = (self.inputs.emit_cursor()
+            && self.inputs.enforced_scan_probe_limit().is_some())
+        .then(|| {
+            let last_scanned_key = Rc::new(RefCell::new(None));
+            let inner = std::mem::replace(resolved.key_stream_mut(), OrderedKeyStreamBox::empty());
+            *resolved.key_stream_mut() =
+                OrderedKeyStreamBox::observed(inner, Rc::clone(&last_scanned_key));
+            last_scanned_key
+        });
         let ScalarPageMaterialization {
             payload,
             rows_scanned: keys_scanned,
@@ -115,6 +125,15 @@ impl<'a> ExecutionAttemptKernel<'a> {
             continuation,
             resolved.key_stream_mut(),
         )?;
+        let payload = match last_scanned_key {
+            Some(last_scanned_key) => payload.with_last_scanned_key(
+                last_scanned_key
+                    .try_borrow_mut()
+                    .map_err(|_| InternalError::query_executor_invariant())?
+                    .take(),
+            ),
+            None => payload,
+        };
         let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
 
         Ok(MaterializedExecutionAttempt {

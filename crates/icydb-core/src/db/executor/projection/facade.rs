@@ -7,9 +7,9 @@ use crate::{
     db::{
         Db,
         executor::{
-            CoveringProjectionMetricsRecorder, ExecutionPreparation,
-            ProjectionMaterializationMetricsRecorder, SharedPreparedExecutionPlan,
-            SharedPreparedProjectionRuntimeHandoff,
+            CoveringProjectionMetricsRecorder, ExecutionPreparation, PageWorkEnvelope,
+            ProductionScalarOutputWork, ProjectionMaterializationMetricsRecorder,
+            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
             budget::{
                 charge_runtime_value_rows, prepared_read_execution_context,
                 with_read_execution_budget,
@@ -18,18 +18,23 @@ use crate::{
             pipeline::execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             planning::preparation::slot_map_for_model_plan,
             projection::{
-                MaterializedProjectionRows, PreparedCoveringProjectionRuntime,
-                ProjectionDistinctStrategy, ProjectionDistinctWindow, project, project_distinct,
+                DistinctProjectionRuntime, MaterializedProjectionRows,
+                PreparedCoveringProjectionRuntime, ProjectionDistinctStrategy,
+                ProjectionDistinctWindow, project, project_admitted_page, project_distinct,
                 projection_distinct_strategy,
                 try_execute_prepared_covering_projection_rows_for_canister,
             },
+            with_production_scalar_page_work,
         },
         index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::CanisterKind,
 };
-use icydb_diagnostic_code::{DiagnosticExecutionLane, DiagnosticFactTag, SqlWriteBoundaryCode};
+use icydb_diagnostic_code::{
+    DiagnosticExecutionBudgetResource, DiagnosticExecutionLane, DiagnosticFactTag,
+    SqlWriteBoundaryCode,
+};
 
 /// Enforced scanned-key ceiling for one structural projection execution.
 #[derive(Clone, Copy)]
@@ -86,6 +91,7 @@ pub(in crate::db) struct StructuralProjectionRequest {
     execution_lane: DiagnosticExecutionLane,
     continuation: crate::db::executor::ScalarContinuationContext,
     cursor_page_row_limit: Option<usize>,
+    page_work_envelope: Option<PageWorkEnvelope>,
     distinct_output_offset: usize,
 }
 
@@ -108,6 +114,7 @@ impl StructuralProjectionRequest {
             execution_lane,
             continuation: crate::db::executor::ScalarContinuationContext::initial(),
             cursor_page_row_limit: None,
+            page_work_envelope: None,
             distinct_output_offset: 0,
         }
     }
@@ -139,6 +146,16 @@ impl StructuralProjectionRequest {
         self
     }
 
+    /// Attach the finite work envelope governing one cursor-emitting page.
+    #[must_use]
+    pub(in crate::db) const fn with_page_work_envelope(
+        mut self,
+        envelope: PageWorkEnvelope,
+    ) -> Self {
+        self.page_work_envelope = Some(envelope);
+        self
+    }
+
     /// Attach the number of DISTINCT output rows already emitted by an
     /// authenticated continuation. Global DISTINCT replays from the beginning
     /// and skips exactly this many completed output rows.
@@ -154,6 +171,7 @@ pub(in crate::db) struct StructuralProjectionPage {
     pub(in crate::db) rows: MaterializedProjectionRows,
     pub(in crate::db) scanned_keys: usize,
     pub(in crate::db) last_emitted_logical: Option<crate::db::cursor::CursorBoundary>,
+    pub(in crate::db) last_consumed_physical: Option<Vec<u8>>,
     pub(in crate::db) has_more: bool,
 }
 
@@ -206,6 +224,7 @@ where
         execution_lane: _,
         continuation,
         cursor_page_row_limit,
+        page_work_envelope,
         distinct_output_offset,
     } = request;
     let emit_cursor = cursor_page_row_limit.is_some();
@@ -214,7 +233,7 @@ where
     // Phase 1: choose the covering projection lane only for non-DISTINCT
     // requests. DISTINCT must see final projected rows in scalar execution order
     // before executor-owned deduplication and windowing.
-    if !distinct && scan_budget.is_none() && !continuation.has_cursor_boundary() && !emit_cursor {
+    if !distinct && scan_budget.is_none() && !continuation.has_progress() && !emit_cursor {
         let covering = prepared_plan.projection_covering_read_execution_plan();
         let index_prefix_specs = prepared_plan.index_prefix_specs();
         let index_range_specs = prepared_plan.index_range_specs();
@@ -254,6 +273,7 @@ where
                 rows: projected,
                 scanned_keys,
                 last_emitted_logical: None,
+                last_consumed_physical: None,
                 has_more: false,
             });
         }
@@ -270,6 +290,25 @@ where
     let authored_limit = authored_page
         .and_then(|page| page.limit)
         .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+    let page_entry_limit = if emit_cursor
+        && !distinct
+        && scalar_page_physical_progress_eligible(scalar_runtime.plan_core.plan())
+    {
+        page_work_envelope
+            .and_then(|envelope| {
+                envelope.limit(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited)
+            })
+            .and_then(|limit| usize::try_from(limit).ok())
+    } else {
+        None
+    };
+    if page_entry_limit == Some(0) {
+        return Err(InternalError::page_unit_too_large(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            0,
+            1,
+        ));
+    }
 
     let row_layout = authority.row_layout()?;
     let prepared_projection = prepared_projection_contract
@@ -294,7 +333,7 @@ where
     };
     let distinct_window = distinct_strategy.map(|strategy| {
         let offset = match strategy {
-            ProjectionDistinctStrategy::OrderedAdjacent if continuation.has_cursor_boundary() => 0,
+            ProjectionDistinctStrategy::OrderedAdjacent if continuation.has_progress() => 0,
             ProjectionDistinctStrategy::OrderedAdjacent => authored_offset,
             ProjectionDistinctStrategy::GlobalReplay => {
                 authored_offset.saturating_add(distinct_output_offset)
@@ -319,38 +358,79 @@ where
     // Phase 2: execute the canonical scalar retained-slot path and let the
     // projection materializer choose slot-row, data-row, or scalar fallback
     // shaping behind the executor boundary.
-    let (page, scanned_keys) = if execution_continuation.has_cursor_boundary() {
-        execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister(
-            db,
-            debug,
-            scalar_runtime,
-            execution_continuation,
-            emit_cursor,
-        )?
-    } else {
-        execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
-            db,
-            debug,
-            scalar_runtime,
-            emit_cursor,
-            distinct,
-            scan_budget.map(StructuralProjectionScanBudget::probe_limit),
-        )?
+    let execute_scalar_page = || {
+        if execution_continuation.has_progress() {
+            execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister(
+                db,
+                debug,
+                scalar_runtime,
+                execution_continuation,
+                emit_cursor,
+                page_entry_limit,
+            )
+        } else {
+            execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
+                db,
+                debug,
+                scalar_runtime,
+                emit_cursor,
+                distinct,
+                min_optional_limits(
+                    scan_budget.map(StructuralProjectionScanBudget::probe_limit),
+                    page_entry_limit,
+                ),
+            )
+        }
     };
+    let ((page, scanned_keys), production_page_work_exhausted, scan_receipt) =
+        if let Some(envelope) = page_work_envelope.filter(|_| page_entry_limit.is_some()) {
+            let production = with_production_scalar_page_work(envelope, execute_scalar_page)?;
+            (
+                production.value,
+                production.envelope_stopped,
+                Some(production.receipt),
+            )
+        } else {
+            (execute_scalar_page()?, false, None)
+        };
     if let Some(scan_budget) = scan_budget
         && scan_budget.exceeded_by(scanned_keys)
     {
         return Err(sql_scan_budget_exceeded_error(scan_budget, scanned_keys));
     }
 
+    let scan_page_work_exhausted = production_page_work_exhausted
+        || page_entry_limit.is_some_and(|limit| scanned_keys >= limit);
+    let scanned_physical_anchor = if scan_page_work_exhausted {
+        page.last_scanned_physical_anchor()?
+    } else {
+        None
+    };
+    let mut output_work = page_work_envelope
+        .map(|envelope| ProductionScalarOutputWork::new(envelope, scan_receipt))
+        .transpose()?;
     let (mut rows, last_emitted_logical, has_more) = if let Some(strategy) = distinct_strategy {
         let projected = project_distinct(
             row_layout,
             prepared_projection,
             strategy,
             distinct_window.ok_or_else(InternalError::query_executor_invariant)?,
-            emit_cursor.then_some(resolved_order.as_ref()).flatten(),
             page,
+            DistinctProjectionRuntime::new(
+                emit_cursor.then_some(resolved_order.as_ref()).flatten(),
+                output_work.as_mut(),
+                materialization_metrics,
+            ),
+        )?;
+        projected.into_parts()
+    } else if let Some(output_work) = output_work.as_mut() {
+        let projected = project_admitted_page(
+            row_layout,
+            prepared_projection,
+            page,
+            resolved_order.as_ref(),
+            cursor_page_row_limit,
+            output_work,
             materialization_metrics,
         )?;
         projected.into_parts()
@@ -381,23 +461,69 @@ where
             page,
             materialization_metrics,
         )?;
-        (rows, last_emitted_logical, has_more)
+        (
+            rows,
+            last_emitted_logical,
+            has_more || scan_page_work_exhausted,
+        )
     };
 
-    charge_runtime_value_rows(rows.value_rows())?;
+    if output_work.is_none() {
+        charge_runtime_value_rows(rows.value_rows())?;
+    } else if output_work.as_ref().is_some_and(|work| {
+        work.receipt()
+            .observed(DiagnosticExecutionBudgetResource::ResultRows)
+            != u64::from(rows.row_count())
+    }) {
+        return Err(InternalError::query_executor_invariant());
+    }
 
-    if distinct_strategy.is_none()
+    if output_work.is_none()
+        && distinct_strategy.is_none()
         && let Some(page_row_limit) = cursor_page_row_limit
     {
         rows.truncate(page_row_limit);
     }
 
+    let output_page_work_exhausted = output_work
+        .as_ref()
+        .is_some_and(ProductionScalarOutputWork::envelope_stopped);
+    let last_consumed_physical = if output_page_work_exhausted {
+        None
+    } else {
+        scanned_physical_anchor
+    };
+    let has_more = has_more || scan_page_work_exhausted || output_page_work_exhausted;
+
     Ok(StructuralProjectionPage {
         rows,
         scanned_keys,
         last_emitted_logical,
+        last_consumed_physical,
         has_more,
     })
+}
+
+fn scalar_page_physical_progress_eligible(
+    plan: &crate::db::query::plan::AccessPlannedQuery,
+) -> bool {
+    plan.primary_key_names()
+        .ok()
+        .is_some_and(|primary_key_names| {
+            plan.scalar_plan().order.as_ref().is_some_and(|order| {
+                order
+                    .primary_key_only_direction_fields(primary_key_names.as_slice())
+                    .is_some()
+            })
+        })
+}
+
+const fn min_optional_limits(left: Option<usize>, right: Option<usize>) -> Option<usize> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(if left < right { left } else { right }),
+        (Some(limit), None) | (None, Some(limit)) => Some(limit),
+        (None, None) => None,
+    }
 }
 
 fn sql_scan_budget_exceeded_error(

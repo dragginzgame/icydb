@@ -25,9 +25,13 @@ use crate::{
         },
         executor::{
             EntityAuthority, IndexComponentRows, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            OrderedKeyStreamBox, PrimaryRangeKeyStream, decode_covering_projection_pairs,
-            decode_single_covering_projection_pairs, map_covering_projection_pairs,
-            reorder_covering_projection_pairs,
+            OrderedKeyStreamBox, PrimaryRangeKeyStream,
+            covering::{
+                CoveringProjectionComponentWindow,
+                fold_covering_projection_component_rows_in_window,
+            },
+            decode_covering_projection_pairs, decode_single_covering_projection_pairs,
+            map_covering_projection_pairs, reorder_covering_projection_pairs,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -84,6 +88,7 @@ where
         scan_window,
         stream_order_satisfies_projection_order,
         store,
+        existing_row_mode,
     }) = resolve_index_backed_covering_scan(
         db,
         &authority,
@@ -104,13 +109,74 @@ where
     let order_contract = covering.order_contract;
 
     if component_indices.is_empty() {
+        if stream_order_satisfies_projection_order {
+            let capacity = raw_pairs.len().saturating_sub(scan_window.page_skip_count);
+            #[cfg(feature = "diagnostics")]
+            let (decode_local_instructions, projected_rows) = measure_structural_result(|| {
+                fold_covering_projection_component_rows_in_window(
+                    raw_pairs,
+                    store,
+                    plan.scalar_consistency(),
+                    existing_row_mode,
+                    CoveringProjectionComponentWindow::new(scan_window.page_skip_count, None),
+                    Vec::with_capacity(capacity),
+                    |mut rows, data_key, _components| {
+                        rows.push(project_covering_row_from_decoded_values(
+                            &data_key,
+                            covering.fields.as_slice(),
+                            &[],
+                            &[],
+                        )?);
+                        Ok(Some(rows))
+                    },
+                )
+            });
+            #[cfg(feature = "diagnostics")]
+            record_pure_covering_decode_local_instructions(decode_local_instructions);
+            #[cfg(feature = "diagnostics")]
+            let Some(mut projected_rows) = projected_rows? else {
+                return Ok(None);
+            };
+
+            #[cfg(not(feature = "diagnostics"))]
+            let Some(mut projected_rows) = fold_covering_projection_component_rows_in_window(
+                raw_pairs,
+                store,
+                plan.scalar_consistency(),
+                existing_row_mode,
+                CoveringProjectionComponentWindow::new(scan_window.page_skip_count, None),
+                Vec::with_capacity(capacity),
+                |mut rows, data_key, _components| {
+                    rows.push(project_covering_row_from_decoded_values(
+                        &data_key,
+                        covering.fields.as_slice(),
+                        &[],
+                        &[],
+                    )?);
+                    Ok(Some(rows))
+                },
+            )?
+            else {
+                return Ok(None);
+            };
+
+            apply_covering_page_window(
+                plan.scalar_plan().distinct,
+                page,
+                scan_window.page_window_applied,
+                &mut projected_rows,
+            );
+
+            return Ok(Some(projected_rows));
+        }
+
         #[cfg(feature = "diagnostics")]
         let (decode_local_instructions, projected_keys) = measure_structural_result(|| {
             map_covering_projection_pairs(
                 raw_pairs,
                 store,
                 plan.scalar_consistency(),
-                covering.existing_row_mode,
+                existing_row_mode,
                 |_components| Ok::<Option<()>, InternalError>(Some(())),
             )
         });
@@ -126,35 +192,12 @@ where
             raw_pairs,
             store,
             plan.scalar_consistency(),
-            covering.existing_row_mode,
+            existing_row_mode,
             |_components| Ok::<Option<()>, InternalError>(Some(())),
         )?
         else {
             return Ok(None);
         };
-
-        if stream_order_satisfies_projection_order {
-            let mut projected_rows = assemble_covering_rows_in_index_order(
-                projected_keys,
-                scan_window.page_skip_count,
-                |(data_key, ())| {
-                    project_covering_row_from_decoded_values(
-                        &data_key,
-                        covering.fields.as_slice(),
-                        &[],
-                        &[],
-                    )
-                },
-            )?;
-            apply_covering_page_window(
-                plan.scalar_plan().distinct,
-                page,
-                scan_window.page_window_applied,
-                &mut projected_rows,
-            );
-
-            return Ok(Some(projected_rows));
-        }
 
         let mut projected_rows = assemble_covering_rows_with_reorder(
             projected_keys,
@@ -199,7 +242,7 @@ where
                 raw_pairs,
                 store,
                 plan.scalar_consistency(),
-                covering.existing_row_mode,
+                existing_row_mode,
                 Ok::<Value, InternalError>,
             )
         });
@@ -215,7 +258,7 @@ where
             raw_pairs,
             store,
             plan.scalar_consistency(),
-            covering.existing_row_mode,
+            existing_row_mode,
             Ok::<Value, InternalError>,
         )?
         else {
@@ -285,7 +328,7 @@ where
             raw_pairs,
             store,
             plan.scalar_consistency(),
-            covering.existing_row_mode,
+            existing_row_mode,
             Ok::<Vec<Value>, InternalError>,
         )
     });
@@ -301,7 +344,7 @@ where
         raw_pairs,
         store,
         plan.scalar_consistency(),
-        covering.existing_row_mode,
+        existing_row_mode,
         Ok::<Vec<Value>, InternalError>,
     )?
     else {
@@ -515,7 +558,7 @@ where
                 authority.entity_tag(),
                 direction,
                 scan_limit,
-            ),
+            )?,
         )));
     }
 

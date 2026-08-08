@@ -593,6 +593,71 @@ pub(in crate::db::executor) fn charge_current_execution_budget(
     })
 }
 
+/// Build one typed budget failure from a stricter operator-local hard limit.
+///
+/// Grouped planning can impose a lower retained-state ceiling than the root
+/// request budget. The failure still belongs to the active execution and must
+/// preserve its scope, lane, and normalized shape rather than degrading to an
+/// unclassified internal error.
+pub(in crate::db::executor) fn current_execution_budget_exceeded(
+    resource: DiagnosticExecutionBudgetResource,
+    limit: u64,
+    observed: u64,
+) -> InternalError {
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let Ok(budget) = budget.try_borrow() else {
+            return InternalError::query_executor_invariant();
+        };
+        let Some(budget) = budget.as_ref() else {
+            return InternalError::query_executor_invariant();
+        };
+
+        ExecutionBudgetExceeded::new(resource, limit, observed, budget.context).into()
+    })
+}
+
+/// Monotonic hard-budget counters at one maintained execution boundary.
+///
+/// Page admission compares two snapshots only after it has preflighted the
+/// complete bounded physical unit. The hard budget remains authoritative and
+/// continues to retain every charge, including work from a failed unit.
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct ExecutionBudgetUsage {
+    observed: [u64; RESOURCE_COUNT],
+}
+
+impl ExecutionBudgetUsage {
+    /// Return one cumulative resource observation.
+    #[must_use]
+    pub(in crate::db::executor) const fn observed(
+        self,
+        resource: DiagnosticExecutionBudgetResource,
+    ) -> u64 {
+        self.observed[resource_index(resource)]
+    }
+}
+
+/// Snapshot the innermost execution's cumulative counters.
+///
+/// Scalar page execution always runs below a hard read budget. Requiring that
+/// budget here keeps page-local accounting from becoming a second, optional
+/// source of physical-work truth.
+pub(in crate::db::executor) fn current_execution_budget_usage()
+-> Result<ExecutionBudgetUsage, InternalError> {
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let budget = budget
+            .try_borrow()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        let budget = budget
+            .as_ref()
+            .ok_or_else(InternalError::query_executor_invariant)?;
+
+        Ok(ExecutionBudgetUsage {
+            observed: budget.observed,
+        })
+    })
+}
+
 /// Precharge one full in-memory sort whose entry count is already known.
 pub(in crate::db::executor) fn charge_sort_work<R>(entries: usize) -> Result<(), InternalError> {
     let comparisons_per_entry = if entries <= 1 {
@@ -698,8 +763,10 @@ pub(in crate::db::executor) fn charge_runtime_grouped_rows(
     charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, bytes)
 }
 
+pub(in crate::db::executor) const RUNTIME_VALUE_NODE_OVERHEAD_BYTES: u64 = 32;
+
 pub(in crate::db::executor) fn runtime_value_work(value: &Value) -> (u64, u64) {
-    const VALUE_OVERHEAD: u64 = 32;
+    const VALUE_OVERHEAD: u64 = RUNTIME_VALUE_NODE_OVERHEAD_BYTES;
     match value {
         Value::Blob(value) => (VALUE_OVERHEAD.saturating_add(usize_as_u64(value.len())), 1),
         Value::Text(value) => (VALUE_OVERHEAD.saturating_add(usize_as_u64(value.len())), 1),

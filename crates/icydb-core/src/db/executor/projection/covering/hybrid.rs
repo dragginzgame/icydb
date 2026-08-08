@@ -18,6 +18,7 @@ use crate::{
             EntityAuthority, IndexComponentRows, budget::charge_current_execution_budget,
             terminal::RowLayout,
         },
+        predicate::MissingRowPolicy,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -43,12 +44,12 @@ where
     }
 
     let row_field_slots = hybrid_projection_row_field_slots(hybrid.fields.as_slice());
-    let row_presence_proven = hybrid.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner;
     let Some(PreparedCoveringIndexScan {
         component_indices,
         raw_pairs,
         scan_window,
         store,
+        existing_row_mode,
         ..
     }) = resolve_index_backed_covering_scan(
         db,
@@ -66,6 +67,7 @@ where
     else {
         return Ok(None);
     };
+    let row_presence_proven = existing_row_mode == CoveringExistingRowMode::ProvenByPlanner;
 
     runtime.metrics.record_hybrid_path_hit();
     let row_layout = authority.row_layout()?;
@@ -144,6 +146,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
             data_store,
             &data_key,
             row_field_slots,
+            false,
         )?
         .ok_or_else(InternalError::query_executor_invariant)?;
         let decoded_components = decode_hybrid_covering_components(component_indices, components)?;
@@ -185,8 +188,12 @@ fn execute_hybrid_covering_projection_with_checked_rows(
             data_store,
             &data_key,
             row_field_slots,
+            true,
         )?;
         let Some(sparse_row_fields) = sparse_row_fields else {
+            if matches!(plan.scalar_consistency(), MissingRowPolicy::Error) {
+                return Err(crate::db::executor::ExecutorError::missing_row(&data_key).into());
+            }
             continue;
         };
         if projected_row_count < page_skip_count {
@@ -247,9 +254,18 @@ fn read_hybrid_projection_row_fields_from_store(
     data_store: &DataStore,
     data_key: &DecodedDataStoreKey,
     row_field_slots: &[usize],
+    check_presence_without_row_fields: bool,
 ) -> Result<Option<Vec<(usize, Value)>>, InternalError> {
-    // Phase 1: empty row-backed hybrids stay on the covering-only path.
+    // Phase 1: a checked covering-only hybrid still owes an authoritative
+    // existence probe even though it has no row-backed projection slot.
     if row_field_slots.is_empty() {
+        if check_presence_without_row_fields {
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+            let raw_key = data_key.to_raw()?;
+            if !data_store.contains(&raw_key) {
+                return Ok(None);
+            }
+        }
         return Ok(Some(Vec::new()));
     }
 

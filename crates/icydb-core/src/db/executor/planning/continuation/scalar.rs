@@ -31,6 +31,7 @@ use std::rc::Rc;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ScalarContinuationContext {
     cursor_boundary: Option<Rc<CursorBoundary>>,
+    physical_primary_key_boundary: Option<Rc<CursorBoundary>>,
 }
 
 impl ScalarContinuationContext {
@@ -39,6 +40,7 @@ impl ScalarContinuationContext {
     pub(in crate::db) const fn initial() -> Self {
         Self {
             cursor_boundary: None,
+            physical_primary_key_boundary: None,
         }
     }
 
@@ -48,6 +50,23 @@ impl ScalarContinuationContext {
     pub(in crate::db) fn resumed(cursor_boundary: CursorBoundary) -> Self {
         Self {
             cursor_boundary: Some(Rc::new(cursor_boundary)),
+            physical_primary_key_boundary: None,
+        }
+    }
+
+    /// Construct one resumed runtime with authenticated physical primary-key progress.
+    ///
+    /// `cursor_boundary` remains the last row actually emitted. The physical
+    /// boundary may be later when residual predicates rejected additional
+    /// candidates before the page work envelope stopped.
+    #[must_use]
+    pub(in crate::db) fn resumed_with_primary_progress(
+        cursor_boundary: Option<CursorBoundary>,
+        physical_primary_key_boundary: CursorBoundary,
+    ) -> Self {
+        Self {
+            cursor_boundary: cursor_boundary.map(Rc::new),
+            physical_primary_key_boundary: Some(Rc::new(physical_primary_key_boundary)),
         }
     }
 
@@ -57,16 +76,16 @@ impl ScalarContinuationContext {
         self.cursor_boundary.as_deref()
     }
 
-    /// Return whether this scalar continuation context has one cursor boundary.
+    /// Return whether this scalar continuation has logical or physical progress.
     #[must_use]
-    pub(in crate::db) const fn has_cursor_boundary(&self) -> bool {
-        self.cursor_boundary.is_some()
+    pub(in crate::db) const fn has_progress(&self) -> bool {
+        self.cursor_boundary.is_some() || self.physical_primary_key_boundary.is_some()
     }
 
     /// Derive route continuation mode from scalar continuation context shape.
     #[must_use]
     pub(in crate::db::executor) const fn route_continuation_mode(&self) -> ContinuationMode {
-        if self.has_cursor_boundary() {
+        if self.has_progress() {
             ContinuationMode::CursorBoundary
         } else {
             ContinuationMode::Initial
@@ -86,7 +105,7 @@ impl ScalarContinuationContext {
         RouteContinuationPlan::from_scalar_access_window_plan(
             self.route_continuation_mode(),
             continuation_policy,
-            plan.scalar_access_window_plan(self.has_cursor_boundary()),
+            plan.scalar_access_window_plan(self.has_progress()),
         )
     }
 
@@ -111,7 +130,11 @@ impl ScalarContinuationContext {
             None,
             direction,
             primary_key_ordered
-                .then_some(self.cursor_boundary())
+                .then_some(
+                    self.physical_primary_key_boundary
+                        .as_deref()
+                        .or_else(|| self.cursor_boundary()),
+                )
                 .flatten(),
         )
     }
@@ -131,7 +154,7 @@ impl ScalarContinuationContext {
         );
         debug_assert_eq!(
             route_continuation.effective_offset(),
-            continuation_page_offset_for_window(plan, self.has_cursor_boundary()),
+            continuation_page_offset_for_window(plan, self.has_progress()),
             "route window effective offset must match logical plan offset semantics",
         );
     }
@@ -143,7 +166,7 @@ impl ScalarContinuationContext {
         plan: &AccessPlannedQuery,
         limit: u32,
     ) -> usize {
-        continuation_keep_count_for_limit(plan, self.has_cursor_boundary(), limit)
+        continuation_keep_count_for_limit(plan, self.has_progress(), limit)
     }
 
     /// Validate load scan-budget hint preconditions under this continuation context.
@@ -155,7 +178,7 @@ impl ScalarContinuationContext {
         scan_budget_hint: Option<usize>,
         load_order_route_mode: LoadOrderRouteMode,
     ) -> Result<(), InternalError> {
-        if scan_budget_hint.is_some() && self.has_cursor_boundary() {
+        if scan_budget_hint.is_some() && self.has_progress() {
             return Err(InternalError::query_executor_invariant());
         }
         if scan_budget_hint.is_some() && !load_order_route_mode.allows_streaming_load() {

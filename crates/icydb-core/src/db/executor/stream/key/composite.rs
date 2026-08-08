@@ -89,6 +89,12 @@ where
 
         Some(total)
     }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        self.streams.iter().try_fold(0usize, |total, stream| {
+            total.checked_add(stream.page_access_entry_bound()?)
+        })
+    }
 }
 
 ///
@@ -312,6 +318,12 @@ where
             return Ok(Some(next));
         }
     }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        self.left
+            .page_access_entry_bound()?
+            .checked_add(self.right.page_access_entry_bound()?)
+    }
 }
 
 struct KeyFlatMergeChild<S> {
@@ -493,6 +505,17 @@ where
         }
 
         Ok(Some(next))
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        let child_pull_bound = self.children.iter().try_fold(0usize, |total, child| {
+            total.checked_add(child.stream.page_access_entry_bound()?)
+        })?;
+
+        // The first output initializes one head per child and refreshes each
+        // child whose duplicate head is consumed. Later outputs do at most the
+        // same amount of work, so twice the child-pull sum is a finite bound.
+        child_pull_bound.checked_mul(2)
     }
 }
 

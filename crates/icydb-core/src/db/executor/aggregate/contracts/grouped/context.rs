@@ -8,7 +8,10 @@ use crate::db::executor::{
         GroupBudgetResourceCode, error::GroupError, state::GroupedTerminalAggregateState,
     },
     budget::{charge_current_execution_budget, runtime_value_work},
-    group::{GroupKey, GroupKeySet},
+    group::{
+        GroupKey, GroupKeySet, retained_hash_entry_backing_bytes,
+        retained_vec_element_backing_bytes,
+    },
 };
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
@@ -292,15 +295,32 @@ impl ExecutionBudget {
         }
 
         let value_work = runtime_value_work(value);
+        let structural_bytes = retained_hash_entry_backing_bytes::<GroupKey, ()>();
+        let bytes_delta = value_work.0.saturating_add(structural_bytes);
+        let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
+        if next_bytes > config.max_group_bytes() {
+            return Err(GroupError::memory_limit_exceeded(
+                GroupBudgetResourceCode::EstimatedBytes,
+                next_bytes,
+                config.max_group_bytes(),
+            ));
+        }
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1)
             .map_err(GroupError::from)?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
-            value_work.0,
+            bytes_delta,
+        )
+        .map_err(GroupError::from)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            value_work.1,
         )
         .map_err(GroupError::from)?;
 
         self.distinct_values = attempted;
+        self.estimated_bytes = next_bytes;
+        self.peak_estimated_bytes = self.peak_estimated_bytes.max(next_bytes);
         #[cfg(any(test, feature = "diagnostics"))]
         {
             self.live_distinct_values = self.live_distinct_values.saturating_add(1);
@@ -308,6 +328,31 @@ impl ExecutionBudget {
                 self.peak_live_distinct_values = self.live_distinct_values;
             }
         }
+
+        Ok(())
+    }
+
+    fn record_structural_backing(
+        &mut self,
+        config: &ExecutionConfig,
+        bytes_delta: u64,
+    ) -> Result<(), GroupError> {
+        let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
+        if next_bytes > config.max_group_bytes() {
+            return Err(GroupError::memory_limit_exceeded(
+                GroupBudgetResourceCode::EstimatedBytes,
+                next_bytes,
+                config.max_group_bytes(),
+            ));
+        }
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+            bytes_delta,
+        )
+        .map_err(GroupError::from)?;
+
+        self.estimated_bytes = next_bytes;
+        self.peak_estimated_bytes = self.peak_estimated_bytes.max(next_bytes);
 
         Ok(())
     }
@@ -597,6 +642,16 @@ impl ExecutionContext {
         self.budget.record_distinct_value(&self.config, value)
     }
 
+    /// Reserve complete structural backing owned by a blocking grouped hash
+    /// table or collision bucket before its fallible allocation.
+    pub(in crate::db::executor::aggregate) fn record_structural_backing(
+        &mut self,
+        bytes_delta: u64,
+    ) -> Result<(), GroupError> {
+        self.budget
+            .record_structural_backing(&self.config, bytes_delta)
+    }
+
     /// Admit one grouped DISTINCT key through execution-context budget
     /// accounting and per-group cardinality enforcement.
     pub(in crate::db::executor) fn admit_distinct_key(
@@ -632,7 +687,7 @@ impl ExecutionContext {
         }
 
         self.record_distinct_value(key.canonical_value())?;
-        let inserted = distinct_keys.insert_key(key);
+        let inserted = distinct_keys.insert_key(key).map_err(GroupError::from)?;
         debug_assert!(inserted, "new distinct key must insert exactly once");
 
         Ok(true)
@@ -651,21 +706,12 @@ impl ExecutionContext {
 }
 
 fn estimated_new_group_bytes(
-    group_count_before_insert: usize,
-    group_capacity_before_insert: usize,
+    _group_count_before_insert: usize,
+    _group_capacity_before_insert: usize,
     retained_key_bytes: u64,
 ) -> u64 {
-    let entry_size = size_of::<(GroupKey, GroupedTerminalAggregateState)>();
-    let entry_growth = if group_count_before_insert < group_capacity_before_insert {
-        entry_size
-    } else {
-        let projected_capacity = projected_capacity_after_insert(group_capacity_before_insert);
-        projected_capacity
-            .saturating_sub(group_capacity_before_insert)
-            .saturating_mul(entry_size)
-    };
-
-    saturating_u64_from_usize(entry_growth).saturating_add(retained_key_bytes)
+    retained_vec_element_backing_bytes::<(GroupKey, GroupedTerminalAggregateState)>()
+        .saturating_add(retained_key_bytes)
 }
 
 fn ordered_active_group_bytes(aggregate_state_count: usize, retained_key_bytes: u64) -> u64 {
@@ -681,14 +727,43 @@ const fn derived_max_distinct_values_per_group(max_group_bytes: u64) -> u64 {
     if derived == 0 { 1 } else { derived }
 }
 
-const fn projected_capacity_after_insert(current_capacity: usize) -> usize {
-    if current_capacity == 0 {
-        1
-    } else {
-        current_capacity.saturating_mul(2)
-    }
-}
-
 fn saturating_u64_from_usize(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExecutionConfig, ExecutionContext};
+    use crate::{
+        db::executor::{
+            budget::runtime_value_work,
+            group::{GroupKey, GroupKeySet, retained_hash_entry_backing_bytes},
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn grouped_distinct_estimate_includes_hash_set_capacity() {
+        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+        let mut distinct = GroupKeySet::new();
+        let key = GroupKey::from_group_values(vec![Value::Text("one".to_string())])
+            .expect("canonical key");
+        let expected_minimum = runtime_value_work(key.canonical_value())
+            .0
+            .saturating_add(retained_hash_entry_backing_bytes::<GroupKey, ()>());
+
+        assert!(
+            context
+                .admit_distinct_key(&mut distinct, u64::MAX, key.clone())
+                .expect("first distinct key")
+        );
+        assert!(context.budget().estimated_bytes() >= expected_minimum);
+        let after_first = context.budget().estimated_bytes();
+        assert!(
+            !context
+                .admit_distinct_key(&mut distinct, u64::MAX, key)
+                .expect("duplicate distinct key")
+        );
+        assert_eq!(context.budget().estimated_bytes(), after_first);
+    }
 }

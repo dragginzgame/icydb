@@ -74,8 +74,16 @@ impl AccessPlannedQuery {
     /// Borrow scalar missing-row consistency without exposing the full scalar
     /// plan to executor owners that only need row-presence policy.
     #[must_use]
-    pub(in crate::db) const fn scalar_consistency(&self) -> MissingRowPolicy {
-        self.scalar_plan().consistency
+    pub(in crate::db) fn scalar_consistency(&self) -> MissingRowPolicy {
+        if self.access.has_selected_index_access_path() {
+            // An accepted secondary index is a persisted claim that every
+            // emitted key identifies an authoritative row. Ignoring a missing
+            // row would turn accepted-index corruption into an incomplete
+            // successful result.
+            MissingRowPolicy::Error
+        } else {
+            self.scalar_plan().consistency
+        }
     }
 
     /// Borrow grouped semantic fields when this plan is grouped.

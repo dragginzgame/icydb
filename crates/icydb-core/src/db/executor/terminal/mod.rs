@@ -16,7 +16,12 @@ pub(in crate::db) use page::{
     DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
-pub(in crate::db::executor) use page::{RetainedSlotLayout, RetainedSlotValueMode};
+pub(in crate::db::executor) use page::{
+    ProductionScalarOutputWork, RetainedSlotLayout, RetainedSlotValueMode,
+    begin_production_scalar_page_unit, finish_production_scalar_page_unit,
+    production_scalar_page_access_entry_limit, production_scalar_page_work_is_active,
+    with_production_scalar_page_work,
+};
 pub(in crate::db::executor) use row_decode::RowDecoder;
 pub(in crate::db) use row_decode::RowLayout;
 

@@ -162,9 +162,13 @@ pub(in crate::db::executor) use stream::{
     PrefixSetMergeSafety,
 };
 pub(in crate::db) use terminal::PageWorkEnvelope;
-pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};
+pub(in crate::db::executor) use terminal::{
+    ProductionScalarOutputWork, RetainedSlotLayout, begin_production_scalar_page_unit,
+    finish_production_scalar_page_unit, production_scalar_page_access_entry_limit,
+    production_scalar_page_work_is_active, with_production_scalar_page_work,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use terminal::{
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,

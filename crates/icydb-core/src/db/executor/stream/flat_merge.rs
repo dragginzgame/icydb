@@ -4,9 +4,14 @@
 //! Boundary: shared sibling-stream merge loop for already ordered branch streams.
 
 use crate::{
-    db::{data::DecodedDataStoreKey, executor::stream::key::KeyOrderComparator},
+    db::{
+        data::DecodedDataStoreKey,
+        executor::{budget::charge_current_execution_budget, stream::key::KeyOrderComparator},
+    },
     error::InternalError,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
+use std::mem::size_of;
 
 pub(in crate::db::executor) trait FlatMergeOrderedChild {
     type Item;
@@ -17,8 +22,6 @@ pub(in crate::db::executor) trait FlatMergeOrderedChild {
     fn head_key(&self) -> Option<&DecodedDataStoreKey>;
 
     fn take_item(&mut self) -> Option<Self::Item>;
-
-    fn clear_item(&mut self);
 
     fn item_key(item: &Self::Item) -> &DecodedDataStoreKey;
 
@@ -64,6 +67,9 @@ where
     children: Vec<C>,
     comparator: KeyOrderComparator,
     last_emitted: Option<C::KeyWitness>,
+    winner_tree: Vec<Option<usize>>,
+    winner_tree_leaf_base: usize,
+    dirty_child: Option<usize>,
 }
 
 impl<C> FlatMergeStream<C>
@@ -78,66 +84,145 @@ where
             children,
             comparator,
             last_emitted: None,
+            winner_tree: Vec::new(),
+            winner_tree_leaf_base: 0,
+            dirty_child: None,
         }
     }
 
-    fn ensure_items(&mut self) -> Result<(), InternalError> {
+    fn initialize_winner_tree(&mut self) -> Result<(), InternalError> {
+        if self.winner_tree_leaf_base != 0 || self.children.is_empty() {
+            return Ok(());
+        }
         for child in &mut self.children {
             child.ensure_item()?;
+        }
+
+        let leaf_base = self
+            .children
+            .len()
+            .checked_next_power_of_two()
+            .ok_or_else(InternalError::executor_invariant)?;
+        let tree_len = leaf_base
+            .checked_mul(2)
+            .ok_or_else(InternalError::executor_invariant)?;
+        let tree_bytes = tree_len
+            .checked_mul(size_of::<Option<usize>>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(tree_bytes).unwrap_or(u64::MAX),
+        )?;
+        self.winner_tree
+            .try_reserve_exact(tree_len)
+            .map_err(|_| InternalError::executor_internal())?;
+        self.winner_tree.resize(tree_len, None);
+        self.winner_tree_leaf_base = leaf_base;
+        for index in 0..self.children.len() {
+            let has_head = self
+                .children
+                .get(index)
+                .ok_or_else(InternalError::executor_invariant)?
+                .head_key()
+                .is_some();
+            let leaf = self
+                .winner_tree
+                .get_mut(leaf_base + index)
+                .ok_or_else(InternalError::executor_invariant)?;
+            *leaf = has_head.then_some(index);
+        }
+        for node in (1..leaf_base).rev() {
+            self.recompute_winner_node(node)?;
         }
 
         Ok(())
     }
 
-    fn next_child_index(&self) -> Option<usize> {
-        let mut best = None;
-        for (index, child) in self.children.iter().enumerate() {
-            let Some(candidate) = child.head_key() else {
-                continue;
-            };
-            let Some(best_index) = best else {
-                best = Some(index);
-                continue;
-            };
-            let Some(best_key) = self.children[best_index].head_key() else {
-                best = Some(index);
-                continue;
-            };
-            if self
-                .comparator
-                .compare_data_keys(candidate, best_key)
-                .is_lt()
-            {
-                best = Some(index);
+    fn recompute_winner_node(&mut self, node: usize) -> Result<(), InternalError> {
+        let left = self.winner_tree.get(node * 2).copied().flatten();
+        let right = self.winner_tree.get(node * 2 + 1).copied().flatten();
+        let winner = match (left, right) {
+            (Some(left), Some(right)) => {
+                let left_key = self
+                    .children
+                    .get(left)
+                    .ok_or_else(InternalError::executor_invariant)?
+                    .head_key();
+                let right_key = self
+                    .children
+                    .get(right)
+                    .ok_or_else(InternalError::executor_invariant)?
+                    .head_key();
+                match (left_key, right_key) {
+                    (Some(left_key), Some(right_key)) => {
+                        if self
+                            .comparator
+                            .compare_data_keys(right_key, left_key)
+                            .is_lt()
+                        {
+                            Some(right)
+                        } else {
+                            Some(left)
+                        }
+                    }
+                    (Some(_), None) => Some(left),
+                    (None, Some(_)) => Some(right),
+                    (None, None) => None,
+                }
             }
-        }
-
-        best
+            (Some(index), None) | (None, Some(index)) => Some(index),
+            (None, None) => None,
+        };
+        let slot = self
+            .winner_tree
+            .get_mut(node)
+            .ok_or_else(InternalError::executor_invariant)?;
+        *slot = winner;
+        Ok(())
     }
 
-    fn clear_duplicate_heads(&mut self, emitted: &C::KeyWitness) {
-        for child in &mut self.children {
-            if child
-                .head_key()
-                .is_some_and(|key| C::witness_matches_key(emitted, key))
-            {
-                child.clear_item();
-            }
+    fn refresh_child(&mut self, index: usize) -> Result<(), InternalError> {
+        let child = self
+            .children
+            .get_mut(index)
+            .ok_or_else(InternalError::executor_invariant)?;
+        child.ensure_item()?;
+        let has_head = child.head_key().is_some();
+        let mut node = self.winner_tree_leaf_base + index;
+        let leaf = self
+            .winner_tree
+            .get_mut(node)
+            .ok_or_else(InternalError::executor_invariant)?;
+        *leaf = has_head.then_some(index);
+        node /= 2;
+        while node != 0 {
+            self.recompute_winner_node(node)?;
+            node /= 2;
         }
+
+        Ok(())
     }
 
     pub(in crate::db::executor) fn next_item(&mut self) -> Result<Option<C::Item>, InternalError> {
+        self.initialize_winner_tree()?;
         loop {
-            self.ensure_items()?;
-            let Some(child_index) = self.next_child_index() else {
+            if let Some(index) = self.dirty_child.take() {
+                self.refresh_child(index)?;
+            }
+            let Some(child_index) = self.winner_tree.get(1).copied().flatten() else {
                 return Ok(None);
             };
-            let Some(next) = self.children[child_index].take_item() else {
-                return Ok(None);
+            let Some(next) = self
+                .children
+                .get_mut(child_index)
+                .ok_or_else(InternalError::executor_invariant)?
+                .take_item()
+            else {
+                return Err(InternalError::executor_invariant());
             };
+            self.dirty_child = Some(child_index);
 
             let emitted_witness = C::key_witness(C::item_key(&next));
-            self.clear_duplicate_heads(&emitted_witness);
 
             if self
                 .last_emitted

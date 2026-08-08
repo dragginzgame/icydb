@@ -33,6 +33,7 @@ struct StaticOrderedKeyStream {
     keys: Vec<DecodedDataStoreKey>,
     index: usize,
     fail_at: Option<usize>,
+    page_access_entry_bound: Option<usize>,
 }
 
 impl StaticOrderedKeyStream {
@@ -41,6 +42,7 @@ impl StaticOrderedKeyStream {
             keys,
             index: 0,
             fail_at: None,
+            page_access_entry_bound: None,
         }
     }
 
@@ -49,7 +51,13 @@ impl StaticOrderedKeyStream {
             keys,
             index: 0,
             fail_at: Some(fail_at),
+            page_access_entry_bound: None,
         }
+    }
+
+    fn with_page_access_entry_bound(mut self, bound: usize) -> Self {
+        self.page_access_entry_bound = Some(bound);
+        self
     }
 }
 
@@ -66,6 +74,10 @@ impl OrderedKeyStream for StaticOrderedKeyStream {
         self.index = self.index.saturating_add(1);
 
         Ok(Some(key))
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        self.page_access_entry_bound
     }
 }
 
@@ -599,4 +611,32 @@ fn ordered_key_stream_box_intersect_all_reduces_streams_pairwise() {
         vec![data_key(2), data_key(3)],
         "intersect-all should keep only keys present in every stream",
     );
+}
+
+#[test]
+fn composite_page_pull_bounds_cover_initialization_and_duplicate_refresh() {
+    let comparator = KeyOrderComparator::from_direction(Direction::Asc);
+    let binary = MergeOrderedKeyStream::new_with_comparator(
+        StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(2),
+        StaticOrderedKeyStream::new(vec![data_key(2)]).with_page_access_entry_bound(3),
+        comparator,
+    );
+    assert_eq!(binary.page_access_entry_bound(), Some(5));
+
+    let flat = crate::db::executor::stream::key::FlatMergeOrderedKeyStream::new_with_comparator(
+        vec![
+            StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(2),
+            StaticOrderedKeyStream::new(vec![data_key(2)]).with_page_access_entry_bound(3),
+            StaticOrderedKeyStream::new(vec![data_key(3)]).with_page_access_entry_bound(4),
+        ],
+        comparator,
+    );
+    assert_eq!(flat.page_access_entry_bound(), Some(18));
+
+    let intersection = IntersectOrderedKeyStream::new_with_comparator(
+        StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(1),
+        StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(1),
+        comparator,
+    );
+    assert_eq!(intersection.page_access_entry_bound(), None);
 }

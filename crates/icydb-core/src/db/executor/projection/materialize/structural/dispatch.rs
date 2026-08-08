@@ -5,7 +5,8 @@
 
 use crate::{
     db::executor::{
-        StructuralCursorPage,
+        ProductionScalarOutputWork, StructuralCursorPage,
+        order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
         projection::materialize::{
             execute::{project_data_row, project_slot_row},
             metrics::ProjectionMaterializationMetricsRecorder,
@@ -15,8 +16,25 @@ use crate::{
         },
         terminal::RowLayout,
     },
+    db::{cursor::CursorBoundary, query::plan::ResolvedOrder},
     error::InternalError,
 };
+use std::cell::RefCell;
+
+/// One cursor-page projection admitted row by row against the page envelope.
+pub(in crate::db::executor::projection) struct AdmittedProjectionPage {
+    rows: MaterializedProjectionRows,
+    last_emitted_logical: Option<CursorBoundary>,
+    has_more: bool,
+}
+
+impl AdmittedProjectionPage {
+    pub(in crate::db::executor::projection) fn into_parts(
+        self,
+    ) -> (MaterializedProjectionRows, Option<CursorBoundary>, bool) {
+        (self.rows, self.last_emitted_logical, self.has_more)
+    }
+}
 
 pub(in crate::db) fn project(
     row_layout: RowLayout,
@@ -52,6 +70,73 @@ pub(in crate::db) fn project(
                 .collect::<Result<Vec<_>, InternalError>>()?;
 
             Ok(MaterializedProjectionRows::from_value_rows(rows))
+        },
+    )
+}
+
+/// Project and admit one scalar page a row at a time.
+///
+/// The first row that cannot enter the remaining page envelope is discarded
+/// and left beyond the returned logical boundary, so resume cannot skip it.
+pub(in crate::db::executor::projection) fn project_admitted_page(
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionContract,
+    page: StructuralCursorPage,
+    resolved_order: Option<&ResolvedOrder>,
+    row_limit: Option<usize>,
+    output_work: &mut ProductionScalarOutputWork,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<AdmittedProjectionPage, InternalError> {
+    let output_work = RefCell::new(output_work);
+    page.consume_projection_rows(
+        |slot_rows| {
+            metrics.record_slot_rows_path_hit();
+            let source_has_more = row_limit.is_some_and(|limit| slot_rows.len() >= limit);
+            let mut rows = Vec::new();
+            let mut last_emitted_logical = None;
+            let mut output_stopped = false;
+            for row in slot_rows.into_iter().take(row_limit.unwrap_or(usize::MAX)) {
+                let boundary =
+                    resolved_order.map(|order| cursor_boundary_from_orderable_row(&row, order));
+                let projected = project_slot_row(prepared_projection, row)?;
+                if !output_work.borrow_mut().admit_row(projected.values())? {
+                    output_stopped = true;
+                    break;
+                }
+                last_emitted_logical = boundary;
+                rows.push(projected.into_owned());
+            }
+
+            Ok(AdmittedProjectionPage {
+                rows: MaterializedProjectionRows::from_value_rows(rows),
+                last_emitted_logical,
+                has_more: source_has_more || output_stopped,
+            })
+        },
+        |data_rows| {
+            metrics.record_data_rows_path_hit();
+            let source_has_more = row_limit.is_some_and(|limit| data_rows.len() >= limit);
+            let mut rows = Vec::new();
+            let mut last_emitted_logical = None;
+            let mut output_stopped = false;
+            for row in data_rows.into_iter().take(row_limit.unwrap_or(usize::MAX)) {
+                let boundary = resolved_order
+                    .map(|order| cursor_boundary_from_data_row(&row, &row_layout, order))
+                    .transpose()?;
+                let projected = project_data_row(&row_layout, prepared_projection, &row, metrics)?;
+                if !output_work.borrow_mut().admit_row(projected.values())? {
+                    output_stopped = true;
+                    break;
+                }
+                last_emitted_logical = boundary;
+                rows.push(projected.into_owned());
+            }
+
+            Ok(AdmittedProjectionPage {
+                rows: MaterializedProjectionRows::from_value_rows(rows),
+                last_emitted_logical,
+                has_more: source_has_more || output_stopped,
+            })
         },
     )
 }

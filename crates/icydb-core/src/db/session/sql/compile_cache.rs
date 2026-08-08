@@ -18,6 +18,7 @@ use crate::{
         },
         sql::parser::parse_sql_with_attribution,
     },
+    error::InternalError,
     metrics::sink::{
         CacheKind, CacheOutcome, SqlCompileRejectPhase, record_cache_entries,
         record_cache_event_for_path, record_cache_miss_reason_for_path,
@@ -39,9 +40,15 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(entity_name)
-            .map_err(QueryError::execute)?;
+        let catalog = match entity_name {
+            Some(entity_name) => self
+                .find_accepted_schema_catalog_context_for_entity_name(entity_name)
+                .map_err(QueryError::execute)?
+                .ok_or_else(|| QueryError::execute(InternalError::sql_query_entity_not_found()))?,
+            None => self
+                .accepted_schema_catalog_context_for_entity_name(None)
+                .map_err(QueryError::execute)?,
+        };
         self.compile_sql_surface_with_catalog(sql, SqlCompiledCommandSurface::Query, catalog)
     }
 

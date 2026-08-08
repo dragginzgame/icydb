@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::ExecutableAccessPlan,
         cursor::CursorBoundary,
-        data::DataRow,
+        data::{DataRow, DecodedDataStoreKey},
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutionPreparation, OrderedKeyStreamBox,
             ScalarContinuationContext,
@@ -134,6 +134,7 @@ impl PreparedExecutionProjection {
 
 pub(in crate::db) struct StructuralCursorPage {
     payload: StructuralCursorPagePayload,
+    last_scanned_key: Option<DecodedDataStoreKey>,
 }
 
 ///
@@ -155,6 +156,7 @@ impl StructuralCursorPage {
     pub(in crate::db) const fn new(data_rows: Vec<DataRow>) -> Self {
         Self {
             payload: StructuralCursorPagePayload::DataRows(data_rows),
+            last_scanned_key: None,
         }
     }
 
@@ -164,7 +166,28 @@ impl StructuralCursorPage {
     pub(in crate::db) const fn new_with_slot_rows(slot_rows: Vec<RetainedSlotRow>) -> Self {
         Self {
             payload: StructuralCursorPagePayload::SlotRows(slot_rows),
+            last_scanned_key: None,
         }
+    }
+
+    /// Attach the last candidate key actually emitted into the scalar row loop.
+    #[must_use]
+    pub(in crate::db::executor) fn with_last_scanned_key(
+        mut self,
+        last_scanned_key: Option<DecodedDataStoreKey>,
+    ) -> Self {
+        self.last_scanned_key = last_scanned_key;
+        self
+    }
+
+    /// Encode the last fully examined candidate as a route-neutral data key.
+    pub(in crate::db) fn last_scanned_physical_anchor(
+        &self,
+    ) -> Result<Option<Vec<u8>>, InternalError> {
+        self.last_scanned_key
+            .as_ref()
+            .map(|key| key.raw_key().map(|raw| raw.as_bytes().to_vec()))
+            .transpose()
     }
 
     /// Return the number of structural rows carried by this page.

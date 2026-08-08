@@ -56,6 +56,39 @@ enum DataStoreBackend {
     },
 }
 
+/// One visible row read that borrows heap/live state and owns stable state.
+///
+/// Callers that only need selected fields can evaluate a borrowed row while
+/// the store handle is active. Stable-structure reads remain owned because
+/// that backend cannot expose a value reference beyond its storage call.
+pub(in crate::db) enum StoredRowRead<'a> {
+    Missing,
+    Borrowed(&'a RawRow),
+    Owned(RawRow),
+}
+
+impl StoredRowRead<'_> {
+    /// Borrow the visible row regardless of its physical backing.
+    #[must_use]
+    pub(in crate::db) const fn as_row(&self) -> Option<&RawRow> {
+        match self {
+            Self::Missing => None,
+            Self::Borrowed(row) => Some(row),
+            Self::Owned(row) => Some(row),
+        }
+    }
+
+    /// Convert the visible row into the existing owned get contract.
+    #[must_use]
+    fn into_owned(self) -> Option<RawRow> {
+        match self {
+            Self::Missing => None,
+            Self::Borrowed(row) => Some(row.clone()),
+            Self::Owned(row) => Some(row),
+        }
+    }
+}
+
 /// Control-flow result for store traversal visitors.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum StoreVisit {
@@ -310,12 +343,33 @@ impl DataStore {
 
     /// Load one row by raw key.
     pub(in crate::db) fn get(&self, key: &RawDataStoreKey) -> Option<RawRow> {
+        self.read(key).into_owned()
+    }
+
+    /// Read one visible row without cloning heap/live payloads.
+    pub(in crate::db) fn read<'a>(&'a self, key: &RawDataStoreKey) -> StoredRowRead<'a> {
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_data_store_get_call();
 
         match &self.backend {
-            DataStoreBackend::Heap(map) => map.get(key).cloned(),
-            DataStoreBackend::Journaled { .. } => Self::journaled_get_raw(&self.backend, key),
+            DataStoreBackend::Heap(map) => map
+                .get(key)
+                .map_or(StoredRowRead::Missing, StoredRowRead::Borrowed),
+            DataStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => {
+                if tombstones.contains(key) {
+                    StoredRowRead::Missing
+                } else if let Some(row) = live.get(key) {
+                    StoredRowRead::Borrowed(row)
+                } else {
+                    canonical
+                        .get(key)
+                        .map_or(StoredRowRead::Missing, StoredRowRead::Owned)
+                }
+            }
         }
     }
 
@@ -324,8 +378,13 @@ impl DataStore {
     pub(in crate::db) fn contains(&self, key: &RawDataStoreKey) -> bool {
         match &self.backend {
             DataStoreBackend::Heap(map) => map.contains_key(key),
-            DataStoreBackend::Journaled { .. } => {
-                Self::journaled_get_raw(&self.backend, key).is_some()
+            DataStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => {
+                !tombstones.contains(key)
+                    && (live.contains_key(key) || canonical.get(key).is_some())
             }
         }
     }
@@ -410,6 +469,74 @@ impl DataStore {
         Ok(())
     }
 
+    /// Visit one ascending row range while allowing the caller to stop after
+    /// seeing the key but before a stable row payload is materialized.
+    ///
+    /// Mixed journal overlays retain the ordinary key-then-point-read path;
+    /// one physical backing can keep the range iterator open for the complete
+    /// scan and avoid a second tree lookup per row.
+    pub(in crate::db) fn try_visit_range_with_row_preflight<E>(
+        &self,
+        key_range: impl RangeBounds<RawDataStoreKey>,
+        mut preflight: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
+        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
+    ) -> Result<Option<bool>, E> {
+        let bounds = Self::owned_range_bounds(&key_range);
+        let mut stopped = false;
+        match &self.backend {
+            DataStoreBackend::Heap(map) => {
+                for (key, row) in map.range((bounds.0.clone(), bounds.1)) {
+                    if preflight(key)?.should_stop() {
+                        stopped = true;
+                        break;
+                    }
+                    if visitor(key, row)?.should_stop() {
+                        stopped = true;
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } if canonical.is_empty() => {
+                for (key, row) in live.range((bounds.0.clone(), bounds.1)) {
+                    if tombstones.contains(key) {
+                        continue;
+                    }
+                    if preflight(key)?.should_stop() {
+                        stopped = true;
+                        break;
+                    }
+                    if visitor(key, row)?.should_stop() {
+                        stopped = true;
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } if live.is_empty() && tombstones.is_empty() => {
+                for entry in canonical.range((bounds.0.clone(), bounds.1)) {
+                    if preflight(entry.key())?.should_stop() {
+                        stopped = true;
+                        break;
+                    }
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        stopped = true;
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Journaled { .. } => return Ok(None),
+        }
+
+        Ok(Some(!stopped))
+    }
+
     /// Visit only raw keys in storage order without fetching row payloads.
     ///
     /// Primary-key access streams use this boundary to discover candidate
@@ -461,22 +588,6 @@ impl DataStore {
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
-    }
-
-    fn journaled_get_raw(backend: &DataStoreBackend, key: &RawDataStoreKey) -> Option<RawRow> {
-        let DataStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-        } = backend
-        else {
-            return None;
-        };
-
-        if tombstones.contains(key) {
-            return None;
-        }
-        live.get(key).cloned().or_else(|| canonical.get(key))
     }
 
     fn owned_range_bounds(

@@ -15,7 +15,9 @@ use crate::db::{
 };
 
 pub(in crate::db::executor) use hash::{
-    StableHash, StableHashBuildHasher, StableHashMap, stable_hash_from_digest, stable_hash_value,
+    StableHash, StableHashBuildHasher, StableHashMap, retained_hash_entry_backing_bytes,
+    retained_vec_element_backing_bytes, stable_hash_from_digest, stable_hash_value,
+    try_reserve_hash_entry, try_reserve_hash_set_entry, try_reserve_vec_elements,
 };
 pub(in crate::db::executor) use key::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError};
 
@@ -26,9 +28,6 @@ pub(in crate::db::executor) use key::{CanonicalKey, GroupKey, GroupKeySet, KeyCa
 /// execution budget policy translation between query planning and executor
 /// runtime contracts.
 ///
-
-const GROUPED_DEFAULT_MAX_GROUPS: u64 = 10_000;
-const GROUPED_DEFAULT_MAX_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 
 ///
 /// GroupedBudgetObservability
@@ -111,7 +110,11 @@ impl GroupedBudgetObservability {
 /// Defaults remain conservative and bounded until planner-owned policy tuning.
 #[must_use]
 const fn default_grouped_execution_config() -> ExecutionConfig {
-    ExecutionConfig::with_hard_limits(GROUPED_DEFAULT_MAX_GROUPS, GROUPED_DEFAULT_MAX_GROUP_BYTES)
+    let planner_default = GroupedExecutionConfig::planner_default_bounded();
+    ExecutionConfig::with_hard_limits(
+        planner_default.max_groups(),
+        planner_default.max_group_bytes(),
+    )
 }
 
 /// grouped_execution_config_from_planner_config

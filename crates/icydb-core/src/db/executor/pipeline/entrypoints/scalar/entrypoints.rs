@@ -80,11 +80,12 @@ pub(in crate::db::executor) fn execute_resumed_scalar_retained_slot_page_from_ru
     prepared: crate::db::executor::PreparedScalarRuntimeHandoff,
     continuation: crate::db::executor::ScalarContinuationContext,
     emit_cursor: bool,
+    enforced_scan_probe_limit: Option<usize>,
 ) -> Result<(StructuralCursorPage, usize), InternalError>
 where
     C: CanisterKind,
 {
-    let prepared = prepare_resumed_scalar_retained_slot_page_runtime_from_handoff(
+    let mut prepared = prepare_resumed_scalar_retained_slot_page_runtime_from_handoff(
         db,
         debug,
         prepared,
@@ -95,6 +96,9 @@ where
             CursorEmissionMode::Suppress
         },
     )?;
+    if let Some(probe_limit) = enforced_scan_probe_limit {
+        prepared = prepared.with_enforced_scan_probe_limit(probe_limit);
+    }
 
     execute_prepared_scalar_route_runtime_with_scan_count(prepared)
 }

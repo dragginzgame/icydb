@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.222.md](docs/changelog/0.222.md)
 
+- `0.222.3` makes long and selective reads resume safely, completes blocking
+  state accounting, and closes every frozen performance gate while retaining
+  the final audit's remaining executor and continuation follow-ups.
+
 - `0.222.2` bounds and reports grouped retained state, speeds aggregate
   `DISTINCT` admission, and makes generated shared-memory initialization safely
   automatic; this is potentially breaking for Rust diagnostics consumers,

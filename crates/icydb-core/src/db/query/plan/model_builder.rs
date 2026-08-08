@@ -5,6 +5,9 @@
 
 use crate::db::query::plan::{DeleteSpec, FieldSlot, GroupedExecutionConfig, LoadSpec};
 
+const PLANNER_DEFAULT_MAX_GROUPS: u64 = 10_000;
+const PLANNER_DEFAULT_MAX_GROUP_BYTES: u64 = 16 * 1024 * 1024;
+
 impl LoadSpec {
     /// Create an empty load spec.
     #[must_use]
@@ -37,6 +40,17 @@ impl FieldSlot {
 }
 
 impl GroupedExecutionConfig {
+    /// Build the planner-owned conservative grouped execution ceiling.
+    ///
+    /// SQL grouping has no syntax for supplying executor hard limits. Its
+    /// lowering boundary uses this finite authority so complete hash builds
+    /// can execute without turning an omitted row `LIMIT` into unbounded
+    /// retained state.
+    #[must_use]
+    pub(in crate::db) const fn planner_default_bounded() -> Self {
+        Self::with_hard_limits(PLANNER_DEFAULT_MAX_GROUPS, PLANNER_DEFAULT_MAX_GROUP_BYTES)
+    }
+
     /// Build one grouped execution config with explicit hard limits.
     #[must_use]
     pub(in crate::db) const fn with_hard_limits(max_groups: u64, max_group_bytes: u64) -> Self {
@@ -62,6 +76,15 @@ impl GroupedExecutionConfig {
     #[must_use]
     pub(in crate::db) const fn max_group_bytes(&self) -> u64 {
         self.max_group_bytes
+    }
+
+    /// Return whether both grouped hard limits are finite and non-zero.
+    #[must_use]
+    pub(in crate::db) const fn is_finite_bounded(&self) -> bool {
+        self.max_groups > 0
+            && self.max_groups < u64::MAX
+            && self.max_group_bytes > 0
+            && self.max_group_bytes < u64::MAX
     }
 }
 

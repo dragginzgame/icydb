@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::DecodedDataStoreKey,
+        data::{DecodedDataStoreKey, RawRow, StoreVisit},
         executor::stream::{
             FlatMergeSiblingSet,
             access::{IndexRangeKeyStream, PrimaryRangeKeyStream, SeekableIndexRangeKeyStream},
@@ -18,7 +18,10 @@ use crate::{
     },
     error::InternalError,
 };
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 ///
 /// OrderedKeyStream
@@ -43,6 +46,14 @@ pub(in crate::db::executor) trait OrderedKeyStream {
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         self.exact_key_count_hint()
     }
+
+    // Return a maintained upper bound on physical access entries one
+    // `next_key` call may visit while page-aware leaf refills are active.
+    // `None` keeps routes without a proof outside production page-unit
+    // admission rather than guessing an unsafe bound.
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        None
+    }
 }
 
 ///
@@ -63,6 +74,7 @@ pub(in crate::db::executor) enum OrderedKeyStreamBox {
     IndexRange(IndexRangeKeyStream),
     SeekableIndexRange(SeekableIndexRangeKeyStream),
     Budgeted(BudgetedOrderedKeyStream<Box<Self>>),
+    Observed(ObservedOrderedKeyStream<Box<Self>>),
     Distinct(DistinctOrderedKeyStream<Box<Self>>),
     Concat(ConcatOrderedKeyStream<Self>),
     Merge(MergeOrderedKeyStream<Box<Self>, Box<Self>>),
@@ -86,6 +98,60 @@ impl OrderedKeyStreamBox {
     #[must_use]
     pub(in crate::db::executor) fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         OrderedKeyStream::cheap_access_candidate_count_hint(self)
+    }
+
+    /// Return the proven physical-entry bound for one page candidate pull.
+    #[must_use]
+    pub(in crate::db::executor) fn page_access_entry_bound(&self) -> Option<usize> {
+        OrderedKeyStream::page_access_entry_bound(self)
+    }
+
+    /// Visit one unconsumed ASC primary leaf through a single physical row
+    /// traversal, preserving transparent budget and progress observers.
+    pub(in crate::db::executor) fn try_visit_primary_rows_direct(
+        &mut self,
+        begin_row: &mut dyn FnMut() -> Result<bool, InternalError>,
+        visit_row: &mut dyn for<'row> FnMut(
+            DecodedDataStoreKey,
+            &'row RawRow,
+        ) -> Result<StoreVisit, InternalError>,
+    ) -> Result<Option<()>, InternalError> {
+        match self {
+            Self::PrimaryRange(stream) => stream.try_visit_rows_direct(begin_row, visit_row),
+            Self::Budgeted(stream) => {
+                let remaining = Cell::new(stream.remaining);
+                let mut budgeted_begin = || {
+                    if remaining.get() == 0 {
+                        return Ok(false);
+                    }
+                    begin_row()
+                };
+                let mut budgeted_visit = |key: DecodedDataStoreKey, row: &RawRow| {
+                    let visit = visit_row(key, row)?;
+                    remaining.set(remaining.get().saturating_sub(1));
+                    Ok(visit)
+                };
+                let outcome = stream
+                    .inner
+                    .try_visit_primary_rows_direct(&mut budgeted_begin, &mut budgeted_visit)?;
+                stream.remaining = remaining.get();
+                Ok(outcome)
+            }
+            Self::Observed(stream) => {
+                let last_emitted = Rc::clone(&stream.last_emitted);
+                let mut observed_visit = |key: DecodedDataStoreKey, row: &RawRow| {
+                    *last_emitted
+                        .try_borrow_mut()
+                        .map_err(|_| InternalError::query_executor_invariant())? =
+                        Some(key.clone());
+                    visit_row(key, row)
+                };
+                stream
+                    .inner
+                    .try_visit_primary_rows_direct(begin_row, &mut observed_visit)
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Construct one owned empty ordered key stream.
@@ -130,6 +196,15 @@ impl OrderedKeyStreamBox {
     #[must_use]
     pub(in crate::db::executor) fn budgeted(inner: Self, remaining: usize) -> Self {
         Self::Budgeted(BudgetedOrderedKeyStream::new(inner.boxed(), remaining))
+    }
+
+    /// Observe the last key emitted through one route-attempt stream.
+    #[must_use]
+    pub(in crate::db::executor) fn observed(
+        inner: Self,
+        last_emitted: Rc<RefCell<Option<DecodedDataStoreKey>>>,
+    ) -> Self {
+        Self::Observed(ObservedOrderedKeyStream::new(inner.boxed(), last_emitted))
     }
 
     /// Construct one owned distinct ordered key stream.
@@ -230,6 +305,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::IndexRange(stream) => stream.next_key(),
             Self::SeekableIndexRange(stream) => stream.next_key(),
             Self::Budgeted(stream) => stream.next_key(),
+            Self::Observed(stream) => stream.next_key(),
             Self::Distinct(stream) => stream.next_key(),
             Self::Concat(stream) => stream.next_key(),
             Self::Merge(stream) => stream.next_key(),
@@ -247,6 +323,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::IndexRange(stream) => stream.exact_key_count_hint(),
             Self::SeekableIndexRange(stream) => stream.exact_key_count_hint(),
             Self::Budgeted(stream) => stream.exact_key_count_hint(),
+            Self::Observed(stream) => stream.exact_key_count_hint(),
             Self::Distinct(stream) => stream.exact_key_count_hint(),
             Self::Concat(stream) => stream.exact_key_count_hint(),
             Self::Merge(stream) => stream.exact_key_count_hint(),
@@ -264,11 +341,30 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::IndexRange(stream) => stream.cheap_access_candidate_count_hint(),
             Self::SeekableIndexRange(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Budgeted(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Observed(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Distinct(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Concat(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Merge(stream) => stream.cheap_access_candidate_count_hint(),
             Self::FlatMerge(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Intersect(stream) => stream.cheap_access_candidate_count_hint(),
+        }
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        match self {
+            Self::Empty(stream) => stream.page_access_entry_bound(),
+            Self::Single(stream) => stream.page_access_entry_bound(),
+            Self::Materialized(stream) => stream.page_access_entry_bound(),
+            Self::PrimaryRange(stream) => stream.page_access_entry_bound(),
+            Self::IndexRange(stream) => stream.page_access_entry_bound(),
+            Self::SeekableIndexRange(stream) => stream.page_access_entry_bound(),
+            Self::Budgeted(stream) => stream.page_access_entry_bound(),
+            Self::Observed(stream) => stream.page_access_entry_bound(),
+            Self::Distinct(stream) => stream.page_access_entry_bound(),
+            Self::Concat(stream) => stream.page_access_entry_bound(),
+            Self::Merge(stream) => stream.page_access_entry_bound(),
+            Self::FlatMerge(stream) => stream.page_access_entry_bound(),
+            Self::Intersect(stream) => stream.page_access_entry_bound(),
         }
     }
 }
@@ -333,6 +429,10 @@ where
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         self.as_ref().cheap_access_candidate_count_hint()
     }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        self.as_ref().page_access_entry_bound()
+    }
 }
 
 impl<T> OrderedKeyStream for &mut T
@@ -349,6 +449,10 @@ where
 
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         (**self).cheap_access_candidate_count_hint()
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        (**self).page_access_entry_bound()
     }
 }
 
@@ -369,6 +473,10 @@ impl OrderedKeyStream for EmptyOrderedKeyStream {
     }
 
     fn exact_key_count_hint(&self) -> Option<usize> {
+        Some(0)
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
         Some(0)
     }
 }
@@ -401,6 +509,10 @@ impl OrderedKeyStream for SingleOrderedKeyStream {
 
     fn exact_key_count_hint(&self) -> Option<usize> {
         Some(1)
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        Some(0)
     }
 }
 
@@ -437,6 +549,10 @@ impl OrderedKeyStream for VecOrderedKeyStream {
 
     fn exact_key_count_hint(&self) -> Option<usize> {
         Some(self.total_len)
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        Some(0)
     }
 }
 
@@ -492,5 +608,60 @@ where
 
     fn exact_key_count_hint(&self) -> Option<usize> {
         self.total_count_hint
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        self.inner.page_access_entry_bound()
+    }
+}
+
+/// Route-attempt observer that retains only the last emitted physical row key.
+///
+/// The observer sits outside page candidate limiting, so a published physical
+/// continuation can never advance past a key that the scalar row loop did not
+/// examine.
+pub(in crate::db::executor) struct ObservedOrderedKeyStream<S> {
+    inner: S,
+    last_emitted: Rc<RefCell<Option<DecodedDataStoreKey>>>,
+}
+
+impl<S> ObservedOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    const fn new(inner: S, last_emitted: Rc<RefCell<Option<DecodedDataStoreKey>>>) -> Self {
+        Self {
+            inner,
+            last_emitted,
+        }
+    }
+}
+
+impl<S> OrderedKeyStream for ObservedOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        let key = self.inner.next_key()?;
+        if let Some(key) = key.as_ref() {
+            *self
+                .last_emitted
+                .try_borrow_mut()
+                .map_err(|_| InternalError::query_executor_invariant())? = Some(key.clone());
+        }
+
+        Ok(key)
+    }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        self.inner.exact_key_count_hint()
+    }
+
+    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        self.inner.cheap_access_candidate_count_hint()
+    }
+
+    fn page_access_entry_bound(&self) -> Option<usize> {
+        self.inner.page_access_entry_bound()
     }
 }
