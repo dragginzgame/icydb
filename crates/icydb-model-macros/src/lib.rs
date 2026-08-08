@@ -5,8 +5,6 @@
 
 #![doc = include_str!("../README.md")]
 
-extern crate syn_darling as syn;
-
 mod authoring_types;
 mod case;
 mod crate_path;

@@ -85,6 +85,7 @@ impl FromMeta for Arg {
             NestedMeta::Meta(syn::Meta::List(list)) => Err(DarlingError::custom(format!(
                 "Nested list not supported here: {list:?}"
             ))),
+            NestedMeta::NameValueInvalidExpr(value) => Self::from_invalid_expr(value),
         }
     }
 }

@@ -1963,7 +1963,7 @@ mod typed_adapter_tests {
             let paged_query = crate::db::DynamicQuery::new("RenamedEntity")
                 .group_by("value")
                 .aggregate(crate::db::count())
-                .grouped_limits(2, 1024)
+                .grouped_limits(2, 2 * 1024)
                 .limit(1);
             assert_query_diagnostic(
                 session

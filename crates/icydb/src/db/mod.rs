@@ -14,6 +14,8 @@ pub mod sql;
 
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
+#[doc(hidden)]
+pub use bootstrap::ensure_default_memory_manager;
 pub use icydb_core::db::{
     CompareProofAndAdvanceError, DynamicQuery, ExhaustiveQueryPageOutput, GroupedQueryOutput,
     GroupedRow, LiveQueryPageOutput, MAX_READ_SET_PROOF_BYTES, MAX_READ_SET_PROOF_STORES,

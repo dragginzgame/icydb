@@ -143,11 +143,10 @@ pub use icydb_diagnostic_code::ErrorCode;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::{
-        TypedFieldBindingRequest, TypedFieldType, execute_generated_storage_report,
+        TypedFieldBindingRequest, TypedFieldType, ensure_default_memory_manager,
+        execute_generated_storage_report,
     };
-    pub use ic_memory::{
-        bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
-    };
+    pub use ic_memory::{ic_memory_declaration, ic_memory_key, ic_memory_range};
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, DataStore, DbSession as CoreDbSession, EntityKey, EntityKeyBytes,
         EntityKeyBytesError, IndexStore, JournalTailStore, KeyValueCodec, PrimaryKeyDecode,
@@ -731,7 +730,7 @@ macro_rules! __icydb_endpoints_internal {
 ///
 /// Use `db!()` in ordinary generated endpoints and nested helpers. Every call
 /// shares the execution counters installed at request entry. Manual IC-CDK,
-/// Canic, lifecycle, and timer entries establish that boundary with
+/// framework lifecycle, and timer entries establish that boundary with
 /// [`request_execution`].
 ///
 /// `db!(&request_root)` is the explicit low-level integration form for a

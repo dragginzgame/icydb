@@ -502,14 +502,6 @@ fn store_wiring_tokens(
         );
 
         #journal_defs
-        fn bootstrap_memory_manager() ->
-            ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
-        {
-            ::icydb::__macro::bootstrap_default_memory_manager()
-                .map(|_allocations| ())
-                .map_err(::icydb::db::DatabaseBootstrapError::from)
-        }
-
         thread_local! {
             static MEMORY_BOOTSTRAP:
                 ::std::cell::OnceCell<
@@ -526,7 +518,11 @@ fn store_wiring_tokens(
         {
             MEMORY_BOOTSTRAP.with(|bootstrap| {
                 bootstrap
-                    .get_or_init(bootstrap_memory_manager)
+                    .get_or_init(|| {
+                        ::icydb::__macro::ensure_default_memory_manager(
+                            #memory_authority,
+                        )
+                    })
                     .clone()
             })
         }
@@ -771,7 +767,11 @@ mod tests {
         assert!(rendered.contains("label=\"IntegrityProgress\""));
         assert!(rendered.contains("id=17u8"));
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
-        assert!(rendered.contains("map_err(::icydb::db::DatabaseBootstrapError::from)"));
+        assert!(
+            rendered.contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",)")
+        );
+        assert!(!rendered.contains("bootstrap_default_memory_manager()"));
+        assert!(!rendered.contains("fn bootstrap_memory_manager()"));
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("MEMORY_BOOTSTRAP.with("));
@@ -787,11 +787,11 @@ mod tests {
         ));
         assert!(rendered.contains("request_root.__ensure_compatible_with_current()?"));
         assert!(!rendered.contains("must_use"));
-        assert!(
+        assert_eq!(
             rendered
                 .matches("::icydb::db::DatabaseBootstrapError")
-                .count()
-                >= 4
+                .count(),
+            3,
         );
         assert!(!rendered.contains("Result<(),::std::string::String>"));
         assert!(!rendered.contains("panic!("));
