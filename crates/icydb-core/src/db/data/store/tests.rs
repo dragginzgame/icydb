@@ -288,6 +288,22 @@ fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
 }
 
 #[test]
+fn empty_journaled_data_store_retains_exact_zero_cardinality_without_scanning() {
+    let memory = test_memory(231);
+    let mut store = DataStore::init_journaled(memory.clone());
+
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(0));
+    store
+        .reset_journaled_live_projection()
+        .expect("empty projection reset should succeed");
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(0));
+    drop(store);
+
+    let reopened = DataStore::init_journaled(memory);
+    assert_eq!(reopened.exact_entity_count(EntityTag::new(1)), Some(0));
+}
+
+#[test]
 fn data_store_entity_cardinality_fails_closed_for_malformed_raw_keys() {
     let mut store = seed_heap_store(&[(1, 1, 11)]);
     store.insert_raw_for_test(

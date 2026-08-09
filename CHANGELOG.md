@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Empty journaled stores retain exact zero-row cardinality without startup
+  scans, so empty-domain schema edits no longer report false corruption.
+
 ## [0.223.x] 🔁 - 2026-08-09 - Durable Resumable Mutation Jobs
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)

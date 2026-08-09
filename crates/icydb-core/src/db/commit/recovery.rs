@@ -62,8 +62,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
 
 thread_local! {
     // Generated stores use thread-local stable memory, so their recovered
@@ -516,7 +515,7 @@ fn prepare_fold_record_cursor<C: CanisterKind>(
     db: &Db<C>,
     store_path: &'static str,
     handle: StoreHandle,
-    journal_store: &'static std::thread::LocalKey<RefCell<JournalTailStore>>,
+    journal_store: &'static LocalKey<RefCell<JournalTailStore>>,
     batch: &JournalBatch,
     stored_cursor: Option<FoldRecordCursor>,
 ) -> Result<(usize, bool), InternalError> {
@@ -530,7 +529,7 @@ fn prepare_fold_record_cursor<C: CanisterKind>(
 }
 
 fn persist_fold_record_cursor(
-    journal_store: &'static std::thread::LocalKey<RefCell<JournalTailStore>>,
+    journal_store: &'static LocalKey<RefCell<JournalTailStore>>,
     batch: &JournalBatch,
     next_record_ordinal: usize,
 ) -> Result<(), InternalError> {

@@ -120,17 +120,23 @@ impl DataStore {
     /// methods.
     #[must_use]
     pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+        let canonical = StableBTreeMap::init(memory);
+        let entity_cardinality = if canonical.is_empty() {
+            EntityCardinality::empty()
+        } else {
+            EntityCardinality::unavailable()
+        };
         Self {
             backend: DataStoreBackend::Journaled {
-                canonical: StableBTreeMap::init(memory),
+                canonical,
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
             },
             generation: 0,
             // Stable rows remain authoritative after reinitialization. Exact
-            // per-entity counts are an optional runtime acceleration and must
-            // not force a whole-store startup scan.
-            entity_cardinality: EntityCardinality::unavailable(),
+            // zero cardinality is still known for an empty canonical map;
+            // populated maps remain unavailable without a startup scan.
+            entity_cardinality,
         }
     }
 
@@ -220,7 +226,9 @@ impl DataStore {
         &mut self,
     ) -> Result<(), crate::error::InternalError> {
         let DataStoreBackend::Journaled {
-            live, tombstones, ..
+            canonical,
+            live,
+            tombstones,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -228,7 +236,11 @@ impl DataStore {
 
         live.clear();
         tombstones.clear();
-        self.entity_cardinality = EntityCardinality::unavailable();
+        self.entity_cardinality = if canonical.is_empty() {
+            EntityCardinality::empty()
+        } else {
+            EntityCardinality::unavailable()
+        };
         self.bump_generation();
 
         Ok(())
