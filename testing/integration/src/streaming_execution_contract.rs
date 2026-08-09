@@ -496,14 +496,14 @@ pub const MATERIALIZATION_INVENTORY: &[MaterializationInventoryEntry] = &[
     },
     MaterializationInventoryEntry {
         id: "merge_child_topology",
-        owner_file: "crates/icydb-core/src/db/executor/stream/mod.rs",
-        owner_symbol: "let mut next_round = Vec::with_capacity",
+        owner_file: "crates/icydb-core/src/db/executor/stream/key/contracts.rs",
+        owner_symbol: "pub(in crate::db::executor) fn intersect_all(",
         reason: MaterializationReason::SmallStructuralState,
         lifetime: MaterializationLifetime::Operator,
         size_authority: MaterializationSizeAuthority::QueryShape,
         backing: MaterializationBacking::Structural,
         resumability: MaterializationResumability::Reconstructible,
-        action_patch: 1,
+        action_patch: 4,
     },
     MaterializationInventoryEntry {
         id: "scalar_page_output_candidates",
