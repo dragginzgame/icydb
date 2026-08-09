@@ -37,11 +37,10 @@ use crate::{
             },
         },
         data::{
-            AcceptedStructuralRowAuthority, DataStore, DecodedDataStoreKey, RawDataStoreKey,
-            RawRow, StructuralSlotReader,
+            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey, RawRow,
+            StructuralSlotReader,
         },
         database_format::ensure_database_format_admitted,
-        index::IndexStore,
         journal::{
             FoldRecordCursor, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
             JournalTailStore, journal_batch_encoded_len,
@@ -389,8 +388,11 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
 fn reset_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     for (_, handle) in sorted_journaled_store_handles(db) {
         handle.mark_index_building()?;
-        handle.with_data_mut(DataStore::reset_journaled_live_projection)?;
-        handle.with_index_mut(IndexStore::reset_journaled_live_projection)?;
+        let data_generation = handle.with_data_mut(|store| {
+            store.reset_journaled_live_projection()?;
+            Ok::<_, InternalError>(store.generation())
+        })?;
+        handle.with_index_mut(|store| store.reset_journaled_live_projection(data_generation))?;
         handle.with_schema_mut(SchemaStore::reset_journaled_live_projection)?;
     }
 
@@ -919,12 +921,18 @@ fn fold_recovered_row_transition<C: CanisterKind>(
         index_op.fold_recovered()?;
     }
 
-    expected_handle.with_data_mut(|store| match after {
+    let data_generation = expected_handle.with_data_mut(|store| match after {
         Some(row) => store
             .fold_recovered_journal_put(primary_key.clone(), row)
-            .map(|_| ()),
-        None => store.fold_recovered_journal_delete(primary_key).map(|_| ()),
-    })
+            .map(|_| store.generation()),
+        None => store
+            .fold_recovered_journal_delete(primary_key)
+            .map(|_| store.generation()),
+    })?;
+    expected_handle.with_index_mut(|store| {
+        store.mark_prefix_cardinality_data_generation(data_generation);
+    });
+    Ok(())
 }
 
 fn validate_journal_batch_records<C: CanisterKind>(

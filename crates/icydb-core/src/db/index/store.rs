@@ -164,19 +164,24 @@ impl IndexStore {
     /// canonical stable index is updated by future fold/rebuild paths.
     #[must_use]
     pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+        let canonical = StableBTreeMap::init(memory);
+        let prefix_cardinality = if canonical.is_empty() {
+            IndexPrefixCardinality::synchronized_empty()
+        } else {
+            IndexPrefixCardinality::unavailable()
+        };
         Self {
             backend: IndexStoreBackend::Journaled {
-                canonical: StableBTreeMap::init(memory),
+                canonical,
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
             },
             generation: 0,
             state: IndexState::Ready,
             access_state_revision: 1,
-            // Prefix counts are planner hints, not index authority. Reopening
-            // stable storage leaves them unavailable instead of scanning every
-            // persisted index entry during canister initialization.
-            prefix_cardinality: IndexPrefixCardinality::unavailable(),
+            // Exact zero cardinality is known for an empty canonical map;
+            // populated maps remain unavailable without a startup scan.
+            prefix_cardinality,
         }
     }
 
@@ -385,9 +390,12 @@ impl IndexStore {
     /// mutating the canonical stable index.
     pub(in crate::db) fn reset_journaled_live_projection(
         &mut self,
+        data_generation: u64,
     ) -> Result<(), crate::error::InternalError> {
         let IndexStoreBackend::Journaled {
-            live, tombstones, ..
+            canonical,
+            live,
+            tombstones,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -395,7 +403,13 @@ impl IndexStore {
 
         live.clear();
         tombstones.clear();
-        self.prefix_cardinality = IndexPrefixCardinality::unavailable();
+        self.prefix_cardinality = if canonical.is_empty() {
+            let mut cardinality = IndexPrefixCardinality::synchronized_empty();
+            cardinality.mark_synchronized(data_generation);
+            cardinality
+        } else {
+            IndexPrefixCardinality::unavailable()
+        };
         self.bump_generation();
 
         Ok(())
@@ -407,16 +421,31 @@ impl IndexStore {
         key: RawIndexStoreKey,
         value: Option<IndexEntryValue>,
     ) -> Result<(), crate::error::InternalError> {
-        let IndexStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+        let IndexStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &mut self.backend
+        else {
             return Err(crate::error::InternalError::store_invariant());
         };
 
-        if let Some(value) = value {
-            canonical.insert(key, value);
+        let visible = !live.contains_key(&key) && !tombstones.contains(&key);
+        let cardinality_key = key.clone();
+        let previous = if let Some(value) = value.as_ref() {
+            canonical.insert(key, value.clone())
         } else {
-            canonical.remove(&key);
+            canonical.remove(&key)
+        };
+        if visible {
+            if let Some(value) = value.as_ref() {
+                self.prefix_cardinality
+                    .apply_insert(&cardinality_key, previous.as_ref(), value);
+            } else {
+                self.prefix_cardinality
+                    .apply_remove(&cardinality_key, previous.as_ref());
+            }
         }
-        self.prefix_cardinality = IndexPrefixCardinality::unavailable();
         self.bump_generation();
 
         Ok(())
@@ -1229,6 +1258,84 @@ mod tests {
             ),
             None,
             "startup must leave optional prefix cardinality unavailable without scanning stable entries",
+        );
+    }
+
+    #[test]
+    fn empty_journaled_index_store_retains_exact_prefix_cardinality_without_scanning() {
+        let memory = test_memory(95);
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let collection = b"collection-a".to_vec();
+        let mut store = IndexStore::init_journaled(memory.clone());
+
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                0,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(0),
+        );
+        store
+            .reset_journaled_live_projection(7)
+            .expect("empty projection reset should succeed");
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(0),
+        );
+        drop(store);
+
+        let reopened = IndexStore::init_journaled(memory);
+        assert_eq!(
+            reopened.exact_prefix_cardinality(
+                0,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(0),
+        );
+    }
+
+    #[test]
+    fn recovered_index_fold_maintains_available_prefix_cardinality() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let collection = b"collection-a".to_vec();
+        let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
+        let mut store = IndexStore::init_journaled(test_memory(96));
+
+        store
+            .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence()))
+            .expect("recovered index put should fold");
+        store.mark_prefix_cardinality_data_generation(1);
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                1,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(1),
+        );
+
+        store
+            .fold_recovered_journal_entry(key, None)
+            .expect("recovered index delete should fold");
+        store.mark_prefix_cardinality_data_generation(2);
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                2,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(0),
         );
     }
 }
