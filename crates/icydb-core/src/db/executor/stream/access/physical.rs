@@ -577,8 +577,10 @@ impl KeyAccessRuntime {
         spec: &LoweredIndexPrefixSpec,
         active_branch_count: usize,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let branch_chunk_entries =
-            branch_stream_chunk_entries(request.index_fetch_hint, active_branch_count);
+        let branch_chunk_entries = index_leaf_chunk_entries_for_active_page(
+            branch_stream_chunk_entries(request.index_fetch_hint, active_branch_count),
+            active_branch_count,
+        )?;
         let resume_anchor = request.resume_anchor_for(spec)?;
 
         let primary_key_ordered = matches!(
@@ -641,6 +643,7 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let spec = require_index_range_spec(index_range_spec)?;
+        let chunk_entries = index_leaf_chunk_entries_for_active_page(ACCESS_SCAN_CHUNK_ENTRIES, 1)?;
 
         Ok(OrderedKeyStreamBox::index_range(
             IndexRangeKeyStream::from_range(
@@ -649,6 +652,7 @@ impl KeyAccessRuntime {
                 spec,
                 continuation,
                 index_fetch_hint,
+                chunk_entries,
             ),
         ))
     }
@@ -1195,6 +1199,22 @@ fn primary_range_chunk_entries_for_active_page() -> Result<usize, InternalError>
     Ok(ACCESS_SCAN_CHUNK_ENTRIES.min(page_entry_limit.max(1)))
 }
 
+// Keep one index leaf's next refill inside its share of the active page-entry
+// envelope. A merged prefix family may poll every child to establish its next
+// winner, so each child owns at most an equal conservative share.
+fn index_leaf_chunk_entries_for_active_page(
+    requested_entries: usize,
+    active_branch_count: usize,
+) -> Result<usize, InternalError> {
+    let Some(page_entry_limit) = production_scalar_page_access_entry_limit()? else {
+        return Ok(requested_entries);
+    };
+    let branch_count = active_branch_count.max(1);
+    let per_branch_limit = page_entry_limit / branch_count;
+
+    Ok(requested_entries.min(per_branch_limit.max(1)))
+}
+
 fn lower_bound_precedes_raw(lower: &Bound<RawDataStoreKey>, raw: &RawDataStoreKey) -> bool {
     match lower {
         Bound::Included(value) => value <= raw,
@@ -1455,6 +1475,7 @@ impl IndexRangeKeyStream {
         spec: &LoweredIndexRangeSpec,
         continuation: IndexScanContinuationInput<'_>,
         limit: Option<usize>,
+        chunk_entries: usize,
     ) -> Self {
         Self::new(
             store,
@@ -1463,7 +1484,7 @@ impl IndexRangeKeyStream {
             continuation.direction(),
             continuation.anchor().cloned(),
             limit,
-            ACCESS_SCAN_CHUNK_ENTRIES,
+            chunk_entries,
             None,
         )
     }
@@ -2310,6 +2331,25 @@ mod physical_seek_tests {
             .expect("primary leaf should inherit the active page envelope");
 
             assert_eq!(bounded.value.next_pull_entry_bound(), expected_refill);
+        }
+    }
+
+    #[test]
+    fn index_leaf_caps_refills_to_its_active_page_branch_share() {
+        for (page_limit, branch_count, expected_refill) in
+            [(4, 1, 4), (4, 2, 2), (100, 1, 64), (0, 1, 1)]
+        {
+            let envelope = crate::db::executor::PageWorkEnvelope::default_scalar()
+                .with_limit_for_tests(
+                    DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                    page_limit,
+                );
+            let bounded = crate::db::executor::with_production_scalar_page_work(envelope, || {
+                index_leaf_chunk_entries_for_active_page(ACCESS_SCAN_CHUNK_ENTRIES, branch_count)
+            })
+            .expect("index leaf should inherit its share of the active page envelope");
+
+            assert_eq!(bounded.value, expected_refill);
         }
     }
 
