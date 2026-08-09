@@ -2155,10 +2155,6 @@ fn validate_catalog() -> Result<(), String> {
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one deterministic projection keeps catalog ordering and derivation visible together"
-)]
 fn catalog_body() -> Result<CatalogBody, String> {
     let mut interactions = INTERACTIONS.iter().collect::<Vec<_>>();
     interactions.sort_by_key(|interaction| interaction.id);
