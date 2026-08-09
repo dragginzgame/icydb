@@ -169,6 +169,7 @@ pub mod __macro {
 pub mod __reexports {
     pub use candid;
     pub use ic_cdk;
+    pub use ic_cdk_timers;
 }
 
 //

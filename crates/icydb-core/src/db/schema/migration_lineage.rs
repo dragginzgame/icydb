@@ -1,7 +1,7 @@
 //! Durable accepted per-entity generated-source lineage.
 //!
 //! This module owns the bounded current lineage value. The generalized
-//! database-control map owns its reserved key and Patch 4 owns publication.
+//! database-control map owns its reserved key and publication.
 
 use std::collections::BTreeMap;
 

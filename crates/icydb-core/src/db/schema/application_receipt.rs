@@ -77,7 +77,7 @@ impl SchemaChangeJob {
 ///
 /// SchemaChangeValidationPhase
 ///
-/// Public phase of the canonical 0.211 proof owned by one schema-change job.
+/// Public phase of the canonical proof owned by one schema-change job.
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -96,7 +96,7 @@ pub enum SchemaChangeValidationPhase {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SchemaChangeProgressStatus {
-    /// The durable 0.211 validation job was created.
+    /// The durable validation job was created.
     Started,
     /// One clean bounded page advanced.
     Advanced {
@@ -365,8 +365,8 @@ impl SchemaChangeActivation {
 ///
 /// SchemaApplicationRecord
 ///
-/// Canonical durable receipt plus the exact 0.211 activations owned by a
-/// pending job. Terminal receipts cannot retain activation state.
+/// Canonical durable receipt plus the exact activations owned by a pending
+/// job. Terminal receipts cannot retain activation state.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

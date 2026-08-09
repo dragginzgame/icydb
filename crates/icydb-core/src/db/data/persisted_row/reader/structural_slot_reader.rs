@@ -436,7 +436,16 @@ impl<'a> StructuralSlotReader<'a> {
         slot: usize,
         field: AcceptedFieldDecodeContract<'_>,
     ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        if !matches!(field.storage_decode(), FieldStorageDecode::CatalogValue) {
+        if !matches!(field.storage_decode(), FieldStorageDecode::CatalogValue)
+            || !matches!(
+                field.kind(),
+                AcceptedFieldKind::Bool
+                    | AcceptedFieldKind::Blob { .. }
+                    | AcceptedFieldKind::Int64
+                    | AcceptedFieldKind::Text { .. }
+                    | AcceptedFieldKind::Nat64
+            )
+        {
             return Ok(None);
         }
         if self.field_bytes.field(slot).is_none() {
@@ -625,10 +634,11 @@ mod tests {
                 AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
                 FieldId, FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
                 PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaInsertDefault,
-                SchemaRowLayout, SchemaVersion, empty_accepted_enum_catalog_for_tests,
+                SchemaRowLayout, SchemaVersion, TestEnumDefinition, TestEnumVariant,
+                build_accepted_enum_catalog_for_tests, empty_accepted_enum_catalog_for_tests,
             },
         },
-        value::Value,
+        value::{Value, ValueEnum},
     };
     use std::borrow::Cow;
 
@@ -707,6 +717,72 @@ mod tests {
         )
     }
 
+    fn accepted_enum_contract() -> (StructuralRowContract, Value) {
+        let enum_catalog = build_accepted_enum_catalog_for_tests(&[TestEnumDefinition::new(
+            "tests::Status",
+            vec![TestEnumVariant::unit("Active")],
+        )])
+        .expect("status enum catalog should build");
+        let type_id = enum_catalog
+            .type_id("tests::Status")
+            .expect("status enum type should exist");
+        let variant_id = enum_catalog
+            .enum_type(type_id)
+            .and_then(|definition| definition.variant_id("Active"))
+            .expect("active enum variant should exist");
+        let fields = vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "status".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Enum { type_id },
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
+            ),
+        ];
+        let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "tests::EnumProjection".to_string(),
+            "EnumProjection".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+        ));
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("enum accepted row layout should build");
+        let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+            enum_catalog,
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let contract = StructuralRowContract::from_accepted_decode_contract(
+            accepted.entity_path(),
+            descriptor.row_decode_contract(value_catalog),
+        );
+        let value = Value::Enum(ValueEnum::test_unit(type_id.get(), variant_id.get()));
+
+        (contract, value)
+    }
+
     #[test]
     fn selective_small_field_read_does_not_decode_large_unrelated_payload() {
         let contract = selective_payload_contract();
@@ -734,6 +810,27 @@ mod tests {
         assert!(
             scalar_slot_is_untouched(&reader.cached_values[2]),
             "rejecting on small metadata must not validate or materialize the unrelated snapshot",
+        );
+    }
+
+    #[test]
+    fn direct_projection_uses_accepted_enum_wire_instead_of_scalar_value_storage() {
+        let (contract, status) = accepted_enum_contract();
+        let values = [Value::Nat64(7), status.clone()];
+        let row =
+            canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                Ok(Cow::Borrowed(&values[slot]))
+            })
+            .expect("accepted enum fixture row should encode")
+            .into_raw_row();
+        let reader = StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract)
+            .expect("accepted enum fixture row should open lazily");
+
+        assert_eq!(
+            reader
+                .required_direct_projection_value(1)
+                .expect("accepted enum direct projection should decode"),
+            status,
         );
     }
 }

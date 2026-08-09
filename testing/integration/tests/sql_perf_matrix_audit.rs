@@ -1735,7 +1735,7 @@ const fn read_metadata_with_nullability(
     }
 }
 
-/// Build one grouped physical-mode equivalence declaration for 0.205 evidence.
+/// Build one grouped physical-mode equivalence declaration.
 const fn grouped_execution_mode_metadata(
     predicate: PredicateFamily,
     limit: usize,
@@ -5422,7 +5422,7 @@ fn sql_perf_grouped_early_finalization_control_is_mode_proven_and_output_equival
             "{label} grouped baseline should finalize every successfully observed group",
         );
         println!(
-            "0.205 grouped baseline {label}: raw_wasm_bytes={wasm_bytes} total={} execute={} stream={} fold={} finalize={} rows_scanned={} groups={} peak_groups={} peak_states={} peak_distinct={} early_stop={} data_gets={} index_reads={} result={}",
+            "grouped baseline {label}: raw_wasm_bytes={wasm_bytes} total={} execute={} stream={} fold={} finalize={} rows_scanned={} groups={} peak_groups={} peak_states={} peak_distinct={} early_stop={} data_gets={} index_reads={} result={}",
             sample.total_local_instructions,
             sample.execute_local_instructions,
             sample.grouped_stream_local_instructions,
@@ -5532,7 +5532,7 @@ fn sql_perf_grouped_early_finalization_scale_contract_is_live() {
 
         for observation in &observations {
             println!(
-                "0.205 grouped scale rows={fixture_rows} sentinel={} total={} execute={} scanned={} groups={} peak_groups={} peak_states={} peak_distinct={} early_stop={} result={}",
+                "grouped scale rows={fixture_rows} sentinel={} total={} execute={} scanned={} groups={} peak_groups={} peak_states={} peak_distinct={} early_stop={} result={}",
                 observation.sentinel_id,
                 observation.sample.total_local_instructions,
                 observation.sample.execute_local_instructions,

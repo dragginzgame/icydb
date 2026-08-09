@@ -18,7 +18,7 @@ pub const SELECT_GENERATOR_VERSION: u32 = 3;
 /// SplitMix64
 ///
 /// Fixed test-owned random stream used by SQL generation and fixture creation.
-/// The implementation follows the exact wrapping transition in the 0.204 design.
+/// The wrapping transition is part of the deterministic generator contract.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

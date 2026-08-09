@@ -1,4 +1,4 @@
-//! Focused 0.222 streaming-execution fixture and baseline contract.
+//! Focused streaming-execution fixture and baseline contract.
 
 use candid::{CandidType, Deserialize};
 use ic_testkit::pic::StandaloneCanisterFixture;

@@ -76,7 +76,7 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
     let final_len = final_deployable.len();
     assert!(
         final_len * 10_000 <= compiler_len * 9_300,
-        "Patch 2 requires at least a 7% raw-Wasm reduction"
+        "post-link optimization requires at least a 7% raw-Wasm reduction"
     );
 
     let test_dir = env::temp_dir().join(format!("icydb-post-link-{}", std::process::id()));

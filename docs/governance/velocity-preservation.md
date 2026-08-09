@@ -2,13 +2,13 @@
 
 This document defines release-engineering rules that protect feature velocity.
 
-The recurring `velocity-preservation` audit measures future extension friction
-from the current codebase. It asks which owner boundaries, hubs, and decision
-surfaces will make future feature work harder unless they are organized better.
+The recurring `complexity-and-technical-debt` audit measures future extension
+friction from the current codebase. It asks which owner boundaries, state axes,
+and decision surfaces make maintained work harder than necessary.
 
 The slice-shape rules in this document are separate delivery guardrails. They
 measure PR/review width and landing discipline; they do not define the
-recurring audit score.
+recurring audit findings.
 
 ---
 
@@ -28,11 +28,12 @@ The goal of this document is to keep routine work:
 - predictable to review
 - cheap to extend in follow-up patches
 
-The recurring audit owns the forward-looking code-structure score. These rules
-describe code-review and landing slices. One planned minor-line patch is one
-reviewable landing patch and worktree handoff. A landing patch does not acquire
-a version number until the user names a release target, but agents must not use
-that distinction to accumulate multiple planned patches in one worktree batch.
+The recurring audit owns forward-looking structure and debt assessment. These
+rules describe code-review and landing slices. One planned minor-line patch is
+one reviewable landing patch and worktree handoff. A landing patch does not
+acquire a version number until the user names a release target, but agents must
+not use that distinction to accumulate multiple planned patches in one worktree
+batch.
 
 These rules are intended to guide automated agents and code review.
 

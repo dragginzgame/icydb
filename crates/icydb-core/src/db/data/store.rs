@@ -120,17 +120,18 @@ impl DataStore {
     /// methods.
     #[must_use]
     pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        let mut store = Self {
+        Self {
             backend: DataStoreBackend::Journaled {
                 canonical: StableBTreeMap::init(memory),
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
             },
             generation: 0,
-            entity_cardinality: EntityCardinality::empty(),
-        };
-        store.rebuild_entity_cardinality_from_entries();
-        store
+            // Stable rows remain authoritative after reinitialization. Exact
+            // per-entity counts are an optional runtime acceleration and must
+            // not force a whole-store startup scan.
+            entity_cardinality: EntityCardinality::unavailable(),
+        }
     }
 
     /// Insert or replace one row by raw key.
@@ -227,7 +228,7 @@ impl DataStore {
 
         live.clear();
         tombstones.clear();
-        self.rebuild_entity_cardinality_from_entries();
+        self.entity_cardinality = EntityCardinality::unavailable();
         self.bump_generation();
 
         Ok(())
@@ -575,6 +576,7 @@ impl DataStore {
         self.generation = self.generation.saturating_add(1);
     }
 
+    #[cfg(test)]
     fn rebuild_entity_cardinality_from_entries(&mut self) {
         let mut cardinality = EntityCardinality::empty();
         let _: Result<(), Infallible> = self.visit_entries(|key, _row| {
@@ -804,6 +806,13 @@ impl EntityCardinality {
         Self {
             counts: HeapBTreeMap::new(),
             decodable: true,
+        }
+    }
+
+    const fn unavailable() -> Self {
+        Self {
+            counts: HeapBTreeMap::new(),
+            decodable: false,
         }
     }
 

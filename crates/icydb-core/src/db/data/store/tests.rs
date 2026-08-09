@@ -199,6 +199,7 @@ fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
     store
         .fold_recovered_journal_put(raw_key(2, 1), raw_row(21))
         .expect("canonical seed should fold");
+    store.rebuild_entity_cardinality_from_entries();
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
     assert_eq!(store.exact_entity_count(EntityTag::new(2)), Some(1));
 
@@ -222,8 +223,8 @@ fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
         .expect("projection reset should succeed");
     assert_eq!(
         store.exact_entity_count(EntityTag::new(1)),
-        Some(2),
-        "projection reset should rebuild counts from canonical rows",
+        None,
+        "projection reset must not scan canonical rows to rebuild optional counts",
     );
 }
 
@@ -239,6 +240,7 @@ fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
     store
         .fold_recovered_journal_put(raw_key(1, 3), raw_row(13))
         .expect("canonical seed should fold");
+    store.rebuild_entity_cardinality_from_entries();
 
     store
         .apply_recovered_journal_put(raw_key(1, 2), raw_row(22))
@@ -259,6 +261,29 @@ fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
         store.exact_entity_count(EntityTag::new(1)),
         Some(2),
         "folding canonical rows hidden by live rows or tombstones must not change visible counts",
+    );
+}
+
+#[test]
+fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
+    let memory = test_memory(230);
+    let mut store = DataStore::init_journaled(memory.clone());
+    store
+        .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
+        .expect("canonical seed should fold");
+    store
+        .fold_recovered_journal_put(raw_key(1, 2), raw_row(12))
+        .expect("canonical seed should fold");
+    drop(store);
+
+    let reopened = DataStore::init_journaled(memory);
+
+    assert!(reopened.contains(&raw_key(1, 1)));
+    assert!(reopened.contains(&raw_key(1, 2)));
+    assert_eq!(
+        reopened.exact_entity_count(EntityTag::new(1)),
+        None,
+        "startup must leave optional cardinality unavailable without scanning stable rows",
     );
 }
 

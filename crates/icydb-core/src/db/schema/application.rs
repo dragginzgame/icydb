@@ -288,7 +288,7 @@ fn exact_schema_application_receipt(
 }
 
 /// Advance one durable pending schema application by at most one canonical
-/// 0.211 validation step.
+/// validation step.
 pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     db: &Db<C>,
     job_id: SchemaChangeJobId,
@@ -835,8 +835,8 @@ pub(in crate::db) fn migrate_schema<C: CanisterKind>(
             if status.phase() == SchemaMigrationPhase::Applied {
                 Ok(status)
             } else {
-                // Patch 4 has no nonterminal job to abort. Patch 5 introduces
-                // the bounded pre-rewrite abort state machine.
+                // No active nonterminal migration exists at this boundary, so
+                // the request fails closed.
                 Err(InternalError::schema_migration(
                     SchemaMigrationCode::MissingMigration,
                 ))
@@ -2204,7 +2204,7 @@ fn preflight_initial_application(
 /// Complete generated row-local additions only after a bounded exact proof.
 ///
 /// Empty domains use maintained exact cardinality. At most one non-empty
-/// activation may consume the canonical 0.211 exact scan budget. A journaled
+/// activation may consume the canonical exact scan budget. A journaled
 /// proof that exceeds that page becomes one durable pending application;
 /// volatile or additional non-empty proofs reject before publication.
 fn preflight_existing_application(

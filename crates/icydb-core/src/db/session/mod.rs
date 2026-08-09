@@ -95,6 +95,12 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    /// Advance generated startup recovery without admitting ordinary database work.
+    #[doc(hidden)]
+    pub fn __continue_startup_recovery(&self) -> Result<bool, crate::error::InternalError> {
+        self.db.continue_startup_recovery()
+    }
+
     /// Construct a session from the active synchronous request scope.
     ///
     /// Generated zero-argument `db!()` wiring uses this entry. `None` means

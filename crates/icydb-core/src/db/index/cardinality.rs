@@ -88,6 +88,16 @@ impl IndexPrefixCardinality {
         }
     }
 
+    #[must_use]
+    pub(super) const fn unavailable() -> Self {
+        Self {
+            first_component_counts: HeapBTreeMap::new(),
+            counts: HeapBTreeMap::new(),
+            data_generation: None,
+            decodable: false,
+        }
+    }
+
     pub(super) fn clear_unsynchronized(&mut self) {
         self.first_component_counts.clear();
         self.counts.clear();
@@ -102,6 +112,7 @@ impl IndexPrefixCardinality {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "migration"))]
     pub(super) const fn synchronized_generation(&self) -> Option<u64> {
         if self.decodable {
             self.data_generation

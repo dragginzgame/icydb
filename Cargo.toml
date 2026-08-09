@@ -64,6 +64,7 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 getrandom = "0.4"
 ic-cdk = "0.20.2"
+ic-cdk-timers = "1.0.0"
 ic-memory = "0.12.3"
 ic-stable-structures = "0.7.2"
 ic-testkit = "0.7.6"

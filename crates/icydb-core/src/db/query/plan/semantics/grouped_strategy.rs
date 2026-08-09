@@ -276,9 +276,9 @@ const fn hash_group_fallback_strategy(
 /// GroupedOrderStrategyProjection
 ///
 /// Planner-local grouped order-strategy projection result.
-/// This keeps `0.87` canonical grouped-key proof and `0.88` Top-K reservation
-/// under one owner so grouped strategy selection does not fork those decisions
-/// through parallel helper trees.
+/// This keeps canonical grouped-key proof and Top-K reservation under one
+/// owner so grouped strategy selection does not fork those decisions through
+/// parallel helper trees.
 ///
 enum GroupedOrderStrategyProjection {
     Canonical,
@@ -321,7 +321,7 @@ fn grouped_canonical_order_strategy_projection(
 
     // Phase 1: walk the user-declared grouped ORDER BY list once and keep
     // canonical grouped-key proof separate from the broader grouped Top-K
-    // expression family admitted by the `0.88` planner lane.
+    // expression family.
     let mut canonical_direction = None;
     for (index, term) in order.fields.iter().enumerate() {
         if index < group_fields.len() {

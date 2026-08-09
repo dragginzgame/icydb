@@ -18,6 +18,7 @@ migration = ["icydb-core/migration"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
+ic-cdk-timers = { workspace = true }
 ic-memory = { workspace = true }
 icydb-core = { workspace = true }
 icydb-diagnostic-code = { workspace = true }

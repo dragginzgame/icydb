@@ -1,5 +1,6 @@
 use super::{
-    FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
+    FoldRecordCursor, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
+    JournalTailStore,
     codec::{
         JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_JOURNAL_BATCH_BYTES, RawJournalBatch,
         decode_journal_batch, encode_journal_batch,
@@ -217,6 +218,44 @@ fn journal_batch_codec_round_trips_validation_job_replacement_and_removal() {
     assert_eq!(
         decode_journal_batch(&encoded).expect("validation job removal should decode"),
         removal,
+    );
+}
+
+#[test]
+fn journal_batch_codec_binds_candidate_index_entries_to_validation_job() {
+    let job = validation_job();
+    let primary_key = PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(9));
+    let key = IndexKey::new_from_components_with_primary_key_value(
+        &IndexId::new_with_generation(job.entity_tag(), 2, 11),
+        IndexKeyKind::User,
+        &[b"candidate"],
+        &primary_key,
+    )
+    .expect("candidate index key should build")
+    .to_raw()
+    .expect("candidate index key should encode");
+    let batch = JournalBatch::new(
+        [0x34; 16],
+        [0x44; 16],
+        JournalSequence::new(3),
+        vec![
+            JournalRecord::constraint_validation_job_put("test::Store", &job)
+                .expect("validation job record should build"),
+            JournalRecord::constraint_validation_index_put(
+                "test::Store",
+                job.entity_tag(),
+                job.constraint_id(),
+                key,
+            )
+            .expect("candidate index record should build"),
+        ],
+    )
+    .expect("candidate index batch should build");
+
+    let encoded = encode_journal_batch(&batch).expect("candidate index batch should encode");
+    assert_eq!(
+        decode_journal_batch(&encoded).expect("candidate index batch should decode"),
+        batch,
     );
 }
 
@@ -684,6 +723,35 @@ fn journal_tail_store_persists_fold_watermark_without_counting_it_as_tail_batch(
     assert_eq!(watermark.highest_folded_journal_sequence().get(), 2);
     assert_eq!(watermark.fold_epoch(), 1);
     assert_eq!(store.len(), 2);
+}
+
+#[test]
+fn journal_tail_store_persists_record_level_fold_continuation() {
+    let memory = test_memory(254);
+    let mut store = JournalTailStore::init(memory.clone());
+    let batch = batch(1);
+    store.append_batch(&batch).expect("batch should append");
+    let cursor = FoldRecordCursor::new(
+        batch.journal_sequence(),
+        batch.batch_id(),
+        u32::try_from(batch.records().len()).expect("small record count should fit"),
+        2,
+    );
+    store
+        .persist_fold_record_cursor(cursor)
+        .expect("record cursor should persist");
+    drop(store);
+
+    let mut reopened = JournalTailStore::init(memory);
+    assert_eq!(
+        reopened
+            .fold_record_cursor()
+            .expect("record cursor should decode"),
+        Some(cursor),
+    );
+    assert!(reopened.has_fold_record_cursor());
+    reopened.clear_fold_record_cursor();
+    assert!(!reopened.has_fold_record_cursor());
 }
 
 #[test]

@@ -43,7 +43,7 @@ pub const TIER_A_SELECT_REPETITIONS: u64 = 1;
 /// Required pull-request repetitions per typed invalid proposal and root.
 pub const TIER_A_INVALID_REPETITIONS: u64 = 1;
 
-/// Required scheduled root seeds from the 0.204 design.
+/// Required scheduled root seeds for deterministic coverage.
 pub const TIER_C_ROOT_SEEDS: &[u64] = &[
     0x1cdb_0204_0000_0011,
     0x1cdb_0204_0000_0012,

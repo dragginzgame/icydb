@@ -295,24 +295,6 @@ impl ConstraintValidationJob {
         self.staged_generation
     }
 
-    /// Return whether recovery must rebuild candidate state for this row.
-    ///
-    /// Forward owns only the inclusive prefix through its durable checkpoint;
-    /// Verify owns the complete generation after Forward proved exhaustion.
-    #[must_use]
-    pub(in crate::db) fn candidate_staging_contains(&self, key: &RawDataStoreKey) -> bool {
-        if self.staged_generation.is_none() {
-            return false;
-        }
-        match self.phase {
-            ConstraintValidationPhase::Forward => self
-                .checkpoint
-                .as_ref()
-                .is_some_and(|checkpoint| key <= checkpoint),
-            ConstraintValidationPhase::Verify => true,
-        }
-    }
-
     /// Return the cumulative saturating classified-row count.
     #[must_use]
     pub(in crate::db) const fn rows_scanned(&self) -> u64 {

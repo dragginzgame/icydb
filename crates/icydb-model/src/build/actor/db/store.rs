@@ -106,6 +106,7 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
         .collect::<Vec<_>>();
     let entity_names = entity_stores.iter().map(|(name, _)| name);
     let store_paths = entity_stores.iter().map(|(_, store)| store);
+    let recovery = schema_application_recovery_tokens();
 
     quote! {
         #migration_capability
@@ -127,6 +128,8 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
                     const { ::std::cell::OnceCell::new() };
         }
 
+        #recovery
+
         fn ensure_schema_application(
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<(), ::icydb::Error> {
@@ -134,11 +137,51 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
                 if application.get().is_some() {
                     return Ok(());
                 }
+                if !session.__continue_startup_recovery()? {
+                    schedule_schema_application_recovery();
+                    return Ok(());
+                }
                 apply_generated_schema(session)?;
                 match application.set(()) {
                     Ok(()) | Err(()) => Ok(()),
                 }
             })
+        }
+    }
+}
+
+fn schema_application_recovery_tokens() -> TokenStream {
+    quote! {
+        thread_local! {
+            static SCHEMA_APPLICATION_RECOVERY_TIMER_SCHEDULED: ::std::cell::Cell<bool> =
+                    const { ::std::cell::Cell::new(false) };
+        }
+
+        fn schedule_schema_application_recovery() {
+            let should_schedule = SCHEMA_APPLICATION_RECOVERY_TIMER_SCHEDULED.with(|scheduled| {
+                !scheduled.replace(true)
+            });
+            if !should_schedule {
+                return;
+            }
+            ::icydb::__reexports::ic_cdk_timers::set_timer(
+                ::std::time::Duration::ZERO,
+                async {
+                    SCHEMA_APPLICATION_RECOVERY_TIMER_SCHEDULED
+                        .with(|scheduled| scheduled.set(false));
+                    ::icydb::db::with_request_execution(|| {
+                        let result = core_db()
+                            .map(::icydb::db::DbSession::new)
+                            .and_then(|session| ensure_schema_application(&session));
+                        if let Err(error) = result {
+                            ::icydb::__reexports::ic_cdk::println!(
+                                "IcyDB startup recovery failed (E{})",
+                                error.code().raw(),
+                            );
+                        }
+                    });
+                },
+            );
         }
     }
 }
@@ -636,6 +679,8 @@ mod tests {
 
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("SCHEMA_APPLICATION.with("));
+        assert!(rendered.contains("__continue_startup_recovery"));
+        assert!(rendered.contains("ic_cdk_timers::set_timer"));
     }
 
     #[test]

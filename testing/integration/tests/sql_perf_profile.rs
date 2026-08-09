@@ -208,7 +208,7 @@ impl PerformanceProfile {
         self.focused_hotspot_scenario_ids
     }
 
-    /// Borrow scenarios required for repeated 0.205 grouped-contract evidence.
+    /// Borrow scenarios required for repeated grouped-contract evidence.
     pub(crate) const fn contract_sentinel_scenario_ids(self) -> &'static [&'static str] {
         self.contract_sentinel_scenario_ids
     }
@@ -384,7 +384,7 @@ impl PerformanceProfile {
                 })
         {
             return Err(PerformanceProfileError::InvalidContract(
-                "fixed performance budgets drifted from the 0.220 contract",
+                "fixed performance budgets drifted from the current contract",
             ));
         }
 

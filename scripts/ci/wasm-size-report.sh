@@ -61,7 +61,7 @@ for canister_name in "${canister_names[@]}"; do
         exit 1
     fi
     if ! wasm_report_canister_is_maintained_subject "$canister_name"; then
-        echo "[wasm-size] canister '$canister_name' is outside the 0.220 measurement contract" >&2
+        echo "[wasm-size] canister '$canister_name' is outside the current measurement contract" >&2
         exit 1
     fi
 done

@@ -33,10 +33,10 @@ fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
 }
 
 #[test]
-#[ignore = "the 0.221 measurement handoff supplies one exact prebuilt Wasm subject"]
+#[ignore = "requires one exact prebuilt point-query Wasm subject"]
 fn repeated_dynamic_point_query_instruction_measurement() {
-    let wasm_path = env::var("ICYDB_0221_POINT_QUERY_WASM")
-        .expect("ICYDB_0221_POINT_QUERY_WASM should name the measured Wasm");
+    let wasm_path = env::var("ICYDB_POINT_QUERY_WASM")
+        .expect("ICYDB_POINT_QUERY_WASM should name the measured Wasm");
     let wasm = fs::read(&wasm_path).expect("measured point-query Wasm should read");
     let fixture = install_prebuilt_fixture_canister("one_entity_dynamic_query", wasm);
     for (shape, method) in [
@@ -53,16 +53,16 @@ fn repeated_dynamic_point_query_instruction_measurement() {
         assert_eq!(rows, 0);
         assert!(local_instructions > 0);
         println!(
-            "icydb_0221_repeated_queries wasm={wasm_path} shape={shape} executions={executions} local_instructions={local_instructions}",
+            "icydb_repeated_queries wasm={wasm_path} shape={shape} executions={executions} local_instructions={local_instructions}",
         );
     }
 }
 
 #[test]
-#[ignore = "the 0.221 native exact-key handoff supplies one prebuilt Wasm subject"]
+#[ignore = "requires one exact prebuilt native exact-key Wasm subject"]
 fn native_exact_key_batch_instruction_measurement() {
-    let wasm_path = env::var("ICYDB_0221_EXACT_KEY_WASM")
-        .expect("ICYDB_0221_EXACT_KEY_WASM should name the measured Wasm");
+    let wasm_path = env::var("ICYDB_EXACT_KEY_WASM")
+        .expect("ICYDB_EXACT_KEY_WASM should name the measured Wasm");
     let wasm = fs::read(&wasm_path).expect("measured exact-key Wasm should read");
     let fixture = install_prebuilt_fixture_canister("one_entity_typed_query", wasm);
     for (shape, method, distinct, requested_items) in [

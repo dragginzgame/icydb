@@ -1,14 +1,14 @@
 //! Module: db::commit::recovery
-//! Responsibility: publish marker-bound journal batches and rebuild durable state before operations.
+//! Responsibility: publish and resumably fold marker-bound journal batches before operations.
 //! Does not own: marker storage encoding, mutation planning, or query semantics.
-//! Boundary: db entrypoints -> commit::recovery -> commit::{rebuild,store} + journal fold (one-way).
+//! Boundary: db entrypoints -> commit::recovery -> commit::store + journal fold (one-way).
 //!
 //! This module implements a **system recovery step** that restores global
-//! database invariants by completing marker-owned work forward and rebuilding
-//! derived state before any new operation proceeds.
+//! database invariants by completing marker-owned work and folding derived
+//! state forward before any new operation proceeds.
 //!
 //! Important semantic notes:
-//! - Recovery runs once at startup.
+//! - Recovery runs in bounded durable pages at startup.
 //! - Read and write paths both perform a cheap marker check and replay if needed.
 //! - Reads must not proceed while a persisted partial commit marker is present.
 //!
@@ -16,8 +16,9 @@
 //! unconditional invariant-restoration step. Recovery must not be
 //! interleaved with read logic or mutation planning/apply phases.
 
+use crate::db::index::IndexEntryValue;
 #[cfg(any(test, feature = "migration"))]
-use crate::db::index::{IndexEntryValue, IndexKey};
+use crate::db::index::IndexKey;
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::{apply_schema_migration_record_op, verify_schema_migration_record_op};
 use crate::{
@@ -30,7 +31,6 @@ use crate::{
                 CommitMemoryAllocation, configure_commit_memory_id,
                 current_commit_memory_allocation,
             },
-            rebuild::rebuild_secondary_indexes_from_rows,
             store::{
                 commit_marker_may_be_present, commit_marker_present_fast,
                 mark_commit_marker_verified_absent, with_commit_store,
@@ -42,7 +42,10 @@ use crate::{
         },
         database_format::ensure_database_format_admitted,
         index::IndexStore,
-        journal::{FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore},
+        journal::{
+            FoldRecordCursor, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
+            JournalTailStore, journal_batch_encoded_len,
+        },
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
@@ -109,6 +112,21 @@ struct RecoveryDomainKey {
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
 pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    match continue_recovery(db)? {
+        RecoveryProgress::Complete => Ok(()),
+        RecoveryProgress::Pending => Err(InternalError::recovery_pending()),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RecoveryProgress {
+    Complete,
+    Pending,
+}
+
+pub(crate) fn continue_recovery<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<RecoveryProgress, InternalError> {
     configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     ensure_database_format_admitted(db)?;
@@ -124,7 +142,7 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
     let recovery_in_progress = recovery_domain_in_progress(recovery_key);
 
     if !commit_marker_may_be_present() && !recovery_in_progress {
-        return Ok(());
+        return Ok(RecoveryProgress::Complete);
     }
 
     if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
@@ -140,27 +158,50 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
 
     mark_commit_marker_verified_absent();
 
-    Ok(())
+    Ok(RecoveryProgress::Complete)
 }
 
 fn recover_domain<C: CanisterKind>(
     db: &Db<C>,
     recovery_key: RecoveryDomainKey,
-) -> Result<(), InternalError> {
+) -> Result<RecoveryProgress, InternalError> {
     mark_recovery_domain_in_progress(recovery_key);
     let marker = with_commit_store(super::store::CommitStore::load)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-    perform_recovery(db, marker)?;
-    mark_recovery_domain_recovered(recovery_key)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-    clear_recovery_domain_in_progress(recovery_key);
-    Ok(())
+    let progress = if marker.is_none() && journaled_tails_are_empty(db) {
+        restore_live_schema_checkpoints(db, None)
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        db.mark_all_registered_index_stores_ready()
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        mark_commit_marker_verified_absent();
+        RecoveryProgress::Complete
+    } else {
+        perform_recovery_page(db, marker)?
+    };
+    if progress == RecoveryProgress::Complete {
+        mark_recovery_domain_recovered(recovery_key)
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        clear_recovery_domain_in_progress(recovery_key);
+    }
+    Ok(progress)
 }
 
-fn perform_recovery<C: CanisterKind>(
+fn journaled_tails_are_empty<C: CanisterKind>(db: &Db<C>) -> bool {
+    sorted_journaled_store_handles(db)
+        .into_iter()
+        .all(|(_, handle)| {
+            handle.journal_tail_store().is_some_and(|tail| {
+                tail.with_borrow(|store| {
+                    !store.has_stored_batch() && !store.has_fold_record_cursor()
+                })
+            })
+        })
+}
+
+fn perform_recovery_page<C: CanisterKind>(
     db: &Db<C>,
     marker: Option<CommitMarker>,
-) -> Result<(), InternalError> {
+) -> Result<RecoveryProgress, InternalError> {
     let had_marker = marker.is_some();
     restore_live_schema_checkpoints(db, marker.as_ref())
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
@@ -189,58 +230,33 @@ fn perform_recovery<C: CanisterKind>(
         }
     }
 
-    // Phase 1: fold committed journal-tail records into the canonical stable
-    // base, then use the fold watermark as the replay boundary.
-    fold_journaled_tails(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    // Disposable overlays may contain effects from the predecessor Wasm or a
+    // same-process interruption test. Canonical row, index, and schema stores
+    // remain the only fold inputs across resumable recovery pages.
+    reset_journaled_live_projections(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 2: rebuild journaled live projections from durable base + any
-    // committed tail that remains above the fold watermark.
-    rebuild_journaled_live_projections(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-
-    // Phase 3: a partially rewritten migration deliberately contains both
-    // predecessor and candidate row layouts. Its marker-owned private index
-    // generations must survive until final publication; ordinary accepted
-    // rebuild resumes once the migration becomes terminal.
-    #[cfg(any(test, feature = "migration"))]
-    let private_migration_state = migration_retains_private_physical_authority()
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-    #[cfg(not(any(test, feature = "migration")))]
-    let private_migration_state = false;
-    if !private_migration_state && let Err(err) = rebuild_secondary_indexes_from_rows(db) {
-        return Err(err.with_origin(ErrorOrigin::Recovery));
+    // Fold one bounded journal page. Each row transition updates its canonical
+    // data and derived-index effects before the existing watermark advances.
+    if !fold_journaled_tail_page(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
+        return Ok(RecoveryProgress::Pending);
     }
 
-    // Phase 4: fold rebuilt journaled index materializations into canonical
-    // index storage. Indexes are derived state, not independent journal truth.
-    fold_journaled_index_materialized_views(db)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-
-    // Phase 5: verify only marker-owned effects and terminal fold state before
+    // Verify only marker-owned effects and terminal fold state before
     // clearing marker authority. Whole-database integrity is an explicit
     // bounded inspection workflow, not a recovery side effect.
     verify_recovered_effects(db, marker.as_ref())
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 6: clear marker only after replay + rebuild + integrity validation succeed.
+    // Clear marker only after replay + fold + effect validation succeed.
     if had_marker {
         with_commit_store(super::store::CommitStore::clear_verified)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
-    // Phase 7: authoritative rebuild succeeded, so every registered index is
-    // query-visible again.
-    if !private_migration_state {
-        db.mark_all_registered_index_stores_ready()?;
-    }
+    db.mark_all_registered_index_stores_ready()?;
     mark_commit_marker_verified_absent();
 
-    Ok(())
-}
-
-#[cfg(any(test, feature = "migration"))]
-fn migration_retains_private_physical_authority() -> Result<bool, InternalError> {
-    crate::db::schema::load_schema_migration_record()
-        .map(|record| record.is_some_and(|record| record.retains_private_physical_authority()))
+    Ok(RecoveryProgress::Complete)
 }
 
 fn restore_live_schema_checkpoints<C: CanisterKind>(
@@ -371,83 +387,196 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
     Ok(())
 }
 
-fn rebuild_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    let stores = sorted_journaled_store_handles(db);
-    for (_, handle) in &stores {
+fn reset_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    for (_, handle) in sorted_journaled_store_handles(db) {
+        handle.mark_index_building()?;
         handle.with_data_mut(DataStore::reset_journaled_live_projection)?;
+        handle.with_index_mut(IndexStore::reset_journaled_live_projection)?;
         handle.with_schema_mut(SchemaStore::reset_journaled_live_projection)?;
-    }
-
-    for (store_path, handle) in stores {
-        let journal_store = handle
-            .journal_tail_store()
-            .ok_or_else(InternalError::store_corruption)?;
-        journal_store.with_borrow(|store| {
-            let watermark = store.fold_watermark()?.highest_folded_journal_sequence();
-            store.visit_batches_after(watermark, |batch| {
-                replay_journal_batch(db, store_path, handle, batch)?;
-                Ok(())
-            })
-        })?;
     }
 
     Ok(())
 }
 
-fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    for (store_path, handle) in sorted_journaled_store_handles(db) {
-        // Tail records form a sequence over canonical state. A newer volatile
-        // schema overlay may contain later activation/job state and must not
-        // become the predecessor used to validate an earlier fold record.
-        // Recovery already owns exclusivity, and phase 2 rebuilds this
-        // disposable projection from the resulting canonical state.
-        handle.with_schema_mut(SchemaStore::reset_journaled_live_projection)?;
+#[cfg(test)]
+const RECOVERY_JOURNAL_BATCHES_PER_PAGE: usize = 128;
+#[cfg(not(test))]
+const RECOVERY_JOURNAL_BATCHES_PER_PAGE: usize = 2_048;
+#[cfg(test)]
+const RECOVERY_JOURNAL_RECORDS_PER_PAGE: usize = 128;
+#[cfg(not(test))]
+const RECOVERY_JOURNAL_RECORDS_PER_PAGE: usize = 4_096;
+const RECOVERY_JOURNAL_BYTES_PER_PAGE: usize = 8 * 1_024 * 1_024;
+#[cfg(target_arch = "wasm32")]
+const RECOVERY_INSTRUCTIONS_PER_PAGE: u64 = 20_000_000_000;
+
+fn fold_journaled_tail_page<C: CanisterKind>(db: &Db<C>) -> Result<bool, InternalError> {
+    let mut remaining_batches = RECOVERY_JOURNAL_BATCHES_PER_PAGE;
+    let mut remaining_records = RECOVERY_JOURNAL_RECORDS_PER_PAGE;
+    let mut remaining_bytes = RECOVERY_JOURNAL_BYTES_PER_PAGE;
+    let instruction_start = recovery_instruction_counter();
+    let mut page_progressed = false;
+    'stores: for (store_path, handle) in sorted_journaled_store_handles(db) {
         let journal_store = handle
             .journal_tail_store()
             .ok_or_else(InternalError::store_corruption)?;
-        let watermark = journal_store.with_borrow(JournalTailStore::fold_watermark)?;
-        let mut highest_folded = watermark.highest_folded_journal_sequence();
+        loop {
+            if remaining_batches == 0 || remaining_records == 0 {
+                break 'stores;
+            }
+            let watermark = journal_store.with_borrow(JournalTailStore::fold_watermark)?;
+            let Some(batch) = journal_store.with_borrow(|store| {
+                store.next_batch_after(watermark.highest_folded_journal_sequence())
+            })?
+            else {
+                if journal_store.with_borrow(JournalTailStore::has_fold_record_cursor) {
+                    return Err(InternalError::store_corruption());
+                }
+                break;
+            };
+            let batch_bytes = journal_batch_encoded_len(&batch);
+            let stored_cursor = journal_store.with_borrow(JournalTailStore::fold_record_cursor)?;
+            if stored_cursor.is_none()
+                && page_progressed
+                && (batch_bytes > remaining_bytes
+                    || recovery_instruction_budget_reached(instruction_start))
+            {
+                break 'stores;
+            }
 
-        journal_store.with_borrow(|store| {
-            store.visit_batches_after(watermark.highest_folded_journal_sequence(), |batch| {
-                fold_journal_batch(db, store_path, handle, batch)?;
-                highest_folded = batch.journal_sequence();
-                Ok(())
-            })
-        })?;
+            let (mut next_record_ordinal, cursor_created) = prepare_fold_record_cursor(
+                db,
+                store_path,
+                handle,
+                journal_store,
+                &batch,
+                stored_cursor,
+            )?;
+            page_progressed |= cursor_created;
+            let candidate = validated_journal_batch_schema_candidate(store_path, &batch)?;
+            while next_record_ordinal < batch.records().len() {
+                if page_progressed
+                    && (remaining_records == 0
+                        || recovery_instruction_budget_reached(instruction_start))
+                {
+                    break 'stores;
+                }
+                let record = batch
+                    .records()
+                    .get(next_record_ordinal)
+                    .ok_or_else(InternalError::store_corruption)?;
+                validate_journal_batch_record(
+                    db,
+                    store_path,
+                    handle,
+                    candidate.as_ref(),
+                    &batch,
+                    next_record_ordinal,
+                    record,
+                    JournalRecordApplyMode::Fold,
+                )?;
+                apply_journal_record(
+                    db,
+                    store_path,
+                    handle,
+                    &batch,
+                    next_record_ordinal,
+                    record,
+                    JournalRecordApplyMode::Fold,
+                )?;
+                next_record_ordinal = next_record_ordinal
+                    .checked_add(1)
+                    .ok_or_else(InternalError::store_corruption)?;
+                persist_fold_record_cursor(journal_store, &batch, next_record_ordinal)?;
+                remaining_records = remaining_records.saturating_sub(1);
+                page_progressed = true;
+            }
 
-        if highest_folded > watermark.highest_folded_journal_sequence() {
             let next_epoch = watermark
                 .fold_epoch()
                 .checked_add(1)
                 .ok_or_else(InternalError::store_corruption)?;
-            let next_watermark = FoldWatermark::new(highest_folded, next_epoch);
+            let next_watermark = FoldWatermark::new(batch.journal_sequence(), next_epoch);
             journal_store.with_borrow_mut(|store| {
                 store.persist_fold_watermark(next_watermark)?;
-                store.clear_batches_through(highest_folded);
+                store.clear_fold_record_cursor();
+                store.clear_batches_through(batch.journal_sequence());
 
                 Ok::<(), InternalError>(())
             })?;
-        } else if watermark.highest_folded_journal_sequence() > JournalSequence::new(0) {
-            journal_store.with_borrow_mut(|store| {
-                store.clear_batches_through(watermark.highest_folded_journal_sequence());
-
-                Ok::<(), InternalError>(())
-            })?;
+            remaining_batches = remaining_batches.saturating_sub(1);
+            remaining_bytes = remaining_bytes.saturating_sub(batch_bytes);
         }
     }
 
-    Ok(())
+    Ok(journaled_tails_are_empty(db))
 }
 
-fn fold_journaled_index_materialized_views<C: CanisterKind>(
+fn prepare_fold_record_cursor<C: CanisterKind>(
     db: &Db<C>,
-) -> Result<(), InternalError> {
-    for (_, handle) in sorted_journaled_store_handles(db) {
-        handle.with_index_mut(IndexStore::fold_journaled_materialized_view)?;
+    store_path: &'static str,
+    handle: StoreHandle,
+    journal_store: &'static std::thread::LocalKey<RefCell<JournalTailStore>>,
+    batch: &JournalBatch,
+    stored_cursor: Option<FoldRecordCursor>,
+) -> Result<(usize, bool), InternalError> {
+    if let Some(cursor) = stored_cursor {
+        return validate_fold_record_cursor(batch, cursor).map(|ordinal| (ordinal, false));
     }
 
-    Ok(())
+    validate_journal_batch_envelope(db, store_path, handle, batch)?;
+    persist_fold_record_cursor(journal_store, batch, 0)?;
+    Ok((0, true))
+}
+
+fn persist_fold_record_cursor(
+    journal_store: &'static std::thread::LocalKey<RefCell<JournalTailStore>>,
+    batch: &JournalBatch,
+    next_record_ordinal: usize,
+) -> Result<(), InternalError> {
+    let cursor = FoldRecordCursor::new(
+        batch.journal_sequence(),
+        batch.batch_id(),
+        u32::try_from(batch.records().len()).map_err(|_| InternalError::store_corruption())?,
+        u32::try_from(next_record_ordinal).map_err(|_| InternalError::store_corruption())?,
+    );
+    journal_store.with_borrow_mut(|store| store.persist_fold_record_cursor(cursor))
+}
+
+fn validate_fold_record_cursor(
+    batch: &JournalBatch,
+    cursor: FoldRecordCursor,
+) -> Result<usize, InternalError> {
+    let record_count =
+        u32::try_from(batch.records().len()).map_err(|_| InternalError::store_corruption())?;
+    if cursor.journal_sequence() != batch.journal_sequence()
+        || cursor.batch_id() != batch.batch_id()
+        || cursor.record_count() != record_count
+        || cursor.next_record_ordinal() > record_count
+    {
+        return Err(InternalError::store_corruption());
+    }
+    usize::try_from(cursor.next_record_ordinal()).map_err(|_| InternalError::store_corruption())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn recovery_instruction_counter() -> u64 {
+    ic_cdk::api::performance_counter(0)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const fn recovery_instruction_counter() -> u64 {
+    0
+}
+
+#[cfg(target_arch = "wasm32")]
+fn recovery_instruction_budget_reached(start: u64) -> bool {
+    recovery_instruction_counter().saturating_sub(start) >= RECOVERY_INSTRUCTIONS_PER_PAGE
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const fn recovery_instruction_budget_reached(_start: u64) -> bool {
+    false
 }
 
 fn sorted_journaled_store_handles<C: CanisterKind>(db: &Db<C>) -> Vec<(&'static str, StoreHandle)> {
@@ -512,39 +641,6 @@ fn replay_journal_batch<C: CanisterKind>(
     Ok(())
 }
 
-fn fold_journal_batch<C: CanisterKind>(
-    db: &Db<C>,
-    expected_store_path: &'static str,
-    expected_handle: StoreHandle,
-    batch: &JournalBatch,
-) -> Result<(), InternalError> {
-    let (_, batch_handle) = journal_batch_store_handle(db, batch)?;
-    if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
-        return Err(InternalError::store_corruption());
-    }
-    let _candidate = validate_journal_batch_records(
-        db,
-        expected_store_path,
-        expected_handle,
-        batch,
-        JournalRecordApplyMode::Fold,
-    )?;
-
-    for (record_ordinal, record) in batch.records().iter().enumerate() {
-        apply_journal_record(
-            db,
-            expected_store_path,
-            expected_handle,
-            batch,
-            record_ordinal,
-            record,
-            JournalRecordApplyMode::Fold,
-        )?;
-    }
-
-    Ok(())
-}
-
 #[expect(
     clippy::too_many_lines,
     reason = "recovery keeps every journal record's replay and fold behavior in one exhaustive authority"
@@ -560,31 +656,48 @@ fn apply_journal_record<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     match record {
         JournalRecord::RowPut {
+            entity_path,
             primary_key,
             row_bytes,
-            ..
+            schema_fingerprint,
         } => {
             let row =
                 RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
-            expected_handle.with_data_mut(|store| match mode {
-                JournalRecordApplyMode::Replay => store
-                    .apply_recovered_journal_put(primary_key.clone(), row)
-                    .map(|_| ()),
-                JournalRecordApplyMode::Fold => store
-                    .fold_recovered_journal_put(primary_key.clone(), row)
-                    .map(|_| ()),
-            })
+            match mode {
+                JournalRecordApplyMode::Replay => expected_handle.with_data_mut(|store| {
+                    store
+                        .apply_recovered_journal_put(primary_key.clone(), row)
+                        .map(|_| ())
+                }),
+                JournalRecordApplyMode::Fold => fold_recovered_row_transition(
+                    db,
+                    expected_handle,
+                    entity_path,
+                    primary_key,
+                    Some(row),
+                    *schema_fingerprint,
+                ),
+            }
         }
-        JournalRecord::RowDelete { primary_key, .. } => {
-            expected_handle.with_data_mut(|store| match mode {
-                JournalRecordApplyMode::Replay => store
+        JournalRecord::RowDelete {
+            entity_path,
+            primary_key,
+            schema_fingerprint,
+        } => match mode {
+            JournalRecordApplyMode::Replay => expected_handle.with_data_mut(|store| {
+                store
                     .apply_recovered_journal_delete(primary_key)
-                    .map(|_| ()),
-                JournalRecordApplyMode::Fold => {
-                    store.fold_recovered_journal_delete(primary_key).map(|_| ())
-                }
-            })
-        }
+                    .map(|_| ())
+            }),
+            JournalRecordApplyMode::Fold => fold_recovered_row_transition(
+                db,
+                expected_handle,
+                entity_path,
+                primary_key,
+                None,
+                *schema_fingerprint,
+            ),
+        },
         JournalRecord::SchemaPut {
             store_path,
             schema_snapshot_bytes,
@@ -699,6 +812,16 @@ fn apply_journal_record<C: CanisterKind>(
                 }
             })
         }
+        JournalRecord::ConstraintValidationIndexPut { key, .. } => {
+            expected_handle.with_index_mut(|store| match mode {
+                JournalRecordApplyMode::Replay => {
+                    store.insert(key.clone(), IndexEntryValue::presence());
+                    Ok(())
+                }
+                JournalRecordApplyMode::Fold => store
+                    .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence())),
+            })
+        }
         JournalRecord::IdentityRangeAdvance { range } => {
             let advance_id = identity_advance_id(batch, record_ordinal)?;
             match mode {
@@ -754,22 +877,57 @@ fn apply_journal_record<C: CanisterKind>(
                 return Err(InternalError::store_corruption());
             }
             validate_schema_migration_journal_plan(*plan_digest)?;
-            expected_handle.with_index_mut(|store| match store.get(key) {
-                None => {
-                    store.insert(key.clone(), IndexEntryValue::presence());
-                    Ok(())
-                }
-                Some(value) if value == IndexEntryValue::presence() => Ok(()),
-                Some(_) => Err(InternalError::store_corruption()),
+            expected_handle.with_index_mut(|store| match mode {
+                JournalRecordApplyMode::Replay => match store.get(key) {
+                    None => {
+                        store.insert(key.clone(), IndexEntryValue::presence());
+                        Ok(())
+                    }
+                    Some(value) if value == IndexEntryValue::presence() => Ok(()),
+                    Some(_) => Err(InternalError::store_corruption()),
+                },
+                JournalRecordApplyMode::Fold => store
+                    .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence())),
             })
         }
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the exhaustive current journal record validator keeps store routing and apply-mode closure in one match"
-)]
+fn fold_recovered_row_transition<C: CanisterKind>(
+    db: &Db<C>,
+    expected_handle: StoreHandle,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    after: Option<RawRow>,
+    schema_fingerprint: CommitSchemaFingerprint,
+) -> Result<(), InternalError> {
+    let before = expected_handle
+        .with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
+    let op = CommitRowOp::try_new_bytes(
+        entity_path,
+        primary_key.as_bytes(),
+        before,
+        after.as_ref().map(|row| row.as_bytes().to_vec()),
+        schema_fingerprint,
+    )?;
+    let prepared = db.prepare_row_commit_op_for_replay(&op)?;
+    if !std::ptr::eq(prepared.data_store, expected_handle.data_store())
+        || prepared.data_key != *primary_key
+    {
+        return Err(InternalError::store_corruption());
+    }
+    for index_op in prepared.index_ops {
+        index_op.fold_recovered()?;
+    }
+
+    expected_handle.with_data_mut(|store| match after {
+        Some(row) => store
+            .fold_recovered_journal_put(primary_key.clone(), row)
+            .map(|_| ()),
+        None => store.fold_recovered_journal_delete(primary_key).map(|_| ()),
+    })
+}
+
 fn validate_journal_batch_records<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -777,6 +935,35 @@ fn validate_journal_batch_records<C: CanisterKind>(
     batch: &JournalBatch,
     mode: JournalRecordApplyMode,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    let candidate =
+        validate_journal_batch_envelope(db, expected_store_path, expected_handle, batch)?;
+
+    for (record_ordinal, record) in batch.records().iter().enumerate() {
+        validate_journal_batch_record(
+            db,
+            expected_store_path,
+            expected_handle,
+            candidate.as_ref(),
+            batch,
+            record_ordinal,
+            record,
+            mode,
+        )?;
+    }
+
+    Ok(candidate)
+}
+
+fn validate_journal_batch_envelope<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    batch: &JournalBatch,
+) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    let (_, batch_handle) = journal_batch_store_handle(db, batch)?;
+    if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
+        return Err(InternalError::store_corruption());
+    }
     let candidate = journal_batch_schema_candidate(expected_store_path, batch)?;
     validate_journal_batch_constraint_validation_job_change(
         db,
@@ -786,104 +973,153 @@ fn validate_journal_batch_records<C: CanisterKind>(
         candidate.as_ref(),
     )?;
 
-    for (record_ordinal, record) in batch.records().iter().enumerate() {
-        match record {
-            JournalRecord::RowPut { .. } => {
-                validate_journal_batch_row_put(
-                    db,
-                    expected_store_path,
-                    expected_handle,
-                    candidate.as_ref(),
-                    record,
-                    mode,
-                )?;
-            }
-            JournalRecord::RowDelete {
-                entity_path,
-                primary_key,
-                schema_fingerprint,
-            } => validate_journal_batch_row_delete(
+    Ok(candidate)
+}
+
+fn validated_journal_batch_schema_candidate(
+    expected_store_path: &'static str,
+    batch: &JournalBatch,
+) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    journal_batch_schema_candidate(expected_store_path, batch)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "the exhaustive current journal record validator keeps store routing and apply-mode closure in one match"
+)]
+fn validate_journal_batch_record<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    candidate: Option<&CandidateSchemaRevision>,
+    batch: &JournalBatch,
+    record_ordinal: usize,
+    record: &JournalRecord,
+    mode: JournalRecordApplyMode,
+) -> Result<(), InternalError> {
+    match record {
+        JournalRecord::RowPut { .. } => {
+            validate_journal_batch_row_put(
                 db,
                 expected_store_path,
                 expected_handle,
-                entity_path,
-                primary_key,
-                *schema_fingerprint,
+                candidate,
+                record,
                 mode,
-            )?,
-            JournalRecord::SchemaPut {
-                store_path,
-                schema_snapshot_bytes,
-            } => {
-                if store_path != expected_store_path {
-                    return Err(InternalError::store_corruption());
-                }
-                let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-                let runtime_entity = db.accepted_runtime_entity_for_path(snapshot.entity_path())?;
-                if runtime_entity.store_path() != expected_store_path {
-                    return Err(InternalError::store_corruption());
-                }
+            )?;
+        }
+        JournalRecord::RowDelete {
+            entity_path,
+            primary_key,
+            schema_fingerprint,
+        } => validate_journal_batch_row_delete(
+            db,
+            expected_store_path,
+            expected_handle,
+            entity_path,
+            primary_key,
+            *schema_fingerprint,
+            mode,
+        )?,
+        JournalRecord::SchemaPut {
+            store_path,
+            schema_snapshot_bytes,
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption());
             }
-            JournalRecord::AcceptedSchemaPublish { .. }
-            | JournalRecord::ConstraintValidationJobPut { .. }
-            | JournalRecord::ConstraintValidationJobDelete { .. } => {
-                // The first pass decoded and verified the candidate before any
-                // candidate-bound row rewrite was admitted, including the exact
-                // final activation/job closure.
-            }
-            JournalRecord::IdentityRangeAdvance { range } => {
-                let runtime_entity = db
-                    .accepted_runtime_entity_for_tag(range.owner().entity_tag())
-                    .map_err(|_| InternalError::store_corruption())?;
-                if runtime_entity.store_path() != expected_store_path
-                    || range.owner().database_incarnation_id() != database_incarnation_id()?
-                {
-                    return Err(InternalError::store_corruption());
-                }
-                let advance_id = identity_advance_id(batch, record_ordinal)?;
-                let commit_state = expected_handle.with_schema(|store| {
-                    store.identity_range_commit_state(
-                        *range,
-                        advance_id,
-                        mode == JournalRecordApplyMode::Fold,
-                    )
-                })?;
-                if commit_state.materialized_high_water() > commit_state.committed_high_water() {
-                    return Err(InternalError::identity_state_corruption());
-                }
-            }
-            #[cfg(any(test, feature = "migration"))]
-            JournalRecord::SchemaMigrationRowPut {
-                store_path,
-                primary_key,
-                row_bytes,
-                plan_digest,
-                ..
-            } => {
-                if store_path != expected_store_path {
-                    return Err(InternalError::store_corruption());
-                }
-                validate_schema_migration_journal_plan(*plan_digest)?;
-                DecodedDataStoreKey::try_from_raw(primary_key)
-                    .map_err(|_| InternalError::store_corruption())?;
-                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
-            }
-            #[cfg(any(test, feature = "migration"))]
-            JournalRecord::SchemaMigrationIndexPut {
-                store_path,
-                key,
-                plan_digest,
-            } => {
-                if store_path != expected_store_path {
-                    return Err(InternalError::store_corruption());
-                }
-                validate_schema_migration_journal_plan(*plan_digest)?;
-                IndexKey::try_from_raw(key).map_err(|_| InternalError::store_corruption())?;
+            let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
+            let runtime_entity = db.accepted_runtime_entity_for_path(snapshot.entity_path())?;
+            if runtime_entity.store_path() != expected_store_path {
+                return Err(InternalError::store_corruption());
             }
         }
+        JournalRecord::AcceptedSchemaPublish { .. }
+        | JournalRecord::ConstraintValidationJobPut { .. }
+        | JournalRecord::ConstraintValidationJobDelete { .. } => {
+            // The first pass decoded and verified the candidate before any
+            // candidate-bound row rewrite was admitted, including the exact
+            // final activation/job closure.
+        }
+        JournalRecord::ConstraintValidationIndexPut {
+            store_path,
+            entity_tag,
+            constraint_id,
+            key,
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption());
+            }
+            let Some(JournalRecord::ConstraintValidationJobPut { job_bytes, .. }) =
+                batch.records().first()
+            else {
+                return Err(InternalError::store_corruption());
+            };
+            let job = decode_constraint_validation_job(job_bytes)?;
+            if job.entity_tag() != *entity_tag || job.constraint_id() != *constraint_id {
+                return Err(InternalError::store_corruption());
+            }
+            let bundle = expected_handle
+                .with_schema(SchemaStore::current_accepted_schema_bundle)?
+                .ok_or_else(InternalError::store_corruption)?;
+            super::schema_publication::validate_candidate_index_entries(
+                &bundle,
+                &job,
+                std::slice::from_ref(key),
+            )?;
+        }
+        JournalRecord::IdentityRangeAdvance { range } => {
+            let runtime_entity = db
+                .accepted_runtime_entity_for_tag(range.owner().entity_tag())
+                .map_err(|_| InternalError::store_corruption())?;
+            if runtime_entity.store_path() != expected_store_path
+                || range.owner().database_incarnation_id() != database_incarnation_id()?
+            {
+                return Err(InternalError::store_corruption());
+            }
+            let advance_id = identity_advance_id(batch, record_ordinal)?;
+            let commit_state = expected_handle.with_schema(|store| {
+                store.identity_range_commit_state(
+                    *range,
+                    advance_id,
+                    mode == JournalRecordApplyMode::Fold,
+                )
+            })?;
+            if commit_state.materialized_high_water() > commit_state.committed_high_water() {
+                return Err(InternalError::identity_state_corruption());
+            }
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut {
+            store_path,
+            primary_key,
+            row_bytes,
+            plan_digest,
+            ..
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption());
+            }
+            validate_schema_migration_journal_plan(*plan_digest)?;
+            DecodedDataStoreKey::try_from_raw(primary_key)
+                .map_err(|_| InternalError::store_corruption())?;
+            RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+        }
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationIndexPut {
+            store_path,
+            key,
+            plan_digest,
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption());
+            }
+            validate_schema_migration_journal_plan(*plan_digest)?;
+            IndexKey::try_from_raw(key).map_err(|_| InternalError::store_corruption())?;
+        }
     }
-
-    Ok(candidate)
+    Ok(())
 }
 
 fn validate_journal_batch_row_put<C: CanisterKind>(
@@ -1029,6 +1265,7 @@ fn journal_batch_schema_candidate(
             | JournalRecord::SchemaPut { .. }
             | JournalRecord::ConstraintValidationJobPut { .. }
             | JournalRecord::ConstraintValidationJobDelete { .. }
+            | JournalRecord::ConstraintValidationIndexPut { .. }
             | JournalRecord::IdentityRangeAdvance { .. } => {}
             #[cfg(any(test, feature = "migration"))]
             JournalRecord::SchemaMigrationRowPut { .. }
@@ -1390,7 +1627,8 @@ fn journal_record_store_handle<C: CanisterKind>(
         JournalRecord::SchemaPut { store_path, .. }
         | JournalRecord::AcceptedSchemaPublish { store_path, .. }
         | JournalRecord::ConstraintValidationJobPut { store_path, .. }
-        | JournalRecord::ConstraintValidationJobDelete { store_path, .. } => {
+        | JournalRecord::ConstraintValidationJobDelete { store_path, .. }
+        | JournalRecord::ConstraintValidationIndexPut { store_path, .. } => {
             registry_store_handle_for_path(db, store_path)
         }
         JournalRecord::IdentityRangeAdvance { range } => {
@@ -1527,7 +1765,6 @@ enum RecoveredEffectIdentity {
         entity_tag: u64,
         field_id: u32,
     },
-    #[cfg(any(test, feature = "migration"))]
     Index {
         store_path: String,
         raw_key: Vec<u8>,
@@ -1539,7 +1776,8 @@ enum RecoveredEffectIdentity {
 // The marker is capped by `MAX_COMMIT_BYTES`; reverse traversal retains only
 // the last record for each logical target. Tail folds and full derived-state
 // rebuilds have already completed, so row deletes need only prove authoritative
-// row absence: the rebuilt index store cannot retain entries from absent rows.
+// row absence: incremental row folding applies the matching derived-index
+// transition before the row watermark advances.
 pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
     db: &Db<C>,
     marker: Option<&CommitMarker>,
@@ -1665,6 +1903,9 @@ fn verify_recovered_record<C: CanisterKind>(
             None,
             verified,
         )?,
+        JournalRecord::ConstraintValidationIndexPut {
+            store_path, key, ..
+        } => verify_recovered_index_put(db, store_path, key, verified)?,
         JournalRecord::IdentityRangeAdvance { range } => {
             let runtime_entity = db
                 .accepted_runtime_entity_for_tag(range.owner().entity_tag())
@@ -1720,19 +1961,29 @@ fn verify_recovered_record<C: CanisterKind>(
             plan_digest,
         } => {
             validate_schema_migration_journal_plan(*plan_digest)?;
-            let identity = RecoveredEffectIdentity::Index {
-                store_path: store_path.clone(),
-                raw_key: key.as_bytes().to_vec(),
-            };
-            if verified.insert(identity) {
-                let (_, handle) = registry_store_handle_for_path(db, store_path)?;
-                if handle.with_index(|store| store.get(key)) != Some(IndexEntryValue::presence()) {
-                    return Err(InternalError::recovery_effect_verification_failed());
-                }
-            }
+            verify_recovered_index_put(db, store_path, key, verified)?;
         }
     }
 
+    Ok(())
+}
+
+fn verify_recovered_index_put<C: CanisterKind>(
+    db: &Db<C>,
+    store_path: &str,
+    key: &crate::db::index::RawIndexStoreKey,
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    let identity = RecoveredEffectIdentity::Index {
+        store_path: store_path.to_string(),
+        raw_key: key.as_bytes().to_vec(),
+    };
+    if verified.insert(identity) {
+        let (_, handle) = registry_store_handle_for_path(db, store_path)?;
+        if handle.with_index(|store| store.get(key)) != Some(IndexEntryValue::presence()) {
+            return Err(InternalError::recovery_effect_verification_failed());
+        }
+    }
     Ok(())
 }
 

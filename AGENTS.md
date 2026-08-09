@@ -42,6 +42,16 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 ## Cost / Scope Control
 
+- Avoid scope creep and incidental complexity; prioritise simplicity and
+  maintainability. Prefer deleting, reusing, narrowing, or changing an existing
+  authority over adding modes, abstractions, configuration, persisted states,
+  or compatibility paths.
+- Before adding an independent behavior axis such as a mode, configuration
+  option, persisted state, execution route, cursor format, or widely consumed
+  enum variant, record the demonstrated need, simplest alternative, canonical
+  owner, and state-space delta.
+- Prefer one semantic authority and one converged execution flow. Tests protect
+  maintained behavior and boundaries, not incidental implementation shape.
 - Start with `rg` and targeted inspection; do not read broad directories unless the task requires it.
 - Make the smallest safe patch that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.
@@ -81,6 +91,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 - Agent details: `docs/governance/agent-operating-manual.md`
 - Changelog rules: `docs/governance/changelog.md`
+- Simplicity, state-space, and debt rules: `docs/governance/simplicity-and-maintainability.md`
 - Slice/PR governance: `docs/governance/velocity-preservation.md`
 - Code hygiene/style: `docs/governance/code-hygiene/README.md`
 

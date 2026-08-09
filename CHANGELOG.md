@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.223.x] 🔁 - 2026-08-09 - Durable Resumable Mutation Jobs
+
+Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
+
+- `0.223.0` makes startup recovery durably resumable, keeps enum integrity
+  checks exact, and freezes the measured contract for future collection-scale
+  mutation jobs; it is potentially breaking for synchronous post-`db!()` work
+  and unfinished development migration tails.
+
 ## [0.222.x] 🌊 - 2026-08-07 - Streaming Execution And Key-First Operators
 
 Detailed notes: [docs/changelog/0.222.md](docs/changelog/0.222.md)

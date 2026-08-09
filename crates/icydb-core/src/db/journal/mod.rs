@@ -22,6 +22,6 @@ pub(in crate::db) use codec::{
 };
 pub use store::JournalTailStore;
 pub(in crate::db) use store::{
-    FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue,
-    JournalTailProofIdentity,
+    FoldRecordCursor, FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits,
+    JournalIntegrityIssue, JournalTailProofIdentity,
 };

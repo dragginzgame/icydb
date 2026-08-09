@@ -21,8 +21,8 @@ pub(in crate::db::executor) enum HeldHeadSeekOutcome<'a> {
 /// Page-local logical work performed by held-head positioning.
 ///
 /// Pull attempts include the final exhaustion probe. Physical streams add
-/// their own path, storage, decode, and hard-budget charges in Patch 3; this
-/// reference authority must never claim those operations were skipped.
+/// their own path, storage, decode, and hard-budget charges; this reference
+/// authority must never claim those operations were skipped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct HeldHeadSeekWork {
     pull_attempt_limit: u64,
@@ -182,8 +182,8 @@ impl HeldHeadSeekWork {
 /// Monotonic ordered-stream protocol that separates positioning from consumption.
 pub(in crate::db::executor) trait HeldHeadKeyStream {
     /// Ensure one unconsumed head without moving an existing held occurrence.
-    // Patch 3's physical adapter enters through `seek_head_at_or_after`; Patch 4
-    // consumes this zero-target positioning operation while aligning children.
+    // The physical adapter enters through `seek_head_at_or_after`; branch
+    // alignment consumes this zero-target positioning operation.
     #[allow(dead_code)]
     fn ensure_head(
         &mut self,

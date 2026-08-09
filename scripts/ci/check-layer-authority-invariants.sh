@@ -249,7 +249,7 @@ if [[ -n "$key_within_envelope_usage_leaks" ]]; then
   status=1
 fi
 
-# 0.49 executor layer guardrails: prevent cross-layer import drift.
+# Executor layer guardrails: prevent cross-layer import drift.
 aggregate_scan_import_leaks="$(
   run_rg "db::executor::scan::" "crates/icydb-core/src/db/executor/aggregate" \
     | strip_comment_only

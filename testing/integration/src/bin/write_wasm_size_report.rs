@@ -183,7 +183,7 @@ fn run() -> Result<(), String> {
     validate_wasm_measurement_contract().map_err(str::to_string)?;
     if !WASM_MEASUREMENT_SUBJECTS.contains(&args.canister.as_str()) {
         return Err(format!(
-            "canister '{}' is outside the 0.220 Wasm measurement contract",
+            "canister '{}' is outside the current Wasm measurement contract",
             args.canister
         ));
     }
@@ -648,10 +648,10 @@ fn validate_post_link_contract(
     let patch_two_budget = WASM_PATCH_BUDGETS
         .iter()
         .find(|budget| budget.patch == 2)
-        .ok_or_else(|| "Patch 2 Wasm budget is missing".to_string())?;
+        .ok_or_else(|| "post-link Wasm budget is missing".to_string())?;
     if reduction < patch_two_budget.minimum_selected_raw_reduction_basis_points {
         return Err(format!(
-            "Patch 2 raw-Wasm budget failed for {}: observed={}bp, required={}bp",
+            "post-link raw-Wasm budget failed for {}: observed={}bp, required={}bp",
             args.canister, reduction, patch_two_budget.minimum_selected_raw_reduction_basis_points
         ));
     }

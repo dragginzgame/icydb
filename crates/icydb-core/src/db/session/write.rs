@@ -4058,7 +4058,11 @@ mod identity_pre_key_tests {
         );
     }
 
-    fn assert_dynamic_payload(session: &DbSession<TestCanister>, key: u64, expected_payload: u64) {
+    fn assert_dynamic_payload<C: CanisterKind>(
+        session: &DbSession<C>,
+        key: u64,
+        expected_payload: u64,
+    ) {
         let unchanged = session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                 entity: ENTITY_NAME.to_string(),
@@ -4848,6 +4852,25 @@ mod identity_pre_key_tests {
             .ensure_recovered_state()
             .expect("derived rebuild must not allocate another identity");
 
+        let data_generation = JOURNALED_DATA_STORE.with(|store| store.borrow().generation());
+        let index_generation = JOURNALED_INDEX_STORE.with(|store| store.borrow().generation());
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("an empty-tail upgrade should reset recovery ownership");
+        session
+            .db
+            .ensure_recovered_state()
+            .expect("an empty-tail upgrade should admit without rebuilding stored rows or indexes");
+        assert_eq!(
+            JOURNALED_DATA_STORE.with(|store| store.borrow().generation()),
+            data_generation,
+            "empty-tail recovery must not traverse or rewrite authoritative rows",
+        );
+        assert_eq!(
+            JOURNALED_INDEX_STORE.with(|store| store.borrow().generation()),
+            index_generation,
+            "empty-tail recovery must not clear or rebuild secondary indexes",
+        );
+
         let quick = execute_quick_integrity(&session.db, catalog.inspection_plan())
             .expect("quiescent Identity control inventory should be inspectable");
         assert_eq!(quick.status(), &QuickIntegrityStatus::CompleteClean);
@@ -4880,6 +4903,121 @@ mod identity_pre_key_tests {
             assert_eq!(cursor.expected_high_water(), 8);
             assert!(!cursor.has_allocations());
         });
+    }
+
+    #[test]
+    fn journaled_startup_recovery_resumes_by_durable_pages_without_reallocating_ids() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled identity catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled identity row layout should build");
+
+        for payload in 0_u64..129 {
+            session
+                .execute_accepted_structural_save_batch(
+                    &catalog,
+                    &descriptor,
+                    batch(&[payload]),
+                    Timestamp::from_millis(8),
+                    Ok,
+                )
+                .expect("journaled identity fixture row should commit");
+        }
+
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("upgrade should reset recovery ownership");
+        assert!(
+            !session
+                .db
+                .continue_startup_recovery()
+                .expect("the first bounded recovery page should commit"),
+            "one page must not consume a tail larger than the production page bound",
+        );
+        assert!(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+        let mut pages = 1;
+        while !session
+            .db
+            .continue_startup_recovery()
+            .expect("each bounded recovery page should commit")
+        {
+            pages += 1;
+            assert!(pages <= 4, "the small fixture should finish promptly");
+        }
+        assert!(pages >= 2);
+
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 129);
+        assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+        assert_dynamic_payload(&session, 1, 0);
+        assert_dynamic_payload(&session, 129, 128);
+        JOURNALED_SCHEMA_STORE.with(|store| {
+            let cursor = store
+                .borrow()
+                .identity_statement_cursor(
+                    database_incarnation_id().expect("database incarnation should remain readable"),
+                    ENTITY_TAG,
+                    FieldId::new(1),
+                    &AcceptedFieldKind::Nat64,
+                )
+                .expect("paged recovery must preserve active Identity state");
+            assert_eq!(cursor.expected_high_water(), 129);
+            assert!(!cursor.has_allocations());
+        });
+    }
+
+    #[test]
+    fn journaled_startup_recovery_resumes_within_one_large_batch() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled identity catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled identity row layout should build");
+        let payloads = (0_u64..129).collect::<Vec<_>>();
+        session
+            .execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                batch(&payloads),
+                Timestamp::from_millis(9),
+                Ok,
+            )
+            .expect("one large journal batch should commit");
+
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("upgrade should reset recovery ownership");
+        assert!(
+            !session
+                .db
+                .continue_startup_recovery()
+                .expect("the first record-bounded recovery page should commit"),
+            "a single batch larger than the record bound must remain resumable",
+        );
+        JOURNALED_TAIL_STORE.with(|tail| {
+            let tail = tail.borrow();
+            let cursor = tail
+                .fold_record_cursor()
+                .expect("the fold cursor should decode")
+                .expect("the incomplete batch should retain a fold cursor");
+            assert_eq!(cursor.next_record_ordinal(), 128);
+            assert!(tail.has_stored_batch());
+        });
+        assert!(
+            session
+                .db
+                .continue_startup_recovery()
+                .expect("the terminal record-bounded recovery page should commit"),
+        );
+
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 129);
+        JOURNALED_TAIL_STORE.with(|tail| {
+            let tail = tail.borrow();
+            assert!(!tail.has_stored_batch());
+            assert!(!tail.has_fold_record_cursor());
+        });
+        assert_dynamic_payload(&session, 1, 0);
+        assert_dynamic_payload(&session, 129, 128);
     }
 
     #[test]

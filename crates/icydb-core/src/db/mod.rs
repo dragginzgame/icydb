@@ -272,6 +272,12 @@ impl<C: CanisterKind> Db<C> {
         ensure_schema_migration_ready_for_ordinary_operations()
     }
 
+    /// Advance startup recovery by one durable bounded page.
+    pub(crate) fn continue_startup_recovery(&self) -> Result<bool, InternalError> {
+        commit::continue_recovery(self)
+            .map(|progress| progress == commit::RecoveryProgress::Complete)
+    }
+
     /// Recover durable state for an explicit control-plane operation that is
     /// allowed to inspect a gated migration. This never clears or bypasses the
     /// gate for ordinary database work.

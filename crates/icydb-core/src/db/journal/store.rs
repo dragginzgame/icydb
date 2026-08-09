@@ -14,15 +14,21 @@ use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound as StorableBound,
 };
+use std::borrow::Cow;
+#[cfg(test)]
+use std::collections::BTreeSet;
 use std::ops::Bound::{Included, Unbounded};
-use std::{borrow::Cow, collections::BTreeSet};
 
 const FOLD_WATERMARK_CONTROL_SEQUENCE: JournalSequence = JournalSequence::new(0);
 const DATA_MUTATION_REVISION_CONTROL_CHUNK: u32 = 1;
 const ACCESS_STATE_REVISION_CONTROL_CHUNK: u32 = 2;
+const FOLD_RECORD_CURSOR_CONTROL_CHUNK: u32 = 3;
 const FOLD_WATERMARK_MAGIC: &[u8] = b"ICYDB-FOLD-WATERMARK";
 const FOLD_WATERMARK_VERSION: u8 = 1;
 const FOLD_WATERMARK_BYTES: usize = FOLD_WATERMARK_MAGIC.len() + 1 + 8 + 8;
+const FOLD_RECORD_CURSOR_MAGIC: &[u8] = b"ICYDB-FOLD-RECORD-CURSOR";
+const FOLD_RECORD_CURSOR_VERSION: u8 = 1;
+const FOLD_RECORD_CURSOR_BYTES: usize = FOLD_RECORD_CURSOR_MAGIC.len() + 1 + 8 + 16 + 4 + 4;
 const DATA_MUTATION_REVISION_MAGIC: &[u8] = b"ICYDB-DATA-REVISION";
 const DATA_MUTATION_REVISION_VERSION: u8 = 1;
 const DATA_MUTATION_REVISION_BYTES: usize = DATA_MUTATION_REVISION_MAGIC.len() + 1 + 8;
@@ -219,6 +225,56 @@ pub(in crate::db) struct FoldWatermark {
     fold_epoch: u64,
 }
 
+/// Durable continuation within one preflighted journal batch.
+///
+/// The database remains recovery-gated while this cursor exists, so records
+/// from a large logical commit may be folded over multiple messages without
+/// exposing a partial transaction to ordinary reads or writes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct FoldRecordCursor {
+    journal_sequence: JournalSequence,
+    batch_id: [u8; 16],
+    record_count: u32,
+    next_record_ordinal: u32,
+}
+
+impl FoldRecordCursor {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        journal_sequence: JournalSequence,
+        batch_id: [u8; 16],
+        record_count: u32,
+        next_record_ordinal: u32,
+    ) -> Self {
+        Self {
+            journal_sequence,
+            batch_id,
+            record_count,
+            next_record_ordinal,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn journal_sequence(self) -> JournalSequence {
+        self.journal_sequence
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn batch_id(self) -> [u8; 16] {
+        self.batch_id
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn record_count(self) -> u32 {
+        self.record_count
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn next_record_ordinal(self) -> u32 {
+        self.next_record_ordinal
+    }
+}
+
 impl FoldWatermark {
     #[must_use]
     pub(in crate::db) const fn initial() -> Self {
@@ -291,6 +347,13 @@ impl JournalTailKey {
         Self::new(
             FOLD_WATERMARK_CONTROL_SEQUENCE,
             ACCESS_STATE_REVISION_CONTROL_CHUNK,
+        )
+    }
+
+    const fn fold_record_cursor() -> Self {
+        Self::new(
+            FOLD_WATERMARK_CONTROL_SEQUENCE,
+            FOLD_RECORD_CURSOR_CONTROL_CHUNK,
         )
     }
 }
@@ -514,6 +577,56 @@ impl JournalTailStore {
         Ok(())
     }
 
+    /// Return the durable record-level continuation for a large fold batch.
+    pub(in crate::db) fn fold_record_cursor(
+        &self,
+    ) -> Result<Option<FoldRecordCursor>, InternalError> {
+        self.map
+            .get(&JournalTailKey::fold_record_cursor())
+            .map(|raw| decode_fold_record_cursor(raw.as_bytes()))
+            .transpose()
+    }
+
+    /// Persist monotonic record progress within the exact next fold batch.
+    pub(in crate::db) fn persist_fold_record_cursor(
+        &mut self,
+        cursor: FoldRecordCursor,
+    ) -> Result<(), InternalError> {
+        let watermark = self.fold_watermark()?;
+        if watermark.highest_folded_journal_sequence().next() != Some(cursor.journal_sequence())
+            || cursor.next_record_ordinal() > cursor.record_count()
+        {
+            return Err(journal_tail_corruption());
+        }
+        if let Some(current) = self.fold_record_cursor()?
+            && (current.journal_sequence() != cursor.journal_sequence()
+                || current.batch_id() != cursor.batch_id()
+                || current.record_count() != cursor.record_count()
+                || current.next_record_ordinal() > cursor.next_record_ordinal())
+        {
+            return Err(journal_tail_corruption());
+        }
+
+        self.map.insert(
+            JournalTailKey::fold_record_cursor(),
+            RawJournalChunk::from_bytes(encode_fold_record_cursor(cursor)),
+        );
+        Ok(())
+    }
+
+    /// Clear the record-level continuation after its whole batch is folded.
+    pub(in crate::db) fn clear_fold_record_cursor(&mut self) {
+        let _ = self.map.remove(&JournalTailKey::fold_record_cursor());
+    }
+
+    /// Return whether recovery owns an incomplete record-level fold.
+    #[must_use]
+    pub(in crate::db) fn has_fold_record_cursor(&self) -> bool {
+        self.map
+            .get(&JournalTailKey::fold_record_cursor())
+            .is_some()
+    }
+
     /// Remove folded journal batches through the provided sequence.
     ///
     /// The persisted fold watermark remains authoritative if cleanup is
@@ -557,6 +670,7 @@ impl JournalTailStore {
     /// This read boundary validates the first journal-tail invariants needed by
     /// recovery: encoded sequence must match physical key, sequences above the
     /// watermark are contiguous, and batch IDs do not repeat across sequences.
+    #[cfg(test)]
     pub(in crate::db) fn visit_batches_after(
         &self,
         watermark: JournalSequence,
@@ -598,6 +712,41 @@ impl JournalTailStore {
         }
 
         Ok(())
+    }
+
+    /// Load the next complete batch after one durable fold watermark.
+    ///
+    /// Recovery uses this single-batch boundary to make fold progress durable
+    /// between messages without materializing the remaining journal tail.
+    pub(in crate::db) fn next_batch_after(
+        &self,
+        watermark: JournalSequence,
+    ) -> Result<Option<JournalBatch>, InternalError> {
+        let expected_sequence = watermark.next().ok_or_else(journal_tail_corruption)?;
+        let Some(entry) = self
+            .map
+            .range((
+                Included(JournalTailKey::new(expected_sequence, 0)),
+                Unbounded,
+            ))
+            .next()
+        else {
+            return Ok(None);
+        };
+        if entry.key().sequence != expected_sequence {
+            return Err(journal_tail_corruption());
+        }
+
+        let batch = RawJournalBatch::from_control_bytes(
+            self.raw_batch_bytes_for_sequence(expected_sequence)?
+                .ok_or_else(journal_tail_corruption)?,
+        )
+        .decode()?;
+        if batch.journal_sequence() != expected_sequence {
+            return Err(journal_tail_corruption());
+        }
+
+        Ok(Some(batch))
     }
 
     /// Inspect one bounded exact journal-tail page.
@@ -1080,6 +1229,49 @@ fn encode_fold_watermark(watermark: FoldWatermark) -> Vec<u8> {
     );
     bytes.extend_from_slice(&watermark.fold_epoch().to_be_bytes());
     bytes
+}
+
+fn encode_fold_record_cursor(cursor: FoldRecordCursor) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(FOLD_RECORD_CURSOR_BYTES);
+    bytes.extend_from_slice(FOLD_RECORD_CURSOR_MAGIC);
+    bytes.push(FOLD_RECORD_CURSOR_VERSION);
+    bytes.extend_from_slice(&cursor.journal_sequence().get().to_be_bytes());
+    bytes.extend_from_slice(&cursor.batch_id());
+    bytes.extend_from_slice(&cursor.record_count().to_be_bytes());
+    bytes.extend_from_slice(&cursor.next_record_ordinal().to_be_bytes());
+    bytes
+}
+
+fn decode_fold_record_cursor(bytes: &[u8]) -> Result<FoldRecordCursor, InternalError> {
+    if bytes.len() != FOLD_RECORD_CURSOR_BYTES
+        || !bytes.starts_with(FOLD_RECORD_CURSOR_MAGIC)
+        || bytes[FOLD_RECORD_CURSOR_MAGIC.len()] != FOLD_RECORD_CURSOR_VERSION
+    {
+        return Err(journal_tail_corruption());
+    }
+
+    let sequence_start = FOLD_RECORD_CURSOR_MAGIC.len() + 1;
+    let batch_id_start = sequence_start + 8;
+    let record_count_start = batch_id_start + 16;
+    let ordinal_start = record_count_start + 4;
+    let mut sequence = [0; 8];
+    let mut batch_id = [0; 16];
+    let mut record_count = [0; 4];
+    let mut next_record_ordinal = [0; 4];
+    sequence.copy_from_slice(&bytes[sequence_start..batch_id_start]);
+    batch_id.copy_from_slice(&bytes[batch_id_start..record_count_start]);
+    record_count.copy_from_slice(&bytes[record_count_start..ordinal_start]);
+    next_record_ordinal.copy_from_slice(&bytes[ordinal_start..]);
+    let cursor = FoldRecordCursor::new(
+        JournalSequence::new(u64::from_be_bytes(sequence)),
+        batch_id,
+        u32::from_be_bytes(record_count),
+        u32::from_be_bytes(next_record_ordinal),
+    );
+    if cursor.next_record_ordinal() > cursor.record_count() {
+        return Err(journal_tail_corruption());
+    }
+    Ok(cursor)
 }
 
 fn decode_fold_watermark(bytes: &[u8]) -> Result<FoldWatermark, InternalError> {

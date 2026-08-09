@@ -164,7 +164,7 @@ impl IndexStore {
     /// canonical stable index is updated by future fold/rebuild paths.
     #[must_use]
     pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        let mut store = Self {
+        Self {
             backend: IndexStoreBackend::Journaled {
                 canonical: StableBTreeMap::init(memory),
                 live: HeapBTreeMap::new(),
@@ -173,10 +173,11 @@ impl IndexStore {
             generation: 0,
             state: IndexState::Ready,
             access_state_revision: 1,
-            prefix_cardinality: IndexPrefixCardinality::synchronized_empty(),
-        };
-        store.rebuild_prefix_cardinality_from_entries(Some(0));
-        store
+            // Prefix counts are planner hints, not index authority. Reopening
+            // stable storage leaves them unavailable instead of scanning every
+            // persisted index entry during canister initialization.
+            prefix_cardinality: IndexPrefixCardinality::unavailable(),
+        }
     }
 
     /// Visit all index entries in canonical store order without exposing the
@@ -380,6 +381,47 @@ impl IndexStore {
         previous
     }
 
+    /// Reset the disposable journaled index overlay without traversing or
+    /// mutating the canonical stable index.
+    pub(in crate::db) fn reset_journaled_live_projection(
+        &mut self,
+    ) -> Result<(), crate::error::InternalError> {
+        let IndexStoreBackend::Journaled {
+            live, tombstones, ..
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+
+        live.clear();
+        tombstones.clear();
+        self.prefix_cardinality = IndexPrefixCardinality::unavailable();
+        self.bump_generation();
+
+        Ok(())
+    }
+
+    /// Apply one recovered index entry directly to canonical stable storage.
+    pub(in crate::db) fn fold_recovered_journal_entry(
+        &mut self,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
+    ) -> Result<(), crate::error::InternalError> {
+        let IndexStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+
+        if let Some(value) = value {
+            canonical.insert(key, value);
+        } else {
+            canonical.remove(&key);
+        }
+        self.prefix_cardinality = IndexPrefixCardinality::unavailable();
+        self.bump_generation();
+
+        Ok(())
+    }
+
     pub fn clear(&mut self) {
         match &mut self.backend {
             IndexStoreBackend::Heap(map) => map.clear(),
@@ -401,6 +443,7 @@ impl IndexStore {
 
     /// Fold the current journaled materialized index view into the canonical
     /// stable base and clear volatile projection state.
+    #[cfg(any(test, feature = "migration"))]
     pub(in crate::db) fn fold_journaled_materialized_view(
         &mut self,
     ) -> Result<(), crate::error::InternalError> {
@@ -471,6 +514,7 @@ impl IndexStore {
         self.generation = self.generation.saturating_add(1);
     }
 
+    #[cfg(any(test, feature = "migration"))]
     fn rebuild_prefix_cardinality_from_entries(&mut self, data_generation: Option<u64>) {
         self.prefix_cardinality.clear_unsynchronized();
         let entries = Self::entries_snapshot_for_cardinality(&self.backend);
@@ -482,6 +526,7 @@ impl IndexStore {
         }
     }
 
+    #[cfg(any(test, feature = "migration"))]
     fn entries_snapshot_for_cardinality(
         backend: &IndexStoreBackend,
     ) -> HeapBTreeMap<RawIndexStoreKey, IndexEntryValue> {
@@ -512,6 +557,7 @@ impl IndexStore {
         live.get(key).cloned().or_else(|| canonical.get(key))
     }
 
+    #[cfg(any(test, feature = "migration"))]
     pub(super) fn journaled_entries_snapshot_for_fold(
         backend: &IndexStoreBackend,
     ) -> HeapBTreeMap<RawIndexStoreKey, IndexEntryValue> {
@@ -1155,6 +1201,34 @@ mod tests {
             journaled_snapshot_call_count_for_tests(),
             0,
             "mixed reverse journaled index range traversal should preserve early stop without materializing a snapshot",
+        );
+    }
+
+    #[test]
+    fn journaled_index_store_reopens_without_materializing_prefix_cardinality() {
+        let memory = test_memory(94);
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let collection = b"collection-a".to_vec();
+        let mut store = IndexStore::init_journaled(memory.clone());
+        let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
+        store.insert(key.clone(), IndexEntryValue::presence());
+        store
+            .fold_journaled_materialized_view()
+            .expect("canonical index seed should fold");
+        drop(store);
+
+        let reopened = IndexStore::init_journaled(memory);
+
+        assert_eq!(reopened.get(&key), Some(IndexEntryValue::presence()));
+        assert_eq!(
+            reopened.exact_prefix_cardinality(
+                0,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            None,
+            "startup must leave optional prefix cardinality unavailable without scanning stable entries",
         );
     }
 }

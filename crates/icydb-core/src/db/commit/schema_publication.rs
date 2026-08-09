@@ -637,8 +637,19 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     let marker_id = generate_commit_id()?;
     let sequence = journal_store
         .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
-    let record = JournalRecord::constraint_validation_job_put(store_path, job)?;
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
+    let mut records = Vec::with_capacity(entries.len().saturating_add(1));
+    records.push(JournalRecord::constraint_validation_job_put(
+        store_path, job,
+    )?);
+    for key in &entries {
+        records.push(JournalRecord::constraint_validation_index_put(
+            store_path,
+            job.entity_tag(),
+            job.constraint_id(),
+            key.clone(),
+        )?);
+    }
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
@@ -653,7 +664,7 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     })
 }
 
-fn validate_candidate_index_entries(
+pub(in crate::db::commit) fn validate_candidate_index_entries(
     bundle: &crate::db::schema::AcceptedSchemaRevisionBundle,
     job: &ConstraintValidationJob,
     entries: &[RawIndexStoreKey],

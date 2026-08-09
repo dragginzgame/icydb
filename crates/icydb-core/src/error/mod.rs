@@ -984,6 +984,11 @@ impl InternalError {
         Self::new(ErrorClass::Internal, ErrorOrigin::Recovery)
     }
 
+    /// Construct the retryable internal boundary returned while bounded startup recovery remains.
+    pub(crate) fn recovery_pending() -> Self {
+        Self::new(ErrorClass::Conflict, ErrorOrigin::Recovery)
+    }
+
     /// Construct a commit control-memory growth failure.
     pub(crate) fn commit_control_memory_growth_failed() -> Self {
         Self::store_internal()
@@ -1183,11 +1188,6 @@ impl InternalError {
     /// Construct the canonical commit-control marker-bytes length-limit error.
     pub(crate) fn commit_control_slot_marker_bytes_exceed_u32_length_limit() -> Self {
         Self::store_unsupported()
-    }
-
-    /// Construct the canonical startup index-rebuild invalid-data-key corruption error.
-    pub(crate) fn startup_index_rebuild_invalid_data_key() -> Self {
-        Self::store_corruption()
     }
 
     /// Construct an index-origin corruption error.

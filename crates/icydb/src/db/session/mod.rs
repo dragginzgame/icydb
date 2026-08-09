@@ -89,6 +89,12 @@ impl<C: CanisterKind> DbSession<C> {
         Self { inner: session }
     }
 
+    /// Advance one bounded generated-startup recovery page.
+    #[doc(hidden)]
+    pub fn __continue_startup_recovery(&self) -> Result<bool, crate::Error> {
+        self.inner.__continue_startup_recovery().map_err(Into::into)
+    }
+
     #[must_use]
     pub fn debug(mut self) -> Self {
         self.inner = self.inner.debug();

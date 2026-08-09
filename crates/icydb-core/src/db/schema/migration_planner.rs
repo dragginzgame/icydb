@@ -1,6 +1,6 @@
 //! Catalog-native source-migration rename and lineage planning.
 //!
-//! Patch 3 derives planner-local accepted candidates only. It never writes
+//! This module derives planner-local accepted candidates only. It never writes
 //! accepted schema, lineage, application receipts, or durable migration state.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,7 +31,7 @@ use crate::{
     types::EntityTag,
 };
 
-/// Typed Patch-3 planning failures before public endpoint error projection.
+/// Typed planning failures before public endpoint error projection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMigrationPlanningError {
     Unadopted,
@@ -182,8 +182,7 @@ impl<'a> WorkingStore<'a> {
 }
 
 /// Derive one explicit adoption without publishing it.
-// Patch 4 exposes the controller-authorized operation that consumes this
-// already-tested planner.
+// The controller-authorized operation consumes this planner.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::schema) fn plan_entity_source_adoption(
     proposal: &SchemaProposal,

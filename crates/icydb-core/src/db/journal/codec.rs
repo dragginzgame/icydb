@@ -3,7 +3,6 @@
 //! Does not own: journal-tail storage, commit marker lifecycle, recovery, or fold.
 //! Boundary: logical journal records -> stable-memory journal batch bytes.
 
-#[cfg(any(test, feature = "migration"))]
 use crate::db::index::RawIndexStoreKey;
 use crate::{
     db::{
@@ -43,10 +42,11 @@ const JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH: u8 = 4;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT: u8 = 5;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE: u8 = 6;
 const JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE: u8 = 7;
+const JOURNAL_RECORD_CONSTRAINT_VALIDATION_INDEX_PUT: u8 = 8;
 #[cfg(any(test, feature = "migration"))]
-const JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT: u8 = 8;
+const JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT: u8 = 9;
 #[cfg(any(test, feature = "migration"))]
-const JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT: u8 = 9;
+const JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT: u8 = 10;
 
 pub(in crate::db) type JournalBatchId = [u8; JOURNAL_BATCH_ID_BYTES];
 pub(in crate::db) type JournalCommitMarkerId = [u8; JOURNAL_COMMIT_MARKER_ID_BYTES];
@@ -148,6 +148,13 @@ pub(in crate::db) enum JournalRecord {
         store_path: String,
         entity_tag: EntityTag,
         constraint_id: ConstraintId,
+    },
+    /// One isolated candidate-index entry owned by the paired validation job.
+    ConstraintValidationIndexPut {
+        store_path: String,
+        entity_tag: EntityTag,
+        constraint_id: ConstraintId,
+        key: RawIndexStoreKey,
     },
     /// One contiguous marker-owned advance for an accepted Identity owner.
     IdentityRangeAdvance { range: IdentityRangeAdvance },
@@ -288,6 +295,22 @@ impl JournalRecord {
             store_path: store_path.into(),
             entity_tag,
             constraint_id,
+        };
+        validate_journal_record(&record)?;
+        Ok(record)
+    }
+
+    pub(in crate::db) fn constraint_validation_index_put(
+        store_path: impl Into<String>,
+        entity_tag: EntityTag,
+        constraint_id: ConstraintId,
+        key: RawIndexStoreKey,
+    ) -> Result<Self, InternalError> {
+        let record = Self::ConstraintValidationIndexPut {
+            store_path: store_path.into(),
+            entity_tag,
+            constraint_id,
+            key,
         };
         validate_journal_record(&record)?;
         Ok(record)
@@ -598,6 +621,22 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             out.extend_from_slice(&entity_tag.value().to_le_bytes());
             out.extend_from_slice(&constraint_id.get().to_le_bytes());
         }
+        JournalRecord::ConstraintValidationIndexPut {
+            store_path,
+            entity_tag,
+            constraint_id,
+            key,
+        } => {
+            out.push(JOURNAL_RECORD_CONSTRAINT_VALIDATION_INDEX_PUT);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal validation index store_path",
+            )?;
+            out.extend_from_slice(&entity_tag.value().to_le_bytes());
+            out.extend_from_slice(&constraint_id.get().to_le_bytes());
+            write_len_prefixed_bytes(out, key.as_bytes(), "journal validation index key")?;
+        }
         JournalRecord::IdentityRangeAdvance { range } => {
             let owner = range.owner();
             out.push(JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE);
@@ -745,6 +784,31 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
             .ok_or_else(journal_batch_corruption)?;
             JournalRecord::constraint_validation_job_delete(store_path, entity_tag, constraint_id)
         }
+        JOURNAL_RECORD_CONSTRAINT_VALIDATION_INDEX_PUT => {
+            let store_path = read_utf8_path(bytes, cursor, "journal validation index store_path")?;
+            let entity_tag = EntityTag::new(read_u64_le(
+                bytes,
+                cursor,
+                "journal validation index entity tag",
+            )?);
+            let constraint_id = ConstraintId::new(read_u32_le(
+                bytes,
+                cursor,
+                "journal validation index constraint id",
+            )?)
+            .ok_or_else(journal_batch_corruption)?;
+            let key_bytes = read_len_prefixed_bytes(bytes, cursor, "journal validation index key")?;
+            if key_bytes.len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE {
+                return Err(journal_batch_corruption());
+            }
+            let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes));
+            JournalRecord::constraint_validation_index_put(
+                store_path,
+                entity_tag,
+                constraint_id,
+                key,
+            )
+        }
         JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE => {
             let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(
                 read_fixed_array::<16>(bytes, cursor, "journal identity database incarnation")?,
@@ -877,6 +941,13 @@ pub(in crate::db) fn journal_record_payload_len(record: &JournalRecord) -> usize
             .saturating_add(size_of::<u32>() + store_path.len())
             .saturating_add(size_of::<u64>())
             .saturating_add(size_of::<u32>()),
+        JournalRecord::ConstraintValidationIndexPut {
+            store_path, key, ..
+        } => 1usize
+            .saturating_add(size_of::<u32>() + store_path.len())
+            .saturating_add(size_of::<u64>())
+            .saturating_add(size_of::<u32>())
+            .saturating_add(size_of::<u32>() + key.as_bytes().len()),
         JournalRecord::IdentityRangeAdvance { .. } => 1usize
             .saturating_add(16)
             .saturating_add(size_of::<u64>())
@@ -919,7 +990,48 @@ fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalErro
         validate_journal_record(record)?;
     }
     validate_identity_range_row_sets(batch)?;
+    validate_constraint_validation_index_set(batch)?;
 
+    Ok(())
+}
+
+fn validate_constraint_validation_index_set(batch: &JournalBatch) -> Result<(), InternalError> {
+    let has_index_entries = batch
+        .records
+        .iter()
+        .any(|record| matches!(record, JournalRecord::ConstraintValidationIndexPut { .. }));
+    if !has_index_entries {
+        return Ok(());
+    }
+    let Some(JournalRecord::ConstraintValidationJobPut {
+        store_path,
+        entity_tag,
+        constraint_id,
+        ..
+    }) = batch.records.first()
+    else {
+        return Err(journal_batch_corruption());
+    };
+    let mut previous_key = None;
+    for record in &batch.records[1..] {
+        let JournalRecord::ConstraintValidationIndexPut {
+            store_path: entry_store_path,
+            entity_tag: entry_entity_tag,
+            constraint_id: entry_constraint_id,
+            key,
+        } = record
+        else {
+            return Err(journal_batch_corruption());
+        };
+        if entry_store_path != store_path
+            || entry_entity_tag != entity_tag
+            || entry_constraint_id != constraint_id
+            || previous_key.is_some_and(|previous| previous >= key)
+        {
+            return Err(journal_batch_corruption());
+        }
+        previous_key = Some(key);
+    }
     Ok(())
 }
 
@@ -991,6 +1103,7 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
                 | JournalRecord::AcceptedSchemaPublish { .. }
                 | JournalRecord::ConstraintValidationJobPut { .. }
                 | JournalRecord::ConstraintValidationJobDelete { .. }
+                | JournalRecord::ConstraintValidationIndexPut { .. }
                 | JournalRecord::IdentityRangeAdvance { .. } => {}
                 #[cfg(any(test, feature = "migration"))]
                 JournalRecord::SchemaMigrationRowPut { .. }
@@ -1073,6 +1186,17 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
         }
         JournalRecord::ConstraintValidationJobDelete { store_path, .. } => {
             validate_path(store_path, "journal validation job store_path")?;
+        }
+        JournalRecord::ConstraintValidationIndexPut {
+            store_path, key, ..
+        } => {
+            validate_path(store_path, "journal validation index store_path")?;
+            if key.as_bytes().is_empty()
+                || key.as_bytes().len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE
+                || crate::db::index::IndexKey::try_from_raw(key).is_err()
+            {
+                return Err(journal_batch_corruption());
+            }
         }
         JournalRecord::IdentityRangeAdvance { range } => {
             IdentityRangeAdvance::try_new(

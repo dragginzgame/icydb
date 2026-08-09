@@ -21,7 +21,6 @@ mod marker;
 mod memory;
 mod prepare;
 mod prepared_op;
-mod rebuild;
 mod recovery;
 mod rollback;
 mod schema_publication;
@@ -50,9 +49,9 @@ pub(in crate::db) use prepare::{
     prepare_row_commit_with_context,
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
-pub(in crate::db) use recovery::ensure_recovered;
 #[cfg(test)]
 pub(in crate::db) use recovery::forget_recovered_domain_for_tests;
+pub(in crate::db) use recovery::{RecoveryProgress, continue_recovery, ensure_recovered};
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 #[cfg(feature = "sql")]

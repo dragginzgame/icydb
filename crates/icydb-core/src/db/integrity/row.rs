@@ -36,8 +36,8 @@ const MAX_ROW_INSPECTION_BYTES_PER_PAGE: usize = MAX_ROW_BYTES as usize;
 
 /// Private exact checkpoint within the canonical physical row interval.
 ///
-/// Public callers never author this value. The durable Deep job owner added in
-/// Patch 5 will encode and validate it inside the current job profile.
+/// Public callers never author this value. The durable Deep job owner encodes
+/// and validates it inside the current job profile.
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PhysicalUnitCheckpoint {

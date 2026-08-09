@@ -60,7 +60,7 @@ static EXACT_KEY_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
         0,                 // diagnostic steps
         1_024,             // logical result rows
         4 * 1_024 * 1_024, // logical result bytes
-        4_500_000_000,     // instruction units, instrumented by Patch 5
+        4_500_000_000,     // instrumented instruction units
     ],
     EXACT_KEY_FAILURE_HEADROOM,
 );

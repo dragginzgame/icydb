@@ -107,7 +107,7 @@ pub(in crate::db) fn advance_check_constraint_activation<C: CanisterKind>(
 /// Advance one accepted check activation without generated runtime metadata.
 ///
 /// Schema application resolves the exact store and accepted entity path from
-/// its durable activation identity before entering the shared 0.211 runner.
+/// its durable activation identity before entering the shared runner.
 pub(in crate::db) fn advance_accepted_row_local_constraint_activation(
     store: StoreHandle,
     store_path: &'static str,

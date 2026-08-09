@@ -249,7 +249,7 @@ impl ScalarPageContract {
     }
 }
 
-/// Internal continuation state before Patch 8 authenticates and encodes it.
+/// Internal continuation state before authentication and encoding.
 ///
 /// Logical and physical boundaries stay separate. An unconsumed lookahead key
 /// is never also installed as the consumed physical anchor.
@@ -447,7 +447,7 @@ impl ScalarPageContractMismatch {
 
 /// Internal coordinator failure. Hard-budget and oversize failures retain
 /// their normal typed `InternalError`; progress-identity mismatch remains a
-/// distinct input for Patch 8 cursor diagnostics.
+/// distinct input for cursor diagnostics.
 #[derive(Debug)]
 pub(in crate::db::executor) enum ScalarPageCoordinatorError {
     Execution(InternalError),

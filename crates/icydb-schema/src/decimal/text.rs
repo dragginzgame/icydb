@@ -63,8 +63,8 @@ impl FromStr for Decimal {
             (false, input)
         };
 
-        // Exponent notation is intentionally unsupported for predictable decimal
-        // parsing semantics in 0.23.
+        // Exponent notation is intentionally unsupported so decimal parsing
+        // retains one predictable textual form.
         if unsigned.contains(['e', 'E']) {
             return Err(ParseDecimalError::new(
                 ParseDecimalErrorReason::ExponentNotationUnsupported,

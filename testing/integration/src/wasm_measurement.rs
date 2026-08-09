@@ -1,4 +1,4 @@
-//! Canonical 0.220 Wasm measurement subjects, comparison policy, and budgets.
+//! Canonical Wasm measurement subjects, comparison policy, and budgets.
 //!
 //! This module owns measurement authority only. It does not select canister
 //! features, build actors, transform Wasm, or decide runtime semantics.
@@ -8,7 +8,7 @@ use serde::Serialize;
 /// Current machine-readable Wasm measurement profile version.
 pub const WASM_MEASUREMENT_PROFILE_VERSION: u32 = 1;
 
-/// Stable identity carried by every comparable 0.220 Wasm report.
+/// Stable identity carried by every comparable Wasm report.
 pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.220/v1";
 
 /// Exact maintained production subjects in canonical report order.
@@ -95,7 +95,7 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
     },
 ];
 
-/// Numeric acceptance policy for one later 0.220 landing patch.
+/// Numeric acceptance policy for one measured landing stage.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct WasmPatchBudget {
     /// Planned patch ordinal.
@@ -169,7 +169,7 @@ pub struct WasmLineBudget {
     pub minimum_final_raw_reduction_basis_points: u16,
 }
 
-/// Frozen cumulative 0.220 raw-Wasm budgets.
+/// Frozen cumulative raw-Wasm budgets.
 ///
 /// These do not reset after individual patches. Every final production subject
 /// must meet its own opening-to-closeout reduction target.
@@ -208,7 +208,7 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
     },
 ];
 
-/// Validate the complete fixed 0.220 measurement contract.
+/// Validate the complete fixed measurement contract.
 ///
 /// # Errors
 ///

@@ -135,7 +135,7 @@ struct ScaleFixtureFacts {
     payload_profile: ScalePayloadProfile,
 }
 
-/// Exact deterministic source facts for the 0.222 streaming executor fixture.
+/// Exact deterministic source facts for the streaming executor fixture.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
 struct StreamingExecutionFixtureFacts {
@@ -1029,7 +1029,7 @@ fn load_perf_fixtures() -> Result<(), icydb::Error> {
     Ok(())
 }
 
-/// Load the fixed 0.222 key-stream/materialization baseline fixture.
+/// Load the fixed key-stream/materialization baseline fixture.
 #[cfg(feature = "sql")]
 #[update]
 fn load_streaming_execution_fixture() -> Result<StreamingExecutionFixtureFacts, icydb::Error> {
@@ -1429,7 +1429,7 @@ fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResul
     icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
-/// Execute one fixed 0.222 streaming-fixture query with full attribution.
+/// Execute one fixed streaming-fixture query with full attribution.
 #[cfg(feature = "sql")]
 #[query]
 fn query_streaming_execution_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
@@ -1444,7 +1444,7 @@ fn query_streaming_execution_with_perf(sql: String) -> Result<SqlQueryPerfResult
     })
 }
 
-/// Warm one fixed 0.222 streaming-fixture query under update instructions.
+/// Warm one fixed streaming-fixture query under update instructions.
 #[cfg(feature = "sql")]
 #[update]
 fn warm_streaming_execution_query_with_perf(
@@ -1461,7 +1461,7 @@ fn warm_streaming_execution_query_with_perf(
     })
 }
 
-/// Execute one fixed 0.222 streaming-fixture query repeatedly in one request.
+/// Execute one fixed streaming-fixture query repeatedly in one request.
 #[cfg(feature = "sql")]
 #[query]
 fn query_streaming_execution_loop_with_perf(

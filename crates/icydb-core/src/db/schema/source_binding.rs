@@ -60,10 +60,10 @@ pub(in crate::db) enum AcceptedNamedTypeIdentity {
 /// structural identities. The referenced snapshots and value catalogs remain
 /// the sole semantic owners; this catalog carries identity only.
 ///
-/// During the 0.213 hard cut, a structural owner becomes source-addressable
-/// only when its admission path supplies an immutable source key. The catalog
-/// may therefore be empty, but every binding it does contain must close
-/// exactly over the same accepted revision bundle.
+/// A structural owner becomes source-addressable only when its admission path
+/// supplies an immutable source key. The catalog may therefore be empty, but
+/// every binding it does contain must close exactly over the same accepted
+/// revision bundle.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

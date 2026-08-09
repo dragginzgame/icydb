@@ -1,4 +1,4 @@
-//! Stable 0.222 fixture and materialization-audit authority.
+//! Stable streaming fixture and materialization-audit authority.
 //!
 //! This module owns declarations only. It does not select executor routes,
 //! execute queries, or turn diagnostic expectations into runtime behavior.
@@ -71,7 +71,7 @@ pub enum StreamingFixtureGate {
     Correctness,
 }
 
-/// One immutable SQL and dataset declaration used throughout 0.222.
+/// One immutable SQL and dataset declaration used throughout the audit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StreamingExecutionFixture {
     /// Stable identifier used by reports and patch gates.

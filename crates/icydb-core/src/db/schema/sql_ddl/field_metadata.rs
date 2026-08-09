@@ -25,8 +25,8 @@ use super::{
 };
 
 /// Execute one SQL DDL field drop after proving no physical row requires the
-/// dense-layout rewrite. Nonempty rewrites belong to the later migration
-/// protocol and reject before publication in 0.209.
+/// dense-layout rewrite. Nonempty rewrites belong to the explicit migration
+/// protocol and reject before publication.
 pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,

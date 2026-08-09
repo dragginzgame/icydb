@@ -8,7 +8,7 @@ results do not belong here; all report output is stored under `docs/reports/`.
 ### Recurring audits
 
 Recurring audits are stable, repeatable definitions that enforce architectural
-contracts on a schedule.
+contracts on a schedule or a documented change trigger.
 
 Location:
 
@@ -16,6 +16,25 @@ Location:
 
 Domains currently include `access`, `contracts`, `crosscutting`, `executor`,
 `integrity`, `range`, `security`, and `storage`.
+
+The active crosscutting structural audits are exactly:
+
+- `crosscutting-flow-convergence-and-duplication`: canonical ownership,
+  equivalent-flow convergence, policy rediscovery, and justified protective or
+  measured specialization; and
+- `crosscutting-complexity-and-technical-debt`: state-space growth, ownership
+  spread, extension friction, and evidenced current debt.
+
+These two definitions replace the former separate canonical-authority,
+complexity-accretion, DRY, flow-convergence, layer-violation,
+module-structure, and velocity-preservation methods. Those superseded methods
+are historical references under `docs/audits/archive/structural/` and are not
+eligible for new runs.
+
+Performance, Wasm, completeness, and domain-safety definitions retain their
+current scope until they receive a separate cadence and overlap review. Do not
+fold their materially different correctness or empirical questions into the
+two structural audits merely to reduce the audit count.
 
 ### Targeted playbooks
 
@@ -63,14 +82,19 @@ repeat those facts.
 For each audit run:
 
 1. Use one audit definition or one explicitly bounded investigation scope.
-2. Keep the prompt and method fixed for the run.
-3. Record findings with structured risk levels.
-4. Write the result directly to its canonical `docs/reports/` run directory.
-5. Never overwrite or delete a prior report or structured findings file.
-6. Keep all machine-readable findings and generated artifacts beneath their
+2. Apply the no-build, state-space, and debt rules from
+   `docs/governance/simplicity-and-maintainability.md`.
+3. Keep the prompt and method fixed for the run.
+4. Record findings with `LOW`, `MEDIUM`, or `HIGH` risk and an explicit
+   disposition; do not create a composite score.
+5. Write the result directly to its canonical `docs/reports/` run directory.
+6. Never overwrite or delete a prior report or structured findings file.
+7. Keep all machine-readable findings and generated artifacts beneath their
    owning run.
-7. Do not create aliases, symlinks, compatibility directories, or duplicate
+8. Do not create aliases, symlinks, compatibility directories, or duplicate
    copies at former report paths.
+9. Limit structural reports to five active findings. Supporting observations
+   remain evidence and do not become an implicit backlog.
 
 ### Daily baseline rule
 
@@ -81,8 +105,8 @@ For a recurring scope on a given day:
 - run `01` compares against the latest prior comparable run for that scope, or
   records `N/A` if no comparable run exists.
 
-For crosscutting structure and velocity runs, include hub import pressure when
-it is relevant:
+For crosscutting structural runs, include hub import pressure only when it is
+relevant to a finding:
 
 - top imports for each hub module;
 - unique sibling-subsystem import count;
@@ -93,18 +117,15 @@ it is relevant:
 
 When a run includes crosscutting recurring audits, use this order:
 
-1. `crosscutting-complexity-accretion`
-2. `crosscutting-canonical-semantic-authority`
-3. `crosscutting-dry-consolidation`
-4. `crosscutting-layer-violation`
-5. `crosscutting-module-structure`
-6. `crosscutting-velocity-preservation`
-7. `crosscutting-wasm-footprint`
+1. `crosscutting-flow-convergence-and-duplication`
+2. `crosscutting-complexity-and-technical-debt`
+3. `crosscutting-completeness`, when the public contract is in scope
+4. `crosscutting-perf-audit`, when instruction cost is in scope
+5. `crosscutting-wasm-footprint`, when Wasm footprint is in scope
 
 Summary reports must retain the same relative order for the scopes present.
-Include canonical semantic authority whenever a run evaluates semantic
-ownership or representation drift across schema, build, frontends, planner,
-runtime, diagnostics, or replay.
+Do not restate complete finding tables in a summary; link the owning report and
+record only the combined verdict and cross-report dependencies.
 
 ## Required Report Preamble
 
@@ -141,14 +162,15 @@ Audit agents run only the focused validation appropriate to their scope.
 
 ## Actionability
 
-If a finding is `PARTIAL` or `FAIL`, or overall risk is at least `6`, include:
+Every `MEDIUM` or `HIGH` finding must include:
 
 - owner boundary;
-- concrete action;
-- target report run or release slice.
+- concrete present friction;
+- disposition or reason for accepted retention; and
+- action trigger when it is not being fixed now.
 
-DRY/consolidation reports also require follow-up whenever a high-risk,
-divergence-prone pattern remains, regardless of aggregate score.
+Audit-local finding or issue inventories are immutable evidence. They do not
+become the active technical-debt ledger automatically.
 
 If no follow-up is required, state that explicitly.
 
@@ -162,6 +184,12 @@ Reports and structured findings are append-only evidence:
 - execution-time paths quoted inside historical reports remain evidence of the
   original run and do not define a current repository location.
 
+Superseded audit definitions may move to `docs/audits/archive/` without path
+aliases. Historical reports retain the code snapshot and execution-time
+definition path needed to interpret their result. A new method compares with
+an old report only through explicitly named stable anchor evidence and otherwise
+records `non-comparable (method change)`.
+
 Generated artifacts are retained only while they provide a live baseline,
 unique non-reproducible evidence, or detail not captured by the owning report.
 Raw searches, duplicate formats, derived tables already summarized in the
@@ -172,5 +200,6 @@ report, and superseded comparison baselines should be deleted.
 - `docs/audits/README.md`: execution and storage policy
 - `docs/audits/architecture-contracts.md`: architectural invariants enforced
 - `docs/audits/recurring/`: recurring audit definitions
+- `docs/audits/archive/`: inactive historical audit methods
 - `docs/audits/targeted/`: targeted reusable playbooks
 - `docs/reports/README.md`: report ownership and history layout

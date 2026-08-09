@@ -235,8 +235,8 @@ pub(crate) trait SlotReader {
 ///
 /// CanonicalSlotReader
 ///
-/// CanonicalSlotReader is the stricter structural row-reader contract used
-/// once `0.65` canonical-row invariants are in force.
+/// CanonicalSlotReader is the strict structural row-reader contract used once
+/// canonical-row invariants are in force.
 /// Declared slots must already exist, so callers can fail closed on missing
 /// payloads instead of carrying absent-slot fallback branches.
 ///

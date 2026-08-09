@@ -1,5 +1,5 @@
 //! Module: sql_correctness_support::coverage_manifest::obligations
-//! Responsibility: reviewed 0.215 SQL interaction obligations and their deterministic projection.
+//! Responsibility: current SQL interaction obligations and their deterministic projection.
 //! Does not own: product behavior, generated observations, or scheduled evidence receipts.
 //! Boundary: extends the SQL coverage manifest with one finite pre-generation obligation catalog.
 
@@ -79,26 +79,26 @@ const fn required_execution_facts(
 ///
 /// ProviderTarget
 ///
-/// Exact current or planned provider that owns one required structural witness.
+/// Exact deterministic or generated provider that owns one required structural witness.
 ///
 
 #[derive(Clone, Copy, Debug)]
 enum ProviderTarget {
     Existing(&'static str),
-    Planned(&'static str),
+    Generated(&'static str),
 }
 
 impl ProviderTarget {
     const fn id(self) -> &'static str {
         match self {
-            Self::Existing(id) | Self::Planned(id) => id,
+            Self::Existing(id) | Self::Generated(id) => id,
         }
     }
 
     const fn state(self) -> &'static str {
         match self {
             Self::Existing(_) => "existing_deterministic_provider",
-            Self::Planned(_) => "planned_generated_provider",
+            Self::Generated(_) => "generated_provider",
         }
     }
 }
@@ -358,7 +358,7 @@ const GROUPS: &[InteractionGroup] = &[
     },
 ];
 
-const PLANNED_PROVIDERS: &[&str] = &[
+const GENERATED_PROVIDERS: &[&str] = &[
     "generated.mutation.accepted_default",
     "generated.mutation.authored_scalar",
     "generated.select.indexed_nullable_reference",
@@ -407,15 +407,14 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["SQL and fluent observations retain matching route facts"],
         disposition = GeneratedRequired,
-        reason =
-            "Slice 1 must schedule the same derived declaration through SQL and fluent adapters.",
+        reason = "The same derived declaration must run through SQL and fluent adapters.",
         requirement = Some(requirement!(
             "required.cache.cold_sql_fluent",
             required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["identical cold fixture"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["matching SQL/fluent route observation"],
             witness = "tier_c.cache.cold_sql_fluent"
         ))
@@ -535,7 +534,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["empty input"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["global aggregate"],
             witness = "tier_c.global.empty_filter"
         ))
@@ -555,14 +554,14 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["global aggregate over admitted predicate"],
         disposition = GeneratedRequired,
-        reason = "Slice 1 must require aggregate FILTER over non-empty input.",
+        reason = "Aggregate FILTER over non-empty input requires an explicit witness.",
         requirement = Some(requirement!(
             "required.global.nonempty_filter",
             required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["duplicate aggregate inputs"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["global aggregate"],
             witness = "tier_c.global.nonempty_filter"
         ))
@@ -582,14 +581,14 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["global HAVING after aggregate finalization"],
         disposition = GeneratedRequired,
-        reason = "Slice 1 must require multiple aggregate outputs and global HAVING together.",
+        reason = "Multiple aggregate outputs and global HAVING require a combined witness.",
         requirement = Some(requirement!(
             "required.global.nonempty_multiple_projection",
             required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["retained and rejected HAVING cases"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["global aggregate"],
             witness = "tier_c.global.nonempty_multiple_projection"
         ))
@@ -609,14 +608,14 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["hash grouping", "aggregate alias order", "bounded limit"],
         disposition = GeneratedRequired,
-        reason = "Slice 1 must require the complete hash-grouped composition.",
+        reason = "The complete hash-grouped composition requires an explicit witness.",
         requirement = Some(requirement!(
             "required.grouped.hash_bounded",
             required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["multiple groups", "HAVING retained and rejected groups"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["hash grouping"],
             witness = "tier_c.grouped.hash_bounded"
         ))
@@ -650,7 +649,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             ],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
             routes = ["ordered grouping"],
             witness = "tier_c.grouped.ordered_bounded"
         ))
@@ -716,7 +715,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["duplicate-rich index prefixes"],
             evidence = "contract_assertion",
             eligibility = "icydb_contract_only",
-            provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
             routes = ["composite prefix", "row-backed projection"],
             witness = "tier_c.indexed.composite_prefix_non_covering"
         ))
@@ -817,7 +816,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["nonempty bounded range", "order ties"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
             routes = ["one bounded secondary range", "materialized order"],
             witness = "tier_c.indexed.secondary_range_non_covering_incompatible"
         ))
@@ -857,7 +856,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["stored nulls", "duplicate-rich indexed values"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
             routes = [
                 "one bounded secondary range",
                 "direct row-backed projection"
@@ -880,15 +879,14 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["global aggregate"],
         disposition = GeneratedRequired,
-        reason =
-            "Slice 1 must require computed-null aggregate input rather than incidental generation.",
+        reason = "Computed-null aggregate input requires an explicit generated witness.",
         requirement = Some(requirement!(
             "required.null.computed_aggregate",
             required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["computed null and non-null inputs"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["global aggregate"],
             witness = "tier_c.null.computed_aggregate"
         ))
@@ -915,7 +913,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["duplicate computed nulls"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["scalar distinct"],
             witness = "tier_c.null.computed_distinct"
         ))
@@ -938,7 +936,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["stored nulls", "membership nulls and duplicates"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
             routes = ["three-valued residual membership"],
             witness = "tier_c.null.stored_comparison_membership"
         ))
@@ -954,14 +952,14 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["canonical null-sensitive order"],
         disposition = GeneratedRequired,
-        reason = "Slice 1 must require null ordering under the accepted nullable profile.",
+        reason = "Null ordering requires an explicit accepted nullable-profile witness.",
         requirement = Some(requirement!(
             "required.null.stored_ordering",
             required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
             fixtures = ["stored nulls", "order ties"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
             routes = ["canonical null-sensitive order"],
             witness = "tier_c.null.stored_ordering"
         ))
@@ -988,7 +986,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["computed nulls", "order ties"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["materialized computed order"],
             witness = "tier_c.null.computed_ordering"
         ))
@@ -1019,7 +1017,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["order ties", "more rows than window"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = ["predicate", "materialized order", "window"],
             witness = "tier_c.scalar.reference_full_window"
         ))
@@ -1043,7 +1041,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "sqlite_reference",
         routes = ["indexed predicate with materialized computed DISTINCT order"],
         disposition = GeneratedRequired,
-        reason = "This is a primary 0.215 missing interaction and requires the new profile.",
+        reason = "The indexed nullable profile must cover the complete scalar composition.",
         requirement = Some(requirement!(
             "required.scalar.indexed_computed_distinct_window",
             required_execution_facts(
@@ -1053,7 +1051,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["duplicate computed values", "stored nulls", "order ties"],
             evidence = "reference_oracle",
             eligibility = "sqlite_reference",
-            provider = ProviderTarget::Planned("generated.select.indexed_nullable_reference"),
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
             routes = ["secondary range", "materialized DISTINCT order"],
             witness = "tier_c.scalar.indexed_computed_distinct_window"
         ))
@@ -1072,7 +1070,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "rejection_invariant",
         routes = [],
         disposition = GeneratedRequired,
-        reason = "Slice 1 must add a singly-invalid unknown-alias order target with a typed cause.",
+        reason = "Unknown-alias ordering requires one singly-invalid target with a typed cause.",
         requirement = Some(requirement!(
             "required.scalar.reference_unknown_alias_order",
             required_execution_facts(
@@ -1082,7 +1080,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["valid base declaration"],
             evidence = "boundary_assertion",
             eligibility = "rejection_invariant",
-            provider = ProviderTarget::Planned("generated.select.reference_scalar"),
+            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
             routes = [],
             witness = "tier_c.scalar.reference_unknown_alias_order"
         ))
@@ -1103,7 +1101,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "state_model_reference",
         routes = ["SQL and typed converge before admission"],
         disposition = GeneratedRequired,
-        reason = "Slice 2 replaces the fixed mutation vector with an obligation-owned sequence.",
+        reason = "The obligation-owned sequence must cover authored mutation intent.",
         requirement = Some(requirement!(
             "required.mutation.authored_insert",
             required_execution_facts(
@@ -1113,7 +1111,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["single row", "multi row"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.authored_scalar"),
+            provider = ProviderTarget::Generated("generated.mutation.authored_scalar"),
             routes = ["shared structural admission"],
             witness = "tier_c.mutation.authored_insert"
         ))
@@ -1144,7 +1142,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["bounded source rows"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.authored_scalar"),
+            provider = ProviderTarget::Generated("generated.mutation.authored_scalar"),
             routes = ["shared structural admission"],
             witness = "tier_c.mutation.authored_insert_from_query"
         ))
@@ -1171,7 +1169,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "state_model_reference",
         routes = ["exact and bounded canonical primary-key selection"],
         disposition = GeneratedRequired,
-        reason = "Slice 2 must derive update/delete windows from bounded typed operations.",
+        reason = "Update and delete windows must derive from bounded typed operations.",
         requirement = Some(requirement!(
             "required.mutation.authored_windowed",
             required_execution_facts(
@@ -1181,7 +1179,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["exact", "compound", "bounded matches"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.authored_scalar"),
+            provider = ProviderTarget::Generated("generated.mutation.authored_scalar"),
             routes = ["canonical bounded selection"],
             witness = "tier_c.mutation.authored_windowed"
         ))
@@ -1202,7 +1200,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
         eligibility = "state_model_reference",
         routes = ["shared structural admission and tier index delta"],
         disposition = GeneratedRequired,
-        reason = "Slice 2 introduces the exact accepted-default profile.",
+        reason = "The accepted-default profile requires an exact authored-insert witness.",
         requirement = Some(requirement!(
             "required.mutation.default_insert_authored",
             required_execution_facts(
@@ -1212,7 +1210,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["all fields authored"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["shared structural admission", "tier index delta"],
             witness = "tier_c.mutation.default_insert_authored"
         ))
@@ -1243,7 +1241,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["id and name authored only"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["accepted default resolution", "tier index delta"],
             witness = "tier_c.mutation.default_insert_omitted"
         ))
@@ -1274,7 +1272,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["explicit defaults"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["accepted default resolution", "tier index delta"],
             witness = "tier_c.mutation.default_insert_explicit"
         ))
@@ -1324,7 +1322,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["three-row mixed provenance batch"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["atomic batch", "complete tier index delta"],
             witness = "tier_c.mutation.default_insert_mixed_batch"
         ))
@@ -1355,7 +1353,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["one matching row"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["exact mutation selection", "tier index replacement"],
             witness = "tier_c.mutation.default_update_authored"
         ))
@@ -1386,7 +1384,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["one non-default row"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["accepted default resolution", "tier index replacement"],
             witness = "tier_c.mutation.default_update_default"
         ))
@@ -1436,7 +1434,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["one non-default row"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["preserved tier index state"],
             witness = "tier_c.mutation.default_update_preserve"
         ))
@@ -1467,7 +1465,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["absent primary key"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["exact empty mutation selection"],
             witness = "tier_c.mutation.default_no_match"
         ))
@@ -1498,7 +1496,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["one matching row"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["exact delete", "tier index removal"],
             witness = "tier_c.mutation.default_delete_returning"
         ))
@@ -1529,7 +1527,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["unchanged pre-state"],
             evidence = "boundary_assertion",
             eligibility = "rejection_invariant",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["no marker publication"],
             witness = "tier_c.mutation.default_reject_required"
         ))
@@ -1560,7 +1558,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["unchanged pre-state"],
             evidence = "boundary_assertion",
             eligibility = "rejection_invariant",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["no marker publication"],
             witness = "tier_c.mutation.default_reject_pk_default"
         ))
@@ -1611,7 +1609,7 @@ const INTERACTIONS: &[InteractionObligation] = &[
             fixtures = ["duplicate primary-key batch"],
             evidence = "state_model_reference",
             eligibility = "state_model_reference",
-            provider = ProviderTarget::Planned("generated.mutation.accepted_default"),
+            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
             routes = ["no marker publication", "unchanged tier index"],
             witness = "tier_c.mutation.default_reject_duplicate"
         ))
@@ -1711,7 +1709,7 @@ fn no_interaction_reason(feature_id: &str) -> Option<&'static str> {
     }
     if NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION.contains(&feature_id) {
         return Some(
-            "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple in the frozen 0.215 universe.",
+            "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple.",
         );
     }
     if NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY.contains(&feature_id) {
@@ -1723,248 +1721,8 @@ fn no_interaction_reason(feature_id: &str) -> Option<&'static str> {
     None
 }
 
-const REVIEWED_MANIFEST_FEATURE_COUNT: usize = 106;
-
-// The 0.217 endpoint hard cut retired five config-owned policy providers and
-// replaced them with one source-declaration feature-profile provider. Keep the
-// opening inventory historical while checking the exact current authority.
-const CURRENT_DETERMINISTIC_PROVIDERS: usize = 98;
-
-const REVIEWED_STRUCTURAL_IDENTITY_COUNT: usize = 73;
-
-#[derive(Clone, Copy, Debug, Serialize)]
-struct OwnerMapEntry {
-    concern: &'static str,
-    current_owner: &'static str,
-    current_entrypoint: &'static str,
-    slice_0_disposition: &'static str,
-}
-
-const OWNER_MAP: &[OwnerMapEntry] = &[
-    OwnerMapEntry {
-        concern: "compound_range_bound_intersection",
-        current_owner: "crates/icydb-core/src/db/query/plan/planner/range/bounds.rs",
-        current_entrypoint: "merge_range_constraint",
-        slice_0_disposition: "current owner already merges lower and upper bounds and rejects empty or crossed intervals",
-    },
-    OwnerMapEntry {
-        concern: "compound_range_candidate",
-        current_owner: "crates/icydb-core/src/db/query/plan/planner/range/extract.rs",
-        current_entrypoint: "index_range_from_and",
-        slice_0_disposition: "current normalized AND path emits one SemanticIndexRangeSpec and leaves unrelated compares residual",
-    },
-    OwnerMapEntry {
-        concern: "compound_range_execution",
-        current_owner: "crates/icydb-core/src/db/executor/stream/access/traversal.rs",
-        current_entrypoint: "access visitor index_range path",
-        slice_0_disposition: "consumes one lowered range envelope; current instructions still require the Slice 3 cohort",
-    },
-    OwnerMapEntry {
-        concern: "compound_range_lowering",
-        current_owner: "crates/icydb-core/src/db/access/lowering.rs",
-        current_entrypoint: "lower_access_with_schema_info",
-        slice_0_disposition: "materializes one raw lower/upper envelope from SemanticIndexRangeSpec",
-    },
-    OwnerMapEntry {
-        concern: "coverage_manifest",
-        current_owner: "testing/integration/tests/sql_correctness_support/coverage_manifest.rs",
-        current_entrypoint: "MANIFEST and PROVIDERS",
-        slice_0_disposition: "extended by this module; remains the code authority projected into the checked-in JSON",
-    },
-    OwnerMapEntry {
-        concern: "generated_select_fixture",
-        current_owner: "testing/sql-generator/src/generator.rs",
-        current_entrypoint: "generate_fixture",
-        slice_0_disposition: "one reference-scalar fixture owner; indexed nullable profile is a Slice 1 gap",
-    },
-    OwnerMapEntry {
-        concern: "generated_select_structure",
-        current_owner: "testing/sql-generator/src/generator.rs",
-        current_entrypoint: "generate_query and eight family builders",
-        slice_0_disposition: "64 family/slot identities; replacement belongs to Slice 1",
-    },
-    OwnerMapEntry {
-        concern: "membership_canonicalization",
-        current_owner: "crates/icydb-core/src/db/predicate/membership.rs",
-        current_entrypoint: "canonical_membership_value_list",
-        slice_0_disposition: "canonicalizes a value set; no eliminated-work counter exists",
-    },
-    OwnerMapEntry {
-        concern: "membership_sql_binding",
-        current_owner: "crates/icydb-core/src/db/sql/lowering/select/binding.rs",
-        current_entrypoint: "canonicalize_sql_in_list_expr_for_schema",
-        slice_0_disposition: "binds and canonicalizes SQL list members; finding 206-011 remains measurement-only",
-    },
-    OwnerMapEntry {
-        concern: "mutation_generation",
-        current_owner: "testing/sql-generator/src/mutation/generator.rs",
-        current_entrypoint: "sequence_statements",
-        slice_0_disposition: "four complete authored-scalar variants; replacement belongs to Slice 2",
-    },
-    OwnerMapEntry {
-        concern: "performance_scenario_authority",
-        current_owner: "testing/integration/tests/sql_perf_matrix_audit.rs",
-        current_entrypoint: "sql_perf_scenarios and scale declarations",
-        slice_0_disposition: "current P1/P2/scale owner; hard-cut profile replacement belongs to Slice 3",
-    },
-    OwnerMapEntry {
-        concern: "prefix_branch_construction",
-        current_owner: "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
-        current_entrypoint: "index_branch_set_from_and",
-        slice_0_disposition: "owns exclusion pruning, branch-cap admission, and wide branch construction for findings 206-012 through 206-014",
-    },
-    OwnerMapEntry {
-        concern: "prefix_multi_lookup",
-        current_owner: "crates/icydb-core/src/db/query/plan/planner/prefix.rs",
-        current_entrypoint: "index_multi_lookup_for_in",
-        slice_0_disposition: "owns sparse membership access construction for finding 206-010; no eliminated-work counter exists",
-    },
-    OwnerMapEntry {
-        concern: "route_and_materialization_facts",
-        current_owner: "crates/icydb-core/src/db/query/plan and crates/icydb-core/src/db/executor",
-        current_entrypoint: "access choice, covering plan, grouped strategy, and execution diagnostics",
-        slice_0_disposition: "observed facts must feed the Slice 1 structural signature without SQL-text inference",
-    },
-    OwnerMapEntry {
-        concern: "scheduled_correctness",
-        current_owner: "testing/sql-generator/src/scheduled.rs",
-        current_entrypoint: "Tier C declarations, shards, receipts, and merge",
-        slice_0_disposition: "receipts do not yet carry the 0.215 catalog hash or observed signatures",
-    },
-];
-
-#[derive(Clone, Copy, Debug, Serialize)]
-struct GapLedgerEntry {
-    id: &'static str,
-    finding: &'static str,
-    evidence: &'static str,
-    owning_slice: &'static str,
-    exclusion: &'static str,
-}
-
-const GAP_LEDGER: &[GapLedgerEntry] = &[
-    GapLedgerEntry {
-        id: "215-000",
-        finding: "The provisional design baseline says 98 features and 93 providers; v0.214.1 has 106 and 102.",
-        evidence: "Exact SQL_SUBSET metadata/manifest bijection and provider registry counts.",
-        owning_slice: "design_review_before_slice_1",
-        exclusion: "Do not delete post-design 0.213/0.214 obligations to recover provisional counts.",
-    },
-    GapLedgerEntry {
-        id: "215-001",
-        finding: "Current generated SELECT evidence has 64 family/slot identities but no derived lossless structural signature.",
-        evidence: "Eight SelectGeneratorFamily variants multiplied by eight handwritten case slots.",
-        owning_slice: "slice_1",
-        exclusion: "Slice 0 does not change generator or replay formats.",
-    },
-    GapLedgerEntry {
-        id: "215-002",
-        finding: "The indexed nullable reference SELECT profile and its required generated witnesses are absent.",
-        evidence: "Current SelectSnapshot has one reference-scalar profile and no secondary index.",
-        owning_slice: "slice_1",
-        exclusion: "Do not add a third generated SELECT profile.",
-    },
-    GapLedgerEntry {
-        id: "215-003",
-        finding: "Five fixed invalid SELECT templates do not cover the reviewed alias/grouping/leaf interaction rejections.",
-        evidence: "ALL_SELECT_VIOLATIONS contains exactly five variants.",
-        owning_slice: "slice_1",
-        exclusion: "Keep singly-invalid typed proposals; do not generate free-form malformed SQL.",
-    },
-    GapLedgerEntry {
-        id: "215-004",
-        finding: "Mutation generation has four authored-scalar vectors and no accepted-default profile or intent-provenance oracle.",
-        evidence: "MUTATION_STRUCTURAL_VARIANT_COUNT is four and sequence_statements authors fixed rows.",
-        owning_slice: "slice_2",
-        exclusion: "Do not generalize the model to relations, managed fields, Identity, or structured values.",
-    },
-    GapLedgerEntry {
-        id: "215-005",
-        finding: "The current P1/P2/scale evidence predates the post-0.214 source and Wasm identity.",
-        evidence: "Opening v0.214.1 raw Wasm is recorded; no comparable current instruction cohort exists.",
-        owning_slice: "slice_3",
-        exclusion: "Historical 0.206 instructions are context, not a comparable 0.215 baseline.",
-    },
-    GapLedgerEntry {
-        id: "215-006",
-        finding: "The current planner already constructs one bounded SemanticIndexRangeSpec for a normalized AND range.",
-        evidence: "index_range_from_and plus merge_range_constraint lower both bounds into one range envelope.",
-        owning_slice: "slice_3_then_slice_4_decision",
-        exclusion: "Do not assume the historical two-traversal symptom still exists; require current attributed evidence before production change.",
-    },
-    GapLedgerEntry {
-        id: "215-007",
-        finding: "Findings 206-010 through 206-014 still lack member/pass/branch eliminated-work counters.",
-        evidence: "Current membership, SQL binding, and prefix planner owners expose instructions but no typed work counters.",
-        owning_slice: "slice_3",
-        exclusion: "Measurement does not authorize a second production optimization in 0.215.",
-    },
-    GapLedgerEntry {
-        id: "215-008",
-        finding: "At the 0.215 opening boundary, Tier C receipts did not carry a schedule hash, scheduled witness ID, or observed structural signature.",
-        evidence: "The opening scheduled evidence format was version 1 with the 0.204 manifest revision only.",
-        owning_slice: "slice_1",
-        exclusion: "No compatibility decoder or dual current receipt format.",
-    },
-];
-
-#[derive(Debug, Serialize)]
-struct CurrentStructuralIdentity {
-    id: String,
-    kind: &'static str,
-    family: &'static str,
-    slot: u32,
-}
-
-fn current_structural_identities() -> Vec<CurrentStructuralIdentity> {
-    const SELECT_FAMILIES: &[&str] = &[
-        "distinct",
-        "expression",
-        "global_aggregate",
-        "grouped_aggregate",
-        "having",
-        "predicate",
-        "scalar_projection",
-        "window",
-    ];
-    const SELECT_VIOLATIONS: &[&str] = &[
-        "clause_order",
-        "function_signature",
-        "limit_overflow",
-        "operator_type",
-        "unknown_field",
-    ];
-
-    let mut identities = Vec::with_capacity(REVIEWED_STRUCTURAL_IDENTITY_COUNT);
-    for family in SELECT_FAMILIES {
-        for slot in 0..8 {
-            identities.push(CurrentStructuralIdentity {
-                id: format!("current.select.{family}.slot_{slot}"),
-                kind: "valid_select_template_slot",
-                family,
-                slot,
-            });
-        }
-    }
-    for (slot, violation) in SELECT_VIOLATIONS.iter().enumerate() {
-        identities.push(CurrentStructuralIdentity {
-            id: format!("current.invalid_select.{violation}"),
-            kind: "invalid_select_template",
-            family: violation,
-            slot: u32::try_from(slot).expect("five static violation slots fit u32"),
-        });
-    }
-    for slot in 0..4 {
-        identities.push(CurrentStructuralIdentity {
-            id: format!("current.mutation.authored_scalar.variant_{slot}"),
-            kind: "mutation_structural_variant",
-            family: "authored_scalar",
-            slot,
-        });
-    }
-    identities.sort_by(|left, right| left.id.cmp(&right.id));
-    identities
-}
+const EXPECTED_MANIFEST_FEATURE_COUNT: usize = 106;
+const EXPECTED_DETERMINISTIC_PROVIDER_COUNT: usize = 98;
 
 #[derive(Debug, Serialize)]
 struct GroupProjection {
@@ -2009,19 +1767,14 @@ struct RequirementProjection {
     provider_state: &'static str,
     route_facts: &'static [&'static str],
     witness_id: &'static str,
-    opening_evidence_state: &'static str,
 }
 
 #[derive(Debug, Serialize)]
 struct CatalogBody {
-    design_line: &'static str,
-    current_structural_identities: Vec<CurrentStructuralIdentity>,
     interaction_groups: Vec<GroupProjection>,
     manifest_participation: Vec<ManifestParticipationProjection>,
     interaction_obligations: Vec<InteractionProjection>,
     required_structural_obligations: Vec<RequirementProjection>,
-    gap_ledger: &'static [GapLedgerEntry],
-    owner_map: &'static [OwnerMapEntry],
 }
 
 #[derive(Clone, Copy)]
@@ -2043,18 +1796,18 @@ fn expected_structural_signature(
     requirement: &StructuralRequirement,
 ) -> Result<StructuralSignature, String> {
     match requirement.provider {
-        ProviderTarget::Planned(provider) if provider.starts_with("generated.select.") => {
+        ProviderTarget::Generated(provider) if provider.starts_with("generated.select.") => {
             structural_signature_for_scheduled_select_witness(requirement.witness_id)
                 .map_err(|error| error.to_string())
         }
-        ProviderTarget::Planned(provider) if provider.starts_with("generated.mutation.") => {
+        ProviderTarget::Generated(provider) if provider.starts_with("generated.mutation.") => {
             structural_signature_for_scheduled_mutation_witness(requirement.witness_id)
                 .map_err(|error| error.to_string())
         }
         ProviderTarget::Existing(_) => {
             deterministic_structural_signature(requirement.id, requirement.witness_id)
         }
-        ProviderTarget::Planned(provider) => Err(format!(
+        ProviderTarget::Generated(provider) => Err(format!(
             "requirement {:?} has no structural signature derivation for provider {provider:?}",
             requirement.id,
         )),
@@ -2252,10 +2005,10 @@ fn validate_provider_target(
                 ));
             }
         }
-        ProviderTarget::Planned(provider_id) => {
-            if !PLANNED_PROVIDERS.contains(&provider_id) {
+        ProviderTarget::Generated(provider_id) => {
+            if !GENERATED_PROVIDERS.contains(&provider_id) {
                 return Err(format!(
-                    "requirement {:?} names undeclared planned provider {provider_id:?}",
+                    "requirement {:?} names undeclared generated provider {provider_id:?}",
                     requirement.id
                 ));
             }
@@ -2279,17 +2032,17 @@ fn validate_provider_target(
     reason = "one audit gate validates the complete finite obligation catalog before projection"
 )]
 fn validate_catalog() -> Result<(), String> {
-    if MANIFEST.len() != REVIEWED_MANIFEST_FEATURE_COUNT {
+    if MANIFEST.len() != EXPECTED_MANIFEST_FEATURE_COUNT {
         return Err(format!(
-            "post-0.214 manifest drift: expected {}, observed {}",
-            REVIEWED_MANIFEST_FEATURE_COUNT,
+            "manifest drift: expected {}, observed {}",
+            EXPECTED_MANIFEST_FEATURE_COUNT,
             MANIFEST.len()
         ));
     }
-    if PROVIDERS.len() != CURRENT_DETERMINISTIC_PROVIDERS {
+    if PROVIDERS.len() != EXPECTED_DETERMINISTIC_PROVIDER_COUNT {
         return Err(format!(
             "current provider drift: expected {}, observed {}",
-            CURRENT_DETERMINISTIC_PROVIDERS,
+            EXPECTED_DETERMINISTIC_PROVIDER_COUNT,
             PROVIDERS.len()
         ));
     }
@@ -2399,22 +2152,6 @@ fn validate_catalog() -> Result<(), String> {
         }
     }
 
-    let structural = current_structural_identities();
-    if structural.len() != REVIEWED_STRUCTURAL_IDENTITY_COUNT {
-        return Err(format!(
-            "current structural identity count drifted: expected {}, observed {}",
-            REVIEWED_STRUCTURAL_IDENTITY_COUNT,
-            structural.len()
-        ));
-    }
-    let structural_ids = structural
-        .iter()
-        .map(|identity| identity.id.as_str())
-        .collect::<BTreeSet<_>>();
-    if structural_ids.len() != structural.len() {
-        return Err("current structural identity map contains duplicates".to_string());
-    }
-
     Ok(())
 }
 
@@ -2511,25 +2248,15 @@ fn catalog_body() -> Result<CatalogBody, String> {
                 provider_state: requirement.provider.state(),
                 route_facts: requirement.route_facts,
                 witness_id: requirement.witness_id,
-                opening_evidence_state: match requirement.provider {
-                    ProviderTarget::Existing(_) => {
-                        "existing_evidence_has_no_observed_structural_signature_receipt"
-                    }
-                    ProviderTarget::Planned(_) => "missing_scheduled_witness_and_receipt",
-                },
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
 
     Ok(CatalogBody {
-        design_line: "0.215",
-        current_structural_identities: current_structural_identities(),
         interaction_groups: groups,
         manifest_participation,
         interaction_obligations,
         required_structural_obligations,
-        gap_ledger: GAP_LEDGER,
-        owner_map: OWNER_MAP,
     })
 }
 
@@ -2569,7 +2296,7 @@ fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
         .filter(|requirement| {
             matches!(
                 requirement.provider,
-                ProviderTarget::Planned(provider)
+                ProviderTarget::Generated(provider)
                     if provider.starts_with("generated.select.")
             )
         })
@@ -2642,7 +2369,7 @@ fn generated_mutation_schedule_closes_the_frozen_matrix_exactly() {
         .filter(|requirement| {
             matches!(
                 requirement.provider,
-                ProviderTarget::Planned(provider)
+                ProviderTarget::Generated(provider)
                     if provider.starts_with("generated.mutation.")
             )
         })

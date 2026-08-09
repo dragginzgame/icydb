@@ -3,7 +3,7 @@
 //! Does not own: ranking, sampling, thresholds, or hotspot-removal decisions.
 //! Boundary: contains only exact scenario IDs accepted from the clean three-run cohort.
 
-/// Recurring top-20 scenarios promoted from the accepted 0.204 calibration cohort.
+/// Recurring top-20 scenarios promoted from the accepted calibration cohort.
 pub(crate) const REGRESSION_SENTINEL_SCENARIO_IDS: &[&str] = &[
     "account.aggregate.count_active_tier_in",
     "account.aggregate.group_tier_count",

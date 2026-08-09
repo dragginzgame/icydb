@@ -13,7 +13,8 @@ IcyDB audit governance enforces these layered boundaries:
 5. `commit/recovery`
 6. `infrastructure (registry/wiring)`
 
-Every recurring audit must evaluate directional ownership against these layers.
+Every structural audit, and every domain audit that crosses layers, must
+evaluate directional ownership against these layers.
 
 ## 2. Architectural Invariants
 
@@ -51,7 +52,8 @@ Recurring definitions under `docs/audits/recurring/` must continuously cover:
 - cursor/order guarantees
 - access/index integrity
 - storage/recovery consistency
-- global invariant preservation
+- duplicated semantic and execution flow prevention
+- state-space and evidenced technical-debt pressure
 - error/contracts taxonomy integrity
 - canonical semantic authority continuity across schema, build, frontends,
   planner, runtime, explain, and replay
@@ -65,7 +67,7 @@ Recurring audits are contract enforcement, not advisory style review.
 
 Required:
 
-- classify violations by architectural risk
+- classify violations as `LOW`, `MEDIUM`, or `HIGH` architectural risk
 - identify broken boundary or invariant
 - record concrete evidence path
 - preserve all historical reports
@@ -83,6 +85,10 @@ Required:
   `BLOCKED` status
 - document method changes and mark non-comparable deltas when formulas or scope
   change
+- give every medium/high finding an owner, current friction, disposition, and
+  action trigger
+- treat audit-local findings as evidence rather than automatic implementation
+  authority or a competing active debt ledger
 
 Prohibited:
 
@@ -102,9 +108,13 @@ Audit governance paths are:
 
 ## 7. Report-Quality Controls
 
-Meta-audit runs must additionally check:
+Structural audit review must additionally check:
 
-- metric-method consistency drift across consecutive runs,
-- whether non-comparable metrics are explicitly labeled,
-- whether blocked verification steps are recorded with concrete reasons,
-- whether required follow-up actions are present for `PARTIAL`/`FAIL` or high-risk (`>=6`) results.
+- metric-method consistency drift against the latest comparable run;
+- whether non-comparable metrics are explicitly labeled;
+- whether blocked verification steps are recorded with concrete reasons;
+- whether active findings are limited to five and have dispositions;
+- whether accepted duplication names its boundary, safety, or measured hot-path
+  reason; and
+- whether the report avoided turning line, branch, file, test, or score counts
+  into targets.
