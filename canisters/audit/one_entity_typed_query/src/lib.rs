@@ -164,7 +164,7 @@ mod tests {
                 .filter(FieldRef::new("id").eq(id))
                 .group_by("name")
                 .aggregate(count())
-                .grouped_limits(1, 1024)
+                .grouped_limits(1, 16 * 1024)
                 .limit(1)
                 .execute_grouped()
                 .expect("generated typed grouped query should execute");
