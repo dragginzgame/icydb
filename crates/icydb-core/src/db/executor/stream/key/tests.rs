@@ -1,15 +1,26 @@
 use crate::{
     db::{
+        QueryError,
         data::{DecodedDataStoreKey, PrimaryKeyComponent},
         direction::Direction,
-        executor::stream::key::{
-            BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
-            MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
-            ordered_key_stream_from_materialized_keys,
+        executor::{
+            budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                with_query_execution_budget_for_tests,
+            },
+            stream::key::{
+                BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
+                MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+                ordered_key_stream_from_materialized_keys,
+            },
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     types::EntityTag,
+};
+use icydb_diagnostic_code::{
+    DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
+    DiagnosticExecutionLane, RuntimeBoundaryCode,
 };
 
 fn data_key(value: u64) -> DecodedDataStoreKey {
@@ -422,7 +433,8 @@ fn ordered_key_stream_box_merge_all_uses_pair_merge_for_two_streams() {
         OrderedKeyStreamBox::materialized(vec![data_key(2), data_key(4)]),
     ];
     let mut merged =
-        OrderedKeyStreamBox::merge_all(streams, KeyOrderComparator::from_direction(Direction::Asc));
+        OrderedKeyStreamBox::merge_all(streams, KeyOrderComparator::from_direction(Direction::Asc))
+            .expect("two-stream merge topology should be admitted");
 
     assert!(
         matches!(merged, OrderedKeyStreamBox::Merge(_)),
@@ -443,7 +455,8 @@ fn ordered_key_stream_box_merge_all_uses_flat_merge_stream() {
         OrderedKeyStreamBox::materialized(vec![data_key(3), data_key(5)]),
     ];
     let mut merged =
-        OrderedKeyStreamBox::merge_all(streams, KeyOrderComparator::from_direction(Direction::Asc));
+        OrderedKeyStreamBox::merge_all(streams, KeyOrderComparator::from_direction(Direction::Asc))
+            .expect("flat merge topology should be admitted");
 
     assert!(
         matches!(merged, OrderedKeyStreamBox::FlatMerge(_)),
@@ -464,6 +477,73 @@ fn ordered_key_stream_box_merge_all_uses_flat_merge_stream() {
 }
 
 #[test]
+fn flat_merge_topology_is_admitted_before_allocation() {
+    let budget = HardExecutionBudget::uniform_for_tests(
+        u64::MAX,
+        HardExecutionFailureHeadroom::new(500, 256),
+    )
+    .with_limit_for_tests(DiagnosticExecutionBudgetResource::TemporaryBytes, 0);
+    let context = HardExecutionContext::new(
+        DiagnosticExecutionBudgetScope::Execution,
+        DiagnosticExecutionLane::TrustedRead,
+        0x666c_6174_6d65_7267,
+    );
+    let result = with_query_execution_budget_for_tests(budget, context, || {
+        OrderedKeyStreamBox::merge_all(
+            vec![
+                OrderedKeyStreamBox::materialized(vec![data_key(1)]),
+                OrderedKeyStreamBox::materialized(vec![data_key(2)]),
+                OrderedKeyStreamBox::materialized(vec![data_key(3)]),
+            ],
+            KeyOrderComparator::from_direction(Direction::Asc),
+        )
+        .map(|_stream| ())
+        .map_err(QueryError::execute)
+    });
+    let error = result.expect_err("flat merge topology must consume the temporary-byte budget");
+
+    assert!(matches!(
+        error.diagnostic().detail(),
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+        })
+    ));
+}
+
+#[test]
+fn intersection_topology_is_admitted_before_allocation() {
+    let budget = HardExecutionBudget::uniform_for_tests(
+        u64::MAX,
+        HardExecutionFailureHeadroom::new(500, 256),
+    )
+    .with_limit_for_tests(DiagnosticExecutionBudgetResource::TemporaryBytes, 0);
+    let context = HardExecutionContext::new(
+        DiagnosticExecutionBudgetScope::Execution,
+        DiagnosticExecutionLane::TrustedRead,
+        0x696e_7465_7273_6563,
+    );
+    let result = with_query_execution_budget_for_tests(budget, context, || {
+        OrderedKeyStreamBox::intersect_all(
+            vec![
+                OrderedKeyStreamBox::materialized(vec![data_key(1)]),
+                OrderedKeyStreamBox::materialized(vec![data_key(1)]),
+            ],
+            KeyOrderComparator::from_direction(Direction::Asc),
+        )
+        .map(|_stream| ())
+        .map_err(QueryError::execute)
+    });
+    let error = result.expect_err("intersection topology must consume the temporary-byte budget");
+
+    assert!(matches!(
+        error.diagnostic().detail(),
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+        })
+    ));
+}
+
+#[test]
 fn ordered_key_stream_box_flat_merge_handles_descending_duplicates() {
     let streams = vec![
         OrderedKeyStreamBox::materialized(vec![data_key(9), data_key(7), data_key(7)]),
@@ -473,7 +553,8 @@ fn ordered_key_stream_box_flat_merge_handles_descending_duplicates() {
     let mut merged = OrderedKeyStreamBox::merge_all(
         streams,
         KeyOrderComparator::from_direction(Direction::Desc),
-    );
+    )
+    .expect("descending flat merge topology should be admitted");
 
     let out = collect_stream(&mut merged).expect("descending flat merge should succeed");
     assert_eq!(
@@ -603,7 +684,8 @@ fn ordered_key_stream_box_intersect_all_reduces_streams_pairwise() {
     let mut intersected = OrderedKeyStreamBox::intersect_all(
         streams,
         KeyOrderComparator::from_direction(Direction::Asc),
-    );
+    )
+    .expect("intersection topology should be admitted");
 
     let out = collect_stream(&mut intersected).expect("intersect-all should succeed");
     assert_eq!(
@@ -623,14 +705,16 @@ fn composite_page_pull_bounds_cover_initialization_and_duplicate_refresh() {
     );
     assert_eq!(binary.page_access_entry_bound(), Some(5));
 
-    let flat = crate::db::executor::stream::key::FlatMergeOrderedKeyStream::new_with_comparator(
-        vec![
-            StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(2),
-            StaticOrderedKeyStream::new(vec![data_key(2)]).with_page_access_entry_bound(3),
-            StaticOrderedKeyStream::new(vec![data_key(3)]).with_page_access_entry_bound(4),
-        ],
-        comparator,
-    );
+    let flat =
+        crate::db::executor::stream::key::FlatMergeOrderedKeyStream::try_new_with_comparator(
+            vec![
+                StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(2),
+                StaticOrderedKeyStream::new(vec![data_key(2)]).with_page_access_entry_bound(3),
+                StaticOrderedKeyStream::new(vec![data_key(3)]).with_page_access_entry_bound(4),
+            ],
+            comparator,
+        )
+        .expect("flat merge topology should be admitted");
     assert_eq!(flat.page_access_entry_bound(), Some(18));
 
     let intersection = IntersectOrderedKeyStream::new_with_comparator(

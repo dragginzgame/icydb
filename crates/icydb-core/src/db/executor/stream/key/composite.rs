@@ -359,7 +359,7 @@ where
 
 #[derive(Eq, PartialEq)]
 struct KeyFlatMergeHeapEntry {
-    key: DecodedDataStoreKey,
+    key: RowKeyWitness,
     child_index: usize,
     comparator: KeyOrderComparator,
 }
@@ -367,7 +367,7 @@ struct KeyFlatMergeHeapEntry {
 impl Ord for KeyFlatMergeHeapEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         self.comparator
-            .compare_data_keys(&other.key, &self.key)
+            .compare_key_witnesses(&other.key, &self.key)
             .then_with(|| other.child_index.cmp(&self.child_index))
     }
 }
@@ -401,40 +401,50 @@ impl<S> FlatMergeOrderedKeyStream<S>
 where
     S: OrderedKeyStream,
 {
-    /// Construct one flat merge stream using explicit key comparator policy.
-    #[must_use]
-    pub(in crate::db::executor) fn new_with_comparator(
+    /// Construct one flat merge stream after admitting its complete fixed
+    /// child/heap topology, before either backing allocation is made.
+    pub(in crate::db::executor) fn try_new_with_comparator(
         streams: Vec<S>,
         comparator: KeyOrderComparator,
-    ) -> Self {
-        let children: Vec<_> = streams
-            .into_iter()
-            .map(|stream| KeyFlatMergeChild::new(stream, comparator))
-            .collect();
+    ) -> Result<Self, InternalError> {
+        let child_count = streams.len();
+        let child_bytes = child_count
+            .checked_mul(size_of::<KeyFlatMergeChild<S>>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        let heap_bytes = child_count
+            .checked_mul(size_of::<KeyFlatMergeHeapEntry>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        let topology_bytes = child_bytes
+            .checked_add(heap_bytes)
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(topology_bytes).unwrap_or(u64::MAX),
+        )?;
 
-        let heap = BinaryHeap::with_capacity(children.len());
-        Self {
+        let mut children = Vec::new();
+        children
+            .try_reserve_exact(child_count)
+            .map_err(|_| InternalError::executor_internal())?;
+        for stream in streams {
+            children.push(KeyFlatMergeChild::new(stream, comparator));
+        }
+
+        let mut heap = BinaryHeap::new();
+        heap.try_reserve_exact(child_count)
+            .map_err(|_| InternalError::executor_internal())?;
+        Ok(Self {
             children,
             heap,
             comparator,
             initialized: false,
-        }
+        })
     }
 
     fn initialize(&mut self) -> Result<(), InternalError> {
         if self.initialized {
             return Ok(());
         }
-
-        let heap_bytes = self
-            .children
-            .len()
-            .checked_mul(size_of::<KeyFlatMergeHeapEntry>())
-            .ok_or_else(InternalError::executor_invariant)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            u64::try_from(heap_bytes).unwrap_or(u64::MAX),
-        )?;
 
         for child_index in 0..self.children.len() {
             self.refresh_child(child_index)?;
@@ -454,7 +464,7 @@ where
 
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
         self.heap.push(KeyFlatMergeHeapEntry {
-            key: key.clone(),
+            key: row_key_witness(key),
             child_index,
             comparator: self.comparator,
         });
@@ -468,7 +478,10 @@ where
         let Some(child) = self.children.get_mut(entry.child_index) else {
             return Err(InternalError::executor_invariant());
         };
-        if child.head_key() != Some(&entry.key) {
+        if !child
+            .head_key()
+            .is_some_and(|key| row_witness_matches_key(&entry.key, key))
+        {
             return Err(InternalError::executor_invariant());
         }
         let Some(item) = child.take_item() else {
@@ -492,11 +505,7 @@ where
         let next = self.consume_entry(entry)?;
         let emitted = row_key_witness(&next);
 
-        while self
-            .heap
-            .peek()
-            .is_some_and(|entry| row_witness_matches_key(&emitted, &entry.key))
-        {
+        while self.heap.peek().is_some_and(|entry| entry.key == emitted) {
             let Some(duplicate) = self.heap.pop() else {
                 return Err(InternalError::executor_invariant());
             };

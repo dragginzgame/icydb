@@ -128,6 +128,10 @@ impl<C: CanisterKind> DbSession<C> {
         if !request.selected_fields().is_empty() {
             query = query.select_fields(request.selected_fields().iter().cloned());
         }
+        #[cfg(test)]
+        if request.projection_is_distinct() {
+            query = query.distinct();
+        }
         if let Some(limit) = page_limit.or_else(|| request.row_limit()) {
             query = query.limit(limit);
         }
@@ -188,7 +192,8 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.fingerprint(),
             prepared_plan.authority_ref().entity_tag(),
         );
-        let window = ScalarPageTokenWindow::new(0, request.row_limit(), envelope.identity());
+        let window =
+            ScalarPageTokenWindow::new(0, request.row_limit(), envelope.profile_identity());
         let canonical_order = prepared_plan
             .logical_plan()
             .scalar_plan()

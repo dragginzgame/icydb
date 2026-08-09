@@ -57,11 +57,17 @@ struct TraversalInputs<'a> {
 
 #[cfg(test)]
 mod exact_intersection_tests {
-    use super::{AccessPlanStreamResolver, ExactIntersectionPreflight};
+    use super::{
+        AccessPlanStreamResolver, ExactIntersectionPreflight,
+        MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN,
+    };
 
     fn preflight(child_cardinalities: &[u64]) -> ExactIntersectionPreflight {
+        let mut cardinalities = [0; MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN];
+        cardinalities[..child_cardinalities.len()].copy_from_slice(child_cardinalities);
         ExactIntersectionPreflight {
-            child_cardinalities: child_cardinalities.to_vec(),
+            child_cardinalities: cardinalities,
+            child_count: child_cardinalities.len(),
             total_cardinality: child_cardinalities.iter().sum(),
         }
     }
@@ -90,7 +96,8 @@ mod exact_intersection_tests {
         assert!(
             !AccessPlanStreamResolver::exact_intersection_cost_beats_single(
                 &ExactIntersectionPreflight {
-                    child_cardinalities: vec![u64::MAX, 1],
+                    child_cardinalities: [u64::MAX, 1, 0],
+                    child_count: 2,
                     total_cardinality: u64::MAX,
                 },
                 1,
@@ -247,14 +254,22 @@ impl TraversalRuntime {
 
 struct AccessPlanStreamResolver;
 
+const MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN: usize = 3;
 const MAX_ATOMIC_EXACT_INTERSECTION_ENTRIES: u64 = 256;
 const MAX_ATOMIC_EXACT_INTERSECTION_KEY_BYTES: u64 =
     MAX_ATOMIC_EXACT_INTERSECTION_ENTRIES * RawDataStoreKey::MAX_STORED_SIZE_BYTES;
 const INTERSECTION_ROW_READ_COST_WEIGHT: u64 = 32;
 
 struct ExactIntersectionPreflight {
-    child_cardinalities: Vec<u64>,
+    child_cardinalities: [u64; MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN],
+    child_count: usize,
     total_cardinality: u64,
+}
+
+impl ExactIntersectionPreflight {
+    const fn child_cardinalities(&self) -> &[u64] {
+        self.child_cardinalities.split_at(self.child_count).0
+    }
 }
 
 enum ExactIntersectionAdmission {
@@ -265,6 +280,35 @@ enum ExactIntersectionAdmission {
 }
 
 impl AccessPlanStreamResolver {
+    // Admit one child-stream vector before allocation. Union and intersection
+    // construction share this owner so neither composite route can bypass the
+    // temporary-byte budget through an equivalent reservation flow.
+    fn reserve_stream_slots(capacity: usize) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
+        let slot_bytes = capacity
+            .checked_mul(size_of::<OrderedKeyStreamBox>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(slot_bytes).unwrap_or(u64::MAX),
+        )?;
+        let mut streams = Vec::new();
+        streams
+            .try_reserve_exact(capacity)
+            .map_err(|_| InternalError::executor_internal())?;
+        let extra_capacity = streams.capacity().saturating_sub(capacity);
+        if extra_capacity != 0 {
+            let extra_bytes = extra_capacity
+                .checked_mul(size_of::<OrderedKeyStreamBox>())
+                .ok_or_else(InternalError::executor_invariant)?;
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::TemporaryBytes,
+                u64::try_from(extra_bytes).unwrap_or(u64::MAX),
+            )?;
+        }
+
+        Ok(streams)
+    }
+
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment(
         path: &ExecutionPathPayload<'_, Value>,
@@ -289,7 +333,7 @@ impl AccessPlanStreamResolver {
         inputs: TraversalInputs<'_>,
         spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
-        let mut streams = Vec::with_capacity(children.len());
+        let mut streams = Self::reserve_stream_slots(children.len())?;
         for child in children {
             // Composite plans never need physical fetch-hint expansion on child lookups.
             let child_inputs = inputs
@@ -314,7 +358,7 @@ impl AccessPlanStreamResolver {
         inputs: TraversalInputs<'_>,
         spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
-        let mut streams = Vec::with_capacity(children.len());
+        let mut streams = Self::reserve_stream_slots(children.len())?;
         for child in children {
             let child_inputs = inputs
                 .with_physical_fetch_hint(None)
@@ -336,14 +380,16 @@ impl AccessPlanStreamResolver {
         inputs: TraversalInputs<'_>,
         spec_cursor: AccessSpecCursor<'_>,
     ) -> ExactIntersectionAdmission {
-        if !(2..=3).contains(&children.len()) || inputs.index_predicate_execution.is_some() {
+        if !(2..=MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN).contains(&children.len())
+            || inputs.index_predicate_execution.is_some()
+        {
             return ExactIntersectionAdmission::NotApplicable;
         }
 
         let mut metadata_cursor = spec_cursor;
-        let mut child_cardinalities = Vec::with_capacity(children.len());
+        let mut child_cardinalities = [0; MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN];
         let mut total_cardinality = 0u64;
-        for child in children {
+        for (child_index, child) in children.iter().enumerate() {
             let ExecutableAccessNode::Path(path) = child.node() else {
                 return ExactIntersectionAdmission::NotApplicable;
             };
@@ -374,11 +420,12 @@ impl AccessPlanStreamResolver {
                 return ExactIntersectionAdmission::ConservativeFallback;
             }
             total_cardinality = next_total;
-            child_cardinalities.push(cardinality);
+            child_cardinalities[child_index] = cardinality;
         }
 
         ExactIntersectionAdmission::Probe(ExactIntersectionPreflight {
             child_cardinalities,
+            child_count: children.len(),
             total_cardinality,
         })
     }
@@ -387,7 +434,7 @@ impl AccessPlanStreamResolver {
         preflight: &ExactIntersectionPreflight,
         overlap_cardinality: u64,
     ) -> bool {
-        let Some(single_cardinality) = preflight.child_cardinalities.first().copied() else {
+        let Some(single_cardinality) = preflight.child_cardinalities().first().copied() else {
             return false;
         };
         let Some(single_row_cost) = single_cardinality
@@ -407,7 +454,7 @@ impl AccessPlanStreamResolver {
     }
 
     fn exact_intersection_probe_can_beat_single(preflight: &ExactIntersectionPreflight) -> bool {
-        let Some(maximum_overlap) = preflight.child_cardinalities.iter().copied().min() else {
+        let Some(maximum_overlap) = preflight.child_cardinalities().iter().copied().min() else {
             return false;
         };
 
@@ -420,7 +467,7 @@ impl AccessPlanStreamResolver {
         preflight: &ExactIntersectionPreflight,
     ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
         let maximum_keys_u64 = preflight
-            .child_cardinalities
+            .child_cardinalities()
             .iter()
             .copied()
             .min()
@@ -435,7 +482,7 @@ impl AccessPlanStreamResolver {
             u64::try_from(slot_bytes).unwrap_or(u64::MAX),
         )?;
 
-        let mut intersection = OrderedKeyStreamBox::intersect_all(streams, comparator);
+        let mut intersection = OrderedKeyStreamBox::intersect_all(streams, comparator)?;
         let mut overlap = Vec::with_capacity(maximum_keys);
         let mut retained_key_bytes = 0u64;
         while let Some(key) = intersection.next_key()? {
@@ -479,8 +526,8 @@ impl AccessPlanStreamResolver {
             return Ok(None);
         }
 
-        let mut specs = Vec::with_capacity(children.len());
-        for child in children {
+        let mut specs = [None; 3];
+        for (slot, child) in specs.iter_mut().zip(children) {
             let ExecutableAccessNode::Path(path) = child.node() else {
                 return Err(InternalError::executor_invariant());
             };
@@ -489,15 +536,32 @@ impl AccessPlanStreamResolver {
             let spec = child_specs
                 .first()
                 .ok_or_else(InternalError::executor_invariant)?;
-            specs.push(spec);
+            *slot = Some(spec);
         }
-        let overlap = IndexScan::exact_prefix_intersection_structural(
-            runtime.store,
-            runtime.entity_tag,
-            specs.as_slice(),
-            preflight.child_cardinalities.as_slice(),
-            inputs.continuation.direction(),
-        )?;
+        let overlap = match children.len() {
+            2 => IndexScan::exact_prefix_intersection_structural(
+                runtime.store,
+                runtime.entity_tag,
+                &[
+                    specs[0].ok_or_else(InternalError::executor_invariant)?,
+                    specs[1].ok_or_else(InternalError::executor_invariant)?,
+                ],
+                preflight.child_cardinalities(),
+                inputs.continuation.direction(),
+            )?,
+            3 => IndexScan::exact_prefix_intersection_structural(
+                runtime.store,
+                runtime.entity_tag,
+                &[
+                    specs[0].ok_or_else(InternalError::executor_invariant)?,
+                    specs[1].ok_or_else(InternalError::executor_invariant)?,
+                    specs[2].ok_or_else(InternalError::executor_invariant)?,
+                ],
+                preflight.child_cardinalities(),
+                inputs.continuation.direction(),
+            )?,
+            _ => return Err(InternalError::executor_invariant()),
+        };
         Ok(Some(overlap))
     }
 
@@ -552,7 +616,7 @@ impl AccessPlanStreamResolver {
         spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let union_uses_accepted_index = children.iter().any(Self::plan_uses_accepted_index);
-        let mut streams = Vec::with_capacity(children.len());
+        let mut streams = Self::reserve_stream_slots(children.len())?;
         for child in children {
             let child_inputs = inputs
                 .with_physical_fetch_hint(None)
@@ -570,7 +634,7 @@ impl AccessPlanStreamResolver {
         }
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
-        Ok(OrderedKeyStreamBox::merge_all(streams, key_comparator))
+        OrderedKeyStreamBox::merge_all(streams, key_comparator)
     }
 
     // An accepted-index union uses strict missing-row consistency at the final
@@ -691,7 +755,7 @@ impl AccessPlanStreamResolver {
             ExactIntersectionAdmission::NotApplicable => {
                 let streams =
                     Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
-                Ok(OrderedKeyStreamBox::intersect_all(streams, key_comparator))
+                OrderedKeyStreamBox::intersect_all(streams, key_comparator)
             }
             ExactIntersectionAdmission::ConservativeFallback => {
                 let streams = Self::collect_exact_intersection_child_streams(

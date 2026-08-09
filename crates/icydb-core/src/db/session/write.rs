@@ -2468,7 +2468,7 @@ mod mixed_relation_batch_tests {
     }
 
     #[test]
-    fn live_pages_resume_when_output_bytes_fill_before_the_row_window() {
+    fn live_pages_resume_across_changed_output_work_envelopes() {
         let session = initialize();
         session
             .execute_trusted_dynamic_mutation_batch(vec![
@@ -2480,35 +2480,131 @@ mod mixed_relation_batch_tests {
         let query = DynamicQuery::new(ENTITY_NAME)
             .select(["id"])
             .order_by(desc("code"));
-        let mut continuation = None;
-        let mut returned = Vec::new();
-        for (page_index, expected_id) in [3_u64, 2, 1].into_iter().enumerate() {
-            let page = session
-                .execute_trusted_live_page_with_result_bytes_limit_for_tests(
-                    &query,
-                    continuation.as_deref(),
-                    32,
+        let first = session
+            .execute_trusted_live_page_with_result_bytes_limit_for_tests(&query, None, 32)
+            .expect("small output envelope should publish the first bounded page");
+        assert_eq!(first.rows, vec![vec![OutputValue::Nat64(3)]]);
+        let continuation = first
+            .continuation
+            .expect("small output envelope should leave authenticated progress");
+
+        let second = session
+            .execute_trusted_live_page_with_result_bytes_limit_for_tests(
+                &query,
+                Some(continuation.as_str()),
+                64,
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "larger output envelope should resume the same query: {error:?}, facts={:?}",
+                    error.diagnostic_facts(),
                 )
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "output-bounded page {page_index} should remain resumable: {error:?}, facts={:?}",
-                        error.diagnostic_facts(),
-                    )
-                });
-            assert_eq!(page.rows, vec![vec![OutputValue::Nat64(expected_id)]]);
-            returned.extend(page.rows);
-            continuation = page.continuation;
-            assert_eq!(continuation.is_some(), page_index < 2);
-        }
+            });
+        assert_eq!(
+            second.rows,
+            vec![vec![OutputValue::Nat64(2)], vec![OutputValue::Nat64(1)]]
+        );
+        let second_continuation = second
+            .continuation
+            .as_deref()
+            .expect("an exact-full page still needs to prove physical exhaustion");
+        assert_ne!(first.work.envelope_identity, second.work.envelope_identity);
+
+        let terminal = session
+            .execute_trusted_live_page_with_result_bytes_limit_for_tests(
+                &query,
+                Some(second_continuation),
+                48,
+            )
+            .expect("a third finite envelope should prove exhaustion without replaying rows");
+        assert!(terminal.rows.is_empty());
+        assert_eq!(terminal.continuation, None);
+        assert_ne!(
+            second.work.envelope_identity,
+            terminal.work.envelope_identity
+        );
 
         assert_eq!(
-            returned,
+            [first.rows, second.rows, terminal.rows].concat(),
             vec![
                 vec![OutputValue::Nat64(3)],
                 vec![OutputValue::Nat64(2)],
                 vec![OutputValue::Nat64(1)],
             ]
         );
+    }
+
+    #[test]
+    fn distinct_live_pages_resume_adjacent_groups_and_global_replay_end_to_end() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                insert(1, None),
+                insert(2, None),
+                insert(3, Some(1)),
+                insert(4, Some(2)),
+                insert(5, Some(1)),
+                insert(6, Some(3)),
+                insert(7, Some(2)),
+            ])
+            .expect("DISTINCT continuation rows should insert atomically");
+
+        let adjacent = DynamicQuery::new(ENTITY_NAME)
+            .select(["parent_id"])
+            .order_by(asc("parent_id"))
+            .order_by(asc("id"))
+            .distinct_for_internal_execution();
+        let global = DynamicQuery::new(ENTITY_NAME)
+            .select(["parent_id"])
+            .order_by(asc("id"))
+            .distinct_for_internal_execution();
+
+        let traverse = |query: &DynamicQuery, strategy: &str| {
+            let mut continuation = None;
+            let mut rows = Vec::new();
+            let mut cursors = std::collections::BTreeSet::new();
+            let mut pages = 0_u32;
+            let mut entries_visited = 0_u64;
+            loop {
+                let page = session
+                    .execute_trusted_live_page(query, continuation.as_deref())
+                    .unwrap_or_else(|error| {
+                        panic!("{strategy} DISTINCT page should execute: {error:?}")
+                    });
+                pages = pages.saturating_add(1);
+                entries_visited = entries_visited.saturating_add(page.work.entries_visited);
+                assert_eq!(page.row_count as usize, page.rows.len());
+                assert_eq!(page.work.result_rows, page.row_count);
+                rows.extend(page.rows);
+                let Some(cursor) = page.continuation else {
+                    break;
+                };
+                assert!(
+                    cursors.insert(cursor.clone()),
+                    "{strategy} DISTINCT continuation must advance monotonically",
+                );
+                continuation = Some(cursor);
+                assert!(pages < 8, "{strategy} DISTINCT traversal must terminate");
+            }
+
+            (rows, pages, entries_visited)
+        };
+
+        let expected = vec![
+            vec![OutputValue::Null],
+            vec![OutputValue::Nat64(1)],
+            vec![OutputValue::Nat64(2)],
+            vec![OutputValue::Nat64(3)],
+        ];
+        let (adjacent_rows, adjacent_pages, adjacent_entries) = traverse(&adjacent, "adjacent");
+        let (global_rows, global_pages, global_entries) = traverse(&global, "global");
+
+        assert_eq!(adjacent_rows, expected);
+        assert_eq!(global_rows, expected);
+        assert_eq!(adjacent_pages, 2);
+        assert_eq!(global_pages, 2);
+        assert!(adjacent_entries > 0);
+        assert!(global_entries > 0);
     }
 
     #[test]
@@ -3297,6 +3393,85 @@ mod identity_pre_key_tests {
             &initialize_journaled(),
             JOURNALED_STORE_PATH,
         );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn ordered_grouped_pages_close_a_group_spanning_physical_refills_before_resume() {
+        let session = initialize();
+        let mut patches = Vec::new();
+        for _ in 0..70 {
+            patches.push(dynamic_payload_patch(10));
+        }
+        for _ in 0..3 {
+            patches.push(dynamic_payload_patch(20));
+        }
+        patches.push(dynamic_payload_patch(30));
+        let inserted = session
+            .execute_trusted_dynamic_insert_batch(ENTITY_NAME, patches)
+            .expect("ordered grouped continuation rows should insert");
+        assert_eq!(inserted.rows.len(), 74);
+
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .group_by("payload")
+            .aggregate(crate::db::count())
+            .aggregate(crate::db::sum("id"))
+            .order_by(asc("payload"))
+            .grouped_limits(4, 16 * 1_024)
+            .limit(1);
+        let expected = [
+            (10_u64, 70_u64, crate::types::Decimal::new(2_485, 0)),
+            (20, 3, crate::types::Decimal::new(216, 0)),
+            (30, 1, crate::types::Decimal::new(74, 0)),
+        ];
+        let mut continuation: Option<String> = None;
+        let mut seen_cursors = std::collections::BTreeSet::new();
+
+        for (page_index, (group_key, row_count, id_sum)) in expected.into_iter().enumerate() {
+            let request = continuation.as_ref().map_or_else(
+                || query.clone(),
+                |cursor| query.clone().cursor(cursor.clone()),
+            );
+            let entries_before = IndexStore::current_entry_read_count();
+            let rows_before = DataStore::current_get_call_count();
+            let page = session
+                .execute_trusted_dynamic_grouped_query(&request)
+                .unwrap_or_else(|error| {
+                    panic!("ordered grouped page {page_index} should execute: {error:?}")
+                });
+            let entries_read =
+                IndexStore::current_entry_read_count().saturating_sub(entries_before);
+            let rows_read = DataStore::current_get_call_count().saturating_sub(rows_before);
+
+            assert_eq!(page.row_count, 1);
+            let [row] = page.rows.as_slice() else {
+                panic!("ordered grouped page must contain exactly one closed group")
+            };
+            assert_eq!(row.group_key(), &[OutputValue::Nat64(group_key)]);
+            assert_eq!(
+                row.aggregate_values(),
+                &[OutputValue::Nat64(row_count), OutputValue::Decimal(id_sum),],
+            );
+            if page_index == 0 {
+                assert!(
+                    entries_read.saturating_add(rows_read) >= 70,
+                    "the first closed group must span the maintained 64-entry physical refill",
+                );
+            }
+
+            continuation = page.next_cursor;
+            if page_index + 1 < expected.len() {
+                let cursor = continuation
+                    .as_ref()
+                    .expect("another closed group should retain continuation");
+                assert!(
+                    seen_cursors.insert(cursor.clone()),
+                    "ordered grouped continuation must advance monotonically",
+                );
+            } else {
+                assert_eq!(continuation, None);
+            }
+        }
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]

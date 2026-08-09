@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.222.md](docs/changelog/0.222.md)
 
+- `0.222.4` completes executor closeout with one bounded composite-stream
+  authority and authenticated pagination that remains correct across safe
+  work-limit tuning without changing public or persisted formats.
+
 - `0.222.3` makes long and selective reads resume safely, completes blocking
   state accounting, and closes every frozen performance gate while retaining
   the final audit's remaining executor and continuation follow-ups.

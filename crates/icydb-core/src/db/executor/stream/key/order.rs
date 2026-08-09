@@ -3,7 +3,10 @@
 //! Does not own: stream traversal mechanics or access-path resolution.
 //! Boundary: centralizes ASC/DESC comparison behavior for stream combinators.
 
-use crate::db::{data::DecodedDataStoreKey, direction::Direction, key_taxonomy::PrimaryKeyValue};
+use crate::{
+    db::{data::DecodedDataStoreKey, direction::Direction, key_taxonomy::PrimaryKeyValue},
+    types::EntityTag,
+};
 use std::cmp::Ordering;
 
 ///
@@ -31,6 +34,19 @@ impl KeyOrderComparator {
         self,
         left: &DecodedDataStoreKey,
         right: &DecodedDataStoreKey,
+    ) -> Ordering {
+        match self.direction {
+            Direction::Asc => left.cmp(right),
+            Direction::Desc => right.cmp(left),
+        }
+    }
+
+    /// Compare compact allocation-free data-key identities under this
+    /// comparator direction policy.
+    pub(super) fn compare_key_witnesses(
+        self,
+        left: &(EntityTag, PrimaryKeyValue),
+        right: &(EntityTag, PrimaryKeyValue),
     ) -> Ordering {
         match self.direction {
             Direction::Asc => left.cmp(right),

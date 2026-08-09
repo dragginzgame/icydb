@@ -6,20 +6,24 @@
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawRow, StoreVisit},
-        executor::stream::{
-            FlatMergeSiblingSet,
-            access::{IndexRangeKeyStream, PrimaryRangeKeyStream, SeekableIndexRangeKeyStream},
-            key::{
-                ConcatOrderedKeyStream, DistinctOrderedKeyStream, FlatMergeOrderedKeyStream,
-                IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
+        executor::{
+            budget::charge_current_execution_budget,
+            stream::{
+                FlatMergeSiblingSet,
+                access::{IndexRangeKeyStream, PrimaryRangeKeyStream, SeekableIndexRangeKeyStream},
+                key::{
+                    ConcatOrderedKeyStream, DistinctOrderedKeyStream, FlatMergeOrderedKeyStream,
+                    IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
+                },
             },
-            reduce_non_empty_streams_pairwise,
         },
     },
     error::InternalError,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::{
     cell::{Cell, RefCell},
+    mem::size_of,
     rc::Rc,
 };
 
@@ -229,27 +233,33 @@ impl OrderedKeyStreamBox {
 
     /// Construct one ordered concatenation from already branch-ordered streams.
     #[must_use]
-    pub(in crate::db::executor) fn concat_all(streams: Vec<Self>) -> Self {
-        match FlatMergeSiblingSet::from_vec(streams) {
-            FlatMergeSiblingSet::Empty => Self::empty(),
-            FlatMergeSiblingSet::Single(stream) => stream,
-            FlatMergeSiblingSet::Pair(left, right) => {
-                Self::Concat(ConcatOrderedKeyStream::new(vec![left, right]))
-            }
-            FlatMergeSiblingSet::Many(streams) => {
-                Self::Concat(ConcatOrderedKeyStream::new(streams))
-            }
+    pub(in crate::db::executor) fn concat_all(mut streams: Vec<Self>) -> Self {
+        match streams.len() {
+            0 => Self::empty(),
+            1 => streams.pop().unwrap_or_else(Self::empty),
+            _ => Self::Concat(ConcatOrderedKeyStream::new(streams)),
         }
     }
 
     /// Construct one owned merge ordered key stream.
-    #[must_use]
-    fn merge(left: Self, right: Self, comparator: KeyOrderComparator) -> Self {
-        Self::Merge(MergeOrderedKeyStream::new_with_comparator(
+    fn merge(
+        left: Self,
+        right: Self,
+        comparator: KeyOrderComparator,
+    ) -> Result<Self, InternalError> {
+        let retained_bytes = size_of::<Self>()
+            .checked_mul(2)
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(retained_bytes).unwrap_or(u64::MAX),
+        )?;
+
+        Ok(Self::Merge(MergeOrderedKeyStream::new_with_comparator(
             left.boxed(),
             right.boxed(),
             comparator,
-        ))
+        )))
     }
 
     /// Construct one owned intersection ordered key stream.
@@ -267,31 +277,82 @@ impl OrderedKeyStreamBox {
     }
 
     /// Construct one balanced merge tree from already ordered streams.
-    #[must_use]
     pub(in crate::db::executor) fn merge_all(
         streams: Vec<Self>,
         comparator: KeyOrderComparator,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
         match FlatMergeSiblingSet::from_vec(streams) {
-            FlatMergeSiblingSet::Empty => Self::empty(),
-            FlatMergeSiblingSet::Single(stream) => stream,
+            FlatMergeSiblingSet::Empty => Ok(Self::empty()),
+            FlatMergeSiblingSet::Single(stream) => Ok(stream),
             FlatMergeSiblingSet::Pair(left, right) => Self::merge(left, right, comparator),
-            FlatMergeSiblingSet::Many(streams) => Self::FlatMerge(
-                FlatMergeOrderedKeyStream::new_with_comparator(streams, comparator),
-            ),
+            FlatMergeSiblingSet::Many(streams) => {
+                FlatMergeOrderedKeyStream::try_new_with_comparator(streams, comparator)
+                    .map(Self::FlatMerge)
+            }
         }
     }
 
     /// Construct one balanced intersection tree from already ordered streams.
-    #[must_use]
     pub(in crate::db::executor) fn intersect_all(
-        streams: Vec<Self>,
+        mut streams: Vec<Self>,
         comparator: KeyOrderComparator,
-    ) -> Self {
-        reduce_non_empty_streams_pairwise(streams, |left, right| {
-            Self::intersect(left, right, comparator)
-        })
-        .unwrap_or_else(Self::empty)
+    ) -> Result<Self, InternalError> {
+        if streams.is_empty() {
+            return Ok(Self::empty());
+        }
+
+        let pair_count = streams.len().saturating_sub(1);
+        let boxed_bytes = pair_count
+            .checked_mul(2)
+            .and_then(|boxes| boxes.checked_mul(size_of::<Self>()))
+            .ok_or_else(InternalError::executor_invariant)?;
+        let mut round_len = streams.len();
+        let mut reduction_slots = 0usize;
+        while round_len > 1 {
+            round_len = round_len.div_ceil(2);
+            reduction_slots = reduction_slots
+                .checked_add(round_len)
+                .ok_or_else(InternalError::executor_invariant)?;
+        }
+        let reduction_bytes = reduction_slots
+            .checked_mul(size_of::<Self>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        let topology_bytes = boxed_bytes
+            .checked_add(reduction_bytes)
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            u64::try_from(topology_bytes).unwrap_or(u64::MAX),
+        )?;
+
+        while streams.len() > 1 {
+            let capacity = streams.len().div_ceil(2);
+            let mut next_round = Vec::new();
+            next_round
+                .try_reserve_exact(capacity)
+                .map_err(|_| InternalError::executor_internal())?;
+            let extra_capacity = next_round.capacity().saturating_sub(capacity);
+            if extra_capacity != 0 {
+                let extra_bytes = extra_capacity
+                    .checked_mul(size_of::<Self>())
+                    .ok_or_else(InternalError::executor_invariant)?;
+                charge_current_execution_budget(
+                    DiagnosticExecutionBudgetResource::TemporaryBytes,
+                    u64::try_from(extra_bytes).unwrap_or(u64::MAX),
+                )?;
+            }
+            let mut iter = streams.into_iter();
+            while let Some(left) = iter.next() {
+                if let Some(right) = iter.next() {
+                    next_round.push(Self::intersect(left, right, comparator));
+                } else {
+                    next_round.push(left);
+                }
+            }
+            streams = next_round;
+        }
+
+        streams.pop().ok_or_else(InternalError::executor_invariant)
     }
 }
 

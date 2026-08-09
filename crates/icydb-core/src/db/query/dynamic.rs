@@ -22,6 +22,8 @@ pub struct DynamicQuery {
     filter: Option<FilterExpr>,
     order: Vec<OrderTerm>,
     fields: Vec<String>,
+    #[cfg(test)]
+    distinct: bool,
     limit: Option<u32>,
     group_fields: Vec<String>,
     aggregates: Vec<AggregateExpr>,
@@ -38,6 +40,8 @@ impl DynamicQuery {
             filter: None,
             order: Vec::new(),
             fields: Vec::new(),
+            #[cfg(test)]
+            distinct: false,
             limit: None,
             group_fields: Vec::new(),
             aggregates: Vec::new(),
@@ -78,6 +82,18 @@ impl DynamicQuery {
     #[must_use]
     pub const fn limit(mut self, limit: u32) -> Self {
         self.limit = Some(limit);
+        self
+    }
+
+    /// Enable projection DISTINCT for maintained internal execution callers.
+    ///
+    /// The public dynamic-query grammar deliberately does not expose this
+    /// builder; SQL and internal executor contracts remain the DISTINCT
+    /// frontends until a separately reviewed public API is designed.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn distinct_for_internal_execution(mut self) -> Self {
+        self.distinct = true;
         self
     }
 
@@ -130,6 +146,11 @@ impl DynamicQuery {
 
     pub(in crate::db) const fn row_limit(&self) -> Option<u32> {
         self.limit
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) const fn projection_is_distinct(&self) -> bool {
+        self.distinct
     }
 
     pub(in crate::db) const fn has_grouping(&self) -> bool {

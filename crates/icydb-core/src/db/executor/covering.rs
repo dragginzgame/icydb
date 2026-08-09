@@ -15,11 +15,10 @@ use crate::{
             ExecutorError, FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
             IndexComponentRow, IndexComponentRows, IndexComponentValues, IndexScan,
             KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
-            active_lowered_index_prefix_specs, apply_data_key_ordered_dedup_window,
-            apply_index_scan_chunk_progress, branch_stream_chunk_entries,
-            budget::charge_current_execution_budget, index_predicate_rejects_prefix_components,
-            index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
-            route::IndexPrefixChildExpansionBudget,
+            active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
+            branch_stream_chunk_entries, budget::charge_current_execution_budget,
+            index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
+            index_stream_output_limit_for_chunk, route::IndexPrefixChildExpansionBudget,
         },
         index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
@@ -102,7 +101,7 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     predicate_execution: Option<IndexPredicateExecution<'_>>,
     prefix_set_merge_safety: PrefixSetMergeSafety,
     mut resolve_store_for_index: F,
-) -> Result<IndexComponentRows, InternalError>
+) -> Result<Option<IndexComponentRows>, InternalError>
 where
     F: FnMut(&str) -> Result<StoreHandle, InternalError>,
 {
@@ -126,7 +125,7 @@ where
     if let [spec] = index_range_specs {
         if index_predicate_rejects_prefix_components(spec.prefix_components(), predicate_execution)
         {
-            return Ok(Vec::new());
+            return Ok(Some(Vec::new()));
         }
 
         let scan_contract = spec.scan_contract();
@@ -139,7 +138,8 @@ where
             limit,
             component_indices,
             predicate_execution,
-        );
+        )
+        .map(Some);
     }
     if !index_range_specs.is_empty() {
         return Err(InternalError::query_executor_invariant());
@@ -205,18 +205,18 @@ where
 
 // Resolve a branch/multi-prefix covering projection. Proven ordered prefix
 // sets use the same lazy merge model as scalar branch execution; unsafe sets
-// materialize completely before dedup/sort/windowing.
+// decline covering execution so the maintained scalar executor owns the read.
 fn resolve_covering_projection_components_for_prefix_set<F>(
     entity_tag: EntityTag,
     index_prefix_specs: &[LoweredIndexPrefixSpec],
     scan: CoveringPrefixSetScan<'_>,
     mut resolve_store_for_index: F,
-) -> Result<IndexComponentRows, InternalError>
+) -> Result<Option<IndexComponentRows>, InternalError>
 where
     F: FnMut(&str) -> Result<StoreHandle, InternalError>,
 {
     if scan.limit == 0 || index_prefix_specs.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Some(Vec::new()));
     }
 
     let component_indices: Arc<[usize]> = Arc::from(scan.component_indices.to_vec());
@@ -232,7 +232,7 @@ where
         }
     }
     match PrefixSetExecutionShape::from_active_prefixes(active_specs, scan.merge_safety) {
-        PrefixSetExecutionShape::Empty => Ok(Vec::new()),
+        PrefixSetExecutionShape::Empty => Ok(Some(Vec::new())),
         PrefixSetExecutionShape::Single(active) => {
             let (lower, upper) = active.prefix.raw_bounds()?;
             resolve_covering_projection_components_for_index_bounds(
@@ -245,15 +245,9 @@ where
                 component_indices.as_ref(),
                 scan.predicate_execution,
             )
+            .map(Some)
         }
-        PrefixSetExecutionShape::Materialized(active_specs) => {
-            resolve_materialized_covering_projection_components_for_prefix_set(
-                entity_tag,
-                active_specs,
-                &scan,
-                component_indices.as_ref(),
-            )
-        }
+        PrefixSetExecutionShape::Fallback(_active_specs) => Ok(None),
         PrefixSetExecutionShape::OrderedConcat(active_specs) => {
             resolve_branch_ordered_covering_projection_components_for_prefix_set(
                 entity_tag,
@@ -261,6 +255,7 @@ where
                 &scan,
                 Arc::clone(&component_indices),
             )
+            .map(Some)
         }
         PrefixSetExecutionShape::OrderedMerge(active_specs) => {
             if scan.component_indices.is_empty() && scan.predicate_execution.is_none() {
@@ -276,7 +271,7 @@ where
                     scan.direction,
                     scan.limit,
                 )? {
-                    return Ok(rows);
+                    return Ok(Some(rows));
                 }
             }
 
@@ -304,10 +299,10 @@ where
                 streams,
                 KeyOrderComparator::from_direction(scan.direction),
             ) else {
-                return Ok(Vec::new());
+                return Ok(Some(Vec::new()));
             };
 
-            stream.collect_limit(scan.limit)
+            stream.collect_limit(scan.limit).map(Some)
         }
     }
 }
@@ -434,31 +429,6 @@ fn covering_branch_stream_chunk_entries(
     }
 
     fair_chunk_entries.div_ceil(2).max(2)
-}
-
-fn resolve_materialized_covering_projection_components_for_prefix_set(
-    entity_tag: EntityTag,
-    active_specs: Vec<ActiveCoveringPrefixSpec<'_>>,
-    scan: &CoveringPrefixSetScan<'_>,
-    component_indices: &[usize],
-) -> Result<IndexComponentRows, InternalError> {
-    let mut rows = Vec::new();
-    for active in active_specs {
-        let (lower, upper) = active.prefix.raw_bounds()?;
-        rows.extend(resolve_covering_projection_components_for_index_bounds(
-            active.store,
-            entity_tag,
-            active.scan_contract,
-            (lower, upper),
-            IndexScanContinuationInput::new(None, scan.direction),
-            usize::MAX,
-            component_indices,
-            scan.predicate_execution,
-        )?);
-    }
-    apply_data_key_ordered_dedup_window(&mut rows, scan.direction, scan.limit, |row| &row.0);
-
-    Ok(rows)
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.

@@ -204,7 +204,7 @@ fn write_scalar_payload(out: &mut Vec<u8>, token: &ScalarPageToken) -> Result<()
     let window = token.window();
     write_u32(out, window.initial_offset());
     write_optional_u32(out, window.total_limit());
-    write_u64(out, window.envelope_identity());
+    write_u64(out, window.envelope_profile_identity());
 
     write_u32(out, checked_len_u32(token.order_terms().len())?);
     for term in token.order_terms() {
@@ -249,8 +249,8 @@ fn read_scalar_payload(mut cursor: ByteCursor<'_>) -> Result<ScalarPageToken, To
 
     let initial_offset = cursor.read_u32()?;
     let total_limit = read_optional_u32(&mut cursor)?;
-    let envelope_identity = cursor.read_u64()?;
-    let window = ScalarPageTokenWindow::new(initial_offset, total_limit, envelope_identity);
+    let envelope_profile_identity = cursor.read_u64()?;
+    let window = ScalarPageTokenWindow::new(initial_offset, total_limit, envelope_profile_identity);
 
     let term_count = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
     if term_count > MAX_SCALAR_CURSOR_ORDER_TERMS || term_count > cursor.remaining() / 3 {

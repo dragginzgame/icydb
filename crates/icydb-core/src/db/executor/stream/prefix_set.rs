@@ -6,14 +6,14 @@
 pub(in crate::db::executor) enum PrefixSetExecutionShape<T> {
     Empty,
     Single(T),
-    Materialized(Vec<T>),
+    Fallback(Vec<T>),
     OrderedConcat(Vec<T>),
     OrderedMerge(Vec<T>),
 }
 
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) enum PrefixSetMergeSafety {
-    RequiresMaterialization,
+    RequiresFallback,
     OrderedConcatSafe,
     OrderedMergeSafe,
 }
@@ -36,7 +36,7 @@ impl<T> PrefixSetExecutionShape<T> {
             _ if matches!(merge_safety, PrefixSetMergeSafety::OrderedMergeSafe) => {
                 Self::OrderedMerge(prefixes)
             }
-            _ => Self::Materialized(prefixes),
+            _ => Self::Fallback(prefixes),
         }
     }
 }
@@ -59,7 +59,7 @@ mod tests {
     fn prefix_set_execution_shape_preserves_single_shape() {
         let shape = PrefixSetExecutionShape::from_active_prefixes(
             vec![7],
-            PrefixSetMergeSafety::RequiresMaterialization,
+            PrefixSetMergeSafety::RequiresFallback,
         );
 
         match shape {
@@ -97,17 +97,17 @@ mod tests {
     }
 
     #[test]
-    fn prefix_set_execution_shape_uses_materialized_fallback_when_unsafe() {
+    fn prefix_set_execution_shape_requires_fallback_when_unsafe() {
         let shape = PrefixSetExecutionShape::from_active_prefixes(
             vec![1, 2, 3],
-            PrefixSetMergeSafety::RequiresMaterialization,
+            PrefixSetMergeSafety::RequiresFallback,
         );
 
         match shape {
-            PrefixSetExecutionShape::Materialized(prefixes) => {
+            PrefixSetExecutionShape::Fallback(prefixes) => {
                 assert_eq!(prefixes, vec![1, 2, 3]);
             }
-            _ => panic!("unsafe sibling prefixes should materialize"),
+            _ => panic!("unsafe sibling prefixes should use the maintained fallback"),
         }
     }
 }

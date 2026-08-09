@@ -10,8 +10,9 @@ use crate::{
         data::{DataStore, DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-            budget::charge_current_execution_budget, lowered_index_prefix_liveness_at_generation,
+            ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
+            LoweredKey, budget::charge_current_execution_budget,
+            lowered_index_prefix_liveness_at_generation,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
@@ -300,51 +301,167 @@ impl IndexScan {
     // caller-supplied limits.
     const LIMITED_SCAN_PREALLOC_CAP: usize = 32;
 
+    // Precharge the complete bounded direct-intersection topology once before
+    // any child or overlap vector is allocated. Child cardinalities are exact,
+    // so this includes every child slot, every pairwise overlap slot, the final
+    // decoded-key slots, and a conservative upper bound on cursor comparisons.
+    fn charge_exact_intersection_structural_work(
+        child_cardinalities: &[u64],
+    ) -> Result<u64, InternalError> {
+        let Some((&first, remaining)) = child_cardinalities.split_first() else {
+            return Err(InternalError::executor_invariant());
+        };
+        if first == 0 {
+            return Err(InternalError::executor_invariant());
+        }
+
+        let mut primary_key_slots = first;
+        let mut overlap_upper_bound = first;
+        let mut comparison_upper_bound = 0u64;
+        for cardinality in remaining {
+            if *cardinality == 0 {
+                return Err(InternalError::executor_invariant());
+            }
+            primary_key_slots = primary_key_slots
+                .checked_add(*cardinality)
+                .ok_or_else(InternalError::executor_invariant)?;
+            comparison_upper_bound = comparison_upper_bound
+                .checked_add(
+                    overlap_upper_bound
+                        .checked_add(*cardinality)
+                        .and_then(|comparisons| comparisons.checked_sub(1))
+                        .ok_or_else(InternalError::executor_invariant)?,
+                )
+                .ok_or_else(InternalError::executor_invariant)?;
+            overlap_upper_bound = overlap_upper_bound.min(*cardinality);
+            primary_key_slots = primary_key_slots
+                .checked_add(overlap_upper_bound)
+                .ok_or_else(InternalError::executor_invariant)?;
+        }
+
+        let primary_key_bytes = primary_key_slots
+            .checked_mul(
+                u64::try_from(size_of::<ExactIntersectionPrimaryKey>()).unwrap_or(u64::MAX),
+            )
+            .ok_or_else(InternalError::executor_invariant)?;
+        let result_bytes = overlap_upper_bound
+            .checked_mul(u64::try_from(size_of::<DecodedDataStoreKey>()).unwrap_or(u64::MAX))
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            primary_key_bytes
+                .checked_add(result_bytes)
+                .ok_or_else(InternalError::executor_invariant)?,
+        )?;
+        Ok(comparison_upper_bound)
+    }
+
     fn collect_exact_intersection_child(
         store: StoreHandle,
+        entity: EntityTag,
         spec: &LoweredIndexPrefixSpec,
         expected_cardinality: u64,
+        additional_cursor_steps: u64,
+        direction: Direction,
+    ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
+        let bounds = spec.raw_bounds()?;
+        Self::collect_exact_intersection_child_in_bounds(
+            store,
+            entity,
+            bounds,
+            expected_cardinality,
+            additional_cursor_steps,
+            direction,
+        )
+    }
+
+    // Production calls reach this scan only after exact prefix cardinality has
+    // proved the index metadata synchronized to the current data generation.
+    // Exhaust the complete physical prefix anyway: every entry must carry a
+    // Present row witness and the physical count must equal that proof. This
+    // keeps discarded child keys from hiding stale or uncounted index state
+    // without adding one stable-map point probe per candidate.
+    fn collect_exact_intersection_child_in_bounds(
+        store: StoreHandle,
+        entity: EntityTag,
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+        expected_cardinality: u64,
+        additional_cursor_steps: u64,
         direction: Direction,
     ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
         let expected = usize::try_from(expected_cardinality)
             .map_err(|_| InternalError::executor_invariant())?;
-        let retained_capacity_bytes = expected
-            .checked_mul(size_of::<ExactIntersectionPrimaryKey>())
-            .ok_or_else(InternalError::executor_invariant)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            u64::try_from(retained_capacity_bytes).unwrap_or(u64::MAX),
-        )?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
             expected_cardinality,
         )?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::CursorSteps,
-            expected_cardinality,
+            expected_cardinality
+                .checked_add(additional_cursor_steps)
+                .ok_or_else(InternalError::executor_invariant)?,
         )?;
-        let mut keys = Vec::with_capacity(expected);
-        let (lower, upper) = spec.raw_bounds()?;
+        let mut keys = Vec::new();
+        keys.try_reserve_exact(expected)
+            .map_err(|_| InternalError::executor_internal())?;
+        let extra_capacity = keys.capacity().saturating_sub(expected);
+        let extra_capacity_bytes = extra_capacity
+            .checked_mul(size_of::<ExactIntersectionPrimaryKey>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        if extra_capacity_bytes != 0 {
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::TemporaryBytes,
+                u64::try_from(extra_capacity_bytes).unwrap_or(u64::MAX),
+            )?;
+        }
         let mut raw_bytes_read = 0u64;
         let scan_result = store.with_index(|index_store| {
-            index_store.visit_raw_entries_in_range((lower, upper), direction, |raw_key, entry| {
+            index_store.visit_raw_entries_in_range(bounds, direction, |raw_key, entry| {
+                let exceeds_cardinality_proof = keys.len() >= expected;
+                if exceeds_cardinality_proof {
+                    charge_current_execution_budget(
+                        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                        1,
+                    )?;
+                    charge_current_execution_budget(
+                        DiagnosticExecutionBudgetResource::CursorSteps,
+                        1,
+                    )?;
+                }
                 let raw_bytes = u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX);
                 raw_bytes_read = raw_bytes_read
                     .checked_add(raw_bytes)
                     .ok_or_else(InternalError::executor_invariant)?;
-                let (primary_key, _primary_key_bytes) =
+                let (primary_key, primary_key_bytes) =
                     IndexKey::primary_key_value_and_bytes_from_raw(raw_key).map_err(|error| {
                         InternalError::index_scan_key_corrupted_during(
                             "exact intersection probe",
                             error,
                         )
                     })?;
-                entry
+                let row_witness = entry
                     .decode_row_witness_from_primary_key_value(&primary_key)
                     .map_err(|_| InternalError::index_entry_decode_failed())?;
+                if matches!(
+                    row_witness.existence_witness(),
+                    IndexEntryExistenceWitness::Missing
+                ) {
+                    let data_key = DecodedDataStoreKey::new_with_raw_primary_key_value(
+                        entity,
+                        row_witness.primary_key_value(),
+                        RawDataStoreKey::from_entity_and_primary_key_bytes(
+                            entity,
+                            primary_key_bytes,
+                        ),
+                    );
+                    return Err(ExecutorError::missing_row(&data_key).into());
+                }
+                if exceeds_cardinality_proof {
+                    return Err(ExecutorError::store_corruption().into());
+                }
                 keys.push(ExactIntersectionPrimaryKey { value: primary_key });
 
-                Ok(keys.len() == expected)
+                Ok(false)
             })
         });
         // The preflight bounds this atomic route to 256 entries. Charge all
@@ -359,7 +476,7 @@ impl IndexScan {
         )?;
         scan_result?;
         if keys.len() != expected {
-            return Err(InternalError::executor_invariant());
+            return Err(ExecutorError::store_corruption().into());
         }
 
         Ok(keys)
@@ -371,14 +488,19 @@ impl IndexScan {
         direction: Direction,
     ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
         let capacity = overlap.len().min(keys.len());
-        let capacity_bytes = capacity
+        let mut next = Vec::new();
+        next.try_reserve_exact(capacity)
+            .map_err(|_| InternalError::executor_internal())?;
+        let extra_capacity = next.capacity().saturating_sub(capacity);
+        let extra_capacity_bytes = extra_capacity
             .checked_mul(size_of::<ExactIntersectionPrimaryKey>())
             .ok_or_else(InternalError::executor_invariant)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            u64::try_from(capacity_bytes).unwrap_or(u64::MAX),
-        )?;
-        let mut next = Vec::with_capacity(capacity);
+        if extra_capacity_bytes != 0 {
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::TemporaryBytes,
+                u64::try_from(extra_capacity_bytes).unwrap_or(u64::MAX),
+            )?;
+        }
         let mut left = overlap.into_iter().peekable();
         let mut right = keys.iter().peekable();
         while let (Some(left_key), Some(right_key)) = (left.peek(), right.peek()) {
@@ -417,29 +539,45 @@ impl IndexScan {
         if specs.len() != child_cardinalities.len() || specs.is_empty() {
             return Err(InternalError::executor_invariant());
         }
+        let comparison_cursor_steps =
+            Self::charge_exact_intersection_structural_work(child_cardinalities)?;
 
-        let mut children = Vec::with_capacity(specs.len());
+        let mut overlap = None;
         for (spec, expected_cardinality) in specs.iter().zip(child_cardinalities.iter().copied()) {
-            children.push(Self::collect_exact_intersection_child(
+            let additional_cursor_steps = if overlap.is_none() {
+                comparison_cursor_steps
+            } else {
+                0
+            };
+            let keys = Self::collect_exact_intersection_child(
                 store,
+                entity,
                 spec,
                 expected_cardinality,
+                additional_cursor_steps,
                 direction,
-            )?);
+            )?;
+            overlap = Some(match overlap {
+                None => keys,
+                Some(current) => Self::intersect_exact_primary_keys(current, &keys, direction)?,
+            });
         }
+        let overlap = overlap.ok_or_else(InternalError::executor_invariant)?;
 
-        let mut children = children.into_iter();
-        let Some(mut overlap) = children.next() else {
-            return Err(InternalError::executor_invariant());
-        };
-        for keys in children {
-            overlap = Self::intersect_exact_primary_keys(overlap, &keys, direction)?;
-            if overlap.is_empty() {
-                break;
-            }
+        let mut result = Vec::new();
+        result
+            .try_reserve_exact(overlap.len())
+            .map_err(|_| InternalError::executor_internal())?;
+        let extra_capacity = result.capacity().saturating_sub(overlap.len());
+        let extra_capacity_bytes = extra_capacity
+            .checked_mul(size_of::<DecodedDataStoreKey>())
+            .ok_or_else(InternalError::executor_invariant)?;
+        if extra_capacity_bytes != 0 {
+            charge_current_execution_budget(
+                DiagnosticExecutionBudgetResource::TemporaryBytes,
+                u64::try_from(extra_capacity_bytes).unwrap_or(u64::MAX),
+            )?;
         }
-
-        let mut result = Vec::with_capacity(overlap.len());
         for key in overlap {
             result.push(DecodedDataStoreKey::new_primary_key_value(
                 entity, &key.value,
@@ -1034,17 +1172,79 @@ impl IndexScan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{
-        QueryError,
-        executor::budget::{
-            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-            with_query_execution_budget_for_tests,
+    use crate::{
+        db::{
+            QueryError, QueryExecutionError,
+            data::{DataStore, RawRow},
+            executor::budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                with_query_execution_budget_for_tests,
+            },
+            index::{IndexEntryValue, IndexId, IndexStore},
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
+            schema::SchemaStore,
+            test_support::index::nat64_index_key,
         },
+        error::ErrorOrigin,
     };
+    use ic_stable_structures::Storable;
     use icydb_diagnostic_code::{
         DiagnosticDetail, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
         DiagnosticFactTag, RuntimeBoundaryCode,
     };
+    use std::{borrow::Cow, cell::RefCell};
+
+    const EXACT_INTERSECTION_ENTITY: EntityTag = EntityTag::new(0x2221);
+
+    thread_local! {
+        static EXACT_INTERSECTION_DATA: RefCell<DataStore> =
+            const { RefCell::new(DataStore::init_heap()) };
+        static EXACT_INTERSECTION_INDEX: RefCell<IndexStore> =
+            const { RefCell::new(IndexStore::init_heap()) };
+        static EXACT_INTERSECTION_SCHEMA: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
+    }
+
+    const EXACT_INTERSECTION_STORE: StoreHandle = StoreHandle::new(
+        &EXACT_INTERSECTION_DATA,
+        &EXACT_INTERSECTION_INDEX,
+        &EXACT_INTERSECTION_SCHEMA,
+        StoreAllocationIdentities::absent(),
+        StoreRuntimeStorageCapabilities::heap(),
+    );
+
+    fn exact_intersection_budget() -> (HardExecutionBudget, HardExecutionContext) {
+        (
+            HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                HardExecutionFailureHeadroom::new(500, 256),
+            ),
+            HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::TrustedRead,
+                0x6578_6163_745f_696e,
+            ),
+        )
+    }
+
+    fn exact_intersection_data_key(value: u64) -> DecodedDataStoreKey {
+        DecodedDataStoreKey::new_primary_key_value(
+            EXACT_INTERSECTION_ENTITY,
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(value)),
+        )
+    }
+
+    fn exact_intersection_primary_key(value: u64) -> ExactIntersectionPrimaryKey {
+        ExactIntersectionPrimaryKey {
+            value: PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(value)),
+        }
+    }
+
+    fn reset_exact_intersection_stores() {
+        EXACT_INTERSECTION_DATA.with_borrow_mut(|store| *store = DataStore::init_heap());
+        EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| *store = IndexStore::init_heap());
+    }
 
     #[test]
     fn merged_range_structure_returns_typed_temporary_byte_exhaustion() {
@@ -1076,5 +1276,191 @@ mod tests {
                 DiagnosticExecutionBudgetResource::TemporaryBytes.raw(),
             ),
         );
+    }
+
+    #[test]
+    fn exact_intersection_structure_rejects_before_allocating_over_budget() {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(DiagnosticExecutionBudgetResource::TemporaryBytes, 0);
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            DiagnosticExecutionLane::TrustedRead,
+            0x6578_6163_745f_6d65,
+        );
+        let error = with_query_execution_budget_for_tests(budget, context, || {
+            IndexScan::charge_exact_intersection_structural_work(&[21, 20])
+                .map_err(QueryError::execute)
+        })
+        .expect_err("direct intersection structure must be admitted before allocation");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            error.diagnostic_facts()[0],
+            (
+                DiagnosticFactTag::BudgetResource,
+                DiagnosticExecutionBudgetResource::TemporaryBytes.raw(),
+            ),
+        );
+    }
+
+    #[test]
+    fn exact_intersection_comparison_is_directionally_equivalent() {
+        let (budget, context) = exact_intersection_budget();
+        for (direction, left, right, expected) in [
+            (Direction::Asc, vec![1, 3, 5], vec![2, 3, 5], vec![3, 5]),
+            (Direction::Desc, vec![5, 3, 1], vec![5, 3, 2], vec![5, 3]),
+        ] {
+            let output = with_query_execution_budget_for_tests(budget, context, || {
+                IndexScan::intersect_exact_primary_keys(
+                    left.into_iter()
+                        .map(exact_intersection_primary_key)
+                        .collect(),
+                    right
+                        .into_iter()
+                        .map(exact_intersection_primary_key)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    direction,
+                )
+                .map_err(QueryError::execute)
+            })
+            .expect("bounded direct intersection should preserve direction");
+
+            assert_eq!(
+                output
+                    .into_iter()
+                    .map(|key| match key.value.scalar_component() {
+                        Some(PrimaryKeyComponent::Nat64(value)) => value,
+                        _ => panic!("exact intersection test key should remain Nat64"),
+                    })
+                    .collect::<Vec<_>>(),
+                expected,
+            );
+        }
+    }
+
+    #[test]
+    fn exact_intersection_child_requires_every_indexed_row_to_exist() {
+        reset_exact_intersection_stores();
+        let index_id = IndexId::new(EXACT_INTERSECTION_ENTITY, 1);
+        let raw_index_key = nat64_index_key(&index_id, b"lane", 7)
+            .to_raw()
+            .expect("exact intersection index key should encode");
+        EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
+            store.insert(
+                raw_index_key.clone(),
+                <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![1])),
+            );
+        });
+        let lower = Bound::Included(raw_index_key.clone());
+        let upper = Bound::Included(raw_index_key);
+        let (budget, context) = exact_intersection_budget();
+        let result = with_query_execution_budget_for_tests(budget, context, || {
+            IndexScan::collect_exact_intersection_child_in_bounds(
+                EXACT_INTERSECTION_STORE,
+                EXACT_INTERSECTION_ENTITY,
+                (&lower, &upper),
+                1,
+                0,
+                Direction::Asc,
+            )
+            .map_err(QueryError::execute)
+        });
+        let Err(error) = result else {
+            panic!("a direct intersection child must not discard a stale accepted-index key");
+        };
+
+        let QueryError::Execute(QueryExecutionError::Corruption(error)) = error else {
+            panic!("missing direct-intersection row should retain corruption taxonomy");
+        };
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
+
+    #[test]
+    fn exact_intersection_child_accepts_a_present_authoritative_row() {
+        reset_exact_intersection_stores();
+        let data_key = exact_intersection_data_key(7);
+        EXACT_INTERSECTION_DATA.with_borrow_mut(|store| {
+            store.insert_raw_for_test(
+                data_key
+                    .to_raw()
+                    .expect("exact intersection data key should encode"),
+                RawRow::try_new(vec![0]).expect("exact intersection row should be bounded"),
+            );
+        });
+        let index_id = IndexId::new(EXACT_INTERSECTION_ENTITY, 1);
+        let raw_index_key = nat64_index_key(&index_id, b"lane", 7)
+            .to_raw()
+            .expect("exact intersection index key should encode");
+        EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
+            store.insert(raw_index_key.clone(), IndexEntryValue::presence());
+        });
+        let lower = Bound::Included(raw_index_key.clone());
+        let upper = Bound::Included(raw_index_key);
+        let (budget, context) = exact_intersection_budget();
+        let keys = with_query_execution_budget_for_tests(budget, context, || {
+            IndexScan::collect_exact_intersection_child_in_bounds(
+                EXACT_INTERSECTION_STORE,
+                EXACT_INTERSECTION_ENTITY,
+                (&lower, &upper),
+                1,
+                0,
+                Direction::Asc,
+            )
+            .map_err(QueryError::execute)
+        })
+        .expect("a direct intersection child should accept an existing indexed row");
+
+        assert_eq!(keys.len(), 1);
+        assert_eq!(
+            keys[0].value,
+            PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(7)),
+        );
+    }
+
+    #[test]
+    fn exact_intersection_child_rejects_an_uncounted_physical_entry() {
+        reset_exact_intersection_stores();
+        let index_id = IndexId::new(EXACT_INTERSECTION_ENTITY, 1);
+        let first = nat64_index_key(&index_id, b"lane", 7)
+            .to_raw()
+            .expect("first exact intersection index key should encode");
+        let second = nat64_index_key(&index_id, b"lane", 8)
+            .to_raw()
+            .expect("second exact intersection index key should encode");
+        EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
+            store.insert(first.clone(), IndexEntryValue::presence());
+            store.insert(second.clone(), IndexEntryValue::presence());
+        });
+        let lower = Bound::Included(first);
+        let upper = Bound::Included(second);
+        let (budget, context) = exact_intersection_budget();
+        let result = with_query_execution_budget_for_tests(budget, context, || {
+            IndexScan::collect_exact_intersection_child_in_bounds(
+                EXACT_INTERSECTION_STORE,
+                EXACT_INTERSECTION_ENTITY,
+                (&lower, &upper),
+                1,
+                0,
+                Direction::Asc,
+            )
+            .map_err(QueryError::execute)
+        });
+        let Err(error) = result else {
+            panic!("an uncounted direct-intersection entry must fail as corruption");
+        };
+
+        let QueryError::Execute(QueryExecutionError::Corruption(error)) = error else {
+            panic!("uncounted direct-intersection state should retain corruption taxonomy");
+        };
+        assert_eq!(error.origin(), ErrorOrigin::Store);
     }
 }

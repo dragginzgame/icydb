@@ -77,7 +77,7 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::require_index_range_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
   "crates/icydb-core/src/db/index/key/build.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
-  "crates/icydb-core/src/db/executor/stream/mod.rs:::fn reduce_non_empty_streams_pairwise:::ordered stream set reduction must stay centralized"
+  "crates/icydb-core/src/db/executor/stream/key/contracts.rs:::fn intersect_all:::ordered intersection-set reduction must stay centralized under the budget-aware stream contract"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::OrderedKeyStreamBox::merge_all:::branch-set execution must use the shared merge tree helper"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::fn validate_index_prefix_count:::prefix-family stream execution must centralize lowered prefix count validation"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::validate_index_prefix_count\\(index_prefix_specs, value_count\\):::multi-lookup execution must validate lowered prefix count before materialized or expanded execution"

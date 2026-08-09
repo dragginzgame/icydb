@@ -173,7 +173,6 @@ pub(in crate::db::executor) use terminal::{
 pub(in crate::db) use terminal::{
     with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
-pub(in crate::db::executor) use util::apply_data_key_ordered_dedup_window;
 pub(in crate::db::executor) use util::{apply_offset_limit_window, saturating_u32_len};
 
 /// Validate plans at executor boundaries using structural entity authority.

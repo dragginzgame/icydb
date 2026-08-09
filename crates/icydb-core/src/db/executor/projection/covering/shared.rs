@@ -163,7 +163,7 @@ where
     {
         Vec::new()
     } else {
-        resolve_covering_projection_components_from_lowered_specs(
+        let Some(raw_pairs) = resolve_covering_projection_components_from_lowered_specs(
             authority.entity_tag(),
             index_prefix_specs,
             request.index_range_specs,
@@ -179,10 +179,14 @@ where
             ) {
                 PrefixSetMergeSafety::OrderedConcatSafe
             } else {
-                PrefixSetMergeSafety::RequiresMaterialization
+                PrefixSetMergeSafety::RequiresFallback
             },
             |store_path| db.recovered_store(store_path),
         )?
+        else {
+            return Ok(None);
+        };
+        raw_pairs
     };
 
     Ok(Some(PreparedCoveringIndexScan {

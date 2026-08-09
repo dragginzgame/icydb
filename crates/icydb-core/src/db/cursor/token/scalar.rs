@@ -115,12 +115,12 @@ impl ScalarPageTokenAuthority {
     }
 }
 
-/// Immutable total LIMIT/OFFSET and page-envelope identity.
+/// Immutable total LIMIT/OFFSET and page-envelope profile identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ScalarPageTokenWindow {
     initial_offset: u32,
     total_limit: Option<u32>,
-    envelope_identity: u64,
+    envelope_profile_identity: u64,
 }
 
 impl ScalarPageTokenWindow {
@@ -128,12 +128,12 @@ impl ScalarPageTokenWindow {
     pub(in crate::db) const fn new(
         initial_offset: u32,
         total_limit: Option<u32>,
-        envelope_identity: u64,
+        envelope_profile_identity: u64,
     ) -> Self {
         Self {
             initial_offset,
             total_limit,
-            envelope_identity,
+            envelope_profile_identity,
         }
     }
 
@@ -148,8 +148,8 @@ impl ScalarPageTokenWindow {
     }
 
     #[must_use]
-    pub(in crate::db) const fn envelope_identity(self) -> u64 {
-        self.envelope_identity
+    pub(in crate::db) const fn envelope_profile_identity(self) -> u64 {
+        self.envelope_profile_identity
     }
 }
 

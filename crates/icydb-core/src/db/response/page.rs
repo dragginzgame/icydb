@@ -10,7 +10,7 @@ use serde::Deserialize;
 /// Bounded work observed while producing one scalar page.
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub struct ScalarPageWork {
-    /// Immutable identity of the page-work envelope bound into continuation.
+    /// Exact identity of the operational work envelope used for this page.
     pub envelope_identity: u64,
     /// Physical keys or index entries visited by this page execution.
     pub entries_visited: u64,

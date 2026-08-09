@@ -516,18 +516,20 @@ impl KeyAccessRuntime {
             PrefixSetExecutionShape::Single(spec) => self.index_prefix_stream(request, spec, 1),
             PrefixSetExecutionShape::OrderedMerge(active_specs) => {
                 let branch_count = active_specs.len();
-                let mut streams = Vec::with_capacity(branch_count);
+                let mut streams = Vec::new();
+                streams
+                    .try_reserve_exact(branch_count)
+                    .map_err(|_| InternalError::executor_internal())?;
                 for spec in active_specs {
                     streams.push(self.index_prefix_stream(request, spec, branch_count)?);
                 }
 
-                Ok(OrderedKeyStreamBox::merge_all(
+                OrderedKeyStreamBox::merge_all(
                     streams,
                     KeyOrderComparator::from_direction(request.continuation.direction()),
-                ))
+                )
             }
-            PrefixSetExecutionShape::OrderedConcat(_)
-            | PrefixSetExecutionShape::Materialized(_) => {
+            PrefixSetExecutionShape::OrderedConcat(_) | PrefixSetExecutionShape::Fallback(_) => {
                 Err(InternalError::query_executor_invariant())
             }
         }
@@ -565,7 +567,7 @@ impl KeyAccessRuntime {
 
                 Ok(OrderedKeyStreamBox::concat_all(streams))
             }
-            PrefixSetExecutionShape::OrderedMerge(_) | PrefixSetExecutionShape::Materialized(_) => {
+            PrefixSetExecutionShape::OrderedMerge(_) | PrefixSetExecutionShape::Fallback(_) => {
                 Err(InternalError::query_executor_invariant())
             }
         }

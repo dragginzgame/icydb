@@ -22,6 +22,10 @@ use std::cell::RefCell;
 const RESOURCE_COUNT: usize = DiagnosticExecutionBudgetResource::ALL.len();
 const PAGE_RESOURCE_NOT_OWNED: u64 = u64::MAX;
 const MAX_SCALAR_ROW_NESTED_STEPS: u64 = 256;
+// Stable protocol identities frozen from the original v1 operational
+// envelopes. Limit tuning within either profile must not invalidate progress.
+const TRUSTED_SCALAR_PAGE_PROFILE_IDENTITY: u64 = 0x0481_7ce8_139a_63f6;
+const PUBLIC_SCALAR_PAGE_PROFILE_IDENTITY: u64 = 0x9dbc_64c1_e664_c15e;
 const DEFAULT_PAGE_LIMITS: [u64; RESOURCE_COUNT] = [
     PAGE_RESOURCE_NOT_OWNED, // query executions belong to the hard request/execution scope
     PAGE_RESOURCE_NOT_OWNED, // planning steps happen outside physical page traversal
@@ -55,13 +59,14 @@ const DEFAULT_PAGE_LIMITS: [u64; RESOURCE_COUNT] = [
 pub(in crate::db) struct PageWorkEnvelope {
     limits: [u64; RESOURCE_COUNT],
     identity: u64,
+    profile_identity: u64,
 }
 
 impl PageWorkEnvelope {
     /// Return the maintained scalar-page envelope.
     #[must_use]
     pub(in crate::db) const fn default_scalar() -> Self {
-        Self::new(DEFAULT_PAGE_LIMITS)
+        Self::new(DEFAULT_PAGE_LIMITS, TRUSTED_SCALAR_PAGE_PROFILE_IDENTITY)
     }
 
     /// Return the maintained public scalar-page envelope.
@@ -69,13 +74,22 @@ impl PageWorkEnvelope {
     pub(in crate::db) const fn public_scalar() -> Self {
         let mut limits = DEFAULT_PAGE_LIMITS;
         limits[resource_index(DiagnosticExecutionBudgetResource::ResultRows)] = 100;
-        Self::new(limits)
+        Self::new(limits, PUBLIC_SCALAR_PAGE_PROFILE_IDENTITY)
     }
 
-    /// Return the immutable identity that a future authenticated cursor binds.
+    /// Return the exact identity reported by this page's work receipt.
     #[must_use]
     pub(in crate::db) const fn identity(self) -> u64 {
         self.identity
+    }
+
+    /// Return the stable execution-profile identity authenticated by cursors.
+    ///
+    /// Operational limits may change between calls within one profile without
+    /// changing query results or invalidating monotonic progress.
+    #[must_use]
+    pub(in crate::db) const fn profile_identity(self) -> u64 {
+        self.profile_identity
     }
 
     /// Return one resource limit when that resource belongs to page progress.
@@ -104,10 +118,11 @@ impl PageWorkEnvelope {
         self
     }
 
-    const fn new(limits: [u64; RESOURCE_COUNT]) -> Self {
+    const fn new(limits: [u64; RESOURCE_COUNT], profile_identity: u64) -> Self {
         Self {
             identity: page_envelope_identity(&limits),
             limits,
+            profile_identity,
         }
     }
 }
@@ -209,22 +224,22 @@ impl ScalarPageWindow {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct ScalarPageContract {
-    envelope_identity: u64,
+    envelope_profile_identity: u64,
     window: ScalarPageWindow,
 }
 
 impl ScalarPageContract {
     const fn new(envelope: PageWorkEnvelope, window: ScalarPageWindow) -> Self {
         Self {
-            envelope_identity: envelope.identity(),
+            envelope_profile_identity: envelope.profile_identity(),
             window,
         }
     }
 
-    /// Return the immutable envelope identity for cursor binding.
+    /// Return the immutable execution-profile identity for cursor binding.
     #[must_use]
-    pub(in crate::db::executor) const fn envelope_identity(self) -> u64 {
-        self.envelope_identity
+    pub(in crate::db::executor) const fn envelope_profile_identity(self) -> u64 {
+        self.envelope_profile_identity
     }
 
     /// Return the immutable total traversal window.
@@ -1148,7 +1163,10 @@ mod tests {
         assert_eq!(progress.last_emitted_logical(), None);
         assert_eq!(progress.matching_rows_skipped(), 0);
         assert_eq!(progress.rows_emitted(), 0);
-        assert_eq!(progress.contract().envelope_identity(), envelope.identity());
+        assert_eq!(
+            progress.contract().envelope_profile_identity(),
+            envelope.profile_identity(),
+        );
         assert_eq!(progress.contract().window(), ScalarPageWindow::new(0, None),);
         assert_eq!(
             work.observed(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited),
@@ -1566,7 +1584,15 @@ mod tests {
     }
 
     #[test]
-    fn resume_rejects_changed_offset_limit_or_page_identity() {
+    fn resume_accepts_changed_envelope_but_rejects_window_or_profile() {
+        assert_eq!(
+            PageWorkEnvelope::default_scalar().identity(),
+            PageWorkEnvelope::default_scalar().profile_identity(),
+        );
+        assert_eq!(
+            PageWorkEnvelope::public_scalar().identity(),
+            PageWorkEnvelope::public_scalar().profile_identity(),
+        );
         let envelope = PageWorkEnvelope::default_scalar()
             .with_limit_for_tests(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1);
         let first = coordinate_scalar_page(
@@ -1581,11 +1607,26 @@ mod tests {
             .1
             .expect("the second physical entry remains");
 
+        let changed_envelope =
+            envelope.with_limit_for_tests(DiagnosticExecutionBudgetResource::ResultRows, 7);
+        assert_ne!(changed_envelope.identity(), envelope.identity());
+        assert_eq!(
+            changed_envelope.profile_identity(),
+            envelope.profile_identity(),
+        );
+        coordinate_scalar_page::<u64, _, _, _>(
+            changed_envelope,
+            ScalarPageWindow::new(2, Some(5)),
+            Some(progress.clone()),
+            std::iter::empty(),
+        )
+        .expect("operational limits within one profile may change on resume");
+
         for (changed_envelope, changed_window) in [
             (envelope, ScalarPageWindow::new(3, Some(5))),
             (envelope, ScalarPageWindow::new(2, Some(6))),
             (
-                envelope.with_limit_for_tests(DiagnosticExecutionBudgetResource::ResultRows, 7),
+                PageWorkEnvelope::public_scalar(),
                 ScalarPageWindow::new(2, Some(5)),
             ),
         ] {
