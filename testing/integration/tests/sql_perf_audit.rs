@@ -2721,8 +2721,8 @@ fn sql_perf_token_hybrid_covering_hotspot_counters_are_attributed() {
         "hybrid over-cap EXPLAIN should expose the hybrid covering terminal: {explain}",
     );
     assert!(
-        explain.contains("existing_row_mode=Text(\"planner_proven\")"),
-        "hybrid over-cap route should keep the planner-proven row-presence contract visible: {explain}",
+        explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "hybrid over-cap route should keep the accepted-index row-presence check visible: {explain}",
     );
 
     let sample = sample_perf_scenario(
