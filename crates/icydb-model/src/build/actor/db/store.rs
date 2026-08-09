@@ -136,8 +136,7 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
             SCHEMA_APPLICATION.with(|application| {
                 if application.get().is_some() {
                     return Ok(());
-                }
-                if !session.__continue_startup_recovery()? {
+                } else if !session.__continue_startup_recovery()? {
                     schedule_schema_application_recovery();
                     return Ok(());
                 }
@@ -680,6 +679,7 @@ mod tests {
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("SCHEMA_APPLICATION.with("));
         assert!(rendered.contains("__continue_startup_recovery"));
+        assert!(rendered.contains("elseif!session.__continue_startup_recovery()?"));
         assert!(rendered.contains("ic_cdk_timers::set_timer"));
     }
 

@@ -46,6 +46,11 @@ pub const DURABLE_MUTATION_JOB_GLOBAL_CAPACITY: u32 = 64;
 /// Existing idempotency-key byte limit retained by the new job family.
 pub const DURABLE_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES: u32 = 256;
 
+const _: () = {
+    assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > 10_000);
+    assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > DURABLE_MUTATION_JOB_EAGER_UPDATE_ROW_LIMIT);
+};
+
 /// Frozen existing current-control preparation measurement.
 pub const BASELINE_PREPARE_INSTRUCTIONS: u64 = 430_996;
 
@@ -312,8 +317,6 @@ mod tests {
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_TAG, "v0.222.4");
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_COMMIT.len(), 40);
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_TREE.len(), 40);
-        assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > 10_000);
-        assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > DURABLE_MUTATION_JOB_EAGER_UPDATE_ROW_LIMIT);
         assert_eq!(minimum_forward_advances(10_001), 157);
         assert_eq!(minimum_verify_advances(10_001), 40);
         assert_eq!(BASELINE_FORWARD_INSTRUCTIONS.len(), 8);
