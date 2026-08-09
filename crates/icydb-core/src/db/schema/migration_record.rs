@@ -777,18 +777,6 @@ impl SchemaMigrationRecord {
             )
     }
 
-    #[must_use]
-    #[cfg(any(test, feature = "migration"))]
-    pub(in crate::db) const fn retains_private_physical_authority(&self) -> bool {
-        matches!(
-            self.phase,
-            PersistedSchemaMigrationPhase::RewritingRows
-                | PersistedSchemaMigrationPhase::RebuildingIndexes
-                | PersistedSchemaMigrationPhase::FinalValidation
-                | PersistedSchemaMigrationPhase::Publishing
-        )
-    }
-
     fn validate(&self) -> Result<(), InternalError> {
         validate_exact_head(&self.accepted_before)?;
         validate_exact_head(&self.candidate_head)?;
