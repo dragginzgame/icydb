@@ -76,6 +76,11 @@ pub const CURRENT_MUTATION_JOB_STABLE_BYTES: [u64; 3] = [4_390_912, 4_390_912, 3
 const _: () = {
     assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > 10_000);
     assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > DURABLE_MUTATION_JOB_EAGER_UPDATE_ROW_LIMIT);
+    assert!(CURRENT_MUTATION_JOB_MAX_ACTIVE_RECORD_BYTES < DURABLE_MUTATION_JOB_RECORD_BYTES);
+    assert!(CURRENT_MUTATION_JOB_MAX_REPLAY_RECEIPT_BYTES < DURABLE_MUTATION_JOB_RECEIPT_BYTES);
+    assert!(CURRENT_MUTATION_JOB_STABLE_BYTES.len() == 3);
+    assert!(CURRENT_DURABLE_START_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
 };
 
 /// Frozen existing current-control preparation measurement.
@@ -356,9 +361,6 @@ mod tests {
         assert_eq!(BASELINE_VERIFY_INSTRUCTIONS.len(), 2);
         assert_eq!(BASELINE_DYNAMIC_QUERY_RAW_WASM_BYTES, 2_607_381);
         assert_eq!(BASELINE_TYPED_QUERY_RAW_WASM_BYTES, 1_792_657);
-        assert!(CURRENT_MUTATION_JOB_MAX_ACTIVE_RECORD_BYTES < DURABLE_MUTATION_JOB_RECORD_BYTES);
-        assert!(CURRENT_MUTATION_JOB_MAX_REPLAY_RECEIPT_BYTES < DURABLE_MUTATION_JOB_RECEIPT_BYTES);
-        assert_eq!(CURRENT_MUTATION_JOB_STABLE_BYTES.len(), 3);
         assert!(
             BASELINE_FORWARD_INSTRUCTIONS
                 .iter()
@@ -369,41 +371,42 @@ mod tests {
                 .iter()
                 .all(|value| *value < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING)
         );
-        assert!(CURRENT_DURABLE_START_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
-        assert!(
-            CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING
-        );
     }
 
     #[test]
     fn published_runtime_limits_are_source_anchored() {
         assert_eq!(
-            icydb::db::MAX_MUTATION_JOB_CONTINUATION_BYTES as u32,
-            DURABLE_MUTATION_JOB_CONTINUATION_BYTES,
+            icydb::db::MAX_MUTATION_JOB_CONTINUATION_BYTES,
+            usize::try_from(DURABLE_MUTATION_JOB_CONTINUATION_BYTES)
+                .expect("continuation byte limit should fit usize"),
         );
         assert_eq!(
-            icydb::db::MAX_MUTATION_JOB_INTENT_BYTES as u32,
-            DURABLE_MUTATION_JOB_INTENT_BYTES,
+            icydb::db::MAX_MUTATION_JOB_INTENT_BYTES,
+            usize::try_from(DURABLE_MUTATION_JOB_INTENT_BYTES)
+                .expect("intent byte limit should fit usize"),
         );
         assert_eq!(
-            icydb::db::MAX_MUTATION_JOB_RECEIPT_BYTES as u32,
-            DURABLE_MUTATION_JOB_RECEIPT_BYTES,
+            icydb::db::MAX_MUTATION_JOB_RECEIPT_BYTES,
+            usize::try_from(DURABLE_MUTATION_JOB_RECEIPT_BYTES)
+                .expect("receipt byte limit should fit usize"),
         );
         assert_eq!(
-            icydb::db::MAX_MUTATION_JOB_RECORD_BYTES as u32,
-            DURABLE_MUTATION_JOB_RECORD_BYTES,
+            icydb::db::MAX_MUTATION_JOB_RECORD_BYTES,
+            usize::try_from(DURABLE_MUTATION_JOB_RECORD_BYTES)
+                .expect("record byte limit should fit usize"),
         );
         assert_eq!(
-            icydb::db::MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES as u32,
-            DURABLE_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES,
+            icydb::db::MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES,
+            usize::try_from(DURABLE_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES)
+                .expect("idempotency-key byte limit should fit usize"),
         );
         assert_eq!(
-            icydb::db::MAX_MUTATION_JOB_STEP_KEYS_SCANNED as u32,
-            DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT,
+            icydb::db::MAX_MUTATION_JOB_STEP_KEYS_SCANNED,
+            u64::from(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT),
         );
         assert_eq!(
-            icydb::db::MAX_MUTATION_JOB_STEP_ROWS_UPDATED as u32,
-            DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT,
+            icydb::db::MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
+            u64::from(DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT),
         );
 
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
