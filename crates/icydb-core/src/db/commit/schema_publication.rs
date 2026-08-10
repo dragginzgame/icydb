@@ -598,6 +598,9 @@ fn apply_database_control_ops(operations: &[DatabaseControlOp]) -> Result<(), In
             DatabaseControlOp::SchemaMigration(operation) => {
                 crate::db::schema::apply_schema_migration_record_op(operation)?;
             }
+            DatabaseControlOp::MutationProgress(_) => {
+                return Err(InternalError::store_invariant());
+            }
         }
     }
     Ok(())

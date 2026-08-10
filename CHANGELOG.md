@@ -7,15 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Empty journaled stores retain exact zero-row and index-prefix cardinality
-  without startup scans, so empty-domain schema edits no longer report false
-  corruption and newly populated indexes retain bounded prefix pruning.
-- Canister artifact validation keeps reserved IC-CDK self-call exports visible
-  in raw Wasm evidence without treating them as missing Candid endpoints.
-
 ## [0.223.x] 🔁 - 2026-08-09 - Durable Resumable Mutation Jobs
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
+
+- `0.223.1` adds durable custody and crash-atomic progress for bounded mutation
+  jobs without executing them yet, fixes empty-store cardinality and reserved
+  export validation, and is potentially breaking for pending version-2 commit
+  markers.
 
 - `0.223.0` makes startup recovery durably resumable, keeps enum integrity
   checks exact, and freezes the measured contract for future collection-scale

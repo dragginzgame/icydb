@@ -20,9 +20,11 @@ use crate::{
             resolve_update_structural_patch_with_accepted_contract,
         },
         executor::{
-            AcceptedMutationConstraintScheduler, commit_structural_row_ops_with_window_for_path,
-            mutation_key_exists_error,
+            AcceptedMutationConstraintScheduler,
+            commit_structural_row_ops_with_mutation_progress_for_path,
+            commit_structural_row_ops_with_window_for_path, mutation_key_exists_error,
         },
+        integrity::MutationProgressRecordOp,
         schema::{
             AcceptedFieldKind, AcceptedIdentityAllocation, AcceptedRowLayoutRuntimeContract,
             FieldId, FieldInsertGeneration, IdentityStatementCursor, lower_field_type,
@@ -43,6 +45,41 @@ struct AcceptedIdentityInsertField {
     field_id: FieldId,
     field_slot: usize,
     accepted_kind: AcceptedFieldKind,
+}
+
+struct AcceptedStructuralMutationCommitOptions {
+    largest_journaled_prefix: bool,
+    mutation_progress: Option<MutationProgressRecordOp>,
+}
+
+impl AcceptedStructuralMutationCommitOptions {
+    const fn standard() -> Self {
+        Self {
+            largest_journaled_prefix: false,
+            mutation_progress: None,
+        }
+    }
+
+    const fn largest_journaled_prefix() -> Self {
+        Self {
+            largest_journaled_prefix: true,
+            mutation_progress: None,
+        }
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "durable Forward execution consumes the Patch 4 commit option"
+        )
+    )]
+    const fn with_mutation_progress(mutation_progress: MutationProgressRecordOp) -> Self {
+        Self {
+            largest_journaled_prefix: false,
+            mutation_progress: Some(mutation_progress),
+        }
+    }
 }
 
 /// Accepted row identity carried by a structural mutation after frontend
@@ -730,7 +767,7 @@ impl<C: CanisterKind> DbSession<C> {
             descriptor,
             mutations,
             Timestamp::now(),
-            false,
+            AcceptedStructuralMutationCommitOptions::standard(),
             |rows| {
                 let rows = rows
                     .into_iter()
@@ -764,7 +801,7 @@ impl<C: CanisterKind> DbSession<C> {
             descriptor,
             mutations,
             operation_timestamp,
-            false,
+            AcceptedStructuralMutationCommitOptions::standard(),
             precommit_preparation,
         )
     }
@@ -783,8 +820,27 @@ impl<C: CanisterKind> DbSession<C> {
             descriptor,
             mutations,
             operation_timestamp,
-            true,
+            AcceptedStructuralMutationCommitOptions::largest_journaled_prefix(),
             |rows| Ok(rows.len()),
+        )
+    }
+
+    #[cfg(test)]
+    fn execute_accepted_structural_save_batch_with_mutation_progress(
+        &self,
+        catalog: &AcceptedSchemaCatalogContext,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        mutations: Vec<AcceptedStructuralMutation>,
+        operation_timestamp: Timestamp,
+        mutation_progress: MutationProgressRecordOp,
+    ) -> Result<Vec<AcceptedStructuralMutationRow>, InternalError> {
+        self.execute_accepted_structural_mutation_batch_inner(
+            catalog,
+            descriptor,
+            mutations,
+            operation_timestamp,
+            AcceptedStructuralMutationCommitOptions::with_mutation_progress(mutation_progress),
+            Ok,
         )
     }
 
@@ -798,12 +854,16 @@ impl<C: CanisterKind> DbSession<C> {
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
-        largest_journaled_prefix: bool,
+        options: AcceptedStructuralMutationCommitOptions,
         precommit_preparation: impl FnOnce(
             Vec<AcceptedStructuralMutationRow>,
         ) -> Result<T, InternalError>,
     ) -> Result<T, InternalError> {
         let identity = catalog.identity();
+        let AcceptedStructuralMutationCommitOptions {
+            largest_journaled_prefix,
+            mutation_progress,
+        } = options;
         let entity_path = identity.entity_path();
         let store_path = identity.store_path();
         let row_decode_contract =
@@ -1177,7 +1237,20 @@ impl<C: CanisterKind> DbSession<C> {
         if batch.is_empty() && !identity_ranges.is_empty() {
             return Err(InternalError::identity_corruption());
         }
-        if !batch.is_empty() {
+        if batch.is_empty() {
+            if mutation_progress.is_some() {
+                return Err(InternalError::executor_invariant());
+            }
+        } else if let Some(mutation_progress) = mutation_progress {
+            commit_structural_row_ops_with_mutation_progress_for_path(
+                &self.db,
+                entity_path,
+                batch,
+                identity_ranges,
+                mutation_progress,
+                "accepted_structural_batch_apply",
+            )?;
+        } else {
             commit_structural_row_ops_with_window_for_path(
                 &self.db,
                 entity_path,
@@ -1306,7 +1379,7 @@ impl<C: CanisterKind> DbSession<C> {
             &descriptor,
             mutations,
             Timestamp::now(),
-            false,
+            AcceptedStructuralMutationCommitOptions::standard(),
             |rows| {
                 if rows.len() != save_kinds.len() {
                     return Err(InternalError::executor_invariant());
@@ -2913,8 +2986,9 @@ mod identity_pre_key_tests {
         DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicTypedMutation,
         DynamicWriteCell, FieldSlot, MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
         MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES, MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
-        add_structural_mutation_staged_bytes, checked_pre_key_candidate_count,
-        insert_key_exists_after_generation, validate_structural_mutation_result_bytes,
+        MutationProgressRecordOp, add_structural_mutation_staged_bytes,
+        checked_pre_key_candidate_count, insert_key_exists_after_generation,
+        validate_structural_mutation_result_bytes,
     };
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::data::DecodedDataStoreKey;
@@ -2923,6 +2997,7 @@ mod identity_pre_key_tests {
         HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
         with_query_execution_budget_for_tests,
     };
+    use crate::db::mutation_job::{MutationJobRecord, MutationJobTransition};
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::{
         CompareProofAndAdvanceError, DynamicQuery, ExhaustiveReadError, RawDataStoreKey,
@@ -2932,13 +3007,16 @@ mod identity_pre_key_tests {
     };
     use crate::{
         db::{
+            MutationJobAdvanceRequest, MutationJobId, MutationJobIdempotencyKey, MutationJobPhase,
+            MutationJobStatus,
             commit::{database_incarnation_id, forget_recovered_domain_for_tests},
             data::DataStore,
             executor::{MutationCommitInterruption, interrupt_next_mutation_commit_for_tests},
             index::IndexStore,
             integrity::{
-                PhysicalUnitCheckpoint, QuickIntegrityStatus, RowInspectionLimits,
-                execute_quick_integrity, execute_row_integrity_page,
+                InsertMutationJobResult, PhysicalUnitCheckpoint, QuickIntegrityStatus,
+                RowInspectionLimits, execute_quick_integrity, execute_row_integrity_page,
+                with_mutation_progress_store,
             },
             journal::JournalTailStore,
             registry::{
@@ -4090,6 +4168,41 @@ mod identity_pre_key_tests {
             .collect()
     }
 
+    fn atomic_progress_fixture(
+        identity_byte: u8,
+    ) -> (
+        MutationJobRecord,
+        MutationJobRecord,
+        MutationProgressRecordOp,
+    ) {
+        let job_id = MutationJobId::try_from_bytes([identity_byte; 32])
+            .expect("nonzero atomic progress job id should admit");
+        let before = MutationJobRecord::new(job_id, vec![1, identity_byte], vec![2])
+            .expect("atomic progress predecessor should admit");
+        let request = MutationJobAdvanceRequest::new(
+            job_id,
+            0,
+            MutationJobIdempotencyKey::new(format!("atomic-{identity_byte}"))
+                .expect("atomic progress replay key should admit"),
+        );
+        let (after, _) = before
+            .apply_transition(
+                &request,
+                MutationJobTransition::new(
+                    MutationJobStatus::Active,
+                    MutationJobPhase::Forward,
+                    vec![3],
+                    1,
+                    1,
+                    0,
+                ),
+            )
+            .expect("atomic progress successor should admit");
+        let operation = MutationProgressRecordOp::replace(&before, &after)
+            .expect("atomic progress replacement should admit");
+        (before, after, operation)
+    }
+
     fn assert_identity_boundary(error: &InternalError) {
         assert_eq!(error.class(), ErrorClass::Unsupported);
         assert_eq!(error.origin(), ErrorOrigin::Identity);
@@ -4702,6 +4815,175 @@ mod identity_pre_key_tests {
             u128::from(u64::MAX - expected_committed),
         );
         assert!(!committed_identity.exhausted());
+    }
+
+    #[test]
+    fn mutation_progress_and_target_rows_recover_as_one_marker_transition() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled atomic-progress catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled atomic-progress row layout should build");
+
+        for (ordinal, interruption) in [
+            MutationCommitInterruption::MarkerPersisted,
+            MutationCommitInterruption::JournalPublished,
+            MutationCommitInterruption::RowsPublished,
+            MutationCommitInterruption::ProgressReplaced,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let identity_byte = 31 + u8::try_from(ordinal).expect("small ordinal should fit");
+            let (before, after, operation) = atomic_progress_fixture(identity_byte);
+            with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+                match store.insert_mutation(&before)? {
+                    InsertMutationJobResult::Inserted => Ok(()),
+                    InsertMutationJobResult::Occupied(_) => {
+                        Err(crate::db::MutationJobError::IdentityConflict)
+                    }
+                }
+            })
+            .expect("atomic predecessor should insert once");
+
+            interrupt_next_mutation_commit_for_tests(interruption);
+            let interrupted = session
+                .execute_accepted_structural_save_batch_with_mutation_progress(
+                    &catalog,
+                    &descriptor,
+                    batch(&[700 + u64::try_from(ordinal).expect("small ordinal should fit")]),
+                    Timestamp::from_millis(17),
+                    operation,
+                );
+            assert!(
+                interrupted.is_err(),
+                "selected atomic boundary should interrupt"
+            );
+
+            forget_recovered_domain_for_tests(&session.db)
+                .expect("interruption should reset volatile recovery ownership");
+            session
+                .db
+                .ensure_recovered_state()
+                .expect("marker recovery should finish target and progress together");
+            let retained = with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+                store.load_mutation(before.state().job_id)
+            })
+            .expect("recovered successor should load");
+            assert_eq!(retained, after);
+            assert_eq!(
+                JOURNALED_DATA_STORE.with(|store| store.borrow().len()),
+                u64::try_from(ordinal + 1).expect("small row count should fit"),
+            );
+        }
+
+        let (before, after, operation) = atomic_progress_fixture(39);
+        with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+            match store.insert_mutation(&before)? {
+                InsertMutationJobResult::Inserted => Ok(()),
+                InsertMutationJobResult::Occupied(_) => {
+                    Err(crate::db::MutationJobError::IdentityConflict)
+                }
+            }
+        })
+        .expect("final predecessor should insert once");
+        session
+            .execute_accepted_structural_save_batch_with_mutation_progress(
+                &catalog,
+                &descriptor,
+                batch(&[799]),
+                Timestamp::from_millis(18),
+                operation,
+            )
+            .expect("uninterrupted atomic transition should clear its marker");
+        let retained = with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+            store.load_mutation(before.state().job_id)
+        })
+        .expect("final successor should load");
+        assert_eq!(retained, after);
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("post-clear recovery ownership should reset");
+        session
+            .db
+            .ensure_recovered_state()
+            .expect("post-clear recovery should remain a no-op");
+    }
+
+    #[test]
+    fn mutation_progress_neither_side_mismatch_blocks_recovery() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled corruption catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled corruption row layout should build");
+        let (before, _after, operation) = atomic_progress_fixture(41);
+        with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+            match store.insert_mutation(&before)? {
+                InsertMutationJobResult::Inserted => Ok(()),
+                InsertMutationJobResult::Occupied(_) => {
+                    Err(crate::db::MutationJobError::IdentityConflict)
+                }
+            }
+        })
+        .expect("corruption predecessor should insert once");
+
+        interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::MarkerPersisted);
+        assert!(
+            session
+                .execute_accepted_structural_save_batch_with_mutation_progress(
+                    &catalog,
+                    &descriptor,
+                    batch(&[811]),
+                    Timestamp::from_millis(19),
+                    operation,
+                )
+                .is_err(),
+            "marker interruption should retain recovery authority",
+        );
+        let (unexpected, _) = before
+            .apply_transition(
+                &MutationJobAdvanceRequest::new(
+                    before.state().job_id,
+                    0,
+                    MutationJobIdempotencyKey::new("unexpected-third-state")
+                        .expect("unexpected replay key should admit"),
+                ),
+                MutationJobTransition::new(
+                    MutationJobStatus::Active,
+                    MutationJobPhase::Forward,
+                    vec![99],
+                    2,
+                    0,
+                    0,
+                ),
+            )
+            .expect("unexpected but valid progress state should admit");
+        with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+            store.replace_mutation(&unexpected)
+        })
+        .expect("test should install the neither-side state");
+
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("corrupt recovery ownership should reset");
+        let error = session
+            .db
+            .ensure_recovered_state()
+            .expect_err("neither-side progress must block recovery");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Recovery);
+        assert_eq!(
+            with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+                store.load_mutation(before.state().job_id)
+            })
+            .expect("unexpected state should remain inspectable to the test"),
+            unexpected,
+        );
+        assert!(
+            session.db.ensure_recovered_state().is_err(),
+            "a retained corrupt marker must continue blocking database access",
+        );
     }
 
     #[test]

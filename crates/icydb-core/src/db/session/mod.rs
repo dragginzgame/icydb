@@ -7,6 +7,7 @@ mod accepted_schema;
 mod bounded_cache;
 mod catalog;
 mod integrity;
+mod mutation_job;
 mod query;
 mod read_set;
 mod request;

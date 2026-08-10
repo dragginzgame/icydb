@@ -12,6 +12,7 @@ pub(crate) mod diagnostics;
 mod dynamic_write;
 pub(crate) mod identity;
 pub(crate) mod integrity;
+mod mutation_job;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
@@ -110,6 +111,14 @@ pub use key_taxonomy::{
     EntityKeyBytesError, KeyValueCodec, PrimaryKeyComponent, PrimaryKeyDecode, PrimaryKeyEncode,
     PrimaryKeyEncodeError, PrimaryKeyValue, ScalarRelationTargetKey,
     validate_entity_key_bytes_buffer,
+};
+pub use mutation_job::{
+    MAX_MUTATION_JOB_CONTINUATION_BYTES, MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES,
+    MAX_MUTATION_JOB_INTENT_BYTES, MAX_MUTATION_JOB_RECEIPT_BYTES, MAX_MUTATION_JOB_RECORD_BYTES,
+    MAX_MUTATION_JOB_STEP_KEYS_SCANNED, MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
+    MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError, MutationJobId,
+    MutationJobIdempotencyKey, MutationJobPayloadKind, MutationJobPhase, MutationJobRestartReason,
+    MutationJobState, MutationJobStatus,
 };
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,

@@ -12,8 +12,9 @@ use icydb::{
     Error,
     db::{
         DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, IntegrityPhase,
-        IntegrityTerminalOutcome, SqlIntegrityError, SqlQueryExecutionAttribution,
-        SqlStructuralWorkAttribution, sql::SqlQueryResult,
+        IntegrityTerminalOutcome, MutationJobError, MutationJobState, MutationJobStatus,
+        SqlIntegrityError, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
+        sql::SqlQueryResult,
     },
     diagnostic::{
         DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
@@ -21,6 +22,7 @@ use icydb::{
     },
 };
 use icydb_testing_integration::{
+    durable_mutation_job_contract::DURABLE_START_INSTRUCTION_REVIEW_CEILING,
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
 use serde::Deserialize;
@@ -76,6 +78,13 @@ struct ResumableUpdatePerfResult {
     forward_keys_scanned: u32,
     verify_keys_scanned: u32,
     rows_updated: u32,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct MutationJobStartPerfResult {
+    state: MutationJobState,
+    local_instructions: u64,
+    target_rows_changed: u32,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -1606,6 +1615,19 @@ fn measure_resumable_update(fixture: &StandaloneCanisterFixture) -> ResumableUpd
     result.expect("resumable update perf endpoint should succeed")
 }
 
+fn start_mutation_job(
+    fixture: &StandaloneCanisterFixture,
+    job_discriminator: u8,
+    intent_discriminator: u8,
+) -> Result<MutationJobStartPerfResult, MutationJobError> {
+    fixture
+        .update_candid(
+            "start_journaled_user_mutation_job",
+            (job_discriminator, intent_discriminator),
+        )
+        .expect("mutation-job start result should decode")
+}
+
 fn assert_resumable_update_perf_stays_bounded(result: &ResumableUpdatePerfResult) {
     assert!(result.prepare_local_instructions > 0);
     assert_eq!(result.forward_local_instructions.len(), 8);
@@ -1915,6 +1937,42 @@ fn sql_perf_resumable_update_steps_stay_bounded() {
         result.rows_updated,
     );
     assert_resumable_update_perf_stays_bounded(&result);
+}
+
+#[test]
+fn sql_perf_mutation_job_start_is_durable_replayable_and_non_mutating() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let first = start_mutation_job(&fixture, 71, 0).expect("first durable start should succeed");
+    let replay = start_mutation_job(&fixture, 71, 3)
+        .expect("canonically equivalent start should return retained state");
+    let conflict = start_mutation_job(&fixture, 71, 1);
+    let heap = start_mutation_job(&fixture, 72, 2);
+
+    println!(
+        "durable mutation start: first={} replay={} sequence={} changed={}",
+        first.local_instructions,
+        replay.local_instructions,
+        first.state.sequence,
+        first.target_rows_changed,
+    );
+
+    assert_eq!(first.state, replay.state);
+    assert_eq!(first.state.sequence, 0);
+    assert_eq!(first.state.status, MutationJobStatus::Active);
+    assert_eq!(first.target_rows_changed, 0);
+    assert_eq!(replay.target_rows_changed, 0);
+    assert_eq!(conflict, Err(MutationJobError::IdentityConflict));
+    assert_eq!(heap, Err(MutationJobError::IneligibleIntent));
+    assert!(
+        first.local_instructions < DURABLE_START_INSTRUCTION_REVIEW_CEILING,
+        "first durable start should remain below the frozen review ceiling"
+    );
+    assert!(
+        replay.local_instructions < DURABLE_START_INSTRUCTION_REVIEW_CEILING,
+        "same-intent replay should remain below the frozen review ceiling"
+    );
 }
 
 #[test]

@@ -6,6 +6,7 @@
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
+        integrity::MutationProgressRecordOp,
         journal::{
             JournalBatch, JournalRecord, decode_journal_batch, encode_journal_batch,
             journal_batch_encoded_len,
@@ -34,7 +35,7 @@ use std::{
 /// Stored commit-id byte width shared by marker and guard paths.
 pub(in crate::db) const COMMIT_ID_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
-pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;
+pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 3;
 pub(in crate::db) const MAX_DATABASE_CONTROL_OPS_PER_MARKER: usize = 4;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
@@ -134,6 +135,7 @@ pub(in crate::db) enum DatabaseControlOp {
     EntitySourceLineage(crate::db::schema::EntitySourceLineageCatalogOp),
     #[cfg(any(test, feature = "migration"))]
     SchemaMigration(crate::db::schema::SchemaMigrationRecordOp),
+    MutationProgress(MutationProgressRecordOp),
 }
 
 #[derive(Clone, Debug)]
@@ -167,6 +169,19 @@ impl CommitMarker {
             .into_iter()
             .collect();
         Self::from_parts_with_database_control(id, journal_batches, database_control)
+    }
+
+    /// Construct one marker that atomically owns one mutation-progress replacement.
+    pub(in crate::db) fn from_parts_with_mutation_progress(
+        id: [u8; COMMIT_ID_BYTES],
+        journal_batches: Vec<JournalBatch>,
+        mutation_progress: MutationProgressRecordOp,
+    ) -> Result<Self, InternalError> {
+        Self::from_parts_with_database_control(
+            id,
+            journal_batches,
+            vec![DatabaseControlOp::MutationProgress(mutation_progress)],
+        )
     }
 
     /// Construct one marker with a bounded canonical database-control
@@ -217,6 +232,7 @@ impl CommitMarker {
                 DatabaseControlOp::SchemaApplication(_) | DatabaseControlOp::SchemaMigration(_) => {
                     None
                 }
+                DatabaseControlOp::MutationProgress(_) => None,
             })
     }
 
@@ -247,6 +263,10 @@ const COMMIT_MARKER_DATABASE_CONTROL_COUNT_BYTES: usize = 1;
 const COMMIT_MARKER_DATABASE_CONTROL_TAG_BYTES: usize = 1;
 const COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES: usize = 32;
 const COMMIT_MARKER_CONTROL_BEFORE_TAG_BYTES: usize = 1;
+const COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES: usize = 32;
+const COMMIT_MARKER_MUTATION_JOB_ID_BYTES: usize = 32;
+const COMMIT_MARKER_MUTATION_SEQUENCE_BYTES: usize = 8;
+const COMMIT_MARKER_MUTATION_DIGEST_BYTES: usize = 32;
 
 /// Generate one deterministic commit id for marker persistence.
 ///
@@ -332,6 +352,15 @@ pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> us
                     operation.after_bytes(),
                 ));
             }
+            DatabaseControlOp::MutationProgress(operation) => {
+                capacity = capacity
+                    .saturating_add(COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES)
+                    .saturating_add(COMMIT_MARKER_MUTATION_JOB_ID_BYTES)
+                    .saturating_add(COMMIT_MARKER_MUTATION_SEQUENCE_BYTES)
+                    .saturating_add(COMMIT_MARKER_MUTATION_DIGEST_BYTES)
+                    .saturating_add(size_of::<u32>() + operation.before_bytes().len())
+                    .saturating_add(size_of::<u32>() + operation.after_bytes().len());
+            }
         }
     }
 
@@ -411,6 +440,23 @@ pub(in crate::db) fn write_commit_marker_payload(
                     "commit marker schema migration",
                 )?;
             }
+            DatabaseControlOp::MutationProgress(operation) => {
+                out.push(4);
+                out.extend_from_slice(&operation.key());
+                out.extend_from_slice(&operation.job_id().to_bytes());
+                out.extend_from_slice(&operation.expected_sequence().to_le_bytes());
+                out.extend_from_slice(&operation.expected_before_digest());
+                write_len_prefixed_bytes(
+                    out,
+                    operation.before_bytes(),
+                    "commit marker mutation progress before",
+                )?;
+                write_len_prefixed_bytes(
+                    out,
+                    operation.after_bytes(),
+                    "commit marker mutation progress after",
+                )?;
+            }
         }
     }
 
@@ -484,8 +530,54 @@ fn decode_database_control_op(
         }
         2 => decode_lineage_control_op(bytes, cursor),
         3 => decode_migration_control_op(bytes, cursor),
+        4 => decode_mutation_progress_control_op(bytes, cursor),
         _ => Err(InternalError::commit_corruption()),
     }
+}
+
+fn decode_mutation_progress_control_op(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<DatabaseControlOp, InternalError> {
+    let key = read_fixed_array::<COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES>(
+        bytes,
+        cursor,
+        "commit marker mutation progress key",
+    )?;
+    let job_id =
+        crate::db::MutationJobId::try_from_bytes(read_fixed_array::<
+            COMMIT_MARKER_MUTATION_JOB_ID_BYTES,
+        >(
+            bytes, cursor, "commit marker mutation job id"
+        )?)
+        .map_err(|_| InternalError::commit_corruption())?;
+    let expected_sequence = u64::from_le_bytes(read_fixed_array::<
+        COMMIT_MARKER_MUTATION_SEQUENCE_BYTES,
+    >(
+        bytes, cursor, "commit marker mutation sequence"
+    )?);
+    let expected_before_digest = read_fixed_array::<COMMIT_MARKER_MUTATION_DIGEST_BYTES>(
+        bytes,
+        cursor,
+        "commit marker mutation before digest",
+    )?;
+    let before = read_len_prefixed_bytes(bytes, cursor, "commit marker mutation before")?;
+    let after = read_len_prefixed_bytes(bytes, cursor, "commit marker mutation after")?;
+    if before.len() > crate::db::MAX_MUTATION_JOB_RECORD_BYTES
+        || after.len() > crate::db::MAX_MUTATION_JOB_RECORD_BYTES
+    {
+        return Err(InternalError::commit_corruption());
+    }
+    MutationProgressRecordOp::from_encoded(
+        key,
+        job_id,
+        expected_sequence,
+        expected_before_digest,
+        before.to_vec(),
+        after.to_vec(),
+    )
+    .map(DatabaseControlOp::MutationProgress)
+    .map_err(|_| InternalError::commit_corruption())
 }
 
 #[cfg(any(test, feature = "migration"))]
@@ -698,6 +790,7 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     let mut lineage_seen = false;
     #[cfg(any(test, feature = "migration"))]
     let mut migration_seen = false;
+    let mut mutation_progress_seen = false;
     for operation in marker.database_control() {
         match operation {
             DatabaseControlOp::SchemaApplication(operation) => {
@@ -732,6 +825,16 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
                 }
                 prior_rank = 3;
                 migration_seen = true;
+                operation
+                    .validate()
+                    .map_err(|_| InternalError::commit_corruption())?;
+            }
+            DatabaseControlOp::MutationProgress(operation) => {
+                if prior_rank > 4 || mutation_progress_seen {
+                    return Err(InternalError::commit_corruption());
+                }
+                prior_rank = 4;
+                mutation_progress_seen = true;
                 operation
                     .validate()
                     .map_err(|_| InternalError::commit_corruption())?;

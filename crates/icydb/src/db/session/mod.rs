@@ -180,6 +180,34 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
+    /// Persist one admitted fixed SQL mutation job before any target mutation.
+    #[cfg(feature = "sql")]
+    pub fn start_trusted_sql_mutation_job(
+        &self,
+        job_id: crate::db::MutationJobId,
+        sql: &str,
+    ) -> Result<crate::db::MutationJobState, crate::db::MutationJobError> {
+        self.inner.start_trusted_sql_mutation_job(job_id, sql)
+    }
+
+    /// Load one retained durable mutation job.
+    pub fn mutation_job_state(
+        &self,
+        job_id: crate::db::MutationJobId,
+    ) -> Result<crate::db::MutationJobState, crate::db::MutationJobError> {
+        self.inner.mutation_job_state(job_id)
+    }
+
+    /// Idempotently remove one terminal mutation job after consuming its result.
+    pub fn acknowledge_mutation_job(
+        &self,
+        job_id: crate::db::MutationJobId,
+        expected_terminal_sequence: u64,
+    ) -> Result<(), crate::db::MutationJobError> {
+        self.inner
+            .acknowledge_mutation_job(job_id, expected_terminal_sequence)
+    }
+
     /// Create one durable application-owned progress job.
     pub fn start_resumable_job(
         &self,

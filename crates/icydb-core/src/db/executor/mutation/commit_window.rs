@@ -9,9 +9,9 @@ use crate::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedIndexMutation,
-            PreparedRowCommitOp, begin_commit, database_incarnation_id, finish_commit,
-            generate_commit_id, generate_marker_batch_id, prepare_row_commit_with_context,
-            rollback_prepared_row_ops_reverse,
+            PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
+            database_incarnation_id, finish_commit, generate_commit_id, generate_marker_batch_id,
+            prepare_row_commit_with_context, rollback_prepared_row_ops_reverse,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -19,6 +19,7 @@ use crate::{
             IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
+        integrity::{MutationProgressRecordOp, apply_mutation_progress_record_op},
         key_taxonomy::PrimaryKeyValue,
         registry::{
             StoreCommitParticipation, StoreHandle, StoreRecoveryCapability,
@@ -54,6 +55,7 @@ pub(in crate::db) enum MutationCommitInterruption {
     RowPrefixPublished,
     RowsPublished,
     StateMaterialized,
+    ProgressReplaced,
 }
 
 #[cfg(test)]
@@ -139,6 +141,7 @@ struct CommitWindowPayload {
 struct PreparedCommitEffects {
     journal_appends: Vec<PreparedJournalAppend>,
     identity_range_applies: Vec<PreparedIdentityRangeApply>,
+    mutation_progress: Option<MutationProgressRecordOp>,
 }
 
 #[derive(Clone, Copy)]
@@ -535,6 +538,16 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     deleted_keys: &BTreeSet<RawDataStoreKey>,
     identity_ranges: Vec<IdentityRangeAdvance>,
 ) -> Result<OpenCommitWindow, InternalError> {
+    open_commit_window_structural_inner(db, row_ops, deleted_keys, identity_ranges, None)
+}
+
+fn open_commit_window_structural_inner<C: CanisterKind>(
+    db: &Db<C>,
+    row_ops: Vec<CommitRowOp>,
+    deleted_keys: &BTreeSet<RawDataStoreKey>,
+    identity_ranges: Vec<IdentityRangeAdvance>,
+    mutation_progress: Option<MutationProgressRecordOp>,
+) -> Result<OpenCommitWindow, InternalError> {
     let mut overlay = PreflightStoreOverlay::<C>::from_row_ops(db, &row_ops)?;
     let entity_path = row_ops
         .first()
@@ -553,9 +566,10 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
         &row_ops,
         &prepared_row_ops,
         identity_ranges.as_slice(),
+        mutation_progress,
     )?;
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
-    let commit = begin_commit_window_payload(marker)?;
+    let commit = begin_commit_window_payload::<C>(marker, effects.mutation_progress.is_some())?;
 
     Ok(OpenCommitWindow {
         commit,
@@ -568,14 +582,13 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
 }
 
 /// Apply prepared row ops under the shared commit-window guard.
-fn apply_prepared_row_ops(
+fn apply_prepared_row_ops<C: CanisterKind>(
+    _db: &Db<C>,
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_ops: Vec<PreparedRowCommitOp>,
     effects: PreparedCommitEffects,
     index_store_guards: Vec<IndexStoreGenerationGuard>,
-    on_index_applied: impl FnOnce(),
-    on_data_applied: impl FnOnce(),
 ) -> Result<(), InternalError> {
     finish_commit(commit, |guard| {
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
@@ -613,14 +626,14 @@ fn apply_prepared_row_ops(
                 std::mem::forget(apply_guard);
                 return Err(InternalError::executor_invariant());
             }
-            apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
+            apply_prepared_state_effects::<C>(&effects)?;
             #[cfg(test)]
-            if take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized) {
+            if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
+                || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
+            {
                 std::mem::forget(apply_guard);
                 return Err(InternalError::executor_invariant());
             }
-            on_index_applied();
-            on_data_applied();
             apply_guard.finish()?;
 
             return Ok(());
@@ -653,18 +666,28 @@ fn apply_prepared_row_ops(
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
-        apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
+        apply_prepared_state_effects::<C>(&effects)?;
         #[cfg(test)]
-        if take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized) {
+        if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
+            || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
+        {
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
-        on_index_applied();
-        on_data_applied();
         apply_guard.finish()?;
 
         Ok(())
     })
+}
+
+fn apply_prepared_state_effects<C: CanisterKind>(
+    effects: &PreparedCommitEffects,
+) -> Result<(), InternalError> {
+    apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
+    if let Some(operation) = effects.mutation_progress.as_ref() {
+        apply_mutation_progress_record_op::<C>(operation)?;
+    }
+    Ok(())
 }
 
 /// Commit one accepted mixed structural row-operation batch through one
@@ -690,14 +713,55 @@ pub(in crate::db) fn commit_structural_row_ops_with_window_for_path<C: CanisterK
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
     apply_prepared_row_ops(
+        db,
         commit,
         apply_phase,
         prepared_row_ops,
         effects,
         index_store_guards,
-        || emit_index_delta_metrics_for_path(entity_path, &delta),
-        || {},
     )?;
+    emit_index_delta_metrics_for_path(entity_path, &delta);
+    mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
+    Ok(())
+}
+
+/// Commit one accepted row batch and exact mutation-progress successor together.
+pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress_for_path<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &str,
+    batch: AcceptedMutationConstraintBatch,
+    identity_ranges: Vec<IdentityRangeAdvance>,
+    mutation_progress: MutationProgressRecordOp,
+    apply_phase: &'static str,
+) -> Result<(), InternalError> {
+    let (row_ops, deleted_keys) = batch.into_parts();
+    let OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        effects,
+        index_store_guards,
+        delta,
+        commit_class,
+    } = open_commit_window_structural_inner(
+        db,
+        row_ops,
+        &deleted_keys,
+        identity_ranges,
+        Some(mutation_progress),
+    )?;
+    record_mutation_commit_plan(entity_path, commit_class);
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
+
+    apply_prepared_row_ops(
+        db,
+        commit,
+        apply_phase,
+        prepared_row_ops,
+        effects,
+        index_store_guards,
+    )?;
+    emit_index_delta_metrics_for_path(entity_path, &delta);
     mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
     Ok(())
 }
@@ -771,6 +835,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
     row_ops: &[CommitRowOp],
     prepared_row_ops: &[PreparedRowCommitOp],
     identity_ranges: &[IdentityRangeAdvance],
+    mutation_progress: Option<MutationProgressRecordOp>,
 ) -> Result<CommitWindowPayload, InternalError> {
     if row_ops.len() != prepared_row_ops.len() {
         return Err(InternalError::executor_invariant());
@@ -876,13 +941,21 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         return Err(InternalError::identity_state_corruption());
     }
 
-    let marker = CommitMarker::from_parts(marker_id, marker_batches)?;
+    let marker = match mutation_progress.as_ref() {
+        Some(operation) => CommitMarker::from_parts_with_mutation_progress(
+            marker_id,
+            marker_batches,
+            operation.clone(),
+        )?,
+        None => CommitMarker::from_parts(marker_id, marker_batches)?,
+    };
 
     Ok(CommitWindowPayload {
         marker,
         effects: PreparedCommitEffects {
             journal_appends,
             identity_range_applies,
+            mutation_progress,
         },
     })
 }
@@ -923,8 +996,15 @@ fn apply_identity_range_applies(
     Ok(())
 }
 
-fn begin_commit_window_payload(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
-    begin_commit(marker)
+fn begin_commit_window_payload<C: CanisterKind>(
+    marker: CommitMarker,
+    has_mutation_progress: bool,
+) -> Result<CommitGuard, InternalError> {
+    if has_mutation_progress {
+        begin_mutation_progress_commit::<C>(marker)
+    } else {
+        begin_commit(marker)
+    }
 }
 
 fn journal_record_for_row_op(row_op: &CommitRowOp) -> Result<JournalRecord, InternalError> {

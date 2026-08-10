@@ -12,9 +12,11 @@ use crate::{
             marker::{CommitMarker, DatabaseControlOp},
             store::{with_commit_store, with_initialized_commit_store},
         },
+        integrity::preflight_mutation_progress_record_op,
         schema::preflight_schema_application_record_op,
     },
     error::InternalError,
+    traits::CanisterKind,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -150,6 +152,30 @@ impl CommitGuard {
 
 /// Persist a commit marker and open the commit window.
 pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
+    begin_commit_with_preflighted_mutation_progress(marker, false)
+}
+
+/// Persist one marker after preflighting its exact mutation-progress predecessor.
+pub(in crate::db) fn begin_mutation_progress_commit<C: CanisterKind>(
+    marker: CommitMarker,
+) -> Result<CommitGuard, InternalError> {
+    let mut progress_count = 0_usize;
+    for operation in marker.database_control() {
+        if let DatabaseControlOp::MutationProgress(operation) = operation {
+            progress_count = progress_count.saturating_add(1);
+            preflight_mutation_progress_record_op::<C>(operation)?;
+        }
+    }
+    if progress_count != 1 {
+        return Err(InternalError::store_invariant());
+    }
+    begin_commit_with_preflighted_mutation_progress(marker, true)
+}
+
+fn begin_commit_with_preflighted_mutation_progress(
+    marker: CommitMarker,
+    mutation_progress_preflighted: bool,
+) -> Result<CommitGuard, InternalError> {
     for operation in marker.database_control() {
         match operation {
             DatabaseControlOp::SchemaApplication(operation) => {
@@ -162,6 +188,11 @@ pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, Internal
             #[cfg(any(test, feature = "migration"))]
             DatabaseControlOp::SchemaMigration(operation) => {
                 preflight_schema_migration_record_op(operation)?;
+            }
+            DatabaseControlOp::MutationProgress(_) => {
+                if !mutation_progress_preflighted {
+                    return Err(InternalError::store_invariant());
+                }
             }
         }
     }

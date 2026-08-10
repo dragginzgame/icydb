@@ -41,6 +41,7 @@ use crate::{
             StructuralSlotReader,
         },
         database_format::ensure_database_format_admitted,
+        integrity::{apply_mutation_progress_record_op, verify_mutation_progress_record_op},
         journal::{
             FoldRecordCursor, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
             JournalTailStore, journal_batch_encoded_len,
@@ -222,6 +223,10 @@ fn perform_recovery_page<C: CanisterKind>(
                 #[cfg(any(test, feature = "migration"))]
                 DatabaseControlOp::SchemaMigration(operation) => {
                     apply_schema_migration_record_op(operation)
+                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                }
+                DatabaseControlOp::MutationProgress(operation) => {
+                    apply_mutation_progress_record_op::<C>(operation)
                         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
                 }
             }
@@ -1804,6 +1809,9 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
                 #[cfg(any(test, feature = "migration"))]
                 DatabaseControlOp::SchemaMigration(operation) => {
                     verify_schema_migration_record_op(operation)?;
+                }
+                DatabaseControlOp::MutationProgress(operation) => {
+                    verify_mutation_progress_record_op::<C>(operation)?;
                 }
             }
         }

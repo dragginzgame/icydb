@@ -1,14 +1,18 @@
 use super::{RawCommitMarker, marker_envelope::encode_commit_marker_bytes};
 use crate::{
     db::{
+        MutationJobAdvanceRequest, MutationJobId, MutationJobIdempotencyKey, MutationJobPhase,
+        MutationJobStatus,
         commit::marker::{
-            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
-            decode_commit_marker_payload, encode_commit_marker_payload,
+            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, DatabaseControlOp,
+            MAX_COMMIT_BYTES, commit_marker_payload_capacity, decode_commit_marker_payload,
+            encode_commit_marker_payload,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
-        integrity::DatabaseIncarnationId,
+        integrity::{DatabaseIncarnationId, MutationProgressRecordOp},
         journal::{JournalBatch, JournalRecord, JournalSequence},
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+        mutation_job::{MutationJobRecord, MutationJobTransition},
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
@@ -33,6 +37,53 @@ fn raw_data_store_key(fill: u8) -> RawDataStoreKey {
     )
     .to_raw()
     .expect("test key should materialize")
+}
+
+fn maximal_mutation_progress_operation() -> MutationProgressRecordOp {
+    let job_id = MutationJobId::try_from_bytes([0x61; 32])
+        .expect("nonzero marker mutation job id should admit");
+    let initial = MutationJobRecord::new(
+        job_id,
+        vec![1; crate::db::MAX_MUTATION_JOB_INTENT_BYTES],
+        vec![2; crate::db::MAX_MUTATION_JOB_CONTINUATION_BYTES],
+    )
+    .expect("maximum initial marker record should admit");
+    let transition = |sequence, key: &str| {
+        MutationJobAdvanceRequest::new(
+            job_id,
+            sequence,
+            MutationJobIdempotencyKey::new(key).expect("maximum marker replay key should admit"),
+        )
+    };
+    let key = "k".repeat(crate::db::MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES);
+    let (before, _) = initial
+        .apply_transition(
+            &transition(0, &key),
+            MutationJobTransition::new(
+                MutationJobStatus::Active,
+                MutationJobPhase::Forward,
+                vec![3; crate::db::MAX_MUTATION_JOB_CONTINUATION_BYTES],
+                crate::db::MAX_MUTATION_JOB_STEP_KEYS_SCANNED,
+                crate::db::MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
+                0,
+            ),
+        )
+        .expect("maximum predecessor marker record should admit");
+    let (after, _) = before
+        .apply_transition(
+            &transition(1, &key),
+            MutationJobTransition::new(
+                MutationJobStatus::Active,
+                MutationJobPhase::Forward,
+                vec![4; crate::db::MAX_MUTATION_JOB_CONTINUATION_BYTES],
+                crate::db::MAX_MUTATION_JOB_STEP_KEYS_SCANNED,
+                crate::db::MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
+                0,
+            ),
+        )
+        .expect("maximum successor marker record should admit");
+    MutationProgressRecordOp::replace(&before, &after)
+        .expect("maximum marker progress replacement should admit")
 }
 
 #[test]
@@ -124,6 +175,38 @@ fn commit_marker_current_version_round_trip_succeeds() {
 
     assert_eq!(decoded.id, marker.id);
     assert!(decoded.journal_batches().is_empty());
+}
+
+#[test]
+fn commit_marker_version_three_round_trips_one_bounded_mutation_progress_effect() {
+    assert_eq!(COMMIT_MARKER_FORMAT_VERSION_CURRENT, 3);
+    let operation = maximal_mutation_progress_operation();
+    assert_eq!(operation.before_bytes().len(), 18_842);
+    assert_eq!(operation.after_bytes().len(), 18_842);
+    let empty = CommitMarker::from_parts([0x71; 16], Vec::new())
+        .expect("empty comparison marker should admit");
+    let marker =
+        CommitMarker::from_parts_with_mutation_progress([0x71; 16], Vec::new(), operation.clone())
+            .expect("bounded mutation progress marker should admit");
+    assert_eq!(
+        commit_marker_payload_capacity(&marker) - commit_marker_payload_capacity(&empty),
+        37_797,
+        "the maximum current replacement contribution is frozen",
+    );
+
+    let encoded = encode_test_marker_payload(&marker);
+    let decoded = RawCommitMarker(encoded)
+        .try_decode()
+        .expect("current marker should decode")
+        .expect("current marker should remain present");
+    let [DatabaseControlOp::MutationProgress(decoded)] = decoded.database_control() else {
+        panic!("marker must contain exactly one mutation progress replacement");
+    };
+    assert_eq!(decoded.key(), operation.key());
+    assert_eq!(decoded.job_id(), operation.job_id());
+    assert_eq!(decoded.expected_sequence(), operation.expected_sequence());
+    assert_eq!(decoded.before_bytes(), operation.before_bytes());
+    assert_eq!(decoded.after_bytes(), operation.after_bytes());
 }
 
 #[test]

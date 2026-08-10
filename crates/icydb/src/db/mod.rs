@@ -18,13 +18,19 @@ pub use bootstrap::DatabaseBootstrapError;
 pub use bootstrap::ensure_default_memory_manager;
 pub use icydb_core::db::{
     CompareProofAndAdvanceError, DynamicQuery, ExhaustiveQueryPageOutput, GroupedQueryOutput,
-    GroupedRow, LiveQueryPageOutput, MAX_READ_SET_PROOF_BYTES, MAX_READ_SET_PROOF_STORES,
-    MAX_RESUMABLE_JOB_CONTINUATION_BYTES, MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES,
-    MAX_RESUMABLE_JOB_RECEIPT_BYTES, MAX_RESUMABLE_JOB_STATE_BYTES, ReadSetRevisionError,
-    ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision, ResumableJobAdvance,
-    ResumableJobAdvanceReceipt, ResumableJobAdvanceRequest, ResumableJobAdvanceStatus,
-    ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey, ResumableJobState,
-    ResumableJobStatus, RowProjectionOutput, ScalarPageWork,
+    GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,
+    MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES, MAX_MUTATION_JOB_INTENT_BYTES,
+    MAX_MUTATION_JOB_RECEIPT_BYTES, MAX_MUTATION_JOB_RECORD_BYTES,
+    MAX_MUTATION_JOB_STEP_KEYS_SCANNED, MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
+    MAX_READ_SET_PROOF_BYTES, MAX_READ_SET_PROOF_STORES, MAX_RESUMABLE_JOB_CONTINUATION_BYTES,
+    MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES, MAX_RESUMABLE_JOB_RECEIPT_BYTES,
+    MAX_RESUMABLE_JOB_STATE_BYTES, MutationJobAdvanceReceipt, MutationJobAdvanceRequest,
+    MutationJobError, MutationJobId, MutationJobIdempotencyKey, MutationJobPayloadKind,
+    MutationJobPhase, MutationJobRestartReason, MutationJobState, MutationJobStatus,
+    ReadSetRevisionError, ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision,
+    ResumableJobAdvance, ResumableJobAdvanceReceipt, ResumableJobAdvanceRequest,
+    ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey,
+    ResumableJobState, ResumableJobStatus, RowProjectionOutput, ScalarPageWork,
 };
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{

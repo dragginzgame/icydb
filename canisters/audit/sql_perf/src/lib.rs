@@ -17,8 +17,9 @@ use icydb::{
     db::{
         DynamicQuery, EntitySchemaDescription, ExhaustiveQueryPageOutput, ExhaustiveReadError,
         GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
-        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, ReadSetRevisionError,
-        ReadSetRevisionProof, SqlCompileAttribution, SqlExecutionAttribution, SqlIntegrityError,
+        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobError,
+        MutationJobId, MutationJobState, ReadSetRevisionError, ReadSetRevisionProof,
+        SqlCompileAttribution, SqlExecutionAttribution, SqlIntegrityError,
         SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
         SqlStructuralWorkAttribution, StructuralMutation, StructuralPatch, WriteCell,
         query::{FieldRef, asc},
@@ -186,6 +187,14 @@ struct ResumableUpdatePerfResult {
     forward_keys_scanned: u32,
     verify_keys_scanned: u32,
     rows_updated: u32,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct MutationJobStartPerfResult {
+    state: MutationJobState,
+    local_instructions: u64,
+    target_rows_changed: u32,
 }
 
 /// One public integrity result plus its canister-local execution cost.
@@ -1943,6 +1952,42 @@ fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfR
         }
 
         Err(query_validate_error())
+    })
+}
+
+/// Start or replay one fixed audit mutation intent without advancing it.
+#[cfg(feature = "sql")]
+#[update]
+fn start_journaled_user_mutation_job(
+    job_discriminator: u8,
+    intent_discriminator: u8,
+) -> Result<MutationJobStartPerfResult, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        let session = db().map_err(|_| MutationJobError::Internal)?;
+        let mut job_bytes = [0; 32];
+        job_bytes[31] = job_discriminator;
+        let job_id = MutationJobId::try_from_bytes(job_bytes)?;
+        let sql = match intent_discriminator {
+            0 => "UPDATE PerfAuditJournaledUser SET name = 'durable-start' WHERE age >= 0",
+            1 => "UPDATE PerfAuditJournaledUser SET name = 'different-start' WHERE age >= 0",
+            2 => "UPDATE PerfAuditHeapUser SET name = 'heap-start' WHERE age >= 0",
+            3 => "  update PerfAuditJournaledUser set name='durable-start' where age >= 0  ",
+            _ => return Err(MutationJobError::IneligibleIntent),
+        };
+        let start = ic_cdk::api::performance_counter(1);
+        let state = session.start_trusted_sql_mutation_job(job_id, sql)?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let target_rows_changed = sql_write_result_row_count(&session
+            .execute_trusted_sql_query(
+                "SELECT id FROM PerfAuditJournaledUser WHERE name = 'durable-start' ORDER BY id LIMIT 1",
+            )
+            .map_err(|_| MutationJobError::Internal)?)
+        .ok_or(MutationJobError::Internal)?;
+        Ok(MutationJobStartPerfResult {
+            state,
+            local_instructions,
+            target_rows_changed,
+        })
     })
 }
 

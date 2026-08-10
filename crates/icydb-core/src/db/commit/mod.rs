@@ -29,7 +29,9 @@ mod store;
 ///
 /// Re-exports
 ///
-pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
+pub(in crate::db) use guard::{
+    CommitApplyGuard, CommitGuard, begin_commit, begin_mutation_progress_commit, finish_commit,
+};
 #[cfg(feature = "sql")]
 pub(in crate::db) use marker::commit_marker_payload_capacity_for_single_batch;
 #[cfg(test)]

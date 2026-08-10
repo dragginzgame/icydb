@@ -22,3 +22,4 @@ pub(in crate::db) use scalar::{
     ScalarOrderTermContract, ScalarPageMode, ScalarPageToken, ScalarPageTokenAuthority,
     ScalarPageTokenProgress, ScalarPageTokenWindow,
 };
+pub(in crate::db) use value::{decode_current_value_payload, encode_current_value_payload};

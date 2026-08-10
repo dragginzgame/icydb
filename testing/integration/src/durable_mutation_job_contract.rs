@@ -28,16 +28,16 @@ pub const DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT: u32 = 64;
 /// Existing exact one-shot update admission ceiling used by the incident control.
 pub const DURABLE_MUTATION_JOB_EAGER_UPDATE_ROW_LIMIT: u32 = 4_096;
 
-/// Proposed maximum current engine continuation retained inside one job.
+/// Current maximum engine continuation retained inside one job.
 pub const DURABLE_MUTATION_JOB_CONTINUATION_BYTES: u32 = 2 * 1_024;
 
-/// Proposed maximum canonical accepted mutation intent.
+/// Current maximum canonical accepted mutation intent.
 pub const DURABLE_MUTATION_JOB_INTENT_BYTES: u32 = 16 * 1_024;
 
-/// Proposed maximum retained replay receipt.
+/// Current maximum retained replay receipt.
 pub const DURABLE_MUTATION_JOB_RECEIPT_BYTES: u32 = 8 * 1_024;
 
-/// Proposed maximum complete encoded mutation-job record.
+/// Current maximum complete encoded mutation-job record.
 pub const DURABLE_MUTATION_JOB_RECORD_BYTES: u32 = 64 * 1_024;
 
 /// Shared current progress-store job capacity across all retained job families.
@@ -45,6 +45,33 @@ pub const DURABLE_MUTATION_JOB_GLOBAL_CAPACITY: u32 = 64;
 
 /// Existing idempotency-key byte limit retained by the new job family.
 pub const DURABLE_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES: u32 = 256;
+
+/// Exact current sequence-zero record bytes for the small custody fixture.
+pub const CURRENT_MUTATION_JOB_INITIAL_RECORD_BYTES: u32 = 97;
+
+/// Exact current active-record bytes for the small replay fixture.
+pub const CURRENT_MUTATION_JOB_REPLAY_RECORD_BYTES: u32 = 167;
+
+/// Exact current completed-record bytes for the small custody fixture.
+pub const CURRENT_MUTATION_JOB_COMPLETED_RECORD_BYTES: u32 = 165;
+
+/// Exact current restart-required record bytes for the small custody fixture.
+pub const CURRENT_MUTATION_JOB_RESTART_RECORD_BYTES: u32 = 166;
+
+/// Exact current active record bytes with every bounded component maximized.
+pub const CURRENT_MUTATION_JOB_MAX_ACTIVE_RECORD_BYTES: u32 = 18_842;
+
+/// Exact retained replay-receipt bytes with a maximum idempotency key.
+pub const CURRENT_MUTATION_JOB_MAX_REPLAY_RECEIPT_BYTES: u32 = 319;
+
+/// Sole current marker envelope after atomic mutation-progress custody lands.
+pub const CURRENT_MUTATION_PROGRESS_MARKER_VERSION: u8 = 3;
+
+/// Exact maximum current mutation-progress contribution to one marker payload.
+pub const CURRENT_MUTATION_PROGRESS_MAX_MARKER_PAYLOAD_BYTES: u32 = 37_797;
+
+/// Excluded-allocation bytes at one, eight, and 64 retained small records.
+pub const CURRENT_MUTATION_JOB_STABLE_BYTES: [u64; 3] = [4_390_912, 4_390_912, 38_993_920];
 
 const _: () = {
     assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > 10_000);
@@ -64,6 +91,12 @@ pub const BASELINE_VERIFY_INSTRUCTIONS: &[u64] = &[6_431_179, 6_440_484];
 
 /// Maximum reviewed instruction cost for one durable start.
 pub const DURABLE_START_INSTRUCTION_REVIEW_CEILING: u64 = 5_000_000;
+
+/// Current first sequence-zero durable-start instruction sample.
+pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_051_601;
+
+/// Current canonically equivalent retained-start replay instruction sample.
+pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_161_322;
 
 /// Maximum reviewed instruction cost for one 64-update Forward step.
 pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 30_000_000;
@@ -323,6 +356,9 @@ mod tests {
         assert_eq!(BASELINE_VERIFY_INSTRUCTIONS.len(), 2);
         assert_eq!(BASELINE_DYNAMIC_QUERY_RAW_WASM_BYTES, 2_607_381);
         assert_eq!(BASELINE_TYPED_QUERY_RAW_WASM_BYTES, 1_792_657);
+        assert!(CURRENT_MUTATION_JOB_MAX_ACTIVE_RECORD_BYTES < DURABLE_MUTATION_JOB_RECORD_BYTES);
+        assert!(CURRENT_MUTATION_JOB_MAX_REPLAY_RECEIPT_BYTES < DURABLE_MUTATION_JOB_RECEIPT_BYTES);
+        assert_eq!(CURRENT_MUTATION_JOB_STABLE_BYTES.len(), 3);
         assert!(
             BASELINE_FORWARD_INSTRUCTIONS
                 .iter()
@@ -333,10 +369,43 @@ mod tests {
                 .iter()
                 .all(|value| *value < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING)
         );
+        assert!(CURRENT_DURABLE_START_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
+        assert!(
+            CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING
+        );
     }
 
     #[test]
     fn published_runtime_limits_are_source_anchored() {
+        assert_eq!(
+            icydb::db::MAX_MUTATION_JOB_CONTINUATION_BYTES as u32,
+            DURABLE_MUTATION_JOB_CONTINUATION_BYTES,
+        );
+        assert_eq!(
+            icydb::db::MAX_MUTATION_JOB_INTENT_BYTES as u32,
+            DURABLE_MUTATION_JOB_INTENT_BYTES,
+        );
+        assert_eq!(
+            icydb::db::MAX_MUTATION_JOB_RECEIPT_BYTES as u32,
+            DURABLE_MUTATION_JOB_RECEIPT_BYTES,
+        );
+        assert_eq!(
+            icydb::db::MAX_MUTATION_JOB_RECORD_BYTES as u32,
+            DURABLE_MUTATION_JOB_RECORD_BYTES,
+        );
+        assert_eq!(
+            icydb::db::MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES as u32,
+            DURABLE_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES,
+        );
+        assert_eq!(
+            icydb::db::MAX_MUTATION_JOB_STEP_KEYS_SCANNED as u32,
+            DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT,
+        );
+        assert_eq!(
+            icydb::db::MAX_MUTATION_JOB_STEP_ROWS_UPDATED as u32,
+            DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT,
+        );
+
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let resumable_update = fs::read_to_string(
             workspace.join("crates/icydb-core/src/db/session/sql/resumable_update.rs"),
@@ -365,10 +434,27 @@ mod tests {
         assert!(progress_store.contains("const MAX_PROGRESS_RECORD_BYTES: u32 = 512 * 1024;"));
         assert!(progress_store.contains("const MAX_PROGRESS_JOBS_GLOBAL: u64 = 64;"));
 
+        let canonical_intent =
+            fs::read_to_string(workspace.join("crates/icydb-core/src/db/mutation_job/intent.rs"))
+                .expect("canonical mutation intent authority should be readable");
+        assert!(canonical_intent.contains("const INTENT_FORMAT_VERSION: u8 = 1;"));
+        assert!(canonical_intent.contains("const MAX_CANONICAL_EXPR_DEPTH: usize = 32;"));
+        assert!(canonical_intent.contains("const MAX_CANONICAL_EXPR_NODES: usize = 256;"));
+
+        let mutation_session =
+            fs::read_to_string(workspace.join("crates/icydb-core/src/db/session/mutation_job.rs"))
+                .expect("mutation-job session authority should be readable");
+        assert!(mutation_session.contains("pub fn start_trusted_sql_mutation_job("));
+        assert!(mutation_session.contains("InsertMutationJobResult::Occupied(retained)"));
+
         let commit_marker =
             fs::read_to_string(workspace.join("crates/icydb-core/src/db/commit/marker.rs"))
                 .expect("commit-marker authority should be readable");
-        assert!(commit_marker.contains("const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;"));
+        assert!(commit_marker.contains("const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 3;"));
+        assert!(commit_marker.contains("from_parts_with_mutation_progress"));
+        assert!(commit_marker.contains("DatabaseControlOp::MutationProgress"));
+        assert_eq!(CURRENT_MUTATION_PROGRESS_MARKER_VERSION, 3);
+        assert_eq!(CURRENT_MUTATION_PROGRESS_MAX_MARKER_PAYLOAD_BYTES, 37_797);
     }
 
     #[test]

@@ -7,10 +7,11 @@
 
 use crate::{
     db::{
-        DbSession, QueryError,
+        DbSession, MutationJobError, MutationJobId, QueryError,
         codec::{
             finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u64,
         },
+        commit::database_incarnation_id,
         data::{
             AcceptedFixedUpdatePatch, AcceptedMutationIntentPatch, DecodedDataStoreKey,
             RawDataStoreKey, StoreVisit, StructuralRowContract, StructuralSlotReader,
@@ -19,9 +20,10 @@ use crate::{
         executor::eval_compiled_filter_expr_with_required_slot_reader,
         journal::JournalTailStore,
         key_taxonomy::RawDataStoreKeyRange,
+        mutation_job::CanonicalMutationIntent,
         query::{
             plan::expr::{
-                CompiledExpr, collect_scalar_expr_field_roots,
+                CompiledExpr, Expr, collect_scalar_expr_field_roots,
                 compile_scalar_projection_expr_with_schema,
             },
             resumable_update_scope_fingerprint,
@@ -54,6 +56,7 @@ const RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION: u8 = 1;
 const RESUMABLE_UPDATE_PHASE_FORWARD: u8 = 1;
 const RESUMABLE_UPDATE_PHASE_VERIFY: u8 = 2;
 const RESUMABLE_UPDATE_TARGET_IDENTITY_DOMAIN: &[u8] = b"icydb.resumable-update-target.v1";
+const MUTATION_JOB_OPERATION_ID_DOMAIN: &[u8] = b"icydb.mutation-job.operation-id.v1";
 macro_rules! resumable_policy_bound {
     ($runtime:ident, $identity:ident, $value:expr) => {
         const $runtime: usize = $value;
@@ -468,6 +471,25 @@ struct ResumableUpdateEligibility {
     patch_fingerprint: [u8; 32],
 }
 
+pub(in crate::db::session) struct PreparedMutationJobStart {
+    pub(in crate::db::session) canonical_intent: Vec<u8>,
+    pub(in crate::db::session) engine_continuation: Vec<u8>,
+}
+
+struct PreparedResumableUpdateStart {
+    continuation: TrustedResumableUpdateContinuation,
+    target_identity: [u8; 32],
+    target_store_path: String,
+    target_entity_path: String,
+    target_entity_tag: u64,
+    accepted_schema_revision: u64,
+    accepted_schema_fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
+    scope: Expr,
+    fixed_patch: AcceptedFixedUpdatePatch,
+    operation_timestamp: Timestamp,
+}
+
 impl<C: CanisterKind> DbSession<C> {
     /// Prepare one trusted resumable SQL `UPDATE` without reading or mutating rows.
     ///
@@ -480,6 +502,51 @@ impl<C: CanisterKind> DbSession<C> {
         operation_id: Ulid,
         sql: &str,
     ) -> Result<TrustedResumableUpdateContinuation, QueryError> {
+        self.prepare_resumable_update_start(operation_id, sql, Timestamp::now())
+            .map(|prepared| prepared.continuation)
+    }
+
+    pub(in crate::db::session) fn prepare_mutation_job_start(
+        &self,
+        job_id: MutationJobId,
+        sql: &str,
+    ) -> Result<PreparedMutationJobStart, MutationJobError> {
+        let operation_timestamp = Timestamp::now();
+        let prepared = self
+            .prepare_resumable_update_start(
+                mutation_job_operation_id(job_id),
+                sql,
+                operation_timestamp,
+            )
+            .map_err(|_| MutationJobError::IneligibleIntent)?;
+        let intent = CanonicalMutationIntent::new(
+            database_incarnation_id()
+                .map_err(|_| MutationJobError::Internal)?
+                .to_bytes(),
+            prepared.target_identity,
+            prepared.target_store_path,
+            prepared.target_entity_path,
+            prepared.target_entity_tag,
+            prepared.accepted_schema_revision,
+            prepared.accepted_schema_fingerprint_method,
+            prepared.accepted_schema_fingerprint,
+            &prepared.scope,
+            &prepared.fixed_patch,
+            prepared.operation_timestamp,
+            RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY,
+        )?;
+        Ok(PreparedMutationJobStart {
+            canonical_intent: intent.encode()?,
+            engine_continuation: prepared.continuation.into_bytes(),
+        })
+    }
+
+    fn prepare_resumable_update_start(
+        &self,
+        operation_id: Ulid,
+        sql: &str,
+        operation_timestamp: Timestamp,
+    ) -> Result<PreparedResumableUpdateStart, QueryError> {
         let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
             .ok_or_else(QueryError::unsupported_query)?;
         let catalog = self
@@ -530,7 +597,10 @@ impl<C: CanisterKind> DbSession<C> {
             identity.entity_tag().value(),
         )?;
 
-        TrustedResumableUpdateContinuation::initial(
+        let scope = selector.scalar_filter_expr().cloned().ok_or_else(|| {
+            QueryError::sql_write_boundary(SqlWriteBoundaryCode::UpdateMissingWherePredicate)
+        })?;
+        let continuation = TrustedResumableUpdateContinuation::initial(
             operation_id,
             identity.entity_tag().value(),
             target_identity,
@@ -538,8 +608,21 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.fingerprint(),
             eligibility.scope_fingerprint,
             eligibility.patch_fingerprint,
-            Timestamp::now(),
-        )
+            operation_timestamp,
+        )?;
+        Ok(PreparedResumableUpdateStart {
+            continuation,
+            target_identity,
+            target_store_path: identity.store_path().to_string(),
+            target_entity_path: identity.entity_path().to_string(),
+            target_entity_tag: identity.entity_tag().value(),
+            accepted_schema_revision: catalog.revision().get(),
+            accepted_schema_fingerprint_method: catalog.fingerprint_method_version(),
+            accepted_schema_fingerprint: catalog.fingerprint(),
+            scope,
+            fixed_patch,
+            operation_timestamp,
+        })
     }
 
     /// Resume one trusted resumable SQL `UPDATE` for one bounded engine step.
@@ -1209,6 +1292,15 @@ fn resumable_update_target_identity(
     }
 
     Ok(finalize_hash_sha256(hasher))
+}
+
+fn mutation_job_operation_id(job_id: MutationJobId) -> Ulid {
+    let mut hasher = new_hash_sha256_prefixed(MUTATION_JOB_OPERATION_ID_DOMAIN);
+    hasher.update(job_id.to_bytes());
+    let digest = finalize_hash_sha256(hasher);
+    let mut bytes = [0; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    Ulid::from_bytes(bytes)
 }
 
 fn hash_store_allocation_identity(hasher: &mut sha2::Sha256, identity: StoreAllocationIdentity) {

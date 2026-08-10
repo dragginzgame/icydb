@@ -126,6 +126,12 @@ impl AcceptedFixedUpdateField {
     pub(in crate::db) const fn slot(&self) -> FieldSlot {
         self.slot
     }
+
+    /// Borrow the already-admitted canonical persisted field payload.
+    #[must_use]
+    pub(in crate::db) const fn payload(&self) -> &[u8] {
+        self.payload.as_slice()
+    }
 }
 
 /// Canonical fixed patch admitted for resumable convergence.
@@ -205,21 +211,34 @@ impl AcceptedFixedUpdatePatch {
             return Err(InternalError::executor_invariant());
         }
 
-        let mut hasher = new_hash_sha256_prefixed(ACCEPTED_FIXED_UPDATE_PATCH_FINGERPRINT_DOMAIN);
-        write_hash_len_u32(&mut hasher, fields.len());
-        for field in &fields {
-            write_hash_u32(
-                &mut hasher,
-                u32::try_from(field.slot.index())
-                    .map_err(|_| InternalError::executor_invariant())?,
-            );
-            write_hash_len_u32(&mut hasher, field.payload.len());
-            hasher.update(field.payload.as_slice());
-        }
-
         Ok(Self {
+            fingerprint: accepted_fixed_update_patch_fingerprint(fields.as_slice())?,
             fields,
-            fingerprint: finalize_hash_sha256(hasher),
+        })
+    }
+
+    /// Rebuild one current canonical fixed patch from persisted slot payloads.
+    ///
+    /// The caller must already have checked the persisted intent's accepted
+    /// schema authority. Slots are required to be strictly increasing so one
+    /// current wire has exactly one semantic representation.
+    pub(in crate::db) fn from_canonical_fields(
+        fields: Vec<(FieldSlot, Vec<u8>)>,
+    ) -> Result<Self, InternalError> {
+        if fields.is_empty()
+            || fields
+                .windows(2)
+                .any(|pair| pair[0].0.index() >= pair[1].0.index())
+        {
+            return Err(InternalError::executor_invariant());
+        }
+        let fields = fields
+            .into_iter()
+            .map(|(slot, payload)| AcceptedFixedUpdateField { slot, payload })
+            .collect::<Vec<_>>();
+        Ok(Self {
+            fingerprint: accepted_fixed_update_patch_fingerprint(fields.as_slice())?,
+            fields,
         })
     }
 
@@ -248,6 +267,23 @@ impl AcceptedFixedUpdatePatch {
     pub(in crate::db) const fn fingerprint(&self) -> [u8; 32] {
         self.fingerprint
     }
+}
+
+#[cfg(feature = "sql")]
+fn accepted_fixed_update_patch_fingerprint(
+    fields: &[AcceptedFixedUpdateField],
+) -> Result<[u8; 32], InternalError> {
+    let mut hasher = new_hash_sha256_prefixed(ACCEPTED_FIXED_UPDATE_PATCH_FINGERPRINT_DOMAIN);
+    write_hash_len_u32(&mut hasher, fields.len());
+    for field in fields {
+        write_hash_u32(
+            &mut hasher,
+            u32::try_from(field.slot.index()).map_err(|_| InternalError::executor_invariant())?,
+        );
+        write_hash_len_u32(&mut hasher, field.payload.len());
+        hasher.update(field.payload.as_slice());
+    }
+    Ok(finalize_hash_sha256(hasher))
 }
 
 impl ResolvedAcceptedMutationRow {
