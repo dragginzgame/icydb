@@ -49,6 +49,7 @@ const VALUE_UNIT: u8 = 23;
 ///
 /// This deliberately shares the cursor-owned value variant map with private
 /// durable engine protocols so a second value codec cannot drift from it.
+#[cfg(feature = "sql")]
 pub(in crate::db) fn encode_current_value_payload(
     value: &Value,
 ) -> Result<Vec<u8>, TokenWireError> {
@@ -58,6 +59,7 @@ pub(in crate::db) fn encode_current_value_payload(
 }
 
 /// Decode one runtime value through the current bounded binary value wire.
+#[cfg(feature = "sql")]
 pub(in crate::db) fn decode_current_value_payload(bytes: &[u8]) -> Result<Value, TokenWireError> {
     let mut cursor = ByteCursor::new(bytes);
     let value = read_value(&mut cursor)?;

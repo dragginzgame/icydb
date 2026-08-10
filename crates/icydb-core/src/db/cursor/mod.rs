@@ -43,8 +43,9 @@ pub(in crate::db) use string::encode_grouped_cursor_token;
 pub(in crate::db) use token::{
     GroupedContinuationToken, ScalarOrderTermContract, ScalarPageMode, ScalarPageToken,
     ScalarPageTokenAuthority, ScalarPageTokenProgress, ScalarPageTokenWindow, TokenWireError,
-    decode_current_value_payload, encode_current_value_payload,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use token::{decode_current_value_payload, encode_current_value_payload};
 pub(in crate::db) use validated::ValidatedGroupedCursor;
 
 /// Decode one optional external continuation token through cursor-runtime authority.
