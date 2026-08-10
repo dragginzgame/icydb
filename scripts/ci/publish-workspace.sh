@@ -123,25 +123,14 @@ wait_for_registry_version() {
     return 1
 }
 
-# Returns success only when a one-shot release target recorded this exact
-# annotated version tag after its release gate and push completed.
+# Returns success only when release-commit recorded this exact annotated
+# version tag after its release gate completed.
 release_receipt_matches() {
-    local version="$1"
-    local release_tag="v$version"
-    local receipt="$RELEASE_RECEIPT_DIR/$release_tag.commit"
     local head_commit
-    local tag_commit
-    local tag_type
-    local receipt_commit
 
     head_commit="$(git rev-parse --verify HEAD)"
-    tag_type="$(git cat-file -t "refs/tags/$release_tag" 2>/dev/null || true)"
-    tag_commit="$(git rev-parse --verify "refs/tags/$release_tag^{commit}" 2>/dev/null || true)"
-    receipt_commit="$(sed -n '1p' "$receipt" 2>/dev/null || true)"
-
-    [ "$tag_type" = "tag" ] &&
-        [ "$tag_commit" = "$head_commit" ] &&
-        [ "$receipt_commit" = "$head_commit" ]
+    RELEASE_RECEIPT_DIR="$RELEASE_RECEIPT_DIR" \
+        scripts/ci/verify-release-gate-receipt.sh "$head_commit"
 }
 
 version="$(workspace_version)"

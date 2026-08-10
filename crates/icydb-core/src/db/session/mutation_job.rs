@@ -1,5 +1,5 @@
 //! Module: session::mutation_job
-//! Responsibility: charged mutation-job start, state load, Forward dispatch, and terminal acknowledgement.
+//! Responsibility: charged mutation-job start, state load, phase dispatch, and terminal acknowledgement.
 //! Does not own: SQL lowering, Forward/Verify execution, or authorization.
 //! Boundary: trusted session API -> excluded mutation progress record.
 
@@ -17,7 +17,7 @@ use icydb_diagnostic_code::{
 
 #[cfg(feature = "sql")]
 use crate::db::{
-    MutationJobAdvanceReceipt, MutationJobAdvanceRequest,
+    MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobPhase,
     integrity::InsertMutationJobResult,
     mutation_job::{CanonicalMutationIntent, MutationJobRecord},
 };
@@ -95,7 +95,10 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(receipt.clone());
         }
         retained.ensure_can_advance(request)?;
-        self.advance_mutation_job_forward(&retained, request)
+        match retained.state().phase {
+            MutationJobPhase::Forward => self.advance_mutation_job_forward(&retained, request),
+            MutationJobPhase::Verify => self.advance_mutation_job_verify(&retained, request),
+        }
     }
 
     /// Remove one terminal mutation job after its result has been consumed.

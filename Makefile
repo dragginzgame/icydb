@@ -1,6 +1,6 @@
 .PHONY: help version tags patch minor major package publish release-prepare release-clean release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-bump test-canister-artifact-contract test-sql-canister-matrix \
+        test test-canister-artifact-contract test-sql-canister-matrix \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-sql-perf-wasm build-canister-local build-canister-production \
@@ -87,19 +87,19 @@ help:
 	@echo "Version Management:"
 	@echo "  version          Show current version"
 	@echo "  tags             List available git tags"
-	@echo "  patch            Run release gate, then bump patch version files (0.0.x)"
-	@echo "  minor            Confirm, run release gate, then bump minor version files (0.x.0)"
-	@echo "  major            Confirm, run full release gate, then bump major version files (x.0.0)"
+	@echo "  patch            Prepare and bump patch version files (0.0.x)"
+	@echo "  minor            Confirm, prepare, and bump minor version files (0.x.0)"
+	@echo "  major            Confirm, prepare, and bump major version files (x.0.0)"
 	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
 	@echo "  release-stage    Stage known release files"
-	@echo "  release-commit   Commit version files and create the release tag"
+	@echo "  release-commit   Commit version files, run the exact release gate, and tag"
 	@echo "  release-push     Push the release commit and tags, then clean release artifacts"
 	@echo "  release-patch    Human-owned one-shot patch release"
 	@echo "  release-minor    Confirm, bump, stage, commit, tag, and push a minor release"
 	@echo "  release-major    Confirm, bump, stage, commit, tag, and push a major release"
 	@echo "  release          CI-driven release (local target is no-op)"
 	@echo "  package          Build publishable crate tarballs"
-	@echo "  publish          Publish crates; reuse an exact one-shot release receipt when available"
+	@echo "  publish          Publish crates; reuse the exact release-commit receipt when available"
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
@@ -189,7 +189,7 @@ install-hooks ensure-hooks:
 
 
 #
-# Version management (guarded bumps confirm before running the release gate)
+# Version management (the exact committed release tree is gated by release-commit)
 #
 
 version:
@@ -201,24 +201,18 @@ tags:
 patch:
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump
 	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch
 
 minor:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test-bump
 	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor
 
 major:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory fmt
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test
 	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major
 
 release-prepare:
@@ -245,33 +239,41 @@ release-commit:
 		echo "❌ Tag v$$version already exists. Aborting." >&2; \
 		exit 1; \
 	fi; \
-	if git diff --cached --quiet --ignore-submodules HEAD --; then \
-		echo "No staged release files; run make release-stage first." >&2; \
+	if ! git diff --quiet --ignore-submodules --; then \
+		echo "Unstaged changes remain; stage the release files from a clean tree." >&2; \
 		exit 1; \
 	fi; \
-	git commit -m "Release $$version"; \
-	git tag -a "v$$version" -m "Release $$version"
+	if git diff --cached --quiet --ignore-submodules HEAD --; then \
+		if [ "$$(git log -1 --format=%s)" != "Release $$version" ]; then \
+			echo "No staged release files; run make release-stage first." >&2; \
+			exit 1; \
+		fi; \
+		echo "Resuming release gate for existing Release $$version commit."; \
+	else \
+		git commit -m "Release $$version"; \
+	fi
+	@$(MAKE) --no-print-directory ensure-clean
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test
+	@version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \
+	git tag -a "v$$version" -m "Release $$version"; \
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/record-release-gate-receipt.sh
 
 release-push:
 	git push --follow-tags
 	@bash scripts/ci/cleanup-release-workspace.sh
 
 release-patch: patch release-stage release-commit release-push
-	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" scripts/ci/record-release-gate-receipt.sh
 
 release-minor: minor release-stage release-commit release-push
-	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" scripts/ci/record-release-gate-receipt.sh
 
 release-major: major release-stage release-commit release-push
-	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" scripts/ci/record-release-gate-receipt.sh
 
 #
 # Tests
 #
 
 test: clippy test-unit test-canister-artifact-contract
-
-test-bump: clippy test-unit test-canister-artifact-contract
 
 test-unit:
 	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features

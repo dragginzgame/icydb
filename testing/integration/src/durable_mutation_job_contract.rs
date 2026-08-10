@@ -81,6 +81,23 @@ const _: () = {
     assert!(CURRENT_MUTATION_JOB_STABLE_BYTES.len() == 3);
     assert!(CURRENT_DURABLE_START_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[0] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[1] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[2] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
+    assert!(
+        CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
+    assert!(
+        CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS
+            < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
+    assert!(CURRENT_DURABLE_STATE_INSTRUCTIONS < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert!(
+        CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
+    assert!(
+        CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
 };
 
 /// Frozen existing current-control preparation measurement.
@@ -110,6 +127,24 @@ pub const CURRENT_DURABLE_FORWARD_INSTRUCTIONS: &[u64] = &[
 
 /// Current exact replay sample for the final retained Forward receipt.
 pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_882;
+
+/// Current durable 256-key Verify samples over the fixed 512-row fixture.
+pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[7_738_627, 7_733_889, 7_661_521];
+
+/// Current exact replay sample for one retained nonterminal Verify receipt.
+pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 124_946;
+
+/// Current pre-scan revision-drift restart sample.
+pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_775_370;
+
+/// Current terminal mutation-job state-load sample.
+pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 105_155;
+
+/// Current exact replay sample for the retained completion receipt.
+pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_389;
+
+/// Current sequence-checked terminal acknowledgement sample.
+pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 118_079;
 
 /// Maximum reviewed instruction cost for one 64-update Forward step.
 pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 30_000_000;
@@ -365,6 +400,7 @@ mod tests {
         assert_eq!(minimum_verify_advances(10_001), 40);
         assert_eq!(BASELINE_FORWARD_INSTRUCTIONS.len(), 8);
         assert_eq!(BASELINE_VERIFY_INSTRUCTIONS.len(), 2);
+        assert_eq!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS.len(), 3);
         assert_eq!(BASELINE_DYNAMIC_QUERY_RAW_WASM_BYTES, 2_607_381);
         assert_eq!(BASELINE_TYPED_QUERY_RAW_WASM_BYTES, 1_792_657);
         assert!(

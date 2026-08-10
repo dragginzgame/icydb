@@ -8,7 +8,7 @@
 use crate::{
     db::{
         DbSession, MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError,
-        MutationJobId, MutationJobPhase, MutationJobStatus, QueryError,
+        MutationJobId, MutationJobPhase, MutationJobRestartReason, MutationJobStatus, QueryError,
         codec::{
             finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u64,
         },
@@ -311,6 +311,12 @@ impl DecodedMutationJobEngineContinuation {
             batch_policy_identity,
         })
     }
+
+    fn restart_forward(&mut self) {
+        self.phase = MutationJobEnginePhase::Forward;
+        self.checkpoint = None;
+        self.verify_revision = None;
+    }
 }
 
 struct ResumableTokenReader<'a> {
@@ -396,6 +402,33 @@ struct PreparedResumableUpdateStart {
     operation_timestamp: Timestamp,
 }
 
+struct PreparedMutationJobExecution {
+    intent: CanonicalMutationIntent,
+    catalog: AcceptedSchemaCatalogContext,
+    store: StoreHandle,
+    continuation: DecodedMutationJobEngineContinuation,
+    scope: Expr,
+    fixed_patch: AcceptedFixedUpdatePatch,
+}
+
+struct PreparedMutationJobAuthority {
+    intent: CanonicalMutationIntent,
+    catalog: AcceptedSchemaCatalogContext,
+    store: StoreHandle,
+    target_identity: [u8; 32],
+}
+
+struct PreparedMutationJobRuntime<'a> {
+    descriptor: AcceptedRowLayoutRuntimeContract<'a>,
+    compiled_scope: CompiledExpr,
+    row_contract: StructuralRowContract,
+}
+
+enum MutationJobExecutionPreparationError {
+    Restart(MutationJobRestartReason),
+    Failure(MutationJobError),
+}
+
 impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn prepare_mutation_job_start(
         &self,
@@ -432,6 +465,140 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    fn prepare_mutation_job_authority(
+        &self,
+        before: &MutationJobRecord,
+    ) -> Result<PreparedMutationJobAuthority, MutationJobExecutionPreparationError> {
+        let intent = CanonicalMutationIntent::decode(before.canonical_intent())
+            .map_err(MutationJobExecutionPreparationError::Failure)?;
+        let current_incarnation = database_incarnation_id()
+            .map_err(|_| MutationJobExecutionPreparationError::Failure(MutationJobError::Internal))?
+            .to_bytes();
+        if current_incarnation != intent.database_incarnation() {
+            return Err(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::TargetAllocationChanged,
+            ));
+        }
+        if intent.batch_policy_identity() != RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY {
+            return Err(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::BatchPolicyChanged,
+            ));
+        }
+
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(Some(intent.target_entity_path()))
+            .map_err(|_| {
+                MutationJobExecutionPreparationError::Restart(
+                    MutationJobRestartReason::AcceptedSchemaChanged,
+                )
+            })?;
+        if !mutation_job_catalog_authority_matches(&intent, &catalog) {
+            return Err(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::AcceptedSchemaChanged,
+            ));
+        }
+        let identity = catalog.identity();
+        let store = self
+            .db
+            .recovered_store(identity.store_path())
+            .map_err(|_| {
+                MutationJobExecutionPreparationError::Failure(MutationJobError::TargetQueryFailed)
+            })?;
+        if store.storage_capabilities().storage_mode() != StoreRuntimeStorageMode::Journaled {
+            return Err(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::TargetAllocationChanged,
+            ));
+        }
+        let target_identity = resumable_update_target_identity(
+            &store,
+            identity.store_path(),
+            identity.entity_path(),
+            identity.entity_tag().value(),
+        )
+        .map_err(|_| {
+            MutationJobExecutionPreparationError::Failure(MutationJobError::TargetQueryFailed)
+        })?;
+        if target_identity != intent.target_store_identity() {
+            return Err(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::TargetAllocationChanged,
+            ));
+        }
+
+        Ok(PreparedMutationJobAuthority {
+            intent,
+            catalog,
+            store,
+            target_identity,
+        })
+    }
+
+    fn prepare_mutation_job_execution(
+        &self,
+        before: &MutationJobRecord,
+        request: &MutationJobAdvanceRequest,
+        expected_phase: MutationJobEnginePhase,
+    ) -> Result<PreparedMutationJobExecution, MutationJobExecutionPreparationError> {
+        let PreparedMutationJobAuthority {
+            intent,
+            catalog,
+            store,
+            target_identity,
+        } = self.prepare_mutation_job_authority(before)?;
+        let identity = catalog.identity();
+
+        let continuation = decode_retained_mutation_job_continuation(before.engine_continuation())?;
+        if continuation.batch_policy_identity != RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY {
+            return Err(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::BatchPolicyChanged,
+            ));
+        }
+        if continuation.operation_id != mutation_job_operation_id(request.job_id)
+            || continuation.operation_timestamp != intent.operation_timestamp()
+            || continuation.phase != expected_phase
+        {
+            return Err(MutationJobExecutionPreparationError::Failure(
+                MutationJobError::CorruptProgressStore,
+            ));
+        }
+        let scope = intent
+            .decode_scope()
+            .map_err(MutationJobExecutionPreparationError::Failure)?;
+        let fixed_patch = intent
+            .decode_fixed_patch()
+            .map_err(MutationJobExecutionPreparationError::Failure)?;
+        let eligibility = ResumableUpdateEligibility {
+            scope_fingerprint: resumable_update_scope_fingerprint(&scope),
+            patch_fingerprint: fixed_patch.fingerprint(),
+        };
+        validate_resumable_update_bindings(
+            &continuation,
+            identity.entity_tag().value(),
+            target_identity,
+            catalog.fingerprint_method_version(),
+            catalog.fingerprint(),
+            &eligibility,
+        )
+        .map_err(|_| {
+            MutationJobExecutionPreparationError::Failure(MutationJobError::CorruptProgressStore)
+        })?;
+        validate_resumable_update_checkpoint(&continuation, identity.entity_tag()).map_err(
+            |_| {
+                MutationJobExecutionPreparationError::Failure(
+                    MutationJobError::CorruptProgressStore,
+                )
+            },
+        )?;
+
+        Ok(PreparedMutationJobExecution {
+            intent,
+            catalog,
+            store,
+            continuation,
+            scope,
+            fixed_patch,
+        })
+    }
+
     /// Advance one authority-bound durable mutation job through one Forward page.
     #[expect(
         clippy::too_many_lines,
@@ -445,72 +612,36 @@ impl<C: CanisterKind> DbSession<C> {
         if before.state().phase != MutationJobPhase::Forward {
             return Err(MutationJobError::Internal);
         }
-        let intent = CanonicalMutationIntent::decode(before.canonical_intent())?;
-        validate_mutation_job_database_authority(&intent)?;
-        if intent.batch_policy_identity() != RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY {
-            return Err(MutationJobError::IneligibleIntent);
-        }
-
-        let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(Some(intent.target_entity_path()))
-            .map_err(|_| MutationJobError::AuthorityMismatch)?;
-        validate_mutation_job_catalog_authority(&intent, &catalog)?;
-        let identity = catalog.identity();
-        let store = self
-            .db
-            .recovered_store(identity.store_path())
-            .map_err(|_| MutationJobError::TargetQueryFailed)?;
-        if store.storage_capabilities().storage_mode() != StoreRuntimeStorageMode::Journaled {
-            return Err(MutationJobError::AuthorityMismatch);
-        }
-        let target_identity = resumable_update_target_identity(
-            &store,
-            identity.store_path(),
-            identity.entity_path(),
-            identity.entity_tag().value(),
-        )
-        .map_err(|_| MutationJobError::TargetQueryFailed)?;
-        if target_identity != intent.target_store_identity() {
-            return Err(MutationJobError::AuthorityMismatch);
-        }
-
-        let mut continuation =
-            DecodedMutationJobEngineContinuation::decode(before.engine_continuation())
-                .map_err(|_| MutationJobError::CorruptProgressStore)?;
-        if continuation.operation_id != mutation_job_operation_id(request.job_id)
-            || continuation.operation_timestamp != intent.operation_timestamp()
-            || continuation.phase != MutationJobEnginePhase::Forward
-        {
-            return Err(MutationJobError::CorruptProgressStore);
-        }
-        let scope = intent.decode_scope()?;
-        let fixed_patch = intent.decode_fixed_patch()?;
-        let eligibility = ResumableUpdateEligibility {
-            scope_fingerprint: resumable_update_scope_fingerprint(&scope),
-            patch_fingerprint: fixed_patch.fingerprint(),
+        let PreparedMutationJobExecution {
+            intent,
+            catalog,
+            store,
+            mut continuation,
+            scope,
+            fixed_patch,
+        } = match self.prepare_mutation_job_execution(
+            before,
+            request,
+            MutationJobEnginePhase::Forward,
+        ) {
+            Ok(prepared) => prepared,
+            Err(MutationJobExecutionPreparationError::Restart(reason)) => {
+                return persist_terminal_mutation_job_restart::<C>(before, request, reason);
+            }
+            Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
-        validate_resumable_update_bindings(
-            &continuation,
-            identity.entity_tag().value(),
-            target_identity,
-            catalog.fingerprint_method_version(),
-            catalog.fingerprint(),
-            &eligibility,
-        )
-        .map_err(|_| MutationJobError::CorruptProgressStore)?;
-        validate_resumable_update_checkpoint(&continuation, identity.entity_tag())
-            .map_err(|_| MutationJobError::CorruptProgressStore)?;
-
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .map_err(|_| MutationJobError::AuthorityMismatch)?;
-        let compiled_scope =
-            compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), &scope)
-                .map(|expr| CompiledExpr::compile(&expr))
-                .ok_or(MutationJobError::IneligibleIntent)?;
-        let row_contract = StructuralRowContract::from_accepted_decode_contract(
-            identity.entity_path(),
-            descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
-        );
+        let identity = catalog.identity();
+        let PreparedMutationJobRuntime {
+            descriptor,
+            compiled_scope,
+            row_contract,
+        } = match prepare_mutation_job_runtime(&catalog, &scope, &fixed_patch) {
+            Ok(runtime) => runtime,
+            Err(MutationJobExecutionPreparationError::Restart(reason)) => {
+                return persist_terminal_mutation_job_restart::<C>(before, request, reason);
+            }
+            Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
+        };
         let scan = scan_resumable_update_forward(
             &store,
             continuation.checkpoint.as_ref(),
@@ -586,6 +717,108 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
         Ok(receipt)
+    }
+
+    /// Advance one authority-bound durable mutation job through one stable Verify page.
+    pub(in crate::db::session) fn advance_mutation_job_verify(
+        &self,
+        before: &MutationJobRecord,
+        request: &MutationJobAdvanceRequest,
+    ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+        if before.state().phase != MutationJobPhase::Verify {
+            return Err(MutationJobError::Internal);
+        }
+        let PreparedMutationJobExecution {
+            intent: _,
+            catalog,
+            store,
+            mut continuation,
+            scope,
+            fixed_patch,
+        } = match self.prepare_mutation_job_execution(
+            before,
+            request,
+            MutationJobEnginePhase::Verify,
+        ) {
+            Ok(prepared) => prepared,
+            Err(MutationJobExecutionPreparationError::Restart(reason)) => {
+                return persist_terminal_mutation_job_restart::<C>(before, request, reason);
+            }
+            Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
+        };
+        let identity = catalog.identity();
+        let PreparedMutationJobRuntime {
+            descriptor: _,
+            compiled_scope,
+            row_contract,
+        } = match prepare_mutation_job_runtime(&catalog, &scope, &fixed_patch) {
+            Ok(runtime) => runtime,
+            Err(MutationJobExecutionPreparationError::Restart(reason)) => {
+                return persist_terminal_mutation_job_restart::<C>(before, request, reason);
+            }
+            Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
+        };
+        let captured_revision = continuation
+            .verify_revision
+            .ok_or(MutationJobError::CorruptProgressStore)?;
+        if durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?
+            != captured_revision
+        {
+            continuation.restart_forward();
+            return persist_verify_restart::<C>(before, request, &continuation, 0);
+        }
+
+        let scan = scan_mutation_job_verify(
+            &store,
+            continuation.checkpoint.as_ref(),
+            identity.entity_tag(),
+            &compiled_scope,
+            &row_contract,
+            &fixed_patch,
+        )
+        .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        record_resumable_rows_scanned(identity.entity_path(), scan.keys_scanned);
+        let keys_scanned =
+            u64::try_from(scan.keys_scanned).map_err(|_| MutationJobError::CounterOverflow)?;
+        let revision_after_scan =
+            durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?;
+        if scan.residual_work || revision_after_scan != captured_revision {
+            continuation.restart_forward();
+            return persist_verify_restart::<C>(before, request, &continuation, keys_scanned);
+        }
+
+        if scan.exhausted {
+            return persist_mutation_job_progress_transition::<C>(
+                before,
+                request,
+                MutationJobTransition::new(
+                    MutationJobStatus::Completed,
+                    MutationJobPhase::Verify,
+                    Vec::new(),
+                    keys_scanned,
+                    0,
+                    0,
+                ),
+            );
+        }
+
+        continuation.checkpoint = scan.final_checkpoint;
+        let next_continuation = continuation
+            .encode()
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+            .into_bytes();
+        persist_mutation_job_progress_transition::<C>(
+            before,
+            request,
+            MutationJobTransition::new(
+                MutationJobStatus::Active,
+                MutationJobPhase::Verify,
+                next_continuation,
+                keys_scanned,
+                0,
+                0,
+            ),
+        )
     }
 
     fn prepare_resumable_update_start(
@@ -740,10 +973,6 @@ fn scan_resumable_update_forward(
     })
 }
 
-#[expect(
-    dead_code,
-    reason = "Patch 5 retains the bounded private Verify result for the Patch 6 durable coordinator"
-)]
 struct ResumableVerifyScan {
     final_checkpoint: Option<RawDataStoreKey>,
     keys_scanned: usize,
@@ -751,10 +980,6 @@ struct ResumableVerifyScan {
     residual_work: bool,
 }
 
-#[expect(
-    dead_code,
-    reason = "Patch 5 retains the bounded private Verify scan for the Patch 6 durable coordinator"
-)]
 fn scan_mutation_job_verify(
     store: &StoreHandle,
     checkpoint: Option<&RawDataStoreKey>,
@@ -857,33 +1082,129 @@ fn durable_store_revision_after_next_mutation(
         .map_err(|_| MutationJobError::TargetMutationFailed)
 }
 
-fn validate_mutation_job_database_authority(
-    intent: &CanonicalMutationIntent,
-) -> Result<(), MutationJobError> {
-    let current = database_incarnation_id()
-        .map_err(|_| MutationJobError::Internal)?
-        .to_bytes();
-    if current != intent.database_incarnation() {
-        return Err(MutationJobError::AuthorityMismatch);
-    }
-    Ok(())
+fn prepare_mutation_job_runtime<'a>(
+    catalog: &'a AcceptedSchemaCatalogContext,
+    scope: &Expr,
+    fixed_patch: &AcceptedFixedUpdatePatch,
+) -> Result<PreparedMutationJobRuntime<'a>, MutationJobExecutionPreparationError> {
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+        .map_err(|_| MutationJobExecutionPreparationError::Failure(MutationJobError::Internal))?;
+    prove_resumable_update_fixed_eligibility(
+        catalog.snapshot().persisted_snapshot(),
+        &descriptor,
+        scope,
+        fixed_patch,
+    )
+    .map_err(|_| {
+        MutationJobExecutionPreparationError::Restart(MutationJobRestartReason::IntentIneligible)
+    })?;
+    let compiled_scope =
+        compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), scope)
+            .map(|expr| CompiledExpr::compile(&expr))
+            .ok_or(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::IntentIneligible,
+            ))?;
+    let identity = catalog.identity();
+    let row_contract = StructuralRowContract::from_accepted_decode_contract(
+        identity.entity_path(),
+        descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
+    );
+
+    Ok(PreparedMutationJobRuntime {
+        descriptor,
+        compiled_scope,
+        row_contract,
+    })
 }
 
-fn validate_mutation_job_catalog_authority(
+fn mutation_job_catalog_authority_matches(
     intent: &CanonicalMutationIntent,
     catalog: &AcceptedSchemaCatalogContext,
-) -> Result<(), MutationJobError> {
+) -> bool {
     let identity = catalog.identity();
-    if identity.store_path() != intent.target_store_path()
-        || identity.entity_path() != intent.target_entity_path()
-        || identity.entity_tag().value() != intent.target_entity_tag()
-        || catalog.revision().get() != intent.accepted_schema_revision()
-        || catalog.fingerprint_method_version() != intent.accepted_schema_fingerprint_method()
-        || catalog.fingerprint() != intent.accepted_schema_fingerprint()
+    identity.store_path() == intent.target_store_path()
+        && identity.entity_path() == intent.target_entity_path()
+        && identity.entity_tag().value() == intent.target_entity_tag()
+        && catalog.revision().get() == intent.accepted_schema_revision()
+        && catalog.fingerprint_method_version() == intent.accepted_schema_fingerprint_method()
+        && catalog.fingerprint() == intent.accepted_schema_fingerprint()
+}
+
+fn decode_retained_mutation_job_continuation(
+    bytes: &[u8],
+) -> Result<DecodedMutationJobEngineContinuation, MutationJobExecutionPreparationError> {
+    if bytes.get(..4) == Some(RESUMABLE_UPDATE_CONTINUATION_MAGIC)
+        && bytes.get(4).copied() != Some(RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION)
+        && bytes.len() <= MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES
+        && let Some((payload, checksum)) =
+            bytes.split_at_checked(bytes.len().saturating_sub(size_of::<u32>()))
+        && checksum
+            .try_into()
+            .map(u32::from_be_bytes)
+            .is_ok_and(|expected| crc32c(payload) == expected)
     {
-        return Err(MutationJobError::AuthorityMismatch);
+        return Err(MutationJobExecutionPreparationError::Restart(
+            MutationJobRestartReason::UnsupportedContinuation,
+        ));
     }
-    Ok(())
+
+    DecodedMutationJobEngineContinuation::decode(bytes).map_err(|_| {
+        MutationJobExecutionPreparationError::Failure(MutationJobError::CorruptProgressStore)
+    })
+}
+
+fn persist_mutation_job_progress_transition<C: CanisterKind>(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    transition: MutationJobTransition,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    let (after, receipt) = before.apply_transition(request, transition)?;
+    let progress_operation = MutationProgressRecordOp::replace(before, &after)?;
+    replace_mutation_progress_record_op::<C>(&progress_operation)?;
+    Ok(receipt)
+}
+
+fn persist_terminal_mutation_job_restart<C: CanisterKind>(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    reason: MutationJobRestartReason,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    persist_mutation_job_progress_transition::<C>(
+        before,
+        request,
+        MutationJobTransition::new(
+            MutationJobStatus::RestartRequired(reason),
+            before.state().phase,
+            Vec::new(),
+            0,
+            0,
+            0,
+        ),
+    )
+}
+
+fn persist_verify_restart<C: CanisterKind>(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    continuation: &DecodedMutationJobEngineContinuation,
+    keys_scanned: u64,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    let next_continuation = continuation
+        .encode()
+        .map_err(|_| MutationJobError::CorruptProgressStore)?
+        .into_bytes();
+    persist_mutation_job_progress_transition::<C>(
+        before,
+        request,
+        MutationJobTransition::new(
+            MutationJobStatus::Active,
+            MutationJobPhase::Forward,
+            next_continuation,
+            keys_scanned,
+            0,
+            1,
+        ),
+    )
 }
 
 fn validate_resumable_update_bindings(
@@ -991,14 +1312,23 @@ fn prove_resumable_update_eligibility(
     selector: &crate::db::query::intent::StructuralQuery,
     patch: &AcceptedFixedUpdatePatch,
 ) -> Result<ResumableUpdateEligibility, QueryError> {
+    let scope = selector.scalar_filter_expr().ok_or_else(|| {
+        QueryError::sql_write_boundary(SqlWriteBoundaryCode::UpdateMissingWherePredicate)
+    })?;
+    prove_resumable_update_fixed_eligibility(snapshot, descriptor, scope, patch)
+}
+
+fn prove_resumable_update_fixed_eligibility(
+    snapshot: &PersistedSchemaSnapshot,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    scope: &Expr,
+    patch: &AcceptedFixedUpdatePatch,
+) -> Result<ResumableUpdateEligibility, QueryError> {
     if snapshot.update_management_requires_global_write_validation() {
         return Err(QueryError::sql_write_boundary(
             SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint,
         ));
     }
-    let scope = selector.scalar_filter_expr().ok_or_else(|| {
-        QueryError::sql_write_boundary(SqlWriteBoundaryCode::UpdateMissingWherePredicate)
-    })?;
     let mut scope_roots = BTreeSet::new();
     if !collect_scalar_expr_field_roots(scope, &mut scope_roots) {
         return Err(QueryError::sql_write_boundary(
@@ -1094,5 +1424,46 @@ mod tests {
                 "compatibility input {index} must participate in the batch-policy identity",
             );
         }
+    }
+
+    #[test]
+    fn retained_continuation_distinguishes_unsupported_format_from_corruption() {
+        let mut unsupported_version = RESUMABLE_UPDATE_CONTINUATION_MAGIC.to_vec();
+        unsupported_version.push(RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION.saturating_add(1));
+        unsupported_version.extend_from_slice(&crc32c(&unsupported_version).to_be_bytes());
+        assert!(matches!(
+            decode_retained_mutation_job_continuation(&unsupported_version),
+            Err(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::UnsupportedContinuation
+            ))
+        ));
+
+        let malformed_current = [
+            RESUMABLE_UPDATE_CONTINUATION_MAGIC[0],
+            RESUMABLE_UPDATE_CONTINUATION_MAGIC[1],
+            RESUMABLE_UPDATE_CONTINUATION_MAGIC[2],
+            RESUMABLE_UPDATE_CONTINUATION_MAGIC[3],
+            RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION,
+        ];
+        assert!(matches!(
+            decode_retained_mutation_job_continuation(&malformed_current),
+            Err(MutationJobExecutionPreparationError::Failure(
+                MutationJobError::CorruptProgressStore
+            ))
+        ));
+
+        let unknown_magic = [
+            b'O',
+            b'L',
+            b'D',
+            b'U',
+            RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION,
+        ];
+        assert!(matches!(
+            decode_retained_mutation_job_continuation(&unknown_magic),
+            Err(MutationJobExecutionPreparationError::Failure(
+                MutationJobError::CorruptProgressStore
+            ))
+        ));
     }
 }

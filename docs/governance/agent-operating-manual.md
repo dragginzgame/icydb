@@ -37,7 +37,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 - During active development, run `cargo fmt --all` after edits instead of using `--check` as a discovery step.
 - Use non-mutating format checks (`cargo fmt --all --check` or `make fmt-check`) for final release/readiness verification and CI parity.
-- Pre-commit gate: `make fmt-check && make clippy && make check && make test`.
+- Pre-commit hooks format and sort the exact commit contents.
+- Ordinary pre-push runs `make test`. Release commits run that full gate once
+  before tagging and record the exact commit, so their pre-push reuses the
+  receipt instead of compiling and testing the same tree twice.
 - Fast CI gate: `make check && make clippy`.
 - Release readiness: `make check-versioning`; release publication uses
   `make patch|minor|major`, then `make release-stage`, `make release-commit`,

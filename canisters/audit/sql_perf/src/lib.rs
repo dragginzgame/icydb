@@ -17,12 +17,12 @@ use icydb::{
     db::{
         DynamicQuery, EntitySchemaDescription, ExhaustiveQueryPageOutput, ExhaustiveReadError,
         GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
-        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobAdvanceRequest,
-        MutationJobError, MutationJobId, MutationJobIdempotencyKey, MutationJobPhase,
-        MutationJobState, ReadSetRevisionError, ReadSetRevisionProof, SqlCompileAttribution,
-        SqlExecutionAttribution, SqlIntegrityError, SqlPureCoveringAttribution,
-        SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
-        StructuralMutation, StructuralPatch, WriteCell,
+        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobAdvanceReceipt,
+        MutationJobAdvanceRequest, MutationJobError, MutationJobId, MutationJobIdempotencyKey,
+        MutationJobPhase, MutationJobState, MutationJobStatus, ReadSetRevisionError,
+        ReadSetRevisionProof, SqlCompileAttribution, SqlExecutionAttribution, SqlIntegrityError,
+        SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
+        SqlStructuralWorkAttribution, StructuralMutation, StructuralPatch, WriteCell,
         query::{FieldRef, asc},
         sql::SqlQueryResult,
     },
@@ -196,6 +196,48 @@ struct MutationJobForwardPerfResult {
     zero_candidate_sequence: u64,
     stale_request_preserved_sequence: bool,
     operation_timestamp_groups: u32,
+}
+
+/// Stable Verify completion, revision-drift restart, replay, and acknowledgement evidence.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct MutationJobVerifyResult {
+    first_verify_keys_scanned: u64,
+    first_verify_local_instructions: u64,
+    verify_replay_local_instructions: u64,
+    drift_restart_keys_scanned: u64,
+    drift_restart_local_instructions: u64,
+    stable_verify_local_instructions: Vec<u64>,
+    verify_restarts_total: u64,
+    restarted_forward_rows_updated: u64,
+    completed_sequence: u64,
+    state_local_instructions: u64,
+    terminal_replay_local_instructions: u64,
+    acknowledgement_local_instructions: u64,
+    replay: MutationJobReplayEvidence,
+    acknowledgement: MutationJobAcknowledgementEvidence,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct MutationJobReplayEvidence {
+    verify_matches: bool,
+    terminal_matches: bool,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct MutationJobAcknowledgementEvidence {
+    stale_rejected: bool,
+    terminal_acknowledged: bool,
+}
+
+#[cfg(feature = "sql")]
+struct MutationJobCompletionEvidence {
+    stable_verify_local_instructions: Vec<u64>,
+    restarted_forward_rows_updated: u64,
+    terminal_request: MutationJobAdvanceRequest,
+    terminal_receipt: MutationJobAdvanceReceipt,
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
@@ -2003,6 +2045,193 @@ fn measure_journaled_user_mutation_forward_perf()
         }
 
         Err(MutationJobError::Internal)
+    })
+}
+
+#[cfg(feature = "sql")]
+fn advance_audit_mutation_job_to_verify(
+    session: &icydb::db::DbSession<crate::__icydb_generated::__IcydbGeneratedCanister>,
+    job_id: MutationJobId,
+    mut sequence: u64,
+) -> Result<u64, MutationJobError> {
+    const MAX_FORWARD_STEPS: usize = 16;
+
+    for _ in 0..MAX_FORWARD_STEPS {
+        let request = MutationJobAdvanceRequest::new(
+            job_id,
+            sequence,
+            MutationJobIdempotencyKey::new(format!("verify-forward-{sequence}"))?,
+        );
+        let receipt = session.advance_trusted_mutation_job(&request)?;
+        sequence = receipt.committed_sequence;
+        if receipt.phase == MutationJobPhase::Verify {
+            return Ok(sequence);
+        }
+    }
+
+    Err(MutationJobError::Internal)
+}
+
+#[cfg(feature = "sql")]
+fn complete_audit_mutation_job_after_restart(
+    session: &icydb::db::DbSession<crate::__icydb_generated::__IcydbGeneratedCanister>,
+    job_id: MutationJobId,
+    mut sequence: u64,
+) -> Result<MutationJobCompletionEvidence, MutationJobError> {
+    const MAX_RESTART_STEPS: usize = 8;
+
+    let mut restarted_forward_rows_updated = 0_u64;
+    let mut phase = MutationJobPhase::Forward;
+    let mut stable_verify_local_instructions = Vec::new();
+    for _ in 0..MAX_RESTART_STEPS {
+        let request = MutationJobAdvanceRequest::new(
+            job_id,
+            sequence,
+            MutationJobIdempotencyKey::new(format!("verify-resume-{sequence}"))?,
+        );
+        let start = ic_cdk::api::performance_counter(1);
+        let receipt = session.advance_trusted_mutation_job(&request)?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        if phase == MutationJobPhase::Verify {
+            stable_verify_local_instructions.push(local_instructions);
+        }
+        restarted_forward_rows_updated =
+            restarted_forward_rows_updated.saturating_add(receipt.rows_updated);
+        sequence = receipt.committed_sequence;
+        phase = receipt.phase;
+        if receipt.status == MutationJobStatus::Completed {
+            return Ok(MutationJobCompletionEvidence {
+                stable_verify_local_instructions,
+                restarted_forward_rows_updated,
+                terminal_request: request,
+                terminal_receipt: receipt,
+            });
+        }
+    }
+
+    Err(MutationJobError::Internal)
+}
+
+#[cfg(feature = "sql")]
+fn inject_audit_mutation_revision_drift(
+    session: &icydb::db::DbSession<crate::__icydb_generated::__IcydbGeneratedCanister>,
+) -> Result<(), MutationJobError> {
+    session
+        .execute_trusted_sql_exact_update(
+            "UPDATE PerfAuditJournaledUser SET name = 'verify-drift' WHERE id = 1",
+            1,
+        )
+        .map(|_| ())
+        .map_err(|_| MutationJobError::TargetMutationFailed)
+}
+
+/// Exercise stable Verify, an intervening target write, replay, and terminal acknowledgement.
+#[cfg(feature = "sql")]
+#[update]
+fn verify_journaled_user_mutation_job_lifecycle()
+-> Result<MutationJobVerifyResult, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        let session = db().map_err(|_| MutationJobError::Internal)?;
+        let sql = "UPDATE PerfAuditJournaledUser SET name = 'verify-measured' WHERE age >= 0";
+        let mut job_bytes = [0; 32];
+        job_bytes[31] = 75;
+        let job_id = MutationJobId::try_from_bytes(job_bytes)?;
+        let sequence = session
+            .start_trusted_sql_mutation_job(job_id, sql)?
+            .sequence;
+        let mut sequence = advance_audit_mutation_job_to_verify(&session, job_id, sequence)?;
+
+        let first_verify_request = MutationJobAdvanceRequest::new(
+            job_id,
+            sequence,
+            MutationJobIdempotencyKey::new(format!("verify-page-{sequence}"))?,
+        );
+        let start = ic_cdk::api::performance_counter(1);
+        let first_verify = session.advance_trusted_mutation_job(&first_verify_request)?;
+        let first_verify_local_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        if first_verify.phase != MutationJobPhase::Verify
+            || first_verify.status != MutationJobStatus::Active
+        {
+            return Err(MutationJobError::Internal);
+        }
+        let start = ic_cdk::api::performance_counter(1);
+        let first_verify_replay = session.advance_trusted_mutation_job(&first_verify_request)?;
+        let verify_replay_local_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        sequence = first_verify.committed_sequence;
+
+        inject_audit_mutation_revision_drift(&session)?;
+
+        let drift_request = MutationJobAdvanceRequest::new(
+            job_id,
+            sequence,
+            MutationJobIdempotencyKey::new(format!("verify-drift-{sequence}"))?,
+        );
+        let start = ic_cdk::api::performance_counter(1);
+        let drift_restart = session.advance_trusted_mutation_job(&drift_request)?;
+        let drift_restart_local_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        if drift_restart.phase != MutationJobPhase::Forward
+            || drift_restart.status != MutationJobStatus::Active
+            || drift_restart.verify_restarts_total != 1
+        {
+            return Err(MutationJobError::Internal);
+        }
+        sequence = drift_restart.committed_sequence;
+        let MutationJobCompletionEvidence {
+            stable_verify_local_instructions,
+            restarted_forward_rows_updated,
+            terminal_request,
+            terminal_receipt,
+        } = complete_audit_mutation_job_after_restart(&session, job_id, sequence)?;
+        sequence = terminal_receipt.committed_sequence;
+        let start = ic_cdk::api::performance_counter(1);
+        let terminal_state = session.mutation_job_state(job_id)?;
+        let state_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        if terminal_state.status != MutationJobStatus::Completed {
+            return Err(MutationJobError::Internal);
+        }
+        let start = ic_cdk::api::performance_counter(1);
+        let terminal_replay = session.advance_trusted_mutation_job(&terminal_request)?;
+        let terminal_replay_local_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let stale_acknowledgement_rejected = matches!(
+            session.acknowledge_mutation_job(job_id, sequence.saturating_sub(1)),
+            Err(MutationJobError::StaleSequence { .. })
+        );
+        let start = ic_cdk::api::performance_counter(1);
+        session.acknowledge_mutation_job(job_id, sequence)?;
+        let acknowledgement_local_instructions =
+            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        session.acknowledge_mutation_job(job_id, sequence)?;
+        let terminal_acknowledged = matches!(
+            session.mutation_job_state(job_id),
+            Err(MutationJobError::NotFound)
+        );
+
+        Ok(MutationJobVerifyResult {
+            first_verify_keys_scanned: first_verify.keys_scanned,
+            first_verify_local_instructions,
+            verify_replay_local_instructions,
+            drift_restart_keys_scanned: drift_restart.keys_scanned,
+            drift_restart_local_instructions,
+            stable_verify_local_instructions,
+            verify_restarts_total: terminal_receipt.verify_restarts_total,
+            restarted_forward_rows_updated,
+            completed_sequence: terminal_receipt.committed_sequence,
+            state_local_instructions,
+            terminal_replay_local_instructions,
+            acknowledgement_local_instructions,
+            replay: MutationJobReplayEvidence {
+                verify_matches: first_verify == first_verify_replay,
+                terminal_matches: terminal_receipt == terminal_replay,
+            },
+            acknowledgement: MutationJobAcknowledgementEvidence {
+                stale_rejected: stale_acknowledgement_rejected,
+                terminal_acknowledged,
+            },
+        })
     })
 }
 

@@ -470,12 +470,16 @@ Public SQL ownership is split deliberately:
   durable trusted convergence without exposing SQL or continuation custody
 - `execute_admin_sql_ddl(...)` owns accepted-catalog schema DDL SQL
 
-The current durable advance executes one engine-owned Forward page with fixed
-limits of 256 authoritative keys and 64 updates. It commits target rows and
-the next sequence/replay receipt atomically, advances zero-update pages through
-an exact progress replacement, and reuses the operation timestamp frozen at
-start. Forward exhaustion persists an active Verify checkpoint; stable Verify
-completion and restart semantics remain the next 0.223 lifecycle slice.
+The current durable advance dispatches one engine-owned Forward or Verify page.
+Forward examines at most 256 authoritative keys, stages at most 64 updates,
+commits target rows with the next sequence/replay receipt atomically, advances
+zero-update pages through an exact progress replacement, and reuses the
+operation timestamp frozen at start. Forward exhaustion captures the durable
+target revision and enters Verify. Verify examines at most 256 keys, persists
+its physical checkpoint only while that revision remains unchanged, and
+reports `Completed` only after clean exhaustion. Revision drift or a residual
+row restarts Forward from the beginning; accepted-authority or internal-policy
+drift persists a typed `RestartRequired` terminal receipt.
 
 ### SQL `UPDATE` Availability By Surface
 

@@ -24,7 +24,7 @@ use icydb::{
 use icydb_testing_integration::{
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
-        DURABLE_START_INSTRUCTION_REVIEW_CEILING,
+        DURABLE_START_INSTRUCTION_REVIEW_CEILING, DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
     },
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
@@ -89,6 +89,36 @@ struct MutationJobForwardPerfResult {
     zero_candidate_sequence: u64,
     stale_request_preserved_sequence: bool,
     operation_timestamp_groups: u32,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct MutationJobVerifyResult {
+    first_verify_keys_scanned: u64,
+    first_verify_local_instructions: u64,
+    verify_replay_local_instructions: u64,
+    drift_restart_keys_scanned: u64,
+    drift_restart_local_instructions: u64,
+    stable_verify_local_instructions: Vec<u64>,
+    verify_restarts_total: u64,
+    restarted_forward_rows_updated: u64,
+    completed_sequence: u64,
+    state_local_instructions: u64,
+    terminal_replay_local_instructions: u64,
+    acknowledgement_local_instructions: u64,
+    replay: MutationJobReplayEvidence,
+    acknowledgement: MutationJobAcknowledgementEvidence,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct MutationJobReplayEvidence {
+    verify_matches: bool,
+    terminal_matches: bool,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct MutationJobAcknowledgementEvidence {
+    stale_rejected: bool,
+    terminal_acknowledged: bool,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -1625,6 +1655,14 @@ fn measure_mutation_forward(fixture: &StandaloneCanisterFixture) -> MutationJobF
     result.expect("mutation Forward perf endpoint should succeed")
 }
 
+fn verify_mutation_job_lifecycle(fixture: &StandaloneCanisterFixture) -> MutationJobVerifyResult {
+    let result: Result<MutationJobVerifyResult, MutationJobError> = fixture
+        .update_candid("verify_journaled_user_mutation_job_lifecycle", ())
+        .expect("mutation Verify lifecycle result should decode");
+
+    result.expect("mutation Verify lifecycle endpoint should succeed")
+}
+
 fn start_mutation_job(
     fixture: &StandaloneCanisterFixture,
     job_discriminator: u8,
@@ -1956,6 +1994,48 @@ fn sql_perf_mutation_forward_steps_stay_bounded() {
         result.rows_updated,
     );
     assert_mutation_forward_perf_stays_bounded(&result);
+}
+
+#[test]
+fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let result = verify_mutation_job_lifecycle(&fixture);
+
+    println!(
+        "durable mutation Verify: first={} replay={} drift={} stable={:?} state={} terminal_replay={} ack={}",
+        result.first_verify_local_instructions,
+        result.verify_replay_local_instructions,
+        result.drift_restart_local_instructions,
+        result.stable_verify_local_instructions,
+        result.state_local_instructions,
+        result.terminal_replay_local_instructions,
+        result.acknowledgement_local_instructions,
+    );
+
+    assert_eq!(result.first_verify_keys_scanned, 256);
+    assert!(result.first_verify_local_instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
+    assert!(result.replay.verify_matches);
+    assert!(result.verify_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert_eq!(result.drift_restart_keys_scanned, 0);
+    assert!(result.drift_restart_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert_eq!(result.stable_verify_local_instructions.len(), 2);
+    assert!(
+        result
+            .stable_verify_local_instructions
+            .iter()
+            .all(|instructions| *instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING)
+    );
+    assert_eq!(result.verify_restarts_total, 1);
+    assert_eq!(result.restarted_forward_rows_updated, 1);
+    assert_eq!(result.completed_sequence, 14);
+    assert!(result.state_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert!(result.terminal_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert!(result.replay.terminal_matches);
+    assert!(result.acknowledgement.stale_rejected);
+    assert!(result.acknowledgement_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert!(result.acknowledgement.terminal_acknowledged);
 }
 
 #[test]

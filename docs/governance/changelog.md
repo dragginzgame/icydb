@@ -279,8 +279,10 @@ For each release:
 5. Update version and release-surface files with `make patch`, `make minor`, or `make major`.
 6. Review the release diff.
 7. Run `make release-stage` to stage known release files.
-8. Run `make release-commit` to commit version files and tag the release.
-9. Run `make release-push` to publish the release tag.
+8. Run `make release-commit` to commit the version files, test that exact
+   commit once, tag it, and record its local release-gate receipt.
+9. Run `make release-push` to publish the release tag. The pre-push hook reuses
+   only the exact matching release receipt; ordinary pushes remain fully gated.
 
 Order must be preserved.
 Patch releases are batch boundaries, not required endpoints for each code

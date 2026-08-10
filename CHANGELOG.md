@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
 
+- `0.223.3` completes durable mutation jobs with stable revision-checked Verify,
+  deterministic Forward restart on drift or residual work, and replayable
+  terminal completion or restart receipts.
+
 - `0.223.2` atomically advances durable bounded Forward mutations from IcyDB
   custody and removes the old caller-custodied SQL continuation API in a
   potentially breaking Rust hard cut.

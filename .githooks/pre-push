@@ -24,6 +24,8 @@ is_tag_deletion() {
 
 ref_count=0
 tag_delete_count=0
+has_deletion=0
+pushed_commits=()
 while read -r local_ref local_sha remote_ref remote_sha; do
     if [[ -z "${local_ref}${local_sha}${remote_ref}${remote_sha}" ]]; then
         continue
@@ -32,11 +34,40 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if is_tag_deletion "${local_ref}" "${local_sha}" "${remote_ref}"; then
         tag_delete_count=$((tag_delete_count + 1))
     fi
+    if is_zero_sha "${local_sha}"; then
+        has_deletion=1
+        continue
+    fi
+
+    pushed_commit="$(git -C "$ROOT" rev-parse --verify "${local_ref}^{commit}" 2>/dev/null || true)"
+    if [[ -n "${pushed_commit}" ]]; then
+        pushed_commits+=("${pushed_commit}")
+    fi
 done
 
 if [[ "${ref_count}" -gt 0 && "${ref_count}" -eq "${tag_delete_count}" ]]; then
     echo "Skipping pre-push checks for tag deletion-only push."
     exit 0
+fi
+
+# A release gate receipt is valid only for one exact annotated release commit.
+# Skip the duplicate full gate only when every pushed non-deletion ref resolves
+# to that same tested commit. Mixed deletions and unresolvable refs stay on the
+# fail-closed ordinary push path.
+if [[ "${has_deletion}" -eq 0 && "${#pushed_commits[@]}" -eq "${ref_count}" ]]; then
+    receipt_commit="${pushed_commits[0]:-}"
+    refs_share_commit=1
+    for pushed_commit in "${pushed_commits[@]}"; do
+        if [[ "${pushed_commit}" != "${receipt_commit}" ]]; then
+            refs_share_commit=0
+            break
+        fi
+    done
+    if [[ "${refs_share_commit}" -eq 1 && -n "${receipt_commit}" ]] &&
+        "$ROOT/scripts/ci/verify-release-gate-receipt.sh" "${receipt_commit}"; then
+        echo "Reusing exact release-gate receipt for ${receipt_commit}; pre-push tests skipped."
+        exit 0
+    fi
 fi
 
 # Derive repo-local cargo paths from the Makefile so hooks stay aligned with
