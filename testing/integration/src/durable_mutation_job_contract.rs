@@ -141,8 +141,6 @@ pub enum MutationJobAuthorityDisposition {
     Extend,
     /// Keep this authority separate because its semantics intentionally differ.
     KeepSeparate,
-    /// Remove this public custody path after its durable replacement lands.
-    HardCut,
 }
 
 /// One source-anchored current owner that later patches must reconcile.
@@ -486,7 +484,7 @@ mod tests {
                 entry.owner_symbol,
             );
         }
-        assert_eq!(dispositions.len(), 4);
+        assert_eq!(dispositions.len(), 3);
     }
 
     #[test]
