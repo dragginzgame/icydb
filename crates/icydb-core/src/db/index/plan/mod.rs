@@ -16,7 +16,10 @@ use crate::{
         index::{IndexKey, IndexReadContract, IndexRowIdentity},
         key_taxonomy::PrimaryKeyValue,
         predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
-        schema::{SchemaExpressionIndexInfo, SchemaIndexInfo, SchemaInfo},
+        schema::{
+            SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
+            SchemaInfo,
+        },
     },
     error::{InternalError, MutationDiagnosticContext},
     types::EntityTag,
@@ -308,6 +311,29 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<(), IndexPlanError> {
+    let mut referenced_slots = vec![false; row_contract.field_count()];
+    for field in accepted_index.fields() {
+        if let Some(referenced) = referenced_slots.get_mut(field.slot()) {
+            *referenced = true;
+        }
+    }
+    if let Some(predicate_program) = predicate_program {
+        predicate_program.mark_referenced_slots(&mut referenced_slots);
+    }
+    if unchanged_index_inputs(
+        old_primary_key,
+        old_slots
+            .as_ref()
+            .map(|slots| &**slots as &dyn CanonicalSlotReader),
+        new_primary_key,
+        new_slots
+            .as_ref()
+            .map(|slots| &**slots as &dyn CanonicalSlotReader),
+        &referenced_slots,
+    )? {
+        return Ok(());
+    }
+
     let index_store = accepted_index.store();
     let index_is_unique = accepted_index.unique();
     let read_contract = IndexReadContract::new(index_store, index_is_unique);
@@ -333,6 +359,13 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         )?,
         None => None,
     };
+
+    // Unchanged membership cannot conflict or alter the accepted index. Avoid
+    // a stable index read and commit delta for unrelated-field updates; full
+    // index integrity remains owned by the maintained integrity surfaces.
+    if old_key.as_ref() == new_key.as_ref() && old_primary_key == new_primary_key {
+        return Ok(());
+    }
 
     let old_entry =
         load_existing_entry_structural(read_view, read_contract, old_key.as_ref(), entity_path)?;
@@ -386,6 +419,33 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<(), IndexPlanError> {
+    let mut referenced_slots = vec![false; row_contract.field_count()];
+    for item in accepted_index.key_items() {
+        let field = match item {
+            SchemaExpressionIndexKeyItemInfo::FieldPath(field) => field,
+            SchemaExpressionIndexKeyItemInfo::Expression(expression) => expression.source(),
+        };
+        if let Some(referenced) = referenced_slots.get_mut(field.slot()) {
+            *referenced = true;
+        }
+    }
+    if let Some(predicate_program) = predicate_program {
+        predicate_program.mark_referenced_slots(&mut referenced_slots);
+    }
+    if unchanged_index_inputs(
+        old_primary_key,
+        old_slots
+            .as_ref()
+            .map(|slots| &**slots as &dyn CanonicalSlotReader),
+        new_primary_key,
+        new_slots
+            .as_ref()
+            .map(|slots| &**slots as &dyn CanonicalSlotReader),
+        &referenced_slots,
+    )? {
+        return Ok(());
+    }
+
     let index_store = accepted_index.store();
     let index_is_unique = accepted_index.unique();
     let read_contract = IndexReadContract::new(index_store, index_is_unique);
@@ -412,6 +472,10 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         )?,
         None => None,
     };
+
+    if old_key.as_ref() == new_key.as_ref() && old_primary_key == new_primary_key {
+        return Ok(());
+    }
 
     let old_entry =
         load_existing_entry_structural(read_view, read_contract, old_key.as_ref(), entity_path)?;
@@ -449,6 +513,27 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     Ok(())
 }
 
+fn unchanged_index_inputs(
+    old_primary_key: Option<&PrimaryKeyValue>,
+    old_slots: Option<&dyn CanonicalSlotReader>,
+    new_primary_key: Option<&PrimaryKeyValue>,
+    new_slots: Option<&dyn CanonicalSlotReader>,
+    referenced_slots: &[bool],
+) -> Result<bool, InternalError> {
+    let (Some(old_slots), Some(new_slots)) = (old_slots, new_slots) else {
+        return Ok(false);
+    };
+    if old_primary_key != new_primary_key {
+        return Ok(false);
+    }
+    for (slot, referenced) in referenced_slots.iter().copied().enumerate() {
+        if referenced && old_slots.required_bytes(slot)? != new_slots.required_bytes(slot)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 // Convert one validated old/new key transition into index-domain membership
 // deltas. Commit preparation later materializes these deltas against its active
 // reader view, so this helper deliberately does not encode `IndexEntryValue`.
@@ -460,6 +545,13 @@ fn push_index_delta_group(
     old_primary_key: Option<&PrimaryKeyValue>,
     new_primary_key: Option<&PrimaryKeyValue>,
 ) -> Result<(), InternalError> {
+    // A row update that preserves both index key and row identity has already
+    // validated the committed membership above. It needs no marker payload,
+    // overlay entry, stable-index write, or index-generation movement.
+    if old_key.as_ref() == new_key.as_ref() && old_primary_key == new_primary_key {
+        return Ok(());
+    }
+
     let mut deltas = Vec::with_capacity(2);
 
     if let Some(old_key) = old_key {
@@ -504,4 +596,61 @@ pub(super) fn load_existing_entry_structural(
                 .map_err(|_| InternalError::structural_index_entry_corruption())
         })
         .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        index::{IndexId, IndexKeyKind},
+        key_taxonomy::PrimaryKeyComponent,
+    };
+
+    fn test_index_key(component: u8, primary_key: &PrimaryKeyValue) -> IndexKey {
+        IndexKey::new_from_components_with_primary_key_value(
+            &IndexId::new(EntityTag::new(73), 1),
+            IndexKeyKind::User,
+            &[vec![component]],
+            primary_key,
+        )
+        .expect("test index key should encode")
+    }
+
+    #[test]
+    fn unchanged_index_membership_emits_no_commit_delta_group() {
+        let primary_key = PrimaryKeyValue::from(PrimaryKeyComponent::Int64(41));
+        let key = test_index_key(7, &primary_key);
+        let mut groups = Vec::new();
+
+        push_index_delta_group(
+            &mut groups,
+            "store",
+            Some(key.clone()),
+            Some(key),
+            Some(&primary_key),
+            Some(&primary_key),
+        )
+        .expect("unchanged membership should remain valid");
+
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn changed_index_membership_retains_remove_and_insert_deltas() {
+        let primary_key = PrimaryKeyValue::from(PrimaryKeyComponent::Int64(41));
+        let mut groups = Vec::new();
+
+        push_index_delta_group(
+            &mut groups,
+            "store",
+            Some(test_index_key(7, &primary_key)),
+            Some(test_index_key(8, &primary_key)),
+            Some(&primary_key),
+            Some(&primary_key),
+        )
+        .expect("changed membership should remain valid");
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].deltas.len(), 2);
+    }
 }

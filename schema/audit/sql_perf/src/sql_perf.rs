@@ -100,6 +100,48 @@ pub struct PerfAuditHeapUser {}
 pub struct PerfAuditJournaledUser {}
 
 ///
+/// PerfAuditMutationToken
+///
+/// Toko-shaped journaled token used only by the durable mutation-job scale
+/// contract. The collection index preserves the production scope shape while
+/// `tier` remains the fixed field converged by the first durable phase.
+///
+
+#[entity(store = "PerfAuditJournaledStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["collection_id"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "collection_id", value(item(prim = "Int32"))),
+        field(name = "tier", value(item(prim = "Text", unbounded)))
+    ),
+    timestamps
+)]
+pub struct PerfAuditMutationToken {}
+
+///
+/// PerfAuditMutationScoringState
+///
+/// Toko-shaped scoring state paired one-for-one with the token fixture. It is
+/// a separate entity so both application phases can be made durable before
+/// either phase begins executing.
+///
+
+#[entity(store = "PerfAuditJournaledStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["collection_id"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "collection_id", value(item(prim = "Int32"))),
+        field(name = "score_stale", value(item(prim = "Bool")))
+    ),
+    timestamps
+)]
+pub struct PerfAuditMutationScoringState {}
+
+///
 /// PerfAuditRelationTarget
 ///
 /// Minimal relation target used only by the bounded integrity performance

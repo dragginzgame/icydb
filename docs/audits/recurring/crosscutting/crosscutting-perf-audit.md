@@ -38,10 +38,14 @@ Primary owners:
   * `execute_trusted_sql_query`
   * `execute_trusted_sql_exact_update`
   * `execute_trusted_sql_prefix_update`
-  * `prepare_trusted_sql_resumable_update`
-  * `resume_trusted_sql_resumable_update`
   * `execute_trusted_sql_query_with_attribution`
   * SQL compile cache attribution
+* `db/session/mutation_job.rs` and `db/session/sql/resumable_update.rs`
+  * `start_trusted_sql_mutation_job`
+  * `advance_trusted_mutation_job`
+  * `mutation_job_state`
+  * `acknowledge_mutation_job`
+  * durable private Forward/Verify progress and replay attribution
 * `db/session/sql/execute/*`
   * `execute_compiled_sql`
   * `execute_compiled_sql_with_phase_attribution`
@@ -315,8 +319,10 @@ For each supported scenario, sample what exists:
 * `DbSession::execute_trusted_sql_query(...)`
 * `DbSession::execute_trusted_sql_exact_update::<E>(...)`
 * `DbSession::execute_trusted_sql_prefix_update::<E>(...)`
-* `DbSession::prepare_trusted_sql_resumable_update::<E>(...)`
-* `DbSession::resume_trusted_sql_resumable_update::<E>(...)`
+* `DbSession::start_trusted_sql_mutation_job(...)`
+* `DbSession::advance_trusted_mutation_job(...)`
+* `DbSession::mutation_job_state(...)`
+* `DbSession::acknowledge_mutation_job(...)`
 * `DbSession::execute_trusted_sql_query_with_attribution(...)` when diagnostics are
   available
 * current explain SQL surface
@@ -464,7 +470,7 @@ Recommended current scans:
 
 * `rg -n "PerformanceProfile|p1_shard|p2_candidates|scenario_key|baseline_path" testing/integration/tests/sql_perf_matrix_audit.rs testing/integration/tests/sql_perf_p*.rs testing/integration/tests/sql_perf_audit.rs`
 * `rg -n "SqlQueryExecutionAttribution|QueryExecutionAttribution|store_get_calls|grouped_stream_local_instructions" crates/icydb-core/src canisters/audit/sql_perf/src`
-* `rg -n "execute_trusted_sql_query|execute_trusted_sql_exact_update|execute_trusted_sql_prefix_update|prepare_trusted_sql_resumable_update|resume_trusted_sql_resumable_update|execute_trusted_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
+* `rg -n "execute_trusted_sql_query|execute_trusted_sql_exact_update|execute_trusted_sql_prefix_update|start_trusted_sql_mutation_job|advance_trusted_mutation_job|mutation_job_state|acknowledge_mutation_job|execute_trusted_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
 * `rg -n "compile_sql_command|compile_sql_query|compile_sql_mutation" crates/icydb-core/src/db`
 * `rg -n "execute_sql_projection_rows_for_canister|sql_select_prepared_plan|execute_grouped_sql_statement_from_prepared_plan_with" crates/icydb-core/src/db`
 * `rg -n "EXPLAIN|cursor|continuation|GROUP BY|HAVING|DISTINCT|LIMIT|OFFSET" crates/icydb-core/src/db`

@@ -12,6 +12,8 @@ use ic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::types::{Blob, Timestamp, Ulid};
 #[cfg(feature = "sql")]
+use icydb::value::OutputValue;
+#[cfg(feature = "sql")]
 use icydb::{
     ErrorCode, ErrorOrigin,
     db::{
@@ -31,8 +33,9 @@ use icydb::{
 #[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser,
-    PerfAuditRelationSource, PerfAuditRelationTarget, PerfAuditStreamingCompoundRow,
-    PerfAuditStreamingRow, PerfAuditToken, PerfAuditUser,
+    PerfAuditMutationScoringState, PerfAuditMutationToken, PerfAuditRelationSource,
+    PerfAuditRelationTarget, PerfAuditStreamingCompoundRow, PerfAuditStreamingRow, PerfAuditToken,
+    PerfAuditUser,
 };
 
 icydb::start!();
@@ -248,6 +251,108 @@ struct MutationJobStartPerfResult {
     target_rows_changed: u32,
 }
 
+/// Fixed application phase in the Toko-shaped durable scale fixture.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+enum MutationScaleJob {
+    Tier,
+    Scoring,
+}
+
+#[cfg(feature = "sql")]
+impl MutationScaleJob {
+    const fn discriminator(self) -> u8 {
+        match self {
+            Self::Tier => 81,
+            Self::Scoring => 82,
+        }
+    }
+
+    const fn sql(self) -> &'static str {
+        match self {
+            Self::Tier => {
+                "UPDATE PerfAuditMutationToken SET tier = 'Default' WHERE collection_id = 7"
+            }
+            Self::Scoring => {
+                "UPDATE PerfAuditMutationScoringState SET score_stale = true WHERE collection_id = 7"
+            }
+        }
+    }
+}
+
+/// One bounded fixture-load page completed by one update message.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct MutationScaleLoadEvidence {
+    first_id: u32,
+    last_id: u32,
+    matching_rows_loaded: u32,
+    unrelated_rows_loaded: u32,
+}
+
+/// One bounded count-only fact from the scale fixture.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+enum MutationScaleFact {
+    TokenCollection,
+    TokenDefault,
+    TokenOther,
+    TokenOtherDefault,
+    ScoringCollection,
+    ScoringStale,
+    ScoringOther,
+    ScoringOtherStale,
+}
+
+#[cfg(feature = "sql")]
+impl MutationScaleFact {
+    const fn sql(self) -> &'static str {
+        match self {
+            Self::TokenCollection => {
+                "SELECT COUNT(*) FROM PerfAuditMutationToken WHERE collection_id = 7"
+            }
+            Self::TokenDefault => {
+                "SELECT COUNT(*) FROM PerfAuditMutationToken WHERE collection_id = 7 AND tier = 'Default'"
+            }
+            Self::TokenOther => {
+                "SELECT COUNT(*) FROM PerfAuditMutationToken WHERE collection_id = 8"
+            }
+            Self::TokenOtherDefault => {
+                "SELECT COUNT(*) FROM PerfAuditMutationToken WHERE collection_id = 8 AND tier = 'Default'"
+            }
+            Self::ScoringCollection => {
+                "SELECT COUNT(*) FROM PerfAuditMutationScoringState WHERE collection_id = 7"
+            }
+            Self::ScoringStale => {
+                "SELECT COUNT(*) FROM PerfAuditMutationScoringState WHERE collection_id = 7 AND score_stale = true"
+            }
+            Self::ScoringOther => {
+                "SELECT COUNT(*) FROM PerfAuditMutationScoringState WHERE collection_id = 8"
+            }
+            Self::ScoringOtherStale => {
+                "SELECT COUNT(*) FROM PerfAuditMutationScoringState WHERE collection_id = 8 AND score_stale = true"
+            }
+        }
+    }
+}
+
+/// One bounded durable advance plus its canister-local instruction cost.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct MutationScaleAdvancePerfResult {
+    receipt: MutationJobAdvanceReceipt,
+    local_instructions: u64,
+}
+
+/// Guarded target-store recovery measured separately from one bounded advance.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct MutationScaleRecoveryEvidence {
+    complete: bool,
+    warmed_rows: u32,
+    local_instructions: u64,
+}
+
 /// One public integrity result plus its canister-local execution cost.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
@@ -264,6 +369,12 @@ const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
 const INTEGRITY_JOURNAL_TAIL_BATCHES: i32 = 6;
 #[cfg(feature = "sql")]
 const JOURNALED_REENTRY_PROBE_ROWS: i32 = 32;
+#[cfg(feature = "sql")]
+const MUTATION_SCALE_FIXTURE_ROWS: i32 = 10_001;
+#[cfg(feature = "sql")]
+const MUTATION_SCALE_UNRELATED_ROWS: i32 = 17;
+#[cfg(feature = "sql")]
+const MUTATION_SCALE_LOAD_PAGE_ROWS: i32 = 1_024;
 #[cfg(feature = "sql")]
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
 #[cfg(feature = "sql")]
@@ -391,6 +502,30 @@ impl StructuralFixtureRow for PerfAuditJournaledUser {
 impl StorageWriteFixtureRow for PerfAuditJournaledUser {
     fn primary_key_input(&self) -> InputValue {
         self.id.into()
+    }
+}
+
+#[cfg(feature = "sql")]
+impl StructuralFixtureRow for PerfAuditMutationToken {
+    const ENTITY: &'static str = "PerfAuditMutationToken";
+
+    fn into_structural_patch(self) -> StructuralPatch {
+        StructuralPatch::new()
+            .field("id", authored(self.id))
+            .field("collection_id", authored(self.collection_id))
+            .field("tier", authored(self.tier))
+    }
+}
+
+#[cfg(feature = "sql")]
+impl StructuralFixtureRow for PerfAuditMutationScoringState {
+    const ENTITY: &'static str = "PerfAuditMutationScoringState";
+
+    fn into_structural_patch(self) -> StructuralPatch {
+        StructuralPatch::new()
+            .field("id", authored(self.id))
+            .field("collection_id", authored(self.collection_id))
+            .field("score_stale", authored(self.score_stale))
     }
 }
 
@@ -1064,6 +1199,8 @@ fn reset_perf_fixtures() -> Result<(), icydb::Error> {
         "PerfAuditBlob",
         "PerfAuditHeapUser",
         "PerfAuditJournaledUser",
+        "PerfAuditMutationScoringState",
+        "PerfAuditMutationToken",
         "PerfAuditRelationTarget",
         "PerfAuditStreamingCompoundRow",
         "PerfAuditStreamingRow",
@@ -1313,6 +1450,8 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
             session.try_describe_entity_by_name("PerfAuditBlob")?,
             session.try_describe_entity_by_name("PerfAuditHeapUser")?,
             session.try_describe_entity_by_name("PerfAuditJournaledUser")?,
+            session.try_describe_entity_by_name("PerfAuditMutationScoringState")?,
+            session.try_describe_entity_by_name("PerfAuditMutationToken")?,
             session.try_describe_entity_by_name("PerfAuditRelationSource")?,
             session.try_describe_entity_by_name("PerfAuditRelationTarget")?,
             session.try_describe_entity_by_name("PerfAuditToken")?,
@@ -1942,6 +2081,184 @@ fn measure_journaled_user_sql_write_materialization_perf()
             60_000,
             build_perf_audit_journaled_user,
         )
+    })
+}
+
+#[cfg(feature = "sql")]
+fn mutation_scale_job_id(job: MutationScaleJob) -> Result<MutationJobId, MutationJobError> {
+    let mut bytes = [0; 32];
+    bytes[31] = job.discriminator();
+    MutationJobId::try_from_bytes(bytes)
+}
+
+#[cfg(feature = "sql")]
+fn mutation_scale_count(sql: &str) -> Result<u32, icydb::Error> {
+    let SqlQueryResult::Projection(projection) = db()?.execute_trusted_sql_query(sql)? else {
+        return Err(query_validate_error());
+    };
+    let [row] = projection.rows.as_slice() else {
+        return Err(query_validate_error());
+    };
+    let [OutputValue::Nat64(count)] = row.as_slice() else {
+        return Err(query_validate_error());
+    };
+
+    u32::try_from(*count).map_err(|_| query_validate_error())
+}
+
+/// Load one bounded page of the fixed 10,001-row tier and scoring fixture.
+#[cfg(feature = "sql")]
+#[update]
+fn load_toko_mutation_scale_page(
+    first_id: u32,
+    row_count: u32,
+) -> Result<MutationScaleLoadEvidence, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let first_id = i32::try_from(first_id).map_err(|_| query_validate_error())?;
+        let row_count = i32::try_from(row_count).map_err(|_| query_validate_error())?;
+        if first_id < 1 || !(1..=MUTATION_SCALE_LOAD_PAGE_ROWS).contains(&row_count) {
+            return Err(query_validate_error());
+        }
+        let last_id = first_id
+            .checked_add(row_count - 1)
+            .ok_or_else(query_validate_error)?;
+        if last_id > MUTATION_SCALE_FIXTURE_ROWS {
+            return Err(query_validate_error());
+        }
+        if first_id == 1 {
+            reset_perf_fixtures()?;
+        }
+
+        insert_fixture_rows(perf_audit_mutation_tokens(first_id, last_id))?;
+        insert_fixture_rows(perf_audit_mutation_scoring_states(first_id, last_id))?;
+        let unrelated_rows_loaded = if first_id == 1 {
+            insert_fixture_rows(perf_audit_unrelated_mutation_tokens())?;
+            insert_fixture_rows(perf_audit_unrelated_mutation_scoring_states())?;
+            u32::try_from(MUTATION_SCALE_UNRELATED_ROWS).map_err(|_| query_validate_error())?
+        } else {
+            0
+        };
+
+        Ok(MutationScaleLoadEvidence {
+            first_id: u32::try_from(first_id).map_err(|_| query_validate_error())?,
+            last_id: u32::try_from(last_id).map_err(|_| query_validate_error())?,
+            matching_rows_loaded: u32::try_from(row_count).map_err(|_| query_validate_error())?,
+            unrelated_rows_loaded,
+        })
+    })
+}
+
+/// Return one count-only fact without resetting the aggregate request budget.
+#[cfg(feature = "sql")]
+#[query]
+fn toko_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| mutation_scale_count(fact.sql()))
+}
+
+/// Advance one engine-owned startup-recovery page after upgrade without
+/// attributing that work to a bounded mutation-job page.
+#[cfg(feature = "sql")]
+#[update]
+fn recover_toko_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let session = icydb::db::DbSession::new(crate::__icydb_generated::core_db()?);
+        let start = ic_cdk::api::performance_counter(1);
+        let complete = session.__continue_startup_recovery()?;
+        let warmed_rows = if complete {
+            let result = session.execute_trusted_sql_query(
+                "SELECT id FROM PerfAuditMutationToken WHERE id = 1 LIMIT 1",
+            )?;
+            sql_write_result_row_count(&result).ok_or_else(query_validate_error)?
+        } else {
+            0
+        };
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(MutationScaleRecoveryEvidence {
+            complete,
+            warmed_rows,
+            local_instructions,
+        })
+    })
+}
+
+/// Prove that the one-shot 10,001-row assertion is rejected before mutation.
+#[cfg(feature = "sql")]
+#[update]
+fn try_toko_eager_tier_reset() -> Result<SqlQueryResult, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        db()?.execute_trusted_sql_exact_update(
+            MutationScaleJob::Tier.sql(),
+            u32::try_from(MUTATION_SCALE_FIXTURE_ROWS).map_err(|_| query_validate_error())?,
+        )
+    })
+}
+
+/// Start or exactly replay one fixed Toko-shaped application phase.
+#[cfg(feature = "sql")]
+#[update]
+fn start_toko_mutation_scale_job(
+    job: MutationScaleJob,
+) -> Result<MutationJobState, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        db().map_err(|_| MutationJobError::Internal)?
+            .start_trusted_sql_mutation_job(mutation_scale_job_id(job)?, job.sql())
+    })
+}
+
+/// Advance exactly one bounded page of one Toko-shaped application phase.
+#[cfg(feature = "sql")]
+#[update]
+fn advance_toko_mutation_scale_job(
+    job: MutationScaleJob,
+    expected_sequence: u64,
+    idempotency_key: String,
+) -> Result<MutationScaleAdvancePerfResult, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        // Match the Patch 1 measurement authority: session establishment is
+        // request setup, while this sample owns exactly one engine advance.
+        let session = db().map_err(|_| MutationJobError::Internal)?;
+        let request = MutationJobAdvanceRequest::new(
+            mutation_scale_job_id(job)?,
+            expected_sequence,
+            MutationJobIdempotencyKey::new(idempotency_key)?,
+        );
+        let start = ic_cdk::api::performance_counter(1);
+        let receipt = session.advance_trusted_mutation_job(&request)?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(MutationScaleAdvancePerfResult {
+            receipt,
+            local_instructions,
+        })
+    })
+}
+
+/// Load current count-only public state for one Toko-shaped application phase.
+/// This audit surface is an update so a post-upgrade call retains the IC's
+/// update headroom while the current guarded-reentry contract recovers a large
+/// journal tail.
+#[cfg(feature = "sql")]
+#[update]
+fn toko_mutation_scale_job_state(
+    job: MutationScaleJob,
+) -> Result<MutationJobState, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        db().map_err(|_| MutationJobError::Internal)?
+            .mutation_job_state(mutation_scale_job_id(job)?)
+    })
+}
+
+/// Acknowledge one terminal scale job; repeating after response loss is safe.
+#[cfg(feature = "sql")]
+#[update]
+fn acknowledge_toko_mutation_scale_job(
+    job: MutationScaleJob,
+    expected_sequence: u64,
+) -> Result<(), MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        db().map_err(|_| MutationJobError::Internal)?
+            .acknowledge_mutation_job(mutation_scale_job_id(job)?, expected_sequence)
     })
 }
 
@@ -3021,6 +3338,61 @@ fn perf_audit_journaled_reentry_probe_users() -> Vec<PerfAuditJournaledUser> {
                 &format!("journaled-reentry-{id:04}"),
                 18 + (id % 13),
             )
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_audit_mutation_tokens(first_id: i32, last_id: i32) -> Vec<PerfAuditMutationToken> {
+    (first_id..=last_id)
+        .map(|id| PerfAuditMutationToken {
+            id,
+            collection_id: 7,
+            tier: "Legacy".to_string(),
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_audit_mutation_scoring_states(
+    first_id: i32,
+    last_id: i32,
+) -> Vec<PerfAuditMutationScoringState> {
+    (first_id..=last_id)
+        .map(|id| PerfAuditMutationScoringState {
+            id,
+            collection_id: 7,
+            score_stale: false,
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_audit_unrelated_mutation_tokens() -> Vec<PerfAuditMutationToken> {
+    (1..=MUTATION_SCALE_UNRELATED_ROWS)
+        .map(|offset| PerfAuditMutationToken {
+            id: 20_000 + offset,
+            collection_id: 8,
+            tier: "Legacy".to_string(),
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn perf_audit_unrelated_mutation_scoring_states() -> Vec<PerfAuditMutationScoringState> {
+    (1..=MUTATION_SCALE_UNRELATED_ROWS)
+        .map(|offset| PerfAuditMutationScoringState {
+            id: 20_000 + offset,
+            collection_id: 8,
+            score_stale: false,
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         })
         .collect()
 }

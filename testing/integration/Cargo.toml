@@ -69,5 +69,9 @@ name = "streaming_execution_baseline"
 path = "tests/streaming_execution_baseline.rs"
 
 [[test]]
+name = "durable_mutation_job_scale"
+path = "tests/durable_mutation_job_scale.rs"
+
+[[test]]
 name = "schema_migration_closeout"
 path = "tests/schema_migration_closeout.rs"

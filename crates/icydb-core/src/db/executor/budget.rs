@@ -593,6 +593,40 @@ pub(in crate::db::executor) fn charge_current_execution_budget(
     })
 }
 
+/// Charge two maintained physical resources through one active-budget lookup.
+///
+/// The charges retain their declared order: if the first charge exhausts its
+/// budget, the second is not applied, matching two sequential calls to
+/// [`charge_current_execution_budget`].
+pub(in crate::db::executor) fn charge_current_execution_budget_pair(
+    first: (DiagnosticExecutionBudgetResource, u64),
+    second: (DiagnosticExecutionBudgetResource, u64),
+) -> Result<(), InternalError> {
+    if first.1 == 0 && second.1 == 0 {
+        return Ok(());
+    }
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let mut budget = budget
+            .try_borrow_mut()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        let Some(budget) = budget.as_mut() else {
+            return Ok(());
+        };
+
+        if first.1 != 0 {
+            budget
+                .charge_periodic(first.0, first.1)
+                .map_err(InternalError::from)?;
+        }
+        if second.1 != 0 {
+            budget
+                .charge_periodic(second.0, second.1)
+                .map_err(InternalError::from)?;
+        }
+        Ok(())
+    })
+}
+
 /// Build one typed budget failure from a stricter operator-local hard limit.
 ///
 /// Grouped planning can impose a lower retained-state ceiling than the root
@@ -942,6 +976,9 @@ mod tests {
         DiagnosticExecutionLane::PublicRead,
         0x0102_0304_0506_0708,
     );
+    static PAIR_FIRST_FAILURE_BUDGET: HardExecutionBudget =
+        HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 0);
 
     #[test]
     fn every_resource_charges_monotonically_and_retains_rejected_work() {
@@ -1027,6 +1064,45 @@ mod tests {
         );
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn paired_budget_charges_preserve_sequential_failure_order() {
+        let root = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            TEST_HEADROOM,
+        ));
+        let error = with_execution_budget(
+            HardExecutionBudgetTracker::new_with_request_scope(
+                &PAIR_FIRST_FAILURE_BUDGET,
+                TEST_CONTEXT,
+                &root.scope(),
+            ),
+            || {
+                charge_current_execution_budget_pair(
+                    (DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1),
+                    (DiagnosticExecutionBudgetResource::CursorSteps, 1),
+                )
+            },
+            std::convert::identity,
+        )
+        .expect_err("the first paired charge should retain its ordinary hard limit");
+
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ));
+        assert_eq!(
+            root.observed(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited),
+            1,
+        );
+        assert_eq!(
+            root.observed(DiagnosticExecutionBudgetResource::CursorSteps),
+            0,
+            "the second charge must not run after the first fails",
+        );
     }
 
     #[test]

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
 
+- `0.223.4` proves collection-scale durable mutation convergence, removes
+  redundant row/index work, and corrects bounded intersection and multi-value
+  cursor accounting.
+
 - `0.223.3` completes durable mutation jobs with stable revision-checked Verify,
   deterministic Forward restart on drift or residual work, and replayable
   terminal completion or restart receipts.

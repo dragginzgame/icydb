@@ -773,9 +773,9 @@ where
     Ok(commit_ops)
 }
 
-// Materialize one per-index delta group. The logic mirrors the previous
-// index-owned commit-op builder so same-key and different-key transitions keep
-// their exact raw-entry behavior and deterministic ordering.
+// Materialize one per-index delta group. Same-key membership is normally
+// removed by index planning; retaining the no-op check here keeps manually
+// constructed internal plans from producing redundant stable-index writes.
 fn build_commit_ops_for_index_group<C>(
     commit_ops: &mut Vec<PreparedIndexMutation>,
     db: &Db<C>,
@@ -809,22 +809,12 @@ fn build_commit_ops_for_index_delta_pair(
     remove_delta: Option<IndexMembershipDelta>,
     insert_delta: Option<IndexMembershipDelta>,
 ) -> Result<(), InternalError> {
-    // Phase 1: same-key transitions collapse into one entry mutation.
+    // Phase 1: same-key transitions preserve membership and need no write.
     if remove_delta
         .as_ref()
         .zip(insert_delta.as_ref())
         .is_some_and(|(old_delta, new_delta)| old_delta.key == new_delta.key)
     {
-        if let Some(insert_delta) = insert_delta {
-            push_commit_op_for_index_entry(
-                commit_ops,
-                store,
-                insert_delta.key.to_raw()?,
-                Some(IndexRowIdentity::new(&insert_delta.primary_key)),
-                PreparedIndexMutation::unchanged,
-            );
-        }
-
         return Ok(());
     }
 

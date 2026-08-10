@@ -715,7 +715,25 @@ fn composite_page_pull_bounds_cover_initialization_and_duplicate_refresh() {
             comparator,
         )
         .expect("flat merge topology should be admitted");
-    assert_eq!(flat.page_access_entry_bound(), Some(18));
+    // Twice the child-pull sum (9) plus one per child for the heap pop and
+    // duplicate-head consumption that `next_key` charges on every output.
+    assert_eq!(flat.page_access_entry_bound(), Some(21));
+
+    // Regression: once every child already holds its head the child-pull sum is
+    // zero, but `next_key` still charges cursor steps for the heap pop and each
+    // duplicate it consumes. A zero bound under-reserves the enclosing scalar
+    // page unit, so the observed delta trips the executor invariant.
+    let settled =
+        crate::db::executor::stream::key::FlatMergeOrderedKeyStream::try_new_with_comparator(
+            vec![
+                StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(0),
+                StaticOrderedKeyStream::new(vec![data_key(2)]).with_page_access_entry_bound(0),
+                StaticOrderedKeyStream::new(vec![data_key(3)]).with_page_access_entry_bound(0),
+            ],
+            comparator,
+        )
+        .expect("flat merge topology should be admitted");
+    assert_eq!(settled.page_access_entry_bound(), Some(3));
 
     let intersection = IntersectOrderedKeyStream::new_with_comparator(
         StaticOrderedKeyStream::new(vec![data_key(1)]).with_page_access_entry_bound(1),

@@ -71,10 +71,14 @@ Primary owners:
   * `execute_trusted_sql_mutation`
   * `execute_trusted_sql_exact_update`
   * `execute_trusted_sql_prefix_update`
-  * `prepare_trusted_sql_resumable_update`
-  * `resume_trusted_sql_resumable_update`
+* `db/session/mutation_job.rs`
+  * `start_trusted_sql_mutation_job`
+  * `advance_trusted_mutation_job`
+  * `mutation_job_state`
+  * `acknowledge_mutation_job`
 * `db/session/sql/resumable_update.rs`
-  * trusted continuation binding, bounded Forward batches, and stable Verify
+  * canonical intent and private continuation binding
+  * bounded Forward batches and stable Verify
   * `compile_sql_query`
   * `compile_sql_mutation`
   * SQL compile-cache identity
@@ -242,8 +246,10 @@ Search targets:
 * `execute_trusted_sql_query`
 * `execute_trusted_sql_exact_update`
 * `execute_trusted_sql_prefix_update`
-* `prepare_trusted_sql_resumable_update`
-* `resume_trusted_sql_resumable_update`
+* `start_trusted_sql_mutation_job`
+* `advance_trusted_mutation_job`
+* `mutation_job_state`
+* `acknowledge_mutation_job`
 * `compile_sql_query`
 * `compile_sql_mutation`
 * `compile_sql_command`

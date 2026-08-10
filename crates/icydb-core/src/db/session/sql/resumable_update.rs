@@ -40,7 +40,7 @@ use crate::{
         },
         session::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
-            AcceptedStructuralMutationTarget,
+            AcceptedStructuralMutationTarget, write::AcceptedLoadedStructuralRow,
         },
         write_context::MutationMode,
     },
@@ -424,6 +424,11 @@ struct PreparedMutationJobRuntime<'a> {
     row_contract: StructuralRowContract,
 }
 
+struct PreparedMutationJobVerifyRuntime {
+    compiled_scope: CompiledExpr,
+    row_contract: StructuralRowContract,
+}
+
 enum MutationJobExecutionPreparationError {
     Restart(MutationJobRestartReason),
     Failure(MutationJobError),
@@ -656,11 +661,11 @@ impl<C: CanisterKind> DbSession<C> {
         let patch = fixed_patch.to_update_intent();
         let candidate_rows = scan
             .candidates
-            .iter()
-            .map(|key| {
+            .into_iter()
+            .map(|row| {
                 AcceptedStructuralMutation::save(
                     MutationMode::Update,
-                    AcceptedStructuralMutationTarget::expected(key.clone()),
+                    AcceptedStructuralMutationTarget::expected_loaded(row),
                     patch.clone(),
                 )
             })
@@ -747,11 +752,10 @@ impl<C: CanisterKind> DbSession<C> {
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
         let identity = catalog.identity();
-        let PreparedMutationJobRuntime {
-            descriptor: _,
+        let PreparedMutationJobVerifyRuntime {
             compiled_scope,
             row_contract,
-        } = match prepare_mutation_job_runtime(&catalog, &scope, &fixed_patch) {
+        } = match prepare_mutation_job_verify_runtime(&catalog, &scope, &fixed_patch) {
             Ok(runtime) => runtime,
             Err(MutationJobExecutionPreparationError::Restart(reason)) => {
                 return persist_terminal_mutation_job_restart::<C>(before, request, reason);
@@ -767,7 +771,6 @@ impl<C: CanisterKind> DbSession<C> {
             continuation.restart_forward();
             return persist_verify_restart::<C>(before, request, &continuation, 0);
         }
-
         let scan = scan_mutation_job_verify(
             &store,
             continuation.checkpoint.as_ref(),
@@ -866,7 +869,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::execute)?;
         let eligibility = prove_resumable_update_eligibility(
             catalog.snapshot().persisted_snapshot(),
-            &descriptor,
+            catalog.inspection_plan().row_contract(),
             &selector,
             &fixed_patch,
         )?;
@@ -920,7 +923,7 @@ fn scan_resumable_update_forward(
     compiled_scope: &CompiledExpr,
     row_contract: &StructuralRowContract,
     fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<ResumableForwardScan<DecodedDataStoreKey>, QueryError> {
+) -> Result<ResumableForwardScan<AcceptedLoadedStructuralRow>, QueryError> {
     let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
     let lower = checkpoint.cloned().map_or_else(
         || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
@@ -954,8 +957,12 @@ fn scan_resumable_update_forward(
                     raw_row,
                     row_contract.clone(),
                 )?;
+                row.validate_primary_key(&decoded_key)?;
                 if resumable_row_needs_patch(compiled_scope, fixed_patch, &row)? {
-                    candidates.push(decoded_key);
+                    candidates.push(AcceptedLoadedStructuralRow::from_validated_parts(
+                        decoded_key,
+                        raw_row.clone(),
+                    ));
                 }
                 physical_keys_scanned = physical_keys_scanned.saturating_add(1);
                 final_checkpoint = Some(raw_key.clone());
@@ -1089,9 +1096,10 @@ fn prepare_mutation_job_runtime<'a>(
 ) -> Result<PreparedMutationJobRuntime<'a>, MutationJobExecutionPreparationError> {
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
         .map_err(|_| MutationJobExecutionPreparationError::Failure(MutationJobError::Internal))?;
+    let row_contract = catalog.inspection_plan().row_contract().clone();
     prove_resumable_update_fixed_eligibility(
         catalog.snapshot().persisted_snapshot(),
-        &descriptor,
+        &row_contract,
         scope,
         fixed_patch,
     )
@@ -1104,14 +1112,36 @@ fn prepare_mutation_job_runtime<'a>(
             .ok_or(MutationJobExecutionPreparationError::Restart(
                 MutationJobRestartReason::IntentIneligible,
             ))?;
-    let identity = catalog.identity();
-    let row_contract = StructuralRowContract::from_accepted_decode_contract(
-        identity.entity_path(),
-        descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
-    );
-
     Ok(PreparedMutationJobRuntime {
         descriptor,
+        compiled_scope,
+        row_contract,
+    })
+}
+
+fn prepare_mutation_job_verify_runtime(
+    catalog: &AcceptedSchemaCatalogContext,
+    scope: &Expr,
+    fixed_patch: &AcceptedFixedUpdatePatch,
+) -> Result<PreparedMutationJobVerifyRuntime, MutationJobExecutionPreparationError> {
+    let row_contract = catalog.inspection_plan().row_contract().clone();
+    prove_resumable_update_fixed_eligibility(
+        catalog.snapshot().persisted_snapshot(),
+        &row_contract,
+        scope,
+        fixed_patch,
+    )
+    .map_err(|_| {
+        MutationJobExecutionPreparationError::Restart(MutationJobRestartReason::IntentIneligible)
+    })?;
+    let compiled_scope =
+        compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), scope)
+            .map(|expr| CompiledExpr::compile(&expr))
+            .ok_or(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::IntentIneligible,
+            ))?;
+
+    Ok(PreparedMutationJobVerifyRuntime {
         compiled_scope,
         row_contract,
     })
@@ -1308,19 +1338,19 @@ fn require_resumable_update_plan(
 
 fn prove_resumable_update_eligibility(
     snapshot: &PersistedSchemaSnapshot,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    row_contract: &StructuralRowContract,
     selector: &crate::db::query::intent::StructuralQuery,
     patch: &AcceptedFixedUpdatePatch,
 ) -> Result<ResumableUpdateEligibility, QueryError> {
     let scope = selector.scalar_filter_expr().ok_or_else(|| {
         QueryError::sql_write_boundary(SqlWriteBoundaryCode::UpdateMissingWherePredicate)
     })?;
-    prove_resumable_update_fixed_eligibility(snapshot, descriptor, scope, patch)
+    prove_resumable_update_fixed_eligibility(snapshot, row_contract, scope, patch)
 }
 
 fn prove_resumable_update_fixed_eligibility(
     snapshot: &PersistedSchemaSnapshot,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    row_contract: &StructuralRowContract,
     scope: &Expr,
     patch: &AcceptedFixedUpdatePatch,
 ) -> Result<ResumableUpdateEligibility, QueryError> {
@@ -1344,15 +1374,16 @@ fn prove_resumable_update_fixed_eligibility(
         })?;
 
     for target in patch.fields() {
-        let field = descriptor
-            .field_for_slot_index(target.slot().index())
-            .ok_or_else(QueryError::invariant)?;
+        let field = row_contract
+            .required_accepted_field_contract(target.slot().index())
+            .map_err(QueryError::execute)?;
+        let field_name = field.decode_contract().field_name();
         if scope_dependencies.contains(&field.field_id()) {
             return Err(QueryError::sql_write_boundary(
                 SqlWriteBoundaryCode::ResumableUpdateScopeDependsOnAssignedField,
             ));
         }
-        if snapshot.field_requires_global_write_validation(field.field_id(), field.name()) {
+        if snapshot.field_requires_global_write_validation(field.field_id(), field_name) {
             return Err(QueryError::sql_write_boundary(
                 SqlWriteBoundaryCode::ResumableUpdateAssignedFieldHasGlobalConstraint,
             ));

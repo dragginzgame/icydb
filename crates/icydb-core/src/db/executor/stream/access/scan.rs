@@ -11,7 +11,8 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
-            LoweredKey, budget::charge_current_execution_budget,
+            LoweredKey,
+            budget::{charge_current_execution_budget, charge_current_execution_budget_pair},
             lowered_index_prefix_liveness_at_generation,
         },
         index::{
@@ -391,15 +392,15 @@ impl IndexScan {
     ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
         let expected = usize::try_from(expected_cardinality)
             .map_err(|_| InternalError::executor_invariant())?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-            expected_cardinality,
-        )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::CursorSteps,
-            expected_cardinality
-                .checked_add(additional_cursor_steps)
-                .ok_or_else(InternalError::executor_invariant)?,
+        let cursor_steps = expected_cardinality
+            .checked_add(additional_cursor_steps)
+            .ok_or_else(InternalError::executor_invariant)?;
+        charge_current_execution_budget_pair(
+            (
+                DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                expected_cardinality,
+            ),
+            (DiagnosticExecutionBudgetResource::CursorSteps, cursor_steps),
         )?;
         let mut keys = Vec::new();
         keys.try_reserve_exact(expected)
@@ -466,13 +467,15 @@ impl IndexScan {
         });
         // The preflight bounds this atomic route to 256 entries. Charge all
         // completed physical work even when validation reports corruption.
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::StoredBytesRead,
-            raw_bytes_read,
-        )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::DecodedBytes,
-            raw_bytes_read,
+        charge_current_execution_budget_pair(
+            (
+                DiagnosticExecutionBudgetResource::StoredBytesRead,
+                raw_bytes_read,
+            ),
+            (
+                DiagnosticExecutionBudgetResource::DecodedBytes,
+                raw_bytes_read,
+            ),
         )?;
         scan_result?;
         if keys.len() != expected {

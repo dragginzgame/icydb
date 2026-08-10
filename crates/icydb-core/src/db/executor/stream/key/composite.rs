@@ -524,7 +524,17 @@ where
         // The first output initializes one head per child and refreshes each
         // child whose duplicate head is consumed. Later outputs do at most the
         // same amount of work, so twice the child-pull sum is a finite bound.
-        child_pull_bound.checked_mul(2)
+        //
+        // `next_key` additionally charges one cursor step for the heap pop and
+        // one for every duplicate head it consumes, whether or not any child
+        // needs a fresh pull. Once every child already holds its head the
+        // child-pull sum is zero, so that per-output merge work has to be
+        // bounded on its own; otherwise the enclosing scalar page unit reserves
+        // fewer cursor steps than the merge spends and the observed delta trips
+        // the executor invariant in `commit_observed`.
+        child_pull_bound
+            .checked_mul(2)?
+            .checked_add(self.children.len())
     }
 }
 

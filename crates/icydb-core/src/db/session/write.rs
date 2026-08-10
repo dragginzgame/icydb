@@ -49,18 +49,21 @@ struct AcceptedIdentityInsertField {
 
 struct AcceptedStructuralMutationCommitOptions {
     mutation_progress: Option<MutationProgressRecordOp>,
+    capture_output_values: bool,
 }
 
 impl AcceptedStructuralMutationCommitOptions {
     const fn standard() -> Self {
         Self {
             mutation_progress: None,
+            capture_output_values: true,
         }
     }
 
     const fn with_mutation_progress(mutation_progress: MutationProgressRecordOp) -> Self {
         Self {
             mutation_progress: Some(mutation_progress),
+            capture_output_values: false,
         }
     }
 }
@@ -70,11 +73,41 @@ impl AcceptedStructuralMutationCommitOptions {
 pub(in crate::db::session) enum AcceptedStructuralMutationTarget {
     ResolveFromAfterImage,
     Expected(Box<DecodedDataStoreKey>),
+    ExpectedLoaded(AcceptedLoadedStructuralRow),
+}
+
+/// One retained row whose accepted key relationship was validated by the
+/// synchronous operation that loaded it.
+pub(in crate::db::session) struct AcceptedLoadedStructuralRow {
+    key: Box<DecodedDataStoreKey>,
+    row: RawRow,
+}
+
+impl AcceptedLoadedStructuralRow {
+    pub(in crate::db::session) fn from_validated_parts(
+        key: DecodedDataStoreKey,
+        row: RawRow,
+    ) -> Self {
+        Self {
+            key: Box::new(key),
+            row,
+        }
+    }
+
+    fn into_parts(self) -> (DecodedDataStoreKey, RawRow) {
+        (*self.key, self.row)
+    }
 }
 
 impl AcceptedStructuralMutationTarget {
     pub(in crate::db::session) fn expected(key: DecodedDataStoreKey) -> Self {
         Self::Expected(Box::new(key))
+    }
+
+    /// Retain a row loaded by the same synchronous operation so mutation
+    /// materialization does not perform a duplicate backend point read.
+    pub(in crate::db::session) const fn expected_loaded(row: AcceptedLoadedStructuralRow) -> Self {
+        Self::ExpectedLoaded(row)
     }
 }
 
@@ -825,7 +858,10 @@ impl<C: CanisterKind> DbSession<C> {
         ) -> Result<T, InternalError>,
     ) -> Result<T, InternalError> {
         let identity = catalog.identity();
-        let AcceptedStructuralMutationCommitOptions { mutation_progress } = options;
+        let AcceptedStructuralMutationCommitOptions {
+            mutation_progress,
+            capture_output_values,
+        } = options;
         let entity_path = identity.entity_path();
         let store_path = identity.store_path();
         let row_decode_contract =
@@ -921,14 +957,19 @@ impl<C: CanisterKind> DbSession<C> {
                     canonical_before.as_raw_row(),
                     &row_contract,
                 )?;
-                let mut values = Vec::with_capacity(descriptor.fields().len());
-                for field in descriptor.fields() {
-                    values.push(
-                        reader
-                            .required_cached_value(usize::from(field.slot().get()))?
-                            .clone(),
-                    );
-                }
+                let values = if capture_output_values {
+                    let mut values = Vec::with_capacity(descriptor.fields().len());
+                    for field in descriptor.fields() {
+                        values.push(
+                            reader
+                                .required_cached_value(usize::from(field.slot().get()))?
+                                .clone(),
+                        );
+                    }
+                    values
+                } else {
+                    Vec::new()
+                };
                 output.push(AcceptedStructuralMutationRow {
                     values,
                     logical_changed: true,
@@ -937,7 +978,7 @@ impl<C: CanisterKind> DbSession<C> {
             };
             let mutation_context =
                 mutation_diagnostic_context(identity.entity_tag(), mode, batch_input_ordinal);
-            let (expected_key, pre_key_insert, mut keyed_patch) = match target {
+            let (expected_key, preloaded_before, pre_key_insert, mut keyed_patch) = match target {
                 AcceptedStructuralMutationTarget::ResolveFromAfterImage => {
                     let candidate_ordinal =
                         if identity_field.is_some() && matches!(mode, MutationMode::Insert) {
@@ -946,6 +987,7 @@ impl<C: CanisterKind> DbSession<C> {
                             batch_input_ordinal
                         };
                     (
+                        None,
                         None,
                         Some(AcceptedPreKeyInsert::new(
                             identity.entity_tag(),
@@ -956,7 +998,11 @@ impl<C: CanisterKind> DbSession<C> {
                     )
                 }
                 AcceptedStructuralMutationTarget::Expected(key) => {
-                    (Some(*key), None, Some(authored_patch))
+                    (Some(*key), None, None, Some(authored_patch))
+                }
+                AcceptedStructuralMutationTarget::ExpectedLoaded(loaded) => {
+                    let (key, row) = loaded.into_parts();
+                    (Some(key), Some(row), None, Some(authored_patch))
                 }
             };
             if matches!(mode, MutationMode::Replace)
@@ -974,11 +1020,12 @@ impl<C: CanisterKind> DbSession<C> {
                 .map(AcceptedPreKeyInsert::fields)
                 .or(keyed_patch.as_ref())
                 .ok_or_else(InternalError::executor_invariant)?;
-            let before = expected_key
-                .as_ref()
-                .map(|key| validated_existing_row(store, key, &row_contract))
-                .transpose()?
-                .flatten();
+            let before = match (expected_key.as_ref(), preloaded_before) {
+                (Some(_), Some(row)) => Some(row),
+                (Some(key), None) => validated_existing_row(store, key, &row_contract)?,
+                (None, None) => None,
+                (None, Some(_)) => return Err(InternalError::executor_invariant()),
+            };
             match mode {
                 MutationMode::Insert if before.is_some() => {
                     return Err(mutation_key_exists_error());
@@ -1156,14 +1203,19 @@ impl<C: CanisterKind> DbSession<C> {
                 row_op,
                 batch_input_ordinal,
             )?;
-            let mut values = Vec::with_capacity(descriptor.fields().len());
-            for field in descriptor.fields() {
-                values.push(
-                    reader
-                        .required_cached_value(usize::from(field.slot().get()))?
-                        .clone(),
-                );
-            }
+            let values = if capture_output_values {
+                let mut values = Vec::with_capacity(descriptor.fields().len());
+                for field in descriptor.fields() {
+                    values.push(
+                        reader
+                            .required_cached_value(usize::from(field.slot().get()))?
+                            .clone(),
+                    );
+                }
+                values
+            } else {
+                Vec::new()
+            };
             output.push(AcceptedStructuralMutationRow {
                 values,
                 logical_changed,
