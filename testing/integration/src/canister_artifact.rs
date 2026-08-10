@@ -246,7 +246,8 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
 pub struct CanisterArtifactManifest {
     /// Methods registered in generated Candid.
     pub candid_methods: BTreeSet<CanisterMethod>,
-    /// IC query/update exports present in raw Wasm.
+    /// IC query/update exports present in raw Wasm, including reserved runtime
+    /// self-call entrypoints that are intentionally absent from Candid.
     pub wasm_methods: BTreeSet<CanisterMethod>,
 }
 
@@ -262,7 +263,8 @@ impl CanisterArtifactManifest {
     }
 }
 
-/// Inspect one Candid-exporting canister and require Candid/Wasm agreement.
+/// Inspect one Candid-exporting canister and require Candid/application-Wasm
+/// agreement while retaining reserved CDK runtime exports in the raw manifest.
 ///
 /// # Errors
 ///
@@ -288,9 +290,14 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
     let candid = std::str::from_utf8(&candid_output.stdout)
         .map_err(|error| format!("candid-extractor returned non-UTF-8 output: {error}"))?;
     let candid_methods = inspect_candid_methods(candid)?;
-    if candid_methods != wasm_methods {
+    let application_wasm_methods = candid_visible_wasm_methods(&wasm_methods);
+    if candid_methods != application_wasm_methods {
+        let runtime_methods = wasm_methods
+            .difference(&application_wasm_methods)
+            .cloned()
+            .collect::<BTreeSet<_>>();
         return Err(format!(
-            "Candid/Wasm method drift for {}: Candid {candid_methods:?}, Wasm {wasm_methods:?}",
+            "Candid/Wasm method drift for {}: Candid {candid_methods:?}, application Wasm {application_wasm_methods:?}, reserved runtime Wasm {runtime_methods:?}",
             wasm_path.display()
         ));
     }
@@ -551,6 +558,17 @@ fn method_from_wasm_export(name: &str) -> Option<CanisterMethod> {
     })
 }
 
+fn candid_visible_wasm_methods(methods: &BTreeSet<CanisterMethod>) -> BTreeSet<CanisterMethod> {
+    methods
+        .iter()
+        .filter(|method| {
+            method.name != "<ic-cdk internal> timer_executor"
+                || method.mode != CanisterMethodMode::Update
+        })
+        .cloned()
+        .collect()
+}
+
 fn parse_candid_method(statement: &str) -> Result<CanisterMethod, String> {
     let (name, signature) = statement
         .split_once(':')
@@ -659,8 +677,9 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES, inspect_candid_methods,
-        inspect_wasm_methods, render_endpoint_abi_foundation, render_schema_migration_endpoint_abi,
+        CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES,
+        candid_visible_wasm_methods, inspect_candid_methods, inspect_wasm_methods,
+        render_endpoint_abi_foundation, render_schema_migration_endpoint_abi,
     };
 
     #[test]
@@ -689,16 +708,43 @@ mod tests {
         let wasm = wasm_with_exports(&[
             ("canister_query read", 0),
             ("canister_update write", 0),
+            ("canister_update <ic-cdk internal> timer_executor", 0),
             ("get_candid_pointer", 0),
             ("canister_query not_a_function", 3),
         ]);
 
         let observed = inspect_wasm_methods(&wasm).expect("Wasm should inspect");
         let expected = BTreeSet::from([
+            CanisterMethod::new(
+                "<ic-cdk internal> timer_executor",
+                CanisterMethodMode::Update,
+            ),
             CanisterMethod::new("read", CanisterMethodMode::Query),
             CanisterMethod::new("write", CanisterMethodMode::Update),
         ]);
         assert_eq!(observed, expected);
+    }
+
+    #[test]
+    fn candid_agreement_excludes_only_reserved_cdk_runtime_exports() {
+        let methods = BTreeSet::from([
+            CanisterMethod::new(
+                "<ic-cdk internal> timer_executor",
+                CanisterMethodMode::Update,
+            ),
+            CanisterMethod::new("<ic-cdk internal> unexpected", CanisterMethodMode::Update),
+            CanisterMethod::new("read", CanisterMethodMode::Query),
+            CanisterMethod::new("write", CanisterMethodMode::Update),
+        ]);
+
+        assert_eq!(
+            candid_visible_wasm_methods(&methods),
+            BTreeSet::from([
+                CanisterMethod::new("<ic-cdk internal> unexpected", CanisterMethodMode::Update,),
+                CanisterMethod::new("read", CanisterMethodMode::Query),
+                CanisterMethod::new("write", CanisterMethodMode::Update),
+            ]),
+        );
     }
 
     #[test]
