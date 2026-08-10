@@ -937,7 +937,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "core.mutation.trusted_resumable_update_state",
         "testing/integration/tests/sql_perf_audit.rs",
-        "sql_perf_resumable_update_steps_stay_bounded",
+        "sql_perf_mutation_forward_steps_stay_bounded",
         ContractAssertion,
         [Execute, State]
     ),
