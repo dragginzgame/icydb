@@ -196,6 +196,7 @@ impl AcceptedFixedUpdatePatch {
                     AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
                 ) => resolve_explicit_update_default(&contract, slot)?.0,
                 AcceptedMutationFieldWriteIntent::PreservedReplacementIdentity(_)
+                | AcceptedMutationFieldWriteIntent::CanonicalPayload(_)
                 | AcceptedMutationFieldWriteIntent::Resolve(
                     AcceptedInsertPolicyRequest::OmittedInsert
                     | AcceptedInsertPolicyRequest::ExplicitInsertDefault,
@@ -246,6 +247,16 @@ impl AcceptedFixedUpdatePatch {
     #[must_use]
     pub(in crate::db) const fn fields(&self) -> &[AcceptedFixedUpdateField] {
         self.fields.as_slice()
+    }
+
+    /// Rebuild the private existing-row update intent from retained canonical payloads.
+    #[must_use]
+    pub(in crate::db) fn to_update_intent(&self) -> AcceptedMutationIntentPatch {
+        self.fields
+            .iter()
+            .fold(AcceptedMutationIntentPatch::new(), |patch, field| {
+                patch.set_canonical_payload(field.slot, field.payload.clone())
+            })
     }
 
     /// Return whether every fixed authored target already matches one accepted row.
@@ -450,6 +461,9 @@ fn resolve_insert_active_slot(
                 payload,
                 AcceptedFieldWriteProvenance::PreservedReplacementIdentity,
             ));
+        }
+        Some(AcceptedMutationFieldWriteIntent::CanonicalPayload(_)) => {
+            return Err(InternalError::executor_invariant());
         }
         Some(AcceptedMutationFieldWriteIntent::Resolve(
             AcceptedInsertPolicyRequest::ExplicitInsertDefault,
@@ -673,6 +687,21 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
             }
             Some(AcceptedMutationFieldWriteIntent::PreservedReplacementIdentity(_)) => {
                 return Err(InternalError::executor_invariant());
+            }
+            Some(AcceptedMutationFieldWriteIntent::CanonicalPayload(canonical_payload)) => {
+                if write_policy.insert_generation().is_some()
+                    || write_policy.write_management().is_some()
+                {
+                    return Err(InternalError::executor_invariant());
+                }
+                let _ = crate::db::data::decode_runtime_value_from_row_contract(
+                    &contract,
+                    slot,
+                    canonical_payload.as_slice(),
+                )?;
+                *payload = Some(canonical_payload);
+                provenance[slot] = Some(AcceptedFieldWriteProvenance::Authored);
+                continue;
             }
             Some(AcceptedMutationFieldWriteIntent::Resolve(
                 AcceptedInsertPolicyRequest::ExplicitUpdateDefault,

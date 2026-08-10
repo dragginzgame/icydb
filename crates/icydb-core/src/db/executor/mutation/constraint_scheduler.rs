@@ -208,21 +208,6 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
         Ok(())
     }
 
-    /// Remove the last staged save transition when bounded resumable SQL
-    /// chooses the largest durable prefix.
-    pub(in crate::db) fn pop_last_save_row(&mut self) -> Result<(), InternalError> {
-        let Some(row) = self.rows.pop() else {
-            return Err(InternalError::query_executor_invariant());
-        };
-        self.seen_keys.remove(&row.key);
-        Ok(())
-    }
-
-    /// Borrow staged save transitions for bounded commit-window sizing.
-    pub(in crate::db) const fn rows(&self) -> &[CommitRowOp] {
-        self.rows.as_slice()
-    }
-
     /// Stage one delete transition. Relation protection is deferred until the
     /// complete batch key set is known.
     pub(in crate::db) fn schedule_delete(

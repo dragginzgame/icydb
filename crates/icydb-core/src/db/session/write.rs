@@ -48,35 +48,18 @@ struct AcceptedIdentityInsertField {
 }
 
 struct AcceptedStructuralMutationCommitOptions {
-    largest_journaled_prefix: bool,
     mutation_progress: Option<MutationProgressRecordOp>,
 }
 
 impl AcceptedStructuralMutationCommitOptions {
     const fn standard() -> Self {
         Self {
-            largest_journaled_prefix: false,
             mutation_progress: None,
         }
     }
 
-    const fn largest_journaled_prefix() -> Self {
-        Self {
-            largest_journaled_prefix: true,
-            mutation_progress: None,
-        }
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "durable Forward execution consumes the Patch 4 commit option"
-        )
-    )]
     const fn with_mutation_progress(mutation_progress: MutationProgressRecordOp) -> Self {
         Self {
-            largest_journaled_prefix: false,
             mutation_progress: Some(mutation_progress),
         }
     }
@@ -168,7 +151,7 @@ pub(in crate::db::session) struct AcceptedStructuralMutationRow {
 }
 
 impl AcceptedStructuralMutationRow {
-    #[cfg(feature = "sql")]
+    #[cfg(any(feature = "sql", test))]
     pub(in crate::db::session) fn into_values(self) -> Vec<Value> {
         self.values
     }
@@ -806,41 +789,23 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    /// Commit the largest durable prefix of one accepted resumable update page.
+    /// Commit one complete accepted update page and its exact durable progress successor.
     #[cfg(feature = "sql")]
-    pub(in crate::db::session) fn execute_accepted_structural_update_prefix(
-        &self,
-        catalog: &AcceptedSchemaCatalogContext,
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        mutations: Vec<AcceptedStructuralMutation>,
-        operation_timestamp: Timestamp,
-    ) -> Result<usize, InternalError> {
-        self.execute_accepted_structural_mutation_batch_inner(
-            catalog,
-            descriptor,
-            mutations,
-            operation_timestamp,
-            AcceptedStructuralMutationCommitOptions::largest_journaled_prefix(),
-            |rows| Ok(rows.len()),
-        )
-    }
-
-    #[cfg(test)]
-    fn execute_accepted_structural_save_batch_with_mutation_progress(
+    pub(in crate::db::session) fn execute_accepted_structural_update_with_mutation_progress(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         mutation_progress: MutationProgressRecordOp,
-    ) -> Result<Vec<AcceptedStructuralMutationRow>, InternalError> {
+    ) -> Result<usize, InternalError> {
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
             descriptor,
             mutations,
             operation_timestamp,
             AcceptedStructuralMutationCommitOptions::with_mutation_progress(mutation_progress),
-            Ok,
+            |rows| Ok(rows.len()),
         )
     }
 
@@ -860,10 +825,7 @@ impl<C: CanisterKind> DbSession<C> {
         ) -> Result<T, InternalError>,
     ) -> Result<T, InternalError> {
         let identity = catalog.identity();
-        let AcceptedStructuralMutationCommitOptions {
-            largest_journaled_prefix,
-            mutation_progress,
-        } = options;
+        let AcceptedStructuralMutationCommitOptions { mutation_progress } = options;
         let entity_path = identity.entity_path();
         let store_path = identity.store_path();
         let row_decode_contract =
@@ -1194,21 +1156,6 @@ impl<C: CanisterKind> DbSession<C> {
                 row_op,
                 batch_input_ordinal,
             )?;
-            if physical_changed {
-                #[cfg(feature = "sql")]
-                if largest_journaled_prefix
-                    && !crate::db::commit::journaled_row_ops_fit_commit_window(scheduler.rows())
-                {
-                    scheduler.pop_last_save_row()?;
-                    if output.is_empty() {
-                        return Err(InternalError::query_sql_write_boundary(
-                            icydb_diagnostic_code::SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded,
-                        ));
-                    }
-                    break;
-                }
-            }
-
             let mut values = Vec::with_capacity(descriptor.fields().len());
             for field in descriptor.fields() {
                 values.push(
@@ -1222,9 +1169,6 @@ impl<C: CanisterKind> DbSession<C> {
                 logical_changed,
             });
         }
-
-        #[cfg(not(feature = "sql"))]
-        let _ = largest_journaled_prefix;
 
         let batch = scheduler.finish();
         let prepared = precommit_preparation(output)?;
@@ -4848,14 +4792,13 @@ mod identity_pre_key_tests {
             .expect("atomic predecessor should insert once");
 
             interrupt_next_mutation_commit_for_tests(interruption);
-            let interrupted = session
-                .execute_accepted_structural_save_batch_with_mutation_progress(
-                    &catalog,
-                    &descriptor,
-                    batch(&[700 + u64::try_from(ordinal).expect("small ordinal should fit")]),
-                    Timestamp::from_millis(17),
-                    operation,
-                );
+            let interrupted = session.execute_accepted_structural_update_with_mutation_progress(
+                &catalog,
+                &descriptor,
+                batch(&[700 + u64::try_from(ordinal).expect("small ordinal should fit")]),
+                Timestamp::from_millis(17),
+                operation,
+            );
             assert!(
                 interrupted.is_err(),
                 "selected atomic boundary should interrupt"
@@ -4889,7 +4832,7 @@ mod identity_pre_key_tests {
         })
         .expect("final predecessor should insert once");
         session
-            .execute_accepted_structural_save_batch_with_mutation_progress(
+            .execute_accepted_structural_update_with_mutation_progress(
                 &catalog,
                 &descriptor,
                 batch(&[799]),
@@ -4932,7 +4875,7 @@ mod identity_pre_key_tests {
         interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::MarkerPersisted);
         assert!(
             session
-                .execute_accepted_structural_save_batch_with_mutation_progress(
+                .execute_accepted_structural_update_with_mutation_progress(
                     &catalog,
                     &descriptor,
                     batch(&[811]),

@@ -231,6 +231,60 @@ impl CanonicalMutationIntent {
             && self.accepted_schema_fingerprint == other.accepted_schema_fingerprint
     }
 
+    /// Return the database incarnation frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn database_incarnation(&self) -> [u8; 16] {
+        self.database_incarnation
+    }
+
+    /// Return the complete physical target identity frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn target_store_identity(&self) -> [u8; 32] {
+        self.target_store_identity
+    }
+
+    /// Borrow the accepted target store path frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn target_store_path(&self) -> &str {
+        self.target_store_path.as_str()
+    }
+
+    /// Borrow the accepted target entity path frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn target_entity_path(&self) -> &str {
+        self.target_entity_path.as_str()
+    }
+
+    /// Return the accepted target entity tag frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn target_entity_tag(&self) -> u64 {
+        self.target_entity_tag
+    }
+
+    /// Return the accepted-schema revision frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_revision(&self) -> u64 {
+        self.accepted_schema_revision
+    }
+
+    /// Return the accepted-schema fingerprint method frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_fingerprint_method(&self) -> u8 {
+        self.accepted_schema_fingerprint_method
+    }
+
+    /// Return the accepted-schema fingerprint frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_fingerprint(&self) -> [u8; 16] {
+        self.accepted_schema_fingerprint
+    }
+
+    /// Return the engine-owned batch-policy identity frozen at start.
+    #[must_use]
+    pub(in crate::db) const fn batch_policy_identity(&self) -> u32 {
+        self.batch_policy_identity
+    }
+
     /// Borrow the frozen server-generated operation timestamp.
     #[must_use]
     pub(in crate::db) const fn operation_timestamp(&self) -> Timestamp {

@@ -225,38 +225,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Prepare one trusted resumable SQL `UPDATE` without reading or mutating rows.
-    ///
-    /// The returned proof-bearing continuation must be stored durably outside
-    /// the target store before a later resume call. It is not authorization and
-    /// must not be accepted through an untrusted public endpoint.
-    pub fn prepare_trusted_sql_resumable_update(
-        &self,
-        operation_id: crate::types::Ulid,
-        sql: &str,
-    ) -> Result<crate::db::TrustedResumableUpdateContinuation, Error> {
-        Ok(self
-            .inner
-            .prepare_trusted_sql_resumable_update(operation_id, sql)?)
-    }
-
-    /// Resume one trusted resumable SQL `UPDATE` for one bounded engine step.
-    ///
-    /// The continuation must come from custody for the supplied authorized
-    /// operation id, and the SQL must preserve the exact prepared scope and
-    /// fixed patch. Forward commits at most one batch; Verify is read-only and
-    /// alone may report completion.
-    pub fn resume_trusted_sql_resumable_update(
-        &self,
-        operation_id: crate::types::Ulid,
-        sql: &str,
-        continuation: &crate::db::TrustedResumableUpdateContinuation,
-    ) -> Result<crate::db::TrustedResumableUpdateReceipt, Error> {
-        Ok(self
-            .inner
-            .resume_trusted_sql_resumable_update(operation_id, sql, continuation)?)
-    }
-
     /// Execute one public primary-key-only SQL `UPDATE` against one entity type.
     #[doc(hidden)]
     pub fn execute_sql_public_primary_key_update(

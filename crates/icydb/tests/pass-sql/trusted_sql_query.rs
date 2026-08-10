@@ -23,12 +23,13 @@ where
 {
     let _ = db.execute_trusted_sql_exact_update(sql, 10);
     let _ = db.execute_trusted_sql_prefix_update(sql);
-    let operation_id = icydb::types::Ulid::MIN;
-    if let Ok(continuation) = db.prepare_trusted_sql_resumable_update(operation_id, sql) {
-        let _ = icydb::db::TrustedResumableUpdateContinuation::try_from_bytes(
-            continuation.as_bytes().to_vec(),
-        );
-        let _ = db.resume_trusted_sql_resumable_update(operation_id, sql, &continuation);
+    if let (Ok(job_id), Ok(idempotency_key)) = (
+        icydb::db::MutationJobId::try_from_bytes([1; 32]),
+        icydb::db::MutationJobIdempotencyKey::new("advance-0"),
+    ) {
+        let _ = db.start_trusted_sql_mutation_job(job_id, sql);
+        let request = icydb::db::MutationJobAdvanceRequest::new(job_id, 0, idempotency_key);
+        let _ = db.advance_trusted_mutation_job(&request);
     }
 }
 

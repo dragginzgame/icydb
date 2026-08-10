@@ -50,6 +50,8 @@ pub(in crate::db) use job::{
 };
 #[cfg(any(feature = "sql", test))]
 pub(in crate::db) use progress_store::InsertMutationJobResult;
+#[cfg(feature = "sql")]
+pub(in crate::db) use progress_store::replace_mutation_progress_record_op;
 pub(in crate::db) use progress_store::{
     MutationProgressRecordOp, apply_mutation_progress_record_op,
     preflight_mutation_progress_record_op, verify_mutation_progress_record_op,

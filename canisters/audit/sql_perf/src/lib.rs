@@ -17,11 +17,12 @@ use icydb::{
     db::{
         DynamicQuery, EntitySchemaDescription, ExhaustiveQueryPageOutput, ExhaustiveReadError,
         GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
-        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobError,
-        MutationJobId, MutationJobState, ReadSetRevisionError, ReadSetRevisionProof,
-        SqlCompileAttribution, SqlExecutionAttribution, SqlIntegrityError,
-        SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
-        SqlStructuralWorkAttribution, StructuralMutation, StructuralPatch, WriteCell,
+        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobAdvanceRequest,
+        MutationJobError, MutationJobId, MutationJobIdempotencyKey, MutationJobPhase,
+        MutationJobState, ReadSetRevisionError, ReadSetRevisionProof, SqlCompileAttribution,
+        SqlExecutionAttribution, SqlIntegrityError, SqlPureCoveringAttribution,
+        SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
+        StructuralMutation, StructuralPatch, WriteCell,
         query::{FieldRef, asc},
         sql::SqlQueryResult,
     },
@@ -177,16 +178,24 @@ struct SqlWriteMaterializationPerfResult {
     rows: [u32; 4],
 }
 
-/// Focused trusted resumable-update instruction and progress evidence.
+/// Focused durable Forward instruction and replay evidence.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
-struct ResumableUpdatePerfResult {
-    prepare_local_instructions: u64,
+struct MutationJobForwardPerfResult {
+    start_local_instructions: u64,
     forward_local_instructions: Vec<u64>,
-    verify_local_instructions: Vec<u64>,
-    forward_keys_scanned: u32,
-    verify_keys_scanned: u32,
-    rows_updated: u32,
+    replay_local_instructions: u64,
+    forward_keys_scanned: u64,
+    rows_updated: u64,
+    forward_keys_scanned_per_step: Vec<u64>,
+    rows_updated_per_step: Vec<u64>,
+    committed_sequence: u64,
+    replay_matches: bool,
+    zero_candidate_keys_scanned: u64,
+    zero_candidate_rows_updated: u64,
+    zero_candidate_sequence: u64,
+    stale_request_preserved_sequence: bool,
+    operation_timestamp_groups: u32,
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
@@ -1894,64 +1903,106 @@ fn measure_journaled_user_sql_write_materialization_perf()
     })
 }
 
-/// Measure one complete trusted resumable convergence operation without
-/// exposing its proof-bearing continuation across the canister boundary.
+/// Measure durable Forward convergence without exposing private intent or continuation bytes.
 #[cfg(feature = "sql")]
 #[update]
-fn measure_journaled_user_resumable_update_perf() -> Result<ResumableUpdatePerfResult, icydb::Error>
-{
+fn measure_journaled_user_mutation_forward_perf()
+-> Result<MutationJobForwardPerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
         const MAX_STEPS: usize = 16;
 
-        let session = db()?;
+        let session = db().map_err(|_| MutationJobError::Internal)?;
         let sql = "UPDATE PerfAuditJournaledUser SET name = 'resumable-measured' WHERE age >= 0";
-        let operation_id = Ulid::from_bytes(0x210_0000_0000_0001_u128.to_be_bytes());
-        let prepare_start = ic_cdk::api::performance_counter(1);
-        let mut continuation = session.prepare_trusted_sql_resumable_update(operation_id, sql)?;
-        let prepare_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(prepare_start);
-        let mut phase = icydb::db::TrustedResumableUpdatePhase::Forward;
+        let mut job_bytes = [0; 32];
+        job_bytes[31] = 73;
+        let job_id = MutationJobId::try_from_bytes(job_bytes)?;
+        let start = ic_cdk::api::performance_counter(1);
+        let state = session.start_trusted_sql_mutation_job(job_id, sql)?;
+        let start_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let mut sequence = state.sequence;
         let mut forward_local_instructions = Vec::new();
-        let mut verify_local_instructions = Vec::new();
-        let mut forward_keys_scanned = 0_u32;
-        let mut verify_keys_scanned = 0_u32;
-        let mut rows_updated = 0_u32;
+        let mut forward_keys_scanned = 0_u64;
+        let mut rows_updated = 0_u64;
+        let mut forward_keys_scanned_per_step = Vec::new();
+        let mut rows_updated_per_step = Vec::new();
 
         for _ in 0..MAX_STEPS {
+            let request = MutationJobAdvanceRequest::new(
+                job_id,
+                sequence,
+                MutationJobIdempotencyKey::new(format!("forward-{sequence}"))?,
+            );
             let start = ic_cdk::api::performance_counter(1);
-            let receipt =
-                session.resume_trusted_sql_resumable_update(operation_id, sql, &continuation)?;
+            let receipt = session.advance_trusted_mutation_job(&request)?;
             let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-            match phase {
-                icydb::db::TrustedResumableUpdatePhase::Forward => {
-                    forward_local_instructions.push(instructions);
-                    forward_keys_scanned =
-                        forward_keys_scanned.saturating_add(receipt.keys_scanned());
-                }
-                icydb::db::TrustedResumableUpdatePhase::Verify => {
-                    verify_local_instructions.push(instructions);
-                    verify_keys_scanned =
-                        verify_keys_scanned.saturating_add(receipt.keys_scanned());
-                }
-            }
-            rows_updated = rows_updated.saturating_add(receipt.rows_updated());
-            phase = receipt.phase();
-            if receipt.complete() {
-                return Ok(ResumableUpdatePerfResult {
-                    prepare_local_instructions,
+            forward_local_instructions.push(instructions);
+            forward_keys_scanned = forward_keys_scanned.saturating_add(receipt.keys_scanned);
+            rows_updated = rows_updated.saturating_add(receipt.rows_updated);
+            forward_keys_scanned_per_step.push(receipt.keys_scanned);
+            rows_updated_per_step.push(receipt.rows_updated);
+            sequence = receipt.committed_sequence;
+            if receipt.phase == MutationJobPhase::Verify {
+                let start = ic_cdk::api::performance_counter(1);
+                let replay = session.advance_trusted_mutation_job(&request)?;
+                let replay_local_instructions =
+                    ic_cdk::api::performance_counter(1).saturating_sub(start);
+                let timestamp_groups = match session
+                    .execute_trusted_sql_query(
+                        "SELECT updated_at, COUNT(*) FROM PerfAuditJournaledUser \
+                         WHERE name = 'resumable-measured' \
+                         GROUP BY updated_at ORDER BY updated_at ASC LIMIT 2",
+                    )
+                    .map_err(|_| MutationJobError::Internal)?
+                {
+                    SqlQueryResult::Grouped(groups) => groups.row_count,
+                    _ => return Err(MutationJobError::Internal),
+                };
+
+                let mut zero_job_bytes = [0; 32];
+                zero_job_bytes[31] = 74;
+                let zero_job_id = MutationJobId::try_from_bytes(zero_job_bytes)?;
+                session.start_trusted_sql_mutation_job(zero_job_id, sql)?;
+                let zero_request = MutationJobAdvanceRequest::new(
+                    zero_job_id,
+                    0,
+                    MutationJobIdempotencyKey::new("zero-candidate-0")?,
+                );
+                let zero_receipt = session.advance_trusted_mutation_job(&zero_request)?;
+                let stale_request = MutationJobAdvanceRequest::new(
+                    zero_job_id,
+                    0,
+                    MutationJobIdempotencyKey::new("stale-after-zero-candidate")?,
+                );
+                let stale_rejected = matches!(
+                    session.advance_trusted_mutation_job(&stale_request),
+                    Err(MutationJobError::StaleSequence {
+                        expected: 0,
+                        actual: 1,
+                    })
+                );
+                let stale_request_preserved_sequence = stale_rejected
+                    && session.mutation_job_state(zero_job_id)?.sequence
+                        == zero_receipt.committed_sequence;
+                return Ok(MutationJobForwardPerfResult {
+                    start_local_instructions,
                     forward_local_instructions,
-                    verify_local_instructions,
+                    replay_local_instructions,
                     forward_keys_scanned,
-                    verify_keys_scanned,
                     rows_updated,
+                    forward_keys_scanned_per_step,
+                    rows_updated_per_step,
+                    committed_sequence: sequence,
+                    replay_matches: receipt == replay,
+                    zero_candidate_keys_scanned: zero_receipt.keys_scanned,
+                    zero_candidate_rows_updated: zero_receipt.rows_updated,
+                    zero_candidate_sequence: zero_receipt.committed_sequence,
+                    stale_request_preserved_sequence,
+                    operation_timestamp_groups: timestamp_groups,
                 });
             }
-            continuation = receipt
-                .into_continuation()
-                .ok_or_else(query_validate_error)?;
         }
 
-        Err(query_validate_error())
+        Err(MutationJobError::Internal)
     })
 }
 

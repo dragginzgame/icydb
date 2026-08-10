@@ -39,11 +39,6 @@ pub use icydb_core::db::{
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
 #[cfg(feature = "sql")]
-pub use icydb_core::db::{
-    TrustedResumableUpdateContinuation, TrustedResumableUpdatePhase, TrustedResumableUpdateReceipt,
-    TrustedResumableUpdateRestartReason,
-};
-#[cfg(feature = "sql")]
 pub use response::ExecutionTrace;
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;

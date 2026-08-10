@@ -32,8 +32,6 @@ mod store;
 pub(in crate::db) use guard::{
     CommitApplyGuard, CommitGuard, begin_commit, begin_mutation_progress_commit, finish_commit,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use marker::commit_marker_payload_capacity_for_single_batch;
 #[cfg(test)]
 pub(in crate::db) use marker::{
     COMMIT_MARKER_FORMAT_VERSION_CURRENT, decode_commit_marker_payload,
@@ -73,33 +71,3 @@ pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
 pub(in crate::db) use store::{
     cursor_authentication_key, database_control_proof_identity, database_incarnation_id,
 };
-
-/// Return whether one single-store journaled row-op prefix fits the current
-/// durable commit-control window exactly as it would be encoded.
-#[must_use]
-#[cfg(feature = "sql")]
-pub(in crate::db) fn journaled_row_ops_fit_commit_window(row_ops: &[CommitRowOp]) -> bool {
-    let record_payload_bytes = row_ops.iter().fold(0usize, |bytes, row_op| {
-        let record_bytes = match row_op.after.as_ref() {
-            Some(after) => crate::db::journal::journal_row_put_record_payload_len(
-                row_op.entity_path.len(),
-                row_op.key.as_bytes().len(),
-                after.len(),
-            ),
-            None => crate::db::journal::journal_row_delete_record_payload_len(
-                row_op.entity_path.len(),
-                row_op.key.as_bytes().len(),
-            ),
-        };
-        bytes.saturating_add(record_bytes)
-    });
-    let Some(batch_bytes) = crate::db::journal::journal_batch_encoded_len_for_record_payloads(
-        row_ops.len(),
-        record_payload_bytes,
-    ) else {
-        return false;
-    };
-    let marker_payload_bytes = commit_marker_payload_capacity_for_single_batch(batch_bytes);
-
-    store::commit_control_slot_encoded_len_for_marker_payload(marker_payload_bytes).is_some()
-}

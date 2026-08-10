@@ -51,8 +51,10 @@ The remaining public SQL surfaces are:
 - `execute_trusted_sql_mutation(...)`
 - `execute_trusted_sql_exact_update(..., require_affected_at_most)`
 - `execute_trusted_sql_prefix_update(...)`
-- `prepare_trusted_sql_resumable_update(operation_id, ...)`
-- `resume_trusted_sql_resumable_update(...)`
+- `start_trusted_sql_mutation_job(job_id, ...)`
+- `mutation_job_state(job_id)`
+- `advance_trusted_mutation_job(...)`
+- `acknowledge_mutation_job(job_id, expected_terminal_sequence)`
 - `execute_admin_sql_ddl(...)`
 - `execute_admin_integrity_sql(...)`
 
@@ -463,10 +465,17 @@ Public SQL ownership is split deliberately:
 - `execute_trusted_sql_exact_update(...)` owns complete-set SQL `UPDATE`
 - `execute_trusted_sql_prefix_update(...)` owns intentional ordered-prefix
   SQL `UPDATE`
-- `prepare_trusted_sql_resumable_update(...)` and
-  `resume_trusted_sql_resumable_update(...)` own trusted, journaled,
-  bounded convergence over multiple calls
+- `start_trusted_sql_mutation_job(...)`, `mutation_job_state(...)`,
+  `advance_trusted_mutation_job(...)`, and `acknowledge_mutation_job(...)` own
+  durable trusted convergence without exposing SQL or continuation custody
 - `execute_admin_sql_ddl(...)` owns accepted-catalog schema DDL SQL
+
+The current durable advance executes one engine-owned Forward page with fixed
+limits of 256 authoritative keys and 64 updates. It commits target rows and
+the next sequence/replay receipt atomically, advances zero-update pages through
+an exact progress replacement, and reuses the operation timestamp frozen at
+start. Forward exhaustion persists an active Verify checkpoint; stable Verify
+completion and restart semantics remain the next 0.223 lifecycle slice.
 
 ### SQL `UPDATE` Availability By Surface
 

@@ -103,6 +103,14 @@ pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_051_601;
 /// Current canonically equivalent retained-start replay instruction sample.
 pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_161_322;
 
+/// Current durable 64-update Forward samples over the fixed 512-row fixture.
+pub const CURRENT_DURABLE_FORWARD_INSTRUCTIONS: &[u64] = &[
+    27_223_505, 27_658_598, 27_795_993, 27_935_343, 28_139_677, 28_458_826, 28_644_212, 29_045_296,
+];
+
+/// Current exact replay sample for the final retained Forward receipt.
+pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_882;
+
 /// Maximum reviewed instruction cost for one 64-update Forward step.
 pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 30_000_000;
 
@@ -152,26 +160,26 @@ pub struct MutationJobAuthorityEntry {
     pub disposition: MutationJobAuthorityDisposition,
 }
 
-/// Complete owner-family inventory at the published 0.222.4 boundary.
+/// Current owner-family inventory reconciled from the published 0.222.4 boundary.
 pub const MUTATION_JOB_AUTHORITY_INVENTORY: &[MutationJobAuthorityEntry] = &[
     MutationJobAuthorityEntry {
-        id: "application_custodied_continuation",
-        owner_file: "crates/icydb-core/src/db/session/sql/resumable_update.rs",
-        owner_symbol: "pub struct TrustedResumableUpdateContinuation",
+        id: "durable_mutation_custody",
+        owner_file: "crates/icydb-core/src/db/session/mutation_job.rs",
+        owner_symbol: "pub fn advance_trusted_mutation_job",
         action_patch: 5,
-        disposition: MutationJobAuthorityDisposition::HardCut,
+        disposition: MutationJobAuthorityDisposition::Reuse,
     },
     MutationJobAuthorityEntry {
         id: "bounded_forward_convergence",
         owner_file: "crates/icydb-core/src/db/session/sql/resumable_update.rs",
-        owner_symbol: "fn resume_resumable_update_forward",
+        owner_symbol: "fn advance_mutation_job_forward",
         action_patch: 5,
         disposition: MutationJobAuthorityDisposition::Reuse,
     },
     MutationJobAuthorityEntry {
         id: "stable_revision_verify",
         owner_file: "crates/icydb-core/src/db/session/sql/resumable_update.rs",
-        owner_symbol: "fn resume_resumable_update_verify",
+        owner_symbol: "fn scan_mutation_job_verify",
         action_patch: 6,
         disposition: MutationJobAuthorityDisposition::Reuse,
     },

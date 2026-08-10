@@ -3,14 +3,6 @@
 //! Does not own: SQL lowering, target traversal, row mutation, or commit-marker recovery.
 //! Boundary: trusted mutation coordinator -> excluded progress-record envelope.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "record construction and transitions are private mutation-coordinator inputs"
-    )
-)]
-
 #[cfg(feature = "sql")]
 mod intent;
 
@@ -322,6 +314,10 @@ impl MutationJobRecord {
 
     pub(in crate::db) const fn canonical_intent(&self) -> &[u8] {
         self.canonical_intent.as_slice()
+    }
+
+    pub(in crate::db) const fn engine_continuation(&self) -> &[u8] {
+        self.engine_continuation.as_slice()
     }
 
     pub(in crate::db) fn exact_replay(

@@ -63,6 +63,12 @@ pub(in crate::db) enum AcceptedMutationFieldWriteIntent {
     /// already selected the row identity, and the accepted resolver must carry
     /// that identity through without rerunning insert generation.
     PreservedReplacementIdentity(InputValue),
+    /// Exact accepted payload retained by an authority-bound durable mutation.
+    ///
+    /// This is admitted only for existing-row updates after the accepted
+    /// schema identity has been revalidated. It avoids reconstructing a loose
+    /// authored value from canonical enum or nested payloads.
+    CanonicalPayload(Vec<u8>),
     /// Resolve through the accepted policy appropriate to this exact request.
     Resolve(AcceptedInsertPolicyRequest),
 }
@@ -119,6 +125,20 @@ impl AcceptedMutationIntentPatch {
         self.entries.push(AcceptedMutationFieldUpdate::new(
             slot,
             AcceptedMutationFieldWriteIntent::Authored(value),
+        ));
+        self
+    }
+
+    /// Append one already-admitted canonical payload for an existing-row update.
+    #[must_use]
+    pub(in crate::db) fn set_canonical_payload(
+        mut self,
+        slot: FieldSlot,
+        payload: Vec<u8>,
+    ) -> Self {
+        self.entries.push(AcceptedMutationFieldUpdate::new(
+            slot,
+            AcceptedMutationFieldWriteIntent::CanonicalPayload(payload),
         ));
         self
     }

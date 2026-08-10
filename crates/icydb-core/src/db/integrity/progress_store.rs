@@ -160,13 +160,6 @@ pub(in crate::db) struct MutationProgressRecordOp {
 
 impl MutationProgressRecordOp {
     /// Build one exact successor replacement from two validated current records.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "durable Forward planning constructs this Patch 4 marker effect"
-        )
-    )]
     pub(in crate::db) fn replace(
         before: &MutationJobRecord,
         after: &MutationJobRecord,
@@ -470,6 +463,16 @@ impl InspectionProgressStore {
         self.map
             .insert(operation.key, ProgressRecordBytes(operation.after.clone()));
         Ok(())
+    }
+
+    /// Replace one mutation record without target-row work using the same exact
+    /// before/after proof as marker-owned mutation progress.
+    pub(in crate::db) fn replace_mutation_progress(
+        &mut self,
+        operation: &MutationProgressRecordOp,
+    ) -> Result<(), MutationJobError> {
+        self.preflight_mutation_progress(operation)?;
+        self.apply_mutation_progress(operation)
     }
 
     fn verify_mutation_progress(
@@ -855,6 +858,12 @@ pub(in crate::db) fn apply_mutation_progress_record_op<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     with_mutation_progress_store::<C, _>(|store| store.apply_mutation_progress(operation))
         .map_err(|_| InternalError::commit_corruption())
+}
+
+pub(in crate::db) fn replace_mutation_progress_record_op<C: CanisterKind>(
+    operation: &MutationProgressRecordOp,
+) -> Result<(), MutationJobError> {
+    with_mutation_progress_store::<C, _>(|store| store.replace_mutation_progress(operation))
 }
 
 pub(in crate::db) fn verify_mutation_progress_record_op<C: CanisterKind>(

@@ -15,11 +15,6 @@ pub(in crate::db) use codec::{
 };
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use codec::{MAX_JOURNAL_BATCH_RECORDS, journal_record_payload_len};
-#[cfg(feature = "sql")]
-pub(in crate::db) use codec::{
-    journal_batch_encoded_len_for_record_payloads, journal_row_delete_record_payload_len,
-    journal_row_put_record_payload_len,
-};
 pub use store::JournalTailStore;
 pub(in crate::db) use store::{
     FoldRecordCursor, FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits,

@@ -240,8 +240,10 @@ SQL entry points are explicit trusted/admin lanes:
 - `execute_trusted_sql_mutation`
 - `execute_trusted_sql_exact_update`
 - `execute_trusted_sql_prefix_update`
-- `prepare_trusted_sql_resumable_update`
-- `resume_trusted_sql_resumable_update`
+- `start_trusted_sql_mutation_job`
+- `mutation_job_state`
+- `advance_trusted_mutation_job`
+- `acknowledge_mutation_job`
 - `execute_admin_sql_ddl`
 - `execute_admin_integrity_sql`
 
@@ -249,6 +251,14 @@ They resolve entity identity from the SQL statement against accepted catalog
 authority. They are not safe templates for caller-controlled SQL. Generated
 `icydb_query`, `icydb_ddl`, and optional update endpoints remain
 controller-gated.
+
+Durable mutation jobs retain the canonical fixed-update intent and private
+engine continuation inside IcyDB. Callers keep only the job id, expected
+sequence, and a bounded idempotency key. Each advance performs at most one
+256-key/64-update Forward step and exact request replay returns the retained
+receipt without scanning or mutating again. Stable Verify completion is the
+next 0.223 lifecycle slice; a Forward job that reaches Verify remains active
+until that slice lands.
 
 ## Schema And Integrity
 

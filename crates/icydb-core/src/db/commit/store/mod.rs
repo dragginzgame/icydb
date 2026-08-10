@@ -43,9 +43,6 @@ use crate::db::database_format::crc32c;
 #[cfg(test)]
 use crate::db::database_format::initialize_current_database_control_for_tests;
 
-#[cfg(feature = "sql")]
-pub(in crate::db::commit) use control_slot::commit_control_slot_encoded_len_for_marker_payload;
-
 #[cfg(not(test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CommitMarkerPresenceHint {

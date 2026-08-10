@@ -198,6 +198,15 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.mutation_job_state(job_id)
     }
 
+    /// Advance one durable mutation job through one bounded engine-owned step.
+    #[cfg(feature = "sql")]
+    pub fn advance_trusted_mutation_job(
+        &self,
+        request: &crate::db::MutationJobAdvanceRequest,
+    ) -> Result<crate::db::MutationJobAdvanceReceipt, crate::db::MutationJobError> {
+        self.inner.advance_trusted_mutation_job(request)
+    }
+
     /// Idempotently remove one terminal mutation job after consuming its result.
     pub fn acknowledge_mutation_job(
         &self,

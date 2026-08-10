@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
 
+- `0.223.2` atomically advances durable bounded Forward mutations from IcyDB
+  custody and removes the old caller-custodied SQL continuation API in a
+  potentially breaking Rust hard cut.
+
 - `0.223.1` adds durable custody and crash-atomic progress for bounded mutation
   jobs without executing them yet, fixes empty-store cardinality and reserved
   export validation, and is potentially breaking for pending version-2 commit

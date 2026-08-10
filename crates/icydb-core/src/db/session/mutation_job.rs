@@ -1,5 +1,5 @@
 //! Module: session::mutation_job
-//! Responsibility: charged mutation-job start, state load, and terminal acknowledgement.
+//! Responsibility: charged mutation-job start, state load, Forward dispatch, and terminal acknowledgement.
 //! Does not own: SQL lowering, Forward/Verify execution, or authorization.
 //! Boundary: trusted session API -> excluded mutation progress record.
 
@@ -17,6 +17,7 @@ use icydb_diagnostic_code::{
 
 #[cfg(feature = "sql")]
 use crate::db::{
+    MutationJobAdvanceReceipt, MutationJobAdvanceRequest,
     integrity::InsertMutationJobResult,
     mutation_job::{CanonicalMutationIntent, MutationJobRecord},
 };
@@ -25,6 +26,8 @@ use crate::db::{
 const MUTATION_JOB_START_SHAPE: u64 = 0x6d75_7461_7465_0100;
 const MUTATION_JOB_LOAD_SHAPE: u64 = 0x6d75_7461_7465_0101;
 const MUTATION_JOB_ACKNOWLEDGE_SHAPE: u64 = 0x6d75_7461_7465_0102;
+#[cfg(feature = "sql")]
+const MUTATION_JOB_ADVANCE_SHAPE: u64 = 0x6d75_7461_7465_0103;
 
 impl<C: CanisterKind> DbSession<C> {
     /// Start one durable trusted fixed SQL mutation job.
@@ -71,6 +74,28 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
         with_mutation_progress_store::<C, _>(|store| store.load_mutation(job_id))
             .map(|record| record.state().clone())
+    }
+
+    /// Advance one durable mutation job through one bounded engine-owned step.
+    ///
+    /// The request carries only job identity, expected sequence, and a replay
+    /// key. SQL and continuation bytes remain private IcyDB custody.
+    #[cfg(feature = "sql")]
+    pub fn advance_trusted_mutation_job(
+        &self,
+        request: &MutationJobAdvanceRequest,
+    ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+        self.charge_mutation_job_operation(
+            DiagnosticExecutionLane::Mutation,
+            MUTATION_JOB_ADVANCE_SHAPE,
+        )?;
+        let retained =
+            with_mutation_progress_store::<C, _>(|store| store.load_mutation(request.job_id))?;
+        if let Some(receipt) = retained.exact_replay(request)? {
+            return Ok(receipt.clone());
+        }
+        retained.ensure_can_advance(request)?;
+        self.advance_mutation_job_forward(&retained, request)
     }
 
     /// Remove one terminal mutation job after its result has been consumed.
@@ -148,6 +173,7 @@ mod tests {
     use crate::{
         db::{
             data::{AcceptedFixedUpdatePatch, FieldSlot},
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::plan::expr::{BinaryOp, Expr, FieldId},
         },
         types::Timestamp,
@@ -177,6 +203,14 @@ mod tests {
 
     fn session() -> DbSession<TestCanister> {
         let root = RequestExecutionRoot::__new_runtime_root();
+        DbSession::new(&STORE_REGISTRY, &root)
+    }
+
+    #[cfg(feature = "sql")]
+    fn exhausted_session() -> DbSession<TestCanister> {
+        let budget =
+            HardExecutionBudget::uniform_for_tests(0, HardExecutionFailureHeadroom::new(500, 256));
+        let root = RequestExecutionRoot::new_for_tests(budget);
         DbSession::new(&STORE_REGISTRY, &root)
     }
 
@@ -293,6 +327,36 @@ mod tests {
         assert_eq!(
             resolve_occupied_mutation_job_start(&retained, &canonical_intent(1, 8, 200)),
             Err(MutationJobError::IdentityConflict),
+        );
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn aggregate_budget_exhaustion_does_not_advance_durable_state() {
+        let initial = MutationJobRecord::new(job_id(), vec![1, 2], Vec::new())
+            .expect("bounded initial record should admit");
+        with_mutation_progress_store::<TestCanister, _>(|store| {
+            store.insert_mutation(&initial).map(|_| ())
+        })
+        .expect("initial record should insert");
+        let request = MutationJobAdvanceRequest::new(
+            job_id(),
+            0,
+            MutationJobIdempotencyKey::new("budget-exhausted")
+                .expect("bounded idempotency key should admit"),
+        );
+
+        assert!(matches!(
+            exhausted_session().advance_trusted_mutation_job(&request),
+            Err(MutationJobError::ExecutionBudgetExceeded {
+                limit: 0,
+                observed: 1,
+                ..
+            })
+        ));
+        assert_eq!(
+            session().mutation_job_state(job_id()),
+            Ok(initial.state().clone()),
         );
     }
 }

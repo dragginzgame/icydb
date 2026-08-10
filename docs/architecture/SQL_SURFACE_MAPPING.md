@@ -370,8 +370,10 @@ the following remain true:
   - `execute_trusted_sql_mutation(...)`
   - `execute_trusted_sql_exact_update(...)`
   - `execute_trusted_sql_prefix_update(...)`
-  - `prepare_trusted_sql_resumable_update(...)`
-  - `resume_trusted_sql_resumable_update(...)`
+  - `start_trusted_sql_mutation_job(...)`
+  - `mutation_job_state(...)`
+  - `advance_trusted_mutation_job(...)`
+  - `acknowledge_mutation_job(...)`
   - `execute_admin_sql_ddl::<E>(...)`
 - every admitted family has direct tests on the live surface rather than only
   transitive proof through older internal helpers

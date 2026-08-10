@@ -22,7 +22,10 @@ use icydb::{
     },
 };
 use icydb_testing_integration::{
-    durable_mutation_job_contract::DURABLE_START_INSTRUCTION_REVIEW_CEILING,
+    durable_mutation_job_contract::{
+        DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
+        DURABLE_START_INSTRUCTION_REVIEW_CEILING,
+    },
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
 use serde::Deserialize;
@@ -71,13 +74,21 @@ struct SqlWriteMaterializationPerfResult {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct ResumableUpdatePerfResult {
-    prepare_local_instructions: u64,
+struct MutationJobForwardPerfResult {
+    start_local_instructions: u64,
     forward_local_instructions: Vec<u64>,
-    verify_local_instructions: Vec<u64>,
-    forward_keys_scanned: u32,
-    verify_keys_scanned: u32,
-    rows_updated: u32,
+    replay_local_instructions: u64,
+    forward_keys_scanned: u64,
+    rows_updated: u64,
+    forward_keys_scanned_per_step: Vec<u64>,
+    rows_updated_per_step: Vec<u64>,
+    committed_sequence: u64,
+    replay_matches: bool,
+    zero_candidate_keys_scanned: u64,
+    zero_candidate_rows_updated: u64,
+    zero_candidate_sequence: u64,
+    stale_request_preserved_sequence: bool,
+    operation_timestamp_groups: u32,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -136,7 +147,6 @@ const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
     "delete returning",
 ];
 const SQL_WRITE_MATERIALIZATION_BUDGET: u64 = 750_000_000;
-const RESUMABLE_UPDATE_STEP_BUDGET: u64 = 2_000_000_000;
 // The first mutation includes cold accepted-schema and constraint-program
 // preparation; steady-state mutations retain their narrower budgets below.
 const STORAGE_FIRST_INSERT_BUDGET: u64 = 35_000_000;
@@ -1607,12 +1617,12 @@ fn assert_sql_write_materialization_matrix_reports(fixture: &StandaloneCanisterF
     assert_sql_write_materialization_matrix_stays_bounded("journaled", &journaled);
 }
 
-fn measure_resumable_update(fixture: &StandaloneCanisterFixture) -> ResumableUpdatePerfResult {
-    let result: Result<ResumableUpdatePerfResult, Error> = fixture
-        .update_candid("measure_journaled_user_resumable_update_perf", ())
-        .expect("resumable update perf result should decode");
+fn measure_mutation_forward(fixture: &StandaloneCanisterFixture) -> MutationJobForwardPerfResult {
+    let result: Result<MutationJobForwardPerfResult, MutationJobError> = fixture
+        .update_candid("measure_journaled_user_mutation_forward_perf", ())
+        .expect("mutation Forward perf result should decode");
 
-    result.expect("resumable update perf endpoint should succeed")
+    result.expect("mutation Forward perf endpoint should succeed")
 }
 
 fn start_mutation_job(
@@ -1628,21 +1638,31 @@ fn start_mutation_job(
         .expect("mutation-job start result should decode")
 }
 
-fn assert_resumable_update_perf_stays_bounded(result: &ResumableUpdatePerfResult) {
-    assert!(result.prepare_local_instructions > 0);
+fn assert_mutation_forward_perf_stays_bounded(result: &MutationJobForwardPerfResult) {
+    assert!(
+        result.start_local_instructions > 0
+            && result.start_local_instructions < DURABLE_START_INSTRUCTION_REVIEW_CEILING
+    );
     assert_eq!(result.forward_local_instructions.len(), 8);
-    assert_eq!(result.verify_local_instructions.len(), 2);
     assert_eq!(result.forward_keys_scanned, 512);
-    assert_eq!(result.verify_keys_scanned, 512);
     assert_eq!(result.rows_updated, 512);
-    for instructions in result
-        .forward_local_instructions
-        .iter()
-        .chain(&result.verify_local_instructions)
-    {
+    assert_eq!(result.forward_keys_scanned_per_step, vec![64; 8]);
+    assert_eq!(result.rows_updated_per_step, vec![64; 8]);
+    assert_eq!(result.committed_sequence, 8);
+    assert!(result.replay_matches);
+    assert!(
+        result.replay_local_instructions > 0
+            && result.replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
+    assert_eq!(result.zero_candidate_keys_scanned, 256);
+    assert_eq!(result.zero_candidate_rows_updated, 0);
+    assert_eq!(result.zero_candidate_sequence, 1);
+    assert!(result.stale_request_preserved_sequence);
+    assert_eq!(result.operation_timestamp_groups, 1);
+    for instructions in &result.forward_local_instructions {
         assert!(
-            *instructions < RESUMABLE_UPDATE_STEP_BUDGET,
-            "resumable UPDATE step should stay bounded, got {instructions} >= {RESUMABLE_UPDATE_STEP_BUDGET}",
+            *instructions < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
+            "durable Forward step should stay bounded, got {instructions} >= {DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING}",
         );
     }
 }
@@ -1922,21 +1942,20 @@ fn sql_perf_journaled_check_write_cost_is_measured() {
 }
 
 #[test]
-fn sql_perf_resumable_update_steps_stay_bounded() {
+fn sql_perf_mutation_forward_steps_stay_bounded() {
     let fixture = install_sql_perf_canister_fixture();
     reset_sql_perf_fixtures(&fixture);
 
-    let result = measure_resumable_update(&fixture);
+    let result = measure_mutation_forward(&fixture);
     println!(
-        "resumable UPDATE: prepare={} forward={:?} verify={:?} forward_keys={} verify_keys={} updated={}",
-        result.prepare_local_instructions,
+        "durable mutation: start={} forward={:?} replay={} forward_keys={} updated={}",
+        result.start_local_instructions,
         result.forward_local_instructions,
-        result.verify_local_instructions,
+        result.replay_local_instructions,
         result.forward_keys_scanned,
-        result.verify_keys_scanned,
         result.rows_updated,
     );
-    assert_resumable_update_perf_stays_bounded(&result);
+    assert_mutation_forward_perf_stays_bounded(&result);
 }
 
 #[test]

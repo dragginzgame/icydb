@@ -1,26 +1,28 @@
 //! Module: db::session::sql::resumable_update
-//! Responsibility: trusted resumable-update preparation, eligibility proof,
-//! current continuation encoding, bounded Forward execution, and stable-revision verification.
+//! Responsibility: durable mutation-job preparation, eligibility proof,
+//! private continuation encoding, bounded Forward execution, and bounded Verify scanning.
 //! Does not own: application authorization, operation identity, or durable custody.
-//! Boundary: accepted SQL update plan plus accepted schema -> opaque trusted
-//! continuation; each resume performs one bounded Forward or Verify step.
+//! Boundary: accepted SQL update plan plus accepted schema -> canonical intent
+//! and private engine checkpoint; each advance performs one bounded engine step.
 
 use crate::{
     db::{
-        DbSession, MutationJobError, MutationJobId, QueryError,
+        DbSession, MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError,
+        MutationJobId, MutationJobPhase, MutationJobStatus, QueryError,
         codec::{
             finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u64,
         },
         commit::database_incarnation_id,
         data::{
-            AcceptedFixedUpdatePatch, AcceptedMutationIntentPatch, DecodedDataStoreKey,
-            RawDataStoreKey, StoreVisit, StructuralRowContract, StructuralSlotReader,
+            AcceptedFixedUpdatePatch, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
+            StructuralRowContract, StructuralSlotReader,
         },
         database_format::crc32c,
         executor::eval_compiled_filter_expr_with_required_slot_reader,
+        integrity::{MutationProgressRecordOp, replace_mutation_progress_record_op},
         journal::JournalTailStore,
         key_taxonomy::RawDataStoreKeyRange,
-        mutation_job::CanonicalMutationIntent,
+        mutation_job::{CanonicalMutationIntent, MutationJobRecord, MutationJobTransition},
         query::{
             plan::expr::{
                 CompiledExpr, Expr, collect_scalar_expr_field_roots,
@@ -116,25 +118,13 @@ const fn resumable_update_batch_policy_identity(inputs: [u32; 11]) -> u32 {
     identity
 }
 
-/// Current trusted resumable-update execution phase.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TrustedResumableUpdatePhase {
-    /// Bounded primary-key traversal and atomic convergence batches.
+enum MutationJobEnginePhase {
     Forward,
-    /// Stable-revision verification before completion.
     Verify,
 }
 
-/// Reason one stable verification sweep restarted Forward convergence.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TrustedResumableUpdateRestartReason {
-    /// The durable target-store mutation revision changed during verification.
-    RevisionChanged,
-    /// A scoped row still needed the fixed authored patch.
-    ResidualWork,
-}
-
-impl TrustedResumableUpdatePhase {
+impl MutationJobEnginePhase {
     const fn wire(self) -> u8 {
         match self {
             Self::Forward => RESUMABLE_UPDATE_PHASE_FORWARD,
@@ -151,38 +141,15 @@ impl TrustedResumableUpdatePhase {
     }
 }
 
-/// Opaque current-format continuation for one trusted resumable SQL update.
-///
-/// Applications must store these bytes durably outside the target store before
-/// asking IcyDB to execute the first page. The bytes are proof-bearing engine
-/// state, not authorization, and must never be accepted from an untrusted
-/// public or generated endpoint.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TrustedResumableUpdateContinuation {
+struct MutationJobEngineContinuation {
     bytes: Vec<u8>,
 }
 
-impl TrustedResumableUpdateContinuation {
-    /// Borrow the bounded current-format bytes for trusted application custody.
+impl MutationJobEngineContinuation {
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8] {
-        self.bytes.as_slice()
-    }
-
-    /// Consume the continuation into bytes for trusted application custody.
-    #[must_use]
-    pub fn into_bytes(self) -> Vec<u8> {
+    fn into_bytes(self) -> Vec<u8> {
         self.bytes
-    }
-
-    /// Reconstruct one trusted continuation from application-custodied bytes.
-    ///
-    /// This validates only the bounded current wire form. Resume separately
-    /// binds the token to current target, schema, scope, patch, and batch policy.
-    pub fn try_from_bytes(bytes: Vec<u8>) -> Result<Self, QueryError> {
-        let _ = DecodedResumableUpdateContinuation::decode(bytes.as_slice())?;
-
-        Ok(Self { bytes })
     }
 
     #[expect(
@@ -199,7 +166,7 @@ impl TrustedResumableUpdateContinuation {
         patch_fingerprint: [u8; 32],
         operation_timestamp: Timestamp,
     ) -> Result<Self, QueryError> {
-        DecodedResumableUpdateContinuation {
+        DecodedMutationJobEngineContinuation {
             operation_id,
             entity_tag,
             target_identity,
@@ -208,7 +175,7 @@ impl TrustedResumableUpdateContinuation {
             scope_fingerprint,
             patch_fingerprint,
             operation_timestamp,
-            phase: TrustedResumableUpdatePhase::Forward,
+            phase: MutationJobEnginePhase::Forward,
             checkpoint: None,
             verify_revision: None,
             batch_policy_identity: RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY,
@@ -217,63 +184,8 @@ impl TrustedResumableUpdateContinuation {
     }
 }
 
-/// Per-call trusted resumable-update progress.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TrustedResumableUpdateReceipt {
-    phase: TrustedResumableUpdatePhase,
-    keys_scanned: u32,
-    rows_updated: u32,
-    restart_reason: Option<TrustedResumableUpdateRestartReason>,
-    continuation: Option<TrustedResumableUpdateContinuation>,
-    complete: bool,
-}
-
-impl TrustedResumableUpdateReceipt {
-    /// Return the phase selected for the next resume call.
-    #[must_use]
-    pub const fn phase(&self) -> TrustedResumableUpdatePhase {
-        self.phase
-    }
-
-    /// Return authoritative entity keys fully examined by this call.
-    #[must_use]
-    pub const fn keys_scanned(&self) -> u32 {
-        self.keys_scanned
-    }
-
-    /// Return rows atomically committed by this call.
-    #[must_use]
-    pub const fn rows_updated(&self) -> u32 {
-        self.rows_updated
-    }
-
-    /// Return why this call restarted Forward convergence, when applicable.
-    #[must_use]
-    pub const fn restart_reason(&self) -> Option<TrustedResumableUpdateRestartReason> {
-        self.restart_reason
-    }
-
-    /// Borrow the next proof-bearing trusted continuation while in progress.
-    #[must_use]
-    pub const fn continuation(&self) -> Option<&TrustedResumableUpdateContinuation> {
-        self.continuation.as_ref()
-    }
-
-    /// Consume this receipt into the next trusted continuation while in progress.
-    #[must_use]
-    pub fn into_continuation(self) -> Option<TrustedResumableUpdateContinuation> {
-        self.continuation
-    }
-
-    /// Return whether stable full verification has completed.
-    #[must_use]
-    pub const fn complete(&self) -> bool {
-        self.complete
-    }
-}
-
 /// Decoded current continuation with all phase-dependent state kept together.
-struct DecodedResumableUpdateContinuation {
+struct DecodedMutationJobEngineContinuation {
     operation_id: Ulid,
     entity_tag: u64,
     target_identity: [u8; 32],
@@ -282,14 +194,14 @@ struct DecodedResumableUpdateContinuation {
     scope_fingerprint: [u8; 32],
     patch_fingerprint: [u8; 32],
     operation_timestamp: Timestamp,
-    phase: TrustedResumableUpdatePhase,
+    phase: MutationJobEnginePhase,
     checkpoint: Option<RawDataStoreKey>,
     verify_revision: Option<u64>,
     batch_policy_identity: u32,
 }
 
-impl DecodedResumableUpdateContinuation {
-    fn encode(&self) -> Result<TrustedResumableUpdateContinuation, QueryError> {
+impl DecodedMutationJobEngineContinuation {
+    fn encode(&self) -> Result<MutationJobEngineContinuation, QueryError> {
         let checkpoint = self
             .checkpoint
             .as_ref()
@@ -325,7 +237,7 @@ impl DecodedResumableUpdateContinuation {
         let checksum = crc32c(&bytes);
         bytes.extend_from_slice(&checksum.to_be_bytes());
 
-        Ok(TrustedResumableUpdateContinuation { bytes })
+        Ok(MutationJobEngineContinuation { bytes })
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, QueryError> {
@@ -358,7 +270,7 @@ impl DecodedResumableUpdateContinuation {
         let scope_fingerprint = reader.read_array()?;
         let patch_fingerprint = reader.read_array()?;
         let operation_timestamp = Timestamp::from_millis(reader.read_i64()?);
-        let phase = TrustedResumableUpdatePhase::from_wire(reader.read_u8()?)?;
+        let phase = MutationJobEnginePhase::from_wire(reader.read_u8()?)?;
         let checkpoint_bytes = reader.read_len_prefixed_bytes()?;
         let checkpoint = if checkpoint_bytes.is_empty() {
             None
@@ -378,8 +290,8 @@ impl DecodedResumableUpdateContinuation {
         };
         let batch_policy_identity = reader.read_u32()?;
         if !reader.is_exhausted()
-            || (phase == TrustedResumableUpdatePhase::Forward && verify_revision.is_some())
-            || (phase == TrustedResumableUpdatePhase::Verify && verify_revision.is_none())
+            || (phase == MutationJobEnginePhase::Forward && verify_revision.is_some())
+            || (phase == MutationJobEnginePhase::Verify && verify_revision.is_none())
         {
             return Err(malformed_continuation());
         }
@@ -398,12 +310,6 @@ impl DecodedResumableUpdateContinuation {
             verify_revision,
             batch_policy_identity,
         })
-    }
-
-    fn restart_forward(&mut self) {
-        self.phase = TrustedResumableUpdatePhase::Forward;
-        self.checkpoint = None;
-        self.verify_revision = None;
     }
 }
 
@@ -477,7 +383,7 @@ pub(in crate::db::session) struct PreparedMutationJobStart {
 }
 
 struct PreparedResumableUpdateStart {
-    continuation: TrustedResumableUpdateContinuation,
+    continuation: MutationJobEngineContinuation,
     target_identity: [u8; 32],
     target_store_path: String,
     target_entity_path: String,
@@ -491,21 +397,6 @@ struct PreparedResumableUpdateStart {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Prepare one trusted resumable SQL `UPDATE` without reading or mutating rows.
-    ///
-    /// The statement must describe a fixed convergence patch over a stable
-    /// single-entity scope in a journaled store. This call only validates and
-    /// binds current accepted authority. The application must durably custody
-    /// the returned continuation before a later resume call may mutate rows.
-    pub fn prepare_trusted_sql_resumable_update(
-        &self,
-        operation_id: Ulid,
-        sql: &str,
-    ) -> Result<TrustedResumableUpdateContinuation, QueryError> {
-        self.prepare_resumable_update_start(operation_id, sql, Timestamp::now())
-            .map(|prepared| prepared.continuation)
-    }
-
     pub(in crate::db::session) fn prepare_mutation_job_start(
         &self,
         job_id: MutationJobId,
@@ -539,6 +430,162 @@ impl<C: CanisterKind> DbSession<C> {
             canonical_intent: intent.encode()?,
             engine_continuation: prepared.continuation.into_bytes(),
         })
+    }
+
+    /// Advance one authority-bound durable mutation job through one Forward page.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one coordinator keeps authority validation, bounded scan, next-record construction, and atomic target/progress publication in review order"
+    )]
+    pub(in crate::db::session) fn advance_mutation_job_forward(
+        &self,
+        before: &MutationJobRecord,
+        request: &MutationJobAdvanceRequest,
+    ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+        if before.state().phase != MutationJobPhase::Forward {
+            return Err(MutationJobError::Internal);
+        }
+        let intent = CanonicalMutationIntent::decode(before.canonical_intent())?;
+        validate_mutation_job_database_authority(&intent)?;
+        if intent.batch_policy_identity() != RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY {
+            return Err(MutationJobError::IneligibleIntent);
+        }
+
+        let catalog = self
+            .accepted_schema_catalog_context_for_entity_name(Some(intent.target_entity_path()))
+            .map_err(|_| MutationJobError::AuthorityMismatch)?;
+        validate_mutation_job_catalog_authority(&intent, &catalog)?;
+        let identity = catalog.identity();
+        let store = self
+            .db
+            .recovered_store(identity.store_path())
+            .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        if store.storage_capabilities().storage_mode() != StoreRuntimeStorageMode::Journaled {
+            return Err(MutationJobError::AuthorityMismatch);
+        }
+        let target_identity = resumable_update_target_identity(
+            &store,
+            identity.store_path(),
+            identity.entity_path(),
+            identity.entity_tag().value(),
+        )
+        .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        if target_identity != intent.target_store_identity() {
+            return Err(MutationJobError::AuthorityMismatch);
+        }
+
+        let mut continuation =
+            DecodedMutationJobEngineContinuation::decode(before.engine_continuation())
+                .map_err(|_| MutationJobError::CorruptProgressStore)?;
+        if continuation.operation_id != mutation_job_operation_id(request.job_id)
+            || continuation.operation_timestamp != intent.operation_timestamp()
+            || continuation.phase != MutationJobEnginePhase::Forward
+        {
+            return Err(MutationJobError::CorruptProgressStore);
+        }
+        let scope = intent.decode_scope()?;
+        let fixed_patch = intent.decode_fixed_patch()?;
+        let eligibility = ResumableUpdateEligibility {
+            scope_fingerprint: resumable_update_scope_fingerprint(&scope),
+            patch_fingerprint: fixed_patch.fingerprint(),
+        };
+        validate_resumable_update_bindings(
+            &continuation,
+            identity.entity_tag().value(),
+            target_identity,
+            catalog.fingerprint_method_version(),
+            catalog.fingerprint(),
+            &eligibility,
+        )
+        .map_err(|_| MutationJobError::CorruptProgressStore)?;
+        validate_resumable_update_checkpoint(&continuation, identity.entity_tag())
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
+
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .map_err(|_| MutationJobError::AuthorityMismatch)?;
+        let compiled_scope =
+            compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), &scope)
+                .map(|expr| CompiledExpr::compile(&expr))
+                .ok_or(MutationJobError::IneligibleIntent)?;
+        let row_contract = StructuralRowContract::from_accepted_decode_contract(
+            identity.entity_path(),
+            descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
+        );
+        let scan = scan_resumable_update_forward(
+            &store,
+            continuation.checkpoint.as_ref(),
+            identity.entity_tag(),
+            &compiled_scope,
+            &row_contract,
+            &fixed_patch,
+        )
+        .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        record_resumable_rows_scanned(identity.entity_path(), scan.physical_keys_scanned);
+
+        let patch = fixed_patch.to_update_intent();
+        let candidate_rows = scan
+            .candidates
+            .iter()
+            .map(|key| {
+                AcceptedStructuralMutation::save(
+                    MutationMode::Update,
+                    AcceptedStructuralMutationTarget::expected(key.clone()),
+                    patch.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        continuation.checkpoint = scan.final_checkpoint;
+        if scan.exhausted {
+            continuation.phase = MutationJobEnginePhase::Verify;
+            continuation.checkpoint = None;
+            continuation.verify_revision = Some(if candidate_rows.is_empty() {
+                durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?
+            } else {
+                durable_store_revision_after_next_mutation(&store)?
+            });
+        }
+        let next_continuation = continuation
+            .encode()
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+            .into_bytes();
+        let keys_scanned = u64::try_from(scan.physical_keys_scanned)
+            .map_err(|_| MutationJobError::CounterOverflow)?;
+        let rows_updated =
+            u64::try_from(candidate_rows.len()).map_err(|_| MutationJobError::CounterOverflow)?;
+        let phase = if scan.exhausted {
+            MutationJobPhase::Verify
+        } else {
+            MutationJobPhase::Forward
+        };
+        let (after, receipt) = before.apply_transition(
+            request,
+            MutationJobTransition::new(
+                MutationJobStatus::Active,
+                phase,
+                next_continuation,
+                keys_scanned,
+                rows_updated,
+                0,
+            ),
+        )?;
+        let progress_operation = MutationProgressRecordOp::replace(before, &after)?;
+        if candidate_rows.is_empty() {
+            replace_mutation_progress_record_op::<C>(&progress_operation)?;
+        } else {
+            let committed_rows = self
+                .execute_accepted_structural_update_with_mutation_progress(
+                    &catalog,
+                    &descriptor,
+                    candidate_rows,
+                    intent.operation_timestamp(),
+                    progress_operation,
+                )
+                .map_err(|_| MutationJobError::TargetMutationFailed)?;
+            if u64::try_from(committed_rows).ok() != Some(rows_updated) {
+                return Err(MutationJobError::TargetMutationFailed);
+            }
+        }
+        Ok(receipt)
     }
 
     fn prepare_resumable_update_start(
@@ -600,7 +647,7 @@ impl<C: CanisterKind> DbSession<C> {
         let scope = selector.scalar_filter_expr().cloned().ok_or_else(|| {
             QueryError::sql_write_boundary(SqlWriteBoundaryCode::UpdateMissingWherePredicate)
         })?;
-        let continuation = TrustedResumableUpdateContinuation::initial(
+        let continuation = MutationJobEngineContinuation::initial(
             operation_id,
             identity.entity_tag().value(),
             target_identity,
@@ -624,283 +671,13 @@ impl<C: CanisterKind> DbSession<C> {
             operation_timestamp,
         })
     }
-
-    /// Resume one trusted resumable SQL `UPDATE` for one bounded engine step.
-    ///
-    /// The application must supply the authorized operation id, the same SQL
-    /// meaning used at preparation, and a continuation loaded from trusted
-    /// durable custody. This method rebinds every proof before row access,
-    /// scans at most 256 authoritative keys, stages at most 64 updates, and
-    /// commits at most one atomic batch. Verify steps are read-only and return
-    /// complete only after a stable full accepted-keyspace sweep.
-    pub fn resume_trusted_sql_resumable_update(
-        &self,
-        operation_id: Ulid,
-        sql: &str,
-        continuation: &TrustedResumableUpdateContinuation,
-    ) -> Result<TrustedResumableUpdateReceipt, QueryError> {
-        let mut decoded = DecodedResumableUpdateContinuation::decode(continuation.as_bytes())?;
-        if decoded.operation_id != operation_id {
-            return Err(QueryError::sql_write_boundary(
-                SqlWriteBoundaryCode::ResumableUpdateContinuationOperationMismatch,
-            ));
-        }
-
-        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
-            .ok_or_else(QueryError::unsupported_query)?;
-        let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(Some(entity_name.as_str()))
-            .map_err(QueryError::execute)?;
-        let identity = catalog.identity();
-        let store = self
-            .db
-            .recovered_store(identity.store_path())
-            .map_err(QueryError::execute)?;
-        if store.storage_capabilities().storage_mode() != StoreRuntimeStorageMode::Journaled {
-            return Err(QueryError::sql_write_boundary(
-                SqlWriteBoundaryCode::ResumableUpdateRequiresJournaledStore,
-            ));
-        }
-
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .map_err(QueryError::execute)?;
-        resume_resumable_update_with_authority(
-            self,
-            sql,
-            &store,
-            &mut decoded,
-            &catalog,
-            descriptor,
-        )
-    }
-}
-
-fn resume_resumable_update_with_authority<C>(
-    session: &DbSession<C>,
-    sql: &str,
-    store: &StoreHandle,
-    continuation: &mut DecodedResumableUpdateContinuation,
-    catalog: &AcceptedSchemaCatalogContext,
-    descriptor: AcceptedRowLayoutRuntimeContract<'_>,
-) -> Result<TrustedResumableUpdateReceipt, QueryError>
-where
-    C: CanisterKind,
-{
-    let report = with_accepted_sql_update_policy_context(&descriptor, |context| {
-        classify_sql_resumable_update_policy(
-            sql,
-            catalog.snapshot().persisted_snapshot().entity_name(),
-            context,
-        )
-    })?;
-    let plan = require_resumable_update_plan(report)?;
-    let identity = catalog.identity();
-    let schema_info = catalog.accepted_schema_info();
-    let selector = DbSession::<C>::sql_update_selector_query(schema_info, plan.statement())?;
-    let patch = DbSession::<C>::sql_structural_patch(&descriptor, plan.statement())?;
-    let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
-        identity.entity_path(),
-        identity.entity_tag().value(),
-        descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
-        catalog.fingerprint(),
-        catalog.accepted_row_constraints(),
-        &patch,
-    )
-    .map_err(QueryError::execute)?;
-    let eligibility = prove_resumable_update_eligibility(
-        catalog.snapshot().persisted_snapshot(),
-        &descriptor,
-        &selector,
-        &fixed_patch,
-    )?;
-    let target_identity = resumable_update_target_identity(
-        store,
-        identity.store_path(),
-        identity.entity_path(),
-        identity.entity_tag().value(),
-    )?;
-    validate_resumable_update_bindings(
-        continuation,
-        identity.entity_tag().value(),
-        target_identity,
-        catalog.fingerprint_method_version(),
-        catalog.fingerprint(),
-        &eligibility,
-    )?;
-    validate_resumable_update_checkpoint(continuation, identity.entity_tag())?;
-
-    let scope = selector.scalar_filter_expr().ok_or_else(|| {
-        QueryError::sql_write_boundary(SqlWriteBoundaryCode::UpdateMissingWherePredicate)
-    })?;
-    let compiled_scope = compile_scalar_projection_expr_with_schema(schema_info, scope)
-        .map(|expr| CompiledExpr::compile(&expr))
-        .ok_or_else(|| {
-            QueryError::sql_write_boundary(
-                SqlWriteBoundaryCode::ResumableUpdateScopeDependencyUnknown,
-            )
-        })?;
-    let row_contract = StructuralRowContract::from_accepted_decode_contract(
-        identity.entity_path(),
-        descriptor.row_decode_contract(catalog.value_catalog_handle().clone()),
-    );
-
-    match continuation.phase {
-        TrustedResumableUpdatePhase::Forward => resume_resumable_update_forward(
-            session,
-            store,
-            continuation,
-            catalog,
-            &descriptor,
-            &compiled_scope,
-            &row_contract,
-            &fixed_patch,
-            &patch,
-        ),
-        TrustedResumableUpdatePhase::Verify => resume_resumable_update_verify(
-            store,
-            continuation,
-            identity.entity_path(),
-            identity.entity_tag(),
-            &compiled_scope,
-            &row_contract,
-            &fixed_patch,
-        ),
-    }
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the Forward boundary keeps each already-bound authority explicit"
-)]
-fn resume_resumable_update_forward<C>(
-    session: &DbSession<C>,
-    store: &StoreHandle,
-    continuation: &mut DecodedResumableUpdateContinuation,
-    catalog: &AcceptedSchemaCatalogContext,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    compiled_scope: &CompiledExpr,
-    row_contract: &StructuralRowContract,
-    fixed_patch: &AcceptedFixedUpdatePatch,
-    patch: &AcceptedMutationIntentPatch,
-) -> Result<TrustedResumableUpdateReceipt, QueryError>
-where
-    C: CanisterKind,
-{
-    let identity = catalog.identity();
-    let scan = scan_resumable_update_forward(
-        store,
-        continuation.checkpoint.as_ref(),
-        identity.entity_tag(),
-        compiled_scope,
-        row_contract,
-        fixed_patch,
-    )?;
-    record_resumable_rows_scanned(identity.entity_path(), scan.physical_keys_scanned);
-
-    let candidate_rows = scan
-        .candidates
-        .iter()
-        .map(|candidate| {
-            AcceptedStructuralMutation::save(
-                MutationMode::Update,
-                AcceptedStructuralMutationTarget::expected(candidate.key.clone()),
-                patch.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let committed_rows = if candidate_rows.is_empty() {
-        0
-    } else {
-        session
-            .execute_accepted_structural_update_prefix(
-                catalog,
-                descriptor,
-                candidate_rows,
-                continuation.operation_timestamp,
-            )
-            .map_err(QueryError::execute)?
-    };
-
-    let progress = scan.progress_after_committed_rows(committed_rows)?;
-    continuation.checkpoint = progress.checkpoint;
-    if progress.exhausted {
-        continuation.phase = TrustedResumableUpdatePhase::Verify;
-        continuation.checkpoint = None;
-        continuation.verify_revision = Some(durable_store_revision(store)?);
-    }
-
-    in_progress_receipt(continuation, progress.keys_scanned, committed_rows, None)
-}
-
-fn in_progress_receipt(
-    continuation: &DecodedResumableUpdateContinuation,
-    keys_scanned: usize,
-    rows_updated: usize,
-    restart_reason: Option<TrustedResumableUpdateRestartReason>,
-) -> Result<TrustedResumableUpdateReceipt, QueryError> {
-    Ok(TrustedResumableUpdateReceipt {
-        phase: continuation.phase,
-        keys_scanned: u32::try_from(keys_scanned).map_err(|_| QueryError::invariant())?,
-        rows_updated: u32::try_from(rows_updated).map_err(|_| QueryError::invariant())?,
-        restart_reason,
-        continuation: Some(continuation.encode()?),
-        complete: false,
-    })
-}
-
-fn complete_receipt(keys_scanned: usize) -> Result<TrustedResumableUpdateReceipt, QueryError> {
-    Ok(TrustedResumableUpdateReceipt {
-        phase: TrustedResumableUpdatePhase::Verify,
-        keys_scanned: u32::try_from(keys_scanned).map_err(|_| QueryError::invariant())?,
-        rows_updated: 0,
-        restart_reason: None,
-        continuation: None,
-        complete: true,
-    })
-}
-
-struct ResumableForwardCandidate<K> {
-    key: K,
-    checkpoint_before: Option<RawDataStoreKey>,
-    keys_scanned_before: usize,
 }
 
 struct ResumableForwardScan<K> {
-    candidates: Vec<ResumableForwardCandidate<K>>,
+    candidates: Vec<K>,
     final_checkpoint: Option<RawDataStoreKey>,
     physical_keys_scanned: usize,
     exhausted: bool,
-}
-
-struct ResumableForwardProgress {
-    checkpoint: Option<RawDataStoreKey>,
-    keys_scanned: usize,
-    exhausted: bool,
-}
-
-impl<K> ResumableForwardScan<K> {
-    fn progress_after_committed_rows(
-        &self,
-        committed_rows: usize,
-    ) -> Result<ResumableForwardProgress, QueryError> {
-        if committed_rows > self.candidates.len() {
-            return Err(QueryError::invariant());
-        }
-        if committed_rows < self.candidates.len() {
-            let deferred = &self.candidates[committed_rows];
-            return Ok(ResumableForwardProgress {
-                checkpoint: deferred.checkpoint_before.clone(),
-                keys_scanned: deferred.keys_scanned_before,
-                exhausted: false,
-            });
-        }
-
-        Ok(ResumableForwardProgress {
-            checkpoint: self.final_checkpoint.clone(),
-            keys_scanned: self.physical_keys_scanned,
-            exhausted: self.exhausted,
-        })
-    }
 }
 
 fn scan_resumable_update_forward(
@@ -945,11 +722,7 @@ fn scan_resumable_update_forward(
                     row_contract.clone(),
                 )?;
                 if resumable_row_needs_patch(compiled_scope, fixed_patch, &row)? {
-                    candidates.push(ResumableForwardCandidate {
-                        key: decoded_key,
-                        checkpoint_before: final_checkpoint.clone(),
-                        keys_scanned_before: physical_keys_scanned,
-                    });
+                    candidates.push(decoded_key);
                 }
                 physical_keys_scanned = physical_keys_scanned.saturating_add(1);
                 final_checkpoint = Some(raw_key.clone());
@@ -967,6 +740,10 @@ fn scan_resumable_update_forward(
     })
 }
 
+#[expect(
+    dead_code,
+    reason = "Patch 5 retains the bounded private Verify result for the Patch 6 durable coordinator"
+)]
 struct ResumableVerifyScan {
     final_checkpoint: Option<RawDataStoreKey>,
     keys_scanned: usize,
@@ -974,65 +751,11 @@ struct ResumableVerifyScan {
     residual_work: bool,
 }
 
-fn resume_resumable_update_verify(
-    store: &StoreHandle,
-    continuation: &mut DecodedResumableUpdateContinuation,
-    entity_path: &str,
-    entity_tag: EntityTag,
-    compiled_scope: &CompiledExpr,
-    row_contract: &StructuralRowContract,
-    fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<TrustedResumableUpdateReceipt, QueryError> {
-    let captured_revision = continuation
-        .verify_revision
-        .ok_or_else(QueryError::invariant)?;
-    if durable_store_revision(store)? != captured_revision {
-        continuation.restart_forward();
-        return in_progress_receipt(
-            continuation,
-            0,
-            0,
-            Some(TrustedResumableUpdateRestartReason::RevisionChanged),
-        );
-    }
-
-    let scan = scan_resumable_update_verify(
-        store,
-        continuation.checkpoint.as_ref(),
-        entity_tag,
-        compiled_scope,
-        row_contract,
-        fixed_patch,
-    )?;
-    record_resumable_rows_scanned(entity_path, scan.keys_scanned);
-    if scan.residual_work {
-        continuation.restart_forward();
-        return in_progress_receipt(
-            continuation,
-            scan.keys_scanned,
-            0,
-            Some(TrustedResumableUpdateRestartReason::ResidualWork),
-        );
-    }
-
-    continuation.checkpoint = scan.final_checkpoint;
-    if !scan.exhausted {
-        return in_progress_receipt(continuation, scan.keys_scanned, 0, None);
-    }
-    if durable_store_revision(store)? != captured_revision {
-        continuation.restart_forward();
-        return in_progress_receipt(
-            continuation,
-            scan.keys_scanned,
-            0,
-            Some(TrustedResumableUpdateRestartReason::RevisionChanged),
-        );
-    }
-
-    complete_receipt(scan.keys_scanned)
-}
-
-fn scan_resumable_update_verify(
+#[expect(
+    dead_code,
+    reason = "Patch 5 retains the bounded private Verify scan for the Patch 6 durable coordinator"
+)]
+fn scan_mutation_job_verify(
     store: &StoreHandle,
     checkpoint: Option<&RawDataStoreKey>,
     entity_tag: EntityTag,
@@ -1118,8 +841,53 @@ fn durable_store_revision(store: &StoreHandle) -> Result<u64, QueryError> {
         .map_err(QueryError::execute)
 }
 
+fn durable_store_revision_after_next_mutation(
+    store: &StoreHandle,
+) -> Result<u64, MutationJobError> {
+    let journal = store
+        .journal_tail_store()
+        .ok_or(MutationJobError::TargetMutationFailed)?;
+    journal
+        .with_borrow(|tail| {
+            tail.next_mutation_append_sequence()?
+                .next()
+                .map(crate::db::journal::JournalSequence::get)
+                .ok_or_else(InternalError::journal_mutation_revision_exhausted)
+        })
+        .map_err(|_| MutationJobError::TargetMutationFailed)
+}
+
+fn validate_mutation_job_database_authority(
+    intent: &CanonicalMutationIntent,
+) -> Result<(), MutationJobError> {
+    let current = database_incarnation_id()
+        .map_err(|_| MutationJobError::Internal)?
+        .to_bytes();
+    if current != intent.database_incarnation() {
+        return Err(MutationJobError::AuthorityMismatch);
+    }
+    Ok(())
+}
+
+fn validate_mutation_job_catalog_authority(
+    intent: &CanonicalMutationIntent,
+    catalog: &AcceptedSchemaCatalogContext,
+) -> Result<(), MutationJobError> {
+    let identity = catalog.identity();
+    if identity.store_path() != intent.target_store_path()
+        || identity.entity_path() != intent.target_entity_path()
+        || identity.entity_tag().value() != intent.target_entity_tag()
+        || catalog.revision().get() != intent.accepted_schema_revision()
+        || catalog.fingerprint_method_version() != intent.accepted_schema_fingerprint_method()
+        || catalog.fingerprint() != intent.accepted_schema_fingerprint()
+    {
+        return Err(MutationJobError::AuthorityMismatch);
+    }
+    Ok(())
+}
+
 fn validate_resumable_update_bindings(
-    continuation: &DecodedResumableUpdateContinuation,
+    continuation: &DecodedMutationJobEngineContinuation,
     entity_tag: u64,
     target_identity: [u8; 32],
     schema_fingerprint_method_version: u8,
@@ -1158,7 +926,7 @@ fn validate_resumable_update_bindings(
 }
 
 fn validate_resumable_update_checkpoint(
-    continuation: &DecodedResumableUpdateContinuation,
+    continuation: &DecodedMutationJobEngineContinuation,
     entity_tag: EntityTag,
 ) -> Result<(), QueryError> {
     let Some(checkpoint) = continuation.checkpoint.as_ref() else {
