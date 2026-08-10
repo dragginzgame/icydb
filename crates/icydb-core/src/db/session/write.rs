@@ -790,7 +790,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Commit one complete accepted update page and its exact durable progress successor.
-    #[cfg(feature = "sql")]
+    #[cfg(any(feature = "sql", test))]
     pub(in crate::db::session) fn execute_accepted_structural_update_with_mutation_progress(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
