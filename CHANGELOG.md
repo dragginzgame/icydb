@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
 
+- `0.223.7` runs the full release gate before changing version files and reuses
+  its result only across the exact verified release transition.
+
 - `0.223.6` hardens durable mutation recovery and its release evidence while
   refreshing the SQLite correctness reference, without changing public or
   persisted formats.

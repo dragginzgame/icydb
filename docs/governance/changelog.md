@@ -276,11 +276,15 @@ For each release:
 2. Update CHANGELOG.md with one concise bullet for the target patch.
 3. Create or update docs/changelog/<major>.<minor>.md.
 4. Commit the code and changelog changes.
-5. Update version and release-surface files with `make patch`, `make minor`, or `make major`.
+5. Run `make patch`, `make minor`, or `make major`. The target runs the full
+   gate against the clean candidate before any version mutation, then bumps the
+   version and records the exact allowed release-surface diff.
 6. Review the release diff.
 7. Run `make release-stage` to stage known release files.
-8. Run `make release-commit` to commit the version files, test that exact
-   commit once, tag it, and record its local release-gate receipt.
+8. Run `make release-commit`. It must verify the staged diff against the tested
+   candidate receipt, commit only that transition, verify the committed diff
+   again, then tag it and record the exact release-commit receipt. It must not
+   rerun the full gate after creating the commit.
 9. Run `make release-push` to publish the release tag. The pre-push hook reuses
    only the exact matching release receipt; ordinary pushes remain fully gated.
 
@@ -288,7 +292,8 @@ Order must be preserved.
 Patch releases are batch boundaries, not required endpoints for each code
 slice. After code and changelog changes are committed, the reviewable release flow is
 `make patch`, `git diff`, `make release-stage`, `make release-commit`,
-`make release-push`, then `cargo publish`.
+`make release-push`, then `cargo publish`. A failed candidate gate leaves the
+version, release commit, and tag untouched.
 
 ---
 

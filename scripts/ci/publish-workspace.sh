@@ -124,7 +124,7 @@ wait_for_registry_version() {
 }
 
 # Returns success only when release-commit recorded this exact annotated
-# version tag after its release gate completed.
+# version tag after verifying its tested candidate transition.
 release_receipt_matches() {
     local head_commit
 

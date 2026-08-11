@@ -38,9 +38,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - During active development, run `cargo fmt --all` after edits instead of using `--check` as a discovery step.
 - Use non-mutating format checks (`cargo fmt --all --check` or `make fmt-check`) for final release/readiness verification and CI parity.
 - Pre-commit hooks format and sort the exact commit contents.
-- Ordinary pre-push runs `make test`. Release commits run that full gate once
-  before tagging and record the exact commit, so their pre-push reuses the
-  receipt instead of compiling and testing the same tree twice.
+- Ordinary pre-push runs `make test`. Release preparation runs that full gate
+  once against the clean pre-bump candidate. A bounded receipt then proves the
+  exact mechanical version transition before and after the release commit, so
+  tagging and pre-push can reuse the result without testing after mutation.
 - Fast CI gate: `make check && make clippy`.
 - Release readiness: `make check-versioning`; release publication uses
   `make patch|minor|major`, then `make release-stage`, `make release-commit`,
@@ -167,7 +168,7 @@ struct TypeName;
 - Root changelog summaries should be plain-language, user-impact first, and concise.
 - Root minor-line summaries use exactly one bullet per patch version.
 - Put implementation detail in `docs/changelog/0.*.md`.
-- Releases use `make patch|minor|major`, then `make release-stage`, `make release-commit`, and `make release-push`; never hand-edit tags.
+- Releases use `make patch|minor|major`, then `make release-stage`, `make release-commit`, and `make release-push`; the full gate must finish before the bump target mutates version files, and tags must never be hand-edited.
 - Before `make patch|minor|major`, do not pre-bump package versions, `Cargo.lock`, or changelog patch entries.
 - Never modify pushed release tags.
 

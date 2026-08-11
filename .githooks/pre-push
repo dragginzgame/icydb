@@ -50,10 +50,11 @@ if [[ "${ref_count}" -gt 0 && "${ref_count}" -eq "${tag_delete_count}" ]]; then
     exit 0
 fi
 
-# A release gate receipt is valid only for one exact annotated release commit.
-# Skip the duplicate full gate only when every pushed non-deletion ref resolves
-# to that same tested commit. Mixed deletions and unresolvable refs stay on the
-# fail-closed ordinary push path.
+# A release gate receipt is valid only for one exact annotated release commit
+# mechanically derived from its tested clean candidate. Skip the duplicate
+# full gate only when every pushed non-deletion ref resolves to that same
+# proven commit. Mixed deletions and unresolvable refs stay on the fail-closed
+# ordinary push path.
 if [[ "${has_deletion}" -eq 0 && "${#pushed_commits[@]}" -eq "${ref_count}" ]]; then
     receipt_commit="${pushed_commits[0]:-}"
     refs_share_commit=1

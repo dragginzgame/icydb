@@ -87,12 +87,12 @@ help:
 	@echo "Version Management:"
 	@echo "  version          Show current version"
 	@echo "  tags             List available git tags"
-	@echo "  patch            Prepare and bump patch version files (0.0.x)"
-	@echo "  minor            Confirm, prepare, and bump minor version files (0.x.0)"
-	@echo "  major            Confirm, prepare, and bump major version files (x.0.0)"
+	@echo "  patch            Test a clean candidate, then bump patch version files (0.0.x)"
+	@echo "  minor            Confirm and test a clean candidate, then bump minor files (0.x.0)"
+	@echo "  major            Confirm and test a clean candidate, then bump major files (x.0.0)"
 	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
 	@echo "  release-stage    Stage known release files"
-	@echo "  release-commit   Commit version files, run the exact release gate, and tag"
+	@echo "  release-commit   Verify the tested candidate transition, commit, and tag"
 	@echo "  release-push     Push the release commit and tags, then clean release artifacts"
 	@echo "  release-patch    Human-owned one-shot patch release"
 	@echo "  release-minor    Confirm, bump, stage, commit, tag, and push a minor release"
@@ -189,7 +189,7 @@ install-hooks ensure-hooks:
 
 
 #
-# Version management (the exact committed release tree is gated by release-commit)
+# Version management (the clean candidate is gated before any version mutation)
 #
 
 version:
@@ -201,19 +201,49 @@ tags:
 patch:
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch
+	@set -e; \
+	candidate_commit="$$(git rev-parse --verify HEAD)"; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
+	$(MAKE) --no-print-directory ensure-clean; \
+	if [ "$$(git rev-parse --verify HEAD)" != "$$candidate_commit" ]; then \
+		echo "Candidate HEAD changed during the release gate." >&2; \
+		exit 1; \
+	fi; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch; \
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh record patch "$$candidate_commit"
 
 minor:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor
+	@set -e; \
+	candidate_commit="$$(git rev-parse --verify HEAD)"; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
+	$(MAKE) --no-print-directory ensure-clean; \
+	if [ "$$(git rev-parse --verify HEAD)" != "$$candidate_commit" ]; then \
+		echo "Candidate HEAD changed during the release gate." >&2; \
+		exit 1; \
+	fi; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor; \
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh record minor "$$candidate_commit"
 
 major:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
 	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major
+	@set -e; \
+	candidate_commit="$$(git rev-parse --verify HEAD)"; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
+	$(MAKE) --no-print-directory ensure-clean; \
+	if [ "$$(git rev-parse --verify HEAD)" != "$$candidate_commit" ]; then \
+		echo "Candidate HEAD changed during the release gate." >&2; \
+		exit 1; \
+	fi; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major; \
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh record major "$$candidate_commit"
 
 release-prepare:
 	@mkdir -p "$(RELEASE_TMP_DIR)"
@@ -239,21 +269,12 @@ release-commit:
 		echo "❌ Tag v$$version already exists. Aborting." >&2; \
 		exit 1; \
 	fi; \
-	if ! git diff --quiet --ignore-submodules --; then \
-		echo "Unstaged changes remain; stage the release files from a clean tree." >&2; \
-		exit 1; \
-	fi; \
-	if git diff --cached --quiet --ignore-submodules HEAD --; then \
-		if [ "$$(git log -1 --format=%s)" != "Release $$version" ]; then \
-			echo "No staged release files; run make release-stage first." >&2; \
-			exit 1; \
-		fi; \
-		echo "Resuming release gate for existing Release $$version commit."; \
-	else \
-		git commit -m "Release $$version"; \
-	fi
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh verify-staged; \
+	git commit -m "Release $$version"
 	@$(MAKE) --no-print-directory ensure-clean
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test
+	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh verify-commit
 	@version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \
 	git tag -a "v$$version" -m "Release $$version"; \
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
@@ -263,11 +284,23 @@ release-push:
 	git push --follow-tags
 	@bash scripts/ci/cleanup-release-workspace.sh
 
-release-patch: patch release-stage release-commit release-push
+release-patch:
+	@$(MAKE) --no-print-directory patch
+	@$(MAKE) --no-print-directory release-stage
+	@$(MAKE) --no-print-directory release-commit
+	@$(MAKE) --no-print-directory release-push
 
-release-minor: minor release-stage release-commit release-push
+release-minor:
+	@$(MAKE) --no-print-directory minor
+	@$(MAKE) --no-print-directory release-stage
+	@$(MAKE) --no-print-directory release-commit
+	@$(MAKE) --no-print-directory release-push
 
-release-major: major release-stage release-commit release-push
+release-major:
+	@$(MAKE) --no-print-directory major
+	@$(MAKE) --no-print-directory release-stage
+	@$(MAKE) --no-print-directory release-commit
+	@$(MAKE) --no-print-directory release-push
 
 #
 # Tests
