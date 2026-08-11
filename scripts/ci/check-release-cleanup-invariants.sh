@@ -32,20 +32,30 @@ for target in patch minor major; do
   if ! target_recipe "$target" | awk -v target="$target" '
     /candidate_commit=.*git rev-parse --verify HEAD/ { candidate_line = NR }
     /\$\(MAKE\).*test([;[:space:]]|$)/ { test_line = NR }
-    /\$\(MAKE\).*ensure-clean/ && test_line > 0 { clean_line = NR }
-    /if .*git rev-parse --verify HEAD.*candidate_commit/ { unchanged_line = NR }
+    /release-candidate-receipt\.sh verify-tested-tree.*candidate_commit/ { verified_line = NR }
     index($0, "bump-version.sh " target) { bump_line = NR }
     /release-candidate-receipt\.sh record.*candidate_commit/ { receipt_line = NR }
     END {
       exit !(candidate_line > 0 && test_line > candidate_line &&
-             clean_line > test_line && unchanged_line > clean_line &&
-             bump_line > unchanged_line && receipt_line > bump_line)
+             verified_line > test_line && bump_line > verified_line &&
+             receipt_line > bump_line)
     }
   '; then
-    echo "$target must test a clean candidate before bumping and recording its exact transition" >&2
+    echo "$target must test once, reject test-sensitive changes, then bump and record the transition" >&2
     exit 1
   fi
 done
+
+if ! grep -Eq 'cargo set-version .*--offline' "$ROOT/scripts/ci/bump-version.sh" ||
+   ! grep -Eq 'cargo generate-lockfile --offline' "$ROOT/scripts/ci/bump-version.sh"; then
+  echo "release version mutation must preserve the tested dependency graph offline" >&2
+  exit 1
+fi
+
+if ! target_recipe release-stage | grep -Fq "CHANGELOG.md 'docs/changelog/*.md'"; then
+  echo "release staging must include permitted root and detailed changelog edits" >&2
+  exit 1
+fi
 
 if ! target_recipe release-commit | awk '
   /release-candidate-receipt\.sh verify-staged/ { staged_line = NR }

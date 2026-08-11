@@ -189,7 +189,7 @@ install-hooks ensure-hooks:
 
 
 #
-# Version management (the clean candidate is gated before any version mutation)
+# Version management (the source candidate is gated before any version mutation)
 #
 
 version:
@@ -204,11 +204,7 @@ patch:
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
-	$(MAKE) --no-print-directory ensure-clean; \
-	if [ "$$(git rev-parse --verify HEAD)" != "$$candidate_commit" ]; then \
-		echo "Candidate HEAD changed during the release gate." >&2; \
-		exit 1; \
-	fi; \
+	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch; \
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
 		scripts/ci/release-candidate-receipt.sh record patch "$$candidate_commit"
@@ -220,11 +216,7 @@ minor:
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
-	$(MAKE) --no-print-directory ensure-clean; \
-	if [ "$$(git rev-parse --verify HEAD)" != "$$candidate_commit" ]; then \
-		echo "Candidate HEAD changed during the release gate." >&2; \
-		exit 1; \
-	fi; \
+	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor; \
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
 		scripts/ci/release-candidate-receipt.sh record minor "$$candidate_commit"
@@ -236,11 +228,7 @@ major:
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
-	$(MAKE) --no-print-directory ensure-clean; \
-	if [ "$$(git rev-parse --verify HEAD)" != "$$candidate_commit" ]; then \
-		echo "Candidate HEAD changed during the release gate." >&2; \
-		exit 1; \
-	fi; \
+	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major; \
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
 		scripts/ci/release-candidate-receipt.sh record major "$$candidate_commit"
@@ -261,7 +249,7 @@ publish: ensure-clean
 	$(CARGO_PUBLISH_ENV) scripts/ci/publish-workspace.sh
 
 release-stage:
-	git add Cargo.toml Cargo.lock README.md scripts/ci/sync-release-surface-version.sh $$(git ls-files -m -- '*/Cargo.toml' || true)
+	git add Cargo.toml Cargo.lock README.md scripts/ci/sync-release-surface-version.sh $$(git ls-files -m -- '*/Cargo.toml' CHANGELOG.md 'docs/changelog/*.md' || true)
 
 release-commit:
 	@version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \

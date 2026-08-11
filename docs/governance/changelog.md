@@ -277,8 +277,11 @@ For each release:
 3. Create or update docs/changelog/<major>.<minor>.md.
 4. Commit the code and changelog changes.
 5. Run `make patch`, `make minor`, or `make major`. The target runs the full
-   gate against the clean candidate before any version mutation, then bumps the
-   version and records the exact allowed release-surface diff.
+   gate once against the clean source candidate before any version mutation.
+   Tracked root or detailed changelog edits made while it runs are allowed;
+   every other tracked change stops the release. The version bump resolves
+   offline to preserve the tested dependency graph, then records the exact
+   version-and-release-note diff.
 6. Review the release diff.
 7. Run `make release-stage` to stage known release files.
 8. Run `make release-commit`. It must verify the staged diff against the tested
@@ -292,7 +295,7 @@ Order must be preserved.
 Patch releases are batch boundaries, not required endpoints for each code
 slice. After code and changelog changes are committed, the reviewable release flow is
 `make patch`, `git diff`, `make release-stage`, `make release-commit`,
-`make release-push`, then `cargo publish`. A failed candidate gate leaves the
+`make release-push`, then `cargo publish`. A failed full gate leaves the
 version, release commit, and tag untouched.
 
 ---

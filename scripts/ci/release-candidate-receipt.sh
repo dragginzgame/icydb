@@ -5,8 +5,21 @@ ROOT_DIR="${ICYDB_RELEASE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && p
 RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
 
 usage() {
-    echo "Usage: $0 record <patch|minor|major> <tested-commit> | verify-staged | verify-commit" >&2
+    echo "Usage: $0 verify-tested-tree <tested-commit> | record <patch|minor|major> <tested-commit> | verify-staged | verify-commit" >&2
     exit 2
+}
+
+is_release_note_path() {
+    local path="$1"
+
+    case "$path" in
+        CHANGELOG.md|docs/changelog/*.md)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 workspace_version_from_file() {
@@ -101,6 +114,10 @@ validate_changed_paths() {
     esac
 
     while IFS= read -r -d '' path; do
+        if is_release_note_path "$path"; then
+            continue
+        fi
+
         case "$path" in
             Cargo.toml|Cargo.lock|README.md|*/Cargo.toml)
                 ;;
@@ -138,6 +155,29 @@ validate_changed_paths() {
                 ;;
         esac
     done < <("${command[@]}")
+}
+
+verify_tested_tree() {
+    local tested_commit="$1"
+    local current_commit path
+
+    if [[ ! "$tested_commit" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "Invalid tested commit: $tested_commit" >&2
+        exit 1
+    fi
+
+    current_commit="$(git -C "$ROOT_DIR" rev-parse --verify HEAD)"
+    if [[ "$current_commit" != "$tested_commit" ]]; then
+        echo "Candidate HEAD changed during the release gate" >&2
+        exit 1
+    fi
+
+    while IFS= read -r -d '' path; do
+        if ! is_release_note_path "$path"; then
+            echo "Test-sensitive path changed during the release gate: $path" >&2
+            exit 1
+        fi
+    done < <(git -C "$ROOT_DIR" diff --name-only -z HEAD --)
 }
 
 diff_hash() {
@@ -324,6 +364,10 @@ verify_commit() {
 }
 
 case "${1:-}" in
+    verify-tested-tree)
+        [[ "$#" -eq 2 ]] || usage
+        verify_tested_tree "$2"
+        ;;
     record)
         [[ "$#" -eq 3 ]] || usage
         record_receipt "$2" "$3"

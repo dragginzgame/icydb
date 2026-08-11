@@ -17,8 +17,10 @@ fi
 # Current version (from [workspace.package])
 PREV=$(cargo get workspace.package.version)
 
-# Bump
-cargo set-version --workspace --bump "$BUMP_TYPE" >/dev/null
+# Keep the tested dependency graph fixed while changing workspace versions.
+# Registry updates belong in an ordinary reviewed code commit, not in the
+# mechanical release transition after the full gate has passed.
+cargo set-version --workspace --bump "$BUMP_TYPE" --offline >/dev/null
 
 # New version
 NEW=$(cargo get workspace.package.version)
@@ -28,7 +30,7 @@ if [[ "$PREV" == "$NEW" ]]; then
   exit 0
 fi
 
-[[ -f Cargo.lock ]] && cargo generate-lockfile >/dev/null
+[[ -f Cargo.lock ]] && cargo generate-lockfile --offline >/dev/null
 
 scripts/ci/sync-release-surface-version.sh "$NEW"
 

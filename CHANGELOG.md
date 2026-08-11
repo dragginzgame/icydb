@@ -7,12 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Fixed warning-denied workspace builds by gating SQL diagnostics-only test
-  helpers with the same features as their consumers.
-
 ## [0.223.x] 🔁 - 2026-08-11 - Durable Resumable Mutation Jobs
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
+
+- `0.223.8` restores warning-clean diagnostic builds and keeps the single-test
+  release flow stable across release-note edits and registry updates.
 
 - `0.223.7` runs the full release gate before changing version files and reuses
   its result only across the exact verified release transition.
