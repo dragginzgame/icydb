@@ -117,7 +117,6 @@ validate_changed_paths() {
         if is_release_note_path "$path"; then
             continue
         fi
-
         case "$path" in
             Cargo.toml|Cargo.lock|README.md|*/Cargo.toml)
                 ;;
@@ -157,6 +156,17 @@ validate_changed_paths() {
     done < <("${command[@]}")
 }
 
+verify_only_staged_release_notes() {
+    local path
+
+    while IFS= read -r -d '' path; do
+        if ! is_release_note_path "$path"; then
+            echo "Release-sensitive path is already staged: $path" >&2
+            exit 1
+        fi
+    done < <(git -C "$ROOT_DIR" diff --cached --name-only -z HEAD --)
+}
+
 verify_tested_tree() {
     local tested_commit="$1"
     local current_commit path
@@ -171,6 +181,7 @@ verify_tested_tree() {
         echo "Candidate HEAD changed during the release gate" >&2
         exit 1
     fi
+    verify_only_staged_release_notes
 
     while IFS= read -r -d '' path; do
         if ! is_release_note_path "$path"; then
@@ -265,10 +276,7 @@ record_receipt() {
     release_version="$(workspace_version_from_file "$ROOT_DIR/Cargo.toml")"
     validate_transition "$bump" "$candidate_version" "$release_version"
 
-    if ! git -C "$ROOT_DIR" diff --cached --quiet --ignore-submodules HEAD --; then
-        echo "Release candidate receipt requires an empty index" >&2
-        exit 1
-    fi
+    verify_only_staged_release_notes
     if git -C "$ROOT_DIR" diff --quiet --ignore-submodules HEAD --; then
         echo "Release candidate receipt requires a version transition" >&2
         exit 1

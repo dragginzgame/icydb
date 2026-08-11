@@ -39,9 +39,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Use non-mutating format checks (`cargo fmt --all --check` or `make fmt-check`) for final release/readiness verification and CI parity.
 - Pre-commit hooks format and sort the exact commit contents.
 - Ordinary pre-push runs `make test`. Release preparation runs that full gate
-  once against the clean pre-bump source candidate. Tracked root and detailed
-  changelog edits may continue while the gate runs; other tracked changes stop
-  the release before version mutation. The bump resolves offline, and a bounded
+  once against the pre-bump source candidate. Staged or unstaged root and
+  detailed changelog edits become part of the exact transition; other tracked
+  changes stop before the expensive gate and are checked again afterward. The
+  bump resolves offline, never rolls files back automatically, and a bounded
   receipt proves the resulting version-and-release-note transition so tagging
   and pre-push can reuse the result without a second full test.
 - Fast CI gate: `make check && make clippy`.

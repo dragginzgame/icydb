@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
 
 - `0.223.8` restores warning-clean diagnostic builds and keeps the single-test
-  release flow stable across release-note edits and registry updates.
+  release flow stable across release-note and registry updates without rollback.
 
 - `0.223.7` runs the full release gate before changing version files and reuses
   its result only across the exact verified release transition.

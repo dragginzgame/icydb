@@ -87,9 +87,9 @@ help:
 	@echo "Version Management:"
 	@echo "  version          Show current version"
 	@echo "  tags             List available git tags"
-	@echo "  patch            Test a clean candidate, then bump patch version files (0.0.x)"
-	@echo "  minor            Confirm and test a clean candidate, then bump minor files (0.x.0)"
-	@echo "  major            Confirm and test a clean candidate, then bump major files (x.0.0)"
+	@echo "  patch            Test a source candidate, then bump patch version files (0.0.x)"
+	@echo "  minor            Confirm and test a source candidate, then bump minor files (0.x.0)"
+	@echo "  major            Confirm and test a source candidate, then bump major files (x.0.0)"
 	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Verify the tested candidate transition, commit, and tag"
@@ -199,10 +199,10 @@ tags:
 	@git tag --sort=-version:refname | head -10
 
 patch:
-	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
+	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch; \
@@ -211,10 +211,10 @@ patch:
 
 minor:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
-	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
+	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor; \
@@ -223,10 +223,10 @@ minor:
 
 major:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
-	@$(MAKE) --no-print-directory ensure-clean
 	@$(MAKE) --no-print-directory release-prepare
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
+	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major; \
@@ -260,7 +260,6 @@ release-commit:
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
 		scripts/ci/release-candidate-receipt.sh verify-staged; \
 	git commit -m "Release $$version"
-	@$(MAKE) --no-print-directory ensure-clean
 	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
 		scripts/ci/release-candidate-receipt.sh verify-commit
 	@version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \

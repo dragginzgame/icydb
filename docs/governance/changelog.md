@@ -277,11 +277,13 @@ For each release:
 3. Create or update docs/changelog/<major>.<minor>.md.
 4. Commit the code and changelog changes.
 5. Run `make patch`, `make minor`, or `make major`. The target runs the full
-   gate once against the clean source candidate before any version mutation.
-   Tracked root or detailed changelog edits made while it runs are allowed;
-   every other tracked change stops the release. The version bump resolves
-   offline to preserve the tested dependency graph, then records the exact
-   version-and-release-note diff.
+   gate once against the source candidate before any version mutation. Root or
+   detailed changelog edits may remain staged or unstaged and are included in
+   the release transition; every other tracked change stops the release before
+   the expensive gate starts and is checked again afterward. The version bump
+   resolves offline to preserve the tested dependency graph, then records the
+   exact version-and-release-note diff. A failure leaves any generated mutation
+   visible for review; release tooling never restores files automatically.
 6. Review the release diff.
 7. Run `make release-stage` to stage known release files.
 8. Run `make release-commit`. It must verify the staged diff against the tested
