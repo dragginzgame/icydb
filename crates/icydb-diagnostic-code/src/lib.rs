@@ -1125,7 +1125,14 @@ mod tests {
 
     #[test]
     fn invalid_raw_error_codes_fail_closed_to_runtime_internal() {
-        for raw in [0, 277, u16::MAX] {
+        let first_unknown = ORDERED_ERROR_CODES
+            .last()
+            .expect("public error-code registry is non-empty")
+            .raw()
+            .checked_add(1)
+            .expect("public error-code registry retains an unknown successor");
+
+        for raw in [0, first_unknown, u16::MAX] {
             let code = ErrorCode::from_raw(raw);
 
             assert_eq!(ErrorCode::known(raw), None);
