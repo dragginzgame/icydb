@@ -87,9 +87,9 @@ help:
 	@echo "Version Management:"
 	@echo "  version          Show current version"
 	@echo "  tags             List available git tags"
-	@echo "  patch            Test a clean candidate, then transactionally bump patch files (0.0.x)"
-	@echo "  minor            Confirm and test, then transactionally bump minor files (0.x.0)"
-	@echo "  major            Confirm and test, then transactionally bump major files (x.0.0)"
+	@echo "  patch            Test a clean candidate, then bump patch version files (0.0.x)"
+	@echo "  minor            Confirm and test a clean candidate, then bump minor files (0.x.0)"
+	@echo "  major            Confirm and test a clean candidate, then bump major files (x.0.0)"
 	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Verify the tested candidate transition, commit, and tag"
@@ -209,8 +209,9 @@ patch:
 		echo "Candidate HEAD changed during the release gate." >&2; \
 		exit 1; \
 	fi; \
-	TMPDIR="$(RELEASE_TMP_DIR)" RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		$(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch "$$candidate_commit"
+	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch; \
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh record patch "$$candidate_commit"
 
 minor:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
@@ -224,8 +225,9 @@ minor:
 		echo "Candidate HEAD changed during the release gate." >&2; \
 		exit 1; \
 	fi; \
-	TMPDIR="$(RELEASE_TMP_DIR)" RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		$(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor "$$candidate_commit"
+	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor; \
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh record minor "$$candidate_commit"
 
 major:
 	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
@@ -239,8 +241,9 @@ major:
 		echo "Candidate HEAD changed during the release gate." >&2; \
 		exit 1; \
 	fi; \
-	TMPDIR="$(RELEASE_TMP_DIR)" RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		$(CARGO_WORK_ENV) scripts/ci/bump-version.sh major "$$candidate_commit"
+	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major; \
+	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
+		scripts/ci/release-candidate-receipt.sh record major "$$candidate_commit"
 
 release-prepare:
 	@mkdir -p "$(RELEASE_TMP_DIR)"

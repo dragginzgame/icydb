@@ -444,7 +444,7 @@ impl<C: CanisterKind> DbSession<C> {
         }))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
     pub(in crate::db) fn execute_exact_key_batch_with_hard_budget_for_tests<K>(
         &self,
         binding: &DynamicTypedEntityBinding,

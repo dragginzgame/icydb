@@ -124,7 +124,7 @@ where
         self.entries.keys()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
     pub(in crate::db::session) fn values(&self) -> impl Iterator<Item = &V> {
         self.entries.values().map(|entry| &entry.value)
     }
