@@ -92,7 +92,7 @@ proptest = "1.9.0"
 quote = "1.0"
 rand_chacha = "0.10"
 remain = "0.2"
-rusqlite = { version = "=0.40.1", default-features = false, features = [
+rusqlite = { version = "=0.40.2", default-features = false, features = [
     "bundled",
     "functions",
     "load_extension",

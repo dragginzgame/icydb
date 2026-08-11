@@ -432,6 +432,8 @@ impl MutationJobRecord {
             MutationJobPayloadKind::Continuation,
         )?;
         if self.state.rows_updated_total > self.state.keys_scanned_total
+            || matches!(self.state.status, MutationJobStatus::Active)
+                && self.engine_continuation.is_empty()
             || matches!(self.state.status, MutationJobStatus::Completed)
                 && (self.state.phase != MutationJobPhase::Verify
                     || !self.engine_continuation.is_empty())
@@ -523,6 +525,8 @@ impl MutationJobTransition {
         if self.keys_scanned > MAX_MUTATION_JOB_STEP_KEYS_SCANNED
             || self.rows_updated > MAX_MUTATION_JOB_STEP_ROWS_UPDATED
             || self.rows_updated > self.keys_scanned
+            || matches!(self.status, MutationJobStatus::Active)
+                && self.engine_continuation.is_empty()
             || previous_phase == MutationJobPhase::Verify && self.rows_updated != 0
             || self.verify_restarts != expected_verify_restarts
             || matches!(self.status, MutationJobStatus::Completed)
@@ -861,6 +865,10 @@ mod tests {
             MutationJobIdempotencyKey::new("k".repeat(257)),
             Err(MutationJobError::InvalidIdempotencyKey),
         );
+        assert_eq!(
+            MutationJobRecord::new(job_id(), vec![1], Vec::new()),
+            Err(MutationJobError::CorruptProgressStore),
+        );
 
         assert!(MutationJobRecord::new(job_id(), vec![1; 16 * 1024], vec![2; 2 * 1024]).is_ok());
         assert!(matches!(
@@ -888,7 +896,7 @@ mod tests {
                 MutationJobTransition::new(
                     MutationJobStatus::Active,
                     MutationJobPhase::Forward,
-                    Vec::new(),
+                    vec![7],
                     1,
                     0,
                     0,
@@ -1042,7 +1050,7 @@ mod tests {
                 MutationJobTransition::new(
                     MutationJobStatus::Active,
                     MutationJobPhase::Verify,
-                    Vec::new(),
+                    vec![7],
                     8,
                     3,
                     0,
@@ -1111,10 +1119,39 @@ mod tests {
             decode_mutation_job_payload(&zero_job_id),
             Err(MutationJobError::CorruptProgressStore),
         );
+
+        let initial = initial_record();
+        let mut bytes =
+            encode_mutation_job_payload(&initial).expect("current mutation payload should encode");
+        let intent_len_offset = 32 + 8 + 1 + 1 + 3 * 8;
+        let continuation_len_offset = intent_len_offset + 4 + initial.canonical_intent.len();
+        let continuation_offset = continuation_len_offset + 4;
+        let continuation_end = continuation_offset + initial.engine_continuation.len();
+        bytes[continuation_len_offset..continuation_offset].fill(0);
+        bytes.drain(continuation_offset..continuation_end);
+        assert_eq!(
+            decode_mutation_job_payload(&bytes),
+            Err(MutationJobError::CorruptProgressStore),
+        );
     }
 
     #[test]
     fn transition_totals_fail_closed_on_overflow() {
+        assert_eq!(
+            initial_record().apply_transition(
+                &request(0, "empty-active-continuation"),
+                MutationJobTransition::new(
+                    MutationJobStatus::Active,
+                    MutationJobPhase::Forward,
+                    Vec::new(),
+                    1,
+                    0,
+                    0,
+                ),
+            ),
+            Err(MutationJobError::CorruptProgressStore),
+        );
+
         let mut record = initial_record();
         record.state.keys_scanned_total = u64::MAX;
         record.state.rows_updated_total = u64::MAX;
@@ -1140,7 +1177,7 @@ mod tests {
                 MutationJobTransition::new(
                     MutationJobStatus::Active,
                     MutationJobPhase::Forward,
-                    Vec::new(),
+                    vec![7],
                     1,
                     1,
                     0,
@@ -1172,7 +1209,7 @@ mod tests {
                 MutationJobTransition::new(
                     MutationJobStatus::Active,
                     MutationJobPhase::Forward,
-                    Vec::new(),
+                    vec![7],
                     0,
                     0,
                     0,

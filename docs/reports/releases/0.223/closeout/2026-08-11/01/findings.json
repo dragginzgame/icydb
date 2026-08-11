@@ -1,0 +1,119 @@
+{
+  "audit": {
+    "date": "2026-08-11",
+    "baseline_tag": "v0.222.4",
+    "baseline_commit": "2a18f0aa3aade9cd209e8cec9e040d732e35b7af",
+    "head_commit": "36ee7e1a2154fced211fd7b60a1fcf2f58415c9e",
+    "head_tag": "v0.223.5",
+    "includes_current_worktree": true,
+    "verdict": "ACCEPTED_WITH_CORRECTIONS",
+    "implementation_blockers": []
+  },
+  "findings": [
+    {
+      "id": "223-CO-001",
+      "severity": "high",
+      "status": "fixed",
+      "title": "Exact replay followed advance budget accounting",
+      "paths": [
+        "crates/icydb-core/src/db/session/mutation_job.rs"
+      ]
+    },
+    {
+      "id": "223-CO-002",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Active mutation progress admitted an empty engine continuation",
+      "paths": [
+        "crates/icydb-core/src/db/mutation_job.rs"
+      ]
+    },
+    {
+      "id": "223-CO-003",
+      "severity": "medium",
+      "status": "corrected_delivery_rerun_pending",
+      "title": "SQL performance evidence shards lacked the exact PocketIC binary path",
+      "paths": [
+        ".github/workflows/sql-performance.yml"
+      ]
+    },
+    {
+      "id": "223-CO-004",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Implementation tracker verdict predated the independent final audit",
+      "paths": [
+        "docs/design/0.223-durable-resumable-mutation-jobs/0.223-status.md",
+        "docs/reports/releases/0.223/closeout/2026-08-11/01/report.md"
+      ]
+    }
+  ],
+  "validation": {
+    "focused_native": "pass",
+    "wasm_target": "pass",
+    "compile_surface": "pass",
+    "corruption_and_bounds": "pass",
+    "failpoint_and_recovery": "pass",
+    "pocket_ic": "pass_after_host_retry_for_sandbox_bind_restriction",
+    "ten_thousand_row_scale": "pass",
+    "inherited_0_222_executor_matrix": "pass",
+    "repository_invariants": "pass",
+    "workflow_lint": "pass",
+    "make_check": "pass",
+    "make_test": "pass",
+    "wasm_size_report": "pass",
+    "candid_and_method_modes": "pass",
+    "git_diff_check": "pass"
+  },
+  "instructions": {
+    "start_first_max": 1062180,
+    "forward_10001_tier_max": 29195414,
+    "forward_10001_scoring_max": 27564954,
+    "verify_10001_tier_max": 7867844,
+    "verify_10001_scoring_max": 7733742,
+    "replay_10001_max": 127518,
+    "forward_calls_per_fixture": 157,
+    "verify_calls_per_fixture": 40
+  },
+  "stable_bytes": {
+    "initial_record": 97,
+    "active_record": 167,
+    "completed_record": 165,
+    "restart_required_record": 166,
+    "maximum_initial_record": 18524,
+    "maximum_active_record": 18842,
+    "maximum_current_receipt": 319,
+    "maximum_marker_effect": 37797,
+    "allocation_one_record": 4390912,
+    "allocation_eight_records": 4390912,
+    "allocation_sixty_four_records": 38993920
+  },
+  "wasm": {
+    "dynamic_query_raw_bytes": 2632181,
+    "dynamic_query_gzip_bytes": 1025270,
+    "typed_query_raw_bytes": 1819002,
+    "typed_query_gzip_bytes": 689135,
+    "dynamic_query_raw_delta_from_0_223_5_prior": 5,
+    "typed_query_raw_delta_from_0_223_5_prior": -126
+  },
+  "candid": {
+    "dynamic_query_bytes": 4670,
+    "dynamic_query_sha256": "c973e18eb0b6188564557bf165f22ff2514e8429d91f8a5eb05341d762c4d8c1",
+    "typed_query_bytes": 64,
+    "typed_query_sha256": "1005c63f5415d1de4bb7da89190f33212d1c926c881108a1acfeadfa93fff766"
+  },
+  "remaining_risks": [
+    {
+      "classification": "delivery_verification",
+      "item": "Run the corrected SQL performance workflow after the user pushes the worktree."
+    },
+    {
+      "classification": "outside_0_223",
+      "item": "Explicit startup readiness and continuous journal convergence remain owned by the proposed 0.226 line."
+    },
+    {
+      "classification": "watch_only",
+      "item": "Rebenchmark the Toko populated-ingestion signal after application replay and repeated lookup work is removed."
+    }
+  ]
+}

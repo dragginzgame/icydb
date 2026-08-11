@@ -85,15 +85,15 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &MutationJobAdvanceRequest,
     ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
-        self.charge_mutation_job_operation(
-            DiagnosticExecutionLane::Mutation,
-            MUTATION_JOB_ADVANCE_SHAPE,
-        )?;
         let retained =
             with_mutation_progress_store::<C, _>(|store| store.load_mutation(request.job_id))?;
         if let Some(receipt) = retained.exact_replay(request)? {
             return Ok(receipt.clone());
         }
+        self.charge_mutation_job_operation(
+            DiagnosticExecutionLane::Mutation,
+            MUTATION_JOB_ADVANCE_SHAPE,
+        )?;
         retained.ensure_can_advance(request)?;
         match retained.state().phase {
             MutationJobPhase::Forward => self.advance_mutation_job_forward(&retained, request),
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn session_load_and_terminal_acknowledgement_preserve_the_store_contract() {
-        let initial = MutationJobRecord::new(job_id(), vec![1, 2], Vec::new())
+        let initial = MutationJobRecord::new(job_id(), vec![1, 2], vec![3])
             .expect("bounded initial record should admit");
         with_mutation_progress_store::<TestCanister, _>(|store| {
             store.insert_mutation(&initial).map(|_| ())
@@ -336,7 +336,7 @@ mod tests {
     #[cfg(feature = "sql")]
     #[test]
     fn aggregate_budget_exhaustion_does_not_advance_durable_state() {
-        let initial = MutationJobRecord::new(job_id(), vec![1, 2], Vec::new())
+        let initial = MutationJobRecord::new(job_id(), vec![1, 2], vec![3])
             .expect("bounded initial record should admit");
         with_mutation_progress_store::<TestCanister, _>(|store| {
             store.insert_mutation(&initial).map(|_| ())
@@ -360,6 +360,45 @@ mod tests {
         assert_eq!(
             session().mutation_job_state(job_id()),
             Ok(initial.state().clone()),
+        );
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn exact_replay_precedes_advance_budget_accounting() {
+        let initial = MutationJobRecord::new(job_id(), vec![1, 2], vec![3])
+            .expect("bounded initial record should admit");
+        let request = MutationJobAdvanceRequest::new(
+            job_id(),
+            0,
+            MutationJobIdempotencyKey::new("lost-response")
+                .expect("bounded idempotency key should admit"),
+        );
+        let (advanced, receipt) = initial
+            .apply_transition(
+                &request,
+                MutationJobTransition::new(
+                    MutationJobStatus::Active,
+                    MutationJobPhase::Forward,
+                    vec![4],
+                    1,
+                    1,
+                    0,
+                ),
+            )
+            .expect("bounded successor should admit");
+        with_mutation_progress_store::<TestCanister, _>(|store| {
+            store.insert_mutation(&advanced).map(|_| ())
+        })
+        .expect("advanced record should insert");
+
+        assert_eq!(
+            exhausted_session().advance_trusted_mutation_job(&request),
+            Ok(receipt),
+        );
+        assert_eq!(
+            session().mutation_job_state(job_id()),
+            Ok(advanced.state().clone()),
         );
     }
 }

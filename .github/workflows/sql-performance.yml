@@ -34,7 +34,7 @@ env:
   CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
-  IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "1"
+  POCKET_IC_BIN: ${{ github.workspace }}/artifacts/perf-audit/pocket-ic
   REVIEWED_SQL_PERF_BASELINE_RUN_ID: ${{ inputs.baseline_run_id || vars.ICYDB_SQL_PERF_BASELINE_RUN_ID }}
   SQL_PERF_CALIBRATION_COHORT: ${{ inputs.calibration_cohort }}
   SQL_PERF_CALIBRATION_RUN: ${{ inputs.calibration_run }}
@@ -112,6 +112,28 @@ jobs:
           expected_wasm_sha="$(jq -r '.environment.subject.raw_wasm_sha256' "$report")"
           actual_wasm_sha="$(sha256sum artifacts/perf-audit/sql_perf_canister.wasm | cut -d ' ' -f 1)"
           test "$actual_wasm_sha" = "$expected_wasm_sha"
+      - name: Prepare exact locked PocketIC server
+        run: |
+          pocket_ic_version="$(
+            awk '
+              /^\[\[package\]\]$/ { package_name = "" }
+              /^name = "pocket-ic"$/ { package_name = "pocket-ic" }
+              package_name == "pocket-ic" && /^version = / {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' Cargo.lock
+          )"
+          test -n "$pocket_ic_version"
+          mkdir -p "$TMPDIR" "$(dirname "$POCKET_IC_BIN")"
+          pocket_ic_archive="$TMPDIR/pocket-ic-$pocket_ic_version.gz"
+          curl --fail --location --retry 3 \
+            --output "$pocket_ic_archive" \
+            "https://github.com/dfinity/pocketic/releases/download/$pocket_ic_version/pocket-ic-x86_64-linux.gz"
+          gzip --decompress --stdout "$pocket_ic_archive" > "$POCKET_IC_BIN"
+          chmod +x "$POCKET_IC_BIN"
+          test "$("$POCKET_IC_BIN" --version)" = "pocket-ic-server $pocket_ic_version"
       - if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         run: cargo fetch --locked
       - name: Install pinned Wasm optimizer
@@ -128,7 +150,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: sql-perf-wasm
-          path: artifacts/perf-audit/sql_perf_canister.wasm
+          path: |
+            artifacts/perf-audit/sql_perf_canister.wasm
+            artifacts/perf-audit/pocket-ic
           if-no-files-found: error
           retention-days: 14
 
@@ -157,6 +181,8 @@ jobs:
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
+      - name: Restore PocketIC executable permission
+        run: chmod +x "$POCKET_IC_BIN"
       - run: cargo fetch --locked
       - name: Capture P1 shard
         run: make test-sql-perf-p1-shard P1_SHARD=${{ matrix.shard }}
@@ -192,6 +218,8 @@ jobs:
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
+      - name: Restore PocketIC executable permission
+        run: chmod +x "$POCKET_IC_BIN"
       - run: cargo fetch --locked
       - name: Capture scale shard
         run: make test-sql-perf-scale-shard SCALE_SHARD=${{ matrix.shard }}
@@ -288,6 +316,8 @@ jobs:
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
+      - name: Restore PocketIC executable permission
+        run: chmod +x "$POCKET_IC_BIN"
       - run: cargo fetch --locked
       - name: Confirm P2 shard
         run: make test-sql-perf-p2-shard P2_SHARD=${{ matrix.shard }}
@@ -319,6 +349,8 @@ jobs:
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
+      - name: Restore PocketIC executable permission
+        run: chmod +x "$POCKET_IC_BIN"
       - run: cargo fetch --locked
       - name: Capture attributed versus total-only overhead
         run: make test-sql-perf-instrumentation

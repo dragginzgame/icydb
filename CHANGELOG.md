@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
 
+- `0.223.6` hardens durable mutation recovery and its release evidence while
+  refreshing the SQLite correctness reference, without changing public or
+  persisted formats.
+
 - `0.223.5` consolidates mutation-job phase preparation and records the first
   flow-convergence and technical-debt baselines without changing behavior.
 
