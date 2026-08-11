@@ -4,25 +4,27 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
-use crate::db::sql::table_render::render_explain_lines;
-use crate::db::{
-    EntityCatalogDescription, EntityConstraintDescription, MemoryCatalogDescription,
-    RowProjectionOutput, SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
-    StoreCatalogDescription,
-    sql::table_render::{
-        SqlDdlRenderInput, render_constraint_validation_finding_line, render_count_lines,
-        render_describe_output_lines, render_grouped_lines, render_query_rows_lines,
-        render_show_columns_lines, render_show_constraints_lines, render_show_entities_lines,
-        render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
-        render_show_relations_lines, render_show_stores_lines, render_show_stores_verbose_lines,
-        render_sql_ddl_lines,
+use crate::{
+    ConstraintValidationFindingOutput, Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
+    db::{
+        EntityCatalogDescription, EntityConstraintDescription, MemoryCatalogDescription,
+        RowProjectionOutput, SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
+        StoreCatalogDescription,
+        sql::table_render::{
+            SqlDdlRenderInput, render_constraint_validation_finding_line, render_count_lines,
+            render_describe_output_lines, render_explain_lines, render_grouped_lines,
+            render_query_rows_lines, render_show_columns_lines, render_show_constraints_lines,
+            render_show_entities_lines, render_show_entities_verbose_lines,
+            render_show_indexes_lines, render_show_memory_lines, render_show_relations_lines,
+            render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
+        },
     },
 };
 
 use candid::CandidType;
 use serde::Deserialize;
 
-use crate::ConstraintValidationFindingOutput;
+const MAX_PUBLIC_SQL_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
 
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -107,6 +109,32 @@ impl SqlQueryPerfResult {
             decode_instructions: attribution.response_decode_local_instructions,
             compiler_instructions: attribution.compile_local_instructions,
         }
+    }
+
+    /// Reject a success whose exact public Candid envelope cannot be delivered
+    /// by the deployed IC query boundary.
+    ///
+    /// The generated endpoint returns `Result<SqlQueryPerfResult, Error>`, so
+    /// this encodes that complete envelope rather than estimating an inner
+    /// result. Oversized successes become a small typed response error; schema
+    /// maxima and result rows remain unchanged, with no truncation or paging.
+    #[doc(hidden)]
+    pub fn into_deliverable_query_reply(self) -> Result<Self, Error> {
+        let response: Result<&Self, Error> = Ok(&self);
+        let encoded = candid::encode_one(response).map_err(|_| {
+            Error::from_kind(
+                ErrorKind::Runtime(RuntimeErrorKind::Internal),
+                ErrorOrigin::Response,
+            )
+        })?;
+        if encoded.len() > MAX_PUBLIC_SQL_QUERY_REPLY_BYTES {
+            return Err(Error::from_runtime_boundary(
+                crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
+                ErrorOrigin::Response,
+            ));
+        }
+
+        Ok(self)
     }
 }
 
@@ -240,7 +268,8 @@ mod tests {
 
     use candid::types::{CandidType, Label, Type, TypeInner};
 
-    use super::{SqlQueryPerfResult, SqlQueryResult};
+    use super::{MAX_PUBLIC_SQL_QUERY_REPLY_BYTES, SqlQueryPerfResult, SqlQueryResult};
+    use crate::{Error, ErrorOrigin, db::SqlQueryPerfAttribution};
 
     fn named_fields(ty: Type, expected_kind: &str) -> BTreeSet<String> {
         let fields = match ty.as_ref() {
@@ -281,5 +310,67 @@ mod tests {
         ]);
 
         assert_eq!(fields, expected);
+    }
+
+    #[test]
+    fn generated_sql_query_reply_guard_measures_the_exact_complete_envelope() {
+        let small = SqlQueryPerfResult::from_attribution(
+            SqlQueryResult::ShowIndexes {
+                entity: "Entry".to_string(),
+                indexes: vec!["by_owner".to_string()],
+            },
+            SqlQueryPerfAttribution::default(),
+        );
+        let owned: Result<SqlQueryPerfResult, Error> = Ok(small.clone());
+        let borrowed: Result<&SqlQueryPerfResult, Error> = Ok(&small);
+
+        assert_eq!(
+            candid::encode_one(owned).expect("owned endpoint envelope should encode"),
+            candid::encode_one(borrowed).expect("borrowed endpoint envelope should encode"),
+            "the zero-copy guard must measure the exact generated endpoint envelope",
+        );
+        assert_eq!(
+            small
+                .into_deliverable_query_reply()
+                .expect("small generated query reply should remain deliverable")
+                .result,
+            SqlQueryResult::ShowIndexes {
+                entity: "Entry".to_string(),
+                indexes: vec!["by_owner".to_string()],
+            },
+        );
+    }
+
+    #[test]
+    fn generated_sql_query_reply_guard_returns_a_deliverable_typed_error() {
+        let oversized = SqlQueryPerfResult::from_attribution(
+            SqlQueryResult::ShowIndexes {
+                entity: "Entry".to_string(),
+                indexes: vec!["x".repeat(MAX_PUBLIC_SQL_QUERY_REPLY_BYTES)],
+            },
+            SqlQueryPerfAttribution::default(),
+        );
+        let candidate: Result<&SqlQueryPerfResult, Error> = Ok(&oversized);
+        assert!(
+            candid::encode_one(candidate)
+                .expect("oversized endpoint candidate should remain fallibly encodable")
+                .len()
+                > MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,
+        );
+
+        let error = oversized
+            .into_deliverable_query_reply()
+            .expect_err("oversized success must become a typed response error");
+        assert_eq!(
+            error.code(),
+            crate::ErrorCode::RUNTIME_BOUNDARY_SQL_QUERY_REPLY_BYTES_EXCEEDED,
+        );
+        assert_eq!(error.origin(), ErrorOrigin::Response);
+        assert!(
+            candid::encode_one(Err::<SqlQueryPerfResult, Error>(error))
+                .expect("typed oversize error should encode")
+                .len()
+                <= MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,
+        );
     }
 }

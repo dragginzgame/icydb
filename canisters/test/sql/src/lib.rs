@@ -4,7 +4,7 @@
 
 use candid::CandidType;
 use ic_cdk::{query, update};
-#[cfg(feature = "test-admin-api")]
+#[cfg(feature = "sql")]
 use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
@@ -164,45 +164,75 @@ fn sql_user_patch(name: &str, age: u16, rank: i32) -> StructuralPatch {
     patch
 }
 
-/// Seed one runtime-built oversized unindexed payload for generated endpoint
-/// response-budget tests without embedding a megabyte literal in the wasm.
+/// Seed runtime-built oversized unindexed payloads for mutation and complete
+/// generated-query response-budget tests without embedding literals in Wasm.
 #[cfg(feature = "sql")]
 #[update]
 fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| {
         let session = icydb::db!()?;
-        let query = DynamicQuery::new("SqlTestNumericTypes")
-            .filter(FieldRef::new("label").eq("alpha"))
-            .order_by(asc("id"))
-            .select(["id"])
-            .limit(1);
-        let result = session.execute_trusted_live_page(&query, None)?;
-        let id = result
-            .rows
-            .first()
-            .and_then(|row| row.first())
-            .and_then(|value| match value {
-                OutputValue::Ulid(id) => Some(*id),
-                _ => None,
-            })
-            .ok_or_else(|| {
-                icydb::Error::from_kind(
-                    ErrorKind::Query(QueryErrorKind::NotFound),
-                    ErrorOrigin::Response,
-                )
-            })?;
-        let group_name = "x".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
-        let patch = session
-            .structural_patch([("group_name", WriteCell::Value(InputValue::from(group_name)))]);
-
-        session.execute_trusted_structural_mutation(StructuralMutation::Update {
-            entity: "SqlTestNumericTypes".to_string(),
-            key: InputValue::from(id),
-            patch,
-        })?;
+        set_sql_numeric_group_name(&session, "alpha", "a".repeat(OVERSIZED_SQL_GROUP_NAME_LEN))?;
+        set_sql_numeric_group_name(&session, "beta", "b".repeat(OVERSIZED_SQL_GROUP_NAME_LEN))?;
+        let gamma = "c".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
+        session.execute_trusted_structural_insert_batch(
+            "SqlTestNumericTypes",
+            vec![sql_numeric_type_patch(
+                "gamma",
+                gamma.as_str(),
+                3,
+                7,
+                89,
+                12_000,
+                18,
+                9,
+                500,
+                12_000,
+                30,
+                Float32::from(0),
+                Float64::from(0),
+            )],
+        )?;
 
         Ok(())
     })
+}
+
+#[cfg(feature = "sql")]
+fn set_sql_numeric_group_name<C: icydb::traits::CanisterKind>(
+    session: &icydb::db::DbSession<C>,
+    label: &str,
+    group_name: String,
+) -> Result<(), icydb::Error> {
+    let query = DynamicQuery::new("SqlTestNumericTypes")
+        .filter(FieldRef::new("label").eq(label))
+        .order_by(asc("id"))
+        .select(["id"])
+        .limit(1);
+    let result = session.execute_trusted_live_page(&query, None)?;
+    let id = result
+        .rows
+        .first()
+        .and_then(|row| row.first())
+        .and_then(|value| match value {
+            OutputValue::Ulid(id) => Some(*id),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            icydb::Error::from_kind(
+                ErrorKind::Query(QueryErrorKind::NotFound),
+                ErrorOrigin::Response,
+            )
+        })?;
+    let patch =
+        session.structural_patch([("group_name", WriteCell::Value(InputValue::from(group_name)))]);
+
+    session.execute_trusted_structural_mutation(StructuralMutation::Update {
+        entity: "SqlTestNumericTypes".to_string(),
+        key: InputValue::from(id),
+        patch,
+    })?;
+
+    Ok(())
 }
 
 /// Build one deterministic mixed numeric fixture batch for SQL type coverage.
@@ -210,15 +240,39 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
 fn sql_numeric_type_patches() -> Vec<StructuralPatch> {
     vec![
         sql_numeric_type_patch(
-            "alpha", "mage", -1, -2, 35, -500, 14, 3, 120, 1_000, 15, 0.75, 0.50,
+            "alpha",
+            "mage",
+            -1,
+            -2,
+            35,
+            -500,
+            14,
+            3,
+            120,
+            1_000,
+            15,
+            Float32::try_new(0.75).expect("finite float32 fixture value"),
+            Float64::try_new(0.50).expect("finite float64 fixture value"),
         ),
         sql_numeric_type_patch(
-            "beta", "fighter", 2, 5, 58, 9_000, 16, 7, 300, 9_000, 25, 0.25, 0.25,
+            "beta",
+            "fighter",
+            2,
+            5,
+            58,
+            9_000,
+            16,
+            7,
+            300,
+            9_000,
+            25,
+            Float32::try_new(0.25).expect("finite float32 fixture value"),
+            Float64::try_new(0.25).expect("finite float64 fixture value"),
         ),
     ]
 }
 
-#[cfg(feature = "test-admin-api")]
+#[cfg(feature = "sql")]
 #[expect(
     clippy::too_many_arguments,
     reason = "one fixture helper mirrors the maintained scalar SQL type matrix"
@@ -235,8 +289,8 @@ fn sql_numeric_type_patch(
     nat32_value: u32,
     nat64_value: u64,
     decimal_value: i64,
-    float32_value: f32,
-    float64_value: f64,
+    float32_value: Float32,
+    float64_value: Float64,
 ) -> StructuralPatch {
     StructuralPatch::new()
         .field(
@@ -279,15 +333,11 @@ fn sql_numeric_type_patch(
         )
         .field(
             "float32_value",
-            WriteCell::Value(InputValue::from(
-                Float32::try_new(float32_value).expect("finite float32 fixture value"),
-            )),
+            WriteCell::Value(InputValue::from(float32_value)),
         )
         .field(
             "float64_value",
-            WriteCell::Value(InputValue::from(
-                Float64::try_new(float64_value).expect("finite float64 fixture value"),
-            )),
+            WriteCell::Value(InputValue::from(float64_value)),
         )
 }
 

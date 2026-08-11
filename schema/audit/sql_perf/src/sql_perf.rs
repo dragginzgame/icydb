@@ -176,6 +176,28 @@ pub struct PerfAuditRelationTarget {}
 )]
 pub struct PerfAuditRelationSource {}
 
+/// Three-edge accepted relation fixture for the frozen direct-DTO SQL
+/// introspection response gate. It intentionally has no data rows because the
+/// command projects accepted catalog authority only.
+#[entity(store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "primary_target_id",
+            value(item(rel = "PerfAuditRelationTarget", prim = "Int32"))
+        ),
+        field(name = "secondary_target_id",
+            value(item(rel = "PerfAuditRelationTarget", prim = "Int32"))
+        ),
+        field(name = "tertiary_target_id",
+            value(item(rel = "PerfAuditRelationTarget", prim = "Int32"))
+        )
+    ),
+    timestamps
+)]
+pub struct PerfAuditIntrospectionRelations {}
+
 ///
 /// PerfAuditBlob
 ///

@@ -699,4 +699,6 @@ define_error_code_registry! {
         detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowRelationsModifiers });
     SQL_SURFACE_MUTATION_REJECTS_SHOW_RELATIONS = 278 => QuerySqlSurfaceMismatch,
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowRelations });
+    RUNTIME_BOUNDARY_SQL_QUERY_REPLY_BYTES_EXCEEDED = 279 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlQueryReplyBytesExceeded });
 }

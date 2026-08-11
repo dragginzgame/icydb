@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.224.md](docs/changelog/0.224.md)
 
+- `0.224.1` makes oversized generated SQL query replies fail with a typed
+  response-limit diagnostic and corrects the 0.224 closeout evidence; it is
+  potentially breaking for exhaustive diagnostic-code matches.
+
 - `0.224.0` adds compact accepted-schema introspection and relation discovery
   through a potentially breaking typed-result hard cut with explicit verbose
   results.

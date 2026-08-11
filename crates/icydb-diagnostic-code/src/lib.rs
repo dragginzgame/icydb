@@ -551,6 +551,8 @@ pub enum RuntimeBoundaryCode {
     RequestExecutionScopeRequired,
     /// An explicit request root conflicts with the root already active for this request.
     RequestExecutionRootMismatch,
+    /// A successful generated SQL query reply exceeds the deployed IC query-response limit.
+    SqlQueryReplyBytesExceeded,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1093,7 +1095,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 278);
+        assert_eq!(last, 279);
     }
 
     #[test]

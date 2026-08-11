@@ -2235,6 +2235,65 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
 }
 
 #[test]
+fn sql_canister_compact_default_fallback_uses_accepted_payload_facts() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
+    let literal = "accepted-default-".repeat(12);
+
+    schema_version
+        .publish(
+            &fixture,
+            format!("ALTER TABLE SqlTestUser ADD COLUMN profile text DEFAULT '{literal}'").as_str(),
+        )
+        .expect("long accepted text default should publish through the canister endpoint");
+
+    let verbose = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+            .expect("verbose DESCRIBE should expose accepted default payload facts"),
+    );
+    let profile = verbose
+        .fields()
+        .iter()
+        .find(|field| field.name() == "profile")
+        .expect("verbose accepted fields should include profile");
+    let bytes = profile
+        .insert_default_bytes()
+        .expect("accepted default should expose its encoded byte count");
+    let hash = profile
+        .insert_default_hash()
+        .expect("accepted default should expose its canonical payload hash");
+    let expected = format!("text(bytes={bytes}, sha256={hash})");
+
+    let SqlQueryResult::Describe(SqlDescribeOutput::Compact { columns, .. }) =
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("compact DESCRIBE should render the accepted default")
+    else {
+        panic!("compact DESCRIBE should retain its typed compact envelope");
+    };
+    let profile = columns
+        .iter()
+        .find(|column| column.name() == "profile")
+        .expect("compact accepted columns should include profile");
+    assert_eq!(
+        profile.default(),
+        &SqlColumnDefault::Literal {
+            text: expected.clone(),
+        },
+    );
+    assert!(expected.len() <= 128);
+
+    let SqlQueryResult::ShowColumns(SqlShowColumnsOutput::Compact {
+        columns: repeated, ..
+    }) = query_sql(&fixture, "SHOW COLUMNS SqlTestUser")
+        .expect("SHOW COLUMNS should reuse the accepted compact projector")
+    else {
+        panic!("SHOW COLUMNS should retain its typed compact envelope");
+    };
+    assert_eq!(columns, repeated);
+}
+
+#[test]
 fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3225,6 +3284,41 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries()
             next_cursor: None,
         },
         "query(sql) should preserve mixed numeric grouped aggregates at the schema/test SQL canister boundary",
+    );
+}
+
+#[test]
+fn generated_sql_query_endpoint_rejects_an_undeliverable_complete_envelope() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    seed_oversized_sql_group_name(&fixture);
+
+    let error = query_sql(
+        &fixture,
+        "SELECT group_name, COUNT(*) \
+         FROM SqlTestNumericTypes \
+         GROUP BY group_name \
+         ORDER BY group_name \
+         LIMIT 50",
+    )
+    .expect_err("an oversized successful SQL envelope must return a typed response error");
+    assert_eq!(
+        error.code(),
+        ErrorCode::RUNTIME_BOUNDARY_SQL_QUERY_REPLY_BYTES_EXCEEDED,
+    );
+    assert_eq!(error.origin(), ErrorOrigin::Response);
+
+    let count = expect_projection(
+        query_sql(&fixture, "SELECT COUNT(*) FROM SqlTestNumericTypes")
+            .expect("the typed oversize rejection must leave later endpoint replies usable"),
+    );
+    assert_projection_rendered(
+        &count,
+        "SqlTestNumericTypes",
+        &["COUNT(*)"],
+        &[&["3"]],
+        1,
+        "oversized reply rejection should not trap or alter stored rows",
     );
 }
 

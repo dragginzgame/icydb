@@ -6875,7 +6875,7 @@ fn sql_introspection_0_224_contract_is_exactly_measured() {
             Some((370_000, None, 2_100)),
         ),
         (
-            "SHOW RELATIONS FROM PerfAuditUser",
+            "SHOW RELATIONS FROM PerfAuditIntrospectionRelations",
             "show_relations",
             Some((350_000, None, 512)),
         ),
@@ -6907,8 +6907,16 @@ fn sql_introspection_0_224_contract_is_exactly_measured() {
         let response_bytes = encode_one(&endpoint_response)
             .unwrap_or_else(|error| panic!("{sql} endpoint response should encode: {error}"));
         let contract_bytes = match &perf.result {
-            SqlQueryResult::ShowRelations(output) => encode_one(output)
-                .unwrap_or_else(|error| panic!("{sql} relation payload should encode: {error}")),
+            SqlQueryResult::ShowRelations(output) => {
+                assert_eq!(
+                    output.relations().len(),
+                    3,
+                    "the relation gate must retain the frozen three-row control cardinality",
+                );
+                encode_one(output.relations()).unwrap_or_else(|error| {
+                    panic!("{sql} direct relation DTO sequence should encode: {error}")
+                })
+            }
             _ => response_bytes.clone(),
         };
 

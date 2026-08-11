@@ -167,10 +167,11 @@ impl SqlSurfaceTokens {
                 let (result, attribution) =
                     __icydb_query_dispatch::<INTROSPECTION>(sql.as_str())?;
 
-                Ok(::icydb::db::sql::SqlQueryPerfResult::from_attribution(
+                ::icydb::db::sql::SqlQueryPerfResult::from_attribution(
                     result,
                     attribution,
-                ))
+                )
+                .into_deliverable_query_reply()
             }
 
             pub(crate) fn __icydb_endpoint_handler_sql_ddl(
@@ -323,6 +324,7 @@ mod tests {
         let surface = compact_tokens(quote!(#surface));
 
         assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution(sql)"));
+        assert!(surface.contains("into_deliverable_query_reply()"));
         assert!(surface.contains("execute_admin_sql_ddl(sql)"));
     }
 
