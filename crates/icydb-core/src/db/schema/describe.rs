@@ -2283,6 +2283,10 @@ mod tests {
 
     use candid::Encode;
 
+    const REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS: usize = icydb_schema::MAX_FRAGMENT_FIELDS;
+    const REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES: usize = 95;
+    const IC_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
+
     #[test]
     fn identity_description_reports_exact_remaining_capacity_and_exhaustion() {
         let available =
@@ -2444,121 +2448,15 @@ mod tests {
 
     #[test]
     fn reachable_accepted_compact_projection_exceeds_the_public_query_reply_limit() {
-        const COMPOSITE_FIELDS: usize = icydb_schema::MAX_FRAGMENT_FIELDS;
-        const TOP_LEVEL_COMPOSITES: usize = 95;
-        const IC_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
-
-        let enum_catalog = empty_accepted_enum_catalog_for_tests();
-        let composite_type_id = CompositeTypeId::new(1).expect("one is non-zero");
-        let composite_fields = (0..COMPOSITE_FIELDS)
-            .map(|index| {
-                AcceptedCompositeField::new(
-                    CompositeFieldId::new(
-                        u32::try_from(index)
-                            .expect("bounded composite index fits u32")
-                            .checked_add(1)
-                            .expect("bounded composite identity has a successor"),
-                    )
-                    .expect("composite field identity is non-zero"),
-                    compact_reply_leaf_name(index),
-                    AcceptedCompositeElement::new(AcceptedFieldKind::Unit, false),
-                )
-            })
-            .collect::<Vec<_>>();
-        let composite_catalog = AcceptedCompositeCatalog::from_initial_definitions(
-            BTreeMap::from([(
-                composite_type_id,
-                (
-                    "tests::CompactReplyRecord".to_string(),
-                    AcceptedCompositeShape::Record(composite_fields),
-                ),
-            )]),
-            &enum_catalog,
-        )
-        .expect("bounded reusable record composite should admit");
-        let encoded_composite_catalog =
-            encode_accepted_composite_catalog(&composite_catalog, &enum_catalog)
-                .expect("reachable composite authority should fit its persisted payload limit");
-        assert!(encoded_composite_catalog.len() <= MAX_SCHEMA_SNAPSHOT_BYTES as usize);
-        let composite_catalog =
-            decode_accepted_composite_catalog(&encoded_composite_catalog, &enum_catalog)
-                .expect("persisted composite authority should decode");
-        let nested_leaves = (0..COMPOSITE_FIELDS)
-            .map(|index| {
-                PersistedNestedLeafSnapshot::new(
-                    vec![compact_reply_leaf_name(index)],
-                    AcceptedFieldKind::Unit,
-                    false,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let mut fields = vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Nat64,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        )];
-        let mut layout = vec![(FieldId::new(1), SchemaFieldSlot::new(0))];
-        for index in 0..TOP_LEVEL_COMPOSITES {
-            let raw_id = u32::try_from(index)
-                .expect("bounded top-level index fits u32")
-                .checked_add(2)
-                .expect("bounded top-level identity has a successor");
-            let raw_slot = u16::try_from(index)
-                .expect("bounded top-level index fits u16")
-                .checked_add(1)
-                .expect("bounded top-level slot has a successor");
-            let id = FieldId::new(raw_id);
-            let slot = SchemaFieldSlot::new(raw_slot);
-            fields.push(PersistedFieldSnapshot::new_initial(
-                id,
-                compact_reply_top_level_name(index),
-                slot,
-                AcceptedFieldKind::Composite {
-                    type_id: composite_type_id,
-                },
-                nested_leaves.clone(),
-                false,
-                SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Structural,
-            ));
-            layout.push((id, slot));
-        }
-        let persisted = PersistedSchemaSnapshot::new(
-            SchemaVersion::initial(),
-            "tests::ReachableCompactReply".to_string(),
-            "ReachableCompactReply".to_string(),
-            FieldId::new(1),
-            SchemaRowLayout::initial(layout),
-            fields,
-        );
-        let encoded_snapshot = encode_persisted_schema_snapshot(&persisted)
-            .expect("reachable compact-reply schema should fit the persisted payload limit");
-        assert_eq!(encoded_snapshot.len(), 310_861);
-        assert!(encoded_snapshot.len() <= MAX_SCHEMA_SNAPSHOT_BYTES as usize);
-        let accepted = AcceptedSchemaSnapshot::try_new(
-            decode_persisted_schema_snapshot(encoded_snapshot.as_slice())
-                .expect("persisted compact-reply schema should decode"),
-        )
-        .expect("decoded compact-reply schema should satisfy accepted integrity");
-        let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
-            enum_catalog,
-            composite_catalog,
-            AcceptedSchemaRevision::INITIAL,
-        );
+        let accepted = reachable_compact_reply_schema();
+        let value_catalog = reachable_compact_reply_value_catalog();
         let columns = describe_compact_columns_with_persisted_schema(&accepted, &value_catalog)
             .expect("reachable accepted schema should project compact columns");
 
         assert_eq!(
             columns.len(),
-            1 + TOP_LEVEL_COMPOSITES * (1 + COMPOSITE_FIELDS),
+            1 + REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES
+                * (1 + REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS),
         );
         let output = SqlDescribeOutput::Compact {
             entity: accepted.entity_name().to_string(),
@@ -2613,5 +2511,112 @@ mod tests {
     fn compact_reply_top_level_name(index: usize) -> String {
         let prefix = format!("field_{index:03}_");
         format!("{prefix}{}", "x".repeat(128 - prefix.len()))
+    }
+
+    fn reachable_compact_reply_schema() -> AcceptedSchemaSnapshot {
+        let composite_type_id = CompositeTypeId::new(1).expect("one is non-zero");
+        let nested_leaves = (0..REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS)
+            .map(|index| {
+                PersistedNestedLeafSnapshot::new(
+                    vec![compact_reply_leaf_name(index)],
+                    AcceptedFieldKind::Unit,
+                    false,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut fields = vec![PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Nat64,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )];
+        let mut layout = vec![(FieldId::new(1), SchemaFieldSlot::new(0))];
+        for index in 0..REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES {
+            let raw_id = u32::try_from(index)
+                .expect("bounded top-level index fits u32")
+                .checked_add(2)
+                .expect("bounded top-level identity has a successor");
+            let raw_slot = u16::try_from(index)
+                .expect("bounded top-level index fits u16")
+                .checked_add(1)
+                .expect("bounded top-level slot has a successor");
+            let id = FieldId::new(raw_id);
+            let slot = SchemaFieldSlot::new(raw_slot);
+            fields.push(PersistedFieldSnapshot::new_initial(
+                id,
+                compact_reply_top_level_name(index),
+                slot,
+                AcceptedFieldKind::Composite {
+                    type_id: composite_type_id,
+                },
+                nested_leaves.clone(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Structural,
+            ));
+            layout.push((id, slot));
+        }
+        let persisted = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "tests::ReachableCompactReply".to_string(),
+            "ReachableCompactReply".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(layout),
+            fields,
+        );
+        let encoded = encode_persisted_schema_snapshot(&persisted)
+            .expect("reachable compact-reply schema should fit its persisted payload limit");
+        assert_eq!(encoded.len(), 310_861);
+        assert!(encoded.len() <= MAX_SCHEMA_SNAPSHOT_BYTES as usize);
+        AcceptedSchemaSnapshot::try_new(
+            decode_persisted_schema_snapshot(encoded.as_slice())
+                .expect("persisted compact-reply schema should decode"),
+        )
+        .expect("decoded compact-reply schema should satisfy accepted integrity")
+    }
+
+    fn reachable_compact_reply_value_catalog() -> AcceptedValueCatalogHandle {
+        let enum_catalog = empty_accepted_enum_catalog_for_tests();
+        let composite_type_id = CompositeTypeId::new(1).expect("one is non-zero");
+        let composite_fields = (0..REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS)
+            .map(|index| {
+                let raw_id = u32::try_from(index)
+                    .expect("bounded composite index fits u32")
+                    .checked_add(1)
+                    .expect("bounded composite identity has a successor");
+                AcceptedCompositeField::new(
+                    CompositeFieldId::new(raw_id).expect("composite field identity is non-zero"),
+                    compact_reply_leaf_name(index),
+                    AcceptedCompositeElement::new(AcceptedFieldKind::Unit, false),
+                )
+            })
+            .collect::<Vec<_>>();
+        let composite_catalog = AcceptedCompositeCatalog::from_initial_definitions(
+            BTreeMap::from([(
+                composite_type_id,
+                (
+                    "tests::CompactReplyRecord".to_string(),
+                    AcceptedCompositeShape::Record(composite_fields),
+                ),
+            )]),
+            &enum_catalog,
+        )
+        .expect("bounded reusable record composite should admit");
+        let encoded = encode_accepted_composite_catalog(&composite_catalog, &enum_catalog)
+            .expect("reachable composite authority should fit its persisted payload limit");
+        assert!(encoded.len() <= MAX_SCHEMA_SNAPSHOT_BYTES as usize);
+        let composite_catalog = decode_accepted_composite_catalog(&encoded, &enum_catalog)
+            .expect("persisted composite authority should decode");
+        AcceptedValueCatalogHandle::new_for_tests(
+            enum_catalog,
+            composite_catalog,
+            AcceptedSchemaRevision::INITIAL,
+        )
     }
 }
