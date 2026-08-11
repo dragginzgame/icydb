@@ -30,6 +30,7 @@ pub(crate) enum SqlStatement {
     ShowConstraints(SqlShowConstraintsStatement),
     ShowIndexes(SqlShowIndexesStatement),
     ShowColumns(SqlShowColumnsStatement),
+    ShowRelations(SqlShowRelationsStatement),
     ShowEntities(SqlShowEntitiesStatement),
     ShowStores(SqlShowStoresStatement),
     ShowMemory(SqlShowMemoryStatement),
@@ -1281,6 +1282,17 @@ pub(crate) struct SqlExplainStatement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlDescribeStatement {
     pub(crate) entity: String,
+    pub(crate) mode: SqlDescribeMode,
+}
+
+/// Explicit compact or verbose introspection mode.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum SqlDescribeMode {
+    /// Conventional compact column summary.
+    #[default]
+    Compact,
+    /// Maintained detailed metadata projection.
+    Verbose,
 }
 
 ///
@@ -1316,6 +1328,13 @@ pub(crate) struct SqlShowIndexesStatement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlShowColumnsStatement {
+    pub(crate) entity: String,
+    pub(crate) mode: SqlDescribeMode,
+}
+
+/// Parsed `SHOW RELATIONS FROM|IN <entity>` intent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlShowRelationsStatement {
     pub(crate) entity: String,
 }
 

@@ -76,6 +76,7 @@ fn first_statement_parameter_index(statement: &SqlStatement) -> Option<usize> {
         | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowRelations(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => None,
@@ -316,6 +317,11 @@ fn prepare_statement(
             ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
             Ok(SqlStatement::ShowColumns(statement.clone()))
+        }
+        SqlStatement::ShowRelations(statement) => {
+            ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
+
+            Ok(SqlStatement::ShowRelations(statement.clone()))
         }
         SqlStatement::ShowEntities(statement) => Ok(SqlStatement::ShowEntities(statement.clone())),
         SqlStatement::ShowStores(statement) => Ok(SqlStatement::ShowStores(statement.clone())),

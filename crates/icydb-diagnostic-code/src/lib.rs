@@ -639,6 +639,7 @@ pub enum SqlFeatureCode {
     AlterTableDropConstraintModifiers,
     AlterTableValidateBeyondConstraint,
     AlterTableValidateConstraintModifiers,
+    ShowRelationsModifiers,
 }
 
 impl fmt::Debug for SqlFeatureCode {
@@ -706,6 +707,7 @@ pub enum SqlSurfaceMismatchCode {
     MutationRejectsShowMemory,
     MutationRequiresExplicitUpdateIntent,
     MutationRejectsShowConstraints,
+    MutationRejectsShowRelations,
 }
 
 impl fmt::Debug for SqlSurfaceMismatchCode {
@@ -1091,7 +1093,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 276);
+        assert_eq!(last, 278);
     }
 
     #[test]

@@ -7,8 +7,9 @@
 use crate::ConstraintValidationFindingOutput;
 use crate::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-    EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput,
-    StoreCatalogDescription,
+    EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput, SqlColumnDefault,
+    SqlColumnExtra, SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowColumnsOutput,
+    SqlShowRelationsOutput, StoreCatalogDescription,
     sql::{SqlGroupedRowsOutput, value_render::render_projection_rows},
 };
 use std::fmt::Write as _;
@@ -131,6 +132,82 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     render_describe_constraint_section(&mut lines, description.constraints());
 
     lines
+}
+
+/// Render one discriminated `DESCRIBE` payload.
+#[must_use]
+pub fn render_describe_output_lines(output: &SqlDescribeOutput) -> Vec<String> {
+    match output {
+        SqlDescribeOutput::Compact { columns, .. } => render_compact_column_lines(columns),
+        SqlDescribeOutput::Verbose { description } => render_describe_lines(description),
+    }
+}
+
+fn render_compact_column_lines(columns: &[SqlColumnSummary]) -> Vec<String> {
+    let rows = columns
+        .iter()
+        .map(|column| {
+            vec![
+                column.name().to_string(),
+                column.field_type().to_string(),
+                if column.nullable() {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                },
+                render_column_key(column.key()).to_string(),
+                render_column_default(column.default()),
+                render_column_extra(column.extra()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut lines = Vec::new();
+    render_table_section(
+        &mut lines,
+        &[
+            "name".to_string(),
+            "type".to_string(),
+            "nullable".to_string(),
+            "key".to_string(),
+            "default".to_string(),
+            "extra".to_string(),
+        ],
+        rows.as_slice(),
+    );
+    lines
+}
+
+const fn render_column_key(key: SqlColumnKey) -> &'static str {
+    match key {
+        SqlColumnKey::Primary => "PRI",
+        SqlColumnKey::Unique => "UNI",
+        SqlColumnKey::Multiple => "MUL",
+        SqlColumnKey::None => "-",
+    }
+}
+
+fn render_column_default(default: &SqlColumnDefault) -> String {
+    match default {
+        SqlColumnDefault::Auto => "auto".to_string(),
+        SqlColumnDefault::Null => "NULL".to_string(),
+        SqlColumnDefault::Literal { text } => text.clone(),
+        SqlColumnDefault::Required | SqlColumnDefault::NotApplicable => "-".to_string(),
+    }
+}
+
+fn render_column_extra(extra: &[SqlColumnExtra]) -> String {
+    if extra.is_empty() {
+        return "-".to_string();
+    }
+    extra
+        .iter()
+        .map(|flag| match flag {
+            SqlColumnExtra::Identity => "identity",
+            SqlColumnExtra::Generated => "generated",
+            SqlColumnExtra::Relation => "relation",
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // Render accepted constraint identity without owning or reconstructing the
@@ -453,14 +530,45 @@ pub fn render_show_constraints_lines(
     doc = "Render one `SHOW COLUMNS` payload into deterministic shell output lines."
 )]
 #[must_use]
-pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription]) -> Vec<String> {
-    let mut lines = vec![
-        format!("entity: {entity}"),
-        String::new(),
-        "fields:".to_string(),
-    ];
-    render_describe_field_section(&mut lines, columns);
+pub fn render_show_columns_lines(output: &SqlShowColumnsOutput) -> Vec<String> {
+    match output {
+        SqlShowColumnsOutput::Compact { columns, .. } => render_compact_column_lines(columns),
+        SqlShowColumnsOutput::Verbose { entity, columns } => {
+            let mut lines = vec![
+                format!("entity: {entity}"),
+                String::new(),
+                "fields:".to_string(),
+            ];
+            render_describe_field_section(&mut lines, columns);
+            lines
+        }
+    }
+}
 
+/// Render accepted relation facts as one deterministic compact table.
+#[must_use]
+pub fn render_show_relations_lines(output: &SqlShowRelationsOutput) -> Vec<String> {
+    let rows = output
+        .relations()
+        .iter()
+        .map(|relation| {
+            vec![
+                relation.field().to_string(),
+                relation.target_path().to_string(),
+                format!("{:?}", relation.cardinality()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut lines = Vec::new();
+    render_table_section(
+        &mut lines,
+        &[
+            "field".to_string(),
+            "target".to_string(),
+            "cardinality".to_string(),
+        ],
+        rows.as_slice(),
+    );
     lines
 }
 

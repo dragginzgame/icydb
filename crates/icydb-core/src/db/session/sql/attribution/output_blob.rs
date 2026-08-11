@@ -43,6 +43,7 @@ pub(super) fn sql_output_blob_attribution(result: &SqlStatementResult) -> SqlOut
         | SqlStatementResult::ShowConstraints(_)
         | SqlStatementResult::ShowIndexes(_)
         | SqlStatementResult::ShowColumns(_)
+        | SqlStatementResult::ShowRelations(_)
         | SqlStatementResult::ShowEntities { .. }
         | SqlStatementResult::ShowStores { .. }
         | SqlStatementResult::ShowMemory(_)

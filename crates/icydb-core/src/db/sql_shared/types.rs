@@ -149,6 +149,8 @@ pub(crate) enum SqlExpectedToken {
     ShowConstraintsSource,
     #[cfg(feature = "sql")]
     ShowIndexesSource,
+    #[cfg(feature = "sql")]
+    ShowRelationsSource,
     Keyword(Keyword),
     #[cfg(feature = "sql")]
     IntegerLiteral {

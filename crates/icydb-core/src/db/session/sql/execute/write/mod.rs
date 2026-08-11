@@ -148,10 +148,11 @@ where
         }
         CompiledSqlCommand::Select { .. }
         | CompiledSqlCommand::GlobalAggregate { .. }
-        | CompiledSqlCommand::DescribeEntity
+        | CompiledSqlCommand::DescribeEntity { .. }
         | CompiledSqlCommand::ShowConstraintsEntity
         | CompiledSqlCommand::ShowIndexesEntity
-        | CompiledSqlCommand::ShowColumnsEntity
+        | CompiledSqlCommand::ShowColumnsEntity { .. }
+        | CompiledSqlCommand::ShowRelationsEntity
         | CompiledSqlCommand::ShowEntities { .. }
         | CompiledSqlCommand::ShowStores { .. }
         | CompiledSqlCommand::ShowMemory => None,

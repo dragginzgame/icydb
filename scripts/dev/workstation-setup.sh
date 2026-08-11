@@ -148,16 +148,6 @@ install_tooling() {
   ic-wasm --version
 }
 
-install_hooks() {
-  if [[ -d "$ROOT/.git" ]]; then
-    git -C "$ROOT" config --local core.hooksPath .githooks || true
-    chmod +x "$ROOT"/.githooks/* 2>/dev/null || true
-    echo "Git hooks configured (core.hooksPath -> .githooks)"
-  else
-    echo "Not a git repo, skipping hooks setup"
-  fi
-}
-
 run_update_checks() {
   export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
   export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
@@ -174,8 +164,7 @@ ensure_rustup
 install_tooling
 
 if [[ "$MODE" == "install" ]]; then
-  install_hooks
-  echo "Local developer dependencies and git hooks installed"
+  echo "Local developer dependencies installed"
 else
   run_update_checks
 fi

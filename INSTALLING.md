@@ -206,16 +206,15 @@ need them:
 - `idl2json` and `yaml2candid` from DFINITY idl2json releases.
 - `quill` from DFINITY Quill releases.
 
-Install local developer dependencies and repository hooks with:
+Install local developer dependencies with:
 
 ```bash
 make install-dev
 ```
 
 That target installs apt-backed system prerequisites when `apt-get` is present,
-configures repository git hooks, and installs the pinned Rust toolchain, the
-wasm target, standard Cargo helper tools, `candid-extractor`, `ic-wasm`,
-`twiggy`, and npm-backed ICP CLI tools.
+the pinned Rust toolchain, the wasm target, standard Cargo helper tools,
+`candid-extractor`, `ic-wasm`, `twiggy`, and npm-backed ICP CLI tools.
 
 `make update-dev` does not run `apt-get` or `sudo`; install missing system
 packages manually or re-run `make install-dev` when the host package surface
@@ -227,8 +226,9 @@ needs to change.
 make check      # type-check workspace
 make clippy     # lint with warnings denied
 make test       # unit + integration tests
+make validate   # formatting + invariants + feature checks + clippy + tests
 make fmt        # format workspace
-make build      # release workspace build; requires a clean worktree
+make build      # release workspace build
 ```
 
 ### SQL Evidence Commands
@@ -376,15 +376,9 @@ icydb metrics demo_rpg --window-start-ms <timestamp>
 icydb metrics demo_rpg --reset
 ```
 
-Opt into repository git hooks:
-
-```bash
-make install-hooks
-```
-
-Hooks are optional. When installed, the pre-commit hook formats and stages
-tracked formatting changes, and the pre-push hook runs invariant checks plus
-clippy.
+The repository installs no Git hooks. Commit and push perform only their Git
+operations; run `make fmt` or `make validate` explicitly when those workflows
+are required.
 
 ## IC Testkit Tests
 

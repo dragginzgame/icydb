@@ -1225,6 +1225,9 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
         SqlSurfaceMismatchCode::MutationRejectsShowConstraints => {
             "execute_trusted_sql_mutation rejects SHOW CONSTRAINTS; use execute_trusted_sql_query()"
         }
+        SqlSurfaceMismatchCode::MutationRejectsShowRelations => {
+            "execute_trusted_sql_mutation rejects SHOW RELATIONS; use execute_trusted_sql_query()"
+        }
         SqlSurfaceMismatchCode::MutationRejectsShowColumns => {
             "execute_trusted_sql_mutation rejects SHOW COLUMNS; use execute_trusted_sql_query()"
         }
@@ -1447,6 +1450,7 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::ShowEntitiesModifiers => "SHOW ENTITIES modifiers",
         SqlFeatureCode::ShowIndexesModifiers => "SHOW INDEXES modifiers",
         SqlFeatureCode::ShowMemoryModifiers => "SHOW MEMORY modifiers",
+        SqlFeatureCode::ShowRelationsModifiers => "SHOW RELATIONS modifiers",
         SqlFeatureCode::ShowStoresModifiers => "SHOW STORES modifiers",
         SqlFeatureCode::ShowUnsupportedCommand => "unsupported SHOW command",
         SqlFeatureCode::SimpleCaseExpression => "simple CASE expressions",

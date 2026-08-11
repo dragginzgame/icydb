@@ -9,11 +9,12 @@ use super::{
     SqlAlterTableRenameColumnStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
-    SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExpr,
-    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlIntegrityStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction,
-    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
+    SqlDdlStatement, SqlDeleteStatement, SqlDescribeMode, SqlDescribeStatement,
+    SqlDropIndexStatement, SqlExpr, SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement,
+    SqlIntegrityStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection,
+    SqlReturningProjection, SqlScalarFunction, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowConstraintsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowRelationsStatement,
     SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, SqlWriteValue, parse_integrity_sql,
     parse_sql,
 };
@@ -1845,6 +1846,15 @@ fn parse_describe_statement_with_schema_qualified_entity() {
         statement,
         SqlStatement::Describe(SqlDescribeStatement {
             entity: "public.users".to_string(),
+            mode: SqlDescribeMode::Compact,
+        }),
+    );
+
+    assert_eq!(
+        parse_sql("describe PUBLIC.users verbose").expect("verbose describe should parse"),
+        SqlStatement::Describe(SqlDescribeStatement {
+            entity: "PUBLIC.users".to_string(),
+            mode: SqlDescribeMode::Verbose,
         }),
     );
 }
@@ -1924,8 +1934,77 @@ fn parse_show_columns_statement_with_schema_qualified_entity() {
         statement,
         SqlStatement::ShowColumns(SqlShowColumnsStatement {
             entity: "public.users".to_string(),
+            mode: SqlDescribeMode::Compact,
         }),
     );
+
+    assert_eq!(
+        parse_sql("show columns public.users verbose").expect("verbose show columns should parse"),
+        SqlStatement::ShowColumns(SqlShowColumnsStatement {
+            entity: "public.users".to_string(),
+            mode: SqlDescribeMode::Verbose,
+        }),
+    );
+}
+
+#[test]
+fn parse_show_relations_accepts_from_and_in() {
+    let expected = SqlStatement::ShowRelations(SqlShowRelationsStatement {
+        entity: "public.users".to_string(),
+    });
+    assert_eq!(
+        parse_sql("SHOW RELATIONS FROM public.users").expect("FROM form should parse"),
+        expected,
+    );
+    assert_eq!(
+        parse_sql("show relations in public.users").expect("IN form should parse"),
+        expected,
+    );
+    assert!(
+        matches!(
+            parse_sql("SHOW RELATIONS public.users"),
+            Err(SqlParseError::InvalidSyntax { .. })
+        ),
+        "SHOW RELATIONS requires FROM or IN",
+    );
+}
+
+#[test]
+fn introspection_modifiers_admit_only_one_trailing_verbose_where_defined() {
+    for sql in [
+        "DESCRIBE users VERBOSE VERBOSE",
+        "DESCRIBE users FULL",
+        "DESCRIBE users EXTENDED",
+        "DESCRIBE users INDEXES",
+    ] {
+        assert_eq!(
+            parse_sql(sql),
+            Err(SqlParseError::UnsupportedFeature {
+                feature: SqlFeatureCode::DescribeModifier,
+            }),
+            "{sql}",
+        );
+    }
+    assert!(
+        matches!(
+            parse_sql("DESCRIBE VERBOSE users"),
+            Err(SqlParseError::InvalidSyntax { .. })
+        ),
+        "VERBOSE is not admitted before the entity",
+    );
+    for sql in [
+        "SHOW COLUMNS users VERBOSE VERBOSE",
+        "SHOW COLUMNS users FULL",
+        "SHOW COLUMNS users EXTENDED",
+    ] {
+        assert_eq!(
+            parse_sql(sql),
+            Err(SqlParseError::UnsupportedFeature {
+                feature: SqlFeatureCode::ShowColumnsModifiers,
+            }),
+            "{sql}",
+        );
+    }
 }
 
 #[test]
@@ -4433,6 +4512,10 @@ fn parse_sql_unsupported_feature_codes_are_stable() {
         (
             "SHOW COLUMNS users WHERE age > 1",
             SqlFeatureCode::ShowColumnsModifiers,
+        ),
+        (
+            "SHOW RELATIONS FROM users VERBOSE",
+            SqlFeatureCode::ShowRelationsModifiers,
         ),
         ("SHOW ENTITIES users", SqlFeatureCode::ShowEntitiesModifiers),
         ("SHOW STORES users", SqlFeatureCode::ShowStoresModifiers),

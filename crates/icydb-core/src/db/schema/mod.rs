@@ -71,7 +71,9 @@ pub(in crate::db) const MAX_ACCEPTED_RECURSIVE_DEPTH: usize =
 pub use describe::{
     ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
     EntityIdentityDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntitySchemaDescription,
+    EntityRelationDescription, EntitySchemaDescription, SqlColumnDefault, SqlColumnExtra,
+    SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowColumnsOutput,
+    SqlShowRelationsOutput,
 };
 pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 #[cfg(feature = "migration")]
@@ -173,11 +175,14 @@ pub(in crate::db) use constraint_validation::{
     ConstraintValidationPhase, ConstraintValidationReceipt, MAX_CONSTRAINT_VALIDATION_JOB_BYTES,
     decode_constraint_validation_job, encode_constraint_validation_job,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use describe::describe_entity_fields_with_persisted_schema;
 pub(in crate::db) use describe::{
     AcceptedEntityDescriptionMetadata, describe_accepted_entity_with_persisted_schema,
     describe_accepted_identity,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use describe::{
+    describe_compact_columns_with_persisted_schema, describe_entity_fields_with_persisted_schema,
+    describe_entity_relations_with_persisted_schema,
 };
 pub(in crate::db) use enum_catalog::AcceptedSchemaAuthority;
 pub(in crate::db::schema) use enum_catalog::AcceptedStoreCatalogScope;

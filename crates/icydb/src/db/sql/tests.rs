@@ -7,20 +7,156 @@
 use crate::db::{
     EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription, EntityIndexDescription,
     EntityRelationCardinality, EntityRelationDescription, EntitySchemaDescription,
-    MemoryCatalogDescription, RowProjectionOutput, StoreCatalogDescription,
+    MemoryCatalogDescription, RowProjectionOutput, SqlColumnDefault, SqlColumnExtra, SqlColumnKey,
+    SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput, StoreCatalogDescription,
     sql::{
-        SqlGroupedRowsOutput, SqlQueryResult, render_describe_lines, render_show_columns_lines,
-        render_show_constraints_lines, render_show_entities_lines,
+        SqlGroupedRowsOutput, SqlQueryResult, render_describe_lines, render_describe_output_lines,
+        render_show_columns_lines, render_show_constraints_lines, render_show_entities_lines,
         render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
-        render_show_stores_lines, render_show_stores_verbose_lines,
+        render_show_relations_lines, render_show_stores_lines, render_show_stores_verbose_lines,
         sql_query_result_from_statement,
     },
 };
 use crate::value::OutputValue;
+use std::{
+    io::Write as _,
+    process::{Command, Stdio},
+};
 
-use candid::Encode;
+use candid::{CandidType, Decode, Encode};
 use icydb_core::db::{GroupedRow, SqlStatementResult};
 use icydb_core::types::{Decimal, Float32, Float64};
+use serde::Deserialize;
+
+const PRE_0_224_VERBOSE_DOSSIER_CANDID_BYTES: usize = 2_063;
+const PRE_0_224_VERBOSE_DOSSIER_CANDID_SHA256: &str =
+    "8456e5335bc0456b7d10b2ba8b344c8d8bd09326cba18ab0e4a881dca2f890c8";
+const PRE_0_224_RELATION_CONTROL_CANDID_BYTES: usize = 242;
+const PRE_0_224_RELATION_CONTROL_CANDID_SHA256: &str =
+    "4a25beaeb6f7fb4f0665e713ecefeb06dea781fb448da21b5c610ae33341b4ea";
+const PRE_0_224_VERBOSE_DOSSIER_LINES: &str =
+    include_str!("fixtures/pre_0_224_verbose_dossier.lines");
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct Pre0224EntitySchemaDescription {
+    entity_path: String,
+    entity_name: String,
+    entity_tag: u64,
+    accepted_schema_fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
+    primary_key: String,
+    primary_key_fields: Vec<String>,
+    identity: Option<Box<Pre0224EntityIdentityDescription>>,
+    fields: Vec<EntityFieldDescription>,
+    indexes: Vec<EntityIndexDescription>,
+    relations: Vec<EntityRelationDescription>,
+    constraints: Vec<Pre0224EntityConstraintDescription>,
+    row_layout_current: u32,
+    row_layout_history_floor: u32,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct Pre0224EntityIdentityDescription {
+    field: String,
+    generator: String,
+    accepted_kind: String,
+    minimum: u128,
+    maximum: u128,
+    high_water: u128,
+    remaining: u128,
+    exhausted: bool,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct Pre0224EntityConstraintDescription {
+    id: u32,
+    name: String,
+    kind: String,
+    origin: String,
+    validation_state: String,
+    validation_progress: Option<Pre0224ConstraintValidationProgressDescription>,
+    field_id: Option<u32>,
+    index_id: Option<u32>,
+    relation_id: Option<u32>,
+    fields: Vec<String>,
+    index: Option<String>,
+    relation: Option<String>,
+    target_entity: Option<String>,
+    action: Option<String>,
+    semantics: String,
+    check_sql: Option<String>,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct Pre0224ConstraintValidationProgressDescription {
+    phase: String,
+    rows_scanned: u64,
+    findings_seen: u64,
+    restarts: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+enum SqlColumnKeyContract {
+    Primary,
+    Unique,
+    Multiple,
+    None,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+enum SqlColumnDefaultContract {
+    Auto,
+    Null,
+    Literal { text: String },
+    Required,
+    NotApplicable,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+enum SqlColumnExtraContract {
+    Identity,
+    Generated,
+    Relation,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlColumnSummaryContract {
+    name: String,
+    field_type: String,
+    nullable: bool,
+    key: SqlColumnKeyContract,
+    default: SqlColumnDefaultContract,
+    extra: Vec<SqlColumnExtraContract>,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+enum SqlDescribeOutputContract {
+    Compact {
+        entity: String,
+        columns: Vec<SqlColumnSummaryContract>,
+    },
+    Verbose {
+        description: EntitySchemaDescription,
+    },
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+enum SqlShowColumnsOutputContract {
+    Compact {
+        entity: String,
+        columns: Vec<SqlColumnSummaryContract>,
+    },
+    Verbose {
+        entity: String,
+        columns: Vec<EntityFieldDescription>,
+    },
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlShowRelationsOutputContract {
+    entity: String,
+    relations: Vec<EntityRelationDescription>,
+}
 
 fn text(value: &str) -> OutputValue {
     OutputValue::Text(value.to_string())
@@ -44,6 +180,482 @@ fn required_field(name: &str, slot: u16, kind: &str, primary_key: bool) -> Entit
         None,
         None,
     )
+}
+
+fn pre_0_224_field(
+    name: &str,
+    slot: Option<u16>,
+    kind: &str,
+    nullable: bool,
+    primary_key: bool,
+    queryable: bool,
+    origin: &str,
+) -> EntityFieldDescription {
+    EntityFieldDescription::new(
+        name.to_string(),
+        slot,
+        kind.to_string(),
+        nullable,
+        primary_key,
+        queryable,
+        origin.to_string(),
+        slot.map(|_| {
+            if nullable {
+                "null".to_string()
+            } else {
+                "required".to_string()
+            }
+        }),
+        None,
+        None,
+        None,
+        slot.map(|_| 1),
+        slot.map(|_| "reject".to_string()),
+        None,
+        None,
+    )
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the named golden keeps the complete pre-0.224 dossier visible in one fixture"
+)]
+fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
+    let mut fields = vec![
+        EntityFieldDescription::new(
+            "id".to_string(),
+            Some(0),
+            "Nat64".to_string(),
+            false,
+            true,
+            true,
+            "generated".to_string(),
+            Some("generated".to_string()),
+            None,
+            None,
+            None,
+            Some(1),
+            Some("reject".to_string()),
+            None,
+            None,
+        ),
+        pre_0_224_field(
+            "display_name",
+            Some(1),
+            "Text(64)",
+            false,
+            false,
+            true,
+            "generated",
+        ),
+        pre_0_224_field(
+            "profile",
+            Some(2),
+            "Composite(Profile)",
+            true,
+            false,
+            true,
+            "generated",
+        ),
+        pre_0_224_field(
+            "profile.nickname",
+            None,
+            "Text(32)",
+            true,
+            false,
+            true,
+            "generated",
+        ),
+        pre_0_224_field(
+            "profile.rank",
+            None,
+            "Nat16",
+            true,
+            false,
+            true,
+            "generated",
+        ),
+        pre_0_224_field(
+            "friend_id",
+            Some(3),
+            "Nat64",
+            true,
+            false,
+            true,
+            "generated",
+        ),
+        pre_0_224_field(
+            "member_ids",
+            Some(4),
+            "List<Nat64>(16)",
+            false,
+            false,
+            true,
+            "generated",
+        ),
+        pre_0_224_field(
+            "watcher_ids",
+            Some(5),
+            "Set<Nat64>(16)",
+            false,
+            false,
+            true,
+            "generated",
+        ),
+    ];
+    fields.push(EntityFieldDescription::new(
+        "legacy_score".to_string(),
+        Some(6),
+        "Int32".to_string(),
+        false,
+        false,
+        true,
+        "ddl".to_string(),
+        Some("default".to_string()),
+        Some("7".to_string()),
+        Some(5),
+        Some("5e0f8f3b90b05d27".to_string()),
+        Some(3),
+        Some("7".to_string()),
+        Some(5),
+        Some("5e0f8f3b90b05d27".to_string()),
+    ));
+
+    Pre0224EntitySchemaDescription {
+        entity_path: "fixtures::pre_0_224::Account".to_string(),
+        entity_name: "Account".to_string(),
+        entity_tag: 42,
+        accepted_schema_fingerprint_method: 1,
+        accepted_schema_fingerprint: [0x24; 16],
+        primary_key: "id".to_string(),
+        primary_key_fields: vec!["id".to_string()],
+        identity: Some(Box::new(Pre0224EntityIdentityDescription {
+            field: "id".to_string(),
+            generator: "Identity::next".to_string(),
+            accepted_kind: "Nat64".to_string(),
+            minimum: 1,
+            maximum: u128::from(u64::MAX),
+            high_water: 17,
+            remaining: u128::from(u64::MAX) - 17,
+            exhausted: false,
+        })),
+        fields,
+        indexes: vec![
+            EntityIndexDescription::new(
+                "account_pk".to_string(),
+                true,
+                vec!["id".to_string()],
+                "generated".to_string(),
+            ),
+            EntityIndexDescription::new(
+                "account_display_name_idx".to_string(),
+                false,
+                vec!["display_name".to_string()],
+                "generated".to_string(),
+            ),
+            EntityIndexDescription::new(
+                "account_score_name_idx".to_string(),
+                true,
+                vec!["legacy_score".to_string(), "display_name".to_string()],
+                "ddl".to_string(),
+            ),
+        ],
+        relations: vec![
+            EntityRelationDescription::new(
+                "friend_id".to_string(),
+                "fixtures::pre_0_224::User".to_string(),
+                "User".to_string(),
+                "stores::accounts".to_string(),
+                EntityRelationCardinality::Single,
+            ),
+            EntityRelationDescription::new(
+                "member_ids".to_string(),
+                "fixtures::pre_0_224::Group".to_string(),
+                "Group".to_string(),
+                "stores::accounts".to_string(),
+                EntityRelationCardinality::List,
+            ),
+            EntityRelationDescription::new(
+                "watcher_ids".to_string(),
+                "fixtures::pre_0_224::User".to_string(),
+                "User".to_string(),
+                "stores::accounts".to_string(),
+                EntityRelationCardinality::Set,
+            ),
+        ],
+        constraints: vec![
+            Pre0224EntityConstraintDescription {
+                id: 0,
+                name: "account_pk".to_string(),
+                kind: "primary_key".to_string(),
+                origin: "generated".to_string(),
+                validation_state: "validated".to_string(),
+                validation_progress: None,
+                field_id: None,
+                index_id: None,
+                relation_id: None,
+                fields: vec!["id".to_string()],
+                index: None,
+                relation: None,
+                target_entity: None,
+                action: None,
+                semantics: "primary_key_v1".to_string(),
+                check_sql: None,
+            },
+            Pre0224EntityConstraintDescription {
+                id: 8,
+                name: "account_score_name_unique".to_string(),
+                kind: "unique".to_string(),
+                origin: "sql_ddl".to_string(),
+                validation_state: "validated".to_string(),
+                validation_progress: None,
+                field_id: None,
+                index_id: Some(7),
+                relation_id: None,
+                fields: vec!["legacy_score".to_string(), "display_name".to_string()],
+                index: Some("account_score_name_idx".to_string()),
+                relation: None,
+                target_entity: None,
+                action: None,
+                semantics: "unique_index_v1".to_string(),
+                check_sql: None,
+            },
+            Pre0224EntityConstraintDescription {
+                id: 9,
+                name: "account_score_nonnegative".to_string(),
+                kind: "check".to_string(),
+                origin: "sql_ddl".to_string(),
+                validation_state: "validated".to_string(),
+                validation_progress: None,
+                field_id: None,
+                index_id: None,
+                relation_id: None,
+                fields: vec!["legacy_score".to_string()],
+                index: None,
+                relation: None,
+                target_entity: None,
+                action: None,
+                semantics: "check_expr_v1".to_string(),
+                check_sql: Some("legacy_score >= 0".to_string()),
+            },
+            Pre0224EntityConstraintDescription {
+                id: 10,
+                name: "account_friend_relation".to_string(),
+                kind: "relation".to_string(),
+                origin: "generated".to_string(),
+                validation_state: "validated".to_string(),
+                validation_progress: None,
+                field_id: None,
+                index_id: None,
+                relation_id: Some(0),
+                fields: vec!["friend_id".to_string()],
+                index: None,
+                relation: Some("account_friend".to_string()),
+                target_entity: Some("fixtures::pre_0_224::User".to_string()),
+                action: Some("restrict".to_string()),
+                semantics: "relation_pk_restrict_v1".to_string(),
+                check_sql: None,
+            },
+            Pre0224EntityConstraintDescription {
+                id: 11,
+                name: "account_display_name_not_null".to_string(),
+                kind: "not_null".to_string(),
+                origin: "sql_ddl".to_string(),
+                validation_state: "validating".to_string(),
+                validation_progress: Some(Pre0224ConstraintValidationProgressDescription {
+                    phase: "forward".to_string(),
+                    rows_scanned: 41,
+                    findings_seen: 2,
+                    restarts: 1,
+                }),
+                field_id: Some(1),
+                index_id: None,
+                relation_id: None,
+                fields: vec!["display_name".to_string()],
+                index: None,
+                relation: None,
+                target_entity: None,
+                action: None,
+                semantics: "not_null_v1".to_string(),
+                check_sql: None,
+            },
+        ],
+        row_layout_current: 3,
+        row_layout_history_floor: 1,
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut child = Command::new("sha256sum")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("sha256sum should be available for the host-only golden test");
+    child
+        .stdin
+        .take()
+        .expect("sha256sum stdin should be piped")
+        .write_all(bytes)
+        .expect("golden Candid bytes should be writable to sha256sum");
+    let output = child
+        .wait_with_output()
+        .expect("sha256sum should complete for the golden Candid bytes");
+    assert!(output.status.success(), "sha256sum should succeed");
+    String::from_utf8(output.stdout)
+        .expect("sha256sum output should be UTF-8")
+        .split_whitespace()
+        .next()
+        .expect("sha256sum output should contain a digest")
+        .to_string()
+}
+
+#[test]
+fn pre_0_224_verbose_dossier_golden() {
+    let expected = pre_0_224_verbose_dossier_fixture();
+    let expected_bytes = Encode!(&expected).expect("golden mirror should encode");
+    let description = Decode!(&expected_bytes, EntitySchemaDescription)
+        .expect("golden mirror should decode as the maintained dossier");
+    let actual_bytes = Encode!(&description).expect("maintained dossier should encode");
+    let actual = Decode!(&actual_bytes, Pre0224EntitySchemaDescription)
+        .expect("maintained dossier should decode as the complete golden mirror");
+    let relation_bytes = Encode!(&description.relations().to_vec())
+        .expect("maintained relation projection should encode");
+    let lines = render_describe_lines(&description);
+    let verbose_lines = render_describe_output_lines(&SqlDescribeOutput::Verbose { description });
+
+    assert_eq!(
+        actual, expected,
+        "the complete typed dossier must remain exact"
+    );
+    assert_eq!(
+        actual_bytes, expected_bytes,
+        "Candid encoding must remain canonical"
+    );
+    assert_eq!(actual_bytes.len(), PRE_0_224_VERBOSE_DOSSIER_CANDID_BYTES);
+    assert_eq!(
+        sha256_hex(&actual_bytes),
+        PRE_0_224_VERBOSE_DOSSIER_CANDID_SHA256
+    );
+    assert_eq!(
+        relation_bytes.len(),
+        PRE_0_224_RELATION_CONTROL_CANDID_BYTES
+    );
+    assert_eq!(
+        sha256_hex(&relation_bytes),
+        PRE_0_224_RELATION_CONTROL_CANDID_SHA256
+    );
+    assert_eq!(
+        lines.join("\n"),
+        PRE_0_224_VERBOSE_DOSSIER_LINES.trim_end(),
+        "verbose shell lines must remain exact",
+    );
+    assert_eq!(
+        verbose_lines, lines,
+        "the explicit VERBOSE envelope must preserve the named dossier golden",
+    );
+}
+
+#[test]
+fn sql_introspection_0_224_candid_envelopes_are_exact() {
+    let column = SqlColumnSummaryContract {
+        name: "profile.name".to_string(),
+        field_type: "text(max_len=64)".to_string(),
+        nullable: true,
+        key: SqlColumnKeyContract::Unique,
+        default: SqlColumnDefaultContract::Literal {
+            text: "'guest'".to_string(),
+        },
+        extra: vec![
+            SqlColumnExtraContract::Identity,
+            SqlColumnExtraContract::Generated,
+            SqlColumnExtraContract::Relation,
+        ],
+    };
+    let describe_contract = SqlDescribeOutputContract::Compact {
+        entity: "Account".to_string(),
+        columns: vec![column.clone()],
+    };
+    let describe_bytes = Encode!(&describe_contract).expect("describe contract should encode");
+    let describe = Decode!(&describe_bytes, SqlDescribeOutput)
+        .expect("describe contract should decode through the maintained envelope");
+    assert_eq!(
+        Encode!(&describe).expect("maintained describe output should encode"),
+        describe_bytes,
+        "DESCRIBE labels, variants, fields, and nesting must remain exact",
+    );
+    assert_eq!(
+        render_describe_output_lines(&describe),
+        vec![
+            "+--------------+------------------+----------+-----+---------+-------------------------------+".to_string(),
+            "| name         | type             | nullable | key | default | extra                         |".to_string(),
+            "+--------------+------------------+----------+-----+---------+-------------------------------+".to_string(),
+            "| profile.name | text(max_len=64) | yes      | UNI | 'guest' | identity, generated, relation |".to_string(),
+            "+--------------+------------------+----------+-----+---------+-------------------------------+".to_string(),
+        ],
+    );
+
+    let columns_contract = SqlShowColumnsOutputContract::Compact {
+        entity: "Account".to_string(),
+        columns: vec![column],
+    };
+    let columns_bytes = Encode!(&columns_contract).expect("show-columns contract should encode");
+    let columns = Decode!(&columns_bytes, SqlShowColumnsOutput)
+        .expect("show-columns contract should decode through the maintained envelope");
+    assert_eq!(
+        Encode!(&columns).expect("maintained show-columns output should encode"),
+        columns_bytes,
+        "SHOW COLUMNS labels, variants, fields, and nesting must remain exact",
+    );
+
+    let relation = EntityRelationDescription::new(
+        "owner_id".to_string(),
+        "entities::Owner".to_string(),
+        "Owner".to_string(),
+        "stores::Owner".to_string(),
+        EntityRelationCardinality::Single,
+    );
+    let relations_contract = SqlShowRelationsOutputContract {
+        entity: "Account".to_string(),
+        relations: vec![relation],
+    };
+    let relations_bytes =
+        Encode!(&relations_contract).expect("show-relations contract should encode");
+    let relations = Decode!(&relations_bytes, SqlShowRelationsOutput)
+        .expect("show-relations contract should decode through the maintained envelope");
+    assert_eq!(
+        Encode!(&relations).expect("maintained show-relations output should encode"),
+        relations_bytes,
+        "SHOW RELATIONS fields and nesting must remain exact",
+    );
+    assert_eq!(
+        render_show_relations_lines(&relations),
+        vec![
+            "+----------+-----------------+-------------+".to_string(),
+            "| field    | target          | cardinality |".to_string(),
+            "+----------+-----------------+-------------+".to_string(),
+            "| owner_id | entities::Owner | Single      |".to_string(),
+            "+----------+-----------------+-------------+".to_string(),
+        ],
+    );
+
+    let SqlDescribeOutput::Compact { columns, .. } = describe else {
+        panic!("decoded DESCRIBE contract must retain its explicit compact mode");
+    };
+    assert_eq!(columns[0].key(), SqlColumnKey::Unique);
+    assert_eq!(
+        columns[0].default(),
+        &SqlColumnDefault::Literal {
+            text: "'guest'".to_string(),
+        }
+    );
+    assert_eq!(
+        columns[0].extra(),
+        &[
+            SqlColumnExtra::Identity,
+            SqlColumnExtra::Generated,
+            SqlColumnExtra::Relation,
+        ]
+    );
 }
 
 #[test]
@@ -175,7 +787,10 @@ fn render_show_columns_lines_output_contract_vector_is_stable() {
     ];
 
     assert_eq!(
-        render_show_columns_lines("ExampleEntity", columns.as_slice()),
+        render_show_columns_lines(&SqlShowColumnsOutput::Verbose {
+            entity: "ExampleEntity".to_string(),
+            columns,
+        }),
         vec![
             "entity: ExampleEntity".to_string(),
             String::new(),

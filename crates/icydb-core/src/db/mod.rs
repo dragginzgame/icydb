@@ -181,7 +181,8 @@ pub use schema::{
     ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,
     EntityIdentityDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntitySchemaDescription, SchemaLiteralValidationReason, SchemaStore,
-    SchemaValidationOperator, ValidateError,
+    SchemaValidationOperator, SqlColumnDefault, SqlColumnExtra, SqlColumnKey, SqlColumnSummary,
+    SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput, ValidateError,
 };
 pub use schema::{
     SchemaApplicationStore, SchemaApplicationTarget, SchemaChangeJob, SchemaChangeJobId,

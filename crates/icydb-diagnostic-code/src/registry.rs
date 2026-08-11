@@ -695,4 +695,8 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::RequestExecutionScopeRequired });
     RUNTIME_BOUNDARY_REQUEST_EXECUTION_ROOT_MISMATCH = 276 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::RequestExecutionRootMismatch });
+    SQL_FEATURE_SHOW_RELATIONS_MODIFIERS = 277 => QueryUnsupportedSqlFeature,
+        detail(UnsupportedSqlFeature { feature: SqlFeatureCode::ShowRelationsModifiers });
+    SQL_SURFACE_MUTATION_REJECTS_SHOW_RELATIONS = 278 => QuerySqlSurfaceMismatch,
+        detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowRelations });
 }

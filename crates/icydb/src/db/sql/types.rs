@@ -6,15 +6,16 @@
 
 use crate::db::sql::table_render::render_explain_lines;
 use crate::db::{
-    EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
-    EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput,
+    EntityCatalogDescription, EntityConstraintDescription, MemoryCatalogDescription,
+    RowProjectionOutput, SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
     StoreCatalogDescription,
     sql::table_render::{
         SqlDdlRenderInput, render_constraint_validation_finding_line, render_count_lines,
-        render_describe_lines, render_grouped_lines, render_query_rows_lines,
+        render_describe_output_lines, render_grouped_lines, render_query_rows_lines,
         render_show_columns_lines, render_show_constraints_lines, render_show_entities_lines,
         render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
-        render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
+        render_show_relations_lines, render_show_stores_lines, render_show_stores_verbose_lines,
+        render_sql_ddl_lines,
     },
 };
 
@@ -122,7 +123,7 @@ pub enum SqlQueryResult {
         entity: String,
         explain: String,
     },
-    Describe(EntitySchemaDescription),
+    Describe(SqlDescribeOutput),
     ShowConstraints {
         entity: String,
         constraints: Vec<EntityConstraintDescription>,
@@ -131,10 +132,8 @@ pub enum SqlQueryResult {
         entity: String,
         indexes: Vec<String>,
     },
-    ShowColumns {
-        entity: String,
-        columns: Vec<EntityFieldDescription>,
-    },
+    ShowColumns(SqlShowColumnsOutput),
+    ShowRelations(SqlShowRelationsOutput),
     ShowEntities {
         entities: Vec<EntityCatalogDescription>,
         verbose: bool,
@@ -169,7 +168,7 @@ impl SqlQueryResult {
             Self::Projection(rows) => render_query_rows_lines(rows),
             Self::Grouped(rows) => render_grouped_lines(rows),
             Self::Explain { explain, .. } => render_explain_lines(explain.as_str()),
-            Self::Describe(description) => render_describe_lines(description),
+            Self::Describe(output) => render_describe_output_lines(output),
             Self::ShowConstraints {
                 entity,
                 constraints,
@@ -177,9 +176,8 @@ impl SqlQueryResult {
             Self::ShowIndexes { entity, indexes } => {
                 render_show_indexes_lines(entity.as_str(), indexes.as_slice())
             }
-            Self::ShowColumns { entity, columns } => {
-                render_show_columns_lines(entity.as_str(), columns.as_slice())
-            }
+            Self::ShowColumns(output) => render_show_columns_lines(output),
+            Self::ShowRelations(output) => render_show_relations_lines(output),
             Self::ShowEntities { entities, verbose } => {
                 if *verbose {
                     render_show_entities_verbose_lines(entities.as_slice())

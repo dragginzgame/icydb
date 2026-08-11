@@ -10,8 +10,8 @@ that boundary and should be run only on hosts where that is acceptable.
   `apt-get`, it may run `sudo apt-get update` and `sudo apt-get install` for
   documented system prerequisites, install Rust through the official rustup
   script when missing, install the workspace-pinned Rust toolchain and wasm
-  target, install Cargo helper tools, install npm-backed ICP CLI tools under
-  `$HOME/.local`, and configure repository hooks.
+  target, install Cargo helper tools, and install npm-backed ICP CLI tools under
+  `$HOME/.local`.
 - `make update-dev` is a maintainer workstation updater. It refreshes the same
   documented system package list, installs the workspace-pinned Rust toolchain
   and wasm target with `rustup`, installs or updates the standard Cargo helper
@@ -35,9 +35,7 @@ clears the canister's stable memory in the chosen local or configured ICP
 environment. It is destructive to that app/canister state, but it is not a host
 disk wipe.
 
-## Git Hooks
+## Git Commands
 
-Repository hooks live in `.githooks`, but they are inactive until
-`make install-hooks` configures `core.hooksPath`. When enabled, the pre-commit
-hook runs formatting and stages tracked formatting changes, while the pre-push
-hook runs invariant checks and clippy.
+The repository installs no Git hooks. Commit and push perform no hidden
+formatting, staging, build, test, or validation work.

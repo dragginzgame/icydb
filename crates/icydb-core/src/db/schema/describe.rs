@@ -12,9 +12,9 @@ use crate::{
             AcceptedIdentityInspection, AcceptedInsertOmissionPolicy,
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
-            ConstraintOrigin, ConstraintValidationJob, FieldId, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-            PersistedSchemaSnapshot, SchemaHistoricalFill,
+            ConstraintOrigin, ConstraintValidationJob, FieldId, FieldInsertGeneration,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
             field_type_from_persisted_kind, identity_kind_maximum, output_value_from_runtime,
             render_accepted_check_expr_sql,
@@ -32,6 +32,204 @@ use sha2::{Digest, Sha256};
 
 const ENTITY_FIELD_DESCRIPTION_NO_SLOT: u16 = u16::MAX;
 const MAX_SCHEMA_VALUE_RENDER_CHARS: usize = 128;
+const MAX_SQL_COLUMN_EXTRA_FLAGS: usize = 3;
+const MAX_SQL_COMPACT_COLUMN_ROWS: usize =
+    icydb_schema::MAX_FRAGMENT_FIELDS * (1 + icydb_schema::MAX_FRAGMENT_FIELDS);
+
+/// Compact accepted index-membership hint for one SQL column row.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum SqlColumnKey {
+    /// Accepted primary-key field.
+    Primary,
+    /// Sole field path in one accepted unique secondary index.
+    Unique,
+    /// Member of a compound or non-unique accepted secondary index.
+    Multiple,
+    /// No accepted primary or secondary index membership.
+    None,
+}
+
+/// Compact accepted insert-default policy for one SQL column row.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub enum SqlColumnDefault {
+    /// Database-owned insert synthesis.
+    Auto,
+    /// Missing inserts produce `NULL`.
+    Null,
+    /// Bounded canonical accepted literal.
+    Literal {
+        /// Canonical rendered literal text.
+        text: String,
+    },
+    /// A value is required and no accepted default exists.
+    Required,
+    /// Nested paths own no independent insert slot.
+    NotApplicable,
+}
+
+impl SqlColumnDefault {
+    /// Borrow canonical literal text when this is a literal default.
+    #[must_use]
+    pub const fn literal_text(&self) -> Option<&str> {
+        match self {
+            Self::Literal { text } => Some(text.as_str()),
+            Self::Auto | Self::Null | Self::Required | Self::NotApplicable => None,
+        }
+    }
+}
+
+/// Closed compact extra-fact vocabulary for one SQL column row.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum SqlColumnExtra {
+    /// Accepted Identity generation owns this field.
+    Identity,
+    /// Accepted write policy synthesizes this field on insert.
+    Generated,
+    /// This field participates in an accepted relation edge.
+    Relation,
+}
+
+/// Compact accepted-schema column projection.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlColumnSummary {
+    name: String,
+    field_type: String,
+    nullable: bool,
+    key: SqlColumnKey,
+    default: SqlColumnDefault,
+    extra: Vec<SqlColumnExtra>,
+}
+
+impl SqlColumnSummary {
+    fn new(
+        name: String,
+        field_type: String,
+        nullable: bool,
+        key: SqlColumnKey,
+        default: SqlColumnDefault,
+        extra: Vec<SqlColumnExtra>,
+    ) -> Result<Self, InternalError> {
+        if extra.len() > MAX_SQL_COLUMN_EXTRA_FLAGS
+            || default
+                .literal_text()
+                .is_some_and(|text| text.len() > MAX_SCHEMA_VALUE_RENDER_CHARS)
+        {
+            return Err(InternalError::store_invariant());
+        }
+        Ok(Self {
+            name,
+            field_type,
+            nullable,
+            key,
+            default,
+            extra,
+        })
+    }
+
+    /// Borrow the canonical accepted query path.
+    #[must_use]
+    pub const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the accepted field-kind rendering.
+    #[must_use]
+    pub const fn field_type(&self) -> &str {
+        self.field_type.as_str()
+    }
+
+    /// Return effective accepted explicit-nullability.
+    #[must_use]
+    pub const fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    /// Return the compact accepted index hint.
+    #[must_use]
+    pub const fn key(&self) -> SqlColumnKey {
+        self.key
+    }
+
+    /// Borrow the compact accepted insert-default policy.
+    #[must_use]
+    pub const fn default(&self) -> &SqlColumnDefault {
+        &self.default
+    }
+
+    /// Borrow ordered accepted extra facts.
+    #[must_use]
+    pub const fn extra(&self) -> &[SqlColumnExtra] {
+        self.extra.as_slice()
+    }
+}
+
+/// Discriminated public `DESCRIBE` result.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub enum SqlDescribeOutput {
+    /// Conventional compact column table.
+    Compact {
+        /// Accepted entity display name.
+        entity: String,
+        /// Canonical compact column rows.
+        columns: Vec<SqlColumnSummary>,
+    },
+    /// Complete maintained operational dossier.
+    Verbose {
+        /// Complete accepted entity description.
+        description: EntitySchemaDescription,
+    },
+}
+
+/// Discriminated public `SHOW COLUMNS` result.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub enum SqlShowColumnsOutput {
+    /// Compact column projection shared with `DESCRIBE`.
+    Compact {
+        /// Accepted entity display name.
+        entity: String,
+        /// Canonical compact column rows.
+        columns: Vec<SqlColumnSummary>,
+    },
+    /// Detailed accepted field/layout rows only.
+    Verbose {
+        /// Accepted entity display name.
+        entity: String,
+        /// Maintained verbose field descriptions.
+        columns: Vec<EntityFieldDescription>,
+    },
+}
+
+/// Public `SHOW RELATIONS` result.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlShowRelationsOutput {
+    entity: String,
+    relations: Vec<EntityRelationDescription>,
+}
+
+impl SqlShowRelationsOutput {
+    /// Build one bounded relation-only result.
+    pub(in crate::db) fn new(
+        entity: String,
+        relations: Vec<EntityRelationDescription>,
+    ) -> Result<Self, InternalError> {
+        if relations.len() > icydb_schema::MAX_FRAGMENT_RELATIONS {
+            return Err(InternalError::store_invariant());
+        }
+        Ok(Self { entity, relations })
+    }
+
+    /// Borrow the accepted entity display name.
+    #[must_use]
+    pub const fn entity(&self) -> &str {
+        self.entity.as_str()
+    }
+
+    /// Borrow accepted relation rows in stable relation-ID order.
+    #[must_use]
+    pub const fn relations(&self) -> &[EntityRelationDescription] {
+        self.relations.as_slice()
+    }
+}
 
 #[cfg_attr(
     doc,
@@ -1247,6 +1445,222 @@ fn describe_persisted_index_fields(key: &PersistedIndexKeySnapshot) -> Vec<Strin
     }
 }
 
+/// Build the canonical compact SQL column projection from accepted authority.
+pub(in crate::db) fn describe_compact_columns_with_persisted_schema(
+    schema: &AcceptedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<Vec<SqlColumnSummary>, InternalError> {
+    let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema)?;
+    let snapshot = schema.persisted_snapshot();
+    if snapshot.fields().len() != row_layout.fields().len()
+        || snapshot.fields().len() > icydb_schema::MAX_FRAGMENT_FIELDS
+    {
+        return Err(InternalError::store_invariant());
+    }
+
+    let capacity = compact_column_capacity(snapshot.fields())?;
+    let mut accepted_fields = snapshot
+        .fields()
+        .iter()
+        .zip(row_layout.fields())
+        .collect::<Vec<_>>();
+    accepted_fields.sort_unstable_by_key(|(field, _)| field.id());
+    let mut columns = Vec::with_capacity(capacity);
+    for (field, runtime_field) in accepted_fields {
+        let matching_identity = field.id() == runtime_field.field_id();
+        let matching_name = field.name() == runtime_field.name();
+        if !matching_identity || !matching_name {
+            return Err(InternalError::store_invariant());
+        }
+
+        let generated = accepted_write_policy_generates(runtime_field);
+        let relation = snapshot
+            .relations()
+            .iter()
+            .any(|relation| relation.local_field_ids().contains(&field.id()));
+        let extra = compact_column_extras(
+            runtime_field.write_policy().insert_generation()
+                == Some(FieldInsertGeneration::Identity),
+            generated,
+            relation,
+        );
+
+        columns.push(SqlColumnSummary::new(
+            field.name().to_string(),
+            summarize_persisted_field_kind(field.kind(), value_catalog)?,
+            field.nullable(),
+            compact_column_key(snapshot, field.name()),
+            compact_column_default(runtime_field, value_catalog)?,
+            extra,
+        )?);
+
+        let mut nested = field.nested_leaves().iter().collect::<Vec<_>>();
+        nested.sort_unstable_by(|left, right| left.path().cmp(right.path()));
+        for leaf in nested {
+            let mut canonical_path = Vec::with_capacity(leaf.path().len().saturating_add(1));
+            canonical_path.push(field.name());
+            canonical_path.extend(leaf.path().iter().map(String::as_str));
+            let canonical_name = canonical_path.join(".");
+            columns.push(SqlColumnSummary::new(
+                canonical_name.clone(),
+                summarize_persisted_field_kind(leaf.kind(), value_catalog)?,
+                nested_path_nullable(field.nullable(), field.nested_leaves(), leaf.path()),
+                compact_column_key(snapshot, canonical_name.as_str()),
+                SqlColumnDefault::NotApplicable,
+                compact_column_extras(false, generated, false),
+            )?);
+        }
+    }
+
+    if columns.len() != capacity {
+        return Err(InternalError::store_invariant());
+    }
+    Ok(columns)
+}
+
+fn compact_column_capacity(
+    fields: &[crate::db::schema::PersistedFieldSnapshot],
+) -> Result<usize, InternalError> {
+    compact_column_capacity_from_counts(
+        fields.len(),
+        fields.iter().map(|field| field.nested_leaves().len()),
+    )
+}
+
+fn compact_column_capacity_from_counts(
+    field_count: usize,
+    nested_counts: impl IntoIterator<Item = usize>,
+) -> Result<usize, InternalError> {
+    if field_count > icydb_schema::MAX_FRAGMENT_FIELDS {
+        return Err(InternalError::store_invariant());
+    }
+    let mut seen_fields = 0usize;
+    let mut total = field_count;
+    for nested_count in nested_counts {
+        seen_fields = seen_fields
+            .checked_add(1)
+            .ok_or_else(InternalError::store_invariant)?;
+        if nested_count > icydb_schema::MAX_FRAGMENT_FIELDS {
+            return Err(InternalError::store_invariant());
+        }
+        total = total
+            .checked_add(nested_count)
+            .ok_or_else(InternalError::store_invariant)?;
+    }
+    if seen_fields != field_count {
+        return Err(InternalError::store_invariant());
+    }
+    if total > MAX_SQL_COMPACT_COLUMN_ROWS {
+        return Err(InternalError::store_invariant());
+    }
+    Ok(total)
+}
+
+const fn accepted_write_policy_generates(field: &AcceptedRowLayoutRuntimeField<'_>) -> bool {
+    let policy = field.write_policy();
+    policy.insert_generation().is_some() || policy.write_management().is_some()
+}
+
+fn compact_column_extras(identity: bool, generated: bool, relation: bool) -> Vec<SqlColumnExtra> {
+    let mut extra = Vec::with_capacity(MAX_SQL_COLUMN_EXTRA_FLAGS);
+    if identity {
+        extra.push(SqlColumnExtra::Identity);
+    }
+    if generated {
+        extra.push(SqlColumnExtra::Generated);
+    }
+    if relation {
+        extra.push(SqlColumnExtra::Relation);
+    }
+    extra
+}
+
+fn compact_column_default(
+    field: &AcceptedRowLayoutRuntimeField<'_>,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<SqlColumnDefault, InternalError> {
+    if accepted_write_policy_generates(field) {
+        return Ok(SqlColumnDefault::Auto);
+    }
+    match field.insert_omission_policy() {
+        AcceptedInsertOmissionPolicy::NullIfMissing => Ok(SqlColumnDefault::Null),
+        AcceptedInsertOmissionPolicy::DefaultIfMissing => {
+            let payload = field
+                .insert_default()
+                .slot_payload()
+                .ok_or_else(InternalError::store_invariant)?;
+            let rendered = accepted_payload_facts(field, value_catalog, payload)?;
+            Ok(SqlColumnDefault::Literal {
+                text: rendered.value,
+            })
+        }
+        AcceptedInsertOmissionPolicy::Required => Ok(SqlColumnDefault::Required),
+    }
+}
+
+fn nested_path_nullable(
+    top_level_nullable: bool,
+    leaves: &[PersistedNestedLeafSnapshot],
+    path: &[String],
+) -> bool {
+    top_level_nullable
+        || leaves.iter().any(|candidate| {
+            candidate.path().len() <= path.len()
+                && path.starts_with(candidate.path())
+                && candidate.nullable()
+        })
+}
+
+fn compact_column_key(snapshot: &PersistedSchemaSnapshot, path: &str) -> SqlColumnKey {
+    let top_level_field = snapshot.fields().iter().find(|field| field.name() == path);
+    let primary =
+        top_level_field.is_some_and(|field| snapshot.primary_key_field_ids().contains(&field.id()));
+    let memberships = snapshot.indexes().iter().filter_map(|index| {
+        let key_items = match index.key() {
+            PersistedIndexKeySnapshot::FieldPath(paths) => paths.len(),
+            PersistedIndexKeySnapshot::Items(items) => items.len(),
+        };
+        let exact_path_member = match index.key() {
+            PersistedIndexKeySnapshot::FieldPath(paths) => {
+                paths.iter().any(|item| item.path().join(".") == path)
+            }
+            PersistedIndexKeySnapshot::Items(items) => items.iter().any(|item| {
+                matches!(
+                    item,
+                    PersistedIndexKeyItemSnapshot::FieldPath(field_path)
+                        if field_path.path().join(".") == path
+                )
+            }),
+        };
+        if !exact_path_member {
+            return None;
+        }
+        Some((index.unique(), key_items))
+    });
+    classify_compact_column_key(primary, memberships)
+}
+
+fn classify_compact_column_key(
+    primary: bool,
+    memberships: impl IntoIterator<Item = (bool, usize)>,
+) -> SqlColumnKey {
+    if primary {
+        return SqlColumnKey::Primary;
+    }
+    let mut multiple = false;
+    for (unique, key_items) in memberships {
+        if unique && key_items == 1 {
+            return SqlColumnKey::Unique;
+        }
+        multiple = true;
+    }
+    if multiple {
+        SqlColumnKey::Multiple
+    } else {
+        SqlColumnKey::None
+    }
+}
+
 #[cfg_attr(
     doc,
     doc = "Build field descriptors using accepted persisted schema slot metadata."
@@ -1407,14 +1821,18 @@ fn field_origin_label(generated: bool) -> String {
     }
 }
 
-fn describe_entity_relations_with_persisted_schema(
+pub(in crate::db) fn describe_entity_relations_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     resolve_target: &impl Fn(&str) -> Result<(String, String), InternalError>,
 ) -> Result<Vec<EntityRelationDescription>, InternalError> {
     let snapshot = schema.persisted_snapshot();
-    snapshot
-        .relations()
-        .iter()
+    if snapshot.relations().len() > icydb_schema::MAX_FRAGMENT_RELATIONS {
+        return Err(InternalError::store_invariant());
+    }
+    let mut relations = snapshot.relations().iter().collect::<Vec<_>>();
+    relations.sort_unstable_by_key(|relation| relation.id());
+    relations
+        .into_iter()
         .map(|relation| {
             let local_fields = relation
                 .local_field_ids()
@@ -1840,7 +2258,15 @@ const fn describe_kind_name(kind: &AcceptedFieldKind) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::EntityIdentityDescription;
+    use super::{
+        EntityIdentityDescription, EntityRelationCardinality, EntityRelationDescription,
+        MAX_SCHEMA_VALUE_RENDER_CHARS, SqlColumnDefault, SqlColumnExtra, SqlColumnKey,
+        SqlColumnSummary, SqlDescribeOutput, SqlShowRelationsOutput, classify_compact_column_key,
+        compact_column_capacity_from_counts, compact_column_extras, nested_path_nullable,
+    };
+    use crate::db::schema::{AcceptedFieldKind, PersistedNestedLeafSnapshot};
+
+    use candid::Encode;
 
     #[test]
     fn identity_description_reports_exact_remaining_capacity_and_exhaustion() {
@@ -1863,5 +2289,172 @@ mod tests {
             EntityIdentityDescription::new("id".to_string(), "nat8".to_string(), 255, 256).is_err(),
             "state beyond the accepted domain must not be described",
         );
+    }
+
+    #[test]
+    fn compact_key_contract_distinguishes_single_unique_from_compound_membership() {
+        assert_eq!(
+            classify_compact_column_key(true, [(true, 1), (false, 2)]),
+            SqlColumnKey::Primary
+        );
+        assert_eq!(
+            classify_compact_column_key(false, [(true, 2)]),
+            SqlColumnKey::Multiple,
+            "compound unique membership must not imply independent uniqueness",
+        );
+        assert_eq!(
+            classify_compact_column_key(false, [(false, 1), (true, 1)]),
+            SqlColumnKey::Unique,
+            "single-field unique membership has precedence over non-unique membership",
+        );
+        assert_eq!(
+            classify_compact_column_key(false, std::iter::empty()),
+            SqlColumnKey::None
+        );
+    }
+
+    #[test]
+    fn compact_extra_contract_is_closed_and_deterministically_ordered() {
+        assert_eq!(
+            compact_column_extras(true, true, true),
+            vec![
+                SqlColumnExtra::Identity,
+                SqlColumnExtra::Generated,
+                SqlColumnExtra::Relation,
+            ]
+        );
+        assert_eq!(
+            compact_column_extras(false, true, false),
+            vec![SqlColumnExtra::Generated]
+        );
+        assert!(compact_column_extras(false, false, false).is_empty());
+    }
+
+    #[test]
+    fn compact_projection_bounds_accept_maximum_and_reject_max_plus_one() {
+        assert_eq!(
+            compact_column_capacity_from_counts(
+                icydb_schema::MAX_FRAGMENT_FIELDS,
+                std::iter::repeat_n(
+                    icydb_schema::MAX_FRAGMENT_FIELDS,
+                    icydb_schema::MAX_FRAGMENT_FIELDS,
+                ),
+            )
+            .expect("accepted maximum should remain projectable"),
+            super::MAX_SQL_COMPACT_COLUMN_ROWS,
+        );
+        assert!(
+            compact_column_capacity_from_counts(
+                icydb_schema::MAX_FRAGMENT_FIELDS + 1,
+                std::iter::repeat_n(0, icydb_schema::MAX_FRAGMENT_FIELDS + 1),
+            )
+            .is_err()
+        );
+        assert!(
+            compact_column_capacity_from_counts(1, [icydb_schema::MAX_FRAGMENT_FIELDS + 1],)
+                .is_err()
+        );
+
+        let valid = SqlColumnSummary::new(
+            "value".to_string(),
+            "text".to_string(),
+            false,
+            SqlColumnKey::None,
+            SqlColumnDefault::Literal {
+                text: "x".repeat(MAX_SCHEMA_VALUE_RENDER_CHARS),
+            },
+            vec![
+                SqlColumnExtra::Identity,
+                SqlColumnExtra::Generated,
+                SqlColumnExtra::Relation,
+            ],
+        );
+        let valid = valid.expect("the complete admitted compact row should remain valid");
+        assert!(
+            SqlColumnSummary::new(
+                "value".to_string(),
+                "text".to_string(),
+                false,
+                SqlColumnKey::None,
+                SqlColumnDefault::Literal {
+                    text: "x".repeat(MAX_SCHEMA_VALUE_RENDER_CHARS + 1),
+                },
+                Vec::new(),
+            )
+            .is_err()
+        );
+        assert!(
+            SqlColumnSummary::new(
+                "value".to_string(),
+                "text".to_string(),
+                false,
+                SqlColumnKey::None,
+                SqlColumnDefault::Required,
+                vec![SqlColumnExtra::Generated; 4],
+            )
+            .is_err()
+        );
+
+        let maximum = SqlDescribeOutput::Compact {
+            entity: "AcceptedMaximum".to_string(),
+            columns: vec![valid; super::MAX_SQL_COMPACT_COLUMN_ROWS],
+        };
+        let first = Encode!(&maximum).expect("accepted maximum should encode to bounded Candid");
+        let second = Encode!(&maximum).expect("accepted maximum should encode deterministically");
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 9_737_847);
+
+        let relation = EntityRelationDescription::new(
+            "owner_id".to_string(),
+            "entities::Owner".to_string(),
+            "Owner".to_string(),
+            "stores::Owner".to_string(),
+            EntityRelationCardinality::Single,
+        );
+        assert!(
+            SqlShowRelationsOutput::new(
+                "Entry".to_string(),
+                vec![relation.clone(); icydb_schema::MAX_FRAGMENT_RELATIONS],
+            )
+            .is_ok()
+        );
+        assert!(
+            SqlShowRelationsOutput::new(
+                "Entry".to_string(),
+                vec![relation; icydb_schema::MAX_FRAGMENT_RELATIONS + 1],
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn nested_nullability_includes_nullable_ancestors() {
+        let leaves = vec![
+            PersistedNestedLeafSnapshot::new(
+                vec!["address".to_string()],
+                AcceptedFieldKind::Unit,
+                true,
+            ),
+            PersistedNestedLeafSnapshot::new(
+                vec!["address".to_string(), "city".to_string()],
+                AcceptedFieldKind::Unit,
+                false,
+            ),
+        ];
+        assert!(nested_path_nullable(
+            false,
+            leaves.as_slice(),
+            &["address".to_string(), "city".to_string()],
+        ));
+        assert!(nested_path_nullable(
+            true,
+            leaves.as_slice(),
+            &["other".to_string()],
+        ));
+        assert!(!nested_path_nullable(
+            false,
+            leaves.as_slice(),
+            &["other".to_string()],
+        ));
     }
 }

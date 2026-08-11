@@ -13,8 +13,8 @@ use icydb::{
     db::{
         DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, IntegrityPhase,
         IntegrityTerminalOutcome, MutationJobError, MutationJobState, MutationJobStatus,
-        SqlIntegrityError, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
-        sql::SqlQueryResult,
+        SqlDescribeOutput, SqlIntegrityError, SqlQueryExecutionAttribution, SqlShowColumnsOutput,
+        SqlStructuralWorkAttribution, sql::SqlQueryResult,
     },
     diagnostic::{
         DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
@@ -596,10 +596,17 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
             entity: entity.clone(),
             row_count: 1,
         },
-        SqlQueryResult::Describe(entity) => SqlPerfOutcome {
-            result_kind: "describe",
-            entity: entity.entity_name().to_string(),
-            row_count: entity.fields().len(),
+        SqlQueryResult::Describe(output) => match output {
+            SqlDescribeOutput::Compact { entity, columns } => SqlPerfOutcome {
+                result_kind: "describe",
+                entity: entity.clone(),
+                row_count: columns.len(),
+            },
+            SqlDescribeOutput::Verbose { description } => SqlPerfOutcome {
+                result_kind: "describe",
+                entity: description.entity_name().to_string(),
+                row_count: description.fields().len(),
+            },
         },
         SqlQueryResult::ShowIndexes { entity, indexes } => SqlPerfOutcome {
             result_kind: "show_indexes",
@@ -614,10 +621,22 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
             entity: entity.clone(),
             row_count: constraints.len(),
         },
-        SqlQueryResult::ShowColumns { entity, columns } => SqlPerfOutcome {
-            result_kind: "show_columns",
-            entity: entity.clone(),
-            row_count: columns.len(),
+        SqlQueryResult::ShowColumns(output) => match output {
+            SqlShowColumnsOutput::Compact { entity, columns } => SqlPerfOutcome {
+                result_kind: "show_columns",
+                entity: entity.clone(),
+                row_count: columns.len(),
+            },
+            SqlShowColumnsOutput::Verbose { entity, columns } => SqlPerfOutcome {
+                result_kind: "show_columns",
+                entity: entity.clone(),
+                row_count: columns.len(),
+            },
+        },
+        SqlQueryResult::ShowRelations(output) => SqlPerfOutcome {
+            result_kind: "show_relations",
+            entity: output.entity().to_string(),
+            row_count: output.relations().len(),
         },
         SqlQueryResult::ShowEntities { entities, .. } => SqlPerfOutcome {
             result_kind: "show_entities",

@@ -67,6 +67,8 @@ examples:
   CREATE INDEX character_level_idx ON character (level);
   SHOW INDEXES FROM character;
   DESCRIBE character;
+  DESCRIBE character VERBOSE;
+  SHOW RELATIONS FROM character;
   DROP INDEX character_level_idx ON character;"
 }
 

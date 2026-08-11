@@ -4,12 +4,13 @@
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-sql-perf-wasm build-canister-local build-canister-production \
+        test-sql-introspection-baseline \
         test-sql-perf-p1-shard test-sql-perf-p1-merge \
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
         test-sql-perf-instrumentation test-sql-perf-calibration-review test-sql-perf-baseline \
-        build check clippy fmt fmt-check clean install install-dev update-dev \
+        build check clippy fmt fmt-check validate clean install install-dev update-dev \
         fetch test-watch all ensure-clean security-check check-versioning \
-        ensure-hooks install-hooks test-no-default-smoke \
+        test-no-default-smoke \
         wasm-size-report wasm-audit-report \
         lint-workflows check-invariants check-feature-matrix \
         print-cargo-home print-cargo-target-dir
@@ -80,9 +81,8 @@ help:
 	@echo ""
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
-	@echo "  install-dev      Install local developer dependencies, actionlint, and git hooks"
+	@echo "  install-dev      Install local developer dependencies and actionlint"
 	@echo "  update-dev       Update user-local Rust/Cargo/actionlint/ICP tools"
-	@echo "  install-hooks    Configure git hooks"
 	@echo ""
 	@echo "Version Management:"
 	@echo "  version          Show current version"
@@ -115,6 +115,8 @@ help:
 	@echo "                  Reproduce one minimized Tier C failure exactly"
 	@echo "  build-sql-perf-wasm"
 	@echo "                  Build the one wasm-release subject shared by every performance shard"
+	@echo "  test-sql-introspection-baseline"
+	@echo "                  Measure the exact 0.224 introspection instruction and Candid contract"
 	@echo "  build-canister-local CANISTER=demo_rpg"
 	@echo "                  Build and stage the exact local/test feature profile"
 	@echo "  build-canister-production CANISTER=demo_rpg"
@@ -140,6 +142,7 @@ help:
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
+	@echo "  validate         Run formatting, invariants, feature checks, clippy, and tests"
 	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
@@ -169,24 +172,13 @@ help:
 install:
 	cargo install --path "$(ROOT_DIR)/crates/icydb-cli" --bin icydb --locked --force
 
-# Install local developer prerequisites, tools, and repository hooks.
+# Install local developer prerequisites and tools.
 install-dev:
 	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
 
 # Update user-local Rust/Cargo/actionlint/ICP developer tooling.
 update-dev:
 	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
-
-# Optional explicit install target (idempotent)
-install-hooks ensure-hooks:
-	@if [ -d .git ]; then \
-		git config --local core.hooksPath .githooks || true; \
-		chmod +x .githooks/* 2>/dev/null || true; \
-		echo "✅ Git hooks configured (core.hooksPath -> .githooks)"; \
-	else \
-		echo "⚠️  Not a git repo, skipping hooks setup"; \
-	fi
-
 
 #
 # Version management (the source candidate is gated before any version mutation)
@@ -203,7 +195,7 @@ patch:
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory validate; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch; \
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
@@ -215,7 +207,7 @@ minor:
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory validate; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor; \
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
@@ -227,7 +219,7 @@ major:
 	@set -e; \
 	candidate_commit="$$(git rev-parse --verify HEAD)"; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory test; \
+	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory validate; \
 	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
 	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major; \
 	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
@@ -293,7 +285,7 @@ release-major:
 # Tests
 #
 
-test: clippy test-unit test-canister-artifact-contract
+test: test-unit test-canister-artifact-contract
 
 test-unit:
 	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
@@ -349,6 +341,15 @@ build-sql-perf-wasm:
 	$(CARGO_WORK_ENV) \
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_builds_shared_wasm_subject -- --ignored --exact --nocapture
+
+test-sql-introspection-baseline:
+	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for introspection evidence" >&2; exit 1; }
+	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before introspection measurement" >&2; exit 1; }
+	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
+	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
+	cargo test --locked -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_introspection_0_224_contract_is_exactly_measured \
+		-- --ignored --exact --nocapture --test-threads=1
 
 build-canister-local:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
@@ -472,30 +473,34 @@ wasm-query-attribution:
 fetch:
 	$(CARGO_WORK_ENV) cargo fetch --locked
 
-build: ensure-clean ensure-hooks
+build:
 	$(CARGO_WORK_ENV) cargo build --release --workspace
 
-check: ensure-hooks fmt-check
-	$(MAKE) check-invariants
-	$(MAKE) check-feature-matrix
+check:
 	$(CARGO_WORK_ENV) cargo check --workspace
 
-clippy: ensure-hooks
-	$(MAKE) check-invariants
-	$(MAKE) check-feature-matrix
+clippy:
 	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features sql -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features diagnostics -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
-fmt: ensure-hooks
+fmt:
 	$(CARGO_WORK_ENV) cargo sort --workspace
 	$(CARGO_WORK_ENV) cargo sort-derives
 	$(CARGO_WORK_ENV) cargo fmt --all
 
-fmt-check: ensure-hooks
+fmt-check:
 	$(CARGO_WORK_ENV) cargo sort --workspace --check
 	$(CARGO_WORK_ENV) cargo sort-derives --check
 	$(CARGO_WORK_ENV) cargo fmt --all -- --check
+
+validate:
+	$(MAKE) --no-print-directory fmt-check
+	$(MAKE) --no-print-directory check-invariants
+	$(MAKE) --no-print-directory check-feature-matrix
+	$(MAKE) --no-print-directory check
+	$(MAKE) --no-print-directory clippy
+	$(MAKE) --no-print-directory test
 
 clean:
 	$(CARGO_WORK_ENV) cargo clean
@@ -555,5 +560,8 @@ lint-workflows:
 test-watch:
 	$(CARGO_WORK_ENV) cargo watch -x test
 
-# Build and test everything
-all: ensure-clean ensure-hooks clean fmt-check clippy check test build
+# Build and test everything through explicit, sequential workflow steps.
+all: ensure-clean
+	$(MAKE) --no-print-directory clean
+	$(MAKE) --no-print-directory validate
+	$(MAKE) --no-print-directory build

@@ -125,6 +125,7 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
         | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowRelations(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementSurface::Query,
@@ -146,6 +147,7 @@ const fn sql_statement_shell_surface_from_statement(
         | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowRelations(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementShellSurface::Query,
@@ -162,6 +164,7 @@ const fn sql_statement_requires_introspection_from_statement(statement: &SqlStat
         | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowRelations(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => true,
@@ -216,6 +219,7 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::ShowConstraints(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowIndexes(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowColumns(statement) => Some(statement.entity.as_str()),
+        SqlStatement::ShowRelations(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => None,
@@ -238,6 +242,7 @@ impl<C: CanisterKind> DbSession<C> {
                 | SqlStatement::ShowConstraints(_)
                 | SqlStatement::ShowIndexes(_)
                 | SqlStatement::ShowColumns(_)
+                | SqlStatement::ShowRelations(_)
                 | SqlStatement::ShowEntities(_)
                 | SqlStatement::ShowStores(_)
                 | SqlStatement::ShowMemory(_),
@@ -285,6 +290,11 @@ impl<C: CanisterKind> DbSession<C> {
                     SqlSurfaceMismatchCode::MutationRejectsShowColumns,
                 ))
             }
+            (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowRelations(_)) => {
+                Err(QueryError::sql_surface_mismatch(
+                    SqlSurfaceMismatchCode::MutationRejectsShowRelations,
+                ))
+            }
             (SqlCompiledCommandSurface::Mutation, SqlStatement::ShowEntities(_)) => {
                 Err(QueryError::sql_surface_mismatch(
                     SqlSurfaceMismatchCode::MutationRejectsShowEntities,
@@ -311,6 +321,7 @@ mod tests {
             "SHOW CONSTRAINTS FROM Example",
             "SHOW INDEXES FROM Example",
             "SHOW COLUMNS Example",
+            "SHOW RELATIONS FROM Example",
             "SHOW ENTITIES",
             "SHOW STORES",
             "SHOW MEMORY",

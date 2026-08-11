@@ -14,10 +14,10 @@ mod update;
 use crate::db::sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 use crate::db::{
     sql::parser::{
-        Parser, SqlDeleteStatement, SqlDescribeStatement, SqlSelectStatement,
+        Parser, SqlDeleteStatement, SqlDescribeMode, SqlDescribeStatement, SqlSelectStatement,
         SqlShowColumnsStatement, SqlShowConstraintsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement,
-        SqlUpdateStatement,
+        SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowRelationsStatement,
+        SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
     },
     sql_shared::{
         Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind,
@@ -100,6 +100,9 @@ impl Parser {
             SqlStatement::ShowColumns(_) => Some(SqlParseError::unsupported_feature(
                 SqlFeatureCode::ShowColumnsModifiers,
             )),
+            SqlStatement::ShowRelations(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::ShowRelationsModifiers,
+            )),
             SqlStatement::ShowEntities(_) => Some(SqlParseError::unsupported_feature(
                 SqlFeatureCode::ShowEntitiesModifiers,
             )),
@@ -126,6 +129,11 @@ impl Parser {
         if self.eat_keyword(Keyword::Columns) {
             return Ok(SqlStatement::ShowColumns(
                 self.parse_show_columns_statement()?,
+            ));
+        }
+        if self.eat_identifier_keyword("RELATIONS") {
+            return Ok(SqlStatement::ShowRelations(
+                self.parse_show_relations_statement()?,
             ));
         }
         if self.eat_keyword(Keyword::Entities) {
@@ -261,8 +269,13 @@ impl Parser {
 
     fn parse_describe_statement(&mut self) -> Result<SqlDescribeStatement, SqlParseError> {
         let entity = self.expect_identifier()?;
+        let mode = if self.eat_keyword(Keyword::Verbose) {
+            SqlDescribeMode::Verbose
+        } else {
+            SqlDescribeMode::Compact
+        };
 
-        Ok(SqlDescribeStatement { entity })
+        Ok(SqlDescribeStatement { entity, mode })
     }
 
     fn parse_show_indexes_statement(&mut self) -> Result<SqlShowIndexesStatement, SqlParseError> {
@@ -293,7 +306,26 @@ impl Parser {
 
     fn parse_show_columns_statement(&mut self) -> Result<SqlShowColumnsStatement, SqlParseError> {
         let entity = self.expect_identifier()?;
+        let mode = if self.eat_keyword(Keyword::Verbose) {
+            SqlDescribeMode::Verbose
+        } else {
+            SqlDescribeMode::Compact
+        };
 
-        Ok(SqlShowColumnsStatement { entity })
+        Ok(SqlShowColumnsStatement { entity, mode })
+    }
+
+    fn parse_show_relations_statement(
+        &mut self,
+    ) -> Result<SqlShowRelationsStatement, SqlParseError> {
+        if !self.eat_keyword(Keyword::From) && !self.eat_keyword(Keyword::In) {
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::ShowRelationsSource,
+                self.peek_kind(),
+            ));
+        }
+        let entity = self.expect_identifier()?;
+
+        Ok(SqlShowRelationsStatement { entity })
     }
 }

@@ -245,9 +245,10 @@ fn accepted_entity_display_name_lookup_is_case_insensitive() {
         vec![singleton_row()],
     );
 
-    let SqlStatementResult::Describe(description) = session
-        .execute_trusted_sql_query("DESCRIBE public.singleton")
-        .expect("lowercase DESCRIBE should resolve accepted authority")
+    let SqlStatementResult::Describe(crate::db::SqlDescribeOutput::Verbose { description }) =
+        session
+            .execute_trusted_sql_query("DESCRIBE public.singleton VERBOSE")
+            .expect("lowercase DESCRIBE should resolve accepted authority")
     else {
         panic!("DESCRIBE should return accepted schema metadata");
     };

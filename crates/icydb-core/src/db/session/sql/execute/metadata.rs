@@ -4,10 +4,14 @@
 //! Boundary: keeps DESCRIBE/SHOW command routing and response envelopes out
 //! of the execution hub.
 
+use crate::db::sql::parser::SqlDescribeMode;
 use crate::db::{
+    SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
     schema::{
         AcceptedEntityDescriptionMetadata, describe_accepted_entity_with_persisted_schema,
+        describe_compact_columns_with_persisted_schema,
         describe_entity_fields_with_persisted_schema,
+        describe_entity_relations_with_persisted_schema,
     },
     session::{
         AcceptedSchemaCatalogContext,
@@ -41,7 +45,21 @@ impl<C: CanisterKind> DbSession<C> {
     fn describe_entity_sql_statement_result_with_catalog(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
+        mode: SqlDescribeMode,
     ) -> Result<SqlStatementResult, QueryError> {
+        if mode == SqlDescribeMode::Compact {
+            return describe_compact_columns_with_persisted_schema(
+                catalog.snapshot(),
+                catalog.value_catalog_handle(),
+            )
+            .map(|columns| {
+                SqlStatementResult::Describe(SqlDescribeOutput::Compact {
+                    entity: catalog.snapshot().entity_name().to_string(),
+                    columns,
+                })
+            })
+            .map_err(QueryError::execute);
+        }
         let validation_jobs = self
             .constraint_validation_jobs_for_accepted_catalog(catalog)
             .map_err(QueryError::execute)?;
@@ -60,7 +78,7 @@ impl<C: CanisterKind> DbSession<C> {
             ),
             |target_path| catalog.relation_target_description(target_path),
         )
-        .map(SqlStatementResult::Describe)
+        .map(|description| SqlStatementResult::Describe(SqlDescribeOutput::Verbose { description }))
         .map_err(QueryError::execute)
     }
 
@@ -89,13 +107,45 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn show_columns_sql_statement_result_with_catalog(
         catalog: &AcceptedSchemaCatalogContext,
+        mode: SqlDescribeMode,
     ) -> Result<SqlStatementResult, QueryError> {
+        if mode == SqlDescribeMode::Compact {
+            return describe_compact_columns_with_persisted_schema(
+                catalog.snapshot(),
+                catalog.value_catalog_handle(),
+            )
+            .map(|columns| {
+                SqlStatementResult::ShowColumns(SqlShowColumnsOutput::Compact {
+                    entity: catalog.snapshot().entity_name().to_string(),
+                    columns,
+                })
+            })
+            .map_err(QueryError::execute);
+        }
         describe_entity_fields_with_persisted_schema(
             catalog.snapshot(),
             catalog.value_catalog_handle(),
         )
-        .map(SqlStatementResult::ShowColumns)
+        .map(|columns| {
+            SqlStatementResult::ShowColumns(SqlShowColumnsOutput::Verbose {
+                entity: catalog.snapshot().entity_name().to_string(),
+                columns,
+            })
+        })
         .map_err(QueryError::execute)
+    }
+
+    fn show_relations_sql_statement_result_with_catalog(
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let relations =
+            describe_entity_relations_with_persisted_schema(catalog.snapshot(), &|target_path| {
+                catalog.relation_target_description(target_path)
+            })
+            .map_err(QueryError::execute)?;
+        SqlShowRelationsOutput::new(catalog.snapshot().entity_name().to_string(), relations)
+            .map(SqlStatementResult::ShowRelations)
+            .map_err(QueryError::execute)
     }
 
     fn show_indexes_sql_statement_result_with_catalog(
@@ -148,8 +198,8 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>> {
         let result = match compiled {
-            CompiledSqlCommand::DescribeEntity => {
-                self.describe_entity_sql_statement_result_with_catalog(catalog?)
+            CompiledSqlCommand::DescribeEntity { mode } => {
+                self.describe_entity_sql_statement_result_with_catalog(catalog?, *mode)
             }
             CompiledSqlCommand::ShowConstraintsEntity => {
                 self.show_constraints_sql_statement_result_with_catalog(catalog?)
@@ -157,8 +207,11 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::ShowIndexesEntity => {
                 Ok(self.show_indexes_sql_statement_result_with_catalog(catalog?))
             }
-            CompiledSqlCommand::ShowColumnsEntity => {
-                Self::show_columns_sql_statement_result_with_catalog(catalog?)
+            CompiledSqlCommand::ShowColumnsEntity { mode } => {
+                Self::show_columns_sql_statement_result_with_catalog(catalog?, *mode)
+            }
+            CompiledSqlCommand::ShowRelationsEntity => {
+                Self::show_relations_sql_statement_result_with_catalog(catalog?)
             }
             CompiledSqlCommand::ShowEntities { entity, verbose } => {
                 self.show_entities_sql_statement_result(entity.as_deref(), *verbose)

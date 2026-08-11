@@ -34,6 +34,7 @@ pub(in crate::db::sql::lowering) fn validate_sql_statement_ast_depth(
         | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowRelations(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => Ok(()),

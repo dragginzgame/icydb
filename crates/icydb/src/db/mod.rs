@@ -92,7 +92,9 @@ pub use icydb_core::db::{
     MemoryCatalogDescription, QuickIntegrityResult, QuickIntegrityStatus, SchemaApplicationStore,
     SchemaApplicationTarget, SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome,
     SchemaChangeProgress, SchemaChangeProgressStatus, SchemaChangeReceipt,
-    SchemaChangeValidationPhase, SchemaStoreSnapshot, StorageReport, StoreCatalogDescription,
+    SchemaChangeValidationPhase, SchemaStoreSnapshot, SqlColumnDefault, SqlColumnExtra,
+    SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowColumnsOutput,
+    SqlShowRelationsOutput, StorageReport, StoreCatalogDescription,
 };
 #[cfg(feature = "sql")]
 pub use icydb_core::db::{

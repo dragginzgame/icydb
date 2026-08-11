@@ -41,7 +41,10 @@ use ic_testkit::pic::{
 };
 use icydb::{
     Error, ErrorOrigin,
-    db::{EntitySchemaDescription, SqlQueryExecutionAttribution, sql::SqlQueryResult},
+    db::{
+        EntitySchemaDescription, SqlDescribeOutput, SqlQueryExecutionAttribution,
+        SqlShowColumnsOutput, sql::SqlQueryResult,
+    },
     diagnostic::{DiagnosticCode, ErrorClass},
 };
 use icydb_testing_integration::{
@@ -54,6 +57,7 @@ use icydb_testing_integration::{
     },
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, DiagnosticFact,
@@ -2942,10 +2946,17 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> MatrixOutcome {
             entity: entity.clone(),
             row_count: 1,
         },
-        SqlQueryResult::Describe(entity) => MatrixOutcome {
-            result_kind: "describe".to_string(),
-            entity: entity.entity_name().to_string(),
-            row_count: entity.fields().len(),
+        SqlQueryResult::Describe(output) => match output {
+            SqlDescribeOutput::Compact { entity, columns } => MatrixOutcome {
+                result_kind: "describe".to_string(),
+                entity: entity.clone(),
+                row_count: columns.len(),
+            },
+            SqlDescribeOutput::Verbose { description } => MatrixOutcome {
+                result_kind: "describe".to_string(),
+                entity: description.entity_name().to_string(),
+                row_count: description.fields().len(),
+            },
         },
         SqlQueryResult::ShowIndexes { entity, indexes } => MatrixOutcome {
             result_kind: "show_indexes".to_string(),
@@ -2960,10 +2971,22 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> MatrixOutcome {
             entity: entity.clone(),
             row_count: constraints.len(),
         },
-        SqlQueryResult::ShowColumns { entity, columns } => MatrixOutcome {
-            result_kind: "show_columns".to_string(),
-            entity: entity.clone(),
-            row_count: columns.len(),
+        SqlQueryResult::ShowColumns(output) => match output {
+            SqlShowColumnsOutput::Compact { entity, columns } => MatrixOutcome {
+                result_kind: "show_columns".to_string(),
+                entity: entity.clone(),
+                row_count: columns.len(),
+            },
+            SqlShowColumnsOutput::Verbose { entity, columns } => MatrixOutcome {
+                result_kind: "show_columns".to_string(),
+                entity: entity.clone(),
+                row_count: columns.len(),
+            },
+        },
+        SqlQueryResult::ShowRelations(output) => MatrixOutcome {
+            result_kind: "show_relations".to_string(),
+            entity: output.entity().to_string(),
+            row_count: output.relations().len(),
         },
         SqlQueryResult::ShowEntities { entities, .. } => MatrixOutcome {
             result_kind: "show_entities".to_string(),
@@ -6815,6 +6838,113 @@ fn sql_perf_shared_wasm_reader_requires_a_webassembly_module() {
         b"\0asm\x01\0\0\0",
     );
     fs::remove_file(path).expect("temporary subject should be removable");
+}
+
+fn introspection_baseline_sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut hex, "{byte:02x}").expect("writing to a String should succeed");
+    }
+    hex
+}
+
+#[test]
+#[ignore = "release evidence over the exact shared wasm-release SQL subject"]
+fn sql_introspection_0_224_contract_is_exactly_measured() {
+    let wasm = read_matrix_canister_wasm();
+    let cases = [
+        (
+            "DESCRIBE PerfAuditUser",
+            "describe",
+            Some((405_880, Some(107_313), 2_757)),
+        ),
+        (
+            "DESCRIBE PerfAuditUser VERBOSE",
+            "describe",
+            Some((450_000, None, 3_200)),
+        ),
+        (
+            "SHOW COLUMNS PerfAuditUser",
+            "show_columns",
+            Some((405_880, None, 2_757)),
+        ),
+        (
+            "SHOW COLUMNS PerfAuditUser VERBOSE",
+            "show_columns",
+            Some((370_000, None, 2_100)),
+        ),
+        (
+            "SHOW RELATIONS FROM PerfAuditUser",
+            "show_relations",
+            Some((350_000, None, 512)),
+        ),
+        ("SHOW INDEXES FROM PerfAuditUser", "show_indexes", None),
+        (
+            "SHOW CONSTRAINTS FROM PerfAuditUser",
+            "show_constraints",
+            None,
+        ),
+    ];
+
+    for (sql, expected_kind, ceiling) in cases {
+        let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
+        reset_icydb_fixtures(&fixture);
+        let response: Result<SqlQueryPerfResult, Error> = fixture
+            .query_candid("query_user_with_perf", (sql.to_string(),))
+            .unwrap_or_else(|error| panic!("{sql} baseline response should decode: {error}"));
+        let perf =
+            response.unwrap_or_else(|error| panic!("{sql} baseline should succeed: {error}"));
+        let outcome = summarize_perf_outcome(&perf.result);
+        assert_eq!(
+            outcome.result_kind, expected_kind,
+            "the baseline query must retain its exact result family",
+        );
+
+        let result_bytes = encode_one(&perf.result)
+            .unwrap_or_else(|error| panic!("{sql} result should encode: {error}"));
+        let endpoint_response: Result<SqlQueryResult, Error> = Ok(perf.result.clone());
+        let response_bytes = encode_one(&endpoint_response)
+            .unwrap_or_else(|error| panic!("{sql} endpoint response should encode: {error}"));
+        let contract_bytes = match &perf.result {
+            SqlQueryResult::ShowRelations(output) => encode_one(output)
+                .unwrap_or_else(|error| panic!("{sql} relation payload should encode: {error}")),
+            _ => response_bytes.clone(),
+        };
+
+        if let Some((total_ceiling, execute_ceiling, candid_ceiling)) = ceiling {
+            assert!(
+                perf.attribution.total_local_instructions <= total_ceiling,
+                "{sql} exceeded its frozen total-instruction ceiling: {} > {total_ceiling}",
+                perf.attribution.total_local_instructions,
+            );
+            if let Some(execute_ceiling) = execute_ceiling {
+                assert!(
+                    perf.attribution.execute_local_instructions <= execute_ceiling,
+                    "{sql} exceeded its frozen execute-instruction ceiling: {} > {execute_ceiling}",
+                    perf.attribution.execute_local_instructions,
+                );
+            }
+            assert!(
+                contract_bytes.len() <= candid_ceiling,
+                "{sql} exceeded its frozen like-for-like Candid ceiling: {} > {candid_ceiling}",
+                contract_bytes.len(),
+            );
+        }
+
+        println!(
+            "introspection_contract sql={sql:?} compile={} execute={} total={} result_candid_bytes={} result_candid_sha256={} response_candid_bytes={} response_candid_sha256={} contract_candid_bytes={} contract_candid_sha256={}",
+            perf.attribution.compile_local_instructions,
+            perf.attribution.execute_local_instructions,
+            perf.attribution.total_local_instructions,
+            result_bytes.len(),
+            introspection_baseline_sha256(&result_bytes),
+            response_bytes.len(),
+            introspection_baseline_sha256(&response_bytes),
+            contract_bytes.len(),
+            introspection_baseline_sha256(&contract_bytes),
+        );
+    }
 }
 
 #[test]

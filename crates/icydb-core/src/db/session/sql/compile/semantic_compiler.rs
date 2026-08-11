@@ -62,6 +62,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
             SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, entity_name),
             SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, entity_name),
+            SqlStatement::ShowRelations(_) => Self::compile_show_relations(statement, entity_name),
             SqlStatement::ShowEntities(statement) => Ok(Self::compile_show_entities(
                 statement.entity.clone(),
                 statement.verbose,
@@ -311,8 +312,13 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepare_local_instructions, _prepared) =
             Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
+        let SqlStatement::Describe(describe) = statement else {
+            return Err(QueryError::invariant());
+        };
         Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::DescribeEntity,
+            CompiledSqlCommand::DescribeEntity {
+                mode: describe.mode,
+            },
             0,
             prepare_local_instructions,
             0,
@@ -365,8 +371,30 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepare_local_instructions, _prepared) =
             Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
+        let SqlStatement::ShowColumns(show_columns) = statement else {
+            return Err(QueryError::invariant());
+        };
         Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowColumnsEntity,
+            CompiledSqlCommand::ShowColumnsEntity {
+                mode: show_columns.mode,
+            },
+            0,
+            prepare_local_instructions,
+            0,
+            0,
+        ))
+    }
+
+    // Compile SHOW RELATIONS into the fixed accepted-catalog projection.
+    fn compile_show_relations(
+        statement: &SqlStatement,
+        entity_name: &str,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, _prepared) =
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::ShowRelationsEntity,
             0,
             prepare_local_instructions,
             0,

@@ -702,6 +702,23 @@ type SchemaStoreSnapshot = record {
   entity_count : nat64;
   schema_fingerprint : opt text;
 };
+type SqlColumnDefault = variant {
+  NotApplicable;
+  Auto;
+  Null;
+  Literal : record { "text" : text };
+  Required;
+};
+type SqlColumnExtra = variant { Relation; Generated; Identity };
+type SqlColumnKey = variant { None; Primary; Multiple; Unique };
+type SqlColumnSummary = record {
+  key : SqlColumnKey;
+  nullable : bool;
+  field_type : text;
+  name : text;
+  extra : vec SqlColumnExtra;
+  default : SqlColumnDefault;
+};
 type SqlConstraintValidationOutput = record {
   page_sequence : opt nat64;
   complete : bool;
@@ -711,6 +728,10 @@ type SqlConstraintValidationOutput = record {
   findings : vec ConstraintValidationFindingOutput;
   activation_epoch : opt nat64;
   rows_scanned : nat64;
+};
+type SqlDescribeOutput = variant {
+  Verbose : record { description : EntitySchemaDescription };
+  Compact : record { entity : text; columns : vec SqlColumnSummary };
 };
 type SqlGroupedRowsOutput = record {
   entity : text;
@@ -746,6 +767,7 @@ type SqlQueryResult = variant {
     constraint_validation : opt SqlConstraintValidationOutput;
     rows_scanned : nat64;
   };
+  ShowRelations : SqlShowRelationsOutput;
   ShowConstraints : record {
     entity : text;
     constraints : vec EntityConstraintDescription;
@@ -758,11 +780,19 @@ type SqlQueryResult = variant {
     entities : vec EntityCatalogDescription;
   };
   ShowIndexes : record { entity : text; indexes : vec text };
-  ShowColumns : record { entity : text; columns : vec EntityFieldDescription };
+  ShowColumns : SqlShowColumnsOutput;
   Projection : RowProjectionOutput;
   Count : record { entity : text; row_count : nat32 };
-  Describe : EntitySchemaDescription;
+  Describe : SqlDescribeOutput;
   Explain : record { entity : text; explain : text };
+};
+type SqlShowColumnsOutput = variant {
+  Verbose : record { entity : text; columns : vec EntityFieldDescription };
+  Compact : record { entity : text; columns : vec SqlColumnSummary };
+};
+type SqlShowRelationsOutput = record {
+  entity : text;
+  relations : vec EntityRelationDescription;
 };
 type StorageReport = record {
   corrupted_entries : nat64;

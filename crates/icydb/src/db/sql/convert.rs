@@ -59,7 +59,7 @@ pub(crate) fn sql_query_result_from_statement(
             entity: entity_name,
             explain,
         },
-        SqlStatementResult::Describe(description) => SqlQueryResult::Describe(description),
+        SqlStatementResult::Describe(output) => SqlQueryResult::Describe(output),
         SqlStatementResult::ShowConstraints(constraints) => SqlQueryResult::ShowConstraints {
             entity: entity_name,
             constraints,
@@ -68,10 +68,8 @@ pub(crate) fn sql_query_result_from_statement(
             entity: entity_name,
             indexes,
         },
-        SqlStatementResult::ShowColumns(columns) => SqlQueryResult::ShowColumns {
-            entity: entity_name,
-            columns,
-        },
+        SqlStatementResult::ShowColumns(output) => SqlQueryResult::ShowColumns(output),
+        SqlStatementResult::ShowRelations(output) => SqlQueryResult::ShowRelations(output),
         SqlStatementResult::ShowEntities { entities, verbose } => {
             SqlQueryResult::ShowEntities { entities, verbose }
         }

@@ -1,0 +1,48 @@
+entity: Account
+path: fixtures::pre_0_224::Account
+row layout: current=3 history_floor=1
+identity: field=id generator=Identity::next type=Nat64 domain=1..=18446744073709551615 high_water=17 remaining=18446744073709551598 exhausted=no
+
+fields:
++------------------+------+--------------------+----------+-----+-----------+-----------+-----------------+----------------+---------------+------------------+-------------------+-----------------+------------+------------------+
+| name             | slot | type               | nullable | pk  | queryable | origin    | insert omission | insert default | default bytes | default hash     | introduced layout | historical fill | fill bytes | fill hash        |
++------------------+------+--------------------+----------+-----+-----------+-----------+-----------------+----------------+---------------+------------------+-------------------+-----------------+------------+------------------+
+| id               | 0    | Nat64              | no       | yes | yes       | generated | generated       | -              | -             | -                | 1                 | reject          | -          | -                |
+| display_name     | 1    | Text(64)           | no       | no  | yes       | generated | required        | -              | -             | -                | 1                 | reject          | -          | -                |
+| profile          | 2    | Composite(Profile) | yes      | no  | yes       | generated | null            | -              | -             | -                | 1                 | reject          | -          | -                |
+| profile.nickname | -    | Text(32)           | yes      | no  | yes       | generated | -               | -              | -             | -                | -                 | -               | -          | -                |
+| profile.rank     | -    | Nat16              | yes      | no  | yes       | generated | -               | -              | -             | -                | -                 | -               | -          | -                |
+| friend_id        | 3    | Nat64              | yes      | no  | yes       | generated | null            | -              | -             | -                | 1                 | reject          | -          | -                |
+| member_ids       | 4    | List<Nat64>(16)    | no       | no  | yes       | generated | required        | -              | -             | -                | 1                 | reject          | -          | -                |
+| watcher_ids      | 5    | Set<Nat64>(16)     | no       | no  | yes       | generated | required        | -              | -             | -                | 1                 | reject          | -          | -                |
+| legacy_score     | 6    | Int32              | no       | no  | yes       | ddl       | default         | 7              | 5             | 5e0f8f3b90b05d27 | 3                 | 7               | 5          | 5e0f8f3b90b05d27 |
++------------------+------+--------------------+----------+-----+-----------+-----------+-----------------+----------------+---------------+------------------+-------------------+-----------------+------------+------------------+
+
+indexes:
++--------------------------+----------------------------+--------+-----------+
+| name                     | fields                     | unique | origin    |
++--------------------------+----------------------------+--------+-----------+
+| account_pk               | id                         | yes    | generated |
+| account_display_name_idx | display_name               | no     | generated |
+| account_score_name_idx   | legacy_score, display_name | yes    | ddl       |
++--------------------------+----------------------------+--------+-----------+
+
+relations:
++-------------+--------+-------------+
+| field       | target | cardinality |
++-------------+--------+-------------+
+| friend_id   | User   | Single      |
+| member_ids  | Group  | List        |
+| watcher_ids | User   | Set         |
++-------------+--------+-------------+
+
+constraints:
++----+-------------------------------+-------------+----------------------------+-----------+------------+---------+--------------+----------+----------+-------------------------+-------------------+
+| id | name                          | kind        | fields                     | origin    | state      | phase   | rows_scanned | findings | restarts | semantics               | check_sql         |
++----+-------------------------------+-------------+----------------------------+-----------+------------+---------+--------------+----------+----------+-------------------------+-------------------+
+| 0  | account_pk                    | primary_key | id                         | generated | validated  | -       | -            | -        | -        | primary_key_v1          | -                 |
+| 8  | account_score_name_unique     | unique      | legacy_score, display_name | sql_ddl   | validated  | -       | -            | -        | -        | unique_index_v1         | -                 |
+| 9  | account_score_nonnegative     | check       | legacy_score               | sql_ddl   | validated  | -       | -            | -        | -        | check_expr_v1           | legacy_score >= 0 |
+| 10 | account_friend_relation       | relation    | friend_id                  | generated | validated  | -       | -            | -        | -        | relation_pk_restrict_v1 | -                 |
+| 11 | account_display_name_not_null | not_null    | display_name               | sql_ddl   | validating | forward | 41           | 2        | 1        | not_null_v1             | -                 |
++----+-------------------------------+-------------+----------------------------+-----------+------------+---------+--------------+----------+----------+-------------------------+-------------------+

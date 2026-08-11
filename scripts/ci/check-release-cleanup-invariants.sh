@@ -21,6 +21,23 @@ target_recipe() {
   ' "$MAKEFILE"
 }
 
+if ! target_recipe validate | awk '
+  /\$\(MAKE\).* fmt-check([[:space:]]|$)/ { fmt_line = NR }
+  /\$\(MAKE\).* check-invariants([[:space:]]|$)/ { invariants_line = NR }
+  /\$\(MAKE\).* check-feature-matrix([[:space:]]|$)/ { features_line = NR }
+  /\$\(MAKE\).* check([[:space:]]|$)/ { check_line = NR }
+  /\$\(MAKE\).* clippy([[:space:]]|$)/ { clippy_line = NR }
+  /\$\(MAKE\).* test([[:space:]]|$)/ { test_line = NR }
+  END {
+    exit !(fmt_line > 0 && invariants_line > fmt_line &&
+           features_line > invariants_line && check_line > features_line &&
+           clippy_line > check_line && test_line > clippy_line)
+  }
+'; then
+  echo "validate must compose formatting, invariants, feature checks, check, clippy, and tests in order" >&2
+  exit 1
+fi
+
 for target in patch minor major release-stage release-commit; do
   if target_recipe "$target" | awk -v cleanup="$CLEANUP_SCRIPT" 'index($0, cleanup) { found = 1 } END { exit !found }'; then
     echo "release cleanup must not run from $target" >&2
@@ -36,19 +53,19 @@ for target in patch minor major; do
       if (verified_count == 1) first_verified_line = NR
       second_verified_line = NR
     }
-    /\$\(MAKE\).*test([;[:space:]]|$)/ { test_line = NR }
+    /\$\(MAKE\).*validate([;[:space:]]|$)/ { validate_line = NR }
     /\$\(MAKE\).*ensure-clean/ { clean_line = NR }
     index($0, "bump-version.sh " target) { bump_line = NR }
     /release-candidate-receipt\.sh record.*candidate_commit/ { receipt_line = NR }
     END {
       exit !(candidate_line > 0 && first_verified_line > candidate_line &&
-             test_line > first_verified_line &&
-             second_verified_line > test_line && verified_count == 2 &&
+             validate_line > first_verified_line &&
+             second_verified_line > validate_line && verified_count == 2 &&
              clean_line == 0 && bump_line > second_verified_line &&
              receipt_line > bump_line)
     }
   '; then
-    echo "$target must reject dirty candidates before testing, reverify afterward, then bump and record the transition" >&2
+    echo "$target must reject dirty candidates before validation, reverify afterward, then bump and record the transition" >&2
     exit 1
   fi
 done
@@ -78,12 +95,12 @@ if ! target_recipe release-commit | awk '
   /git commit -m/ { commit_line = NR }
   /release-candidate-receipt\.sh verify-commit/ { verified_line = NR }
   /\$\(MAKE\).*ensure-clean/ { clean_line = NR }
-  /\$\(MAKE\).*test/ { test_line = NR }
+  /\$\(MAKE\).*validate/ { validate_line = NR }
   /git tag -a/ { tag_line = NR }
   /record-release-gate-receipt\.sh/ { receipt_line = NR }
   END {
     exit !(staged_line > 0 && commit_line > staged_line &&
-           verified_line > commit_line && clean_line == 0 && test_line == 0 &&
+           verified_line > commit_line && clean_line == 0 && validate_line == 0 &&
            tag_line > verified_line &&
            receipt_line > tag_line)
   }
@@ -112,16 +129,6 @@ done
 
 if [[ "$(grep -c 'record-release-gate-receipt\.sh' "$MAKEFILE")" -ne 1 ]]; then
   echo "the Makefile must record the release-gate receipt exactly once" >&2
-  exit 1
-fi
-
-PRE_PUSH="$ROOT/.githooks/pre-push"
-if ! awk '
-  /verify-release-gate-receipt\.sh/ { verify_line = NR }
-  /make -C .* test/ { test_line = NR }
-  END { exit !(verify_line > 0 && test_line > verify_line) }
-' "$PRE_PUSH"; then
-  echo "pre-push must verify an exact release receipt before its ordinary full gate" >&2
   exit 1
 fi
 

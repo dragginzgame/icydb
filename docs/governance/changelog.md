@@ -276,8 +276,8 @@ For each release:
 2. Update CHANGELOG.md with one concise bullet for the target patch.
 3. Create or update docs/changelog/<major>.<minor>.md.
 4. Commit the code and changelog changes.
-5. Run `make patch`, `make minor`, or `make major`. The target runs the full
-   gate once against the source candidate before any version mutation. Root or
+5. Run `make patch`, `make minor`, or `make major`. The target runs
+   `make validate` once against the source candidate before any version mutation. Root or
    detailed changelog edits may remain staged or unstaged and are included in
    the release transition; every other tracked change stops the release before
    the expensive gate starts and is checked again afterward. The version bump
@@ -289,15 +289,15 @@ For each release:
 8. Run `make release-commit`. It must verify the staged diff against the tested
    candidate receipt, commit only that transition, verify the committed diff
    again, then tag it and record the exact release-commit receipt. It must not
-   rerun the full gate after creating the commit.
-9. Run `make release-push` to publish the release tag. The pre-push hook reuses
-   only the exact matching release receipt; ordinary pushes remain fully gated.
+   rerun validation after creating the commit.
+9. Run `make release-push` to publish the release tag. Push performs no hidden
+   validation; the explicit pre-bump `make validate` workflow owns that work.
 
 Order must be preserved.
 Patch releases are batch boundaries, not required endpoints for each code
 slice. After code and changelog changes are committed, the reviewable release flow is
 `make patch`, `git diff`, `make release-stage`, `make release-commit`,
-`make release-push`, then `cargo publish`. A failed full gate leaves the
+`make release-push`, then `cargo publish`. A failed validation workflow leaves the
 version, release commit, and tag untouched.
 
 ---

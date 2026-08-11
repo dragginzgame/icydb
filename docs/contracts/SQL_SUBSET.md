@@ -189,10 +189,12 @@ Supported shapes:
 
 Supported commands:
 
-- `DESCRIBE entity`
+- `DESCRIBE entity` / `DESCRIBE entity VERBOSE`
 - `SHOW INDEXES FROM entity`
 - `SHOW INDEXES IN entity`
-- `SHOW COLUMNS entity`
+- `SHOW COLUMNS entity` / `SHOW COLUMNS entity VERBOSE`
+- `SHOW RELATIONS FROM entity`
+- `SHOW RELATIONS IN entity`
 - `SHOW CONSTRAINTS FROM entity`
 - `SHOW CONSTRAINTS IN entity`
 - `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
@@ -230,25 +232,30 @@ entity-model indexes report `origin=generated`; indexes added through SQL DDL
 report `origin=ddl`. Only DDL-origin field-path indexes are droppable through
 SQL DDL.
 
-`DESCRIBE` includes the same generated-vs-DDL index origin metadata in its
-structured index payload and shell rendering, so schema tooling can distinguish
-model-owned indexes from DDL-created indexes without scraping `SHOW INDEXES`.
-`DESCRIBE` and `SHOW COLUMNS` also expose accepted insertion policy separately
-from historical physical absence. Field rows report `insert_omission`, a
-bounded canonical `insert_default` plus its byte count and hash,
-`introduced_in_layout`, and a separately decoded `historical_fill` plus its
-byte count and hash. `DESCRIBE` additionally reports the current row-layout
-version and admitted history floor. Corrupt accepted temporal payloads reject
-introspection rather than falling back to generated metadata or a byte-only
-display.
+Default `DESCRIBE` and `SHOW COLUMNS` return the same compact accepted column
+rows with fixed `name`, `type`, `nullable`, `key`, `default`, and `extra`
+columns. Key labels are `PRI`, single-field `UNI`, compound/non-unique `MUL`,
+or `-`; a compound unique member never implies independent uniqueness. Compact
+defaults use accepted insert behavior only, and nested fields use canonical
+dotted paths with ancestor-aware nullability.
 
-`DESCRIBE` and `SHOW CONSTRAINTS` consume one constraint projection ordered by
-stable constraint ID. It merges validated accepted constraints with live
-activations and reports accepted identity, origin, current display names,
-referenced fields, structural semantics, activation state, durable validation
-phase/counters, and canonical accepted check SQL. The check text is rendered
-from the field-ID-bound accepted expression through current accepted names; it
-never falls back to proposal or source SQL.
+`DESCRIBE ... VERBOSE` retains the complete operational schema dossier,
+including generated-vs-DDL index origin, accepted identity state, row-layout
+history, relations, constraints, and validation progress. `SHOW COLUMNS ...
+VERBOSE` returns its detailed accepted field/layout table only. Those verbose
+field rows expose insertion policy separately from historical physical
+absence: `insert_omission`, bounded canonical `insert_default` facts,
+`introduced_in_layout`, and separately decoded `historical_fill` facts.
+Corrupt accepted temporal payloads reject introspection rather than falling
+back to generated metadata or a byte-only display.
+
+`SHOW RELATIONS FROM|IN entity` returns accepted relation rows in stable
+relation-ID order. Its shell table uses the qualified accepted target path and
+the closed `Single`, `List`, or `Set` cardinality. Verbose `DESCRIBE` and `SHOW
+CONSTRAINTS` continue to consume the maintained constraint projection ordered
+by stable constraint ID. It reports accepted identity, origin, current display
+names, referenced fields, structural semantics, activation state, durable
+validation phase/counters, and canonical accepted check SQL.
 
 While a targeted-rule semantic edit is pending, the projection emits two
 adjacent lifecycle entries with the same stable constraint ID: the currently

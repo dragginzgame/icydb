@@ -615,7 +615,8 @@ const fn result_rows(result: &SqlQueryResult) -> u32 {
         | SqlQueryResult::Describe(_)
         | SqlQueryResult::ShowIndexes { .. }
         | SqlQueryResult::ShowConstraints { .. }
-        | SqlQueryResult::ShowColumns { .. }
+        | SqlQueryResult::ShowColumns(_)
+        | SqlQueryResult::ShowRelations(_)
         | SqlQueryResult::ShowEntities { .. }
         | SqlQueryResult::ShowStores { .. }
         | SqlQueryResult::ShowMemory { .. }

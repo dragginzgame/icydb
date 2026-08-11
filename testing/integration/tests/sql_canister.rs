@@ -28,7 +28,8 @@ use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{
         EntitySchemaDescription, IntegrityCheckResult, QuickIntegrityStatus, RowProjectionOutput,
-        SqlIntegrityError, StorageReport,
+        SqlColumnDefault, SqlColumnExtra, SqlColumnKey, SqlDescribeOutput, SqlIntegrityError,
+        SqlShowColumnsOutput, StorageReport,
         sql::{SqlGroupedRowsOutput, SqlQueryPerfResult, SqlQueryResult},
     },
     diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
@@ -131,8 +132,9 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
         .iter()
         .find(|entity| entity.entity_name() == "SqlTestUser")
         .expect("schema endpoint should describe SqlTestUser");
-    let SqlQueryResult::Describe(sql_entity) =
-        query_sql(&fixture, "DESCRIBE SqlTestUser").expect("SQL DESCRIBE should succeed")
+    let SqlQueryResult::Describe(SqlDescribeOutput::Verbose {
+        description: sql_entity,
+    }) = query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE").expect("SQL DESCRIBE should succeed")
     else {
         panic!("SQL DESCRIBE should return one entity description");
     };
@@ -145,6 +147,114 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
         sql_entity.accepted_schema_fingerprint(),
         endpoint_entity.accepted_schema_fingerprint()
     );
+}
+
+#[test]
+fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
+    let fixture = install_sql_canister_fixture();
+    let describe =
+        query_sql(&fixture, "DESCRIBE SqlTestUser").expect("compact DESCRIBE should succeed");
+    let SqlQueryResult::Describe(SqlDescribeOutput::Compact { entity, columns }) = describe else {
+        panic!("default DESCRIBE must hard-cut to the compact result");
+    };
+    assert_eq!(entity, "SqlTestUser");
+
+    let show_columns = query_sql(&fixture, "SHOW COLUMNS sqltestuser")
+        .expect("case-insensitive compact SHOW COLUMNS should succeed");
+    let SqlQueryResult::ShowColumns(SqlShowColumnsOutput::Compact {
+        entity: show_entity,
+        columns: show_columns,
+    }) = show_columns
+    else {
+        panic!("default SHOW COLUMNS must hard-cut to the compact result");
+    };
+    assert_eq!(show_entity, "SqlTestUser");
+    assert_eq!(
+        columns, show_columns,
+        "both commands must share one projector"
+    );
+
+    let id = columns
+        .iter()
+        .find(|column| column.name() == "id")
+        .expect("compact rows should include id");
+    assert_eq!(id.key(), SqlColumnKey::Primary);
+    assert_eq!(id.default(), &SqlColumnDefault::Auto);
+    assert_eq!(id.extra(), &[SqlColumnExtra::Generated]);
+
+    let name = columns
+        .iter()
+        .find(|column| column.name() == "name")
+        .expect("compact rows should include name");
+    assert_eq!(name.key(), SqlColumnKey::Multiple);
+    assert_eq!(name.default(), &SqlColumnDefault::Required);
+    assert!(name.extra().is_empty());
+
+    for timestamp in ["created_at", "updated_at"] {
+        let column = columns
+            .iter()
+            .find(|column| column.name() == timestamp)
+            .unwrap_or_else(|| panic!("compact rows should include {timestamp}"));
+        assert_eq!(column.default(), &SqlColumnDefault::Auto);
+        assert_eq!(column.extra(), &[SqlColumnExtra::Generated]);
+    }
+
+    let identity = query_sql(&fixture, "DESCRIBE SqlTestIdentityNat64")
+        .expect("accepted Identity metadata should be compactly describable");
+    let SqlQueryResult::Describe(SqlDescribeOutput::Compact {
+        columns: identity_columns,
+        ..
+    }) = identity
+    else {
+        panic!("Identity DESCRIBE should use the compact envelope");
+    };
+    let identity_id = identity_columns
+        .iter()
+        .find(|column| column.name() == "id")
+        .expect("Identity compact rows should include id");
+    assert_eq!(identity_id.default(), &SqlColumnDefault::Auto);
+    assert_eq!(
+        identity_id.extra(),
+        &[SqlColumnExtra::Identity, SqlColumnExtra::Generated],
+    );
+
+    let rendered = SqlQueryResult::Describe(SqlDescribeOutput::Compact {
+        entity,
+        columns: columns.clone(),
+    })
+    .render_lines();
+    assert_eq!(
+        rendered
+            .iter()
+            .filter(|line| {
+                line.split('|')
+                    .map(str::trim)
+                    .filter(|cell| !cell.is_empty())
+                    .eq(["name", "type", "nullable", "key", "default", "extra"])
+            })
+            .count(),
+        1,
+        "compact DESCRIBE renders exactly one table",
+    );
+    assert!(!rendered.iter().any(|line| line.starts_with("entity:")));
+
+    let from = query_sql(&fixture, "SHOW RELATIONS FROM SqlTestUser")
+        .expect("SHOW RELATIONS FROM should succeed");
+    let in_form = query_sql(&fixture, "SHOW RELATIONS IN SqlTestUser")
+        .expect("SHOW RELATIONS IN should succeed");
+    assert_eq!(from, in_form);
+    let SqlQueryResult::ShowRelations(relations) = from else {
+        panic!("SHOW RELATIONS should return its dedicated typed result");
+    };
+    assert_eq!(relations.entity(), "SqlTestUser");
+    assert!(relations.relations().is_empty());
+
+    let compact_error = query_sql(&fixture, "DESCRIBE MissingIntrospectionEntity")
+        .expect_err("compact missing entity should fail");
+    let verbose_error = query_sql(&fixture, "DESCRIBE MissingIntrospectionEntity VERBOSE")
+        .expect_err("verbose missing entity should fail");
+    assert_eq!(compact_error.code(), verbose_error.code());
+    assert_eq!(compact_error.class(), verbose_error.class());
 }
 
 #[test]
@@ -395,7 +505,7 @@ fn expect_explain(result: SqlQueryResult) -> String {
 
 fn expect_describe(result: SqlQueryResult) -> EntitySchemaDescription {
     match result {
-        SqlQueryResult::Describe(description) => description,
+        SqlQueryResult::Describe(SqlDescribeOutput::Verbose { description }) => description,
         other => panic!("expected DESCRIBE payload, got {other:?}"),
     }
 }
@@ -1877,7 +1987,7 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
     let mut schema_version = DdlSchemaVersion::initial();
 
     let before_describe = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema before DDL"),
     );
     assert!(
@@ -1912,7 +2022,7 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
         .expect("supported CREATE INDEX DDL should publish before post-DDL visibility checks");
 
     let after_describe = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after DDL"),
     );
     assert!(
@@ -2057,7 +2167,7 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     assert_eq!(index_keys_written, 0);
 
     let describe_after_set = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after SET DEFAULT"),
     );
     assert!(
@@ -2110,7 +2220,7 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     assert_eq!(status, "published");
 
     let describe_after_drop = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after DROP DEFAULT"),
     );
     assert!(
@@ -2164,7 +2274,7 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
         .expect("bounded SET NOT NULL validation should promote the accepted constraint");
 
     let describe_after_set = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after SET NOT NULL"),
     );
     assert!(
@@ -2243,7 +2353,7 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
         ),
     ] {
         let before = expect_describe(
-            query_sql(&fixture, "DESCRIBE SqlTestUser")
+            query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
                 .expect("DESCRIBE should read accepted schema before rejected ALTER COLUMN"),
         );
         let err = schema_version
@@ -2259,7 +2369,7 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
             "{sql} should preserve the compact DDL admission leaf code",
         );
         let after = expect_describe(
-            query_sql(&fixture, "DESCRIBE SqlTestUser")
+            query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
                 .expect("DESCRIBE should read accepted schema after rejected ALTER COLUMN"),
         );
         assert_eq!(
@@ -2298,7 +2408,7 @@ fn sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication() {
         .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN handle text")
         .expect("setup second nullable ADD COLUMN should publish through the canister endpoint");
     let before = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema before DROP COLUMN"),
     );
     let error = schema_version
@@ -2314,7 +2424,7 @@ fn sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication() {
         "nonempty DROP COLUMN should preserve the migration-required leaf code",
     );
     let after = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after DROP COLUMN"),
     );
     assert!(
@@ -2392,7 +2502,7 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
         )
         .expect("setup filtered CREATE INDEX should publish through the canister endpoint");
     let before = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema before RENAME COLUMN"),
     );
     let rename = schema_version
@@ -2404,7 +2514,7 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
     assert_rename_column_ddl_report(rename);
 
     let after = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after RENAME COLUMN"),
     );
     assert_rename_column_schema_visibility(&before, &after);

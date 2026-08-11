@@ -13,7 +13,7 @@ use crate::db::{
     session::query::StructuralProjectionContract,
     sql::{
         lowering::SqlGlobalAggregateCommand,
-        parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
+        parser::{SqlDescribeMode, SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
 use std::{
@@ -48,10 +48,15 @@ pub(in crate::db) enum CompiledSqlCommand {
     Explain(Box<LoweredSqlCommand>),
     Insert(CompiledSqlInsertCommand),
     Update(SqlUpdateStatement),
-    DescribeEntity,
+    DescribeEntity {
+        mode: SqlDescribeMode,
+    },
     ShowConstraintsEntity,
     ShowIndexesEntity,
-    ShowColumnsEntity,
+    ShowColumnsEntity {
+        mode: SqlDescribeMode,
+    },
+    ShowRelationsEntity,
     ShowEntities {
         entity: Option<String>,
         verbose: bool,
@@ -132,10 +137,11 @@ impl CompiledSqlCommand {
             Self::Update(statement) => statement.returning.is_some(),
             #[cfg(feature = "sql")]
             Self::Explain(_) => false,
-            Self::DescribeEntity
+            Self::DescribeEntity { .. }
             | Self::ShowConstraintsEntity
             | Self::ShowIndexesEntity
-            | Self::ShowColumnsEntity
+            | Self::ShowColumnsEntity { .. }
+            | Self::ShowRelationsEntity
             | Self::ShowEntities { .. }
             | Self::ShowStores { .. }
             | Self::ShowMemory => false,

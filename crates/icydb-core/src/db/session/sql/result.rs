@@ -33,10 +33,11 @@ pub enum SqlStatementResult {
     },
     #[cfg(feature = "sql")]
     Explain(String),
-    Describe(crate::db::EntitySchemaDescription),
+    Describe(crate::db::SqlDescribeOutput),
     ShowConstraints(Vec<crate::db::EntityConstraintDescription>),
     ShowIndexes(Vec<String>),
-    ShowColumns(Vec<crate::db::EntityFieldDescription>),
+    ShowColumns(crate::db::SqlShowColumnsOutput),
+    ShowRelations(crate::db::SqlShowRelationsOutput),
     ShowEntities {
         entities: Vec<crate::db::EntityCatalogDescription>,
         verbose: bool,
