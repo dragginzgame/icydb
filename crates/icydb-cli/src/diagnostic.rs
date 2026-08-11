@@ -1010,6 +1010,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::SqlQueryEntityNotFound => {
             "SQL query target entity was not found in the accepted schema"
         }
+        RuntimeBoundaryCode::SqlQueryReplyBytesExceeded => {
+            "SQL query result exceeds the public reply byte limit"
+        }
         RuntimeBoundaryCode::SqlDdlTargetRequired => "SQL DDL requires one target entity",
         RuntimeBoundaryCode::SqlDdlEntityNotConfigured => {
             "SQL DDL target entity is not configured for this canister"
@@ -2254,6 +2257,19 @@ mod tests {
             let err = icydb::Error::from_runtime_boundary(boundary, icydb::ErrorOrigin::Interface);
             assert_eq!(render_error(&err), expected);
         }
+    }
+
+    #[test]
+    fn renders_sql_query_reply_bytes_boundary_detail() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
+            icydb::ErrorOrigin::Response,
+        );
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: SQL query result exceeds the public reply byte limit",
+        );
     }
 
     #[test]
