@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="${ICYDB_RELEASE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
 
+# shellcheck source=scripts/ci/release-version-transition.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-version-transition.sh"
+
 usage() {
     echo "Usage: $0 record <patch|minor|major> <tested-commit> | verify-staged | verify-commit" >&2
     exit 2
@@ -35,53 +38,11 @@ workspace_version_from_commit() {
     '
 }
 
-validate_version() {
-    local version="$1"
-
-    if [[ ! "$version" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]; then
-        echo "Invalid workspace version: $version" >&2
-        exit 1
-    fi
-}
-
-validate_transition() {
-    local bump="$1"
-    local candidate_version="$2"
-    local release_version="$3"
-    local candidate_major candidate_minor candidate_patch expected_version
-
-    validate_version "$candidate_version"
-    validate_version "$release_version"
-    IFS=. read -r candidate_major candidate_minor candidate_patch <<< "$candidate_version"
-
-    case "$bump" in
-        patch)
-            expected_version="$candidate_major.$candidate_minor.$((10#$candidate_patch + 1))"
-            ;;
-        minor)
-            expected_version="$candidate_major.$((10#$candidate_minor + 1)).0"
-            ;;
-        major)
-            expected_version="$((10#$candidate_major + 1)).0.0"
-            ;;
-        *)
-            usage
-            ;;
-    esac
-
-    if [[ "$release_version" != "$expected_version" ]]; then
-        echo "Expected $bump transition $candidate_version -> $expected_version; found $release_version" >&2
-        exit 1
-    fi
-}
-
 validate_changed_paths() {
     local diff_mode="$1"
     local base="$2"
     local head="${3:-}"
-    local candidate_version="$4"
-    local release_version="$5"
-    local escaped_candidate_version path
+    local path
     local -a command=(git -C "$ROOT_DIR" diff --name-only -z)
 
     case "$diff_mode" in
@@ -110,34 +71,91 @@ validate_changed_paths() {
                 ;;
         esac
 
-        escaped_candidate_version="${candidate_version//./\.}"
-        case "$diff_mode" in
-            working)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | sed "s/$escaped_candidate_version/$release_version/g") \
-                    "$ROOT_DIR/$path"; then
-                    echo "Release transition contains non-version changes in: $path" >&2
-                    exit 1
-                fi
-                ;;
-            staged)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | sed "s/$escaped_candidate_version/$release_version/g") \
-                    <(git -C "$ROOT_DIR" show ":$path"); then
-                    echo "Release transition contains non-version changes in: $path" >&2
-                    exit 1
-                fi
-                ;;
-            commits)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | sed "s/$escaped_candidate_version/$release_version/g") \
-                    <(git -C "$ROOT_DIR" show "$head:$path"); then
-                    echo "Release transition contains non-version changes in: $path" >&2
-                    exit 1
-                fi
-                ;;
-        esac
     done < <("${command[@]}")
+}
+
+validate_version_patch_stream() {
+    local candidate_version="$1"
+    local release_version="$2"
+    local escaped_candidate_version
+
+    escaped_candidate_version="${candidate_version//./\.}"
+    awk -v candidate="$escaped_candidate_version" -v release="$release_version" '
+        function reset_hunk() {
+            delete removed
+            delete added
+            removed_count = 0
+            added_count = 0
+        }
+        function validate_hunk(    i, expected) {
+            if (!in_hunk) {
+                return
+            }
+            if (removed_count == 0 || removed_count != added_count) {
+                exit 1
+            }
+            for (i = 1; i <= removed_count; i += 1) {
+                expected = removed[i]
+                if (gsub(candidate, release, expected) == 0 || expected != added[i]) {
+                    exit 1
+                }
+                replacement_count += 1
+            }
+        }
+        /^diff --git / {
+            validate_hunk()
+            in_hunk = 0
+            reset_hunk()
+            next
+        }
+        /^@@ / {
+            validate_hunk()
+            reset_hunk()
+            in_hunk = 1
+            next
+        }
+        !in_hunk { next }
+        /^-/ { removed[++removed_count] = substr($0, 2); next }
+        /^\+/ { added[++added_count] = substr($0, 2); next }
+        /^\\ No newline at end of file$/ { next }
+        { exit 1 }
+        END {
+            validate_hunk()
+            if (replacement_count == 0) {
+                exit 1
+            }
+        }
+    ' || {
+        echo "Release transition contains non-version changes" >&2
+        exit 1
+    }
+}
+
+validate_version_patch() {
+    local diff_mode="$1"
+    local base="$2"
+    local head="$3"
+    local candidate_version="$4"
+    local release_version="$5"
+
+    case "$diff_mode" in
+        working)
+            git -C "$ROOT_DIR" diff --no-ext-diff --no-color --unified=0 "$base" -- |
+                validate_version_patch_stream "$candidate_version" "$release_version"
+            ;;
+        staged)
+            git -C "$ROOT_DIR" diff --cached --no-ext-diff --no-color --unified=0 "$base" -- |
+                validate_version_patch_stream "$candidate_version" "$release_version"
+            ;;
+        commits)
+            git -C "$ROOT_DIR" diff --no-ext-diff --no-color --unified=0 "$base" "$head" -- |
+                validate_version_patch_stream "$candidate_version" "$release_version"
+            ;;
+        *)
+            echo "Unknown diff mode: $diff_mode" >&2
+            exit 1
+            ;;
+    esac
 }
 
 diff_hash() {
@@ -195,14 +213,18 @@ read_receipt() {
         exit 1
     fi
 
-    validate_transition "$RECEIPT_BUMP" "$RECEIPT_CANDIDATE_VERSION" "$RECEIPT_RELEASE_VERSION"
+    release_transition_is_valid \
+        "$RECEIPT_BUMP" "$RECEIPT_CANDIDATE_VERSION" "$RECEIPT_RELEASE_VERSION"
 }
 
 receipt_for_current_version() {
     local current_version
 
     current_version="$(workspace_version_from_file "$ROOT_DIR/Cargo.toml")"
-    validate_version "$current_version"
+    if ! release_version_is_valid "$current_version"; then
+        echo "Invalid workspace version: $current_version" >&2
+        exit 1
+    fi
     printf '%s/v%s.candidate\n' "$RELEASE_RECEIPT_DIR" "$current_version"
 }
 
@@ -223,7 +245,7 @@ record_receipt() {
     fi
     candidate_version="$(workspace_version_from_commit "$candidate_commit")"
     release_version="$(workspace_version_from_file "$ROOT_DIR/Cargo.toml")"
-    validate_transition "$bump" "$candidate_version" "$release_version"
+    release_transition_is_valid "$bump" "$candidate_version" "$release_version"
 
     if ! git -C "$ROOT_DIR" diff --cached --quiet --ignore-submodules HEAD --; then
         echo "Release candidate receipt requires an empty index" >&2
@@ -234,7 +256,8 @@ record_receipt() {
         exit 1
     fi
 
-    validate_changed_paths working HEAD "" "$candidate_version" "$release_version"
+    validate_changed_paths working HEAD
+    validate_version_patch working HEAD "" "$candidate_version" "$release_version"
     transition_hash="$(diff_hash working HEAD)"
     mkdir -p "$RELEASE_RECEIPT_DIR"
     receipt="$RELEASE_RECEIPT_DIR/v$release_version.candidate"
@@ -277,7 +300,8 @@ verify_staged() {
         exit 1
     fi
 
-    validate_changed_paths staged HEAD "" \
+    validate_changed_paths staged HEAD
+    validate_version_patch staged HEAD "" \
         "$RECEIPT_CANDIDATE_VERSION" "$RECEIPT_RELEASE_VERSION"
     staged_hash="$(diff_hash staged HEAD)"
     if [[ "$staged_hash" != "$RECEIPT_DIFF_HASH" ]]; then
@@ -314,7 +338,8 @@ verify_commit() {
         exit 1
     fi
 
-    validate_changed_paths commits "$parent_commit" "$release_commit" \
+    validate_changed_paths commits "$parent_commit" "$release_commit"
+    validate_version_patch commits "$parent_commit" "$release_commit" \
         "$RECEIPT_CANDIDATE_VERSION" "$RECEIPT_RELEASE_VERSION"
     committed_hash="$(diff_hash commits "$parent_commit" "$release_commit")"
     if [[ "$committed_hash" != "$RECEIPT_DIFF_HASH" ]]; then

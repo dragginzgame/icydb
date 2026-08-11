@@ -34,18 +34,38 @@ for target in patch minor major; do
     /\$\(MAKE\).*test([;[:space:]]|$)/ { test_line = NR }
     /\$\(MAKE\).*ensure-clean/ && test_line > 0 { clean_line = NR }
     /if .*git rev-parse --verify HEAD.*candidate_commit/ { unchanged_line = NR }
-    index($0, "bump-version.sh " target) { bump_line = NR }
-    /release-candidate-receipt\.sh record.*candidate_commit/ { receipt_line = NR }
+    $0 ~ ("bump-version.sh " target ".*candidate_commit") { bump_line = NR }
     END {
       exit !(candidate_line > 0 && test_line > candidate_line &&
              clean_line > test_line && unchanged_line > clean_line &&
-             bump_line > unchanged_line && receipt_line > bump_line)
+             bump_line > unchanged_line)
     }
   '; then
     echo "$target must test a clean candidate before bumping and recording its exact transition" >&2
     exit 1
   fi
 done
+
+BUMP_SCRIPT="$ROOT/scripts/ci/bump-version.sh"
+if ! awk '
+  /refs\/tags\/v\$NEW/ { tag_line = NR }
+  /trap rollback_release_bump EXIT/ { trap_line = NR }
+  /cargo set-version --workspace --bump/ { bump_line = NR }
+  /cargo generate-lockfile/ { lock_line = NR }
+  /sync-release-surface-version\.sh/ { sync_line = NR }
+  /release-candidate-receipt\.sh.*record/ { receipt_line = NR }
+  /ROLLBACK_REQUIRED=0/ && NR > receipt_line { complete_line = NR }
+  /git restore --source=.*TESTED_COMMIT/ { restore_line = NR }
+  END {
+    exit !(tag_line > 0 && trap_line > tag_line &&
+           bump_line > trap_line && lock_line > bump_line &&
+           sync_line > lock_line && receipt_line > sync_line &&
+           complete_line > receipt_line && restore_line > 0)
+  }
+' "$BUMP_SCRIPT"; then
+  echo "version bump must preflight tags, arm rollback, mutate, record, and disarm in order" >&2
+  exit 1
+fi
 
 if ! target_recipe release-commit | awk '
   /release-candidate-receipt\.sh verify-staged/ { staged_line = NR }
@@ -121,6 +141,7 @@ if [[ "$automatic_cleanup_calls" -ne 2 ]]; then
   exit 1
 fi
 
+"$ROOT/scripts/ci/test-release-bump-transaction.sh"
 "$ROOT/scripts/ci/test-release-candidate-receipt.sh"
 
 echo "release workflow and cleanup invariants passed"

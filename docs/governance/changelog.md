@@ -278,7 +278,10 @@ For each release:
 4. Commit the code and changelog changes.
 5. Run `make patch`, `make minor`, or `make major`. The target runs the full
    gate against the clean candidate before any version mutation, then bumps the
-   version and records the exact allowed release-surface diff.
+   version and records the exact allowed release-surface diff. Every changed
+   line must be an old-version-to-new-version substitution; unrelated unchanged
+   occurrences are permitted. Any bump-phase failure restores the candidate's
+   tracked version surfaces.
 6. Review the release diff.
 7. Run `make release-stage` to stage known release files.
 8. Run `make release-commit`. It must verify the staged diff against the tested
@@ -293,7 +296,8 @@ Patch releases are batch boundaries, not required endpoints for each code
 slice. After code and changelog changes are committed, the reviewable release flow is
 `make patch`, `git diff`, `make release-stage`, `make release-commit`,
 `make release-push`, then `cargo publish`. A failed candidate gate leaves the
-version, release commit, and tag untouched.
+version, release commit, and tag untouched; a later bump-phase failure restores
+the version surfaces before returning control.
 
 ---
 

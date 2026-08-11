@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
 
+- `0.223.8` makes release bumps transactional and exact version-diff proof
+  tolerant of unrelated unchanged same-version content.
+
 - `0.223.7` runs the full release gate before changing version files and reuses
   its result only across the exact verified release transition.
 

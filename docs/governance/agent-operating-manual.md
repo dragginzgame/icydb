@@ -40,8 +40,9 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Pre-commit hooks format and sort the exact commit contents.
 - Ordinary pre-push runs `make test`. Release preparation runs that full gate
   once against the clean pre-bump candidate. A bounded receipt then proves the
-  exact mechanical version transition before and after the release commit, so
-  tagging and pre-push can reuse the result without testing after mutation.
+  exact changed-line version transition before and after the release commit,
+  so tagging and pre-push can reuse the result without testing after mutation.
+  Any bump-phase failure restores the candidate's tracked version surfaces.
 - Fast CI gate: `make check && make clippy`.
 - Release readiness: `make check-versioning`; release publication uses
   `make patch|minor|major`, then `make release-stage`, `make release-commit`,
