@@ -418,13 +418,13 @@ struct PreparedMutationJobAuthority {
     target_identity: [u8; 32],
 }
 
-struct PreparedMutationJobRuntime<'a> {
+struct PreparedMutationJobForwardRuntime<'a> {
     descriptor: AcceptedRowLayoutRuntimeContract<'a>,
     compiled_scope: CompiledExpr,
     row_contract: StructuralRowContract,
 }
 
-struct PreparedMutationJobVerifyRuntime {
+struct PreparedMutationJobTraversalRuntime {
     compiled_scope: CompiledExpr,
     row_contract: StructuralRowContract,
 }
@@ -636,11 +636,11 @@ impl<C: CanisterKind> DbSession<C> {
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
         let identity = catalog.identity();
-        let PreparedMutationJobRuntime {
+        let PreparedMutationJobForwardRuntime {
             descriptor,
             compiled_scope,
             row_contract,
-        } = match prepare_mutation_job_runtime(&catalog, &scope, &fixed_patch) {
+        } = match prepare_mutation_job_forward_runtime(&catalog, &scope, &fixed_patch) {
             Ok(runtime) => runtime,
             Err(MutationJobExecutionPreparationError::Restart(reason)) => {
                 return persist_terminal_mutation_job_restart::<C>(before, request, reason);
@@ -752,10 +752,10 @@ impl<C: CanisterKind> DbSession<C> {
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
         let identity = catalog.identity();
-        let PreparedMutationJobVerifyRuntime {
+        let PreparedMutationJobTraversalRuntime {
             compiled_scope,
             row_contract,
-        } = match prepare_mutation_job_verify_runtime(&catalog, &scope, &fixed_patch) {
+        } = match prepare_mutation_job_traversal_runtime(&catalog, &scope, &fixed_patch) {
             Ok(runtime) => runtime,
             Err(MutationJobExecutionPreparationError::Restart(reason)) => {
                 return persist_terminal_mutation_job_restart::<C>(before, request, reason);
@@ -1089,41 +1089,29 @@ fn durable_store_revision_after_next_mutation(
         .map_err(|_| MutationJobError::TargetMutationFailed)
 }
 
-fn prepare_mutation_job_runtime<'a>(
+fn prepare_mutation_job_forward_runtime<'a>(
     catalog: &'a AcceptedSchemaCatalogContext,
     scope: &Expr,
     fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<PreparedMutationJobRuntime<'a>, MutationJobExecutionPreparationError> {
+) -> Result<PreparedMutationJobForwardRuntime<'a>, MutationJobExecutionPreparationError> {
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
         .map_err(|_| MutationJobExecutionPreparationError::Failure(MutationJobError::Internal))?;
-    let row_contract = catalog.inspection_plan().row_contract().clone();
-    prove_resumable_update_fixed_eligibility(
-        catalog.snapshot().persisted_snapshot(),
-        &row_contract,
-        scope,
-        fixed_patch,
-    )
-    .map_err(|_| {
-        MutationJobExecutionPreparationError::Restart(MutationJobRestartReason::IntentIneligible)
-    })?;
-    let compiled_scope =
-        compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), scope)
-            .map(|expr| CompiledExpr::compile(&expr))
-            .ok_or(MutationJobExecutionPreparationError::Restart(
-                MutationJobRestartReason::IntentIneligible,
-            ))?;
-    Ok(PreparedMutationJobRuntime {
+    let PreparedMutationJobTraversalRuntime {
+        compiled_scope,
+        row_contract,
+    } = prepare_mutation_job_traversal_runtime(catalog, scope, fixed_patch)?;
+    Ok(PreparedMutationJobForwardRuntime {
         descriptor,
         compiled_scope,
         row_contract,
     })
 }
 
-fn prepare_mutation_job_verify_runtime(
+fn prepare_mutation_job_traversal_runtime(
     catalog: &AcceptedSchemaCatalogContext,
     scope: &Expr,
     fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<PreparedMutationJobVerifyRuntime, MutationJobExecutionPreparationError> {
+) -> Result<PreparedMutationJobTraversalRuntime, MutationJobExecutionPreparationError> {
     let row_contract = catalog.inspection_plan().row_contract().clone();
     prove_resumable_update_fixed_eligibility(
         catalog.snapshot().persisted_snapshot(),
@@ -1141,7 +1129,7 @@ fn prepare_mutation_job_verify_runtime(
                 MutationJobRestartReason::IntentIneligible,
             ))?;
 
-    Ok(PreparedMutationJobVerifyRuntime {
+    Ok(PreparedMutationJobTraversalRuntime {
         compiled_scope,
         row_contract,
     })

@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-## [0.223.x] 🔁 - 2026-08-09 - Durable Resumable Mutation Jobs
+## [0.223.x] 🔁 - 2026-08-11 - Durable Resumable Mutation Jobs
 
 Detailed notes: [docs/changelog/0.223.md](docs/changelog/0.223.md)
+
+- `0.223.5` consolidates mutation-job phase preparation and records the first
+  flow-convergence and technical-debt baselines without changing behavior.
 
 - `0.223.4` proves collection-scale durable mutation convergence, removes
   redundant row/index work, and corrects bounded intersection and multi-value
