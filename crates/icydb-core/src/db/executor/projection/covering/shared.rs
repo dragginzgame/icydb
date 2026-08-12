@@ -136,11 +136,24 @@ where
     let index_prefix_specs = expanded_index_prefix_specs
         .as_deref()
         .unwrap_or(request.index_prefix_specs);
-    let existing_row_mode = if !index_prefix_specs.is_empty()
-        && index_prefix_specs
-            .iter()
-            .all(|spec| lowered_index_prefix_exact_cardinality(store, spec).is_some())
-    {
+    let mut prefixes_have_exact_cardinality = expanded_index_prefix_specs.is_some();
+    let mut prefixes_have_exact_non_empty_proof = expanded_index_prefix_specs.is_some();
+    if expanded_index_prefix_specs.is_none() && !index_prefix_specs.is_empty() {
+        prefixes_have_exact_cardinality = true;
+        prefixes_have_exact_non_empty_proof = true;
+        for spec in index_prefix_specs {
+            match lowered_index_prefix_exact_cardinality(store, spec) {
+                Some(0) => prefixes_have_exact_non_empty_proof = false,
+                Some(_) => {}
+                None => {
+                    prefixes_have_exact_cardinality = false;
+                    prefixes_have_exact_non_empty_proof = false;
+                    break;
+                }
+            }
+        }
+    }
+    let existing_row_mode = if prefixes_have_exact_cardinality {
         CoveringExistingRowMode::ProvenByPlanner
     } else {
         request.existing_row_mode
@@ -181,6 +194,7 @@ where
             } else {
                 PrefixSetMergeSafety::RequiresFallback
             },
+            prefixes_have_exact_non_empty_proof,
             |store_path| db.recovered_store(store_path),
         )?
         else {

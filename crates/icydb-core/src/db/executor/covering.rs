@@ -100,6 +100,7 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     component_indices: &[usize],
     predicate_execution: Option<IndexPredicateExecution<'_>>,
     prefix_set_merge_safety: PrefixSetMergeSafety,
+    prefixes_have_exact_non_empty_proof: bool,
     mut resolve_store_for_index: F,
 ) -> Result<Option<IndexComponentRows>, InternalError>
 where
@@ -117,6 +118,7 @@ where
                 component_indices,
                 predicate_execution,
                 merge_safety: prefix_set_merge_safety,
+                prefixes_have_exact_non_empty_proof,
             },
             resolve_store_for_index,
         );
@@ -154,6 +156,7 @@ struct CoveringPrefixSetScan<'a> {
     component_indices: &'a [usize],
     predicate_execution: Option<IndexPredicateExecution<'a>>,
     merge_safety: PrefixSetMergeSafety,
+    prefixes_have_exact_non_empty_proof: bool,
 }
 
 struct ActiveCoveringPrefixSpec<'a> {
@@ -165,6 +168,7 @@ struct ActiveCoveringPrefixSpec<'a> {
 fn active_covering_prefix_specs<'a, F>(
     index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     predicate_execution: Option<IndexPredicateExecution<'_>>,
+    prefixes_have_exact_non_empty_proof: bool,
     resolve_store_for_index: &mut F,
 ) -> Result<Vec<ActiveCoveringPrefixSpec<'a>>, InternalError>
 where
@@ -180,7 +184,16 @@ where
     let same_store = index_prefix_specs
         .iter()
         .all(|spec| spec.scan_contract().store_path() == first_store_path.as_str());
-    let empty_proof_store = if same_store { Some(prefix_store) } else { None };
+    // The caller has already read synchronized, positive cardinality for
+    // every prefix in this store. Re-reading it cannot change within this
+    // synchronous request.
+    let empty_proof_store = if prefixes_have_exact_non_empty_proof {
+        None
+    } else if same_store {
+        Some(prefix_store)
+    } else {
+        None
+    };
     let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
     for spec in active_lowered_index_prefix_specs(
         empty_proof_store,
@@ -223,6 +236,7 @@ where
     let mut active_specs = active_covering_prefix_specs(
         index_prefix_specs,
         scan.predicate_execution,
+        scan.prefixes_have_exact_non_empty_proof,
         &mut resolve_store_for_index,
     )?;
     if matches!(scan.merge_safety, PrefixSetMergeSafety::OrderedConcatSafe) {

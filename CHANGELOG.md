@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Fixes warning-denied generated-canister and startup-evidence builds plus a
-  false-positive synchronous recovery guard, without changing behavior.
+- Fixes warning-denied startup builds and a false-positive synchrony guard,
+  and restores the inherited prefix-family instruction ceiling by reusing
+  exact covering-cardinality authority.
 - Adds one formatting-only pre-commit hook that aborts after changing files,
   never stages work, and leaves full validation at the explicit release gate.
 
