@@ -5,8 +5,10 @@ define_fixture_canister!(
     PerfAuditCanister = "PerfAuditCanister",
     namespace = "sql_perf",
     memory_min = 180,
-    memory_max = 189,
+    memory_max = 190,
     commit_memory_id = 188,
+    startup_memory_id = 190,
+    integrity_progress_memory_id = 189,
 );
 
 define_fixture_store!(

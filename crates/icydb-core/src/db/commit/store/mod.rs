@@ -20,7 +20,8 @@ use crate::{
                 control_slot::{
                     COMMIT_CONTROL_HEADER_BYTES, commit_control_slot_encoded_len,
                     decode_commit_control_slot, encode_commit_control_slot_from_marker,
-                    encode_empty_commit_control_slot, inspect_commit_control_slot,
+                    encode_empty_commit_control_slot, inspect_commit_control_header,
+                    inspect_commit_control_slot,
                 },
                 marker_envelope::decode_commit_marker,
             },
@@ -119,6 +120,16 @@ const DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET: usize = 9;
 const COMMIT_CONTROL_SLOT_OFFSET: u64 =
     DATABASE_CONTROL_SLOT_FRAME_OFFSET + DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES as u64;
 const WASM_PAGE_BYTES: u64 = 65_536;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum CommitControlObservation {
+    Uninitialized,
+    Present {
+        incarnation: DatabaseIncarnationId,
+        empty_control_proof: Option<[u8; 32]>,
+        marker_present: bool,
+    },
+}
 
 impl CommitStore {
     /// Encode one raw commit-control slot payload for recovery tests.
@@ -370,6 +381,72 @@ impl CommitStore {
         self.read_framed_control_slot()
             .expect("test database control frame should decode")
     }
+}
+
+pub(in crate::db) fn observe_commit_control() -> Result<CommitControlObservation, InternalError> {
+    let allocation = current_commit_memory_allocation()?;
+    let memory = commit_memory_handle(allocation)?;
+    validate_current_boot_record(&memory)?;
+    let mut frame = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
+    memory.read(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &mut frame);
+    if frame.iter().all(|byte| *byte == 0) {
+        return Ok(CommitControlObservation::Uninitialized);
+    }
+    if &frame[..DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()] != DATABASE_CONTROL_SLOT_FRAME_MAGIC {
+        return Err(InternalError::commit_corruption());
+    }
+    if frame[DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()] != DATABASE_CONTROL_SLOT_FRAME_VERSION {
+        return Err(InternalError::serialize_incompatible_persisted_format());
+    }
+    let encoded_len = u32::from_be_bytes(
+        frame[DATABASE_CONTROL_SLOT_FRAME_LENGTH_OFFSET
+            ..DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET]
+            .try_into()
+            .map_err(|_| InternalError::commit_corruption())?,
+    ) as usize;
+    let encoded_end = COMMIT_CONTROL_SLOT_OFFSET
+        .checked_add(encoded_len as u64)
+        .ok_or_else(InternalError::commit_corruption)?;
+    let memory_bytes = memory
+        .size()
+        .checked_mul(WASM_PAGE_BYTES)
+        .ok_or_else(InternalError::commit_corruption)?;
+    if !(COMMIT_CONTROL_HEADER_BYTES..=MAX_COMMIT_BYTES as usize).contains(&encoded_len)
+        || encoded_end > memory_bytes
+    {
+        return Err(InternalError::commit_corruption());
+    }
+    let mut control = [0_u8; COMMIT_CONTROL_HEADER_BYTES];
+    memory.read(COMMIT_CONTROL_SLOT_OFFSET, &mut control);
+    let header = inspect_commit_control_header(&control)?;
+    let observed_len = COMMIT_CONTROL_HEADER_BYTES
+        .checked_add(header.marker_len)
+        .ok_or_else(InternalError::commit_corruption)?;
+    if encoded_len != observed_len {
+        return Err(InternalError::commit_corruption());
+    }
+    let marker_present = header.marker_len != 0;
+    let empty_control_proof = if marker_present {
+        None
+    } else {
+        let stored_checksum = u32::from_be_bytes(
+            frame[DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET..]
+                .try_into()
+                .map_err(|_| InternalError::commit_corruption())?,
+        );
+        if stored_checksum != crc32c(&control) {
+            return Err(InternalError::commit_corruption());
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(b"icydb.database-control-proof.v1");
+        hasher.update(control);
+        Some(hasher.finalize().into())
+    };
+    Ok(CommitControlObservation::Present {
+        incarnation: header.database_incarnation_id,
+        empty_control_proof,
+        marker_present,
+    })
 }
 
 struct CommitStoreEntry {

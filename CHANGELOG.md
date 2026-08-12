@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds one formatting-only pre-commit hook that aborts after changing files,
+  never stages work, and leaves full validation at the explicit release gate.
+
+## [0.225.x] 🚦 - 2026-08-12 - Explicit Startup Readiness And Replicated Recovery Driving
+
+Detailed notes: [docs/changelog/0.225.md](docs/changelog/0.225.md)
+
+- `0.225.0` adds bounded startup observation, durable failures, and a dormant
+  watchdog; generated canisters now require a distinct `startup_memory_id` in
+  a potentially breaking pre-1.0 hard cut.
+
 ## [0.224.x] 🔎 - 2026-08-11 - Coherent SQL Introspection Surfaces
 
 Detailed notes: [docs/changelog/0.224.md](docs/changelog/0.224.md)

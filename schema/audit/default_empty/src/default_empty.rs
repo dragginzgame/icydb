@@ -5,8 +5,10 @@ define_fixture_canister!(
     DefaultEmptyCanister = "DefaultEmptyCanister",
     namespace = "default_empty",
     memory_min = 100,
-    memory_max = 105,
+    memory_max = 106,
     commit_memory_id = 104,
+    startup_memory_id = 106,
+    integrity_progress_memory_id = 105,
 );
 
 define_fixture_store!(

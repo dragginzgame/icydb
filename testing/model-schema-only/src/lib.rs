@@ -11,7 +11,8 @@ use model_api::{
     memory_namespace = "model_schema_only",
     memory_min = 100,
     memory_max = 110,
-    commit_memory_id = 110
+    commit_memory_id = 110,
+    startup_memory_id = 109
 )]
 pub struct SchemaOnlyCanister {}
 

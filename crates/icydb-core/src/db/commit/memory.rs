@@ -44,7 +44,7 @@ pub(in crate::db) fn current_commit_memory_allocation()
 }
 
 /// Configure and register the commit marker memory id.
-pub(in crate::db::commit) fn configure_commit_memory_id(
+pub(in crate::db) fn configure_commit_memory_id(
     memory_id: u8,
     stable_key: &'static str,
 ) -> Result<u8, InternalError> {

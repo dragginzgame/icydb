@@ -986,7 +986,19 @@ impl InternalError {
 
     /// Construct the retryable internal boundary returned while bounded startup recovery remains.
     pub(crate) fn recovery_pending() -> Self {
-        Self::new(ErrorClass::Conflict, ErrorOrigin::Recovery)
+        Self::with_diagnostic_facts(
+            ErrorClass::Conflict,
+            ErrorOrigin::Recovery,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
+            }),
+            Vec::new(),
+        )
+    }
+
+    /// Construct fail-closed corruption for the bounded startup control cell.
+    pub(crate) fn startup_control_corruption() -> Self {
+        Self::new(ErrorClass::Corruption, ErrorOrigin::Recovery)
     }
 
     /// Construct a commit control-memory growth failure.

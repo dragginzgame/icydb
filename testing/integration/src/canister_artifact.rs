@@ -140,7 +140,7 @@ const RPG_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_snapshot", CanisterMethodMode::Query),
 ];
 
-/// Frozen build and pre-cut export policy for all ten maintained actors.
+/// Frozen build and pre-cut export policy for maintained and evidence actors.
 pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "default_empty",
@@ -224,6 +224,14 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         ],
         production_icydb_methods: TEST_SQL_BOUNDED_PRODUCTION_METHODS,
         local_test_icydb_methods: TEST_SQL_BOUNDED_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "startup_timer",
+        package: "canister_test_startup_timer",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export"],
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "demo_rpg",
@@ -749,7 +757,7 @@ mod tests {
 
     #[test]
     fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 10);
+        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 11);
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)

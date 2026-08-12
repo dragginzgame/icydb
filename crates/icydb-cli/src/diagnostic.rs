@@ -1013,6 +1013,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::SqlQueryReplyBytesExceeded => {
             "SQL query result exceeds the public reply byte limit"
         }
+        RuntimeBoundaryCode::DatabaseStartupRecoveryPending => {
+            "database startup recovery is still in progress"
+        }
         RuntimeBoundaryCode::SqlDdlTargetRequired => "SQL DDL requires one target entity",
         RuntimeBoundaryCode::SqlDdlEntityNotConfigured => {
             "SQL DDL target entity is not configured for this canister"
@@ -2269,6 +2272,19 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_RUNTIME_UNSUPPORTED: SQL query result exceeds the public reply byte limit",
+        );
+    }
+
+    #[test]
+    fn renders_database_startup_recovery_pending_boundary_detail() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
+            icydb::ErrorOrigin::Recovery,
+        );
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_CONFLICT: database startup recovery is still in progress",
         );
     }
 

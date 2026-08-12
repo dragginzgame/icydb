@@ -42,16 +42,21 @@ pub(in crate::db) use marker::{
     generate_commit_id, generate_marker_batch_id,
 };
 pub(in crate::db) use memory::{
-    CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
+    CommitMemoryAllocation, commit_memory_handle, configure_commit_memory_id,
+    current_commit_memory_allocation,
 };
 pub(in crate::db) use prepare::{
     CommitPrepareContext, CommitPrepareMode, prepare_commit_context_for_runtime_entity,
     prepare_row_commit_with_context,
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
+pub(in crate::db) use recovery::{
+    RecoveryProgress, continue_recovery, ensure_recovered, startup_recovery_witness,
+};
 #[cfg(test)]
-pub(in crate::db) use recovery::forget_recovered_domain_for_tests;
-pub(in crate::db) use recovery::{RecoveryProgress, continue_recovery, ensure_recovered};
+pub(in crate::db) use recovery::{
+    forget_recovered_domain_for_tests, mark_startup_recovery_complete_for_tests,
+};
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 #[cfg(feature = "sql")]
@@ -69,5 +74,6 @@ pub(in crate::db) use schema_publication::{
 #[cfg(test)]
 pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
 pub(in crate::db) use store::{
-    cursor_authentication_key, database_control_proof_identity, database_incarnation_id,
+    CommitControlObservation, cursor_authentication_key, database_control_proof_identity,
+    database_incarnation_id, observe_commit_control,
 };

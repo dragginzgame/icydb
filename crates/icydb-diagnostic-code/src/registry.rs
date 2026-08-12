@@ -701,4 +701,6 @@ define_error_code_registry! {
         detail(SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode::MutationRejectsShowRelations });
     RUNTIME_BOUNDARY_SQL_QUERY_REPLY_BYTES_EXCEEDED = 279 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlQueryReplyBytesExceeded });
+    RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING = 280 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::DatabaseStartupRecoveryPending });
 }

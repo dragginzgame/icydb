@@ -11,6 +11,7 @@ pub mod response;
 mod session;
 #[cfg(feature = "sql")]
 pub mod sql;
+mod startup;
 
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
@@ -48,6 +49,11 @@ pub use session::{
     TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError,
     TypedWrite, TypedWriteAdapter, TypedWriteError, WriteCell, with_request_execution,
     with_request_execution_async, with_request_execution_root,
+};
+pub use startup::{
+    __clear_generated_startup_failure, __observe_generated_startup_state,
+    __record_generated_schema_startup_failure, __startup_bootstrap_failure, DatabaseStartupState,
+    GeneratedStartupDriverStep, StartupFailure, StartupFailureKind,
 };
 
 /// Build the compact error returned when `db!()` has no active request scope.

@@ -27,6 +27,7 @@ pub(crate) mod schema;
 pub(crate) mod session;
 #[cfg(feature = "sql")]
 pub(crate) mod sql;
+mod startup;
 pub(in crate::db) mod write_context;
 
 pub(in crate::db) mod codec;
@@ -226,6 +227,12 @@ pub use sql::identifier::{
 };
 #[cfg(feature = "sql")]
 pub use sql::lowering::LoweredSqlCommand;
+pub use startup::{DatabaseStartupState, GeneratedStartupDriverStep, StartupFailureKind};
+#[doc(hidden)]
+pub use startup::{
+    StartupFailure, clear_generated_startup_failure, drive_generated_startup_recovery_page,
+    observe_generated_startup_state, record_generated_schema_startup_failure,
+};
 pub use write_context::MutationMode;
 
 ///

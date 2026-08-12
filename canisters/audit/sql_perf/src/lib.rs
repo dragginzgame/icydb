@@ -85,6 +85,14 @@ struct SchemaApplicationPerfResult {
     exact_match: u64,
 }
 
+/// Pure startup-state work observed inside one IC query message.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+struct StartupObservationPerfResult {
+    state: icydb::db::DatabaseStartupState,
+    local_instructions: u64,
+}
+
 ///
 /// ScalePayloadProfile
 ///
@@ -1497,6 +1505,45 @@ fn measure_schema_application_query() -> Result<SchemaApplicationPerfResult, icy
 #[update]
 fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(measure_schema_application)
+}
+
+/// Measure the generated pure startup observer without opening a session.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[query]
+fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::db::StartupFailure>
+{
+    let start = ic_cdk::api::performance_counter(1);
+    let state = startup_state()?;
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    Ok(StartupObservationPerfResult {
+        state,
+        local_instructions,
+    })
+}
+
+/// Use the predecessor admission path solely to prepare Patch 2 readiness evidence.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let _session = crate::__icydb_generated::db()?;
+        Ok(())
+    })
+}
+
+/// Explicitly register the otherwise dormant Patch 3 watchdog for real-canister evidence.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn register_dormant_startup_watchdog() -> Result<bool, icydb::db::StartupFailure> {
+    crate::__icydb_generated::__register_startup_watchdog()
+}
+
+/// Observe only the generated volatile registration fact used by Patch 3 evidence.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[query]
+fn dormant_startup_watchdog_registered() -> bool {
+    crate::__icydb_generated::__startup_watchdog_registered()
 }
 
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry

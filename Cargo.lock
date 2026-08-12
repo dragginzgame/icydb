@@ -333,6 +333,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_test_startup_timer"
+version = "0.224.2"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "ic-cdk-timers",
+]
+
+[[package]]
 name = "cc"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

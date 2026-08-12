@@ -35,6 +35,12 @@ pub trait CanisterKind: Path + 'static {
     /// Durable stable-memory allocation key for commit marker storage.
     const COMMIT_STABLE_KEY: &'static str;
 
+    /// Stable memory slot used only for startup coordination state.
+    const STARTUP_MEMORY_ID: u8;
+
+    /// Durable stable-memory allocation key for startup coordination state.
+    const STARTUP_STABLE_KEY: &'static str;
+
     /// Stable memory slot used only for integrity-inspection progress.
     const INTEGRITY_PROGRESS_MEMORY_ID: u8;
 

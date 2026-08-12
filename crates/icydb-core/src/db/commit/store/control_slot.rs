@@ -31,6 +31,11 @@ pub(super) struct CommitControlSlotRef<'a> {
     pub(super) marker_bytes: &'a [u8],
 }
 
+pub(super) struct CommitControlHeader {
+    pub(super) database_incarnation_id: DatabaseIncarnationId,
+    pub(super) marker_len: usize,
+}
+
 ///
 /// ControlSlotLengths
 ///
@@ -147,6 +152,30 @@ pub(super) fn commit_control_slot_encoded_len(bytes: &[u8]) -> Result<usize, Int
     }
 
     Ok(encoded_len)
+}
+
+pub(super) fn inspect_commit_control_header(
+    bytes: &[u8; COMMIT_CONTROL_HEADER_BYTES],
+) -> Result<CommitControlHeader, InternalError> {
+    let encoded_len = commit_control_slot_encoded_len(bytes)?;
+    let incarnation_start = COMMIT_CONTROL_MAGIC.len() + 1;
+    let incarnation_end = incarnation_start + DATABASE_INCARNATION_BYTES;
+    let incarnation = DatabaseIncarnationId::try_from_bytes(
+        bytes[incarnation_start..incarnation_end]
+            .try_into()
+            .map_err(|_| control_slot_canonical_envelope_required())?,
+    )?;
+    let cursor_key_start = incarnation_end;
+    let cursor_key_end = cursor_key_start + CURSOR_AUTHENTICATION_KEY_BYTES;
+    if bytes[cursor_key_start..cursor_key_end] == [0_u8; CURSOR_AUTHENTICATION_KEY_BYTES] {
+        return Err(control_slot_canonical_envelope_required());
+    }
+    Ok(CommitControlHeader {
+        database_incarnation_id: incarnation,
+        marker_len: encoded_len
+            .checked_sub(COMMIT_CONTROL_HEADER_BYTES)
+            .ok_or_else(control_slot_canonical_envelope_required)?,
+    })
 }
 
 /// Encode the canonical empty commit-control slot.

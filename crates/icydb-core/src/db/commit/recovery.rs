@@ -1712,6 +1712,34 @@ fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
     RECOVERY_IN_PROGRESS_KEYS.with(|keys| keys.borrow().contains(&key))
 }
 
+pub(in crate::db) fn startup_recovery_witness(
+    stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+) -> Result<(bool, bool), InternalError> {
+    let key = RecoveryDomainKey {
+        commit_allocation: current_commit_memory_allocation()?,
+        runtime_stores: RuntimeStoreDomainKey {
+            store_registry: std::ptr::from_ref(stores).cast::<()>() as usize,
+        },
+    };
+    Ok((
+        recovery_domain_recovered(key)?,
+        recovery_domain_in_progress(key),
+    ))
+}
+
+#[cfg(test)]
+pub(in crate::db) fn mark_startup_recovery_complete_for_tests(
+    stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+) -> Result<(), InternalError> {
+    let key = RecoveryDomainKey {
+        commit_allocation: current_commit_memory_allocation()?,
+        runtime_stores: RuntimeStoreDomainKey {
+            store_registry: std::ptr::from_ref(stores).cast::<()>() as usize,
+        },
+    };
+    mark_recovery_domain_recovered(key)
+}
+
 fn mark_recovery_domain_recovered(key: RecoveryDomainKey) -> Result<(), InternalError> {
     RECOVERED_KEYS.with(|keys| {
         let mut keys = keys

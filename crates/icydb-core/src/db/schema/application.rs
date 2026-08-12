@@ -18,6 +18,7 @@ use crate::{
         },
         data::DataStore,
         index::{IndexState, IndexStore},
+        integrity::DatabaseIncarnationId,
         registry::{
             StoreAllocationIdentity, StoreAllocationIdentityCapability, StoreCommitParticipation,
             StoreDurability, StoreHandle, StoreRecoveryCapability, StoreRelationSourceCapability,
@@ -35,9 +36,9 @@ use crate::{
             SchemaChangeReceipt, SchemaChangeValidationPhase, StagedUserIndexDomainError,
             UnpublishedRowLocalValidation, advance_accepted_row_local_constraint_activation,
             constraint_validation_finding_output, derive_schema_change_job_id,
-            lower_existing_schema_proposal, lower_initial_schema_proposal,
-            prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
-            with_schema_application_store,
+            load_schema_application_record_read_only, lower_existing_schema_proposal,
+            lower_initial_schema_proposal, prove_empty_user_index_domain,
+            validate_unpublished_row_local_candidate_bounded, with_schema_application_store,
         },
     },
     error::InternalError,
@@ -2877,6 +2878,56 @@ fn derive_accepted_head(stores: &[(&str, Option<AcceptedStoreHead>)]) -> Expecte
     }
 }
 
+pub(in crate::db) fn generated_schema_reconciled(
+    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+    incarnation: DatabaseIncarnationId,
+    submission_key: &str,
+) -> Result<(bool, ExpectedAcceptedHead), InternalError> {
+    let submission_key = SchemaSubmissionKey::try_new(submission_key.to_string())
+        .map_err(|_| InternalError::store_invariant())?;
+    let (database_identity, accepted_head) = generated_schema_authority(registry, incarnation)?;
+    let reconciled = load_schema_application_record_read_only(database_identity, &submission_key)?
+        .is_some_and(|record| match record.receipt().outcome() {
+            SchemaChangeOutcome::NoOp {
+                accepted_head: recorded,
+            }
+            | SchemaChangeOutcome::Applied {
+                accepted_head: recorded,
+            } => recorded == &accepted_head,
+            SchemaChangeOutcome::Pending { .. } | SchemaChangeOutcome::Aborted { .. } => false,
+        });
+    Ok((reconciled, accepted_head))
+}
+
+pub(in crate::db) fn generated_schema_authority(
+    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+    incarnation: DatabaseIncarnationId,
+) -> Result<(TargetDatabaseIdentity, ExpectedAcceptedHead), InternalError> {
+    let mut stores = registry.with(|registry| {
+        registry
+            .iter()
+            .map(|(path, handle)| StoreApplicationAuthority { path, handle })
+            .collect::<Vec<_>>()
+    });
+    stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
+    let database_identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
+    let heads = stores
+        .iter()
+        .map(|store| {
+            let head = store
+                .handle
+                .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_root)?
+                .map(|selection| AcceptedStoreHead {
+                    revision: selection.root().revision().get(),
+                    fingerprint: selection.root().fingerprint().as_bytes(),
+                });
+            Ok((store.path, head))
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    let accepted_head = derive_accepted_head(heads.as_slice());
+    Ok((database_identity, accepted_head))
+}
+
 fn write_store_authority(hasher: &mut sha2::Sha256, store: &StoreApplicationAuthority) {
     write_hash_str_u32(hasher, store.path);
     write_storage_capabilities(hasher, store.handle);
@@ -3222,6 +3273,8 @@ mod tests {
     impl CanisterKind for AbortCanister {
         const COMMIT_MEMORY_ID: u8 = 184;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.application-abort.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 186;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.application-abort.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 185;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.application-abort.integrity.v1";
@@ -3236,6 +3289,8 @@ mod tests {
     impl CanisterKind for EvolutionCanister {
         const COMMIT_MEMORY_ID: u8 = 196;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.rule-evolution.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 198;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.rule-evolution.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 197;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.rule-evolution.integrity.v1";
@@ -3253,6 +3308,9 @@ mod tests {
     impl CanisterKind for MigrationCanister {
         const COMMIT_MEMORY_ID: u8 = 204;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-validation.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 206;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.test.migration-validation.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 205;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.migration-validation.integrity.v1";
@@ -3270,6 +3328,9 @@ mod tests {
     impl CanisterKind for MigrationExecutionCanister {
         const COMMIT_MEMORY_ID: u8 = 214;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-execution.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 216;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.test.migration-execution.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 215;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.migration-execution.integrity.v1";
@@ -3287,6 +3348,8 @@ mod tests {
     impl CanisterKind for MigrationFindingCanister {
         const COMMIT_MEMORY_ID: u8 = 210;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-finding.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 212;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.migration-finding.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 211;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.migration-finding.integrity.v1";

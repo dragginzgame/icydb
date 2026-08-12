@@ -26,7 +26,8 @@ use icydb_model::canister;
     memory_namespace = "test",
     memory_min = 100,
     memory_max = 110,
-    commit_memory_id = 109
+    commit_memory_id = 109,
+    startup_memory_id = 108
 )]
 pub struct ApplicationCanister;
 

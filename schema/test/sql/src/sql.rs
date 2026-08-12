@@ -6,8 +6,10 @@ define_fixture_canister!(
     SqlTestCanister = "SqlTestCanister",
     namespace = "test_sql",
     memory_min = 155,
-    memory_max = 160,
+    memory_max = 161,
     commit_memory_id = 159,
+    startup_memory_id = 161,
+    integrity_progress_memory_id = 160,
 );
 
 #[cfg(feature = "migration-v2")]
@@ -15,8 +17,10 @@ define_fixture_canister!(
     SqlTestCanister = "SqlTestCanister",
     namespace = "test_sql",
     memory_min = 155,
-    memory_max = 160,
+    memory_max = 161,
     commit_memory_id = 159,
+    startup_memory_id = 161,
+    integrity_progress_memory_id = 160,
     migrations(entity_migration(
         entity = "SqlTestUser",
         from = 1,

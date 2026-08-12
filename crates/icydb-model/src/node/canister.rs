@@ -106,6 +106,7 @@ pub struct Canister {
     memory_min: u8,
     memory_max: u8,
     commit_memory_id: u8,
+    startup_memory_id: u8,
     integrity_progress_memory_id: u8,
     #[serde(skip)]
     migration_plan: Option<MigrationPlanConstructor>,
@@ -113,12 +114,17 @@ pub struct Canister {
 
 impl Canister {
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the generated canister node keeps its closed memory identities explicit"
+    )]
     pub const fn new(
         def: Def,
         memory_namespace: &'static str,
         memory_min: u8,
         memory_max: u8,
         commit_memory_id: u8,
+        startup_memory_id: u8,
         integrity_progress_memory_id: u8,
         migration_plan: Option<MigrationPlanConstructor>,
     ) -> Self {
@@ -128,6 +134,7 @@ impl Canister {
             memory_min,
             memory_max,
             commit_memory_id,
+            startup_memory_id,
             integrity_progress_memory_id,
             migration_plan,
         }
@@ -159,6 +166,11 @@ impl Canister {
     }
 
     #[must_use]
+    pub const fn startup_memory_id(&self) -> u8 {
+        self.startup_memory_id
+    }
+
+    #[must_use]
     pub const fn integrity_progress_memory_id(&self) -> u8 {
         self.integrity_progress_memory_id
     }
@@ -186,6 +198,11 @@ impl Canister {
         stable_memory_key(self.memory_namespace(), "integrity", "progress")
     }
 
+    #[must_use]
+    pub fn startup_stable_key(&self) -> String {
+        stable_memory_key(self.memory_namespace(), "startup", "control")
+    }
+
     fn validate_declared_memory_contract(&self, errs: &mut ErrorTree) {
         validate_stable_key_segment(errs, "canister memory_namespace", self.memory_namespace());
         validate_memory_id_in_range(
@@ -198,6 +215,16 @@ impl Canister {
         validate_app_memory_id(errs, "commit_memory_id", self.commit_memory_id());
         validate_memory_id_not_reserved(errs, "commit_memory_id", self.commit_memory_id());
         validate_stable_key(errs, "commit stable key", &self.commit_stable_key());
+        validate_memory_id_in_range(
+            errs,
+            "startup_memory_id",
+            self.startup_memory_id(),
+            self.memory_min(),
+            self.memory_max(),
+        );
+        validate_app_memory_id(errs, "startup_memory_id", self.startup_memory_id());
+        validate_memory_id_not_reserved(errs, "startup_memory_id", self.startup_memory_id());
+        validate_stable_key(errs, "startup stable key", &self.startup_stable_key());
         validate_memory_id_in_range(
             errs,
             "integrity_progress_memory_id",
@@ -294,6 +321,15 @@ impl ValidateNode for Canister {
             self.commit_memory_id(),
             self.commit_stable_key(),
             format!("Canister `{}`.commit_memory", self.def().path()),
+            &canister_path,
+            &mut seen_ids,
+            &mut seen_keys,
+            &mut errs,
+        );
+        assert_unique_memory_allocation(
+            self.startup_memory_id(),
+            self.startup_stable_key(),
+            format!("Canister `{}`.startup_memory", self.def().path()),
             &canister_path,
             &mut seen_ids,
             &mut seen_keys,

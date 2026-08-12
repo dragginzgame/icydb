@@ -37,6 +37,10 @@ name = "schema_application_cost"
 path = "tests/schema_application_cost.rs"
 
 [[test]]
+name = "startup_timer_baseline"
+path = "tests/startup_timer_baseline.rs"
+
+[[test]]
 name = "wasm_post_link"
 path = "tests/wasm_post_link.rs"
 

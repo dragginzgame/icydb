@@ -157,14 +157,19 @@ run_update_checks() {
   cargo update --quiet
 }
 
+install_repository_hook() {
+  make --no-print-directory -C "$ROOT" install-hooks
+}
+
 if [[ "$MODE" == "install" ]]; then
   install_system_packages
 fi
 ensure_rustup
 install_tooling
+install_repository_hook
 
 if [[ "$MODE" == "install" ]]; then
-  echo "Local developer dependencies installed"
+  echo "Local developer dependencies and formatting hook installed"
 else
   run_update_checks
 fi

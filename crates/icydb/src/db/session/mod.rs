@@ -95,6 +95,17 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.__continue_startup_recovery().map_err(Into::into)
     }
 
+    /// Run at most one bounded generated-startup recovery page.
+    #[doc(hidden)]
+    pub fn __drive_generated_startup_recovery_page(
+        &self,
+        stores: &'static std::thread::LocalKey<core::db::StoreRegistry>,
+        submission_key: &str,
+    ) -> Result<core::db::GeneratedStartupDriverStep, crate::Error> {
+        core::db::drive_generated_startup_recovery_page(&self.inner, stores, submission_key)
+            .map_err(Into::into)
+    }
+
     #[must_use]
     pub fn debug(mut self) -> Self {
         self.inner = self.inner.debug();

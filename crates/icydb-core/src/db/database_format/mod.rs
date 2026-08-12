@@ -125,6 +125,15 @@ enum BootInspection {
     Present(DatabaseBootRecord),
 }
 
+/// Pure fixed-read result for the database boot record.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum DatabaseFormatObservation {
+    /// No current database incarnation has been initialized yet.
+    Uninitialized,
+    /// The current database boot record is present.
+    Current,
+}
+
 struct StoreRoleMemories<M> {
     data: M,
     index: M,
@@ -165,6 +174,41 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
     let store_roles = open_registered_store_roles(db)?;
     admit_or_initialize_database_format(&control_memory, &store_roles).map_err(map_gate_error)?;
     mark_database_format_admitted(allocation)
+}
+
+/// Inspect the current boot prefix and registered durable-role sizes without mutation.
+pub(in crate::db) fn observe_database_format(
+    stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+) -> Result<DatabaseFormatObservation, InternalError> {
+    let allocation = current_commit_memory_allocation()?;
+    let control_memory = commit_memory_handle(allocation)?;
+    match inspect_boot_record(&control_memory).map_err(map_admission_error)? {
+        BootInspection::Present(record)
+            if record.format_version == DATABASE_FORMAT_VERSION_CURRENT =>
+        {
+            Ok(DatabaseFormatObservation::Current)
+        }
+        BootInspection::Present(record) => Err(map_admission_error(
+            DatabaseFormatAdmissionError::UnsupportedFormatVersion {
+                found: Some(record.format_version),
+                required: DATABASE_FORMAT_VERSION_CURRENT,
+            },
+        )),
+        BootInspection::Missing => {
+            let roles = open_registered_store_roles_from_registry(stores)?;
+            if control_memory.size() <= 1 && roles.iter().all(StoreRoleMemories::physically_virgin)
+            {
+                Ok(DatabaseFormatObservation::Uninitialized)
+            } else {
+                Err(map_admission_error(
+                    DatabaseFormatAdmissionError::UnsupportedFormatVersion {
+                        found: None,
+                        required: DATABASE_FORMAT_VERSION_CURRENT,
+                    },
+                ))
+            }
+        }
+    }
 }
 
 fn admit_or_initialize_database_format<M: Memory>(
@@ -232,6 +276,21 @@ fn open_registered_store_roles<C: crate::traits::CanisterKind>(
     db: &crate::db::Db<C>,
 ) -> Result<Vec<StoreRoleMemories<VirtualMemory<DefaultMemoryImpl>>>, InternalError> {
     db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .filter(|(_, handle)| {
+                handle.storage_capabilities().storage_mode()
+                    == crate::db::registry::StoreRuntimeStorageMode::Journaled
+            })
+            .map(|(_, handle)| StoreRoleMemories::open(handle.allocation_identities()))
+            .collect()
+    })
+}
+
+fn open_registered_store_roles_from_registry(
+    stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+) -> Result<Vec<StoreRoleMemories<VirtualMemory<DefaultMemoryImpl>>>, InternalError> {
+    stores.with(|registry| {
         registry
             .iter()
             .filter(|(_, handle)| {

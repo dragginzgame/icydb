@@ -8,7 +8,7 @@
         test-sql-perf-p1-shard test-sql-perf-p1-merge \
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
         test-sql-perf-instrumentation test-sql-perf-calibration-review test-sql-perf-baseline \
-        build check clippy fmt fmt-check validate clean install install-dev update-dev \
+        build check clippy fmt fmt-check validate clean install install-dev update-dev install-hooks \
         fetch test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
         wasm-size-report wasm-audit-report \
@@ -81,8 +81,9 @@ help:
 	@echo ""
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
-	@echo "  install-dev      Install local developer dependencies and actionlint"
-	@echo "  update-dev       Update user-local Rust/Cargo/actionlint/ICP tools"
+	@echo "  install-dev      Install developer dependencies, actionlint, and the formatting hook"
+	@echo "  update-dev       Update developer tooling and ensure the formatting hook is installed"
+	@echo "  install-hooks    Configure the formatting-only pre-commit hook"
 	@echo ""
 	@echo "Version Management:"
 	@echo "  version          Show current version"
@@ -172,13 +173,27 @@ help:
 install:
 	cargo install --path "$(ROOT_DIR)/crates/icydb-cli" --bin icydb --locked --force
 
-# Install local developer prerequisites and tools.
+# Install local developer prerequisites, tools, and the formatting hook.
 install-dev:
 	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
 
-# Update user-local Rust/Cargo/actionlint/ICP developer tooling.
+# Update user-local Rust/Cargo/actionlint/ICP developer tooling and the hook.
 update-dev:
 	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
+
+# Keep hook installation explicit and refuse to replace an unrelated local
+# hook authority. Git resolves the relative path from this repository.
+install-hooks:
+	@set -e; \
+	git -C "$(ROOT_DIR)" rev-parse --git-dir >/dev/null; \
+	current="$$(git -C "$(ROOT_DIR)" config --local --get core.hooksPath || true)"; \
+	if [ -n "$$current" ] && [ "$$current" != ".githooks" ]; then \
+		echo "Refusing to replace existing core.hooksPath: $$current" >&2; \
+		exit 1; \
+	fi; \
+	git -C "$(ROOT_DIR)" config --local core.hooksPath .githooks; \
+	chmod +x "$(ROOT_DIR)/.githooks/pre-commit"; \
+	echo "Formatting-only pre-commit hook installed (.githooks/pre-commit)."
 
 #
 # Version management (the source candidate is gated before any version mutation)

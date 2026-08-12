@@ -18,7 +18,7 @@ use crate::{
     error::InternalError,
 };
 use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, RestrictedMemory, Storable,
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Memory, RestrictedMemory, Storable,
     memory_manager::VirtualMemory, storable::Bound,
 };
 use icydb_schema::{
@@ -262,6 +262,34 @@ impl SchemaApplicationStore {
             }
         }
         Ok(store)
+    }
+
+    fn open_existing(memory: ApplicationMemory) -> Result<Option<Self>, InternalError> {
+        if memory.size() == 0 {
+            return Ok(None);
+        }
+        let mut header = [0_u8; 28];
+        memory.read(0, &mut header);
+        if &header[..3] != b"BTR" || header[3] != 2 {
+            return Err(InternalError::store_corruption());
+        }
+        let mut allocator_header = [0_u8; 4];
+        memory.read(52, &mut allocator_header);
+        if &allocator_header[..3] != b"BTA" || allocator_header[3] != 1 {
+            return Err(InternalError::store_corruption());
+        }
+        let store = Self {
+            map: StableBTreeMap::load(memory),
+        };
+        let application_header = store
+            .map
+            .get(&APPLICATION_HEADER_KEY)
+            .ok_or_else(InternalError::store_corruption)?;
+        decode_application_header(&application_header.0)?;
+        if store.record_count()? > MAX_SCHEMA_APPLICATION_RECORDS {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(Some(store))
     }
 
     pub(in crate::db) fn load(
@@ -627,6 +655,16 @@ pub(in crate::db) fn with_schema_application_store<R>(
 ) -> Result<R, InternalError> {
     let mut store = SchemaApplicationStore::open(application_memory()?)?;
     f(&mut store)
+}
+
+pub(in crate::db) fn load_schema_application_record_read_only(
+    database_identity: TargetDatabaseIdentity,
+    submission_key: &SchemaSubmissionKey,
+) -> Result<Option<SchemaApplicationRecord>, InternalError> {
+    let Some(store) = SchemaApplicationStore::open_existing(application_memory()?)? else {
+        return Ok(None);
+    };
+    store.load(database_identity, submission_key)
 }
 
 pub(in crate::db) fn apply_schema_application_record_op(

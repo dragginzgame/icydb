@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BEFORE="$(mktemp)"
+AFTER="$(mktemp)"
+STAGED="$(mktemp)"
+UNSTAGED="$(mktemp)"
+
+cleanup() {
+  rm -f "$BEFORE" "$AFTER" "$STAGED" "$UNSTAGED"
+}
+trap cleanup EXIT
+
+snapshot_formatter_inputs() {
+  local output="$1"
+  local path
+
+  : >"$output"
+  while IFS= read -r -d '' path; do
+    [[ -f "$ROOT/$path" ]] || continue
+    printf '%s\t%s\n' "$path" "$(git -C "$ROOT" hash-object -- "$path")" >>"$output"
+  done < <(
+    git -C "$ROOT" ls-files -co --exclude-standard -z -- '*.rs' 'Cargo.toml'
+  )
+  LC_ALL=C sort -o "$output" "$output"
+}
+
+snapshot_formatter_inputs "$BEFORE"
+
+echo "Running pre-commit formatting (Cargo manifests, derives, and Rust code)..."
+make --no-print-directory -C "$ROOT" fmt
+
+snapshot_formatter_inputs "$AFTER"
+
+if ! cmp -s "$BEFORE" "$AFTER"; then
+  echo >&2
+  echo "Formatting changed these files:" >&2
+  comm -3 "$BEFORE" "$AFTER" \
+    | sed $'s/^\t//' \
+    | cut -f1 \
+    | LC_ALL=C sort -u \
+    | sed 's/^/  /' >&2
+  echo >&2
+  echo "Review and stage the formatting changes, then commit again." >&2
+  echo "The hook did not stage any files." >&2
+  exit 1
+fi
+
+# The working tree and index have identical content for a staged formatter
+# input unless that path is partially staged. Refuse the ambiguous case so an
+# unformatted staged snapshot cannot pass merely because its working-tree copy
+# was already formatted. The hook never rewrites the index.
+git -C "$ROOT" diff --cached --name-only --diff-filter=ACMR -- '*.rs' 'Cargo.toml' \
+  | LC_ALL=C sort -u >"$STAGED"
+git -C "$ROOT" diff --name-only --diff-filter=ACMR -- '*.rs' 'Cargo.toml' \
+  | LC_ALL=C sort -u >"$UNSTAGED"
+
+comm -12 "$STAGED" "$UNSTAGED" >"$BEFORE"
+if [[ -s "$BEFORE" ]]; then
+  echo >&2
+  echo "Cannot verify partially staged formatter-owned files:" >&2
+  sed 's/^/  /' "$BEFORE" >&2
+  echo >&2
+  echo "Finish formatting and staging those files, then commit again." >&2
+  echo "The hook did not change the staged snapshot." >&2
+  exit 1
+fi
+
+echo "Pre-commit formatting passed."

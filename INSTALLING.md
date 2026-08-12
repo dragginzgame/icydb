@@ -153,8 +153,8 @@ The repository provides local maintainer targets for Ubuntu-like hosts with
 `apt-get`. `make install-dev` is the initial workstation bootstrap: it installs
 system packages, Rust, Cargo helper tools, ICP tooling, and repository hooks.
 `make update-dev` refreshes user-local Rust, Cargo, actionlint, and npm-backed
-ICP tooling without installing system packages, then runs the maintainer update
-checks.
+ICP tooling without installing system packages, ensures the repository's
+formatting hook is installed, then runs the maintainer update checks.
 
 ### System Prerequisites
 
@@ -230,6 +230,7 @@ make clippy     # lint with warnings denied
 make test       # unit + integration tests
 make validate   # formatting + invariants + feature checks + clippy + tests
 make fmt        # format workspace
+make install-hooks # install the formatting-only pre-commit hook
 make build      # release workspace build
 ```
 
@@ -378,9 +379,25 @@ icydb metrics demo_rpg --window-start-ms <timestamp>
 icydb metrics demo_rpg --reset
 ```
 
-The repository installs no Git hooks. Commit and push perform only their Git
-operations; run `make fmt` or `make validate` explicitly when those workflows
-are required.
+### Git Formatting Hook
+
+`make install-dev` and `make update-dev` configure the repository's sole Git
+hook. To install it without changing any other developer tooling, run:
+
+```bash
+make install-hooks
+```
+
+The pre-commit hook runs `make fmt`, covering Cargo manifests, derive ordering,
+and Rust code. When formatting changes a file, the hook aborts and lists the
+affected paths so you can review and re-stage them. It never runs `git add`,
+tests, Clippy, builds, PocketIC, or release validation. It also rejects
+partially staged Rust and Cargo-manifest paths rather than risk committing an
+unformatted staged snapshot.
+
+`git commit --no-verify` remains an explicit bypass, and `git push` performs no
+repository validation. `make validate` retains the non-mutating `fmt-check`
+gate for release readiness and other hook bypasses.
 
 ## IC Testkit Tests
 

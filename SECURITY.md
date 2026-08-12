@@ -11,13 +11,14 @@ that boundary and should be run only on hosts where that is acceptable.
   documented system prerequisites, install Rust through the official rustup
   script when missing, install the workspace-pinned Rust toolchain and wasm
   target, install Cargo helper tools, and install npm-backed ICP CLI tools under
-  `$HOME/.local`.
+  `$HOME/.local`. It also configures this checkout's local `core.hooksPath` as
+  `.githooks` without replacing a different existing hook path.
 - `make update-dev` is a maintainer workstation updater. It refreshes the same
-  documented system package list, installs the workspace-pinned Rust toolchain
-  and wasm target with `rustup`, installs or updates the standard Cargo helper
-  tools and wasm tools, installs or updates `icp` and `ic-wasm` under
-  `$HOME/.local` through npm, runs `cargo audit`, and refreshes `Cargo.lock`
-  with `cargo update`.
+  workspace-pinned Rust toolchain and wasm target with `rustup`, installs or
+  updates the standard Cargo helper tools and wasm tools, installs or updates
+  `icp` and `ic-wasm` under `$HOME/.local` through npm, ensures the same local
+  hook path, runs `cargo audit`, and refreshes `Cargo.lock` with `cargo update`.
+  It does not install system packages.
 - `make test` may need a PocketIC server binary. The repo test target sets
   `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1` and a repo-local `TMPDIR`, then lets
   `ic-testkit` resolve a trusted `POCKET_IC_BIN`, cached pinned binary, or
@@ -37,5 +38,9 @@ disk wipe.
 
 ## Git Commands
 
-The repository installs no Git hooks. Commit and push perform no hidden
-formatting, staging, build, test, or validation work.
+The repository has one opt-in formatting-only pre-commit hook, installed by
+`make install-hooks`, `make install-dev`, or `make update-dev`. A commit runs
+`make fmt`; if formatting changes files, the hook aborts and leaves review and
+staging to the developer. It never stages files or runs builds, tests, Clippy,
+PocketIC, or release validation. `git commit --no-verify` bypasses it, and
+`git push` performs no repository hook work.

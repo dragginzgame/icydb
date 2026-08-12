@@ -38,6 +38,8 @@ impl Path for RelationTestCanister {
 impl CanisterKind for RelationTestCanister {
     const COMMIT_MEMORY_ID: u8 = 1;
     const COMMIT_STABLE_KEY: &'static str = "icydb.relation_tests.commit.v1";
+    const STARTUP_MEMORY_ID: u8 = 3;
+    const STARTUP_STABLE_KEY: &'static str = "icydb.relation_tests.startup.control.v1";
     const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 2;
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
         "icydb.relation_tests.integrity.progress.v1";

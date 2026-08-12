@@ -128,7 +128,7 @@ impl Error {
         Self::from_diagnostic_and_facts(err.diagnostic(), err.diagnostic_facts())
     }
 
-    fn from_diagnostic_and_facts(
+    pub(crate) fn from_diagnostic_and_facts(
         diagnostic: icydb_diagnostic_code::Diagnostic,
         facts: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
     ) -> Self {
@@ -189,6 +189,18 @@ impl Error {
     #[must_use]
     pub const fn facts(&self) -> &[DiagnosticFact] {
         self.facts.as_slice()
+    }
+
+    pub(crate) fn core_facts(
+        &self,
+    ) -> Option<Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>> {
+        self.facts
+            .iter()
+            .map(|fact| {
+                icydb_diagnostic_code::DiagnosticFactTag::known(fact.tag)
+                    .map(|tag| (tag, fact.value))
+            })
+            .collect()
     }
 }
 

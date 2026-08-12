@@ -10,6 +10,7 @@ members = [
     "canisters/demo/rpg",
     "canisters/test/sql",
     "canisters/test/sql_bounded",
+    "canisters/test/startup_timer",
     "crates/icydb",
     "crates/icydb-cli",
     "crates/icydb-core",

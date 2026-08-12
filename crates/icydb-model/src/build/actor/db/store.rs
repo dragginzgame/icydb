@@ -31,6 +31,8 @@ struct CanisterMemoryWiring<'a> {
     memory_max: u8,
     commit_memory_id: u8,
     commit_stable_key: &'a str,
+    startup_memory_id: u8,
+    startup_stable_key: &'a str,
     integrity_progress_memory_id: u8,
     integrity_progress_stable_key: &'a str,
 }
@@ -48,6 +50,8 @@ pub(super) fn generate_store_wiring(
     let memory_max = canister.memory_max();
     let commit_memory_id = canister.commit_memory_id();
     let commit_stable_key = canister.commit_stable_key();
+    let startup_memory_id = canister.startup_memory_id();
+    let startup_stable_key = canister.startup_stable_key();
     let integrity_progress_memory_id = canister.integrity_progress_memory_id();
     let integrity_progress_stable_key = canister.integrity_progress_stable_key();
     let schema_bootstrap = schema_bootstrap_tokens(builder);
@@ -61,6 +65,8 @@ pub(super) fn generate_store_wiring(
             memory_max,
             commit_memory_id,
             commit_stable_key: &commit_stable_key,
+            startup_memory_id,
+            startup_stable_key: &startup_stable_key,
             integrity_progress_memory_id,
             integrity_progress_stable_key: &integrity_progress_stable_key,
         },
@@ -107,6 +113,7 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
     let entity_names = entity_stores.iter().map(|(name, _)| name);
     let store_paths = entity_stores.iter().map(|(_, store)| store);
     let recovery = schema_application_recovery_tokens();
+    let startup_driver = startup_driver_tokens();
 
     quote! {
         #migration_capability
@@ -129,6 +136,7 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
         }
 
         #recovery
+        #startup_driver
 
         fn ensure_schema_application(
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
@@ -145,6 +153,156 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
                     Ok(()) | Err(()) => Ok(()),
                 }
             })
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one generated block keeps the watchdog state, callback, and terminal handoff visibly co-located"
+)]
+fn startup_driver_tokens() -> TokenStream {
+    quote! {
+        thread_local! {
+            static STARTUP_WATCHDOG_TIMER: ::std::cell::RefCell<
+                ::std::option::Option<::icydb::__reexports::ic_cdk_timers::TimerId>
+            > = const { ::std::cell::RefCell::new(None) };
+            static STARTUP_DRIVER_ACTIVE: ::std::cell::Cell<bool> =
+                const { ::std::cell::Cell::new(false) };
+            static STARTUP_DRIVER_CADENCE_TIME: ::std::cell::Cell<
+                ::std::option::Option<u64>
+            > = const { ::std::cell::Cell::new(None) };
+        }
+
+        /// Register the single engine-owned startup watchdog while recovery is pending.
+        #[doc(hidden)]
+        pub fn __register_startup_watchdog() -> ::std::result::Result<
+            bool,
+            ::icydb::db::StartupFailure,
+        > {
+            if STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some()) {
+                return Ok(false);
+            }
+            match startup_state()? {
+                ::icydb::db::DatabaseStartupState::Ready => return Ok(false),
+                ::icydb::db::DatabaseStartupState::Recovering => {}
+            }
+            let timer_id = ::icydb::__reexports::ic_cdk_timers::set_timer_interval_serial(
+                ::std::time::Duration::from_secs(1),
+                async || {
+                    startup_watchdog_callback();
+                },
+            );
+            STARTUP_WATCHDOG_TIMER.with(|timer| timer.replace(Some(timer_id)));
+            Ok(true)
+        }
+
+        /// Reset non-authoritative timer state before post-upgrade reconstruction.
+        #[doc(hidden)]
+        pub fn __reset_startup_watchdog_after_upgrade() {
+            STARTUP_WATCHDOG_TIMER.with(|timer| timer.replace(None));
+            STARTUP_DRIVER_ACTIVE.with(|active| active.set(false));
+            STARTUP_DRIVER_CADENCE_TIME.with(|time| time.set(None));
+        }
+
+        /// Return whether this Wasm instance retains the current watchdog registration.
+        #[doc(hidden)]
+        pub fn __startup_watchdog_registered() -> bool {
+            STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some())
+        }
+
+        fn startup_watchdog_callback() {
+            if !STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some()) {
+                return;
+            }
+            if STARTUP_DRIVER_ACTIVE.with(::std::cell::Cell::get) {
+                return;
+            }
+            let now = ::icydb::__reexports::ic_cdk::api::time();
+            if STARTUP_DRIVER_CADENCE_TIME.with(::std::cell::Cell::get) == Some(now) {
+                return;
+            }
+            match startup_state() {
+                Ok(::icydb::db::DatabaseStartupState::Ready) | Err(_) => {
+                    clear_startup_watchdog();
+                    return;
+                }
+                Ok(::icydb::db::DatabaseStartupState::Recovering) => {}
+            }
+
+            STARTUP_DRIVER_CADENCE_TIME.with(|time| time.set(Some(now)));
+            STARTUP_DRIVER_ACTIVE.with(|active| active.set(true));
+            let result = ::icydb::db::with_request_execution(startup_driver_attempt);
+            STARTUP_DRIVER_ACTIVE.with(|active| active.set(false));
+            match result {
+                Ok(true) => clear_startup_watchdog(),
+                Ok(false) => {}
+                Err(error) => {
+                    ::icydb::__reexports::ic_cdk::println!(
+                        "IcyDB startup driver retryable failure (E{})",
+                        error.code().raw(),
+                    );
+                }
+            }
+        }
+
+        fn startup_driver_attempt() -> ::std::result::Result<bool, ::icydb::Error> {
+            let session = ::icydb::db::DbSession::new(core_db()?);
+            match session.__drive_generated_startup_recovery_page(
+                &STORE_REGISTRY,
+                ICYDB_SCHEMA_SUBMISSION_KEY,
+            )? {
+                ::icydb::db::GeneratedStartupDriverStep::Terminal => Ok(true),
+                ::icydb::db::GeneratedStartupDriverStep::Recovering => Ok(false),
+                ::icydb::db::GeneratedStartupDriverStep::ApplyGeneratedSchema => {
+                    complete_generated_schema_handoff(&session)
+                }
+            }
+        }
+
+        fn complete_generated_schema_handoff(
+            session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
+        ) -> ::std::result::Result<bool, ::icydb::Error> {
+            if SCHEMA_APPLICATION.with(|application| application.get().is_none()) {
+                if let Err(error) = apply_generated_schema(session) {
+                    return ::icydb::db::__record_generated_schema_startup_failure::<
+                        __IcydbGeneratedCanister,
+                    >(
+                        &STORE_REGISTRY,
+                        ICYDB_SCHEMA_SUBMISSION_KEY,
+                        &error,
+                    );
+                }
+                SCHEMA_APPLICATION.with(|application| {
+                    let _ = application.set(());
+                });
+            }
+            match startup_state() {
+                Ok(::icydb::db::DatabaseStartupState::Ready) => {
+                    let _ = ::icydb::db::__clear_generated_startup_failure::<
+                        __IcydbGeneratedCanister,
+                    >()?;
+                    Ok(true)
+                }
+                Ok(::icydb::db::DatabaseStartupState::Recovering) => Ok(false),
+                Err(_) => Ok(true),
+            }
+        }
+
+        fn clear_startup_watchdog() {
+            if let Some(timer_id) = STARTUP_WATCHDOG_TIMER.with(|timer| timer.take()) {
+                // The pinned serial-timer executor restores its busy task from a
+                // completion guard after this callback returns. Removing that task
+                // inside the callback makes the guard trap, rolling back the driver.
+                // Retire our logical registration now and clear the restored task in
+                // one separate timer message after normal serial completion.
+                ::icydb::__reexports::ic_cdk_timers::set_timer(
+                    ::std::time::Duration::ZERO,
+                    async move {
+                        ::icydb::__reexports::ic_cdk_timers::clear_timer(timer_id);
+                    },
+                );
+            }
         }
     }
 }
@@ -489,6 +647,8 @@ fn store_wiring_tokens(
         memory_max,
         commit_memory_id,
         commit_stable_key,
+        startup_memory_id,
+        startup_stable_key,
         integrity_progress_memory_id,
         integrity_progress_stable_key,
     } = memory;
@@ -506,6 +666,7 @@ fn store_wiring_tokens(
             }
         }
     };
+    let startup_observation = startup_observation_tokens();
 
     quote! {
         #[doc(hidden)]
@@ -518,6 +679,8 @@ fn store_wiring_tokens(
         impl ::icydb::__macro::CanisterKind for __IcydbGeneratedCanister {
             const COMMIT_MEMORY_ID: u8 = #commit_memory_id;
             const COMMIT_STABLE_KEY: &'static str = #commit_stable_key;
+            const STARTUP_MEMORY_ID: u8 = #startup_memory_id;
+            const STARTUP_STABLE_KEY: &'static str = #startup_stable_key;
             const INTEGRITY_PROGRESS_MEMORY_ID: u8 = #integrity_progress_memory_id;
             const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
                 #integrity_progress_stable_key;
@@ -541,6 +704,13 @@ fn store_wiring_tokens(
             key = #integrity_progress_stable_key,
             label = "IntegrityProgress",
             id = #integrity_progress_memory_id,
+        );
+
+        ::icydb::__macro::ic_memory_declaration!(
+            authority = #memory_authority,
+            key = #startup_stable_key,
+            label = "StartupControl",
+            id = #startup_memory_id,
         );
 
         #journal_defs
@@ -593,6 +763,8 @@ fn store_wiring_tokens(
             .ok_or_else(::icydb::db::__request_execution_scope_required)
         }
 
+        #startup_observation
+
         #[doc(hidden)]
         pub fn core_db_with_request_root(
             request_root: &::icydb::db::RequestExecutionRoot,
@@ -632,6 +804,22 @@ fn store_wiring_tokens(
     }
 }
 
+fn startup_observation_tokens() -> TokenStream {
+    quote! {
+        pub fn startup_state() -> ::std::result::Result<
+            ::icydb::db::DatabaseStartupState,
+            ::icydb::db::StartupFailure,
+        > {
+            ensure_memory_bootstrap()
+                .map_err(::icydb::db::__startup_bootstrap_failure)?;
+            ::icydb::db::__observe_generated_startup_state::<__IcydbGeneratedCanister>(
+                &STORE_REGISTRY,
+                ICYDB_SCHEMA_SUBMISSION_KEY,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -665,7 +853,7 @@ mod tests {
     fn actor_builder() -> ActorBuilder {
         ActorBuilder::new(
             Arc::new(Schema::new()),
-            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 3, None),
+            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 4, 3, None),
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
             None,
@@ -681,6 +869,68 @@ mod tests {
         assert!(rendered.contains("__continue_startup_recovery"));
         assert!(rendered.contains("elseif!session.__continue_startup_recovery()?"));
         assert!(rendered.contains("ic_cdk_timers::set_timer"));
+    }
+
+    #[test]
+    fn dormant_startup_watchdog_is_serial_fixed_cadence_and_has_no_endpoint() {
+        let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
+
+        for required in [
+            "STARTUP_WATCHDOG_TIMER",
+            "Option<::icydb::__reexports::ic_cdk_timers::TimerId>",
+            "STARTUP_DRIVER_ACTIVE",
+            "STARTUP_DRIVER_CADENCE_TIME",
+            "set_timer_interval_serial(::std::time::Duration::from_secs(1)",
+            "__drive_generated_startup_recovery_page",
+            "__record_generated_schema_startup_failure",
+            "set_timer(::std::time::Duration::ZERO",
+            "clear_timer(timer_id)",
+        ] {
+            assert!(rendered.contains(required), "missing token: {required}");
+        }
+        for forbidden in [
+            "set_timer_interval(",
+            "ic_cdk::update",
+            "ic_cdk::query",
+            "#[update]",
+            "#[query]",
+        ] {
+            assert!(
+                !rendered.contains(forbidden),
+                "forbidden token: {forbidden}"
+            );
+        }
+        assert_eq!(
+            rendered.matches("__register_startup_watchdog").count(),
+            1,
+            "Patch 3 emits the registration function but must not activate it",
+        );
+        assert!(
+            rendered.contains("schedule_schema_application_recovery()"),
+            "Patch 4 owns deletion of the predecessor admission path",
+        );
+    }
+
+    #[test]
+    fn startup_observation_is_ungated_and_never_becomes_an_automatic_endpoint() {
+        let rendered = compact_tokens(startup_observation_tokens());
+
+        assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));
+        assert!(rendered.contains("ensure_memory_bootstrap()"));
+        assert!(rendered.contains("__observe_generated_startup_state::<"));
+        for forbidden in [
+            "core_db(",
+            "db(",
+            "with_request_execution",
+            "set_timer",
+            "ic_cdk::query",
+            "ic_cdk::update",
+        ] {
+            assert!(
+                !rendered.contains(forbidden),
+                "forbidden token: {forbidden}"
+            );
+        }
     }
 
     #[test]
@@ -800,6 +1050,8 @@ mod tests {
                 memory_max: 19,
                 commit_memory_id: 18,
                 commit_stable_key: "icydb.demo.commit.v1",
+                startup_memory_id: 16,
+                startup_stable_key: "icydb.demo.startup.control.v1",
                 integrity_progress_memory_id: 17,
                 integrity_progress_stable_key: "icydb.demo.integrity.progress.v1",
             },
@@ -807,7 +1059,10 @@ mod tests {
 
         assert!(!rendered.contains("allow(unused_mut)"));
         assert!(!rendered.contains("expect(clippy::let_and_return"));
-        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 3);
+        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 4);
+        assert!(rendered.contains("key=\"icydb.demo.startup.control.v1\""));
+        assert!(rendered.contains("label=\"StartupControl\""));
+        assert!(rendered.contains("id=16u8"));
         assert!(rendered.contains("key=\"icydb.demo.integrity.progress.v1\""));
         assert!(rendered.contains("label=\"IntegrityProgress\""));
         assert!(rendered.contains("id=17u8"));
@@ -818,6 +1073,8 @@ mod tests {
         assert!(!rendered.contains("bootstrap_default_memory_manager()"));
         assert!(!rendered.contains("fn bootstrap_memory_manager()"));
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
+        assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));
+        assert!(rendered.contains("__observe_generated_startup_state::<__IcydbGeneratedCanister>"));
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("MEMORY_BOOTSTRAP.with("));
         assert!(rendered.contains(

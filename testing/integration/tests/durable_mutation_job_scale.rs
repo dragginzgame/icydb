@@ -496,7 +496,7 @@ fn recover_active_tier_job(
     fixture: &ic_testkit::pic::StandaloneCanisterFixture,
     tier_sequence: u64,
     completed: &MutationScaleFixtureFacts,
-) -> (MutationScaleRunEvidence, u32, u64) {
+) -> (MutationScaleRunEvidence, Vec<u64>) {
     // Reuse the converged tier intent to prove that an active private
     // continuation survives upgrade without conflating recovered stable-store
     // cost with the frozen warm Forward fixture.
@@ -505,6 +505,7 @@ fn recover_active_tier_job(
     upgrade_fixture_canister(fixture, "sql_perf");
     let mut recovery_pages = 0_u32;
     let mut recovery_instructions = 0_u64;
+    let mut recovery_page_instructions = Vec::new();
     loop {
         let recovery: Result<MutationScaleRecoveryEvidence, Error> = fixture
             .update_candid("recover_toko_mutation_scale_store", ())
@@ -512,6 +513,7 @@ fn recover_active_tier_job(
         let recovery = recovery.expect("scale target store should recover after upgrade");
         recovery_pages = recovery_pages.saturating_add(1);
         recovery_instructions = recovery_instructions.saturating_add(recovery.local_instructions);
+        recovery_page_instructions.push(recovery.local_instructions);
         assert!(recovery.local_instructions > 0);
         assert!(recovery.local_instructions < 40_000_000_000);
         if recovery.complete {
@@ -554,21 +556,33 @@ fn recover_active_tier_job(
         false,
     );
     assert_eq!(&scale_facts(fixture), completed);
-    (recovery_evidence, recovery_pages, recovery_instructions)
+    assert_eq!(
+        recovery_instructions,
+        recovery_page_instructions.iter().copied().sum::<u64>(),
+    );
+    (recovery_evidence, recovery_page_instructions)
 }
 
 fn print_scale_evidence(
     tier: &MutationScaleRunEvidence,
     scoring: &MutationScaleRunEvidence,
     recovered: &MutationScaleRunEvidence,
-    recovery_pages: u32,
-    recovery_instructions: u64,
+    recovery_page_instructions: &[u64],
 ) {
+    let recovery_pages = recovery_page_instructions.len();
+    let recovery_instructions = recovery_page_instructions.iter().copied().sum::<u64>();
+    let first_recovery_page = recovery_page_instructions.first().copied().unwrap_or(0);
+    let representative_recovery_page = recovery_page_instructions
+        .get(recovery_pages / 2)
+        .copied()
+        .unwrap_or(0);
+    let terminal_recovery_page = recovery_page_instructions.last().copied().unwrap_or(0);
     println!(
         "icydb_0223_toko_scale rows={} recovery_pages={} recovery_instructions={} tier_forward_calls={} tier_verify_calls={} \
          tier_forward_max={} tier_recovery_reentry={} tier_verify_max={} tier_replay_max={} \
          scoring_forward_calls={} scoring_verify_calls={} scoring_forward_max={} \
-         scoring_verify_max={} scoring_replay_max={} recovered_forward_max={} recovered_verify_max={}",
+         scoring_verify_max={} scoring_replay_max={} recovered_forward_max={} recovered_verify_max={} \
+         recovery_first={} recovery_representative={} recovery_terminal={}",
         DURABLE_MUTATION_JOB_FIXTURE_ROWS,
         recovery_pages,
         recovery_instructions,
@@ -587,6 +601,9 @@ fn print_scale_evidence(
         scoring.max_replay_instructions,
         recovered.max_recovered_forward_instructions,
         recovered.max_recovered_verify_instructions,
+        first_recovery_page,
+        representative_recovery_page,
+        terminal_recovery_page,
     );
 }
 
@@ -598,15 +615,9 @@ fn toko_shaped_jobs_finish_across_calls_and_upgrade() {
     prove_eager_control_is_bounded(&fixture, &initial);
     let (tier_state, scoring_state) = start_composed_scale_jobs(&fixture);
     let (tier, scoring, completed) = run_warm_scale_jobs(&fixture, &tier_state, &scoring_state);
-    let (recovered, recovery_pages, recovery_instructions) =
+    let (recovered, recovery_page_instructions) =
         recover_active_tier_job(&fixture, tier.sequence, &completed);
-    print_scale_evidence(
-        &tier,
-        &scoring,
-        &recovered,
-        recovery_pages,
-        recovery_instructions,
-    );
+    print_scale_evidence(&tier, &scoring, &recovered, &recovery_page_instructions);
 
     acknowledge_scale_job(&fixture, MutationScaleJob::Tier, recovered.sequence);
     acknowledge_scale_job(&fixture, MutationScaleJob::Scoring, scoring.sequence);

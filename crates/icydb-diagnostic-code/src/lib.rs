@@ -553,6 +553,8 @@ pub enum RuntimeBoundaryCode {
     RequestExecutionRootMismatch,
     /// A successful generated SQL query reply exceeds the deployed IC query-response limit.
     SqlQueryReplyBytesExceeded,
+    /// Startup recovery remains incomplete and ordinary database work must retry later.
+    DatabaseStartupRecoveryPending,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1095,7 +1097,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 279);
+        assert_eq!(last, 280);
     }
 
     #[test]

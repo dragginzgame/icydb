@@ -5,8 +5,10 @@ define_fixture_canister!(
     DemoRpgCanister = "DemoRpgCanister",
     namespace = "demo_rpg",
     memory_min = 104,
-    memory_max = 109,
+    memory_max = 110,
     commit_memory_id = 108,
+    startup_memory_id = 110,
+    integrity_progress_memory_id = 109,
 );
 
 define_fixture_store!(

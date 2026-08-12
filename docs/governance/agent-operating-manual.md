@@ -40,8 +40,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Use non-mutating format checks for final release/readiness verification.
   `cargo fmt --all --check` matches CI's Rustfmt check; `make fmt-check` also
   enforces the repository's manifest and derive sorting policy.
-- Formatting and sorting are explicit `make fmt` operations; Git commands do
-  not mutate source files through repository hooks.
+- The sole repository hook is a formatting-only pre-commit hook. It runs
+  `make fmt`, aborts when formatting changes files, and never stages them.
+  Partially staged Rust or Cargo-manifest paths are rejected because their
+  exact staged snapshot cannot be proved by formatting the working tree.
 - `git push` performs no repository validation. `make test`, `make clippy`, and
   `make check` run only the operation they name; `make validate` explicitly
   composes the complete local validation workflow. Release preparation runs
@@ -57,7 +59,8 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   `make patch|minor|major`, then `make release-stage`, `make release-commit`,
   and `make release-push`.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
-  in `INSTALLING.md`.
+  in `INSTALLING.md`. `make install-hooks` installs the hook explicitly;
+  `make install-dev` and `make update-dev` also ensure it is installed.
 - CI uses Rust `1.97.1`, `rustfmt`, `clippy -D warnings`, `cargo test`, and
   release builds. It also checks the public `icydb` dependency path on Rust
   `1.88.0`.

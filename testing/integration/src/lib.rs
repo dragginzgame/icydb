@@ -49,7 +49,7 @@ struct ConfiguredCanisterBuild {
     final_deployable: PathBuf,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
+static FIXTURE_CANISTERS: [FixtureCanister; 11] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
@@ -63,6 +63,11 @@ static FIXTURE_CANISTERS: [FixtureCanister; 10] = [
     FixtureCanister {
         name: "sql_bounded",
         package: "canister_test_sql_bounded",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "startup_timer",
+        package: "canister_test_startup_timer",
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {

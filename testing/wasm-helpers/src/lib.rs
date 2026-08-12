@@ -18,7 +18,9 @@ macro_rules! define_fixture_canister {
         namespace = $namespace:literal,
         memory_min = $memory_min:literal,
         memory_max = $memory_max:literal,
-        commit_memory_id = $commit_memory_id:literal
+        commit_memory_id = $commit_memory_id:literal,
+        startup_memory_id = $startup_memory_id:literal,
+        integrity_progress_memory_id = $integrity_progress_memory_id:literal
         $(, migrations($($migrations:tt)*))?
         $(,)?
     ) => {
@@ -32,7 +34,8 @@ macro_rules! define_fixture_canister {
             memory_min = $memory_min,
             memory_max = $memory_max,
             commit_memory_id = $commit_memory_id,
-            integrity_progress_memory_id = $memory_max
+            startup_memory_id = $startup_memory_id,
+            integrity_progress_memory_id = $integrity_progress_memory_id
             $(, migrations($($migrations)*))?
         )]
         pub struct $canister {}

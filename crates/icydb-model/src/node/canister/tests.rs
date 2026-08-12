@@ -9,6 +9,7 @@ fn insert_canister(path_module: &'static str, ident: &'static str) -> Canister {
         100,
         254,
         254,
+        252,
         253,
         None,
     );
@@ -88,6 +89,7 @@ fn validate_rejects_reserved_commit_memory_id() {
         100,
         254,
         255,
+        252,
         253,
         None,
     );
@@ -112,6 +114,7 @@ fn validate_rejects_integrity_progress_memory_collision() {
         100,
         254,
         253,
+        252,
         253,
         None,
     );
@@ -127,6 +130,25 @@ fn validate_rejects_integrity_progress_memory_collision() {
 }
 
 #[test]
+fn validate_rejects_startup_memory_collision() {
+    let canister = Canister::new(
+        Def::new("schema_startup_collision", "Canister"),
+        "test_db",
+        100,
+        254,
+        253,
+        253,
+        252,
+        None,
+    );
+    schema_write().insert_node(SchemaNode::Canister(canister.clone()));
+
+    canister
+        .validate()
+        .expect_err("startup and commit memory IDs must not alias");
+}
+
+#[test]
 fn integrity_progress_allocation_has_one_canonical_identity() {
     let canister = Canister::new(
         Def::new("schema_integrity_progress_identity", "Canister"),
@@ -134,6 +156,7 @@ fn integrity_progress_allocation_has_one_canonical_identity() {
         100,
         254,
         254,
+        252,
         253,
         None,
     );
@@ -142,6 +165,26 @@ fn integrity_progress_allocation_has_one_canonical_identity() {
     assert_eq!(
         canister.integrity_progress_stable_key(),
         "icydb.test_db.integrity.progress.v1",
+    );
+}
+
+#[test]
+fn startup_allocation_has_one_canonical_identity() {
+    let canister = Canister::new(
+        Def::new("schema_startup_identity", "Canister"),
+        "test_db",
+        100,
+        254,
+        254,
+        252,
+        253,
+        None,
+    );
+
+    assert_eq!(canister.startup_memory_id(), 252);
+    assert_eq!(
+        canister.startup_stable_key(),
+        "icydb.test_db.startup.control.v1",
     );
 }
 
@@ -244,6 +287,7 @@ fn validate_rejects_app_memory_id_below_canic_reserved_range() {
         99,
         110,
         99,
+        101,
         100,
         None,
     );

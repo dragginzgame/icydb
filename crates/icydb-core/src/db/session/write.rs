@@ -1511,6 +1511,8 @@ mod typed_adapter_tests {
     impl CanisterKind for TestCanister {
         const COMMIT_MEMORY_ID: u8 = 41;
         const COMMIT_STABLE_KEY: &'static str = "icydb.typed_adapter_tests.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 49;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.typed_adapter_tests.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 42;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.typed_adapter_tests.integrity.progress.v1";
@@ -2148,6 +2150,9 @@ mod mixed_relation_batch_tests {
     impl CanisterKind for TestCanister {
         const COMMIT_MEMORY_ID: u8 = 47;
         const COMMIT_STABLE_KEY: &'static str = "icydb.mixed_relation_batch_tests.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 50;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.mixed_relation_batch_tests.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 48;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.mixed_relation_batch_tests.integrity.progress.v1";
@@ -3003,10 +3008,11 @@ mod identity_pre_key_tests {
     };
     use crate::{
         db::{
-            MutationJobAdvanceRequest, MutationJobId, MutationJobIdempotencyKey, MutationJobPhase,
-            MutationJobStatus,
+            GeneratedStartupDriverStep, MutationJobAdvanceRequest, MutationJobId,
+            MutationJobIdempotencyKey, MutationJobPhase, MutationJobStatus,
             commit::{database_incarnation_id, forget_recovered_domain_for_tests},
             data::DataStore,
+            drive_generated_startup_recovery_page,
             executor::{MutationCommitInterruption, interrupt_next_mutation_commit_for_tests},
             index::IndexStore,
             integrity::{
@@ -3058,6 +3064,8 @@ mod identity_pre_key_tests {
     impl CanisterKind for TestCanister {
         const COMMIT_MEMORY_ID: u8 = 45;
         const COMMIT_STABLE_KEY: &'static str = "icydb.identity_pre_key_tests.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 49;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.identity_pre_key_tests.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 46;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.identity_pre_key_tests.integrity.progress.v1";
@@ -3131,6 +3139,8 @@ mod identity_pre_key_tests {
     impl CanisterKind for JournaledTestCanister {
         const COMMIT_MEMORY_ID: u8 = 190;
         const COMMIT_STABLE_KEY: &'static str = "icydb.identity_range_tests.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 192;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.identity_range_tests.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 191;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.identity_range_tests.integrity.progress.v1";
@@ -5184,6 +5194,7 @@ mod identity_pre_key_tests {
 
     #[test]
     fn journaled_startup_recovery_resumes_by_durable_pages_without_reallocating_ids() {
+        const SUBMISSION: &str = "generated/8899aabbccddeeff";
         let session = initialize_journaled();
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -5205,22 +5216,31 @@ mod identity_pre_key_tests {
 
         forget_recovered_domain_for_tests(&session.db)
             .expect("upgrade should reset recovery ownership");
-        assert!(
-            !session
-                .db
-                .continue_startup_recovery()
-                .expect("the first bounded recovery page should commit"),
+        assert_eq!(
+            drive_generated_startup_recovery_page(&session, &JOURNALED_STORE_REGISTRY, SUBMISSION,)
+                .expect("the first bounded driver page should commit"),
+            GeneratedStartupDriverStep::Recovering,
             "one page must not consume a tail larger than the production page bound",
         );
         assert!(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
         let mut pages = 1;
-        while !session
-            .db
-            .continue_startup_recovery()
-            .expect("each bounded recovery page should commit")
-        {
-            pages += 1;
-            assert!(pages <= 4, "the small fixture should finish promptly");
+        loop {
+            match drive_generated_startup_recovery_page(
+                &session,
+                &JOURNALED_STORE_REGISTRY,
+                SUBMISSION,
+            )
+            .expect("each bounded driver page should commit")
+            {
+                GeneratedStartupDriverStep::Recovering => {
+                    pages += 1;
+                    assert!(pages <= 4, "the small fixture should finish promptly");
+                }
+                GeneratedStartupDriverStep::ApplyGeneratedSchema => break,
+                GeneratedStartupDriverStep::Terminal => {
+                    panic!("recovery must not report terminal before schema handoff")
+                }
+            }
         }
         assert!(pages >= 2);
 
@@ -5402,6 +5422,8 @@ mod targeted_rule_mutation_tests {
     impl CanisterKind for TestCanister {
         const COMMIT_MEMORY_ID: u8 = 43;
         const COMMIT_STABLE_KEY: &'static str = "icydb.targeted_mutation_tests.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 49;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.targeted_mutation_tests.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 44;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.targeted_mutation_tests.integrity.progress.v1";

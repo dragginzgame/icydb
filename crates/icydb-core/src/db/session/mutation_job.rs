@@ -192,6 +192,8 @@ mod tests {
     impl CanisterKind for TestCanister {
         const COMMIT_MEMORY_ID: u8 = 244;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.mutation-job.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 246;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.mutation-job.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 245;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.mutation-job.progress.v1";
     }

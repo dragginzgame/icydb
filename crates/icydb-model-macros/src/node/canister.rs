@@ -22,6 +22,7 @@ pub struct Canister {
     pub(crate) memory_min: u8,
     pub(crate) memory_max: u8,
     commit_memory_id: u8,
+    startup_memory_id: u8,
     #[darling(default)]
     integrity_progress_memory_id: Option<u8>,
 
@@ -66,6 +67,24 @@ impl ValidateNode for Canister {
         if let Some(message) = memory_id_reserved_error("commit_memory_id", self.commit_memory_id) {
             return Err(DarlingError::custom(message).with_span(&self.def.ident()));
         }
+        if let Some(message) = memory_id_out_of_range_error(
+            "startup_memory_id",
+            self.startup_memory_id,
+            self.memory_min,
+            self.memory_max,
+        ) {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
+        if let Some(message) = crate::validate::memory::app_memory_id_error(
+            "startup_memory_id",
+            self.startup_memory_id,
+        ) {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
+        if let Some(message) = memory_id_reserved_error("startup_memory_id", self.startup_memory_id)
+        {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
         let integrity_progress_memory_id = self.integrity_progress_memory_id();
         if let Some(message) = memory_id_out_of_range_error(
             "integrity_progress_memory_id",
@@ -104,6 +123,7 @@ impl HasSchemaPart for Canister {
         let memory_min = self.memory_min;
         let memory_max = self.memory_max;
         let commit_memory_id = self.commit_memory_id;
+        let startup_memory_id = self.startup_memory_id;
         let integrity_progress_memory_id = self.integrity_progress_memory_id();
         let migration_plan = self
             .migrations
@@ -118,6 +138,7 @@ impl HasSchemaPart for Canister {
                 #memory_min,
                 #memory_max,
                 #commit_memory_id,
+                #startup_memory_id,
                 #integrity_progress_memory_id,
                 #migration_plan,
             )
@@ -150,6 +171,11 @@ impl Canister {
     #[cfg(test)]
     fn integrity_progress_stable_key(&self) -> String {
         stable_memory_key(&self.memory_namespace, "integrity", "progress")
+    }
+
+    #[cfg(test)]
+    fn startup_stable_key(&self) -> String {
+        stable_memory_key(&self.memory_namespace, "startup", "control")
     }
 }
 
@@ -189,6 +215,7 @@ mod tests {
             memory_min: 100,
             memory_max: 254,
             commit_memory_id: 254,
+            startup_memory_id: 252,
             integrity_progress_memory_id: Some(253),
             migrations: None,
         };
@@ -199,6 +226,10 @@ mod tests {
         assert_eq!(
             canister.integrity_progress_stable_key(),
             "icydb.demo_rpg.integrity.progress.v1",
+        );
+        assert_eq!(
+            canister.startup_stable_key(),
+            "icydb.demo_rpg.startup.control.v1",
         );
     }
 }

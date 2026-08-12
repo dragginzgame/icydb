@@ -85,10 +85,11 @@ pub use migration_api::{
 
 pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
+pub(in crate::db) use application::generated_schema_authority;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use application::{
     abort_schema_application, apply_schema, continue_schema_application,
-    schema_application_receipt, schema_application_target,
+    generated_schema_reconciled, schema_application_receipt, schema_application_target,
 };
 #[cfg(feature = "migration")]
 pub(in crate::db) use application::{
@@ -115,8 +116,8 @@ pub use application_receipt::{
 };
 pub(in crate::db) use application_store::{
     ApplicationRecordKey, SchemaApplicationRecordOp, apply_schema_application_record_op,
-    preflight_schema_application_record_op, verify_schema_application_record_op,
-    with_schema_application_store,
+    load_schema_application_record_read_only, preflight_schema_application_record_op,
+    verify_schema_application_record_op, with_schema_application_store,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities_with_enum_catalog};

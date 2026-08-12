@@ -245,7 +245,7 @@ macro_rules! start {
         }
 
         #[allow(unused_imports)]
-        use __icydb_generated::{db, db_with_request_root};
+        use __icydb_generated::{db, db_with_request_root, startup_state};
     };
 }
 

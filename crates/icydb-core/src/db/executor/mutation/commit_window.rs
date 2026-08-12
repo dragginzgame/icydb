@@ -1152,6 +1152,8 @@ mod tests {
     impl CanisterKind for SchedulerOverlayTestCanister {
         const COMMIT_MEMORY_ID: u8 = 1;
         const COMMIT_STABLE_KEY: &'static str = "icydb.scheduler_overlay.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 3;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.scheduler_overlay.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 2;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.scheduler_overlay.integrity.progress.v1";

@@ -1069,6 +1069,9 @@ mod tests {
         const COMMIT_MEMORY_ID: u8 = 240;
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.schema-publication.completion.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 244;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.test.schema-publication.completion.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 243;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.schema-publication.completion.integrity.v1";
@@ -1083,6 +1086,9 @@ mod tests {
     impl CanisterKind for RecoveryCanister {
         const COMMIT_MEMORY_ID: u8 = 241;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.schema-publication.recovery.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 244;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.test.schema-publication.recovery.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 242;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.schema-publication.recovery.integrity.v1";

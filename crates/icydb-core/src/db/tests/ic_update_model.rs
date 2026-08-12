@@ -13,6 +13,7 @@ const GUARDED_RUNTIME_PATHS: &[&str] = &[
     "src/db/commit/",
     "src/db/executor/delete/",
     "src/db/executor/mutation/",
+    "src/db/schema/migration_execution.rs",
     "src/db/session/sql/execute/write/",
     "src/db/session/write.rs",
 ];
