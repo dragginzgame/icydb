@@ -34,5 +34,5 @@ snapshot profile. Pre-1.0 development stores carrying the retired `ICYT`
 profile must be recreated rather than translated.
 
 See the
-[0.213 design](../../docs/design/0.213-schema-authority-and-application-model-separation/0.213-design.md)
+[0.213 design](../../docs/design/archive/0.213-schema-authority-and-application-model-separation/0.213-design.md)
 for the package and authority boundary.

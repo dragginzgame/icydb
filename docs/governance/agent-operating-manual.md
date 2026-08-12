@@ -30,13 +30,16 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `Makefile`: common tasks.
 - `Cargo.toml`: workspace manifest; edition 2024 and workspace package
   rust-version 1.96.0. `rust-toolchain.toml` pins maintainer and CI tooling to
-  1.97.0. Public dependency crates advertise MSRV 1.88.0 where that dependency
-  path is checked.
+  1.97.1. The public `icydb` dependency path and its library dependencies
+  advertise and are checked on MSRV 1.88.0; other workspace-only packages use
+  the workspace floor.
 
 ## Workflow
 
 - During active development, run `cargo fmt --all` after edits instead of using `--check` as a discovery step.
-- Use non-mutating format checks (`cargo fmt --all --check` or `make fmt-check`) for final release/readiness verification and CI parity.
+- Use non-mutating format checks for final release/readiness verification.
+  `cargo fmt --all --check` matches CI's Rustfmt check; `make fmt-check` also
+  enforces the repository's manifest and derive sorting policy.
 - Formatting and sorting are explicit `make fmt` operations; Git commands do
   not mutate source files through repository hooks.
 - `git push` performs no repository validation. `make test`, `make clippy`, and
@@ -48,13 +51,14 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   bump resolves offline, never rolls files back automatically, and a bounded
   receipt proves the resulting version-and-release-note transition so tagging
   and publication can reuse the result without a second full validation run.
-- Fast CI gate: `make check && make clippy`.
-- Release readiness: `make check-versioning`; release publication uses
+- Fast local gate: `make check && make clippy`.
+- `make check-versioning` verifies that release helper tools are available; it
+  is not a release-readiness verdict. Human-owned release publication uses
   `make patch|minor|major`, then `make release-stage`, `make release-commit`,
   and `make release-push`.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`.
-- CI uses Rust `1.97.0`, `rustfmt`, `clippy -D warnings`, `cargo test`, and
+- CI uses Rust `1.97.1`, `rustfmt`, `clippy -D warnings`, `cargo test`, and
   release builds. It also checks the public `icydb` dependency path on Rust
   `1.88.0`.
 
@@ -99,7 +103,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Code must be readable top-down without reverse-engineering intent.
 - Public API items need doc comments.
 - Candid wire surfaces should use plain `//` comments when doc strings would bloat wasm.
-- Every `struct`, `enum`, and `trait`, public or private, needs the standard doc block:
+- Public `struct`, `enum`, and `trait` declarations need useful doc comments.
+  Non-trivial private types need comments that explain intent or invariants;
+  trivial private implementation types do not require ceremonial prose. The
+  standard block, when useful, is:
 
 ```rust
 ///
@@ -111,7 +118,8 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 struct TypeName;
 ```
 
-- The `TypeName` line must exactly match the declared type name.
+- When the standard block is used, the `TypeName` line must exactly match the
+  declared type name.
 - Descriptive lines should explain what the type owns, why it exists, and how the module uses it.
 - Put comments/doc comments before lint/control attributes.
 - Put inherent `impl TypeName` blocks immediately after the type when feasible.
@@ -158,8 +166,10 @@ struct TypeName;
 ```
 
 - Leave one blank line before and after that test banner.
-- Run focused tests for changed code; use `make test` for the complete test suite and `make validate` for the complete validation workflow when appropriate.
-- If `make test` fails during a Codex run, do not rerun it in that same run unless asked.
+- Agents run focused package, target, or named-test selections for the changed
+  slice. The user owns `make test` and `make validate`, which run the complete
+  suite and validation workflow; agents report them as skipped user-owned
+  validation instead of executing them.
 - IC testkit-backed tests and perf probes must run outside the sandbox by default.
 - If the IC testkit runner appears stuck before the test body or fixture loading, treat it as an environment execution problem first.
 - If tests fail due to environment-specific build/linker issues, report and stop retrying.
@@ -167,14 +177,19 @@ struct TypeName;
 ## Changelog And Release
 
 - Follow `docs/governance/changelog.md`.
-- Update `CHANGELOG.md` for user-visible changes.
+- Keep the root `CHANGELOG.md` `Unreleased` section current for every unpushed
+  code slice. Treat that as handoff discipline, not a release blocker when a
+  note is missing.
 - Governance-only edits do not need release notes unless explicitly requested.
 - In `docs/changelog/0.*.md`, separate every `## 0.x.y` entry with `---`.
 - Root changelog summaries should be plain-language, user-impact first, and concise.
 - Root minor-line summaries use exactly one bullet per patch version.
 - Put implementation detail in `docs/changelog/0.*.md`.
-- Releases use `make patch|minor|major`, then `make release-stage`, `make release-commit`, and `make release-push`; `make validate` must finish before the bump target mutates version files, and tags must never be hand-edited.
-- Before `make patch|minor|major`, do not pre-bump package versions, `Cargo.lock`, or changelog patch entries.
+- Releases use `make patch|minor|major`, then `make release-stage`, `make release-commit`, and `make release-push`; `make validate` must finish before the bump target mutates version files, and tags must never be hand-edited. In agent sessions these bump, commit, tag, and push actions are user-owned.
+- Before `make patch|minor|major`, prepare the target root and detailed
+  changelog entries, but do not pre-bump package versions or `Cargo.lock`.
+  Missing changelog notes should be reported and reconstructed when practical;
+  their absence alone is not a mechanical release blocker.
 - Never modify pushed release tags.
 
 ## Design Docs

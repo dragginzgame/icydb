@@ -16,8 +16,8 @@ Evidence sources:
 - `docs/design/archive/0.190-ic-reliability-followup/0.190-design.md`
 - `docs/design/archive/0.190-ic-reliability-followup/0.190-evidence.md`
 - `docs/design/archive/0.191-durability-productization-format-policy/0.191-evidence.md`
-- `docs/design/0.211-accepted-catalog-constraints/0.211-design.md`
-- `docs/design/0.211-accepted-catalog-constraints/0.211-status.md`
+- `docs/design/archive/0.211-accepted-catalog-constraints/0.211-design.md`
+- `docs/design/archive/0.211-accepted-catalog-constraints/0.211-status.md`
 
 ## Scope
 

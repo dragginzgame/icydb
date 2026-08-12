@@ -1,5 +1,5 @@
 ![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.88.0-blue.svg)
-![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.97.0-4c1.svg)
+![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.97.1-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
@@ -16,9 +16,10 @@ generated observability endpoints.
 Current workspace version: `0.224.1`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
-public `icydb` crate path. Workspace packages declare a `1.96.0` Rust floor;
+public `icydb` crate path and its library dependencies. Other workspace
+packages declare a `1.96.0` Rust floor;
 repository development, formatting, Clippy, tests, CI, and release builds use
-the pinned Rust `1.97.0` toolchain.
+the pinned Rust `1.97.1` toolchain.
 
 For local development setup, test prerequisites, and troubleshooting, see
 [INSTALLING.md](INSTALLING.md). Safety notes for host-touching commands live in

@@ -27,7 +27,7 @@ env:
   RUN_1_ID: ${{ inputs.run_1_id }}
   RUN_2_ID: ${{ inputs.run_2_id }}
   RUN_3_ID: ${{ inputs.run_3_id }}
-  RUST_CURRENT: "1.97.0"
+  RUST_CURRENT: "1.97.1"
   TMPDIR: ${{ github.workspace }}/.cache
 
 jobs:

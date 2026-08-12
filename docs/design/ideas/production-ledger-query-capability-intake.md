@@ -1,22 +1,25 @@
-# 0.225 Production Ledger Query Capability Audit
+# Production Ledger Query Capability Intake
 
-> # NOT REVIEWED
+> # NON-AUTHORITATIVE INTAKE BACKLOG
 >
-> # THIS IS AN UMBRELLA AUDIT, NOT IMPLEMENTATION AUTHORITY
+> # NOT A NUMBERED MINOR LINE OR IMPLEMENTATION AUTHORITY
 >
-> # THIS WILL END UP AS MULTIPLE DESIGN-DOCUMENT SLICES
+> # CURRENT DISPOSITIONS LIVE IN THE QUERY-CAPABILITY ROADMAP
 >
-> The candidates, boundaries, ordering, and even inclusion in 0.225 remain
-> provisional. Do not implement from this document. Review the current product
-> surface first, split accepted work into focused design documents, and create a
-> complete 0.225 status tracker before any implementation starts.
+> This file preserves the 2026-08-10 production evidence and candidate findings
+> from the former proposed 0.225 umbrella. It has no version number, predecessor
+> gate, landing tracker, or promotion authority. Do not implement from it.
 
-Status: unreviewed planning intake; not approved; implementation prohibited
+Status: preserved intake evidence; dispositions superseded; implementation
+prohibited
 
 Audit cut: 2026-08-10
 
-Predecessor: 0.224 must have a reported ready/complete closeout before the user
-may explicitly authorize implementation of 0.225
+Current disposition authority:
+[query capability roadmap](query-capability-roadmap.md)
+
+Immediate recovery programme:
+[post-0.224 programme disposition](post-0.224-design-programme.md)
 
 ## Document Purpose
 
@@ -27,7 +30,7 @@ separate design-document slices.
 
 It is deliberately not:
 
-- a final 0.225 scope;
+- a numbered minor scope;
 - a line tracker or landing-patch plan;
 - evidence that any candidate is absent from the current implementation;
 - authorization to change SQL, storage, Candid, cursors, or persisted state;
@@ -116,8 +119,8 @@ The same integration verified useful existing behavior: 0.223.0 fixes the
 accepted-enum runtime-corruption regression, all 28 IcyDB-backed Toko store
 tests pass, and the intended indexes are selected for normalized HP, mechanic,
 set, item, and variant candidate queries. Startup recovery/readiness findings
-from this audit belong to the dedicated 0.226 design and are not duplicated as
-query work here.
+from this audit belong to the focused 0.225 readiness design and are not
+duplicated as query work here.
 
 The following selected-plan evidence is a baseline for future planner and
 traversal slices, not a request to add more indexes:
@@ -286,9 +289,9 @@ Evaluate a coherent observability surface containing:
 ### Relationship to 0.224
 
 0.224 owns coherent introspection command shape and compact/verbose behavior.
-It must not absorb this entire optimizer-observability program. After 0.224
-closeout, review which syntax and typed envelopes are already established and
-design the 0.225 additions without a second competing introspection model.
+It must not absorb this entire optimizer-observability program. Promotion must
+review which syntax and typed envelopes are already established and add no
+second competing introspection model.
 
 ### Non-negotiable boundary
 
@@ -536,7 +539,7 @@ cannot silently change relation snapshot semantics.
 | Observed integration behavior | Intake action |
 | --- | --- |
 | 0.222.3 accepted-enum runtime corruption is fixed in 0.223.0 | Retain as predecessor and downstream regression evidence; do not create another feature slice |
-| Populated recovery is bounded but readiness is implicit | Route to 0.226 explicit readiness and replicated-driver acceptance evidence |
+| Populated recovery is bounded but readiness is implicit | Route to 0.225 explicit readiness and replicated-driver acceptance evidence |
 | Nullable natural-identity index omits `NULL` rows | Candidate 13 current-state audit and focused schema/index-safety design |
 | Unknown planner field collapses at the CLI boundary | Candidate 14 public typed-diagnostic design |
 | Indexed relation results require manual parent lookup | Candidate 15 bounded fixed-depth traversal design |
@@ -547,9 +550,8 @@ cannot silently change relation snapshot semantics.
 
 ## Secondary Candidates To Place During Review
 
-The audit also exposed smaller or cross-cutting candidates. They are not
-approved micro-slices and should normally be absorbed into an accepted design
-whose invariant they complete:
+The audit also exposed smaller or cross-cutting candidates. Their current
+placement is owned by the query-capability roadmap:
 
 - fixed-length blob declarations for block hashes, parent hashes, subaccounts,
   and other domain values where length is a schema invariant;
@@ -566,72 +568,22 @@ whose invariant they complete:
   and not already coherently supported across proposal, validation, mutation,
   and execution.
 
-Fixed blobs and generated projections may belong with the domain-expression
-slice. DDL cost and index metadata belong with physical indexes and
-observability. Estimated-versus-actual evidence and warnings belong with
-planner observability. Unique index work requires its own gap audit before it
-is assigned anywhere.
+Fixed-length blobs remain deferred pending a separate schema-type audit; they
+are not part of the expression line. Generated projections remain a 0.235
+promotion question. Physical DDL cost, index bytes, entry shape, covering
+status, and base-row avoidance belong only to 0.233. Plan comparisons,
+estimates, actuals, rejected routes, stale evidence, and warnings belong only
+to 0.234. Multivalue indexes and any unique-secondary expansion remain deferred
+pending their required audits.
 
-## Provisional Multi-Document Decomposition
+## Superseded Decomposition And Ordering
 
-The review should prefer approximately the following focused design-document
-themes. This is an initial grouping, not an approved patch count or final file
-list:
-
-| Provisional design slice | Candidate inputs | Primary question |
-| --- | --- | --- |
-| Query invocation and continuation | 1, 2 | What typed prepared and paged public contract is still missing? |
-| Physical covering indexes | 3 plus index DDL costs | Which projections can avoid base-row loads at acceptable write/storage cost? |
-| Statistics and plan observability | 4, 5 | How does the planner choose deterministically, and how can operators verify it? |
-| Ledger-shaped scalar ergonomics | 6, 7, 8 plus fixed blobs/projections | Which general typed expressions remove application boilerplate without special-casing ICRC? |
-| Bounded append and maintained rollups | 9, 10 | How can monotonic ingestion and common summaries share catalog-native correctness? |
-| Durable aggregate jobs | 11 | Which aggregate work can checkpoint safely without changing ordinary query semantics? |
-| Partitioned and archived history | 12 | How does accepted authority represent complete, pruned, and unavailable ranges? |
-| Nullable unique-index safety | 13 | How can useful partial uniqueness remain explicit without inventing encoded-null semantics? |
-| Public SQL diagnostics and human rendering | 14 plus bounded ergonomic follow-through | Which query-visible facts must survive the public boundary without a second error model? |
-| Bounded indexed relation traversal | 15 | What smallest fixed-depth semi-join solves normalized lookups without creating a general join engine? |
-
-Review may remove themes, move them beyond 0.225, or split a theme further.
-The eventual 0.225 status tracker must group the accepted line into roughly six
-to eight meaningful landing patches across all its design documents. A design
-document is not automatically one landing patch, and the table above does not
-satisfy that tracker requirement by itself. The expanded intake cannot all land
-in one minor without violating that boundary; promotion must prioritize a
-coherent subset and explicitly defer the rest.
-
-## Dependency And Ordering Notes
-
-The likely dependency direction is:
-
-```text
-0.224 introspection shape
-        |
-        v
-current-surface gap audits
-        |
-        +--> nullable unique-index safety
-        |
-        +--> public diagnostic propagation
-        |
-        +--> typed invocation/pagination
-        |
-        +--> covering indexes --> statistics/planner observability
-        |
-        +--> indexed relation traversal --> traversal observability
-        |
-        +--> scalar semantics --> generated projections/rollups
-        |
-        +--> bounded append --> incremental rollups
-        |
-        +--> aggregate jobs
-        |
-        `--> partition/archive authority
-```
-
-Partitioning is intentionally late because it changes planning, completeness,
-statistics, cursor, job, and archive semantics. Rollups depend on exact scalar
-and aggregate behavior. Statistics should observe the final admitted physical
-index shape rather than being designed around a temporary representation.
+The intake's original multi-document grouping and dependency sketch are
+retired. The exact candidate dispositions, Candidate 5 split, 0.229–0.240
+order, dependencies, and promotion questions now live only in the
+[query-capability roadmap](query-capability-roadmap.md). Every promoted minor
+still requires its own 1-12-patch tracker; this intake cannot satisfy that
+requirement.
 
 ## Cross-Cutting Invariants
 
@@ -679,8 +631,7 @@ Before this intake can become approved design authority, review must answer:
    database-maintained materializations?
 8. Can aggregate jobs reuse a generic durable-job substrate without coupling
    their state machine to mutation semantics?
-9. Is partitioning justified within 0.225, or should it remain a later line
-   after query, index, and job foundations settle?
+9. Is partitioning justified after query, index, and job foundations settle?
 10. Can nullable unique keys reuse explicit partial-index semantics, or does
     the current surface require a narrower admission rule?
 11. What is the smallest typed public detail that preserves unknown field and
@@ -692,7 +643,7 @@ Before this intake can become approved design authority, review must answer:
 ## Required Evidence For Promoted Slices
 
 Each resulting design document must define its own frozen baseline and focused
-acceptance evidence. At minimum, the complete 0.225 line should report:
+acceptance evidence. Across promoted lines, evidence should report:
 
 - representative exact lookup, range scan, account history, reconciliation,
   aggregate, ingestion, and archive-query instruction counts;
@@ -742,18 +693,9 @@ For current balances, deployments should continue to maintain a balance entity
 or another explicit accepted projection rather than recomputing balances from
 the entire event history on demand.
 
-## Promotion Gate
+## Intake Promotion Boundary
 
-No code work begins from this file. Promotion requires all of the following:
-
-1. 0.224 has a reported ready/complete closeout;
-2. the current implementation and public-surface gap audits are recorded;
-3. the user reviews which candidates belong in 0.225;
-4. accepted candidates are split into focused design documents with explicit
-   authority, invariants, hard cuts, and validation;
-5. a complete 0.225 status tracker groups the line into roughly six to eight
-   meaningful landing patches; and
-6. the user explicitly directs implementation of 0.225.
-
-Until those gates are met, this file remains an unreviewed audit backlog and
-must not be cited as an accepted product contract.
+No code work begins from this file. Candidate disposition and promotion gates
+live only in the current query-capability roadmap and any later focused design.
+This preserved intake must not be cited as an accepted product contract,
+numbered-line scope, predecessor closeout, or implementation authorization.

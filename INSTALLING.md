@@ -31,8 +31,10 @@ icydb-model = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.218
 The runtime `icydb` facade does not re-export model declaration macros.
 
 The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
-`icydb-model` follows the workspace package floor of Rust `1.96.0`. Repository
-maintenance uses the newer internal toolchain listed below.
+Its library dependency path, including `icydb-model` and
+`icydb-model-macros`, retains the same floor. Other workspace-only packages
+may use the workspace Rust `1.96.0` floor. Repository maintenance uses the
+newer internal toolchain listed below.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and
 call `icydb::build::build_canister!(SchemaCanister)`.

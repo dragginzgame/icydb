@@ -61,9 +61,15 @@ the latest version entry. Do not add `Unreleased` sections to minor-line
 detailed notes files, design docs, status docs, or any other changelog-adjacent
 file.
 
-Use only the root `Unreleased` section for small slices, exploratory cleanup,
-and follow-up work that is not yet being published. Do not invent patch numbers
-just to record each slice.
+Every unpushed code slice must keep the root `Unreleased` section current. Use
+that section for small slices, exploratory cleanup, and follow-up work that is
+not yet being published. Do not invent patch numbers just to record each
+slice. Governance-only edits do not require a note unless explicitly requested.
+
+This is an authoring and handoff discipline, not a mechanical push or release
+gate. If a note is missing, report it and reconstruct it when practical, but do
+not stop an otherwise ready push or release solely because the changelog was
+not updated.
 
 When a release is prepared, collapse the current root `Unreleased` notes into
 the target patch entry and add exactly one concise root changelog bullet for
@@ -145,9 +151,9 @@ Do not use plain backticked path text for detailed-breakdown links.
 During ordinary development:
 
 1. Prefer focused code slices and focused validation.
-2. For user-visible changes, update the root `CHANGELOG.md` `Unreleased`
-   section when the user asks for release notes or when omitting the note would
-   make the batch hard to reconstruct.
+2. For every unpushed code slice, update the root `CHANGELOG.md` `Unreleased`
+   section before handoff. Governance-only edits remain exempt unless the user
+   requests a note.
 3. Do not assign patch numbers.
 4. Do not add `Unreleased` sections anywhere except the top of root
    `CHANGELOG.md`; detailed minor notes are finalized when preparing a patch
@@ -172,7 +178,13 @@ When preparing a release:
 9. Do not create a new version header if the newest entry already exists for the target version.
 10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `docs/changelog/<major>.<minor>.md`.
 11. Convert accumulated root `Unreleased` notes for the current minor into the
-    target patch entry before running `make patch`, `make minor`, or `make major`.
+    target patch entry during release preparation. Reconstruct missing notes
+    when practical, but do not make their absence alone a mechanical release
+    blocker.
+
+In agent sessions, version bump commands, release commits, tags, and pushes are
+user-owned. Agents may prepare release notes and report readiness, but they do
+not execute those publication actions.
 
 Agents must never:
 

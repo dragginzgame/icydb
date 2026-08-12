@@ -56,9 +56,9 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Make the smallest safe patch that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.
 - Before implementing a minor-version line, ensure its design/status tracker
-  groups the whole line into roughly 6-8 meaningful landing patches. This is a
-  planning target, not a quota; multiple design documents in the same minor
-  share the same patch budget.
+  groups the whole line into 1-12 meaningful landing patches. Use the number
+  justified by the work; there is no preferred target within that range.
+  Multiple design documents in the same minor share the same 12-patch maximum.
 - Make each landing patch substantive and end-to-end: one bounded outcome plus
   its direct tests, diagnostics, docs, fixtures, and mechanical propagation.
   Do not create micro-patches for fallout from the same change, and do not
@@ -112,6 +112,9 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Before any changelog edit, open and follow `docs/governance/changelog.md`; it is the changelog source of truth.
 - Root `CHANGELOG.md` is the only `Unreleased` location; do not add `Unreleased` sections to detailed minor files.
 - Keep root `CHANGELOG.md` `Unreleased` current as part of every unpushed code slice; update it before reporting the slice complete instead of waiting for a separate changelog request.
+- This is agent authoring discipline, not a mechanical push or release gate;
+  a missing note must be reported and repaired when practical, but its absence
+  alone does not make an otherwise ready slice unpushable.
 - When the user names a target version or asks whether it is ready to push, automatically prepare its root and detailed changelog entries as part of readiness; do not wait for another changelog request.
 - Create or update patch-numbered root/detailed changelog entries only during release prep for a user-named target version.
 - Do not invent patch numbers, do not infer patch numbers for design/status docs, and keep release prep details governed by `docs/governance/changelog.md`.

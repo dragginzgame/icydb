@@ -8,7 +8,7 @@ The goal is to keep the codebase easy to navigate, maintain, and evolve as the s
 This directory governs file structure, imports, documentation, and organization
 of code inside modules. The standard lives in this README; copyable example
 modules live under
-[`example-crate/`](/home/adam/projects/icydb/docs/governance/code-hygiene/example-crate).
+[`example-crate/`](example-crate/).
 
 This is not the module hardening audit. Use
 `docs/audits/targeted/modules/module-surface-hardening.md` when the task is to justify
@@ -228,7 +228,7 @@ documenting invariants that are already enforced by fallible code. Test and
 benchmark-only code may still use panicking assertions for clarity.
 
 Workspace lint policy for panic docs is tracked in
-[`panic-docs-clippy-lint.md`](/home/adam/projects/icydb/docs/design/ideas/panic-docs-clippy-lint.md).
+[`panic-docs-clippy-lint.md`](../../design/ideas/panic-docs-clippy-lint.md).
 
 Comments should state intent, ownership, invariants, or non-obvious tradeoffs.
 Remove comments that restate the next line, describe obsolete behavior, or name
@@ -364,7 +364,7 @@ match path.kind() {
 
 Routine feature work should preserve delivery velocity by keeping slices narrow.
 
-See [velocity-preservation.md](/home/adam/projects/icydb/docs/governance/velocity-preservation.md)
+See [velocity-preservation.md](../velocity-preservation.md)
 for the current review guidance, including:
 
 - keeping routine feature slices narrow

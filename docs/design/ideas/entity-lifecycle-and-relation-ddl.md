@@ -3,9 +3,9 @@
 ## Status
 
 Tentative follow-up after [0.211 accepted-catalog
-constraints](../0.211-accepted-catalog-constraints/0.211-design.md) and [0.212
+constraints](../archive/0.211-accepted-catalog-constraints/0.211-design.md) and [0.212
 bounded integrity
-checking](../0.212-bounded-resumable-integrity-check/0.212-design.md). Not part
+checking](../archive/0.212-bounded-resumable-integrity-check/0.212-design.md). Not part
 of either implementation line.
 
 ## Purpose

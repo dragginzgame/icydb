@@ -39,7 +39,7 @@ env:
   SQL_PERF_CALIBRATION_COHORT: ${{ inputs.calibration_cohort }}
   SQL_PERF_CALIBRATION_RUN: ${{ inputs.calibration_run }}
   SQL_PERF_CALIBRATION_SUBJECT_RUN_ID: ${{ inputs.calibration_subject_run_id }}
-  RUST_CURRENT: "1.97.0"
+  RUST_CURRENT: "1.97.1"
   TMPDIR: ${{ github.workspace }}/.cache
 
 jobs:

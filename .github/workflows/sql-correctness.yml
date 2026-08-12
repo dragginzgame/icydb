@@ -16,7 +16,7 @@ env:
   CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
-  RUST_CURRENT: "1.97.0"
+  RUST_CURRENT: "1.97.1"
 
 jobs:
   shard:

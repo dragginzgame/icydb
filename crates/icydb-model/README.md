@@ -80,5 +80,5 @@ References:
 
 - Workspace overview: `../../README.md`
 - Design:
-  `../../docs/design/0.213-schema-authority-and-application-model-separation/0.213-design.md`
+  `../../docs/design/archive/0.213-schema-authority-and-application-model-separation/0.213-design.md`
 - Release notes: `../../CHANGELOG.md`

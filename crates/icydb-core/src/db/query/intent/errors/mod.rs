@@ -249,11 +249,15 @@ impl QueryError {
             SqlLoweringError::UnknownField { field } => {
                 Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
             }
-            err if let Some(reason) = err.compact_diagnostic_code() => {
-                let facts = err.diagnostic_facts();
-                Self::sql_lowering_with_facts(reason, facts)
+            err => {
+                if let Some(reason) = err.compact_diagnostic_code() {
+                    let facts = err.diagnostic_facts();
+
+                    Self::sql_lowering_with_facts(reason, facts)
+                } else {
+                    Self::unsupported_query()
+                }
             }
-            _ => Self::unsupported_query(),
         }
     }
 

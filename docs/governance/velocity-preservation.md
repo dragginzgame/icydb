@@ -42,14 +42,14 @@ These rules are intended to guide automated agents and code review.
 # 2. Minor-Line Patch Contract
 
 Before implementation begins, the design/status tracker for a minor-version
-line must group the whole intended line into roughly 6-8 ordered landing
-patches. Multiple design documents in the same minor line share this total;
-they do not each receive a separate 6-8-patch allowance.
+line must group the whole intended line into 1-12 ordered landing patches.
+There is no preferred count within that range: use the number justified by the
+actual dependency and review boundaries. Multiple design documents in the same
+minor line share the same 12-patch maximum.
 
-Six to eight patches is the default planning target, not a quota. Fewer or more
-is appropriate when the design's actual dependency and review boundaries
-justify it; record the reason in the tracker. The target exists to prevent both
-dozens of tiny pushes and one or two multi-hour mega-slices.
+The range prevents both dozens of tiny pushes and an unreviewable multi-hour
+mega-slice. It is not a reason to split one coherent outcome or combine
+independent outcomes.
 
 Each landing patch must name:
 
@@ -96,10 +96,9 @@ Do not infer that authorization from a roadmap, an existing next design, an
 empty tracker, a clean worktree, a successful push, or status questions such
 as `what is next?`, `are we done?`, or `push?`.
 
-If honest patches cannot keep the minor line near the target range, re-scope
-the minor line and explain the different patch count in the tracker. Do not
-make each patch wider to preserve an oversized plan, and do not manufacture
-micro-patches solely to hit a number.
+If the line needs more than 12 honest patches, re-scope it and explain the new
+boundary in the tracker. Do not make each patch wider to preserve an oversized
+plan, and do not manufacture micro-patches solely to hit a number.
 
 A completed landing patch is normally handed back as a candidate push for the
 next patch release in the minor line. Agents must not invent release numbers;
@@ -182,7 +181,9 @@ CI does not use file count as a proxy for architectural coherence.
 
 # 6. Canonical SQL Landing Pattern
 
-New SQL feature work should land in three phases whenever practical.
+Use the following three phases as planning and review lenses for new SQL
+feature work. They identify distinct owners and validation needs; they are not
+mandatory patch boundaries.
 
 ## Phase A — Parser Slice
 
@@ -235,15 +236,10 @@ Allowed:
 - canister harness changes
 - integration harness expansion
 
-This phased landing pattern is the default for routine SQL growth.
-
 One landing patch may cross all three phases when they are direct propagation
 of the same planned end-to-end outcome. If the phases expose independently
 reviewable outcomes, split them into separate landing patches instead of using
 cross-phase width to hide a mega-slice.
-
-These phases should land as separate reviewable slices. They do not acquire
-separate version numbers unless the user chooses to publish them separately.
 
 ---
 
