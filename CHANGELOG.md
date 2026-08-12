@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Fixes warning-denied generated-canister builds for the dormant startup
-  watchdog without changing its timer or recovery behavior.
+- Fixes warning-denied generated-canister and startup-evidence builds without
+  changing watchdog timer or recovery behavior.
 - Adds one formatting-only pre-commit hook that aborts after changing files,
   never stages work, and leaves full validation at the explicit release gate.
 

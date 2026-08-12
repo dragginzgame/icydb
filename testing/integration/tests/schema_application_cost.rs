@@ -104,7 +104,7 @@ fn dormant_driver_is_private_idempotent_and_reconstructable_after_upgrade() {
     );
     assert!(!watchdog_registered(&fixture));
     assert!(register_watchdog(&fixture));
-    advance_watchdog_by(&fixture, Duration::from_secs(300));
+    advance_watchdog_by(&fixture, Duration::from_mins(5));
     assert_eq!(
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Ready,
