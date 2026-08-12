@@ -212,10 +212,9 @@ fn startup_driver_tokens() -> TokenStream {
         }
 
         fn startup_watchdog_callback() {
-            if !STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some()) {
-                return;
-            }
-            if STARTUP_DRIVER_ACTIVE.with(::std::cell::Cell::get) {
+            if !STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some())
+                || STARTUP_DRIVER_ACTIVE.with(::std::cell::Cell::get)
+            {
                 return;
             }
             let now = ::icydb::__reexports::ic_cdk::api::time();
@@ -290,7 +289,9 @@ fn startup_driver_tokens() -> TokenStream {
         }
 
         fn clear_startup_watchdog() {
-            if let Some(timer_id) = STARTUP_WATCHDOG_TIMER.with(|timer| timer.take()) {
+            if let Some(timer_id) =
+                STARTUP_WATCHDOG_TIMER.with(::std::cell::RefCell::take)
+            {
                 // The pinned serial-timer executor restores its busy task from a
                 // completion guard after this callback returns. Removing that task
                 // inside the callback makes the guard trap, rolling back the driver.
@@ -884,6 +885,7 @@ mod tests {
             "__drive_generated_startup_recovery_page",
             "__record_generated_schema_startup_failure",
             "set_timer(::std::time::Duration::ZERO",
+            "STARTUP_WATCHDOG_TIMER.with(::std::cell::RefCell::take)",
             "clear_timer(timer_id)",
         ] {
             assert!(rendered.contains(required), "missing token: {required}");
@@ -894,6 +896,7 @@ mod tests {
             "ic_cdk::query",
             "#[update]",
             "#[query]",
+            "STARTUP_WATCHDOG_TIMER.with(|timer|timer.take())",
         ] {
             assert!(
                 !rendered.contains(forbidden),
