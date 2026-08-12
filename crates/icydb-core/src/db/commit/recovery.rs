@@ -1713,7 +1713,7 @@ fn recovery_domain_in_progress(key: RecoveryDomainKey) -> bool {
 }
 
 pub(in crate::db) fn startup_recovery_witness(
-    stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+    stores: &'static LocalKey<crate::db::registry::StoreRegistry>,
 ) -> Result<(bool, bool), InternalError> {
     let key = RecoveryDomainKey {
         commit_allocation: current_commit_memory_allocation()?,
@@ -1729,7 +1729,7 @@ pub(in crate::db) fn startup_recovery_witness(
 
 #[cfg(test)]
 pub(in crate::db) fn mark_startup_recovery_complete_for_tests(
-    stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+    stores: &'static LocalKey<crate::db::registry::StoreRegistry>,
 ) -> Result<(), InternalError> {
     let key = RecoveryDomainKey {
         commit_allocation: current_commit_memory_allocation()?,
