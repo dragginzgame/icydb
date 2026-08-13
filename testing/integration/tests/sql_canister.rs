@@ -37,7 +37,10 @@ use icydb::{
     types::Decimal,
     value::OutputValue,
 };
-use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
+use icydb_testing_integration::{
+    deliver_fixture_startup_watchdog, install_fixture_canister, reset_icydb_fixtures,
+    upgrade_fixture_canister,
+};
 use icydb_testing_sqlite_reference::{
     SqliteReferenceColumnKind, SqliteReferenceFamily, SqliteReferencePredicateFamily,
     SqliteReferenceResult, SqliteReferenceRowOrder, SqliteReferenceScenario, SqliteReferenceValue,
@@ -2676,6 +2679,115 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
         .query_candid_as(outsider, "icydb_schema", ())
         .expect("non-controller schema response should decode");
     assert_eq!(schema, Err(schema_error));
+}
+
+#[test]
+fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
+    // Use an unpooled fixture because this test deliberately replaces the
+    // installed Wasm and observes the real post-upgrade readiness boundary.
+    let fixture = install_fixture_canister("sql");
+    reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
+
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("accepted DDL index should publish before upgrade");
+
+    upgrade_fixture_canister(&fixture, "sql");
+    let pending = query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        .expect_err("ordinary query must not drive post-upgrade recovery");
+    assert_eq!(
+        pending.code(),
+        ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+    );
+
+    deliver_fixture_startup_watchdog(&fixture);
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("watchdog recovery should restore accepted DDL authority"),
+    );
+    assert!(
+        indexes
+            .iter()
+            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]"),
+        "post-upgrade accepted indexes should retain the DDL-owned index: {indexes:?}",
+    );
+
+    let count = expect_projection(
+        query_sql(&fixture, "SELECT COUNT(*) FROM SqlTestUser")
+            .expect("post-upgrade count should observe durable rows"),
+    );
+    assert_projection_rendered(
+        &count,
+        "SqlTestUser",
+        &["COUNT(*)"],
+        &[&["3"]],
+        1,
+        "post-upgrade recovery must retain all durable rows",
+    );
+
+    let rows = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE rank >= 25 ORDER BY rank ASC LIMIT 2",
+        )
+        .expect("post-upgrade indexed read should retain original rows"),
+    );
+    assert_projection_rendered(
+        &rows,
+        "SqlTestUser",
+        &["name"],
+        &[&["bob"], &["alice"]],
+        2,
+        "post-upgrade reconciliation must preserve DDL authority and row semantics",
+    );
+
+    schema_version
+        .publish(&fixture, "DROP INDEX sql_test_user_rank_idx ON SqlTestUser")
+        .expect("accepted DDL index deletion should publish before upgrade");
+    upgrade_fixture_canister(&fixture, "sql");
+    let pending = query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        .expect_err("ordinary query must remain gated during deletion recovery");
+    assert_eq!(
+        pending.code(),
+        ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+    );
+    deliver_fixture_startup_watchdog(&fixture);
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("watchdog recovery should restore the index deletion"),
+    );
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("sql_test_user_rank_idx")),
+        "post-upgrade accepted indexes must retain the DDL-owned deletion: {indexes:?}",
+    );
+
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("re-creation should prove the recovered physical domain has no stale keys");
+    let rows = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE rank >= 25 ORDER BY rank ASC LIMIT 2",
+        )
+        .expect("re-created index should observe the original durable rows"),
+    );
+    assert_projection_rendered(
+        &rows,
+        "SqlTestUser",
+        &["name"],
+        &[&["bob"], &["alice"]],
+        2,
+        "recovered index deletion and re-creation must retain row semantics",
+    );
 }
 
 #[test]

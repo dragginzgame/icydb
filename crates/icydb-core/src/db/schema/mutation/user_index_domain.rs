@@ -216,14 +216,12 @@ impl StagedUserIndexDomainReplacement {
     }
 
     /// Borrow the exact raw deletion set for mechanical apply.
-    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn deletion_keys(&self) -> &[RawIndexStoreKey] {
         self.deletion_keys.as_slice()
     }
 
     /// Borrow the complete sorted accepted-after raw projection.
-    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn final_entries(&self) -> &[StagedUserIndexDomainEntry] {
         self.final_entries.as_slice()

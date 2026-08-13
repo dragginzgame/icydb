@@ -12,9 +12,7 @@
 //! - Read and write paths perform state-only admission and never replay.
 //! - Reads must not proceed while a persisted partial commit marker is present.
 
-use crate::db::index::IndexEntryValue;
-#[cfg(any(test, feature = "migration"))]
-use crate::db::index::IndexKey;
+use crate::db::index::{IndexEntryValue, IndexKey, IndexKeyKind};
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::{apply_schema_migration_record_op, verify_schema_migration_record_op};
 use crate::{
@@ -47,6 +45,7 @@ use crate::{
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedSchemaRevision, CandidateSchemaRevision,
             ConstraintId, IdentityAdvanceId, SchemaStore, accepted_commit_schema_fingerprint,
+            accepted_schema_cache_fingerprint_for_persisted_snapshot,
             apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
             apply_schema_application_record_op, decode_constraint_validation_job,
             decode_persisted_schema_snapshot, load_accepted_schema_snapshot,
@@ -779,6 +778,12 @@ fn apply_journal_record<C: CanisterKind>(
                 }
             })
         }
+        JournalRecord::AcceptedSchemaIndexDelete { keys, .. } => {
+            apply_recovered_accepted_schema_index_chunk(expected_handle, keys, false, mode)
+        }
+        JournalRecord::AcceptedSchemaIndexPut { keys, .. } => {
+            apply_recovered_accepted_schema_index_chunk(expected_handle, keys, true, mode)
+        }
         JournalRecord::ConstraintValidationJobPut {
             entity_tag,
             constraint_id,
@@ -938,6 +943,29 @@ fn fold_recovered_row_transition<C: CanisterKind>(
     Ok(())
 }
 
+fn apply_recovered_accepted_schema_index_chunk(
+    handle: StoreHandle,
+    keys: &[crate::db::index::RawIndexStoreKey],
+    insert: bool,
+    mode: JournalRecordApplyMode,
+) -> Result<(), InternalError> {
+    if mode != JournalRecordApplyMode::Fold
+        || handle.storage_capabilities().recovery()
+            != StoreRecoveryCapability::StableBasePlusJournalReplay
+    {
+        return Err(InternalError::store_corruption());
+    }
+    handle.with_index_mut(|store| {
+        for key in keys {
+            store.fold_recovered_journal_entry(
+                key.clone(),
+                insert.then(IndexEntryValue::presence),
+            )?;
+        }
+        Ok::<(), InternalError>(())
+    })
+}
+
 fn validate_journal_batch_records<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -1052,6 +1080,38 @@ fn validate_journal_batch_record<C: CanisterKind>(
             // candidate-bound row rewrite was admitted, including the exact
             // final activation/job closure.
         }
+        JournalRecord::AcceptedSchemaIndexDelete {
+            store_path,
+            entity_tag,
+            accepted_after_fingerprint,
+            keys,
+        } => validate_accepted_schema_index_chunk(
+            expected_store_path,
+            expected_handle,
+            candidate,
+            store_path,
+            *entity_tag,
+            *accepted_after_fingerprint,
+            keys,
+            false,
+            mode,
+        )?,
+        JournalRecord::AcceptedSchemaIndexPut {
+            store_path,
+            entity_tag,
+            accepted_after_fingerprint,
+            keys,
+        } => validate_accepted_schema_index_chunk(
+            expected_store_path,
+            expected_handle,
+            candidate,
+            store_path,
+            *entity_tag,
+            *accepted_after_fingerprint,
+            keys,
+            true,
+            mode,
+        )?,
         JournalRecord::ConstraintValidationIndexPut {
             store_path,
             entity_tag,
@@ -1127,6 +1187,60 @@ fn validate_journal_batch_record<C: CanisterKind>(
             }
             validate_schema_migration_journal_plan(*plan_digest)?;
             IndexKey::try_from_raw(key).map_err(|_| InternalError::store_corruption())?;
+        }
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the recovery boundary validates every persisted index-chunk identity before apply"
+)]
+fn validate_accepted_schema_index_chunk(
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    candidate: Option<&CandidateSchemaRevision>,
+    store_path: &str,
+    entity_tag: EntityTag,
+    accepted_after_fingerprint: CommitSchemaFingerprint,
+    keys: &[crate::db::index::RawIndexStoreKey],
+    insertion: bool,
+    mode: JournalRecordApplyMode,
+) -> Result<(), InternalError> {
+    if store_path != expected_store_path
+        || mode != JournalRecordApplyMode::Fold
+        || expected_handle.storage_capabilities().recovery()
+            != StoreRecoveryCapability::StableBasePlusJournalReplay
+    {
+        return Err(InternalError::store_corruption());
+    }
+    let candidate = candidate.ok_or_else(InternalError::store_corruption)?;
+    let accepted_after = candidate
+        .bundle()
+        .entity_snapshots()
+        .get(&entity_tag)
+        .ok_or_else(InternalError::store_corruption)?;
+    if accepted_schema_cache_fingerprint_for_persisted_snapshot(accepted_after)?
+        != accepted_after_fingerprint
+    {
+        return Err(InternalError::store_corruption());
+    }
+    if insertion {
+        for key in keys {
+            let decoded =
+                IndexKey::try_from_raw(key).map_err(|_| InternalError::store_corruption())?;
+            if decoded.key_kind() != IndexKeyKind::User
+                || !accepted_after.indexes().iter().any(|index| {
+                    *decoded.index_id()
+                        == crate::db::index::IndexId::new_with_generation(
+                            entity_tag,
+                            index.ordinal(),
+                            index.physical_generation(),
+                        )
+                })
+            {
+                return Err(InternalError::store_corruption());
+            }
         }
     }
     Ok(())
@@ -1273,6 +1387,8 @@ fn journal_batch_schema_candidate(
             JournalRecord::RowPut { .. }
             | JournalRecord::RowDelete { .. }
             | JournalRecord::SchemaPut { .. }
+            | JournalRecord::AcceptedSchemaIndexDelete { .. }
+            | JournalRecord::AcceptedSchemaIndexPut { .. }
             | JournalRecord::ConstraintValidationJobPut { .. }
             | JournalRecord::ConstraintValidationJobDelete { .. }
             | JournalRecord::ConstraintValidationIndexPut { .. }
@@ -1636,6 +1752,8 @@ fn journal_record_store_handle<C: CanisterKind>(
         }
         JournalRecord::SchemaPut { store_path, .. }
         | JournalRecord::AcceptedSchemaPublish { store_path, .. }
+        | JournalRecord::AcceptedSchemaIndexDelete { store_path, .. }
+        | JournalRecord::AcceptedSchemaIndexPut { store_path, .. }
         | JournalRecord::ConstraintValidationJobPut { store_path, .. }
         | JournalRecord::ConstraintValidationJobDelete { store_path, .. }
         | JournalRecord::ConstraintValidationIndexPut { store_path, .. } => {
@@ -1898,6 +2016,18 @@ fn verify_recovered_record<C: CanisterKind>(
             *schema_fingerprint,
             verified,
         )?,
+        JournalRecord::AcceptedSchemaIndexDelete { keys, .. } => {
+            for key in keys {
+                verify_recovered_index_delete(db, key, verified)?;
+            }
+        }
+        JournalRecord::AcceptedSchemaIndexPut {
+            store_path, keys, ..
+        } => {
+            for key in keys {
+                verify_recovered_index_put(db, store_path, key, verified)?;
+            }
+        }
         JournalRecord::RowDelete {
             entity_path,
             primary_key,
@@ -2006,6 +2136,29 @@ fn verify_recovered_record<C: CanisterKind>(
         }
     }
 
+    Ok(())
+}
+
+fn verify_recovered_index_delete<C: CanisterKind>(
+    db: &Db<C>,
+    key: &crate::db::index::RawIndexStoreKey,
+    verified: &mut BTreeSet<RecoveredEffectIdentity>,
+) -> Result<(), InternalError> {
+    let decoded = IndexKey::try_from_raw(key)
+        .map_err(|_| InternalError::recovery_effect_verification_failed())?;
+    let runtime_entity = db
+        .accepted_runtime_entity_for_tag(decoded.index_id().entity_tag())
+        .map_err(|_| InternalError::recovery_effect_verification_failed())?;
+    let identity = RecoveredEffectIdentity::Index {
+        store_path: runtime_entity.store_path().to_string(),
+        raw_key: key.as_bytes().to_vec(),
+    };
+    if verified.insert(identity) {
+        let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
+        if handle.with_index(|store| store.get(key)).is_some() {
+            return Err(InternalError::recovery_effect_verification_failed());
+        }
+    }
     Ok(())
 }
 

@@ -7,22 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Corrects warmed SQL performance evidence to prime each exact statement's
-  compiled-cache identity before enforcing its warm instruction ceiling.
-
-- Keeps generated canisters ready after compatible SQL DDL advances the
-  accepted schema, while preserving exact generated-submission authority.
-
-- Restores generated native libtests by explicitly driving their fresh
-  thread-local database startup without weakening production readiness gates.
-
 ## [0.225.x] 🚦 - 2026-08-12 - Explicit Startup Readiness And Replicated Recovery Driving
 
 Detailed notes: [docs/changelog/0.225.md](docs/changelog/0.225.md)
 
+- `0.225.2` durably binds accepted SQL DDL index changes to their exact
+  physical user-index effects, preventing false-empty indexed reads after
+  upgrade; the new internal journal record tags are a pre-1.0 hard cut.
+
 - `0.225.1` activates lifecycle-owned recovery and typed pending admission,
-  adds composed application-readiness hooks, and closes the line with
-  populated mid-recovery upgrade evidence; timing and lifecycle source changes
+  adds composed application-readiness hooks, and keeps generated canisters
+  ready across compatible accepted DDL; timing and lifecycle source changes
   are potentially breaking.
 
 - `0.225.0` adds bounded startup observation, durable failures, and a dormant

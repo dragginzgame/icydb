@@ -2,8 +2,8 @@ use super::{
     FoldRecordCursor, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
     JournalTailStore,
     codec::{
-        JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_JOURNAL_BATCH_BYTES, RawJournalBatch,
-        decode_journal_batch, encode_journal_batch,
+        JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD,
+        MAX_JOURNAL_BATCH_BYTES, RawJournalBatch, decode_journal_batch, encode_journal_batch,
     },
     store::{
         JOURNAL_TAIL_CHUNK_BYTES, JournalInspectionCheckpoint, JournalInspectionLimits,
@@ -14,7 +14,7 @@ use crate::{
     db::{
         commit::CommitMarker,
         data::{DecodedDataStoreKey, RawDataStoreKey},
-        index::{IndexId, IndexKey, IndexKeyKind},
+        index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
         integrity::DatabaseIncarnationId,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
@@ -76,6 +76,18 @@ fn accepted_schema_publish_record() -> JournalRecord {
         candidate.encoded_root().to_vec(),
     )
     .expect("accepted schema publication record should build")
+}
+
+fn accepted_schema_index_key(component: u8, primary_key: u64) -> RawIndexStoreKey {
+    IndexKey::new_from_components_with_primary_key_value(
+        &IndexId::new_with_generation(EntityTag::new(1), 2, 7),
+        IndexKeyKind::User,
+        &[&[component]],
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
+    )
+    .expect("accepted schema index key should build")
+    .to_raw()
+    .expect("accepted schema index key should encode")
 }
 
 fn identity_range_record(count: u32) -> JournalRecord {
@@ -179,6 +191,98 @@ fn journal_batch_codec_round_trips_accepted_schema_publication() {
     let decoded = decode_journal_batch(&encoded).expect("journal batch should decode");
 
     assert_eq!(decoded, batch);
+}
+
+#[test]
+fn journal_batch_codec_round_trips_bounded_accepted_schema_index_chunks() {
+    let deletions = (0..=MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
+        .map(|value| {
+            accepted_schema_index_key(u8::try_from(value).expect("test component should fit"), 1)
+        })
+        .collect::<Vec<_>>();
+    let insertions = (0..=MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
+        .map(|value| {
+            accepted_schema_index_key(u8::try_from(value).expect("test component should fit"), 2)
+        })
+        .collect::<Vec<_>>();
+    let mut records = vec![accepted_schema_publish_record()];
+    for keys in deletions.chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD) {
+        records.push(
+            JournalRecord::accepted_schema_index_delete(
+                "test::Store",
+                EntityTag::new(1),
+                [0x51; 16],
+                keys.to_vec(),
+            )
+            .expect("accepted schema index deletion should build"),
+        );
+    }
+    for keys in insertions.chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD) {
+        records.push(
+            JournalRecord::accepted_schema_index_put(
+                "test::Store",
+                EntityTag::new(1),
+                [0x51; 16],
+                keys.to_vec(),
+            )
+            .expect("accepted schema index insertion should build"),
+        );
+    }
+    let batch = JournalBatch::new([0x35; 16], [0x45; 16], JournalSequence::new(1), records)
+        .expect("accepted schema index batch should build");
+
+    let encoded = encode_journal_batch(&batch).expect("accepted schema index batch should encode");
+    assert_eq!(
+        decode_journal_batch(&encoded).expect("accepted schema index batch should decode"),
+        batch,
+    );
+    assert_eq!(batch.records().len(), 5);
+}
+
+#[test]
+fn accepted_schema_index_chunks_reject_unbound_oversized_and_noncanonical_sets() {
+    let key = accepted_schema_index_key(1, 1);
+    let unbound = JournalRecord::accepted_schema_index_put(
+        "test::Store",
+        EntityTag::new(1),
+        [0x51; 16],
+        vec![key.clone()],
+    )
+    .expect("structural index chunk should build");
+    assert!(
+        JournalBatch::new(
+            [0x36; 16],
+            [0x46; 16],
+            JournalSequence::new(1),
+            vec![unbound],
+        )
+        .is_err(),
+        "an accepted schema index chunk requires one leading schema publication",
+    );
+
+    assert!(
+        JournalRecord::accepted_schema_index_put(
+            "test::Store",
+            EntityTag::new(1),
+            [0x51; 16],
+            vec![key; MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD + 1],
+        )
+        .is_err(),
+        "one persisted chunk must reject max-plus-one keys before encoding",
+    );
+
+    let high = accepted_schema_index_key(2, 2);
+    let low = accepted_schema_index_key(1, 1);
+    assert!(
+        JournalRecord::accepted_schema_index_delete(
+            "test::Store",
+            EntityTag::new(1),
+            [0x51; 16],
+            vec![high, low],
+        )
+        .is_err(),
+        "persisted chunk keys must be strictly ordered",
+    );
 }
 
 #[test]

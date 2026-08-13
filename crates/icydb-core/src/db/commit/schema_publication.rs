@@ -5,6 +5,8 @@
 
 use crate::db::index::{IndexEntryValue, IndexKey, RawIndexStoreKey};
 #[cfg(feature = "sql")]
+use crate::db::journal::MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD;
+#[cfg(feature = "sql")]
 use crate::db::{
     data::DataStore,
     index::IndexStore,
@@ -456,6 +458,7 @@ fn publish_journaled_candidate(
         candidate.encoded_root().to_vec(),
     )?;
     let mut records = vec![schema_record];
+    append_staged_schema_domain_journal_records(store_path, &domains, &mut records)?;
     if let Some(record) = constraint_validation_job_journal_record(store_path, job_change)? {
         records.push(record);
     }
@@ -483,6 +486,62 @@ fn publish_journaled_candidate(
         }
         Ok(())
     })
+}
+
+#[cfg(not(feature = "sql"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the no-SQL domain preserves the shared fallible journal-record preparation boundary"
+)]
+const fn append_staged_schema_domain_journal_records(
+    _store_path: &'static str,
+    domains: &StagedSchemaDomains,
+    _records: &mut Vec<JournalRecord>,
+) -> Result<(), InternalError> {
+    match domains {
+        StagedSchemaDomains::None => {}
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sql")]
+fn append_staged_schema_domain_journal_records(
+    store_path: &'static str,
+    domains: &StagedSchemaDomains,
+    records: &mut Vec<JournalRecord>,
+) -> Result<(), InternalError> {
+    let StagedSchemaDomains::UserIndexes(replacements) = domains else {
+        return Ok(());
+    };
+    let mut replacements = replacements.iter().collect::<Vec<_>>();
+    replacements.sort_unstable_by_key(|replacement| replacement.entity_tag());
+    for replacement in replacements {
+        let entity_tag = replacement.entity_tag();
+        let fingerprint = replacement.accepted_after_fingerprint();
+        for keys in replacement
+            .deletion_keys()
+            .chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
+        {
+            records.push(JournalRecord::accepted_schema_index_delete(
+                store_path,
+                entity_tag,
+                fingerprint,
+                keys.to_vec(),
+            )?);
+        }
+        for entries in replacement
+            .final_entries()
+            .chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
+        {
+            records.push(JournalRecord::accepted_schema_index_put(
+                store_path,
+                entity_tag,
+                fingerprint,
+                entries.iter().map(|entry| entry.key().clone()).collect(),
+            )?);
+        }
+    }
+    Ok(())
 }
 
 fn publish_candidates_atomically(

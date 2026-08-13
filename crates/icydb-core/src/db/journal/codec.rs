@@ -3,7 +3,7 @@
 //! Does not own: journal-tail storage, commit marker lifecycle, recovery, or fold.
 //! Boundary: logical journal records -> stable-memory journal batch bytes.
 
-use crate::db::index::RawIndexStoreKey;
+use crate::db::index::{IndexKey, IndexKeyKind, RawIndexStoreKey};
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
@@ -47,6 +47,9 @@ const JOURNAL_RECORD_CONSTRAINT_VALIDATION_INDEX_PUT: u8 = 8;
 const JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT: u8 = 9;
 #[cfg(any(test, feature = "migration"))]
 const JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT: u8 = 10;
+const JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_DELETE: u8 = 11;
+const JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_PUT: u8 = 12;
+pub(in crate::db) const MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD: usize = 64;
 
 pub(in crate::db) type JournalBatchId = [u8; JOURNAL_BATCH_ID_BYTES];
 pub(in crate::db) type JournalCommitMarkerId = [u8; JOURNAL_COMMIT_MARKER_ID_BYTES];
@@ -135,6 +138,22 @@ pub(in crate::db) enum JournalRecord {
         expected_revision: AcceptedSchemaRevision,
         schema_bundle_bytes: Vec<u8>,
         schema_root_bytes: Vec<u8>,
+    },
+    /// One bounded chunk removed from the user-index domain paired with the
+    /// leading accepted-schema publication in this batch.
+    AcceptedSchemaIndexDelete {
+        store_path: String,
+        entity_tag: EntityTag,
+        accepted_after_fingerprint: CommitSchemaFingerprint,
+        keys: Vec<RawIndexStoreKey>,
+    },
+    /// One bounded chunk inserted into the user-index domain paired with the
+    /// leading accepted-schema publication in this batch.
+    AcceptedSchemaIndexPut {
+        store_path: String,
+        entity_tag: EntityTag,
+        accepted_after_fingerprint: CommitSchemaFingerprint,
+        keys: Vec<RawIndexStoreKey>,
     },
     /// Schema-owned validation-job replacement for one live activation.
     ConstraintValidationJobPut {
@@ -267,6 +286,38 @@ impl JournalRecord {
             expected_revision,
             schema_bundle_bytes,
             schema_root_bytes,
+        };
+        validate_journal_record(&record)?;
+        Ok(record)
+    }
+
+    pub(in crate::db) fn accepted_schema_index_delete(
+        store_path: impl Into<String>,
+        entity_tag: EntityTag,
+        accepted_after_fingerprint: CommitSchemaFingerprint,
+        keys: Vec<RawIndexStoreKey>,
+    ) -> Result<Self, InternalError> {
+        let record = Self::AcceptedSchemaIndexDelete {
+            store_path: store_path.into(),
+            entity_tag,
+            accepted_after_fingerprint,
+            keys,
+        };
+        validate_journal_record(&record)?;
+        Ok(record)
+    }
+
+    pub(in crate::db) fn accepted_schema_index_put(
+        store_path: impl Into<String>,
+        entity_tag: EntityTag,
+        accepted_after_fingerprint: CommitSchemaFingerprint,
+        keys: Vec<RawIndexStoreKey>,
+    ) -> Result<Self, InternalError> {
+        let record = Self::AcceptedSchemaIndexPut {
+            store_path: store_path.into(),
+            entity_tag,
+            accepted_after_fingerprint,
+            keys,
         };
         validate_journal_record(&record)?;
         Ok(record)
@@ -591,6 +642,38 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             write_len_prefixed_bytes(out, schema_bundle_bytes, "journal accepted schema bundle")?;
             write_len_prefixed_bytes(out, schema_root_bytes, "journal accepted schema root")?;
         }
+        JournalRecord::AcceptedSchemaIndexDelete {
+            store_path,
+            entity_tag,
+            accepted_after_fingerprint,
+            keys,
+        } => {
+            out.push(JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_DELETE);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal accepted schema index store_path",
+            )?;
+            out.extend_from_slice(&entity_tag.value().to_le_bytes());
+            out.extend_from_slice(accepted_after_fingerprint);
+            write_index_key_chunk(out, keys)?;
+        }
+        JournalRecord::AcceptedSchemaIndexPut {
+            store_path,
+            entity_tag,
+            accepted_after_fingerprint,
+            keys,
+        } => {
+            out.push(JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_PUT);
+            write_len_prefixed_bytes(
+                out,
+                store_path.as_bytes(),
+                "journal accepted schema index store_path",
+            )?;
+            out.extend_from_slice(&entity_tag.value().to_le_bytes());
+            out.extend_from_slice(accepted_after_fingerprint);
+            write_index_key_chunk(out, keys)?;
+        }
         JournalRecord::ConstraintValidationJobPut {
             store_path,
             entity_tag,
@@ -690,6 +773,17 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
     Ok(())
 }
 
+fn write_index_key_chunk(
+    out: &mut Vec<u8>,
+    keys: &[RawIndexStoreKey],
+) -> Result<(), InternalError> {
+    write_len_u32(out, keys.len(), "journal accepted schema index key count")?;
+    for key in keys {
+        write_len_prefixed_bytes(out, key.as_bytes(), "journal accepted schema index key")?;
+    }
+    Ok(())
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "one exhaustive decoder keeps every current journal record tag on the same bounded cursor authority"
@@ -745,6 +839,26 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
                 expected_revision,
                 schema_bundle_bytes,
                 schema_root_bytes,
+            )
+        }
+        JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_DELETE => {
+            let (store_path, entity_tag, accepted_after_fingerprint, keys) =
+                read_accepted_schema_index_chunk(bytes, cursor)?;
+            JournalRecord::accepted_schema_index_delete(
+                store_path,
+                entity_tag,
+                accepted_after_fingerprint,
+                keys,
+            )
+        }
+        JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_PUT => {
+            let (store_path, entity_tag, accepted_after_fingerprint, keys) =
+                read_accepted_schema_index_chunk(bytes, cursor)?;
+            JournalRecord::accepted_schema_index_put(
+                store_path,
+                entity_tag,
+                accepted_after_fingerprint,
+                keys,
             )
         }
         JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT => {
@@ -875,6 +989,48 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
     }
 }
 
+fn read_accepted_schema_index_chunk(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<
+    (
+        String,
+        EntityTag,
+        CommitSchemaFingerprint,
+        Vec<RawIndexStoreKey>,
+    ),
+    InternalError,
+> {
+    let store_path = read_utf8_path(bytes, cursor, "journal accepted schema index store_path")?;
+    let entity_tag = EntityTag::new(read_u64_le(
+        bytes,
+        cursor,
+        "journal accepted schema index entity tag",
+    )?);
+    let accepted_after_fingerprint = read_fixed_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>(
+        bytes,
+        cursor,
+        "journal accepted schema index fingerprint",
+    )?;
+    let key_count =
+        read_len_u32(bytes, cursor, "journal accepted schema index key count")? as usize;
+    if !(1..=MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD).contains(&key_count) {
+        return Err(journal_batch_corruption());
+    }
+    let mut keys = Vec::with_capacity(key_count);
+    for _ in 0..key_count {
+        let key_bytes =
+            read_len_prefixed_bytes(bytes, cursor, "journal accepted schema index key")?;
+        if key_bytes.len() > IndexKey::MAX_STORED_SIZE_USIZE {
+            return Err(journal_batch_corruption());
+        }
+        keys.push(<RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(
+            key_bytes,
+        )));
+    }
+    Ok((store_path, entity_tag, accepted_after_fingerprint, keys))
+}
+
 fn read_primary_key(bytes: &[u8], cursor: &mut usize) -> Result<RawDataStoreKey, InternalError> {
     let primary_key = read_len_prefixed_bytes(bytes, cursor, "journal row primary_key")?;
     if primary_key.len() > RawDataStoreKey::MAX_STORED_SIZE_USIZE {
@@ -928,6 +1084,12 @@ pub(in crate::db) fn journal_record_payload_len(record: &JournalRecord) -> usize
             .saturating_add(size_of::<u64>())
             .saturating_add(size_of::<u32>() + schema_bundle_bytes.len())
             .saturating_add(size_of::<u32>() + schema_root_bytes.len()),
+        JournalRecord::AcceptedSchemaIndexDelete {
+            store_path, keys, ..
+        }
+        | JournalRecord::AcceptedSchemaIndexPut {
+            store_path, keys, ..
+        } => accepted_schema_index_chunk_payload_len(store_path.len(), keys),
         JournalRecord::ConstraintValidationJobPut {
             store_path,
             job_bytes,
@@ -976,6 +1138,20 @@ pub(in crate::db) fn journal_record_payload_len(record: &JournalRecord) -> usize
     }
 }
 
+fn accepted_schema_index_chunk_payload_len(
+    store_path_bytes: usize,
+    keys: &[RawIndexStoreKey],
+) -> usize {
+    keys.iter().fold(
+        1usize
+            .saturating_add(size_of::<u32>() + store_path_bytes)
+            .saturating_add(size_of::<u64>())
+            .saturating_add(JOURNAL_SCHEMA_FINGERPRINT_BYTES)
+            .saturating_add(size_of::<u32>()),
+        |bytes, key| bytes.saturating_add(size_of::<u32>() + key.as_bytes().len()),
+    )
+}
+
 fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalError> {
     if batch.batch_id == [0; JOURNAL_BATCH_ID_BYTES] {
         return Err(journal_batch_corruption());
@@ -991,7 +1167,68 @@ fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalErro
     }
     validate_identity_range_row_sets(batch)?;
     validate_constraint_validation_index_set(batch)?;
+    validate_accepted_schema_index_chunks(batch)?;
 
+    Ok(())
+}
+
+fn validate_accepted_schema_index_chunks(batch: &JournalBatch) -> Result<(), InternalError> {
+    let has_chunks = batch.records.iter().any(|record| {
+        matches!(
+            record,
+            JournalRecord::AcceptedSchemaIndexDelete { .. }
+                | JournalRecord::AcceptedSchemaIndexPut { .. }
+        )
+    });
+    if !has_chunks {
+        return Ok(());
+    }
+    if !matches!(
+        batch.records.first(),
+        Some(JournalRecord::AcceptedSchemaPublish { .. })
+    ) {
+        return Err(journal_batch_corruption());
+    }
+
+    let mut previous_entity = None;
+    let mut previous_fingerprint = None;
+    let mut previous_kind = 0_u8;
+    let mut previous_key = None;
+    for record in &batch.records[1..] {
+        let (entity_tag, fingerprint, kind, keys) = match record {
+            JournalRecord::AcceptedSchemaIndexDelete {
+                entity_tag,
+                accepted_after_fingerprint,
+                keys,
+                ..
+            } => (*entity_tag, *accepted_after_fingerprint, 1_u8, keys),
+            JournalRecord::AcceptedSchemaIndexPut {
+                entity_tag,
+                accepted_after_fingerprint,
+                keys,
+                ..
+            } => (*entity_tag, *accepted_after_fingerprint, 2_u8, keys),
+            _ => return Err(journal_batch_corruption()),
+        };
+        if previous_entity.is_some_and(|previous| previous > entity_tag)
+            || (previous_entity == Some(entity_tag)
+                && (previous_fingerprint != Some(fingerprint) || previous_kind > kind))
+        {
+            return Err(journal_batch_corruption());
+        }
+        if previous_entity != Some(entity_tag) || previous_kind != kind {
+            previous_key = None;
+        }
+        for key in keys {
+            if previous_key.is_some_and(|previous: &RawIndexStoreKey| previous >= key) {
+                return Err(journal_batch_corruption());
+            }
+            previous_key = Some(key);
+        }
+        previous_entity = Some(entity_tag);
+        previous_fingerprint = Some(fingerprint);
+        previous_kind = kind;
+    }
     Ok(())
 }
 
@@ -1101,6 +1338,8 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
                 }
                 JournalRecord::SchemaPut { .. }
                 | JournalRecord::AcceptedSchemaPublish { .. }
+                | JournalRecord::AcceptedSchemaIndexDelete { .. }
+                | JournalRecord::AcceptedSchemaIndexPut { .. }
                 | JournalRecord::ConstraintValidationJobPut { .. }
                 | JournalRecord::ConstraintValidationJobDelete { .. }
                 | JournalRecord::ConstraintValidationIndexPut { .. }
@@ -1166,6 +1405,35 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
                 || expected_revision.checked_next() != Some(candidate.revision())
             {
                 return Err(journal_batch_corruption());
+            }
+        }
+        JournalRecord::AcceptedSchemaIndexDelete {
+            store_path,
+            entity_tag,
+            keys,
+            ..
+        }
+        | JournalRecord::AcceptedSchemaIndexPut {
+            store_path,
+            entity_tag,
+            keys,
+            ..
+        } => {
+            validate_path(store_path, "journal accepted schema index store_path")?;
+            if !(1..=MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD).contains(&keys.len()) {
+                return Err(journal_batch_corruption());
+            }
+            let mut previous = None;
+            for key in keys {
+                let decoded =
+                    IndexKey::try_from_raw(key).map_err(|_| journal_batch_corruption())?;
+                if decoded.key_kind() != IndexKeyKind::User
+                    || decoded.index_id().entity_tag() != *entity_tag
+                    || previous.is_some_and(|prior: &RawIndexStoreKey| prior >= key)
+                {
+                    return Err(journal_batch_corruption());
+                }
+                previous = Some(key);
             }
         }
         JournalRecord::ConstraintValidationJobPut {
