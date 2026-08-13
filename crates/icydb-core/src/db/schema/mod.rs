@@ -241,8 +241,6 @@ pub(in crate::db::schema) use integrity::{
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use live_schema_checkpoint::ensure_schema_migration_ready_for_ordinary_operations;
-#[cfg(test)]
-pub(in crate::db) use live_schema_checkpoint::entity_source_lineage_matches_for_tests;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use live_schema_checkpoint::load_schema_migration_record;
 #[cfg(test)]
@@ -262,6 +260,10 @@ pub(in crate::db) use live_schema_checkpoint::{
 pub(in crate::db) use live_schema_checkpoint::{
     apply_schema_migration_record_op, preflight_schema_migration_record_op,
     verify_schema_migration_record_op,
+};
+#[cfg(test)]
+pub(in crate::db) use live_schema_checkpoint::{
+    corrupt_live_schema_checkpoint_header_for_tests, entity_source_lineage_matches_for_tests,
 };
 #[cfg(all(test, feature = "migration"))]
 pub(in crate::db::schema) use migration_execution::{

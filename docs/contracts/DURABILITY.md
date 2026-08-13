@@ -28,7 +28,7 @@ In scope:
 
 - `journaled` stores and their commit/recovery protocol;
 - volatile `heap` stores and their explicit non-durability;
-- guarded recovery before reads and writes;
+- state-only ordinary admission after dedicated startup recovery;
 - single-message mutation atomicity;
 - recovery from internally produced interrupted commit state;
 - documented recovery-size evidence and limits.
@@ -50,9 +50,10 @@ Out of scope in the current line:
 `journaled` storage is the durable production storage mode.
 
 Committed mutations are persisted through IcyDB's commit marker, journal, and
-canonical stable-memory stores. Guarded read and write entrypoints must run
-recovery before accessing durable row or index state when a marker or recovery
-authority may be present.
+canonical stable-memory stores. The dedicated replicated startup driver must
+complete recovery before guarded read and write entrypoints may access durable
+row or index state. Ordinary entrypoints observe admission state only and never
+drive recovery.
 
 The durability guarantee is scoped to the IcyDB mutation operation or explicit
 atomic batch helper being executed. It does not make the surrounding canister
@@ -81,7 +82,7 @@ rollback as normal control flow:
 - a marker carries at most four canonically ordered exact database-control
   compare-and-replace effects for application receipts, source lineage, and
   migration progress;
-- guarded reentry must converge to the marker-authorized final state;
+- startup-driver reentry must converge to the marker-authorized final state;
 - reads and writes must not observe partial durable state through guarded
   entrypoints.
 
@@ -101,7 +102,11 @@ write lane.
 ## Guarded Recovery
 
 Recovery is a required system step before guarded reads or writes proceed when
-durable recovery authority is present.
+durable recovery authority is present. It advances only through the dedicated
+replicated startup driver. Ordinary entrypoints return the dedicated retryable
+startup-pending diagnostic without opening a session or performing recovery;
+the existing authorized migration-control lane remains the sole control-plane
+exception after journal recovery completes.
 
 Recovery may use:
 
@@ -204,9 +209,9 @@ cursor is heap-only scheduling state that may restart from the first key
 without changing any receipt, proof vector, inspected revision, marker, or
 journal.
 
-Direct raw-store or index access that bypasses guarded recovery is outside this
-contract and may observe transient or stale state during startup or interrupted
-recovery windows.
+Direct raw-store or index access that bypasses state-only readiness admission is
+outside this contract and may observe transient or stale state during startup
+or interrupted recovery windows.
 
 ## Backup, Restore, And Import Scope
 
@@ -218,7 +223,7 @@ The supported durability boundary is:
 - the same canister's stable memory under normal IC execution and upgrade
   preservation;
 - internally produced interrupted commit or recovery states;
-- guarded recovery before IcyDB read/write entrypoints.
+- dedicated startup recovery before IcyDB read/write entrypoints are admitted.
 
 The current line does not guarantee that IcyDB can safely accept a raw stable
 memory image copied from another canister, another version, another runtime, or

@@ -94,11 +94,11 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Drive one bounded startup page without admitting ordinary database work.
-    pub(in crate::db) fn drive_startup_recovery_page(
+    /// Drive one bounded startup page while retaining its persisted failure owner.
+    pub(in crate::db) fn drive_startup_recovery_page_with_failure_authority(
         &self,
-    ) -> Result<bool, crate::error::InternalError> {
-        self.db.drive_startup_recovery_page()
+    ) -> Result<bool, crate::db::commit::StartupRecoveryFailure> {
+        self.db.drive_startup_recovery_page_with_failure_authority()
     }
 
     /// Construct a session from the active synchronous request scope.

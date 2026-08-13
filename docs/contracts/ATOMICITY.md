@@ -55,19 +55,20 @@ IcyDB’s own commit discipline.
 
 ### System recovery step
 
-A **system recovery step** is a synchronous, unconditional operation that restores
-global database invariants (e.g. completing or rolling back a previously started
-commit) before operations proceed.
+A **system recovery step** is one synchronous, bounded page run by the dedicated
+replicated startup driver to restore global database invariants (for example,
+completing a previously started commit) before ordinary operations proceed.
 
 System recovery:
 
-* Executes at startup before the first guarded operation and is re-enforced by
-  guarded operation boundaries through a fast persisted-marker check
+* Executes only through the lifecycle-owned replicated startup driver; ordinary
+  guarded operation boundaries perform state-only admission and never drive it
 * Leaves the database in a fully consistent state
 * Is not part of the current mutation’s atomicity scope
 * Is not observable by reads as partial state
-* Is idempotent, bounded, and deterministic; if it cannot complete, the entrypoint
-  must fail and must not proceed to reads or mutation planning
+* Is idempotent, bounded, and deterministic; while it is incomplete, ordinary
+  entrypoints return the dedicated retryable startup-pending diagnostic and do
+  not proceed to reads or mutation planning
 
 ### Commit boundary
 
@@ -92,10 +93,11 @@ atomicity and support deterministic recovery. Commit markers are
 IcyDB enforces atomicity via a **two-phase discipline** within a single update
 call.
 
-Before the first read or mutation’s pre-commit phase begins, the system performs
-a mandatory **system recovery step** to restore global invariants from prior
-incomplete commits. Guarded read and write entrypoints both perform a cheap
-marker check and journal publication/fold recovery if a marker is present.
+Before the first read or mutation's pre-commit phase begins, the dedicated
+startup driver must have completed all mandatory **system recovery steps**
+needed to restore global invariants from prior incomplete commits. Guarded read
+and write entrypoints perform only state admission; they do not publish or fold
+journal work.
 
 This recovery step is conceptually separate from the current mutation and must
 complete successfully before any read execution, planning, or validation begins.
@@ -153,12 +155,12 @@ Commit markers are **authoritative**, not diagnostic.
 * Marker-bound journal batches are appended during the apply phase after the
   marker is persisted
 * The system recovery step handles markers left behind by interrupted commits
-* Read entrypoints enforce recovery before accessing durable stores
-* Write entrypoints perform a marker check and recovery before accessing durable
-  stores; reads must not branch on marker presence outside recovery
-* Guarded reads and writes both perform marker checks at entry; if a marker is
-  present, recovery publishes and folds its journal batches before read or
-  mutation execution proceeds
+* Read and write entrypoints enforce completed recovery before accessing durable
+  stores
+* The state-only admission guard rejects a marker, incomplete recovery epoch,
+  or active recovery with the dedicated retryable startup-pending diagnostic
+* Only the replicated startup driver publishes and folds journal batches;
+  ordinary execution never branches into recovery work
 
 ### Marker-bound Identity allocation
 
@@ -296,8 +298,8 @@ The following are **explicitly out of scope**:
   operation.
 * Async or awaited mutation paths
 * Forward recovery after process crash
-* Lazy or deferred recovery interleaved with read execution logic; recovery
-  runs at guarded entry boundaries before read execution
+* Lazy or deferred recovery interleaved with read execution logic; recovery is
+  owned by the dedicated replicated driver and completes before read execution
 * Atomicity across independent mutation calls
 * Distributed or cross-canister transactions
 
@@ -324,12 +326,12 @@ The following invariants are **mandatory and non-negotiable**:
 * Apply phase must be infallible by construction
 * Commit marker application must not depend on IC trap rollback
 * Executors must not rely on traps for correctness
-* All mutation entrypoints must perform write-side recovery (marker check plus
-  journal publication/fold) before pre-commit
+* All mutation entrypoints must pass state-only recovery admission before
+  pre-commit; they must not publish or fold recovery work
 * Mutation correctness must not depend on recovery occurring after the commit
   boundary
 * Startup recovery must complete before read execution, and read/write
-  entrypoint marker checks must complete before operation-specific execution;
+  entrypoint state admission must complete before operation-specific execution;
   recovery must not be interleaved with mutation planning or apply phases
 * No `await`, yield, or re-entrancy during mutation execution
 
@@ -348,10 +350,10 @@ Violating any invariant is a **bug**, not an acceptable failure mode.
 
 ---
 
-System recovery is expected to run synchronously at startup (before the first
-read or mutation) and is not a substitute for atomic apply-phase correctness.
-Guarded read and write entrypoints also perform a cheap marker check and
-journal publication/fold recovery if needed.
+Each recovery page runs synchronously in the lifecycle-owned replicated startup
+driver and is not a substitute for atomic apply-phase correctness. Guarded read
+and write entrypoints perform state-only admission and return the dedicated
+retryable startup-pending diagnostic until recovery is complete.
 
 ## Current Contract Rationale
 

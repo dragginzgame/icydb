@@ -129,11 +129,6 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
             #apply_generated_schema
         }
 
-        thread_local! {
-            static SCHEMA_APPLICATION: ::std::cell::OnceCell<()> =
-                    const { ::std::cell::OnceCell::new() };
-        }
-
         #startup_driver
 
         fn admit_ordinary_database_work(
@@ -299,19 +294,14 @@ fn startup_driver_tokens() -> TokenStream {
         fn complete_generated_schema_handoff(
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<bool, ::icydb::Error> {
-            if SCHEMA_APPLICATION.with(|application| application.get().is_none()) {
-                if let Err(error) = apply_generated_schema(session) {
-                    return ::icydb::db::__record_generated_schema_startup_failure::<
-                        __IcydbGeneratedCanister,
-                    >(
-                        &STORE_REGISTRY,
-                        ICYDB_SCHEMA_SUBMISSION_KEY,
-                        &error,
-                    );
-                }
-                SCHEMA_APPLICATION.with(|application| {
-                    let _ = application.set(());
-                });
+            if let Err(error) = apply_generated_schema(session) {
+                return ::icydb::db::__record_generated_schema_startup_failure::<
+                    __IcydbGeneratedCanister,
+                >(
+                    &STORE_REGISTRY,
+                    ICYDB_SCHEMA_SUBMISSION_KEY,
+                    &error,
+                );
             }
             match startup_state() {
                 Ok(::icydb::db::DatabaseStartupState::Ready) => {
@@ -869,8 +859,8 @@ mod tests {
     fn ordinary_admission_is_state_only_and_has_no_incidental_recovery_path() {
         let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
 
-        assert!(rendered.contains("::std::cell::OnceCell"));
-        assert!(rendered.contains("SCHEMA_APPLICATION.with("));
+        assert!(!rendered.contains("::std::cell::OnceCell"));
+        assert!(!rendered.contains("SCHEMA_APPLICATION.with("));
         assert!(rendered.contains("fnadmit_ordinary_database_work("));
         assert!(rendered.contains("DatabaseStartupState::Ready"));
         assert!(rendered.contains("__startup_recovery_pending()"));

@@ -619,6 +619,17 @@ fn checkpoint_memory() -> Result<CheckpointMemory, InternalError> {
     ))
 }
 
+/// Corrupt the live-schema checkpoint header for a focused startup-recovery test.
+#[cfg(test)]
+pub(in crate::db) fn corrupt_live_schema_checkpoint_header_for_tests() -> Result<(), InternalError>
+{
+    let mut store = LiveSchemaCheckpointStore::open(checkpoint_memory()?)?;
+    store
+        .map
+        .insert(CHECKPOINT_HEADER_KEY, LiveSchemaCheckpointBytes(vec![0xff]));
+    Ok(())
+}
+
 pub(in crate::db) fn load_live_schema_checkpoint(
     store_path: &str,
 ) -> Result<Option<LiveSchemaCheckpoint>, InternalError> {

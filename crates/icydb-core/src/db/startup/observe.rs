@@ -52,10 +52,10 @@ pub(super) fn observe<C: CanisterKind>(
     else {
         return Ok(DatabaseStartupState::Recovering);
     };
-    if let Some(receipt) = receipt.as_ref()
-        && database_control_receipt_matches(receipt, incarnation, empty_control_proof)
+    if let Some(failure) =
+        matching_database_control_failure::<C>(receipt.as_ref(), incarnation, empty_control_proof)
     {
-        return Err(receipt.failure().clone());
+        return Err(failure);
     }
 
     let (recovered, in_progress) =
@@ -155,6 +155,19 @@ fn matching_allocation_failure<C: CanisterKind>(
         }
         _ => None,
     }
+}
+
+fn matching_database_control_failure<C: CanisterKind>(
+    receipt: Option<&StartupFailureReceipt>,
+    incarnation: crate::db::DatabaseIncarnationId,
+    proof: Option<[u8; 32]>,
+) -> Option<StartupFailure> {
+    if proof.is_none() {
+        return matching_allocation_failure::<C>(receipt);
+    }
+    receipt
+        .filter(|receipt| database_control_receipt_matches(receipt, incarnation, proof))
+        .map(|receipt| receipt.failure().clone())
 }
 
 fn database_control_receipt_matches(

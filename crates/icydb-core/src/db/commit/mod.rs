@@ -53,11 +53,12 @@ pub(in crate::db) use prepare::{
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use recovery::{
-    RecoveryProgress, continue_recovery, ensure_recovery_admitted, startup_recovery_witness,
+    RecoveryProgress, StartupRecoveryFailure, StartupRecoveryFailureAuthority,
+    continue_recovery_with_failure_authority, ensure_recovery_admitted, startup_recovery_witness,
 };
 #[cfg(test)]
 pub(in crate::db) use recovery::{
-    forget_recovered_domain_for_tests, mark_startup_recovery_complete_for_tests,
+    continue_recovery, forget_recovered_domain_for_tests, mark_startup_recovery_complete_for_tests,
 };
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
@@ -73,9 +74,11 @@ pub(in crate::db) use schema_publication::{
     publish_accepted_schema_candidate_with_constraint_validation_job_removal,
     publish_constraint_validation_job, publish_generated_row_local_abort_with_application_record,
 };
-#[cfg(test)]
-pub(in crate::db) use store::validate_commit_marker_envelope_for_tests;
 pub(in crate::db) use store::{
     CommitControlObservation, cursor_authentication_key, database_control_proof_identity,
     database_incarnation_id, observe_commit_control,
+};
+#[cfg(test)]
+pub(in crate::db) use store::{
+    persist_raw_commit_marker_for_tests, validate_commit_marker_envelope_for_tests,
 };

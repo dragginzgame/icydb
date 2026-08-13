@@ -120,18 +120,70 @@ pub(crate) enum RecoveryProgress {
     Pending,
 }
 
+/// Persisted authority whose current bytes caused one startup recovery page
+/// to fail deterministically.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum StartupRecoveryFailureAuthority {
+    DatabaseControl,
+    JournalStore(&'static str),
+}
+
+/// One recovery-page failure paired with the durable authority needed for a
+/// binding-checked startup receipt.
+pub(in crate::db) struct StartupRecoveryFailure {
+    authority: StartupRecoveryFailureAuthority,
+    error: InternalError,
+}
+
+impl StartupRecoveryFailure {
+    const fn database_control(error: InternalError) -> Self {
+        Self {
+            authority: StartupRecoveryFailureAuthority::DatabaseControl,
+            error,
+        }
+    }
+
+    const fn journal_store(store_path: &'static str, error: InternalError) -> Self {
+        Self {
+            authority: StartupRecoveryFailureAuthority::JournalStore(store_path),
+            error,
+        }
+    }
+
+    pub(in crate::db) const fn authority(&self) -> StartupRecoveryFailureAuthority {
+        self.authority
+    }
+
+    pub(in crate::db) const fn error(&self) -> &InternalError {
+        &self.error
+    }
+
+    pub(in crate::db) fn into_error(self) -> InternalError {
+        self.error
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn continue_recovery<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<RecoveryProgress, InternalError> {
-    configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-    ensure_database_format_admitted(db)?;
-    let recovery_key =
-        recovery_domain_key(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    continue_recovery_with_failure_authority(db).map_err(StartupRecoveryFailure::into_error)
+}
 
-    if !recovery_domain_recovered(recovery_key)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?
-    {
+pub(in crate::db) fn continue_recovery_with_failure_authority<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<RecoveryProgress, StartupRecoveryFailure> {
+    configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY).map_err(|error| {
+        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+    })?;
+    ensure_database_format_admitted(db).map_err(StartupRecoveryFailure::database_control)?;
+    let recovery_key = recovery_domain_key(db).map_err(|error| {
+        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+    })?;
+
+    if !recovery_domain_recovered(recovery_key).map_err(|error| {
+        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+    })? {
         return recover_domain(db, recovery_key);
     }
 
@@ -141,7 +193,9 @@ pub(crate) fn continue_recovery<C: CanisterKind>(
         return Ok(RecoveryProgress::Complete);
     }
 
-    if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
+    if commit_marker_present_fast().map_err(|error| {
+        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+    })? {
         return recover_domain(db, recovery_key);
     }
 
@@ -160,23 +214,28 @@ pub(crate) fn continue_recovery<C: CanisterKind>(
 fn recover_domain<C: CanisterKind>(
     db: &Db<C>,
     recovery_key: RecoveryDomainKey,
-) -> Result<RecoveryProgress, InternalError> {
+) -> Result<RecoveryProgress, StartupRecoveryFailure> {
     mark_recovery_domain_in_progress(recovery_key);
-    let marker = with_commit_store(super::store::CommitStore::load)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    let marker = with_commit_store(super::store::CommitStore::load).map_err(|error| {
+        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+    })?;
     let progress = if marker.is_none() && journaled_tails_are_empty(db) {
-        restore_live_schema_checkpoints(db, None)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        restore_live_schema_checkpoints(db, None).map_err(|error| {
+            StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+        })?;
         db.mark_all_registered_index_stores_ready()
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+            .map_err(|error| {
+                StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+            })?;
         mark_commit_marker_verified_absent();
         RecoveryProgress::Complete
     } else {
         perform_recovery_page(db, marker)?
     };
     if progress == RecoveryProgress::Complete {
-        mark_recovery_domain_recovered(recovery_key)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        mark_recovery_domain_recovered(recovery_key).map_err(|error| {
+            StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+        })?;
         clear_recovery_domain_in_progress(recovery_key);
     }
     Ok(progress)
@@ -197,34 +256,49 @@ fn journaled_tails_are_empty<C: CanisterKind>(db: &Db<C>) -> bool {
 fn perform_recovery_page<C: CanisterKind>(
     db: &Db<C>,
     marker: Option<CommitMarker>,
-) -> Result<RecoveryProgress, InternalError> {
+) -> Result<RecoveryProgress, StartupRecoveryFailure> {
     let had_marker = marker.is_some();
-    restore_live_schema_checkpoints(db, marker.as_ref())
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    restore_live_schema_checkpoints(db, marker.as_ref()).map_err(|error| {
+        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+    })?;
     if let Some(marker) = marker.as_ref() {
-        apply_marker_live_schema_checkpoints(db, marker)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
-        publish_marker_bound_journal_batches(db, marker)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        apply_marker_live_schema_checkpoints(db, marker).map_err(|error| {
+            StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+        })?;
+        publish_marker_bound_journal_batches(db, marker)?;
         for operation in marker.database_control() {
             match operation {
                 DatabaseControlOp::SchemaApplication(operation) => {
-                    apply_schema_application_record_op(operation)
-                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                    apply_schema_application_record_op(operation).map_err(|error| {
+                        StartupRecoveryFailure::database_control(
+                            error.with_origin(ErrorOrigin::Recovery),
+                        )
+                    })?;
                 }
                 #[cfg(any(test, feature = "migration"))]
                 DatabaseControlOp::EntitySourceLineage(operation) => {
-                    crate::db::schema::apply_entity_source_lineage_catalog_op(operation)
-                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                    crate::db::schema::apply_entity_source_lineage_catalog_op(operation).map_err(
+                        |error| {
+                            StartupRecoveryFailure::database_control(
+                                error.with_origin(ErrorOrigin::Recovery),
+                            )
+                        },
+                    )?;
                 }
                 #[cfg(any(test, feature = "migration"))]
                 DatabaseControlOp::SchemaMigration(operation) => {
-                    apply_schema_migration_record_op(operation)
-                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                    apply_schema_migration_record_op(operation).map_err(|error| {
+                        StartupRecoveryFailure::database_control(
+                            error.with_origin(ErrorOrigin::Recovery),
+                        )
+                    })?;
                 }
                 DatabaseControlOp::MutationProgress(operation) => {
-                    apply_mutation_progress_record_op::<C>(operation)
-                        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+                    apply_mutation_progress_record_op::<C>(operation).map_err(|error| {
+                        StartupRecoveryFailure::database_control(
+                            error.with_origin(ErrorOrigin::Recovery),
+                        )
+                    })?;
                 }
             }
         }
@@ -233,27 +307,30 @@ fn perform_recovery_page<C: CanisterKind>(
     // Disposable overlays may contain effects from the predecessor Wasm or a
     // same-process interruption test. Canonical row, index, and schema stores
     // remain the only fold inputs across resumable recovery pages.
-    reset_journaled_live_projections(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    reset_journaled_live_projections(db)?;
 
     // Fold one bounded journal page. Each row transition updates its canonical
     // data and derived-index effects before the existing watermark advances.
-    if !fold_journaled_tail_page(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
+    if !fold_journaled_tail_page(db)? {
         return Ok(RecoveryProgress::Pending);
     }
 
     // Verify only marker-owned effects and terminal fold state before
     // clearing marker authority. Whole-database integrity is an explicit
     // bounded inspection workflow, not a recovery side effect.
-    verify_recovered_effects(db, marker.as_ref())
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    verify_recovered_effects(db, marker.as_ref()).map_err(|error| {
+        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+    })?;
 
     // Clear marker only after replay + fold + effect validation succeed.
     if had_marker {
-        with_commit_store(super::store::CommitStore::clear_verified)
-            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+        with_commit_store(super::store::CommitStore::clear_verified).map_err(|error| {
+            StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+        })?;
     }
 
-    db.mark_all_registered_index_stores_ready()?;
+    db.mark_all_registered_index_stores_ready()
+        .map_err(StartupRecoveryFailure::database_control)?;
     mark_commit_marker_verified_absent();
 
     Ok(RecoveryProgress::Complete)
@@ -366,20 +443,26 @@ fn apply_marker_live_schema_checkpoints<C: CanisterKind>(
 fn publish_marker_bound_journal_batches<C: CanisterKind>(
     db: &Db<C>,
     marker: &CommitMarker,
-) -> Result<(), InternalError> {
+) -> Result<(), StartupRecoveryFailure> {
     for batch in marker.journal_batches() {
-        let (store_path, handle) = journal_batch_store_handle(db, batch)?;
+        let (store_path, handle) = journal_batch_store_handle(db, batch)
+            .map_err(StartupRecoveryFailure::database_control)?;
         match (
             journal_batch_is_direct_schema_publication(batch),
             handle.journal_tail_store(),
         ) {
-            (true, _) | (false, None) => replay_journal_batch(db, store_path, handle, batch)?,
+            (true, _) | (false, None) => {
+                replay_journal_batch(db, store_path, handle, batch)
+                    .map_err(StartupRecoveryFailure::database_control)?;
+            }
             (false, Some(journal_store)) => {
-                journal_store.with_borrow_mut(|store| {
-                    store.append_batch(batch)?;
+                journal_store
+                    .with_borrow_mut(|store| {
+                        store.append_batch(batch)?;
 
-                    Ok::<(), InternalError>(())
-                })?;
+                        Ok::<(), InternalError>(())
+                    })
+                    .map_err(|error| StartupRecoveryFailure::journal_store(store_path, error))?;
             }
         }
     }
@@ -387,15 +470,24 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
     Ok(())
 }
 
-fn reset_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    for (_, handle) in sorted_journaled_store_handles(db) {
-        handle.mark_index_building()?;
-        let data_generation = handle.with_data_mut(|store| {
-            store.reset_journaled_live_projection()?;
-            Ok::<_, InternalError>(store.generation())
-        })?;
-        handle.with_index_mut(|store| store.reset_journaled_live_projection(data_generation))?;
-        handle.with_schema_mut(SchemaStore::reset_journaled_live_projection)?;
+fn reset_journaled_live_projections<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), StartupRecoveryFailure> {
+    for (store_path, handle) in sorted_journaled_store_handles(db) {
+        let journal_failure = |error| StartupRecoveryFailure::journal_store(store_path, error);
+        handle.mark_index_building().map_err(journal_failure)?;
+        let data_generation = handle
+            .with_data_mut(|store| {
+                store.reset_journaled_live_projection()?;
+                Ok::<_, InternalError>(store.generation())
+            })
+            .map_err(journal_failure)?;
+        handle
+            .with_index_mut(|store| store.reset_journaled_live_projection(data_generation))
+            .map_err(journal_failure)?;
+        handle
+            .with_schema_mut(SchemaStore::reset_journaled_live_projection)
+            .map_err(journal_failure)?;
     }
 
     Ok(())
@@ -413,106 +505,178 @@ const RECOVERY_JOURNAL_BYTES_PER_PAGE: usize = 8 * 1_024 * 1_024;
 #[cfg(target_arch = "wasm32")]
 const RECOVERY_INSTRUCTIONS_PER_PAGE: u64 = 20_000_000_000;
 
-fn fold_journaled_tail_page<C: CanisterKind>(db: &Db<C>) -> Result<bool, InternalError> {
-    let mut remaining_batches = RECOVERY_JOURNAL_BATCHES_PER_PAGE;
-    let mut remaining_records = RECOVERY_JOURNAL_RECORDS_PER_PAGE;
-    let mut remaining_bytes = RECOVERY_JOURNAL_BYTES_PER_PAGE;
-    let instruction_start = recovery_instruction_counter();
-    let mut page_progressed = false;
+struct RecoveryPageBudget {
+    remaining_batches: usize,
+    remaining_records: usize,
+    remaining_bytes: usize,
+    instruction_start: u64,
+    progressed: bool,
+}
+
+impl RecoveryPageBudget {
+    const fn new(instruction_start: u64) -> Self {
+        Self {
+            remaining_batches: RECOVERY_JOURNAL_BATCHES_PER_PAGE,
+            remaining_records: RECOVERY_JOURNAL_RECORDS_PER_PAGE,
+            remaining_bytes: RECOVERY_JOURNAL_BYTES_PER_PAGE,
+            instruction_start,
+            progressed: false,
+        }
+    }
+
+    const fn page_exhausted(&self) -> bool {
+        self.remaining_batches == 0 || self.remaining_records == 0
+    }
+
+    const fn batch_bytes_exhausted(&self, batch_bytes: usize) -> bool {
+        batch_bytes > self.remaining_bytes
+    }
+
+    const fn record_count_exhausted(&self) -> bool {
+        self.remaining_records == 0
+    }
+
+    const fn record_applied(&mut self) {
+        self.remaining_records = self.remaining_records.saturating_sub(1);
+        self.progressed = true;
+    }
+
+    const fn batch_applied(&mut self, batch_bytes: usize) {
+        self.remaining_batches = self.remaining_batches.saturating_sub(1);
+        self.remaining_bytes = self.remaining_bytes.saturating_sub(batch_bytes);
+    }
+}
+
+fn fold_journaled_tail_page<C: CanisterKind>(db: &Db<C>) -> Result<bool, StartupRecoveryFailure> {
+    let mut budget = RecoveryPageBudget::new(recovery_instruction_counter());
     'stores: for (store_path, handle) in sorted_journaled_store_handles(db) {
-        let journal_store = handle
-            .journal_tail_store()
-            .ok_or_else(InternalError::store_corruption)?;
-        loop {
-            if remaining_batches == 0 || remaining_records == 0 {
-                break 'stores;
-            }
-            let watermark = journal_store.with_borrow(JournalTailStore::fold_watermark)?;
-            let Some(batch) = journal_store.with_borrow(|store| {
-                store.next_batch_after(watermark.highest_folded_journal_sequence())
-            })?
-            else {
-                if journal_store.with_borrow(JournalTailStore::has_fold_record_cursor) {
-                    return Err(InternalError::store_corruption());
-                }
-                break;
-            };
-            let batch_bytes = journal_batch_encoded_len(&batch);
-            let stored_cursor = journal_store.with_borrow(JournalTailStore::fold_record_cursor)?;
-            if stored_cursor.is_none()
-                && page_progressed
-                && (batch_bytes > remaining_bytes
-                    || recovery_instruction_budget_reached(instruction_start))
-            {
-                break 'stores;
-            }
-
-            let (mut next_record_ordinal, cursor_created) = prepare_fold_record_cursor(
-                db,
-                store_path,
-                handle,
-                journal_store,
-                &batch,
-                stored_cursor,
-            )?;
-            page_progressed |= cursor_created;
-            let candidate = validated_journal_batch_schema_candidate(store_path, &batch)?;
-            while next_record_ordinal < batch.records().len() {
-                if page_progressed
-                    && (remaining_records == 0
-                        || recovery_instruction_budget_reached(instruction_start))
-                {
-                    break 'stores;
-                }
-                let record = batch
-                    .records()
-                    .get(next_record_ordinal)
-                    .ok_or_else(InternalError::store_corruption)?;
-                validate_journal_batch_record(
-                    db,
-                    store_path,
-                    handle,
-                    candidate.as_ref(),
-                    &batch,
-                    next_record_ordinal,
-                    record,
-                    JournalRecordApplyMode::Fold,
-                )?;
-                apply_journal_record(
-                    db,
-                    store_path,
-                    handle,
-                    &batch,
-                    next_record_ordinal,
-                    record,
-                    JournalRecordApplyMode::Fold,
-                )?;
-                next_record_ordinal = next_record_ordinal
-                    .checked_add(1)
-                    .ok_or_else(InternalError::store_corruption)?;
-                persist_fold_record_cursor(journal_store, &batch, next_record_ordinal)?;
-                remaining_records = remaining_records.saturating_sub(1);
-                page_progressed = true;
-            }
-
-            let next_epoch = watermark
-                .fold_epoch()
-                .checked_add(1)
-                .ok_or_else(InternalError::store_corruption)?;
-            let next_watermark = FoldWatermark::new(batch.journal_sequence(), next_epoch);
-            journal_store.with_borrow_mut(|store| {
-                store.persist_fold_watermark(next_watermark)?;
-                store.clear_fold_record_cursor();
-                store.clear_batches_through(batch.journal_sequence());
-
-                Ok::<(), InternalError>(())
-            })?;
-            remaining_batches = remaining_batches.saturating_sub(1);
-            remaining_bytes = remaining_bytes.saturating_sub(batch_bytes);
+        if !fold_journaled_store_page(db, store_path, handle, &mut budget)? {
+            break 'stores;
         }
     }
 
     Ok(journaled_tails_are_empty(db))
+}
+
+fn fold_journaled_store_page<C: CanisterKind>(
+    db: &Db<C>,
+    store_path: &'static str,
+    handle: StoreHandle,
+    budget: &mut RecoveryPageBudget,
+) -> Result<bool, StartupRecoveryFailure> {
+    let journal_failure = |error| StartupRecoveryFailure::journal_store(store_path, error);
+    let journal_store = handle
+        .journal_tail_store()
+        .ok_or_else(InternalError::store_corruption)
+        .map_err(journal_failure)?;
+    loop {
+        if budget.page_exhausted() {
+            return Ok(false);
+        }
+        let watermark = journal_store
+            .with_borrow(JournalTailStore::fold_watermark)
+            .map_err(journal_failure)?;
+        let Some(batch) = journal_store
+            .with_borrow(|store| {
+                store.next_batch_after(watermark.highest_folded_journal_sequence())
+            })
+            .map_err(journal_failure)?
+        else {
+            if journal_store.with_borrow(JournalTailStore::has_fold_record_cursor) {
+                return Err(StartupRecoveryFailure::journal_store(
+                    store_path,
+                    InternalError::store_corruption(),
+                ));
+            }
+            return Ok(true);
+        };
+        let batch_bytes = journal_batch_encoded_len(&batch);
+        let stored_cursor = journal_store
+            .with_borrow(JournalTailStore::fold_record_cursor)
+            .map_err(journal_failure)?;
+        if stored_cursor.is_none()
+            && budget.progressed
+            && (budget.batch_bytes_exhausted(batch_bytes)
+                || recovery_instruction_budget_reached(budget.instruction_start))
+        {
+            return Ok(false);
+        }
+
+        let (mut next_record_ordinal, cursor_created) = prepare_fold_record_cursor(
+            db,
+            store_path,
+            handle,
+            journal_store,
+            &batch,
+            stored_cursor,
+        )
+        .map_err(journal_failure)?;
+        budget.progressed |= cursor_created;
+        let candidate = validated_journal_batch_schema_candidate(store_path, &batch)
+            .map_err(journal_failure)?;
+        while next_record_ordinal < batch.records().len() {
+            if budget.progressed
+                && (budget.record_count_exhausted()
+                    || recovery_instruction_budget_reached(budget.instruction_start))
+            {
+                return Ok(false);
+            }
+            let record = batch
+                .records()
+                .get(next_record_ordinal)
+                .ok_or_else(InternalError::store_corruption)
+                .map_err(journal_failure)?;
+            validate_journal_batch_record(
+                db,
+                store_path,
+                handle,
+                candidate.as_ref(),
+                &batch,
+                next_record_ordinal,
+                record,
+                JournalRecordApplyMode::Fold,
+            )
+            .map_err(journal_failure)?;
+            apply_journal_record(
+                db,
+                store_path,
+                handle,
+                &batch,
+                next_record_ordinal,
+                record,
+                JournalRecordApplyMode::Fold,
+            )
+            .map_err(journal_failure)?;
+            next_record_ordinal = next_record_ordinal
+                .checked_add(1)
+                .ok_or_else(InternalError::store_corruption)
+                .map_err(journal_failure)?;
+            persist_fold_record_cursor(journal_store, &batch, next_record_ordinal)
+                .map_err(journal_failure)?;
+            budget.record_applied();
+        }
+
+        complete_folded_journal_batch(journal_store, &batch, watermark).map_err(journal_failure)?;
+        budget.batch_applied(batch_bytes);
+    }
+}
+
+fn complete_folded_journal_batch(
+    journal_store: &'static LocalKey<RefCell<JournalTailStore>>,
+    batch: &JournalBatch,
+    watermark: FoldWatermark,
+) -> Result<(), InternalError> {
+    let next_epoch = watermark
+        .fold_epoch()
+        .checked_add(1)
+        .ok_or_else(InternalError::store_corruption)?;
+    let next_watermark = FoldWatermark::new(batch.journal_sequence(), next_epoch);
+    journal_store.with_borrow_mut(|store| {
+        store.persist_fold_watermark(next_watermark)?;
+        store.clear_fold_record_cursor();
+        store.clear_batches_through(batch.journal_sequence());
+        Ok(())
+    })
 }
 
 fn prepare_fold_record_cursor<C: CanisterKind>(

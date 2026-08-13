@@ -3031,11 +3031,13 @@ mod tests {
     };
     use crate::{
         db::{
-            Db,
+            DatabaseStartupState, Db, GeneratedStartupDriverStep,
             commit::{RecoveryProgress, continue_recovery, forget_recovered_domain_for_tests},
             data::DataStore,
+            drive_generated_startup_recovery_page,
             index::IndexStore,
             journal::JournalTailStore,
+            observe_generated_startup_state,
             registry::{
                 StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
                 StoreRuntimeStorageCapabilities,
@@ -3074,11 +3076,9 @@ mod tests {
     }
 
     #[cfg(feature = "migration")]
+    use crate::db::schema::SchemaChangeReceipt;
     use crate::{
-        db::{
-            DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell,
-            schema::SchemaChangeReceipt,
-        },
+        db::{DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell},
         value::InputValue,
     };
     #[cfg(feature = "migration")]
@@ -3933,7 +3933,7 @@ mod tests {
         clippy::too_many_lines,
         reason = "the staged publication, recovery, and promotion assertions form one lifecycle"
     )]
-    fn targeted_rule_edit_activation_recovers_and_promotes_without_source_model() {
+    fn generated_startup_driver_resumes_pending_activation_and_promotes_without_source_model() {
         let db = Db::<EvolutionCanister>::new(
             &EVOLUTION_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
@@ -4169,27 +4169,59 @@ mod tests {
                 )
             })
             .expect("validating replacement transition and job should close");
+        let startup_root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        let startup_session =
+            crate::db::DbSession::<EvolutionCanister>::new(&EVOLUTION_REGISTRY, &startup_root);
 
-        let started = continue_schema_application(&db, job_id, None).unwrap_or_else(|error| {
-            panic!(
-                "recovered replacement should begin validation: {:?}/{:?}",
-                error.class(),
-                error.origin(),
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &startup_session,
+                &EVOLUTION_REGISTRY,
+                edited.submission_key().as_str(),
             )
-        });
-        assert_eq!(started.status(), &SchemaChangeProgressStatus::Started);
-        let mut applied = None;
+            .expect("generated startup should begin pending validation"),
+            GeneratedStartupDriverStep::Recovering,
+        );
+        let mut terminal = false;
         for _ in 0..8 {
-            let progress = continue_schema_application(&db, job_id, None)
-                .expect("replacement validation should advance from durable authority");
-            if progress.status() == &SchemaChangeProgressStatus::Applied {
-                applied = Some(progress);
-                break;
+            match drive_generated_startup_recovery_page(
+                &startup_session,
+                &EVOLUTION_REGISTRY,
+                edited.submission_key().as_str(),
+            )
+            .expect("generated startup should advance pending validation")
+            {
+                GeneratedStartupDriverStep::Recovering => {}
+                GeneratedStartupDriverStep::Terminal => {
+                    terminal = true;
+                    break;
+                }
+                GeneratedStartupDriverStep::ApplyGeneratedSchema => {
+                    panic!("an exact pending receipt must resume instead of being resubmitted")
+                }
             }
         }
-        let applied = applied.expect("empty historical domain should promote within bounded steps");
+        assert!(
+            terminal,
+            "empty historical domain should promote within bounded startup steps"
+        );
+        assert_eq!(
+            observe_generated_startup_state::<EvolutionCanister>(
+                &EVOLUTION_REGISTRY,
+                edited.submission_key().as_str(),
+            ),
+            Ok(DatabaseStartupState::Ready),
+        );
+        let applied = super::exact_schema_application_receipt(
+            &edited,
+            edited
+                .digest()
+                .expect("proposal digest should remain stable"),
+        )
+        .expect("terminal generated receipt should remain readable")
+        .expect("terminal generated receipt should remain present");
         assert!(matches!(
-            applied.receipt().outcome(),
+            applied.outcome(),
             SchemaChangeOutcome::Applied { .. }
         ));
         let promoted = store
@@ -4220,6 +4252,118 @@ mod tests {
                         )
                 )
         }));
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the durable pending job, startup failure, and retained finding assertions form one scenario"
+    )]
+    fn generated_startup_driver_persists_e223_for_a_retained_historical_finding() {
+        let db = Db::<AbortCanister>::new(
+            &ABORT_REGISTRY,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
+        drive_startup_recovery_to_completion(&db);
+        let empty_target =
+            schema_application_target(&db).expect("empty application target should issue");
+        let store_identity = empty_target
+            .stores()
+            .first()
+            .expect("abort store should be registered")
+            .identity();
+        let (initial, _, _) = generated_check_proposal(
+            empty_target.accepted_head().clone(),
+            "startup-finding-initial",
+            false,
+            empty_target.database_identity(),
+            store_identity,
+        );
+        apply_schema(&db, &initial).expect("initial generated schema should publish");
+
+        let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        let session = DbSession::<AbortCanister>::new(&ABORT_REGISTRY, &root);
+        for id in 1..=257 {
+            session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                    entity: "Item".to_string(),
+                    patch: DynamicStructuralPatch::new(vec![
+                        (
+                            "id".to_string(),
+                            DynamicWriteCell::Value(InputValue::Nat64(id)),
+                        ),
+                        (
+                            "score".to_string(),
+                            DynamicWriteCell::Value(InputValue::Int64(if id == 257 {
+                                -1
+                            } else {
+                                1
+                            })),
+                        ),
+                    ]),
+                })
+                .expect("historical finding fixture row should commit");
+        }
+
+        let target =
+            schema_application_target(&db).expect("existing application target should issue");
+        let (with_check, _, _) = generated_check_proposal(
+            target.accepted_head().clone(),
+            "startup-finding-pending",
+            true,
+            target.database_identity(),
+            store_identity,
+        );
+        let pending = apply_schema(&db, &with_check)
+            .expect("the first clean page should admit durable continuation");
+        let SchemaChangeOutcome::Pending { job, .. } = pending.outcome() else {
+            panic!("a 257-row domain must exceed the 256-row direct proof page")
+        };
+
+        let mut terminal = false;
+        for _ in 0..8 {
+            match drive_generated_startup_recovery_page(
+                &session,
+                &ABORT_REGISTRY,
+                with_check.submission_key().as_str(),
+            )
+            .expect("generated startup should retain a typed finding failure")
+            {
+                GeneratedStartupDriverStep::Recovering => {}
+                GeneratedStartupDriverStep::Terminal => {
+                    terminal = true;
+                    break;
+                }
+                GeneratedStartupDriverStep::ApplyGeneratedSchema => {
+                    panic!("an exact pending receipt must not be resubmitted")
+                }
+            }
+        }
+        assert!(terminal, "the retained finding should become terminal");
+        let failure = observe_generated_startup_state::<AbortCanister>(
+            &ABORT_REGISTRY,
+            with_check.submission_key().as_str(),
+        )
+        .expect_err("the retained finding must remain durably observable");
+        assert_eq!(
+            failure.kind(),
+            crate::db::StartupFailureKind::SchemaReconciliation,
+        );
+        assert_eq!(
+            failure.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+        );
+        assert_eq!(
+            ABORT_DATA.with(|store| store.borrow().len()),
+            257,
+            "terminal startup publication must not change historical rows",
+        );
+        assert!(matches!(
+            continue_schema_application(&db, job.id(), None)
+                .expect("the retained finding page should replay exactly")
+                .status(),
+            SchemaChangeProgressStatus::Findings { findings, .. } if !findings.is_empty(),
+        ));
     }
 
     #[test]
@@ -4411,6 +4555,31 @@ mod tests {
                 })
                 .expect("recovered validation-job storage should remain readable")
                 .is_none(),
+        );
+        let startup_root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        let startup_session =
+            crate::db::DbSession::<AbortCanister>::new(&ABORT_REGISTRY, &startup_root);
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &startup_session,
+                &ABORT_REGISTRY,
+                with_check.submission_key().as_str(),
+            )
+            .expect("an exact aborted generated submission should publish terminal startup state"),
+            GeneratedStartupDriverStep::Terminal,
+        );
+        let failure = observe_generated_startup_state::<AbortCanister>(
+            &ABORT_REGISTRY,
+            with_check.submission_key().as_str(),
+        )
+        .expect_err("an aborted generated submission must not remain retryable forever");
+        assert_eq!(
+            failure.kind(),
+            crate::db::StartupFailureKind::SchemaReconciliation,
+        );
+        assert_eq!(
+            failure.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_CONFLICT,
         );
     }
 

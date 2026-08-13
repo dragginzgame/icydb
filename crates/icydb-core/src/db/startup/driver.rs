@@ -5,24 +5,30 @@
 
 use std::thread::LocalKey;
 
-use icydb_diagnostic_code::{Diagnostic, DiagnosticFactTag};
-use icydb_schema::ExpectedAcceptedHead;
+use icydb_diagnostic_code::{Diagnostic, DiagnosticConstraintKind, DiagnosticFactTag, ErrorCode};
+use icydb_schema::{ExpectedAcceptedHead, SchemaSubmissionKey};
 
 use crate::{
     db::{
         DbSession, StoreRegistry,
-        commit::{CommitControlObservation, database_incarnation_id, observe_commit_control},
-        schema::generated_schema_authority,
+        commit::{
+            CommitControlObservation, StartupRecoveryFailure, StartupRecoveryFailureAuthority,
+            database_incarnation_id, observe_commit_control,
+        },
+        schema::{
+            SchemaChangeOutcome, SchemaChangeProgressStatus,
+            accepted_schema_cache_fingerprint_method_version, generated_schema_authority,
+        },
         startup::{
             DatabaseStartupState, GeneratedStartupDriverStep, StartupFailureKind,
             classify_terminal_failure, classify_terminal_failure_parts, observe,
             receipt::{
-                AcceptedHeadBinding, StartupFailureBinding, StartupFailureReceipt,
-                StoreAllocationIdentityOwned,
+                AcceptedHeadBinding, DatabaseControlBinding, StartupFailureBinding,
+                StartupFailureReceipt, StoreAllocationIdentityOwned,
             },
         },
     },
-    error::InternalError,
+    error::{AcceptedConstraintFactContext, ConstraintValidationFindingOutput, InternalError},
     traits::CanisterKind,
 };
 
@@ -40,28 +46,139 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
         Ok(DatabaseStartupState::Recovering) => {}
     }
 
-    match session.drive_startup_recovery_page() {
-        Ok(true) => Ok(GeneratedStartupDriverStep::ApplyGeneratedSchema),
+    match session.drive_startup_recovery_page_with_failure_authority() {
+        Ok(true) => drive_generated_schema_application::<C>(session, stores, submission_key),
         Ok(false) => Ok(GeneratedStartupDriverStep::Recovering),
         Err(error) => record_recovery_failure::<C>(stores, submission_key, error),
+    }
+}
+
+fn drive_generated_schema_application<C: CanisterKind>(
+    session: &DbSession<C>,
+    stores: &'static LocalKey<StoreRegistry>,
+    submission_key: &str,
+) -> Result<GeneratedStartupDriverStep, InternalError> {
+    let submission_key = SchemaSubmissionKey::try_new(submission_key.to_string())
+        .map_err(|_| InternalError::store_invariant())?;
+    let incarnation = database_incarnation_id()?;
+    let (database_identity, _) = generated_schema_authority(stores, incarnation)?;
+    let Some(receipt) = session.schema_application_receipt(database_identity, &submission_key)?
+    else {
+        return Ok(GeneratedStartupDriverStep::ApplyGeneratedSchema);
+    };
+
+    let job_id = match receipt.outcome() {
+        SchemaChangeOutcome::NoOp { .. } | SchemaChangeOutcome::Applied { .. } => {
+            super::receipt::clear::<C>()?;
+            return Ok(GeneratedStartupDriverStep::Terminal);
+        }
+        SchemaChangeOutcome::Pending { job, .. } => job.id(),
+        SchemaChangeOutcome::Aborted { .. } => {
+            return record_schema_application_failure::<C>(
+                stores,
+                submission_key.as_str(),
+                InternalError::schema_application_conflict(),
+            );
+        }
+    };
+    let progress = match session.continue_schema_application(job_id, None) {
+        Ok(progress) => progress,
+        Err(error) => {
+            return record_schema_application_failure::<C>(stores, submission_key.as_str(), error);
+        }
+    };
+    match progress.status() {
+        SchemaChangeProgressStatus::Started
+        | SchemaChangeProgressStatus::Advanced { .. }
+        | SchemaChangeProgressStatus::Restarted { .. } => {
+            Ok(GeneratedStartupDriverStep::Recovering)
+        }
+        SchemaChangeProgressStatus::Applied => {
+            super::receipt::clear::<C>()?;
+            Ok(GeneratedStartupDriverStep::Terminal)
+        }
+        SchemaChangeProgressStatus::Aborted => record_schema_application_failure::<C>(
+            stores,
+            submission_key.as_str(),
+            InternalError::schema_application_conflict(),
+        ),
+        SchemaChangeProgressStatus::Findings { findings, .. } => {
+            let finding = findings
+                .first()
+                .ok_or_else(InternalError::store_corruption)?;
+            record_schema_application_failure::<C>(
+                stores,
+                submission_key.as_str(),
+                generated_schema_finding_error(finding)?,
+            )
+        }
+    }
+}
+
+fn generated_schema_finding_error(
+    finding: &ConstraintValidationFindingOutput,
+) -> Result<InternalError, InternalError> {
+    if finding.error_code() != ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION {
+        return Err(InternalError::store_corruption());
+    }
+    let constraint_kind = if finding.value_path().is_some() {
+        DiagnosticConstraintKind::TargetedRule
+    } else {
+        DiagnosticConstraintKind::Check
+    };
+    Ok(InternalError::mutation_constraint_violation(
+        AcceptedConstraintFactContext::write_admission(
+            accepted_schema_cache_fingerprint_method_version(),
+            finding.accepted_schema_fingerprint(),
+            finding.entity_tag(),
+            finding.constraint_id(),
+            constraint_kind,
+            None,
+            finding.value_path().cloned(),
+        ),
+    ))
+}
+
+fn record_schema_application_failure<C: CanisterKind>(
+    stores: &'static LocalKey<StoreRegistry>,
+    submission_key: &str,
+    error: InternalError,
+) -> Result<GeneratedStartupDriverStep, InternalError> {
+    if record_schema_failure::<C>(
+        stores,
+        submission_key,
+        error.diagnostic(),
+        error.diagnostic_facts(),
+    )? {
+        Ok(GeneratedStartupDriverStep::Terminal)
+    } else {
+        Err(error)
     }
 }
 
 fn record_recovery_failure<C: CanisterKind>(
     stores: &'static LocalKey<StoreRegistry>,
     submission_key: &str,
-    error: InternalError,
+    recovery_failure: StartupRecoveryFailure,
 ) -> Result<GeneratedStartupDriverStep, InternalError> {
     if observe::observe::<C>(stores, submission_key).is_err() {
         return Ok(GeneratedStartupDriverStep::Terminal);
     }
 
-    let Some(failure) = classify_terminal_failure(StartupFailureKind::JournalRecovery, &error)
-    else {
-        return Err(error);
+    let kind = match recovery_failure.authority() {
+        StartupRecoveryFailureAuthority::DatabaseControl => StartupFailureKind::DatabaseControl,
+        StartupRecoveryFailureAuthority::JournalStore(_) => StartupFailureKind::JournalRecovery,
     };
-    let Some(binding) = capture_journal_binding(stores)? else {
-        return Err(error);
+    let Some(failure) = classify_terminal_failure(kind, recovery_failure.error()) else {
+        return Err(recovery_failure.into_error());
+    };
+    let binding = match recovery_failure.authority() {
+        StartupRecoveryFailureAuthority::DatabaseControl => {
+            capture_database_control_binding::<C>()?
+        }
+        StartupRecoveryFailureAuthority::JournalStore(store_path) => {
+            capture_journal_binding(stores, store_path)?
+        }
     };
     let receipt = StartupFailureReceipt::new(failure, binding)?;
     super::receipt::publish::<C>(&receipt)?;
@@ -70,40 +187,44 @@ fn record_recovery_failure<C: CanisterKind>(
 
 fn capture_journal_binding(
     stores: &'static LocalKey<StoreRegistry>,
-) -> Result<Option<StartupFailureBinding>, InternalError> {
+    store_path: &'static str,
+) -> Result<StartupFailureBinding, InternalError> {
     let CommitControlObservation::Present { incarnation, .. } = observe_commit_control()? else {
-        return Ok(None);
+        return Err(InternalError::store_invariant());
     };
-    let mut candidates = stores.with(|registry| {
-        registry
-            .iter()
-            .filter_map(|(path, handle)| {
-                handle
-                    .journal_tail_store()
-                    .zip(handle.journal_allocation())
-                    .map(|(journal, allocation)| (path, journal, allocation))
-            })
-            .collect::<Vec<_>>()
-    });
-    candidates.sort_unstable_by_key(|(path, _, _)| *path);
-    let candidate = candidates
-        .iter()
-        .find(|(_, journal, _)| {
-            journal.with_borrow(|store| store.has_stored_batch() || store.has_fold_record_cursor())
+    let candidate = stores.with(|registry| {
+        registry.iter().find_map(|(path, handle)| {
+            (path == store_path)
+                .then(|| handle.journal_tail_store().zip(handle.journal_allocation()))?
         })
-        .or_else(|| candidates.first());
-    let Some((_, journal, allocation)) = candidate else {
-        return Ok(None);
-    };
+    });
+    let (journal, allocation) = candidate.ok_or_else(InternalError::store_invariant)?;
     let (proof, cursor) = journal.with_borrow(|store| {
         Ok::<_, InternalError>((store.proof_identity()?, store.fold_record_cursor()?))
     })?;
-    Ok(Some(StartupFailureBinding::JournalRecovery {
+    Ok(StartupFailureBinding::JournalRecovery {
         incarnation,
-        allocation: StoreAllocationIdentityOwned::from_identity(*allocation),
+        allocation: StoreAllocationIdentityOwned::from_identity(allocation),
         proof,
         cursor,
-    }))
+    })
+}
+
+fn capture_database_control_binding<C: CanisterKind>()
+-> Result<StartupFailureBinding, InternalError> {
+    let control = match observe_commit_control()? {
+        CommitControlObservation::Uninitialized => None,
+        CommitControlObservation::Present {
+            incarnation,
+            empty_control_proof,
+            ..
+        } => empty_control_proof.map(|proof| DatabaseControlBinding::new(incarnation, proof)),
+    };
+    Ok(StartupFailureBinding::DatabaseControl {
+        commit_memory_id: C::COMMIT_MEMORY_ID,
+        commit_stable_key: C::COMMIT_STABLE_KEY.to_string(),
+        control,
+    })
 }
 
 pub(super) fn record_schema_failure<C: CanisterKind>(
@@ -141,5 +262,48 @@ const fn accepted_head_binding(head: &ExpectedAcceptedHead) -> AcceptedHeadBindi
             revision: *revision,
             fingerprint: fingerprint.to_bytes(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generated_schema_finding_error;
+    use crate::error::ConstraintValidationFindingOutput;
+    use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
+
+    #[test]
+    fn generated_schema_finding_becomes_canonical_terminal_constraint_failure() {
+        let finding = ConstraintValidationFindingOutput::new(
+            [0x11; 16],
+            7,
+            9,
+            vec![0x01],
+            vec![2],
+            None,
+            ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION.raw(),
+        );
+
+        let error = generated_schema_finding_error(&finding)
+            .expect("a generated check finding should map to E223");
+        assert_eq!(
+            error.diagnostic().error_code(),
+            ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+        );
+        assert_eq!(
+            error
+                .diagnostic_facts()
+                .iter()
+                .map(|(tag, _)| *tag)
+                .collect::<Vec<_>>(),
+            vec![
+                DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+                DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+                DiagnosticFactTag::AcceptedSchemaFingerprintLow,
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::ConstraintId,
+                DiagnosticFactTag::ConstraintKind,
+                DiagnosticFactTag::ConstraintContext,
+            ],
+        );
     }
 }

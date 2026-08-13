@@ -185,16 +185,18 @@ mod tests {
     use super::*;
     use crate::{
         db::{
+            DataStore, IndexStore, StoreAllocationIdentities, StoreRuntimeStorageCapabilities,
             commit::{
                 CommitMarker, begin_commit, commit_memory_handle, configure_commit_memory_id,
                 current_commit_memory_allocation, database_incarnation_id, finish_commit,
-                mark_startup_recovery_complete_for_tests,
+                mark_startup_recovery_complete_for_tests, persist_raw_commit_marker_for_tests,
             },
             database_format::initialize_current_database_control_for_tests,
             schema::{
                 SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
-                SchemaChangeReceipt, apply_schema_application_record_op,
-                generated_schema_authority, load_schema_application_record_read_only,
+                SchemaChangeReceipt, SchemaStore, apply_schema_application_record_op,
+                corrupt_live_schema_checkpoint_header_for_tests, generated_schema_authority,
+                load_schema_application_record_read_only,
             },
             session::RequestExecutionRoot,
         },
@@ -203,6 +205,7 @@ mod tests {
     use ic_stable_structures::Memory;
     use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
     use icydb_schema::{SchemaProposalDigest, SchemaSubmissionKey};
+    use std::cell::RefCell;
 
     struct FreshCanister;
 
@@ -280,6 +283,67 @@ mod tests {
         static DRIVER_STORES: StoreRegistry = StoreRegistry::new();
     }
 
+    struct HeapRecoveryFailureCanister;
+
+    impl Path for HeapRecoveryFailureCanister {
+        const PATH: &'static str = "startup_tests::HeapRecoveryFailureCanister";
+    }
+
+    impl CanisterKind for HeapRecoveryFailureCanister {
+        const COMMIT_MEMORY_ID: u8 = 251;
+        const COMMIT_STABLE_KEY: &'static str =
+            "icydb.test.startup.heap.recovery.failure.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 245;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.test.startup.heap.recovery.failure.control.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 246;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.startup.heap.recovery.failure.integrity.v1";
+    }
+
+    thread_local! {
+        static HEAP_RECOVERY_FAILURE_STORES: StoreRegistry = StoreRegistry::new();
+    }
+
+    struct HeapCheckpointFailureCanister;
+
+    impl Path for HeapCheckpointFailureCanister {
+        const PATH: &'static str = "startup_tests::HeapCheckpointFailureCanister";
+    }
+
+    impl CanisterKind for HeapCheckpointFailureCanister {
+        const COMMIT_MEMORY_ID: u8 = 254;
+        const COMMIT_STABLE_KEY: &'static str =
+            "icydb.test.startup.heap.checkpoint.failure.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 221;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.test.startup.heap.checkpoint.failure.control.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 222;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.startup.heap.checkpoint.failure.integrity.v1";
+    }
+
+    thread_local! {
+        static HEAP_CHECKPOINT_FAILURE_DATA: RefCell<DataStore> =
+            const { RefCell::new(DataStore::init_heap()) };
+        static HEAP_CHECKPOINT_FAILURE_INDEX: RefCell<IndexStore> =
+            const { RefCell::new(IndexStore::init_heap()) };
+        static HEAP_CHECKPOINT_FAILURE_SCHEMA: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
+        static HEAP_CHECKPOINT_FAILURE_STORES: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_store(
+                "startup_tests::HeapCheckpointFailureStore",
+                &HEAP_CHECKPOINT_FAILURE_DATA,
+                &HEAP_CHECKPOINT_FAILURE_INDEX,
+                &HEAP_CHECKPOINT_FAILURE_SCHEMA,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("heap checkpoint failure store should register");
+            registry
+        };
+    }
+
     #[test]
     fn fresh_observation_is_recovering_and_performs_no_stable_write() {
         assert_eq!(
@@ -342,6 +406,112 @@ mod tests {
                 .expect("startup memory should open")
                 .size(),
             0,
+        );
+    }
+
+    #[test]
+    fn heap_only_malformed_marker_becomes_a_durable_database_control_failure() {
+        const SUBMISSION: &str = "generated/89abcdef01234567";
+
+        configure_commit_memory_id(
+            HeapRecoveryFailureCanister::COMMIT_MEMORY_ID,
+            HeapRecoveryFailureCanister::COMMIT_STABLE_KEY,
+        )
+        .expect("commit allocation should configure");
+        let memory = commit_memory_handle(
+            current_commit_memory_allocation().expect("commit allocation should resolve"),
+        )
+        .expect("commit memory should open");
+        initialize_current_database_control_for_tests(&memory);
+        persist_raw_commit_marker_for_tests(vec![0xff])
+            .expect("malformed marker payload should persist inside valid control authority");
+
+        assert_eq!(
+            observe_generated_startup_state::<HeapRecoveryFailureCanister>(
+                &HEAP_RECOVERY_FAILURE_STORES,
+                SUBMISSION,
+            ),
+            Ok(DatabaseStartupState::Recovering),
+            "bounded observation must not decode marker payloads",
+        );
+
+        let request_root = RequestExecutionRoot::__new_runtime_root();
+        let session = crate::db::DbSession::<HeapRecoveryFailureCanister>::new(
+            &HEAP_RECOVERY_FAILURE_STORES,
+            &request_root,
+        );
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &session,
+                &HEAP_RECOVERY_FAILURE_STORES,
+                SUBMISSION,
+            )
+            .expect("terminal corruption should publish one durable receipt"),
+            GeneratedStartupDriverStep::Terminal,
+        );
+
+        let failure = observe_generated_startup_state::<HeapRecoveryFailureCanister>(
+            &HEAP_RECOVERY_FAILURE_STORES,
+            SUBMISSION,
+        )
+        .expect_err("the durable database-control failure should replace blind recovery retries");
+        assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+        assert_eq!(
+            failure.diagnostic().error_code(),
+            ErrorCode::RUNTIME_CORRUPTION
+        );
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &session,
+                &HEAP_RECOVERY_FAILURE_STORES,
+                SUBMISSION,
+            )
+            .expect("exact terminal replay should not attempt recovery again"),
+            GeneratedStartupDriverStep::Terminal,
+        );
+    }
+
+    #[test]
+    fn heap_only_checkpoint_corruption_becomes_a_durable_database_control_failure() {
+        const SUBMISSION: &str = "generated/76543210fedcba98";
+
+        configure_commit_memory_id(
+            HeapCheckpointFailureCanister::COMMIT_MEMORY_ID,
+            HeapCheckpointFailureCanister::COMMIT_STABLE_KEY,
+        )
+        .expect("commit allocation should configure");
+        let memory = commit_memory_handle(
+            current_commit_memory_allocation().expect("commit allocation should resolve"),
+        )
+        .expect("commit memory should open");
+        initialize_current_database_control_for_tests(&memory);
+        corrupt_live_schema_checkpoint_header_for_tests()
+            .expect("checkpoint authority should admit focused corruption");
+
+        let request_root = RequestExecutionRoot::__new_runtime_root();
+        let session = crate::db::DbSession::<HeapCheckpointFailureCanister>::new(
+            &HEAP_CHECKPOINT_FAILURE_STORES,
+            &request_root,
+        );
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &session,
+                &HEAP_CHECKPOINT_FAILURE_STORES,
+                SUBMISSION,
+            )
+            .expect("checkpoint corruption should publish one durable receipt"),
+            GeneratedStartupDriverStep::Terminal,
+        );
+
+        let failure = observe_generated_startup_state::<HeapCheckpointFailureCanister>(
+            &HEAP_CHECKPOINT_FAILURE_STORES,
+            SUBMISSION,
+        )
+        .expect_err("the checkpoint failure should remain visible after the timer returns");
+        assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+        assert_eq!(
+            failure.diagnostic().error_code(),
+            ErrorCode::RUNTIME_CORRUPTION
         );
     }
 

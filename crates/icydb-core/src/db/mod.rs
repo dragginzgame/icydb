@@ -289,9 +289,19 @@ impl<C: CanisterKind> Db<C> {
         ensure_schema_migration_ready_for_ordinary_operations()
     }
 
-    /// Advance startup recovery by one durable bounded page.
+    /// Advance startup recovery by one durable bounded page in focused tests.
+    #[cfg(test)]
     pub(crate) fn drive_startup_recovery_page(&self) -> Result<bool, InternalError> {
         commit::continue_recovery(self)
+            .map(|progress| progress == commit::RecoveryProgress::Complete)
+    }
+
+    /// Advance startup recovery while retaining the exact persisted authority
+    /// for a timer-discovered terminal failure.
+    pub(in crate::db) fn drive_startup_recovery_page_with_failure_authority(
+        &self,
+    ) -> Result<bool, commit::StartupRecoveryFailure> {
+        commit::continue_recovery_with_failure_authority(self)
             .map(|progress| progress == commit::RecoveryProgress::Complete)
     }
 

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.225.md](docs/changelog/0.225.md)
 
+- `0.225.3` makes persisted startup corruption terminal under its exact owner
+  and resumes bounded generated-schema validation, preventing endless
+  `Recovering` states without changing public or persisted formats.
+
 - `0.225.2` durably binds accepted SQL DDL index changes to their exact
   physical user-index effects, preventing false-empty indexed reads after
   upgrade; the new internal journal record tags are a pre-1.0 hard cut.

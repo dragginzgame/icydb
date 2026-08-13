@@ -4,6 +4,7 @@ use super::{
     codec::{
         JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD,
         MAX_JOURNAL_BATCH_BYTES, RawJournalBatch, decode_journal_batch, encode_journal_batch,
+        journal_record_payload_len,
     },
     store::{
         JOURNAL_TAIL_CHUNK_BYTES, JournalInspectionCheckpoint, JournalInspectionLimits,
@@ -33,7 +34,7 @@ use ic_stable_structures::{
     memory_manager::{MemoryId, MemoryManager},
 };
 use icydb_schema::SchemaMigrationPlanDigest;
-use std::borrow::Cow;
+use std::{borrow::Cow, mem::size_of};
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
 
@@ -283,6 +284,47 @@ fn accepted_schema_index_chunks_reject_unbound_oversized_and_noncanonical_sets()
         .is_err(),
         "persisted chunk keys must be strictly ordered",
     );
+}
+
+#[test]
+fn accepted_schema_index_chunk_decode_rejects_empty_and_max_plus_one_before_keys() {
+    let schema = accepted_schema_publish_record();
+    let chunk = JournalRecord::accepted_schema_index_put(
+        "test::Store",
+        EntityTag::new(1),
+        [0x51; 16],
+        vec![accepted_schema_index_key(1, 1)],
+    )
+    .expect("bounded accepted schema index insertion should build");
+    let schema_bytes = journal_record_payload_len(&schema);
+    let batch = JournalBatch::new(
+        [0x37; 16],
+        [0x47; 16],
+        JournalSequence::new(1),
+        vec![schema, chunk],
+    )
+    .expect("accepted schema index batch should build");
+    let encoded = encode_journal_batch(&batch).expect("accepted schema index batch should encode");
+
+    // Batch header + IDs + sequence + record count, then the schema record.
+    let chunk_offset = 9 + 16 + 16 + 8 + 4 + schema_bytes;
+    // Tag + store path + entity + accepted-after fingerprint precede key count.
+    let key_count_offset = chunk_offset + 1 + 4 + "test::Store".len() + 8 + 16;
+    let key_count_end = key_count_offset + size_of::<u32>();
+    assert!(key_count_end <= encoded.len());
+
+    for rejected_count in [0, MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD + 1] {
+        let mut corrupt = encoded.clone();
+        corrupt[key_count_offset..key_count_end].copy_from_slice(
+            &u32::try_from(rejected_count)
+                .expect("focused rejected count should fit")
+                .to_le_bytes(),
+        );
+        let error = decode_journal_batch(&corrupt)
+            .expect_err("noncanonical persisted index key counts must fail closed");
+        assert_eq!(error.class, ErrorClass::Corruption);
+        assert_eq!(error.origin, ErrorOrigin::Store);
+    }
 }
 
 #[test]

@@ -100,6 +100,19 @@ pub(in crate::db) fn validate_commit_marker_envelope_for_tests(
     RawCommitMarker(bytes.to_vec()).try_decode().map(drop)
 }
 
+/// Persist one valid database-control slot whose marker payload is supplied
+/// directly by a recovery test.
+#[cfg(test)]
+pub(in crate::db) fn persist_raw_commit_marker_for_tests(
+    marker_bytes: Vec<u8>,
+) -> Result<(), InternalError> {
+    let control_slot = CommitStore::encode_raw_control_slot_for_tests(marker_bytes)?;
+    with_commit_store(|store| {
+        store.set_raw_marker_bytes_for_tests(control_slot);
+        Ok(())
+    })
+}
+
 ///
 /// CommitStore
 ///
