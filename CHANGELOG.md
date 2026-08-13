@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Restores generated native libtests by explicitly driving their fresh
+  thread-local database startup without weakening production readiness gates.
+
 ## [0.225.x] 🚦 - 2026-08-12 - Explicit Startup Readiness And Replicated Recovery Driving
 
 Detailed notes: [docs/changelog/0.225.md](docs/changelog/0.225.md)

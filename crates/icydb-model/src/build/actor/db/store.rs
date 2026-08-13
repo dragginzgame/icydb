@@ -280,6 +280,22 @@ fn startup_driver_tokens() -> TokenStream {
             }
         }
 
+        /// Initialize one fresh thread-local database for native libtest use.
+        ///
+        /// Native tests do not execute IC lifecycle hooks or timer callbacks.
+        /// This test-only boundary invokes the same generated driver once and
+        /// still requires ordinary admission to prove that startup completed.
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        pub(crate) fn __initialize_native_database_for_tests(
+        ) -> ::std::result::Result<(), ::icydb::Error> {
+            ::icydb::db::with_request_execution(|| {
+                if !startup_driver_attempt()? {
+                    return Err(::icydb::db::__startup_recovery_pending());
+                }
+                admit_ordinary_database_work()
+            })
+        }
+
         fn complete_generated_schema_handoff(
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<bool, ::icydb::Error> {
@@ -877,6 +893,7 @@ mod tests {
             "clear_timer(timer_id)",
             "__icydb_startup_init",
             "__icydb_startup_post_upgrade",
+            "__initialize_native_database_for_tests",
         ] {
             assert!(rendered.contains(required), "missing token: {required}");
         }

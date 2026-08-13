@@ -124,6 +124,8 @@ mod tests {
     use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 
     fn insert_one_native_row(name: &str) -> Ulid {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let patch = StructuralPatch::new()
                 .field("name", WriteCell::Value(InputValue::Text(name.to_string())));
