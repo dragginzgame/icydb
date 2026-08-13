@@ -7,15 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Fixes warning-denied startup builds and a false-positive synchrony guard,
-  and restores the inherited prefix-family instruction ceiling by reusing
-  exact covering-cardinality authority.
-- Adds one formatting-only pre-commit hook that aborts after changing files,
-  never stages work, and leaves full validation at the explicit release gate.
-
 ## [0.225.x] 🚦 - 2026-08-12 - Explicit Startup Readiness And Replicated Recovery Driving
 
 Detailed notes: [docs/changelog/0.225.md](docs/changelog/0.225.md)
+
+- `0.225.1` activates lifecycle-owned recovery and typed pending admission,
+  adds composed application-readiness hooks, and closes the line with
+  populated mid-recovery upgrade evidence; timing and lifecycle source changes
+  are potentially breaking.
 
 - `0.225.0` adds bounded startup observation, durable failures, and a dormant
   watchdog; generated canisters now require a distinct `startup_memory_id` in

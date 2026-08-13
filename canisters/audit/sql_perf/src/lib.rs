@@ -38,7 +38,14 @@ use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditUser,
 };
 
+#[cfg(not(feature = "test-admin-api"))]
 icydb::start!();
+
+#[cfg(feature = "test-admin-api")]
+icydb::start! {
+    init() => application_startup_init;
+    post_upgrade() => application_startup_post_upgrade;
+}
 
 icydb::endpoints! {
     icydb_metrics(authorization = public);
@@ -91,6 +98,147 @@ struct SchemaApplicationPerfResult {
 struct StartupObservationPerfResult {
     state: icydb::db::DatabaseStartupState,
     local_instructions: u64,
+}
+
+/// Application lifecycle entry that began the current readiness observation.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+enum ApplicationStartupHook {
+    Init,
+    PostUpgrade,
+}
+
+/// Application-owned readiness and restoration evidence.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+struct ApplicationStartupSnapshot {
+    hook: ApplicationStartupHook,
+    engine_registered_before_hook: bool,
+    observations: u32,
+    recovering_observations: u32,
+    ready_observations: u32,
+    restorations: u32,
+    retry_scheduled: bool,
+    failure: Option<icydb::db::StartupFailure>,
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+struct ApplicationStartupState {
+    hook: ApplicationStartupHook,
+    engine_registered_before_hook: bool,
+    observations: u32,
+    recovering_observations: u32,
+    ready_observations: u32,
+    restorations: u32,
+    failure: Option<icydb::db::StartupFailure>,
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+impl ApplicationStartupState {
+    const fn new(hook: ApplicationStartupHook, engine_registered_before_hook: bool) -> Self {
+        Self {
+            hook,
+            engine_registered_before_hook,
+            observations: 0,
+            recovering_observations: 0,
+            ready_observations: 0,
+            restorations: 0,
+            failure: None,
+        }
+    }
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+std::thread_local! {
+    static APPLICATION_STARTUP_STATE: std::cell::RefCell<ApplicationStartupState> =
+        const { std::cell::RefCell::new(ApplicationStartupState::new(ApplicationStartupHook::Init, false)) };
+    static APPLICATION_STARTUP_TIMER: std::cell::RefCell<Option<ic_cdk_timers::TimerId>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+pub(crate) fn application_startup_init() {
+    begin_application_startup(ApplicationStartupHook::Init);
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+pub(crate) fn application_startup_post_upgrade() {
+    begin_application_startup(ApplicationStartupHook::PostUpgrade);
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn begin_application_startup(hook: ApplicationStartupHook) {
+    let engine_registered_before_hook = crate::__icydb_generated::__startup_watchdog_registered();
+    APPLICATION_STARTUP_STATE.with(|state| {
+        state.replace(ApplicationStartupState::new(
+            hook,
+            engine_registered_before_hook,
+        ));
+    });
+    observe_application_startup(startup_state());
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn observe_application_startup(
+    observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
+) {
+    APPLICATION_STARTUP_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        state.observations = state.observations.saturating_add(1);
+        match observation {
+            Ok(icydb::db::DatabaseStartupState::Ready) => {
+                state.ready_observations = state.ready_observations.saturating_add(1);
+                clear_application_startup_poll();
+                if state.restorations == 0 && state.failure.is_none() {
+                    state.restorations = 1;
+                }
+            }
+            Ok(icydb::db::DatabaseStartupState::Recovering) => {
+                state.recovering_observations = state.recovering_observations.saturating_add(1);
+                schedule_application_startup_poll();
+            }
+            Err(failure) => {
+                state.failure = Some(failure);
+                clear_application_startup_poll();
+            }
+        }
+    });
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn schedule_application_startup_poll() {
+    if APPLICATION_STARTUP_TIMER.with(|timer| timer.borrow().is_some()) {
+        return;
+    }
+    let timer_id = ic_cdk_timers::set_timer(std::time::Duration::from_secs(1), async {
+        APPLICATION_STARTUP_TIMER.with(std::cell::RefCell::take);
+        observe_application_startup(startup_state());
+    });
+    APPLICATION_STARTUP_TIMER.with(|timer| timer.replace(Some(timer_id)));
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn clear_application_startup_poll() {
+    if let Some(timer_id) = APPLICATION_STARTUP_TIMER.with(std::cell::RefCell::take) {
+        ic_cdk_timers::clear_timer(timer_id);
+    }
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn application_startup_snapshot() -> ApplicationStartupSnapshot {
+    APPLICATION_STARTUP_STATE.with(|state| {
+        let state = state.borrow();
+        ApplicationStartupSnapshot {
+            hook: state.hook,
+            engine_registered_before_hook: state.engine_registered_before_hook,
+            observations: state.observations,
+            recovering_observations: state.recovering_observations,
+            ready_observations: state.ready_observations,
+            restorations: state.restorations,
+            retry_scheduled: APPLICATION_STARTUP_TIMER.with(|timer| timer.borrow().is_some()),
+            failure: state.failure.clone(),
+        }
+    })
 }
 
 ///
@@ -353,6 +501,8 @@ struct MutationScaleAdvancePerfResult {
 }
 
 /// Guarded target-store recovery measured separately from one bounded advance.
+// The test-admin Candid documentation above is frozen. Patch 4 retains the
+// envelope but makes the observation state-only.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
 struct MutationScaleRecoveryEvidence {
@@ -1522,17 +1672,47 @@ fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::
     })
 }
 
+/// Expose application-owned readiness evidence only in the local audit actor.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[query]
+fn application_startup_contract() -> ApplicationStartupSnapshot {
+    application_startup_snapshot()
+}
+
+/// Feed the application policy one typed observation without changing IcyDB state.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn observe_application_startup_for_tests(
+    observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
+) {
+    observe_application_startup(observation);
+}
+
 /// Use the predecessor admission path solely to prepare Patch 2 readiness evidence.
+// The test-admin Candid documentation above is frozen. The maintained body now
+// exercises state-only ordinary admission and never initializes recovery.
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 #[update]
 fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
-    icydb::db::with_request_execution(|| {
+    let start = ic_cdk::api::performance_counter(1);
+    let result: Result<(), icydb::Error> = icydb::db::with_request_execution(|| {
         let _session = crate::__icydb_generated::db()?;
         Ok(())
-    })
+    });
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if result.as_ref().is_err_and(|error| {
+        error.code() == icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING
+    }) {
+        ic_cdk::println!(
+            "icydb_0225_pending_admission local_instructions={local_instructions} ceiling=30000000"
+        );
+    }
+    result
 }
 
 /// Explicitly register the otherwise dormant Patch 3 watchdog for real-canister evidence.
+// Lifecycle registration is active in Patch 4; this retained test-admin method
+// now proves duplicate registration is idempotent.
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 #[update]
 fn register_dormant_startup_watchdog() -> Result<bool, icydb::db::StartupFailure> {
@@ -1540,6 +1720,7 @@ fn register_dormant_startup_watchdog() -> Result<bool, icydb::db::StartupFailure
 }
 
 /// Observe only the generated volatile registration fact used by Patch 3 evidence.
+// The volatile fact remains the same after lifecycle activation.
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 #[query]
 fn dormant_startup_watchdog_registered() -> bool {
@@ -2204,14 +2385,20 @@ fn toko_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb::Error
 
 /// Advance one engine-owned startup-recovery page after upgrade without
 /// attributing that work to a bounded mutation-job page.
+// The test-admin Candid documentation above is frozen. This method now only
+// observes lifecycle-driven progress; it owns no recovery page.
 #[cfg(feature = "sql")]
 #[update]
 fn recover_toko_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let session = icydb::db::DbSession::new(crate::__icydb_generated::core_db()?);
         let start = ic_cdk::api::performance_counter(1);
-        let complete = session.__continue_startup_recovery()?;
-        let warmed_rows = if complete {
+        let ready = match startup_state() {
+            Ok(icydb::db::DatabaseStartupState::Ready) => true,
+            Ok(icydb::db::DatabaseStartupState::Recovering) => false,
+            Err(failure) => return Err(failure.error().clone()),
+        };
+        let warmed_rows = if ready {
+            let session = crate::__icydb_generated::db()?;
             let result = session.execute_trusted_sql_query(
                 "SELECT id FROM PerfAuditMutationToken WHERE id = 1 LIMIT 1",
             )?;
@@ -2222,7 +2409,7 @@ fn recover_toko_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, 
         let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
         Ok(MutationScaleRecoveryEvidence {
-            complete,
+            complete: ready,
             warmed_rows,
             local_instructions,
         })
@@ -2757,6 +2944,8 @@ fn query_journaled_user_total_only_perf(
 /// Execute the journaled LIMIT 1 shape through an update call. After a
 /// same-WASM upgrade this gives the integration harness one normal guarded
 /// reentry probe that includes any required recovery/rebuild work.
+// Patch 4 moves recovery into the watchdog envelope. The retained test-admin
+// method measures only the post-ready query path.
 #[cfg(feature = "sql")]
 #[update]
 fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Error> {

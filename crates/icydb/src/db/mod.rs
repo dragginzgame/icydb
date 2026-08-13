@@ -51,8 +51,9 @@ pub use session::{
     with_request_execution_async, with_request_execution_root,
 };
 pub use startup::{
-    __clear_generated_startup_failure, __observe_generated_startup_state,
-    __record_generated_schema_startup_failure, __startup_bootstrap_failure, DatabaseStartupState,
+    __clear_generated_startup_failure, __install_startup_recovery_wakeup,
+    __observe_generated_startup_state, __record_generated_schema_startup_failure,
+    __startup_bootstrap_failure, __startup_recovery_pending, DatabaseStartupState,
     GeneratedStartupDriverStep, StartupFailure, StartupFailureKind,
 };
 

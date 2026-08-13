@@ -89,12 +89,6 @@ impl<C: CanisterKind> DbSession<C> {
         Self { inner: session }
     }
 
-    /// Advance one bounded generated-startup recovery page.
-    #[doc(hidden)]
-    pub fn __continue_startup_recovery(&self) -> Result<bool, crate::Error> {
-        self.inner.__continue_startup_recovery().map_err(Into::into)
-    }
-
     /// Run at most one bounded generated-startup recovery page.
     #[doc(hidden)]
     pub fn __drive_generated_startup_recovery_page(

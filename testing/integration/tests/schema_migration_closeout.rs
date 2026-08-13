@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, path::PathBuf, time::Duration};
 
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
@@ -21,6 +21,8 @@ fn maintained_sql_fixture_migrates_v1_to_v2_and_resumes_after_upgrade() {
     let v2_wasm = read_wasm(V2_WASM);
     let fixture = install_prebuilt_fixture_canister("sql", v1_wasm);
 
+    await_ready_query(&fixture, "SELECT name FROM SqlTestUser ORDER BY name ASC")
+        .expect("fresh v1 fixture should become ready");
     load_fixtures(&fixture);
     let adopted = migration_status(&fixture);
     assert_eq!(adopted.phase(), SchemaMigrationPhase::Adopted);
@@ -49,10 +51,12 @@ fn maintained_sql_fixture_migrates_v1_to_v2_and_resumes_after_upgrade() {
         );
         status = advance(&fixture, &status);
         if !resumed_after_upgrade && database_is_gated(status.phase()) {
-            let unavailable = query_sql(&fixture, "SELECT name FROM SqlTestUser ORDER BY name ASC");
-            assert!(
-                unavailable.is_err(),
-                "ordinary reads must be unavailable during physical migration"
+            let unavailable = query_sql(&fixture, "SELECT name FROM SqlTestUser ORDER BY name ASC")
+                .expect_err("ordinary reads must be unavailable during physical migration");
+            assert_eq!(
+                unavailable.code(),
+                icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+                "applications must branch on typed startup readiness, not generic conflict",
             );
 
             let before_upgrade = status.clone();
@@ -78,7 +82,7 @@ fn maintained_sql_fixture_migrates_v1_to_v2_and_resumes_after_upgrade() {
     assert_eq!(receipt.plan_digest(), status.plan_digest());
     assert_eq!(receipt.accepted_head(), status.accepted_head());
 
-    let migrated = query_sql(
+    let migrated = await_ready_query(
         &fixture,
         "SELECT name, age, score FROM SqlTestUser ORDER BY name ASC",
     )
@@ -167,6 +171,28 @@ fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryR
         .query_candid("icydb_query", (sql.to_string(),))
         .expect("SQL query response should decode");
     result.map(|response| response.result)
+}
+
+fn await_ready_query(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> Result<SqlQueryResult, Error> {
+    for _ in 0..8 {
+        match query_sql(fixture, sql) {
+            Ok(result) => return Ok(result),
+            Err(error)
+                if error.code()
+                    == icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
+            {
+                fixture.pocket_ic().advance_time(Duration::from_secs(1));
+                for _ in 0..4 {
+                    fixture.pocket_ic().tick();
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    query_sql(fixture, sql)
 }
 
 const fn database_is_gated(phase: SchemaMigrationPhase) -> bool {

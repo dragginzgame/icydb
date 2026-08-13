@@ -104,6 +104,22 @@ pub fn __clear_generated_startup_failure<C: icydb_core::traits::CanisterKind>()
     icydb_core::db::clear_generated_startup_failure::<C>().map_err(Into::into)
 }
 
+/// Install the generated recovery wake-up at the commit-error boundary.
+#[doc(hidden)]
+pub fn __install_startup_recovery_wakeup(wakeup: fn()) {
+    icydb_core::db::install_startup_recovery_wakeup(wakeup);
+}
+
+/// Build the dedicated retryable ordinary-admission error while startup is pending.
+#[doc(hidden)]
+#[must_use]
+pub const fn __startup_recovery_pending() -> Error {
+    Error::from_runtime_boundary(
+        icydb_diagnostic_code::RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
+        crate::ErrorOrigin::Recovery,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

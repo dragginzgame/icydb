@@ -920,7 +920,7 @@ mod tests {
             Db,
             commit::recovery::forget_recovered_domain_for_tests,
             commit::{
-                CommitMarker, DatabaseControlOp, begin_commit, ensure_recovered,
+                CommitMarker, DatabaseControlOp, RecoveryProgress, begin_commit, continue_recovery,
                 generate_commit_id, generate_marker_batch_id,
             },
             data::DataStore,
@@ -949,6 +949,16 @@ mod tests {
         TargetDatabaseIdentity, TargetStoreIdentity,
     };
     use std::cell::RefCell;
+
+    fn drive_startup_recovery_to_completion<C: CanisterKind>(db: &Db<C>) {
+        for _ in 0..1_024 {
+            match continue_recovery(db).expect("test startup recovery page should succeed") {
+                RecoveryProgress::Complete => return,
+                RecoveryProgress::Pending => {}
+            }
+        }
+        panic!("test startup recovery should complete within 1,024 bounded pages");
+    }
 
     const COMPLETION_STORE_PATH: &str = "schema_publication_tests::CompletionHeap";
     const RECOVERY_STORE_PATH: &str = "schema_publication_tests::RecoveryHeap";
@@ -1161,7 +1171,7 @@ mod tests {
             &COMPLETION_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
-        ensure_recovered(&db).expect("test database format should initialize");
+        drive_startup_recovery_to_completion(&db);
         let store = db
             .store_handle(COMPLETION_STORE_PATH)
             .expect("completion heap store should resolve");
@@ -1191,7 +1201,7 @@ mod tests {
         COMPLETION_INDEX.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         COMPLETION_SCHEMA.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
-        ensure_recovered(&db).expect("checkpoint recovery should restore the live accepted schema");
+        drive_startup_recovery_to_completion(&db);
         assert_candidate_and_record_published(store, &candidate, &record);
 
         let second = empty_accepted_schema_candidate_for_tests(
@@ -1211,7 +1221,7 @@ mod tests {
         COMPLETION_INDEX.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         COMPLETION_SCHEMA.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
-        ensure_recovered(&db).expect("latest plain checkpoint should restore after upgrade");
+        drive_startup_recovery_to_completion(&db);
         assert_candidate_and_record_published(store, &second, &record);
 
         let reused = candidate_with_identity_entity(
@@ -1238,7 +1248,7 @@ mod tests {
             &RECOVERY_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
-        ensure_recovered(&db).expect("test database format should initialize");
+        drive_startup_recovery_to_completion(&db);
         let store = db
             .store_handle(RECOVERY_STORE_PATH)
             .expect("recovery heap store should resolve");
@@ -1334,7 +1344,7 @@ mod tests {
                 .is_none(),
             "simulated upgrade must clear the live schema projection",
         );
-        ensure_recovered(&db).expect("marker recovery should complete the application");
+        drive_startup_recovery_to_completion(&db);
 
         assert_candidate_and_record_published(store, &candidate, &record);
         assert!(
@@ -1373,7 +1383,7 @@ mod tests {
             .expect("recovered accepted entity should supply its runtime route");
         assert_eq!(recovered_entity.entity_tag(), entity_tag);
         assert_eq!(recovered_entity.store_path(), RECOVERY_STORE_PATH);
-        ensure_recovered(&db).expect("completed recovery should remain idempotent");
+        drive_startup_recovery_to_completion(&db);
         assert_candidate_and_record_published(store, &candidate, &record);
         assert!(
             entity_source_lineage_matches_for_tests(&lineage)

@@ -4,10 +4,11 @@ use candid::CandidType;
 use icydb::{
     Error,
     db::{
-        MutationJobAdvanceReceipt, MutationJobError, MutationJobPhase, MutationJobState,
-        MutationJobStatus, sql::SqlQueryResult,
+        EntitySchemaDescription, MutationJobAdvanceReceipt, MutationJobError, MutationJobPhase,
+        MutationJobState, MutationJobStatus, sql::SqlQueryResult,
     },
     diagnostic::{DiagnosticDetail, SqlWriteBoundaryCode},
+    value::OutputValue,
 };
 use icydb_testing_integration::{
     durable_mutation_job_contract::{
@@ -19,6 +20,7 @@ use icydb_testing_integration::{
     install_fixture_canister, upgrade_fixture_canister,
 };
 use serde::Deserialize;
+use std::time::Duration;
 
 const LOAD_PAGE_ROWS: u32 = 1_024;
 const UNRELATED_ROWS: u32 = 17;
@@ -87,6 +89,31 @@ struct MutationScaleRecoveryEvidence {
     complete: bool,
     warmed_rows: u32,
     local_instructions: u64,
+}
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+enum ApplicationStartupHook {
+    Init,
+    PostUpgrade,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct ApplicationStartupSnapshot {
+    hook: ApplicationStartupHook,
+    engine_registered_before_hook: bool,
+    observations: u32,
+    recovering_observations: u32,
+    ready_observations: u32,
+    restorations: u32,
+    retry_scheduled: bool,
+    failure: Option<icydb::db::StartupFailure>,
+}
+
+struct MutationScaleStartupEvidence {
+    observation_instructions: Vec<u64>,
+    stable_bytes_before_upgrade: u64,
+    stable_bytes_after_recovery: u64,
+    application_recovering_observations: u32,
 }
 
 struct MutationScaleRunEvidence {
@@ -254,6 +281,111 @@ fn scale_facts(fixture: &ic_testkit::pic::StandaloneCanisterFixture) -> Mutation
         scoring_other: count(MutationScaleFact::ScoringOther),
         scoring_other_stale: count(MutationScaleFact::ScoringOtherStale),
     }
+}
+
+fn application_startup_contract(
+    fixture: &ic_testkit::pic::StandaloneCanisterFixture,
+) -> ApplicationStartupSnapshot {
+    fixture
+        .query_candid("application_startup_contract", ())
+        .expect("application startup contract should decode")
+}
+
+fn canister_stable_memory_bytes(fixture: &ic_testkit::pic::StandaloneCanisterFixture) -> u64 {
+    let status = fixture
+        .pocket_ic()
+        .canister_status(fixture.canister_id(), None)
+        .expect("scale canister status should be available");
+    match status
+        .memory_metrics
+        .stable_memory_size
+        .0
+        .to_u64_digits()
+        .as_slice()
+    {
+        [] => 0,
+        [bytes] => *bytes,
+        _ => panic!("scale canister stable memory should fit u64"),
+    }
+}
+
+fn accepted_schema_descriptions(
+    fixture: &ic_testkit::pic::StandaloneCanisterFixture,
+) -> Vec<EntitySchemaDescription> {
+    let descriptions: Result<Vec<EntitySchemaDescription>, Error> = fixture
+        .query_candid("accepted_schema_descriptions", ())
+        .expect("accepted schema descriptions should decode");
+    descriptions.expect("accepted schema descriptions should remain available")
+}
+
+fn query_count(fixture: &ic_testkit::pic::StandaloneCanisterFixture, sql: &str) -> u64 {
+    let response: Result<SqlQueryResult, Error> = fixture
+        .query_candid("query_user", (sql.to_string(),))
+        .expect("scale SQL count should decode");
+    let SqlQueryResult::Projection(projection) = response.expect("scale SQL count should succeed")
+    else {
+        panic!("scale SQL count should return one projection");
+    };
+    let [row] = projection.rows.as_slice() else {
+        panic!("scale SQL count should return one row");
+    };
+    let [OutputValue::Nat64(count)] = row.as_slice() else {
+        panic!("scale SQL count should return one Nat64 cell");
+    };
+    *count
+}
+
+fn assert_populated_authority(
+    fixture: &ic_testkit::pic::StandaloneCanisterFixture,
+    accepted_schema_before_upgrade: &[u8],
+) {
+    let descriptions = accepted_schema_descriptions(fixture);
+    let accepted_schema_after_upgrade =
+        candid::encode_one(descriptions.clone()).expect("accepted schema should encode");
+    assert_eq!(
+        accepted_schema_after_upgrade,
+        accepted_schema_before_upgrade
+    );
+    assert_eq!(descriptions.len(), 10);
+    for entity_name in ["PerfAuditMutationScoringState", "PerfAuditMutationToken"] {
+        let description = descriptions
+            .iter()
+            .find(|description| description.entity_name() == entity_name)
+            .unwrap_or_else(|| panic!("accepted {entity_name} schema should remain present"));
+        assert_eq!(description.primary_key_fields(), &["id"]);
+        assert!(
+            description
+                .indexes()
+                .iter()
+                .any(|index| { !index.unique() && index.fields() == ["collection_id"] })
+        );
+    }
+
+    for sql in [
+        "SELECT COUNT(*) FROM PerfAuditMutationToken WHERE id = 1 AND collection_id = 7 AND tier = 'Default'",
+        "SELECT COUNT(*) FROM PerfAuditMutationToken WHERE id = 10001 AND collection_id = 7 AND tier = 'Default'",
+        "SELECT COUNT(*) FROM PerfAuditMutationToken WHERE id = 20001 AND collection_id = 8 AND tier = 'Legacy'",
+        "SELECT COUNT(*) FROM PerfAuditMutationScoringState WHERE id = 1 AND collection_id = 7 AND score_stale = true",
+        "SELECT COUNT(*) FROM PerfAuditMutationScoringState WHERE id = 10001 AND collection_id = 7 AND score_stale = true",
+        "SELECT COUNT(*) FROM PerfAuditMutationScoringState WHERE id = 20001 AND collection_id = 8 AND score_stale = false",
+    ] {
+        assert_eq!(
+            query_count(fixture, sql),
+            1,
+            "canonical row must survive: {sql}"
+        );
+    }
+}
+
+fn assert_application_deferred(snapshot: &ApplicationStartupSnapshot) {
+    assert_eq!(snapshot.hook, ApplicationStartupHook::PostUpgrade);
+    assert!(snapshot.engine_registered_before_hook);
+    assert!(snapshot.observations > 0);
+    assert!(snapshot.recovering_observations > 0);
+    assert_eq!(snapshot.ready_observations, 0);
+    assert_eq!(snapshot.restorations, 0);
+    assert!(snapshot.retry_scheduled);
+    assert!(snapshot.failure.is_none());
 }
 
 fn start_scale_job(
@@ -492,44 +624,113 @@ fn run_warm_scale_jobs(
     (tier_evidence, scoring_evidence, completed)
 }
 
+fn advance_startup_timers(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
+    fixture.pocket_ic().advance_time(Duration::from_secs(1));
+    fixture.pocket_ic().tick();
+    fixture.pocket_ic().tick();
+}
+
+fn wait_for_application_restoration(
+    fixture: &ic_testkit::pic::StandaloneCanisterFixture,
+) -> ApplicationStartupSnapshot {
+    let mut snapshot = application_startup_contract(fixture);
+    for _ in 0..4 {
+        if snapshot.restorations == 1 {
+            break;
+        }
+        advance_startup_timers(fixture);
+        snapshot = application_startup_contract(fixture);
+    }
+    assert_eq!(snapshot.hook, ApplicationStartupHook::PostUpgrade);
+    assert!(snapshot.engine_registered_before_hook);
+    assert!(snapshot.recovering_observations > 0);
+    assert_eq!(snapshot.ready_observations, 1);
+    assert_eq!(snapshot.restorations, 1);
+    assert!(!snapshot.retry_scheduled);
+    assert!(snapshot.failure.is_none());
+    snapshot
+}
+
+fn drive_populated_startup_recovery(
+    fixture: &ic_testkit::pic::StandaloneCanisterFixture,
+) -> (Vec<u64>, u32) {
+    assert_application_deferred(&application_startup_contract(fixture));
+    let mut recovery_ticks = 0_u32;
+    let mut observation_instructions = Vec::new();
+    let mut mid_recovery_upgrade_complete = false;
+    let mut application_recovering_observations = 0_u32;
+    loop {
+        advance_startup_timers(fixture);
+        let observation: Result<MutationScaleRecoveryEvidence, Error> = fixture
+            .update_candid("recover_toko_mutation_scale_store", ())
+            .expect("scale recovery observation should decode");
+        let observation =
+            observation.expect("scale target store observation should remain available");
+        recovery_ticks = recovery_ticks.saturating_add(1);
+        observation_instructions.push(observation.local_instructions);
+        assert!(observation.local_instructions > 0);
+        if observation.complete {
+            assert_eq!(observation.warmed_rows, 1);
+            break;
+        }
+        assert_eq!(observation.warmed_rows, 0);
+        if !mid_recovery_upgrade_complete {
+            let before_upgrade = application_startup_contract(fixture);
+            assert_application_deferred(&before_upgrade);
+            application_recovering_observations = before_upgrade.recovering_observations;
+            let stable_bytes_before_upgrade = canister_stable_memory_bytes(fixture);
+            upgrade_fixture_canister(fixture, "sql_perf");
+            assert_eq!(
+                canister_stable_memory_bytes(fixture),
+                stable_bytes_before_upgrade,
+                "mid-recovery upgrade must retain stable memory byte-for-byte",
+            );
+            assert_application_deferred(&application_startup_contract(fixture));
+            mid_recovery_upgrade_complete = true;
+        }
+        assert!(
+            recovery_ticks < 32,
+            "startup recovery must make bounded progress"
+        );
+    }
+    assert!(recovery_ticks > 1, "the scale fixture must resume");
+    assert!(
+        mid_recovery_upgrade_complete,
+        "the populated fixture must upgrade while recovery is incomplete",
+    );
+    let application_ready = wait_for_application_restoration(fixture);
+    application_recovering_observations = application_recovering_observations
+        .saturating_add(application_ready.recovering_observations);
+    (
+        observation_instructions,
+        application_recovering_observations,
+    )
+}
+
 fn recover_active_tier_job(
     fixture: &ic_testkit::pic::StandaloneCanisterFixture,
     tier_sequence: u64,
     completed: &MutationScaleFixtureFacts,
-) -> (MutationScaleRunEvidence, Vec<u64>) {
+) -> (MutationScaleRunEvidence, MutationScaleStartupEvidence) {
     // Reuse the converged tier intent to prove that an active private
     // continuation survives upgrade without conflating recovered stable-store
     // cost with the frozen warm Forward fixture.
     acknowledge_scale_job(fixture, MutationScaleJob::Tier, tier_sequence);
     let recovery_state = start_scale_job(fixture, MutationScaleJob::Tier);
+    let scoring_scheduler_state = scale_job_state(fixture, MutationScaleJob::Scoring)
+        .expect("completed scoring phase should remain durably scheduled");
+    let accepted_schema_before_upgrade = candid::encode_one(accepted_schema_descriptions(fixture))
+        .expect("accepted schema should encode before upgrade");
+    let stable_bytes_before_upgrade = canister_stable_memory_bytes(fixture);
     upgrade_fixture_canister(fixture, "sql_perf");
-    let mut recovery_pages = 0_u32;
-    let mut recovery_instructions = 0_u64;
-    let mut recovery_page_instructions = Vec::new();
-    loop {
-        let recovery: Result<MutationScaleRecoveryEvidence, Error> = fixture
-            .update_candid("recover_toko_mutation_scale_store", ())
-            .expect("scale recovery evidence should decode");
-        let recovery = recovery.expect("scale target store should recover after upgrade");
-        recovery_pages = recovery_pages.saturating_add(1);
-        recovery_instructions = recovery_instructions.saturating_add(recovery.local_instructions);
-        recovery_page_instructions.push(recovery.local_instructions);
-        assert!(recovery.local_instructions > 0);
-        assert!(recovery.local_instructions < 40_000_000_000);
-        if recovery.complete {
-            assert_eq!(recovery.warmed_rows, 1);
-            break;
-        }
-        assert_eq!(recovery.warmed_rows, 0);
-        assert!(
-            recovery_pages < 32,
-            "startup recovery must make bounded progress"
-        );
-    }
-    assert!(
-        recovery_pages > 1,
-        "the scale fixture must exercise resumption"
+    assert_eq!(
+        canister_stable_memory_bytes(fixture),
+        stable_bytes_before_upgrade,
+        "same-schema upgrade must retain stable memory byte-for-byte",
     );
+    let (observation_instructions, application_recovering_observations) =
+        drive_populated_startup_recovery(fixture);
+
     assert_eq!(
         start_scale_job(fixture, MutationScaleJob::Tier),
         recovery_state,
@@ -540,6 +741,13 @@ fn recover_active_tier_job(
             .expect("active tier job should survive upgrade"),
         recovery_state,
     );
+    assert_eq!(
+        scale_job_state(fixture, MutationScaleJob::Scoring)
+            .expect("completed scoring scheduler row should survive upgrade"),
+        scoring_scheduler_state,
+    );
+    assert_populated_authority(fixture, &accepted_schema_before_upgrade);
+
     let first_recovered = advance_scale_job(fixture, MutationScaleJob::Tier, 0)
         .expect("first recovered tier page should commit");
     let mut recovery_evidence = MutationScaleRunEvidence::new(&recovery_state);
@@ -556,36 +764,53 @@ fn recover_active_tier_job(
         false,
     );
     assert_eq!(&scale_facts(fixture), completed);
-    assert_eq!(
-        recovery_instructions,
-        recovery_page_instructions.iter().copied().sum::<u64>(),
-    );
-    (recovery_evidence, recovery_page_instructions)
+    let stable_bytes_after_recovery = canister_stable_memory_bytes(fixture);
+    assert!(stable_bytes_after_recovery >= stable_bytes_before_upgrade);
+    (
+        recovery_evidence,
+        MutationScaleStartupEvidence {
+            observation_instructions,
+            stable_bytes_before_upgrade,
+            stable_bytes_after_recovery,
+            application_recovering_observations,
+        },
+    )
 }
 
 fn print_scale_evidence(
     tier: &MutationScaleRunEvidence,
     scoring: &MutationScaleRunEvidence,
     recovered: &MutationScaleRunEvidence,
-    recovery_page_instructions: &[u64],
+    startup: &MutationScaleStartupEvidence,
 ) {
-    let recovery_pages = recovery_page_instructions.len();
-    let recovery_instructions = recovery_page_instructions.iter().copied().sum::<u64>();
-    let first_recovery_page = recovery_page_instructions.first().copied().unwrap_or(0);
-    let representative_recovery_page = recovery_page_instructions
-        .get(recovery_pages / 2)
+    let recovery_observation_instructions = startup.observation_instructions.as_slice();
+    let recovery_ticks = recovery_observation_instructions.len();
+    let recovery_observation_instructions_total = recovery_observation_instructions
+        .iter()
+        .copied()
+        .sum::<u64>();
+    let first_recovery_observation = recovery_observation_instructions
+        .first()
         .copied()
         .unwrap_or(0);
-    let terminal_recovery_page = recovery_page_instructions.last().copied().unwrap_or(0);
+    let representative_recovery_observation = recovery_observation_instructions
+        .get(recovery_ticks / 2)
+        .copied()
+        .unwrap_or(0);
+    let terminal_recovery_observation = recovery_observation_instructions
+        .last()
+        .copied()
+        .unwrap_or(0);
     println!(
-        "icydb_0223_toko_scale rows={} recovery_pages={} recovery_instructions={} tier_forward_calls={} tier_verify_calls={} \
+        "icydb_0223_toko_scale rows={} recovery_ticks={} recovery_observation_instructions={} tier_forward_calls={} tier_verify_calls={} \
          tier_forward_max={} tier_recovery_reentry={} tier_verify_max={} tier_replay_max={} \
          scoring_forward_calls={} scoring_verify_calls={} scoring_forward_max={} \
          scoring_verify_max={} scoring_replay_max={} recovered_forward_max={} recovered_verify_max={} \
-         recovery_first={} recovery_representative={} recovery_terminal={}",
+         recovery_observation_first={} recovery_observation_representative={} recovery_observation_terminal={} \
+         mid_recovery_upgrade=true application_recovering_observations={} stable_bytes_before_upgrade={} stable_bytes_after_recovery={}",
         DURABLE_MUTATION_JOB_FIXTURE_ROWS,
-        recovery_pages,
-        recovery_instructions,
+        recovery_ticks,
+        recovery_observation_instructions_total,
         tier.forward_calls,
         tier.verify_calls,
         tier.max_forward_instructions,
@@ -601,9 +826,12 @@ fn print_scale_evidence(
         scoring.max_replay_instructions,
         recovered.max_recovered_forward_instructions,
         recovered.max_recovered_verify_instructions,
-        first_recovery_page,
-        representative_recovery_page,
-        terminal_recovery_page,
+        first_recovery_observation,
+        representative_recovery_observation,
+        terminal_recovery_observation,
+        startup.application_recovering_observations,
+        startup.stable_bytes_before_upgrade,
+        startup.stable_bytes_after_recovery,
     );
 }
 
@@ -615,9 +843,8 @@ fn toko_shaped_jobs_finish_across_calls_and_upgrade() {
     prove_eager_control_is_bounded(&fixture, &initial);
     let (tier_state, scoring_state) = start_composed_scale_jobs(&fixture);
     let (tier, scoring, completed) = run_warm_scale_jobs(&fixture, &tier_state, &scoring_state);
-    let (recovered, recovery_page_instructions) =
-        recover_active_tier_job(&fixture, tier.sequence, &completed);
-    print_scale_evidence(&tier, &scoring, &recovered, &recovery_page_instructions);
+    let (recovered, startup) = recover_active_tier_job(&fixture, tier.sequence, &completed);
+    print_scale_evidence(&tier, &scoring, &recovered, &startup);
 
     acknowledge_scale_job(&fixture, MutationScaleJob::Tier, recovered.sequence);
     acknowledge_scale_job(&fixture, MutationScaleJob::Scoring, scoring.sequence);

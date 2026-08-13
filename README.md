@@ -75,6 +75,10 @@ Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
 build dependency using the same tag, and call
 `icydb::build::build_canister!(SchemaCanister)` in `build.rs`. Public IcyDB
 methods are declared explicitly beside `start!()` with `icydb::endpoints!`.
+Applications with install or post-upgrade hooks use the composed `start!`
+form so IcyDB registers recovery first, then poll typed readiness before
+restoring application timers or caches. See
+[startup readiness](docs/guides/startup-readiness.md).
 
 ```toml
 [build-dependencies]
@@ -525,6 +529,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - [docs/guides/public-facade-api.md](docs/guides/public-facade-api.md)
 - [docs/guides/read-intent.md](docs/guides/read-intent.md)
 - [docs/guides/diagnostics.md](docs/guides/diagnostics.md)
+- [docs/guides/startup-readiness.md](docs/guides/startup-readiness.md)
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
 - [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)

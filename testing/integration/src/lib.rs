@@ -17,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::OnceLock,
+    time::Duration,
 };
 
 use ic_testkit::artifacts::wasm_path;
@@ -578,6 +579,26 @@ pub fn install_prebuilt_fixture_canister(
     canister_name: &str,
     wasm: Vec<u8>,
 ) -> StandaloneCanisterFixture {
+    let fixture = install_prebuilt_fixture_canister_without_startup_delivery(canister_name, wasm);
+    deliver_fixture_startup_watchdog(&fixture);
+    fixture
+}
+
+/// Install already-built fixture WASM without delivering its startup watchdog.
+///
+/// This is reserved for lifecycle tests that must observe the generated
+/// canister before its first one-second startup callback. Ordinary integration
+/// tests should use [`install_prebuilt_fixture_canister`].
+///
+/// # Panics
+///
+/// Panics if the canister name is unsupported, empty init arguments cannot be
+/// encoded, PocketIC cannot start, or installation fails.
+#[must_use]
+pub fn install_prebuilt_fixture_canister_without_startup_delivery(
+    canister_name: &str,
+    wasm: Vec<u8>,
+) -> StandaloneCanisterFixture {
     fixture_for_canister_name(canister_name)
         .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
     StandaloneCanisterFixture::install(
@@ -600,6 +621,25 @@ pub fn install_prebuilt_fixture_canister(
 /// init args cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
+    let fixture = install_fixture_canister_without_startup_delivery(canister_name);
+    deliver_fixture_startup_watchdog(&fixture);
+    fixture
+}
+
+/// Build and install one fixture without delivering its startup watchdog.
+///
+/// This is reserved for lifecycle tests that must observe the generated
+/// canister before its first one-second startup callback. Ordinary integration
+/// tests should use [`install_fixture_canister`].
+///
+/// # Panics
+///
+/// Panics if the canister cannot be built, the built WASM cannot be read, empty
+/// init args cannot be encoded, or installation fails.
+#[must_use]
+pub fn install_fixture_canister_without_startup_delivery(
+    canister_name: &str,
+) -> StandaloneCanisterFixture {
     install_fixture_canister_with_options_and_optional_progress(
         canister_name,
         local_canister_build_options(),
@@ -637,6 +677,24 @@ fn install_fixture_canister_with_options_and_optional_progress(
         eprintln!("{label}: installed {canister_name} canister in PocketIC");
     }
     fixture
+}
+
+/// Deliver a bounded set of generated startup-watchdog messages.
+///
+/// This helper is used after installation or upgrade when a test needs an
+/// ordinary-work-ready canister but does not inspect the startup control
+/// surface itself.
+pub fn deliver_fixture_startup_watchdog(fixture: &StandaloneCanisterFixture) {
+    // A generated schema application may need several bounded watchdog
+    // messages, and PocketIC may need several deterministic-time slices to
+    // finish each message. Keep ordinary fixture setup bounded while allowing
+    // every maintained fresh-install schema to reach `Ready`.
+    for _ in 0..8 {
+        fixture.pocket_ic().advance_time(Duration::from_secs(1));
+        for _ in 0..4 {
+            fixture.pocket_ic().tick();
+        }
+    }
 }
 
 fn local_fixture_wasm_bytes(canister_name: &str) -> Vec<u8> {

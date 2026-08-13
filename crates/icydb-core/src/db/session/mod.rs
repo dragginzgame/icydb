@@ -94,10 +94,11 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Advance generated startup recovery without admitting ordinary database work.
-    #[doc(hidden)]
-    pub fn __continue_startup_recovery(&self) -> Result<bool, crate::error::InternalError> {
-        self.db.continue_startup_recovery()
+    /// Drive one bounded startup page without admitting ordinary database work.
+    pub(in crate::db) fn drive_startup_recovery_page(
+        &self,
+    ) -> Result<bool, crate::error::InternalError> {
+        self.db.drive_startup_recovery_page()
     }
 
     /// Construct a session from the active synchronous request scope.

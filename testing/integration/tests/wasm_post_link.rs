@@ -6,7 +6,7 @@ use icydb::{Error, db::sql::SqlQueryResult};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, build_fixture_canister_wasm_stages_with_options,
-    install_prebuilt_fixture_canister, reset_icydb_fixtures,
+    deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister, reset_icydb_fixtures,
     wasm_optimizer::optimize_deployable_wasm,
 };
 use serde::Deserialize;
@@ -100,8 +100,8 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
 
     let fixture = install_prebuilt_fixture_canister("sql_perf", compiler_emitted);
     let initialized = schema_application_update(&fixture);
-    assert_eq!(initialized.first_create, 1);
-    assert_eq!(initialized.exact_match, 0);
+    assert_eq!(initialized.first_create, 0);
+    assert_eq!(initialized.exact_match, 1);
     reset_icydb_fixtures(&fixture);
     let before_upgrade_rows = query_user(&fixture);
     let before_upgrade_exact = schema_application_query(&fixture);
@@ -111,8 +111,8 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
 
     let optimized_fixture = install_prebuilt_fixture_canister("sql_perf", final_deployable.clone());
     let optimized_initialized = schema_application_update(&optimized_fixture);
-    assert_eq!(optimized_initialized.first_create, 1);
-    assert_eq!(optimized_initialized.exact_match, 0);
+    assert_eq!(optimized_initialized.first_create, 0);
+    assert_eq!(optimized_initialized.exact_match, 1);
     reset_icydb_fixtures(&optimized_fixture);
     let optimized_exact = schema_application_query(&optimized_fixture);
     let optimized_query = query_user_instructions(&optimized_fixture);
@@ -138,6 +138,7 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
             None,
         )
         .expect("compiler-to-post-link upgrade should succeed");
+    deliver_fixture_startup_watchdog(&fixture);
 
     let after_upgrade_rows = query_user(&fixture);
     assert_eq!(after_upgrade_rows, before_upgrade_rows);

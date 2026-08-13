@@ -50,7 +50,7 @@ mod tests;
 
 use crate::{
     db::{
-        commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
+        commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovery_admitted},
         data::RawDataStoreKey,
         registry::StoreHandle,
         schema::ensure_schema_migration_ready_for_ordinary_operations,
@@ -67,6 +67,8 @@ pub use catalog::{
 };
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
+#[doc(hidden)]
+pub use commit::install_startup_recovery_wakeup;
 pub use data::DataStore;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use diagnostics::SqlStructuralWorkAttribution;
@@ -266,7 +268,7 @@ impl<C: CanisterKind> Db<C> {
 
     /// Resolve one named store after enforcing startup recovery.
     pub(in crate::db) fn recovered_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
-        ensure_recovered(self)?;
+        ensure_recovery_admitted(self)?;
         ensure_schema_migration_ready_for_ordinary_operations()?;
 
         self.store_handle(path)
@@ -275,7 +277,7 @@ impl<C: CanisterKind> Db<C> {
     // Resolve one named store without re-entering recovery.
     //
     // Internal commit/recovery paths already own recovery authority and must
-    // not bounce back through `ensure_recovered`, or they can recurse through
+    // not bounce back through ordinary admission, or they can recurse through
     // replay/rebuild preparation.
     pub(in crate::db) fn store_handle(&self, path: &str) -> Result<StoreHandle, InternalError> {
         self.with_store_registry(|registry| registry.try_get_store(path))
@@ -283,12 +285,12 @@ impl<C: CanisterKind> Db<C> {
 
     /// Ensure startup/in-progress commit recovery has been applied.
     pub(crate) fn ensure_recovered_state(&self) -> Result<(), InternalError> {
-        ensure_recovered(self)?;
+        ensure_recovery_admitted(self)?;
         ensure_schema_migration_ready_for_ordinary_operations()
     }
 
     /// Advance startup recovery by one durable bounded page.
-    pub(crate) fn continue_startup_recovery(&self) -> Result<bool, InternalError> {
+    pub(crate) fn drive_startup_recovery_page(&self) -> Result<bool, InternalError> {
         commit::continue_recovery(self)
             .map(|progress| progress == commit::RecoveryProgress::Complete)
     }
@@ -297,7 +299,7 @@ impl<C: CanisterKind> Db<C> {
     /// allowed to inspect a gated migration. This never clears or bypasses the
     /// gate for ordinary database work.
     pub(in crate::db) fn ensure_recovered_control_state(&self) -> Result<(), InternalError> {
-        ensure_recovered(self)
+        ensure_recovery_admitted(self)
     }
 
     /// Execute one closure against the registered store set.

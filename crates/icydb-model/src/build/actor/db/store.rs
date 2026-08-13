@@ -112,7 +112,6 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
         .collect::<Vec<_>>();
     let entity_names = entity_stores.iter().map(|(name, _)| name);
     let store_paths = entity_stores.iter().map(|(_, store)| store);
-    let recovery = schema_application_recovery_tokens();
     let startup_driver = startup_driver_tokens();
 
     quote! {
@@ -135,24 +134,17 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
                     const { ::std::cell::OnceCell::new() };
         }
 
-        #recovery
         #startup_driver
 
-        fn ensure_schema_application(
-            session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
+        fn admit_ordinary_database_work(
         ) -> ::std::result::Result<(), ::icydb::Error> {
-            SCHEMA_APPLICATION.with(|application| {
-                if application.get().is_some() {
-                    return Ok(());
-                } else if !session.__continue_startup_recovery()? {
-                    schedule_schema_application_recovery();
-                    return Ok(());
+            match startup_state() {
+                Ok(::icydb::db::DatabaseStartupState::Ready) => Ok(()),
+                Ok(::icydb::db::DatabaseStartupState::Recovering) => {
+                    Err(::icydb::db::__startup_recovery_pending())
                 }
-                apply_generated_schema(session)?;
-                match application.set(()) {
-                    Ok(()) | Err(()) => Ok(()),
-                }
-            })
+                Err(failure) => Err(failure.error().clone()),
+            }
         }
     }
 }
@@ -187,6 +179,14 @@ fn startup_driver_tokens() -> TokenStream {
                 ::icydb::db::DatabaseStartupState::Ready => return Ok(false),
                 ::icydb::db::DatabaseStartupState::Recovering => {}
             }
+            ensure_startup_watchdog_registered();
+            Ok(true)
+        }
+
+        fn ensure_startup_watchdog_registered() {
+            if STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some()) {
+                return;
+            }
             let timer_id = ::icydb::__reexports::ic_cdk_timers::set_timer_interval_serial(
                 ::std::time::Duration::from_secs(1),
                 async || {
@@ -194,7 +194,6 @@ fn startup_driver_tokens() -> TokenStream {
                 },
             );
             STARTUP_WATCHDOG_TIMER.with(|timer| timer.replace(Some(timer_id)));
-            Ok(true)
         }
 
         /// Reset non-authoritative timer state before post-upgrade reconstruction.
@@ -203,6 +202,28 @@ fn startup_driver_tokens() -> TokenStream {
             STARTUP_WATCHDOG_TIMER.with(|timer| timer.replace(None));
             STARTUP_DRIVER_ACTIVE.with(|active| active.set(false));
             STARTUP_DRIVER_CADENCE_TIME.with(|time| time.set(None));
+        }
+
+        fn register_startup_watchdog_for_lifecycle() {
+            if let Err(failure) = __register_startup_watchdog() {
+                ::icydb::__reexports::ic_cdk::println!(
+                    "IcyDB startup watchdog registration failed (E{})",
+                    failure.error().code().raw(),
+                );
+            }
+        }
+
+        /// Register generated startup driving before an application install hook.
+        #[doc(hidden)]
+        pub(crate) fn __icydb_startup_init() {
+            register_startup_watchdog_for_lifecycle();
+        }
+
+        /// Reconstruct volatile startup driving before an application upgrade hook.
+        #[doc(hidden)]
+        pub(crate) fn __icydb_startup_post_upgrade() {
+            __reset_startup_watchdog_after_upgrade();
+            register_startup_watchdog_for_lifecycle();
         }
 
         /// Return whether this Wasm instance retains the current watchdog registration.
@@ -304,42 +325,6 @@ fn startup_driver_tokens() -> TokenStream {
                     },
                 );
             }
-        }
-    }
-}
-
-fn schema_application_recovery_tokens() -> TokenStream {
-    quote! {
-        thread_local! {
-            static SCHEMA_APPLICATION_RECOVERY_TIMER_SCHEDULED: ::std::cell::Cell<bool> =
-                    const { ::std::cell::Cell::new(false) };
-        }
-
-        fn schedule_schema_application_recovery() {
-            let should_schedule = SCHEMA_APPLICATION_RECOVERY_TIMER_SCHEDULED.with(|scheduled| {
-                !scheduled.replace(true)
-            });
-            if !should_schedule {
-                return;
-            }
-            ::icydb::__reexports::ic_cdk_timers::set_timer(
-                ::std::time::Duration::ZERO,
-                async {
-                    SCHEMA_APPLICATION_RECOVERY_TIMER_SCHEDULED
-                        .with(|scheduled| scheduled.set(false));
-                    ::icydb::db::with_request_execution(|| {
-                        let result = core_db()
-                            .map(::icydb::db::DbSession::new)
-                            .and_then(|session| ensure_schema_application(&session));
-                        if let Err(error) = result {
-                            ::icydb::__reexports::ic_cdk::println!(
-                                "IcyDB startup recovery failed (E{})",
-                                error.code().raw(),
-                            );
-                        }
-                    });
-                },
-            );
         }
     }
 }
@@ -729,6 +714,9 @@ fn store_wiring_tokens(
         fn ensure_memory_bootstrap() ->
             ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
         {
+            ::icydb::db::__install_startup_recovery_wakeup(
+                ensure_startup_watchdog_registered,
+            );
             MEMORY_BOOTSTRAP.with(|bootstrap| {
                 bootstrap
                     .get_or_init(|| {
@@ -785,8 +773,8 @@ fn store_wiring_tokens(
             ::icydb::db::DbSession<__IcydbGeneratedCanister>,
             ::icydb::Error,
         > {
+            admit_ordinary_database_work()?;
             let session = ::icydb::db::DbSession::new(core_db()?);
-            ensure_schema_application(&session)?;
             Ok(session)
         }
 
@@ -798,8 +786,8 @@ fn store_wiring_tokens(
             ::icydb::Error,
         > {
             request_root.__ensure_compatible_with_current()?;
+            admit_ordinary_database_work()?;
             let session = ::icydb::db::DbSession::new(core_db_with_request_root(request_root)?);
-            ensure_schema_application(&session)?;
             Ok(session)
         }
     }
@@ -862,18 +850,18 @@ mod tests {
     }
 
     #[test]
-    fn schema_application_cache_matches_the_stable_memory_target_scope() {
+    fn ordinary_admission_is_state_only_and_has_no_incidental_recovery_path() {
         let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
 
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("SCHEMA_APPLICATION.with("));
-        assert!(rendered.contains("__continue_startup_recovery"));
-        assert!(rendered.contains("elseif!session.__continue_startup_recovery()?"));
-        assert!(rendered.contains("ic_cdk_timers::set_timer"));
+        assert!(rendered.contains("fnadmit_ordinary_database_work("));
+        assert!(rendered.contains("DatabaseStartupState::Ready"));
+        assert!(rendered.contains("__startup_recovery_pending()"));
     }
 
     #[test]
-    fn dormant_startup_watchdog_is_serial_fixed_cadence_and_has_no_endpoint() {
+    fn active_startup_watchdog_is_lifecycle_owned_serial_and_has_no_endpoint() {
         let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
 
         for required in [
@@ -887,6 +875,8 @@ mod tests {
             "set_timer(::std::time::Duration::ZERO",
             "STARTUP_WATCHDOG_TIMER.with(::std::cell::RefCell::take)",
             "clear_timer(timer_id)",
+            "__icydb_startup_init",
+            "__icydb_startup_post_upgrade",
         ] {
             assert!(rendered.contains(required), "missing token: {required}");
         }
@@ -894,6 +884,8 @@ mod tests {
             "set_timer_interval(",
             "ic_cdk::update",
             "ic_cdk::query",
+            "ic_cdk::init",
+            "ic_cdk::post_upgrade",
             "#[update]",
             "#[query]",
             "STARTUP_WATCHDOG_TIMER.with(|timer|timer.take())",
@@ -903,14 +895,12 @@ mod tests {
                 "forbidden token: {forbidden}"
             );
         }
-        assert_eq!(
-            rendered.matches("__register_startup_watchdog").count(),
-            1,
-            "Patch 3 emits the registration function but must not activate it",
-        );
         assert!(
-            rendered.contains("schedule_schema_application_recovery()"),
-            "Patch 4 owns deletion of the predecessor admission path",
+            rendered
+                .matches("register_startup_watchdog_for_lifecycle()")
+                .count()
+                >= 2,
+            "install and post-upgrade must both activate lifecycle registration",
         );
     }
 
@@ -1080,6 +1070,10 @@ mod tests {
         assert!(rendered.contains("__observe_generated_startup_state::<__IcydbGeneratedCanister>"));
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("MEMORY_BOOTSTRAP.with("));
+        assert!(
+            rendered
+                .contains("__install_startup_recovery_wakeup(ensure_startup_watchdog_registered,)")
+        );
         assert!(rendered.contains(
             "CoreDbSession::<__IcydbGeneratedCanister>::__new_from_current_request(&STORE_REGISTRY,)"
         ));
@@ -1087,6 +1081,20 @@ mod tests {
             "CoreDbSession::<__IcydbGeneratedCanister>::new(&STORE_REGISTRY,request_root.__core(),)"
         ));
         assert!(rendered.contains("pubfndb()->::std::result::Result<"));
+        assert_eq!(
+            rendered.matches("admit_ordinary_database_work()?").count(),
+            2
+        );
+        let admission = rendered
+            .find("admit_ordinary_database_work()?")
+            .expect("ordinary db construction should contain startup admission");
+        let session = rendered
+            .find("DbSession::new(core_db()?)")
+            .expect("ordinary db construction should create its session");
+        assert!(
+            admission < session,
+            "admission must precede session construction"
+        );
         assert!(rendered.contains(
             "pubfndb_with_request_root(request_root:&::icydb::db::RequestExecutionRoot,)"
         ));

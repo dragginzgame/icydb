@@ -1673,7 +1673,7 @@ mod typed_adapter_tests {
         );
         session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect("typed adapter test database should initialize");
         publish(
             &session,
@@ -2311,7 +2311,7 @@ mod mixed_relation_batch_tests {
         );
         session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect("mixed relation database should initialize");
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
             STORE_PATH,
@@ -3010,7 +3010,10 @@ mod identity_pre_key_tests {
         db::{
             GeneratedStartupDriverStep, MutationJobAdvanceRequest, MutationJobId,
             MutationJobIdempotencyKey, MutationJobPhase, MutationJobStatus,
-            commit::{database_incarnation_id, forget_recovered_domain_for_tests},
+            commit::{
+                database_incarnation_id, forget_recovered_domain_for_tests,
+                install_startup_recovery_wakeup,
+            },
             data::DataStore,
             drive_generated_startup_recovery_page,
             executor::{MutationCommitInterruption, interrupt_next_mutation_commit_for_tests},
@@ -3042,9 +3045,11 @@ mod identity_pre_key_tests {
         value::{InputValue, OutputValue, Value},
     };
     use icydb_schema::{FieldSourceKey, ScalarType};
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    use std::cell::Cell;
-    use std::{cell::RefCell, collections::BTreeMap, time::Instant};
+    use std::{
+        cell::{Cell, RefCell},
+        collections::BTreeMap,
+        time::Instant,
+    };
 
     const STORE_PATH: &str = "session::write::identity_pre_key_tests::Store";
     const ENTITY_SOURCE: &str = "session::write::identity_pre_key_tests::Entity";
@@ -3072,6 +3077,7 @@ mod identity_pre_key_tests {
     }
 
     thread_local! {
+        static STARTUP_WAKEUPS: Cell<u32> = const { Cell::new(0) };
         static DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
         static INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
         static SCHEMA_STORE: RefCell<SchemaStore> =
@@ -3128,6 +3134,10 @@ mod identity_pre_key_tests {
             ).expect("identity range journaled store should register");
             registry
         };
+    }
+
+    fn record_startup_wakeup() {
+        STARTUP_WAKEUPS.with(|wakeups| wakeups.set(wakeups.get().saturating_add(1)));
     }
 
     struct JournaledTestCanister;
@@ -3222,7 +3232,7 @@ mod identity_pre_key_tests {
         );
         session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect("identity pre-key test database should initialize");
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
             STORE_PATH,
@@ -3255,7 +3265,7 @@ mod identity_pre_key_tests {
         let session = DbSession::<JournaledTestCanister>::new(&JOURNALED_STORE_REGISTRY, &root);
         session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect("journaled identity database should initialize");
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
             JOURNALED_STORE_PATH,
@@ -4824,8 +4834,13 @@ mod identity_pre_key_tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one ordered scenario proves target/progress atomicity, every interruption wake-up, state-only admission, and successful no-op wake-up behavior"
+    )]
     fn mutation_progress_and_target_rows_recover_as_one_marker_transition() {
         let session = initialize_journaled();
+        install_startup_recovery_wakeup(record_startup_wakeup);
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled atomic-progress catalog should resolve");
@@ -4853,6 +4868,7 @@ mod identity_pre_key_tests {
             })
             .expect("atomic predecessor should insert once");
 
+            let wakeups_before = STARTUP_WAKEUPS.with(Cell::get);
             interrupt_next_mutation_commit_for_tests(interruption);
             let interrupted = session.execute_accepted_structural_update_with_mutation_progress(
                 &catalog,
@@ -4865,13 +4881,46 @@ mod identity_pre_key_tests {
                 interrupted.is_err(),
                 "selected atomic boundary should interrupt"
             );
+            assert_eq!(
+                STARTUP_WAKEUPS.with(Cell::get),
+                wakeups_before.saturating_add(1),
+                "a normally returned retained-marker error must register its wake-up",
+            );
 
             forget_recovered_domain_for_tests(&session.db)
                 .expect("interruption should reset volatile recovery ownership");
-            session
+            let retained_before =
+                with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+                    store.load_mutation(before.state().job_id)
+                })
+                .expect("pre-driver progress should load");
+            let row_count_before = JOURNALED_DATA_STORE.with(|store| store.borrow().len());
+            let pending = session
                 .db
                 .ensure_recovered_state()
-                .expect("marker recovery should finish target and progress together");
+                .expect_err("ordinary admission must not drive retained-marker recovery");
+            assert_eq!(
+                pending.diagnostic().error_code(),
+                icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+            );
+            assert_eq!(
+                with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
+                    store.load_mutation(before.state().job_id)
+                })
+                .expect("post-admission progress should load"),
+                retained_before,
+            );
+            assert_eq!(
+                JOURNALED_DATA_STORE.with(|store| store.borrow().len()),
+                row_count_before,
+                "state-only admission must not mutate target rows",
+            );
+            assert!(
+                session
+                    .db
+                    .drive_startup_recovery_page()
+                    .expect("dedicated driver should finish target and progress together"),
+            );
             let retained = with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
                 store.load_mutation(before.state().job_id)
             })
@@ -4893,6 +4942,7 @@ mod identity_pre_key_tests {
             }
         })
         .expect("final predecessor should insert once");
+        let wakeups_before_success = STARTUP_WAKEUPS.with(Cell::get);
         session
             .execute_accepted_structural_update_with_mutation_progress(
                 &catalog,
@@ -4902,6 +4952,11 @@ mod identity_pre_key_tests {
                 operation,
             )
             .expect("uninterrupted atomic transition should clear its marker");
+        assert_eq!(
+            STARTUP_WAKEUPS.with(Cell::get),
+            wakeups_before_success,
+            "a successful commit must not schedule recovery work",
+        );
         let retained = with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
             store.load_mutation(before.state().job_id)
         })
@@ -4909,10 +4964,20 @@ mod identity_pre_key_tests {
         assert_eq!(retained, after);
         forget_recovered_domain_for_tests(&session.db)
             .expect("post-clear recovery ownership should reset");
-        session
+        let pending = session
             .db
             .ensure_recovered_state()
-            .expect("post-clear recovery should remain a no-op");
+            .expect_err("an upgrade epoch must remain gated until its driver runs");
+        assert_eq!(
+            pending.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+        );
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("post-clear driver recovery should remain a no-op"),
+        );
     }
 
     #[test]
@@ -4974,7 +5039,7 @@ mod identity_pre_key_tests {
             .expect("corrupt recovery ownership should reset");
         let error = session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect_err("neither-side progress must block recovery");
         assert_eq!(error.class(), ErrorClass::Corruption);
         assert_eq!(error.origin(), ErrorOrigin::Recovery);
@@ -4986,7 +5051,7 @@ mod identity_pre_key_tests {
             unexpected,
         );
         assert!(
-            session.db.ensure_recovered_state().is_err(),
+            session.db.drive_startup_recovery_page().is_err(),
             "a retained corrupt marker must continue blocking database access",
         );
     }
@@ -5024,6 +5089,26 @@ mod identity_pre_key_tests {
             assert!(
                 interrupted.is_err(),
                 "the selected durable boundary should interrupt",
+            );
+
+            let Err(pending) = session.execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                batch(&[100 + u64::try_from(ordinal).expect("ordinal should fit")]),
+                Timestamp::from_millis(9),
+                Ok,
+            ) else {
+                panic!("ordinary mutation must not drive retained-marker recovery");
+            };
+            assert_eq!(
+                pending.diagnostic().error_code(),
+                icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+            );
+            assert!(
+                session
+                    .db
+                    .drive_startup_recovery_page()
+                    .expect("dedicated driver should recover before allocation"),
             );
 
             let committed = session
@@ -5098,6 +5183,23 @@ mod identity_pre_key_tests {
                 interrupted.is_err(),
                 "the selected caller-key mixed publication boundary should interrupt",
             );
+            let pending = session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(expected_payload),
+                })
+                .expect_err("ordinary update must not drive retained-marker recovery");
+            assert_eq!(
+                pending.diagnostic().error_code(),
+                icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+            );
+            assert!(
+                session
+                    .db
+                    .drive_startup_recovery_page()
+                    .expect("dedicated driver should complete the mixed batch"),
+            );
             let recovered_update = session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
@@ -5136,7 +5238,7 @@ mod identity_pre_key_tests {
             .expect("the final journal tail should remain recoverable");
         session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect("derived rebuild must not allocate another identity");
 
         let data_generation = JOURNALED_DATA_STORE.with(|store| store.borrow().generation());
@@ -5145,7 +5247,7 @@ mod identity_pre_key_tests {
             .expect("an empty-tail upgrade should reset recovery ownership");
         session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect("an empty-tail upgrade should admit without rebuilding stored rows or indexes");
         assert_eq!(
             JOURNALED_DATA_STORE.with(|store| store.borrow().generation()),
@@ -5287,7 +5389,7 @@ mod identity_pre_key_tests {
         assert!(
             !session
                 .db
-                .continue_startup_recovery()
+                .drive_startup_recovery_page()
                 .expect("the first record-bounded recovery page should commit"),
             "a single batch larger than the record bound must remain resumable",
         );
@@ -5303,7 +5405,7 @@ mod identity_pre_key_tests {
         assert!(
             session
                 .db
-                .continue_startup_recovery()
+                .drive_startup_recovery_page()
                 .expect("the terminal record-bounded recovery page should commit"),
         );
 
@@ -5318,8 +5420,8 @@ mod identity_pre_key_tests {
     }
 
     #[test]
-    #[ignore = "release-closeout native timing probe for one marker-authorized Identity recovery"]
-    fn identity_recovery_closeout_reports_guarded_reentry_time() {
+    #[ignore = "release-closeout native timing probe for one marker-authorized driver recovery"]
+    fn identity_recovery_closeout_reports_driver_time() {
         let session = initialize_journaled();
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -5341,6 +5443,12 @@ mod identity_pre_key_tests {
         );
 
         let start = Instant::now();
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("dedicated driver should recover before allocation"),
+        );
         let committed = session
             .execute_accepted_structural_save_batch(
                 &catalog,
@@ -5349,7 +5457,7 @@ mod identity_pre_key_tests {
                 Timestamp::from_millis(11),
                 Ok,
             )
-            .expect("guarded reentry should recover before allocation");
+            .expect("post-recovery allocation should commit");
         let elapsed = start.elapsed();
         assert_eq!(
             committed
@@ -5360,7 +5468,7 @@ mod identity_pre_key_tests {
         );
 
         println!(
-            "identity recovery closeout: guarded_reentry_nanos={}",
+            "identity recovery closeout: driver_nanos={}",
             elapsed.as_nanos(),
         );
     }
@@ -5713,7 +5821,7 @@ mod targeted_rule_mutation_tests {
         );
         session
             .db
-            .ensure_recovered_state()
+            .drive_startup_recovery_page()
             .expect("targeted mutation test database should initialize");
         let store = session
             .db

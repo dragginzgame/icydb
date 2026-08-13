@@ -6,7 +6,9 @@
 use crate::{
     db::{
         Db,
-        commit::{database_control_proof_identity, database_incarnation_id, ensure_recovered},
+        commit::{
+            database_control_proof_identity, database_incarnation_id, ensure_recovery_admitted,
+        },
         integrity::DatabaseIncarnationId,
         journal::JournalTailProofIdentity,
         registry::StoreRuntimeStorageMode,
@@ -168,7 +170,7 @@ pub(in crate::db) fn capture_integrity_proof_vector<C: CanisterKind>(
     db: &Db<C>,
     plan: &AcceptedInspectionPlan,
 ) -> Result<IntegrityProofVector, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
 
     let identity = plan.identity();
     let source_store = db.store_handle(identity.store_path())?;

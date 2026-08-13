@@ -763,7 +763,7 @@ fn publish_schema(
     );
     session
         .db
-        .ensure_recovered_state()
+        .drive_startup_recovery_page()
         .expect("Unit ordering database should initialize");
     let store = session
         .db

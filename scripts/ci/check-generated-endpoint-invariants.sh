@@ -30,11 +30,11 @@ do
   fi
 done
 
-if rg -q '#\[.*ic_cdk::(query|update)|#\[.*export_name|#\[.*no_mangle' \
+if rg -q '#\[.*ic_cdk::(query|update|init|post_upgrade)|#\[.*export_name|#\[.*no_mangle' \
   crates/icydb-model/src/build/actor/db \
   crates/icydb-model/src/build/actor/mod.rs
 then
-  echo "[ERROR] generated private actor capabilities must not contain IC export attributes." >&2
+  echo "[ERROR] generated private actor capabilities must not contain IC export attributes; start! owns composed lifecycle exports." >&2
   status=1
 fi
 

@@ -1,7 +1,7 @@
 //! Module: db::commit::recovery
-//! Responsibility: publish and resumably fold marker-bound journal batches before operations.
+//! Responsibility: publish and resumably fold marker-bound journal batches from the startup driver.
 //! Does not own: marker storage encoding, mutation planning, or query semantics.
-//! Boundary: db entrypoints -> commit::recovery -> commit::store + journal fold (one-way).
+//! Boundary: startup driver -> commit::recovery -> commit::store + journal fold (one-way).
 //!
 //! This module implements a **system recovery step** that restores global
 //! database invariants by completing marker-owned work and folding derived
@@ -9,12 +9,8 @@
 //!
 //! Important semantic notes:
 //! - Recovery runs in bounded durable pages at startup.
-//! - Read and write paths both perform a cheap marker check and replay if needed.
+//! - Read and write paths perform state-only admission and never replay.
 //! - Reads must not proceed while a persisted partial commit marker is present.
-//!
-//! Invocation from read or mutation entrypoints is permitted only as an
-//! unconditional invariant-restoration step. Recovery must not be
-//! interleaved with read logic or mutation planning/apply phases.
 
 use crate::db::index::IndexEntryValue;
 #[cfg(any(test, feature = "migration"))]
@@ -96,25 +92,27 @@ struct RecoveryDomainKey {
     runtime_stores: RuntimeStoreDomainKey,
 }
 
-/// Ensure global database invariants are restored before proceeding.
+/// Admit ordinary work only after the dedicated startup driver has completed.
 ///
-/// This function performs a **system recovery step**:
-/// - It completes any marker-owned commit and derived-state rebuild forward.
-/// - It leaves the database in a fully consistent state on return.
-///
-/// This function is:
-/// - **Not part of mutation atomicity**
-/// - **Mandatory before read execution**
-/// - **Not conditional on read semantics**
-///
-/// It may be invoked at operation boundaries (including read or mutation
-/// entrypoints), but must always complete **before** any operation-specific
-/// planning, validation, or apply phase begins.
-pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    match continue_recovery(db)? {
-        RecoveryProgress::Complete => Ok(()),
-        RecoveryProgress::Pending => Err(InternalError::recovery_pending()),
+/// This is a state-only defense below generated `db!()` admission. It never
+/// decodes a journal batch, advances a recovery page, or mutates stable state.
+pub(crate) fn ensure_recovery_admitted<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
+        .map_err(|error| error.with_origin(ErrorOrigin::Recovery))?;
+    let recovery_key =
+        recovery_domain_key(db).map_err(|error| error.with_origin(ErrorOrigin::Recovery))?;
+    let recovered = recovery_domain_recovered(recovery_key)
+        .map_err(|error| error.with_origin(ErrorOrigin::Recovery))?;
+    if !recovered || recovery_domain_in_progress(recovery_key) {
+        return Err(InternalError::recovery_pending());
     }
+    if commit_marker_may_be_present()
+        && commit_marker_present_fast().map_err(|error| error.with_origin(ErrorOrigin::Recovery))?
+    {
+        return Err(InternalError::recovery_pending());
+    }
+
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

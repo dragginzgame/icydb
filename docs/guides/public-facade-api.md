@@ -6,11 +6,13 @@ Rust types are optional adapters at the boundary; they are not planner,
 admission, storage, or recovery inputs.
 
 Generated IcyDB endpoints enter one request scope automatically. Manual
-IC-CDK, Canic, lifecycle, and timer entries put
-`#[icydb::request_execution]` outside the framework attribute. Zero-argument
-`db!()` calls in nested helpers share its monotonic counters across the whole
-sync or async invocation. Synchronous unit tests use `#[icydb::test]`. The
-snippets below assume that default scope.
+IC-CDK, Canic, and timer entries put `#[icydb::request_execution]` outside the
+framework attribute. Application lifecycle callbacks declared through the
+composed `icydb::start!` form receive that scope automatically after IcyDB has
+registered its startup watchdog. Zero-argument `db!()` calls in nested helpers
+share its monotonic counters across the whole sync or async invocation.
+Synchronous unit tests use `#[icydb::test]`. The snippets below assume that
+default scope.
 
 Use `with_request_execution_root` plus `db!(&request_root)` only when a
 low-level adapter intentionally owns and passes scope ownership itself. The

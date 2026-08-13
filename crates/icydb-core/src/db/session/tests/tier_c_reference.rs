@@ -439,7 +439,7 @@ fn initialize() -> DbSession<TestCanister> {
     );
     session
         .db
-        .ensure_recovered_state()
+        .drive_startup_recovery_page()
         .expect("Tier C database should initialize");
     let store = session
         .db

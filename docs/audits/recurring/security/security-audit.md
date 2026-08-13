@@ -105,7 +105,9 @@ Primary owners:
   * `begin_commit`
   * `finish_commit`
 * `db/mod.rs`
-  * `ensure_recovered`
+  * `ensure_recovery_admitted`
+* `db/startup/*`
+  * pure readiness observation and the private replicated driver
 * `db/commit/store/*`
   * commit-memory ownership and marker persistence
 
@@ -336,7 +338,8 @@ and integrity.
 
 Check:
 
-* `ensure_recovered` runs before write entry when required
+* `ensure_recovery_admitted` rejects pending work before write planning
+* ordinary query/update paths cannot invoke `continue_recovery`
 * replay remains idempotent
 * marker lifecycle is durable and authoritative
 * interrupted conflicting unique batches fail closed
@@ -345,7 +348,8 @@ Check:
 
 Search targets:
 
-* `ensure_recovered`
+* `ensure_recovery_admitted`
+* `continue_recovery`
 * `begin_commit`
 * `finish_commit`
 * commit guard lifecycle

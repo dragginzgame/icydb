@@ -18,7 +18,32 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::{
+    cell::Cell,
+    panic::{AssertUnwindSafe, catch_unwind},
+};
+
+thread_local! {
+    // Generated canister lifecycle wiring installs the sole engine-owned
+    // wake-up callback. Keeping the callback volatile makes its registration
+    // atomic with a normally returned commit-apply failure while durable
+    // recovery controls remain the only progress authority.
+    static STARTUP_RECOVERY_WAKEUP: Cell<Option<fn()>> = const { Cell::new(None) };
+}
+
+/// Install the generated watchdog wake-up used by retained-marker error exits.
+#[doc(hidden)]
+pub fn install_startup_recovery_wakeup(wakeup: fn()) {
+    STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(Some(wakeup)));
+}
+
+fn ensure_startup_recovery_wakeup() {
+    STARTUP_RECOVERY_WAKEUP.with(|installed| {
+        if let Some(wakeup) = installed.get() {
+            wakeup();
+        }
+    });
+}
 
 ///
 /// ApplyRollback
@@ -225,20 +250,38 @@ pub(crate) fn finish_commit(
     // We only clear on success; failures keep the marker durable so recovery can
     // re-run the marker payload instead of losing commit authority.
     let result = apply(&mut guard);
-    if result.is_ok() {
-        // Phase 1: successful apply must clear marker authority immediately.
-        CommitGuard::clear()?;
-        // Internal invariant: successful commit windows must clear the marker.
-        if !with_initialized_commit_store(super::store::CommitStore::is_empty)? {
-            return Err(InternalError::commit_corruption());
-        }
-    } else {
+    if let Err(error) = result {
+        // A normally returned apply error commits its retained marker. Ensure
+        // the recurring recovery wake-up in the same IC message before the
+        // error is allowed to return; a trap rolls both changes back together.
+        ensure_startup_recovery_wakeup();
         // Phase 1 (error path): failed apply must preserve marker authority.
         // Internal invariant: failed commit windows must preserve marker authority.
         if with_initialized_commit_store(super::store::CommitStore::is_empty)? {
             return Err(InternalError::commit_corruption());
         }
+        return Err(error);
     }
 
-    result
+    // Phase 1: successful apply must clear marker authority immediately. A
+    // normally returned clear failure may retain the marker, so it must also
+    // atomically retain a recovery wake-up.
+    if let Err(error) = CommitGuard::clear() {
+        ensure_startup_recovery_wakeup();
+        return Err(error);
+    }
+    // Internal invariant: successful commit windows must clear the marker.
+    let marker_is_empty = match with_initialized_commit_store(super::store::CommitStore::is_empty) {
+        Ok(marker_is_empty) => marker_is_empty,
+        Err(error) => {
+            ensure_startup_recovery_wakeup();
+            return Err(error);
+        }
+    };
+    if !marker_is_empty {
+        ensure_startup_recovery_wakeup();
+        return Err(InternalError::commit_corruption());
+    }
+
+    Ok(())
 }

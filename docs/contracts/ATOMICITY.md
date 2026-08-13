@@ -249,20 +249,23 @@ governed by `docs/contracts/WRITE_ADMISSION.md`.
 
 ## Startup Recovery Window (Operational Guidance)
 
-At process startup, there is a bounded **recovery window** before the first
-successful guarded read/write call. During this window, a leftover commit marker
-from a previous trap may still represent partially applied durable state.
+At process startup, there is a bounded-per-page **recovery window** before the
+generated startup state becomes `Ready`. During this window, a leftover commit
+marker from a previous trap may still represent partially applied durable state.
 
 Unsafe during this window:
-* Direct store/index access that bypasses `ensure_recovered` /
-  `ensure_recovered_for_write`
+* Direct store/index access that bypasses `ensure_recovery_admitted`
 * Any tooling or helper that reads durable rows without going through guarded
   query/session entrypoints
 
 Fully consistent point:
-* The system is fully consistent immediately after the first guarded recovery
-  pass completes successfully (startup read-side recovery or write-side marker
-  check plus journal publication/fold).
+* The system is fully consistent only after the generated recurring watchdog's
+  replicated driver has completed recovery and generated-schema reconciliation.
+  Ordinary reads and writes never drive a recovery page; they return the typed
+  retryable startup-pending diagnostic until that point.
+* A normally returned commit-apply error retains its marker and registers the
+  watchdog wake-up in the same message before returning. A trap rolls both the
+  marker and volatile scheduling change back together.
 * A nonterminal offline schema migration restores its database-wide gate before
   ordinary routing. Migration and integrity control operations may inspect the
   recovered gated state; ordinary reads, writes, relations, schema mutation,

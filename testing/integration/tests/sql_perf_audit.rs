@@ -29,6 +29,7 @@ use icydb_testing_integration::{
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
 use serde::Deserialize;
+use std::time::Duration;
 
 // Mirror the dedicated perf-audit query envelope so the testkit can decode the
 // query result plus the compile/execute instruction split from the canister.
@@ -1502,14 +1503,35 @@ fn assert_heap_total_only_limit_one_variants_stay_bounded(fixture: &StandaloneCa
     }
 }
 
-fn measure_journaled_guarded_reentry_total_only_perf(
+fn measure_journaled_ready_total_only_perf(
     fixture: &StandaloneCanisterFixture,
 ) -> ReadTotalOnlyPerfResult {
     let result: Result<ReadTotalOnlyPerfResult, Error> = fixture
         .update_candid("measure_journaled_reentry_perf", ())
-        .expect("journaled guarded reentry perf update should decode");
+        .expect("journaled ready perf update should decode");
 
-    result.expect("journaled guarded reentry perf update should succeed")
+    result.expect("journaled ready perf update should succeed")
+}
+
+fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
+    for _ in 0..32 {
+        let probe: Result<(), Error> = fixture
+            .update_candid("initialize_startup_observation_fixture", ())
+            .expect("ordinary startup probe should decode");
+        match probe {
+            Ok(()) => return,
+            Err(error)
+                if error.code()
+                    == icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
+            {
+                fixture.pocket_ic().advance_time(Duration::from_secs(1));
+                fixture.pocket_ic().tick();
+                fixture.pocket_ic().tick();
+            }
+            Err(error) => panic!("startup driver returned terminal error: {error}"),
+        }
+    }
+    panic!("startup driver should finish within 32 delivered watchdog ticks");
 }
 
 fn measure_storage_write_matrix(
@@ -1825,7 +1847,7 @@ fn assert_storage_total_limit_one_reports(fixture: &StandaloneCanisterFixture) {
     assert_journaled_total_only_limit_one_variants_stay_bounded(fixture);
 }
 
-fn assert_journaled_guarded_reentry_perf_stays_bounded(
+fn assert_journaled_ready_perf_stays_bounded(
     label: &str,
     perf: &ReadTotalOnlyPerfResult,
     expected_rows: u32,
@@ -1833,15 +1855,15 @@ fn assert_journaled_guarded_reentry_perf_stays_bounded(
 ) {
     assert_eq!(
         perf.row_count, expected_rows,
-        "{label} guarded reentry probe should return the expected journaled rows",
+        "{label} ready probe should return the expected journaled rows",
     );
     assert!(
         perf.instructions > 0,
-        "{label} guarded reentry probe should report positive instructions",
+        "{label} ready probe should report positive instructions",
     );
     assert!(
         perf.instructions < instruction_budget,
-        "{label} guarded reentry probe should stay below the regression budget, got {} >= {}",
+        "{label} ready probe should stay below the regression budget, got {} >= {}",
         perf.instructions,
         instruction_budget,
     );
@@ -2156,7 +2178,8 @@ fn sql_perf_integrity_accepted_check_pages_stay_bounded() {
     activate_journaled_user_perf_check(&fixture);
     load_journaled_reentry_probe_fixture(&fixture);
     upgrade_fixture_canister(&fixture, "sql_perf");
-    let guarded_reentry = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    advance_startup_watchdog_until_ready(&fixture);
+    let ready_probe = measure_journaled_ready_total_only_perf(&fixture);
     let observation = measure_clean_integrity_run(
         &fixture,
         "PerfAuditJournaledUser",
@@ -2164,18 +2187,18 @@ fn sql_perf_integrity_accepted_check_pages_stay_bounded() {
     );
 
     println!(
-        "integrity accepted check: guarded_reentry_instructions={} quick_instructions={} \
+        "integrity accepted check: ready_probe_instructions={} quick_instructions={} \
          deep_page_instructions={:?} \
          quick_response_bytes={} max_deep_response_bytes={}",
-        guarded_reentry.instructions,
+        ready_probe.instructions,
         observation.quick_instructions,
         observation.deep_page_instructions,
         observation.quick_response_bytes,
         observation.max_deep_response_bytes,
     );
-    assert_journaled_guarded_reentry_perf_stays_bounded(
+    assert_journaled_ready_perf_stays_bounded(
         "accepted-check setup",
-        &guarded_reentry,
+        &ready_probe,
         1,
         JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET,
     );
@@ -2189,23 +2212,24 @@ fn sql_perf_integrity_many_index_pages_stay_bounded() {
     let fixture = install_sql_perf_canister_fixture();
     load_user_scale_integrity_fixture(&fixture, FIXTURE_ROWS);
     upgrade_fixture_canister(&fixture, "sql_perf");
-    let guarded_reentry = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    advance_startup_watchdog_until_ready(&fixture);
+    let ready_probe = measure_journaled_ready_total_only_perf(&fixture);
     let observation = measure_clean_integrity_run(&fixture, "PerfAuditUser", "many-index-evidence");
 
     println!(
-        "integrity many-index: guarded_reentry_instructions={} quick_instructions={} \
+        "integrity many-index: ready_probe_instructions={} quick_instructions={} \
          deep_page_instructions={:?} deep_page_phases={:?} \
          quick_response_bytes={} max_deep_response_bytes={}",
-        guarded_reentry.instructions,
+        ready_probe.instructions,
         observation.quick_instructions,
         observation.deep_page_instructions,
         observation.deep_page_phases,
         observation.quick_response_bytes,
         observation.max_deep_response_bytes,
     );
-    assert_journaled_guarded_reentry_perf_stays_bounded(
+    assert_journaled_ready_perf_stays_bounded(
         "many-index setup",
-        &guarded_reentry,
+        &ready_probe,
         0,
         JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET,
     );
@@ -2236,7 +2260,8 @@ fn sql_perf_integrity_relation_pages_stay_bounded() {
     let fixture = install_sql_perf_canister_fixture();
     load_relation_integrity_fixture(&fixture);
     upgrade_fixture_canister(&fixture, "sql_perf");
-    let guarded_reentry = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    advance_startup_watchdog_until_ready(&fixture);
+    let ready_probe = measure_journaled_ready_total_only_perf(&fixture);
     let cold_quick =
         measure_integrity_sql(&fixture, "CHECK INTEGRITY PerfAuditRelationSource QUICK");
     let cold_quick_response_bytes = candid::encode_one(&cold_quick.result)
@@ -2246,12 +2271,12 @@ fn sql_perf_integrity_relation_pages_stay_bounded() {
         measure_clean_integrity_run(&fixture, "PerfAuditRelationSource", "relation-evidence");
 
     println!(
-        "integrity relation: guarded_reentry_instructions={} \
+        "integrity relation: ready_probe_instructions={} \
          cold_quick_instructions={} warm_quick_instructions={} \
          deep_page_instructions={:?} deep_page_phases={:?} \
          cold_quick_response_bytes={} warm_quick_response_bytes={} \
          max_deep_response_bytes={}",
-        guarded_reentry.instructions,
+        ready_probe.instructions,
         cold_quick.local_instructions,
         observation.quick_instructions,
         observation.deep_page_instructions,
@@ -2260,9 +2285,9 @@ fn sql_perf_integrity_relation_pages_stay_bounded() {
         observation.quick_response_bytes,
         observation.max_deep_response_bytes,
     );
-    assert_journaled_guarded_reentry_perf_stays_bounded(
+    assert_journaled_ready_perf_stays_bounded(
         "relation setup",
-        &guarded_reentry,
+        &ready_probe,
         0,
         INTEGRITY_RELATION_RECOVERY_BUDGET,
     );
@@ -2336,27 +2361,28 @@ fn sql_perf_integrity_proof_invalidation_stays_bounded() {
 }
 
 #[test]
-fn sql_perf_journaled_upgrade_guarded_reentry_stays_bounded() {
+fn sql_perf_journaled_upgrade_driver_then_ready_probe_stays_bounded() {
     let fixture = install_sql_perf_canister_fixture();
     load_journaled_reentry_probe_fixture(&fixture);
 
     upgrade_fixture_canister(&fixture, "sql_perf");
+    advance_startup_watchdog_until_ready(&fixture);
 
-    let first = measure_journaled_guarded_reentry_total_only_perf(&fixture);
-    let second = measure_journaled_guarded_reentry_total_only_perf(&fixture);
+    let first = measure_journaled_ready_total_only_perf(&fixture);
+    let second = measure_journaled_ready_total_only_perf(&fixture);
 
     println!(
-        "journaled guarded reentry after upgrade: first_total={} second_total={} first_rows={} second_rows={}",
+        "journaled ready probe after upgrade: first_total={} second_total={} first_rows={} second_rows={}",
         first.instructions, second.instructions, first.row_count, second.row_count,
     );
 
-    assert_journaled_guarded_reentry_perf_stays_bounded(
+    assert_journaled_ready_perf_stays_bounded(
         "first",
         &first,
         1,
         JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET,
     );
-    assert_journaled_guarded_reentry_perf_stays_bounded(
+    assert_journaled_ready_perf_stays_bounded(
         "second",
         &second,
         1,

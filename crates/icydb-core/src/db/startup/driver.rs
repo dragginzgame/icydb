@@ -40,7 +40,7 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
         Ok(DatabaseStartupState::Recovering) => {}
     }
 
-    match session.__continue_startup_recovery() {
+    match session.drive_startup_recovery_page() {
         Ok(true) => Ok(GeneratedStartupDriverStep::ApplyGeneratedSchema),
         Ok(false) => Ok(GeneratedStartupDriverStep::Recovering),
         Err(error) => record_recovery_failure::<C>(stores, submission_key, error),

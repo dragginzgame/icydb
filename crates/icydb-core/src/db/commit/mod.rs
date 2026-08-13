@@ -26,6 +26,8 @@ mod rollback;
 mod schema_publication;
 mod store;
 
+#[doc(hidden)]
+pub use guard::install_startup_recovery_wakeup;
 ///
 /// Re-exports
 ///
@@ -51,7 +53,7 @@ pub(in crate::db) use prepare::{
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use recovery::{
-    RecoveryProgress, continue_recovery, ensure_recovered, startup_recovery_witness,
+    RecoveryProgress, continue_recovery, ensure_recovery_admitted, startup_recovery_witness,
 };
 #[cfg(test)]
 pub(in crate::db) use recovery::{

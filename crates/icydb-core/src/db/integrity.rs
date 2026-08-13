@@ -13,7 +13,9 @@ mod row;
 
 use crate::{
     db::{
-        commit::{database_control_proof_identity, database_incarnation_id, ensure_recovered},
+        commit::{
+            database_control_proof_identity, database_incarnation_id, ensure_recovery_admitted,
+        },
         registry::{
             StoreAllocationIdentities, StoreHandle, StoreRuntimeStorageCapabilities,
             StoreRuntimeStorageMode,
@@ -967,7 +969,7 @@ pub(in crate::db) fn execute_quick_integrity<C: CanisterKind>(
     db: &crate::db::Db<C>,
     plan: &AcceptedInspectionPlan,
 ) -> Result<QuickIntegrityResult, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     let incarnation = database_incarnation_id()?;
     let findings = match validate_quick_integrity_control(db, plan, incarnation) {
         Ok(findings) => findings,

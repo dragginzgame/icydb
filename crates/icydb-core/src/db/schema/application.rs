@@ -12,7 +12,7 @@ use crate::{
         },
         commit::{
             AcceptedSchemaPublication, DatabaseControlOp, database_incarnation_id,
-            ensure_recovered, publish_accepted_schema_candidates_with_application_record,
+            ensure_recovery_admitted, publish_accepted_schema_candidates_with_application_record,
             publish_accepted_schema_candidates_with_database_control,
             publish_generated_row_local_abort_with_application_record,
         },
@@ -216,7 +216,7 @@ struct LoweredApplication {
 pub(in crate::db) fn schema_application_target<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<SchemaApplicationTarget, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     let incarnation = database_incarnation_id()?;
     let mut stores = db.with_store_registry(|registry| {
         registry
@@ -258,7 +258,7 @@ pub(in crate::db) fn schema_application_receipt<C: CanisterKind>(
     database_identity: TargetDatabaseIdentity,
     submission_key: &SchemaSubmissionKey,
 ) -> Result<Option<SchemaChangeReceipt>, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     with_schema_application_store(|store| {
         store
             .load(database_identity, submission_key)
@@ -295,7 +295,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     job_id: SchemaChangeJobId,
     acknowledged_receipt: Option<u64>,
 ) -> Result<SchemaChangeProgress, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     ensure_schema_migration_ready_for_ordinary_operations()?;
     let record = with_schema_application_store(|store| store.load_job(job_id))?
         .ok_or_else(InternalError::schema_application_conflict)?;
@@ -405,7 +405,7 @@ pub(in crate::db) fn abort_schema_application<C: CanisterKind>(
     job_id: SchemaChangeJobId,
     acknowledged_receipt: Option<u64>,
 ) -> Result<SchemaChangeProgress, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     ensure_schema_migration_ready_for_ordinary_operations()?;
     let record = with_schema_application_store(|store| store.load_job(job_id))?
         .ok_or_else(InternalError::schema_application_conflict)?;
@@ -620,7 +620,7 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     db: &Db<C>,
     proposal: &SchemaProposal,
 ) -> Result<SchemaChangeReceipt, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     ensure_schema_migration_ready_for_ordinary_operations()?;
     let proposal_digest = proposal
         .digest()
@@ -751,7 +751,7 @@ pub(in crate::db) fn migrate_schema<C: CanisterKind>(
     proposal: &SchemaProposal,
     command: SchemaMigrationCommand,
 ) -> Result<SchemaMigrationStatusPage, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     match command {
         SchemaMigrationCommand::Adopt {
             expected_database,
@@ -853,7 +853,7 @@ pub(in crate::db) fn schema_migration_status<C: CanisterKind>(
     proposal: &SchemaProposal,
     request: &SchemaMigrationStatusRequest,
 ) -> Result<SchemaMigrationStatusPage, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     if !request.validate() || request.cursor().is_some() {
         return Err(InternalError::cursor_invalid_continuation());
     }
@@ -869,7 +869,7 @@ pub(in crate::db) fn defer_generated_schema_application_for_prepared_migration<C
     db: &Db<C>,
     proposal: &SchemaProposal,
 ) -> Result<bool, InternalError> {
-    ensure_recovered(db)?;
+    ensure_recovery_admitted(db)?;
     let Some(record) = load_schema_migration_record()? else {
         return Ok(false);
     };
@@ -3022,16 +3022,15 @@ mod tests {
         PendingGeneratedRowLocalConstraint, abort_schema_application,
         aborted_generated_row_local_candidate, accepted_head_after_candidates,
         application_authorities, apply_schema, continue_schema_application, derive_accepted_head,
-        derive_schema_change_job_id, ensure_recovered,
-        final_candidates_for_pending_row_local_constraint, include_identity_state_count,
-        lower_existing_schema_proposal, lower_initial_schema_proposal,
-        publish_accepted_schema_candidates_with_application_record,
+        derive_schema_change_job_id, final_candidates_for_pending_row_local_constraint,
+        include_identity_state_count, lower_existing_schema_proposal,
+        lower_initial_schema_proposal, publish_accepted_schema_candidates_with_application_record,
         require_exact_empty_entity_count, schema_application_target,
     };
     use crate::{
         db::{
             Db,
-            commit::forget_recovered_domain_for_tests,
+            commit::{RecoveryProgress, continue_recovery, forget_recovered_domain_for_tests},
             data::DataStore,
             index::IndexStore,
             journal::JournalTailStore,
@@ -3061,6 +3060,16 @@ mod tests {
         TypeSourceKey,
     };
     use std::cell::RefCell;
+
+    fn drive_startup_recovery_to_completion<C: CanisterKind>(db: &Db<C>) {
+        for _ in 0..1_024 {
+            match continue_recovery(db).expect("test startup recovery page should succeed") {
+                RecoveryProgress::Complete => return,
+                RecoveryProgress::Pending => {}
+            }
+        }
+        panic!("test startup recovery should complete within 1,024 bounded pages");
+    }
 
     #[cfg(feature = "migration")]
     use crate::{
@@ -3927,6 +3936,7 @@ mod tests {
             &EVOLUTION_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
+        drive_startup_recovery_to_completion(&db);
         let empty_target =
             schema_application_target(&db).expect("empty evolution target should issue");
         let store_identity = empty_target
@@ -4103,7 +4113,7 @@ mod tests {
         .expect("staged replacement and record should publish atomically");
 
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
-        ensure_recovered(&db).expect("recovery should restore the staged accepted activation");
+        drive_startup_recovery_to_completion(&db);
 
         let recovered = store
             .with_schema(SchemaStore::current_accepted_schema_bundle)
@@ -4220,6 +4230,7 @@ mod tests {
             &ABORT_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
+        drive_startup_recovery_to_completion(&db);
         let empty_target =
             schema_application_target(&db).expect("empty application target should issue");
         let store_identity = empty_target
@@ -4385,7 +4396,7 @@ mod tests {
             *store.borrow_mut() = JournalTailStore::init(test_memory(183));
         });
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
-        ensure_recovered(&db).expect("recovery should retain the terminal abort");
+        drive_startup_recovery_to_completion(&db);
         assert_eq!(
             abort_schema_application(&db, job_id, None)
                 .expect("recovered terminal abort should replay"),
@@ -4501,7 +4512,7 @@ mod tests {
             &MIGRATION_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
-        ensure_recovered(&db).expect("migration database should initialize");
+        drive_startup_recovery_to_completion(&db);
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let store_identity = initial_target
             .stores()
@@ -4687,7 +4698,7 @@ mod tests {
             &MIGRATION_EXECUTION_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
-        ensure_recovered(&db).expect("migration execution database should initialize");
+        drive_startup_recovery_to_completion(&db);
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let store_identity = initial_target
             .stores()
@@ -4766,12 +4777,7 @@ mod tests {
 
             forget_recovered_domain_for_tests(&db)
                 .expect("upgrade should reset recovery ownership");
-            ensure_recovered(&db).unwrap_or_else(|error| {
-                panic!(
-                    "recovery should finish the exact marker-bound rewrite page: {:?}",
-                    error.diagnostic(),
-                )
-            });
+            drive_startup_recovery_to_completion(&db);
         }
 
         let rebuilding = schema_migration_status_for_target(
@@ -4916,7 +4922,7 @@ mod tests {
             &MIGRATION_FINDING_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
-        ensure_recovered(&db).expect("migration finding database should initialize");
+        drive_startup_recovery_to_completion(&db);
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let store_identity = initial_target
             .stores()
@@ -5046,7 +5052,7 @@ mod tests {
             &EVOLUTION_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
         );
-        ensure_recovered(&db).expect("test database should initialize");
+        drive_startup_recovery_to_completion(&db);
         let initial_target = schema_application_target(&db).expect("initial target should issue");
         let (proposal, _, _) = generated_check_proposal(
             initial_target.accepted_head().clone(),

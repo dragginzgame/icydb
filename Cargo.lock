@@ -285,6 +285,7 @@ version = "0.225.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-cdk-timers",
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
  "serde",

@@ -22,6 +22,14 @@ Compiling the capability does not publish an endpoint, and declaring an
 endpoint without the capability fails compilation. The CLI consults only the
 deployed canister; it does not infer a migration from local source files.
 
+After an upgrade, application lifecycle code must keep database-dependent
+schedulers deferred while `startup_state()` reports `Recovering`. An
+authorized controller may inspect and advance the existing migration status
+during that window. Continue polling typed readiness and restore application
+state only after the migration is terminal and startup reports `Ready`; do not
+infer readiness from a delay or a generic conflict. See
+[startup-readiness.md](startup-readiness.md) for the composed lifecycle form.
+
 ## Declare The Current Version
 
 Every entity has its own positive source version. Start a new entity at

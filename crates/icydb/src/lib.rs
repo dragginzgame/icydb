@@ -221,12 +221,86 @@ macro_rules! build_canister {
 }
 
 /// Include the generated private actor module emitted by [`build_canister!`].
+///
+/// The zero-argument form owns hidden install and post-upgrade lifecycle
+/// entries for canisters without application hooks. Applications that own
+/// lifecycle callbacks use the composed form instead:
+///
+/// ```ignore
+/// icydb::start! {
+///     init(args: InitArgs) => application::init;
+///     post_upgrade() => application::post_upgrade;
+/// }
+/// ```
+///
+/// IcyDB registers its startup watchdog before invoking either callback. The
+/// callback remains application-owned and must observe `startup_state()`
+/// before restoring timers, caches, or other database-dependent state.
+#[macro_export]
+macro_rules! start {
+    () => {
+        $crate::__icydb_start_actor!();
+        $crate::__icydb_start_lifecycle!();
+    };
+
+    (
+        init($($init_arg:ident : $init_ty:ty),* $(,)?) => $init:path;
+        post_upgrade($($upgrade_arg:ident : $upgrade_ty:ty),* $(,)?) => $post_upgrade:path;
+    ) => {
+        $crate::__icydb_start_actor!();
+        $crate::__icydb_start_lifecycle! {
+            init($($init_arg: $init_ty),*) => $init;
+            post_upgrade($($upgrade_arg: $upgrade_ty),*) => $post_upgrade;
+        }
+    };
+}
+
+#[doc(hidden)]
 #[macro_export]
 #[expect(
     clippy::crate_in_macro_def,
-    reason = "start! must bind generated items in the consuming canister crate"
+    reason = "lifecycle wrappers must call the consuming canister's generated actor"
 )]
-macro_rules! start {
+macro_rules! __icydb_start_lifecycle {
+    () => {
+        #[$crate::__reexports::ic_cdk::init(hidden = true)]
+        fn __icydb_startup_init() {
+            crate::__icydb_generated::__icydb_startup_init();
+        }
+
+        #[$crate::__reexports::ic_cdk::post_upgrade(hidden = true)]
+        fn __icydb_startup_post_upgrade() {
+            crate::__icydb_generated::__icydb_startup_post_upgrade();
+        }
+    };
+
+    (
+        init($($init_arg:ident : $init_ty:ty),* $(,)?) => $init:path;
+        post_upgrade($($upgrade_arg:ident : $upgrade_ty:ty),* $(,)?) => $post_upgrade:path;
+    ) => {
+        #[$crate::__reexports::ic_cdk::init]
+        fn __icydb_startup_init($($init_arg: $init_ty),*) {
+            crate::__icydb_generated::__icydb_startup_init();
+            let (): () = $crate::db::with_request_execution(|| ($init)($($init_arg),*));
+        }
+
+        #[$crate::__reexports::ic_cdk::post_upgrade]
+        fn __icydb_startup_post_upgrade($($upgrade_arg: $upgrade_ty),*) {
+            crate::__icydb_generated::__icydb_startup_post_upgrade();
+            let (): () = $crate::db::with_request_execution(
+                || ($post_upgrade)($($upgrade_arg),*)
+            );
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+#[expect(
+    clippy::crate_in_macro_def,
+    reason = "generated actor bindings must live in the consuming canister crate"
+)]
+macro_rules! __icydb_start_actor {
     () => {
         #[doc(hidden)]
         struct __IcydbStartRootMarker;
@@ -731,8 +805,9 @@ macro_rules! __icydb_endpoints_internal {
 ///
 /// Use `db!()` in ordinary generated endpoints and nested helpers. Every call
 /// shares the execution counters installed at request entry. Manual IC-CDK,
-/// framework lifecycle, and timer entries establish that boundary with
-/// [`request_execution`].
+/// framework, and timer entries establish that boundary with
+/// [`request_execution`]; lifecycle callbacks declared by the composed
+/// [`start!`] form receive it automatically.
 ///
 /// `db!(&request_root)` is the explicit low-level integration form for a
 /// framework that already owns a request root. Obtain that root from

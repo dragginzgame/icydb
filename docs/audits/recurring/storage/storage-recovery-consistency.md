@@ -62,7 +62,11 @@ This audit must use the current live recovery boundary, not historical names.
 Primary owners:
 
 * `db/mod.rs`
-  * `ensure_recovered`
+  * `ensure_recovery_admitted`
+* `db/startup/*`
+  * pure readiness observation and the sole replicated page driver
+* `db/commit/recovery.rs`
+  * `continue_recovery`, called only by the startup driver
 * `db/commit/guard.rs`
   * `begin_commit`
   * `begin_single_row_commit`
@@ -102,7 +106,9 @@ Analyze:
 * `begin_commit`
 * `begin_single_row_commit`
 * `finish_commit`
-* `ensure_recovered`
+* `ensure_recovery_admitted`
+* generated lifecycle watchdog registration and startup-driver dispatch
+* `continue_recovery`
 * commit-window open/apply orchestration
 * save / replace / delete executor flows
 * reverse-relation index mutation
@@ -332,7 +338,9 @@ Every run must answer these explicitly:
 * Can a successful apply leave a persisted marker behind?
 * Can a failed apply clear the marker incorrectly?
 * Can replay observe marker state without corresponding row-op ownership?
-* Can recovery proceed before `ensure_recovered` gates write-side entry?
+* Can ordinary admission perform recovery work instead of returning startup pending?
+* Can any recovery path other than the generated replicated driver call
+  `continue_recovery`?
 * Can accepted schema-transition replay and normal replay diverge on the same
   marker contract?
 * Can schema mutation startup touch physical index state before the marker owns
