@@ -1466,6 +1466,17 @@ fn assert_journaled_total_only_limit_one_variants_stay_bounded(
             "SELECT name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1",
         ),
     ] {
+        // Compiled SQL cache identity includes the complete statement. The
+        // earlier two-column sentinel does not warm either projection variant,
+        // so explicitly establish each variant's own warm state before
+        // enforcing the warmed ceiling.
+        warm_sql_limit_one_with_perf(
+            fixture,
+            "warm_journaled_user_query_with_perf",
+            sql,
+            "journaled total-only variant warmup should decode",
+            "journaled total-only variant warmup should succeed",
+        );
         let variant = query_journaled_total_only_limit_one_perf(fixture, sql);
         println!("{label}: total={}", variant.instructions);
         assert!(
@@ -1493,6 +1504,15 @@ fn assert_heap_total_only_limit_one_variants_stay_bounded(fixture: &StandaloneCa
             "SELECT name FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1",
         ),
     ] {
+        // Keep this symmetric with the journaled fixture: every distinct SQL
+        // text owns its own compiled-cache entry and must be warmed directly.
+        warm_sql_limit_one_with_perf(
+            fixture,
+            "warm_heap_user_query_with_perf",
+            sql,
+            "heap total-only variant warmup should decode",
+            "heap total-only variant warmup should succeed",
+        );
         let variant = query_heap_total_only_limit_one_perf(fixture, sql);
         println!("{label}: total={}", variant.instructions);
         assert!(

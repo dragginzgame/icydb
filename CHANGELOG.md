@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Corrects warmed SQL performance evidence to prime each exact statement's
+  compiled-cache identity before enforcing its warm instruction ceiling.
+
 - Keeps generated canisters ready after compatible SQL DDL advances the
   accepted schema, while preserving exact generated-submission authority.
 
