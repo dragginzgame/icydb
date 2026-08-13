@@ -119,11 +119,8 @@ impl<C: CanisterKind> DbSession<C> {
     /// endpoints should prefer ordinary typed/dynamic reads, or use an
     /// application-owned SQL allowlist before entering this trusted lane.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_trusted_sql_query(sql)?,
-            entity,
-        ))
+        let (result, entity) = self.inner.execute_trusted_sql_query_with_entity_name(sql)?;
+        Ok(Self::sql_query_result_from_statement(result, entity))
     }
 
     /// Execute one trusted/admin SQL query and return the shell perf envelope shape.

@@ -105,11 +105,26 @@ impl<C: CanisterKind> DbSession<C> {
     /// supplies finite physical and aggregate execution policy; its caller
     /// separately owns authorization.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
+        self.execute_trusted_sql_query_with_entity_name(sql)
+            .map(|(result, _)| result)
+    }
+
+    /// Execute one trusted query and return the entity name resolved by the
+    /// same canonical parse used for compilation.
+    ///
+    /// This hidden facade seam prevents callers that need the response entity
+    /// from parsing the complete statement a second time.
+    #[doc(hidden)]
+    pub fn execute_trusted_sql_query_with_entity_name(
+        &self,
+        sql: &str,
+    ) -> Result<(SqlStatementResult, String), QueryError> {
         let entity_name = sql_statement_entity_name(sql)?;
         let (compiled, _, _) =
             self.compile_sql_query_with_execution_context(entity_name.as_deref(), sql)?;
+        let result = self.execute_compiled_sql_query_context_owned(compiled)?;
 
-        self.execute_compiled_sql_query_context_owned(compiled)
+        Ok((result, entity_name.unwrap_or_default()))
     }
 
     /// Execute one reduced SQL query while reporting the compile/execute split

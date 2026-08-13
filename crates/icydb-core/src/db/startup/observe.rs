@@ -29,21 +29,15 @@ pub(super) fn observe<C: CanisterKind>(
     configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
         .map_err(database_control_failure)?;
     let receipt = super::receipt::load::<C>().map_err(database_control_failure)?;
-    let format = observe_database_format(stores).map_err(|error| {
-        matching_allocation_failure::<C>(receipt.as_ref()).unwrap_or_else(|| {
-            StartupFailure::from_internal(StartupFailureKind::DatabaseControl, &error)
-        })
-    })?;
+    let format = observe_database_format(stores)
+        .map_err(|error| database_control_or_allocation_failure::<C>(receipt.as_ref(), &error))?;
     if format == DatabaseFormatObservation::Uninitialized {
         return matching_allocation_failure::<C>(receipt.as_ref())
             .map_or(Ok(DatabaseStartupState::Recovering), Err);
     }
 
-    let control = observe_commit_control().map_err(|error| {
-        matching_allocation_failure::<C>(receipt.as_ref()).unwrap_or_else(|| {
-            StartupFailure::from_internal(StartupFailureKind::DatabaseControl, &error)
-        })
-    })?;
+    let control = observe_commit_control()
+        .map_err(|error| database_control_or_allocation_failure::<C>(receipt.as_ref(), &error))?;
     let CommitControlObservation::Present {
         incarnation,
         empty_control_proof,
@@ -52,10 +46,15 @@ pub(super) fn observe<C: CanisterKind>(
     else {
         return Ok(DatabaseStartupState::Recovering);
     };
-    if let Some(failure) =
-        matching_database_control_failure::<C>(receipt.as_ref(), incarnation, empty_control_proof)
-    {
-        return Err(failure);
+    if let Some(receipt) = receipt.as_ref() {
+        let matches = if empty_control_proof.is_none() {
+            allocation_receipt_matches::<C>(receipt)
+        } else {
+            database_control_receipt_matches(receipt, incarnation, empty_control_proof)
+        };
+        if matches {
+            return Err(receipt.failure().clone());
+        }
     }
 
     let (recovered, in_progress) =
@@ -139,35 +138,32 @@ fn database_control_failure(error: InternalError) -> StartupFailure {
     StartupFailure::from_internal(StartupFailureKind::DatabaseControl, &error)
 }
 
+fn database_control_or_allocation_failure<C: CanisterKind>(
+    receipt: Option<&StartupFailureReceipt>,
+    error: &InternalError,
+) -> StartupFailure {
+    matching_allocation_failure::<C>(receipt).unwrap_or_else(|| {
+        StartupFailure::from_internal(StartupFailureKind::DatabaseControl, error)
+    })
+}
+
 fn matching_allocation_failure<C: CanisterKind>(
     receipt: Option<&StartupFailureReceipt>,
 ) -> Option<StartupFailure> {
     let receipt = receipt?;
-    match receipt.binding() {
+    allocation_receipt_matches::<C>(receipt).then(|| receipt.failure().clone())
+}
+
+fn allocation_receipt_matches<C: CanisterKind>(receipt: &StartupFailureReceipt) -> bool {
+    matches!(
+        receipt.binding(),
         StartupFailureBinding::DatabaseControl {
             commit_memory_id,
             commit_stable_key,
             control: None,
         } if *commit_memory_id == C::COMMIT_MEMORY_ID
-            && commit_stable_key == C::COMMIT_STABLE_KEY =>
-        {
-            Some(receipt.failure().clone())
-        }
-        _ => None,
-    }
-}
-
-fn matching_database_control_failure<C: CanisterKind>(
-    receipt: Option<&StartupFailureReceipt>,
-    incarnation: crate::db::DatabaseIncarnationId,
-    proof: Option<[u8; 32]>,
-) -> Option<StartupFailure> {
-    if proof.is_none() {
-        return matching_allocation_failure::<C>(receipt);
-    }
-    receipt
-        .filter(|receipt| database_control_receipt_matches(receipt, incarnation, proof))
-        .map(|receipt| receipt.failure().clone())
+            && commit_stable_key == C::COMMIT_STABLE_KEY
+    )
 }
 
 fn database_control_receipt_matches(
