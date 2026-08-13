@@ -2888,12 +2888,14 @@ pub(in crate::db) fn generated_schema_reconciled(
     let (database_identity, accepted_head) = generated_schema_authority(registry, incarnation)?;
     let reconciled = load_schema_application_record_read_only(database_identity, &submission_key)?
         .is_some_and(|record| match record.receipt().outcome() {
-            SchemaChangeOutcome::NoOp {
-                accepted_head: recorded,
-            }
-            | SchemaChangeOutcome::Applied {
-                accepted_head: recorded,
-            } => recorded == &accepted_head,
+            // The generated submission key is derived from the complete
+            // generated fragment and migration plan. A terminal receipt proves
+            // that exact source was applied in this database incarnation.
+            // Compatible SQL DDL may subsequently advance the accepted head
+            // while intentionally preserving generated-owned identities and
+            // semantics; exact submission replay returns the original receipt
+            // and cannot rebind it to that later DDL-owned head.
+            SchemaChangeOutcome::NoOp { .. } | SchemaChangeOutcome::Applied { .. } => true,
             SchemaChangeOutcome::Pending { .. } | SchemaChangeOutcome::Aborted { .. } => false,
         });
     Ok((reconciled, accepted_head))

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Keeps generated canisters ready after compatible SQL DDL advances the
+  accepted schema, while preserving exact generated-submission authority.
+
 - Restores generated native libtests by explicitly driving their fresh
   thread-local database startup without weakening production readiness gates.
 
