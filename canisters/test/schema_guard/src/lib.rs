@@ -72,6 +72,7 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 
 /// Measure the canonical local schema authorization seam without altering it.
 #[query]
+#[cfg_attr(not(feature = "guarded-schema"), allow(clippy::missing_const_for_fn))]
 #[allow(clippy::unnecessary_wraps)]
 fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error> {
     #[cfg(feature = "guarded-schema")]

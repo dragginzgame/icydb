@@ -75,6 +75,10 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 
 /// Measure the canonical local authorization seam without SQL execution.
 #[query]
+#[cfg_attr(
+    not(feature = "guarded-sql-query"),
+    allow(clippy::missing_const_for_fn)
+)]
 #[allow(clippy::unnecessary_wraps)]
 fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error> {
     #[cfg(feature = "guarded-sql-query")]

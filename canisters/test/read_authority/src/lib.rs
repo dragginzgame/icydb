@@ -10,6 +10,7 @@ use icydb::{
 };
 
 const ADMIN_SEED: u8 = 41;
+#[cfg(feature = "guarded-reads")]
 const READER_SEED: u8 = 42;
 
 icydb::start!();
