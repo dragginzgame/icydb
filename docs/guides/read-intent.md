@@ -135,9 +135,19 @@ lane. `execute_trusted_sql_query` has the same authorization posture.
 
 ## Generated SQL Boundary
 
-Generated `icydb_query` is controller-gated admin SQL. It is not a public read
-endpoint template. Hand-written public endpoints should use the ordinary
-typed/dynamic lane.
+Generated `icydb_query` is controller-gated by default. A declaration may
+instead use `authorization = guard(path)` to replace controller authority for
+the complete admitted SQL read lane. Guarded mode rejects anonymous callers
+before application code and does not add a controller fallback. It remains a
+trusted SQL surface rather than a narrow public-read template; hand-written
+public endpoints should use the ordinary typed/dynamic lane.
+
+The dedicated `icydb_schema` declaration separately accepts
+`authorization = public`, `controller`, or `guard(path)`. A schema guard sees
+only the `Schema` surface and does not authorize `SHOW`, `DESCRIBE`, or
+`EXPLAIN`; those remain statements on the guarded SQL lane. Both guarded
+surfaces reject anonymous callers before application code and replace rather
+than union with controller authority.
 
 ## Endpoint Review Checklist
 

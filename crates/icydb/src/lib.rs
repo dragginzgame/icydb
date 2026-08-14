@@ -37,8 +37,9 @@
 //!   The public database façade: sessions, SQL/dynamic reads, structural
 //!   mutations, and accepted-schema-bound typed adapters.
 //!
-//! Generated SQL endpoints are controller-gated admin surfaces. They are not
-//! generated public read endpoint templates.
+//! Generated SQL endpoints are controller-gated by default. A declaration may
+//! instead install one synchronous application read guard; neither form is an
+//! anonymous public read endpoint template.
 //!
 //! The operational lane contract lives in
 //! `docs/contracts/READ_ADMISSION.md`.
@@ -113,6 +114,7 @@ pub mod build {
     }
 }
 pub mod db;
+pub mod guards;
 pub mod diagnostic {
     //! Compact diagnostic identity for CLI and canister callers.
 
@@ -136,6 +138,10 @@ pub use error::{
     ConstraintValidationFindingOutput, ConstraintValuePath, ConstraintValuePathComponent,
     DiagnosticFact, Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind,
 };
+pub use guards::{
+    ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationGuard,
+    ReadAuthorizationSurface,
+};
 pub use icydb_diagnostic_code::ErrorCode;
 
 // Macro/runtime wiring surface used by generated code.
@@ -146,6 +152,7 @@ pub mod __macro {
         TypedFieldBindingRequest, TypedFieldType, ensure_default_memory_manager,
         execute_generated_storage_report,
     };
+    pub use crate::guards::{authorize_schema_read, authorize_sql_read};
     pub use ic_memory::{ic_memory_declaration, ic_memory_key, ic_memory_range};
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, DataStore, DbSession as CoreDbSession, EntityKey, EntityKeyBytes,
@@ -169,7 +176,7 @@ pub mod __macro {
 pub mod __reexports {
     pub use candid;
     pub use ic_cdk;
-    pub use ic_cdk_timers;
+    pub use ic_timers;
 }
 
 //
@@ -443,6 +450,64 @@ macro_rules! endpoints {
 )]
 macro_rules! __icydb_endpoints_internal {
     () => {};
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_sql_query(
+        introspection = false,
+        authorization = guard($guard:path) $(,)?
+    ); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_QUERY: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_sql_query";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
+            fn __icydb_export_icydb_query(
+                sql: String,
+            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+                let guard: $crate::ReadAuthorizationGuard = $guard;
+                $crate::__macro::authorize_sql_read(
+                    $crate::__reexports::ic_cdk::api::msg_caller(),
+                    guard,
+                )?;
+                $crate::__macro::with_query_metrics_context(|| {
+                    $crate::db::with_request_execution(|| {
+                        crate::__icydb_generated::endpoint_handlers::sql_query::<false>(sql)
+                    })
+                })
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_sql_query(
+        introspection = true,
+        authorization = guard($guard:path) $(,)?
+    ); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_QUERY: () = ();
+        $(#[cfg($($cfg)*)])*
+        $crate::__icydb_with_sql_endpoint! {
+            "icydb_sql_query";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
+            fn __icydb_export_icydb_query(
+                sql: String,
+            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+                let guard: $crate::ReadAuthorizationGuard = $guard;
+                $crate::__macro::authorize_sql_read(
+                    $crate::__reexports::ic_cdk::api::msg_caller(),
+                    guard,
+                )?;
+                $crate::__macro::with_query_metrics_context(|| {
+                    $crate::db::with_request_execution(|| {
+                        crate::__icydb_generated::endpoint_handlers::sql_query::<true>(sql)
+                    })
+                })
+            }
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
 
     ($(#[cfg($($cfg:tt)*)])* icydb_sql_query(introspection = false); $($rest:tt)*) => {
         $(#[cfg($($cfg)*)])*
@@ -719,6 +784,30 @@ macro_rules! __icydb_endpoints_internal {
         #[$crate::__reexports::ic_cdk::query(name = "icydb_schema")]
         fn __icydb_export_icydb_schema(
         ) -> Result<Vec<__icydb_facade::db::EntitySchemaDescription>, __icydb_facade::Error> {
+            $crate::__macro::with_query_metrics_context(|| {
+                $crate::db::with_request_execution(|| {
+                    crate::__icydb_generated::endpoint_handlers::schema()
+                })
+            })
+        }
+        $crate::__icydb_endpoints_internal!($($rest)*);
+    };
+
+    ($(#[cfg($($cfg:tt)*)])* icydb_schema(
+        authorization = guard($guard:path) $(,)?
+    ); $($rest:tt)*) => {
+        $(#[cfg($($cfg)*)])*
+        #[used]
+        static __ICYDB_ENDPOINT_DECLARATION_SCHEMA: () = ();
+        $(#[cfg($($cfg)*)])*
+        #[$crate::__reexports::ic_cdk::query(name = "icydb_schema")]
+        fn __icydb_export_icydb_schema(
+        ) -> Result<Vec<__icydb_facade::db::EntitySchemaDescription>, __icydb_facade::Error> {
+            let guard: $crate::ReadAuthorizationGuard = $guard;
+            $crate::__macro::authorize_schema_read(
+                $crate::__reexports::ic_cdk::api::msg_caller(),
+                guard,
+            )?;
             $crate::__macro::with_query_metrics_context(|| {
                 $crate::db::with_request_execution(|| {
                     crate::__icydb_generated::endpoint_handlers::schema()

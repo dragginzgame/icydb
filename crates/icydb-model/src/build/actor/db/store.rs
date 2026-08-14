@@ -146,19 +146,16 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
 
 #[expect(
     clippy::too_many_lines,
-    reason = "one generated block keeps the watchdog state, callback, and terminal handoff visibly co-located"
+    reason = "one generated block keeps watchdog reconciliation, callback classification, and terminal handoff visibly co-located"
 )]
 fn startup_driver_tokens() -> TokenStream {
     quote! {
         thread_local! {
-            static STARTUP_WATCHDOG_TIMER: ::std::cell::RefCell<
-                ::std::option::Option<::icydb::__reexports::ic_cdk_timers::TimerId>
+            static STARTUP_WATCHDOG_REGISTRATION: ::std::cell::RefCell<
+                ::std::option::Option<
+                    ::icydb::__reexports::ic_timers::WatchdogRegistration
+                >
             > = const { ::std::cell::RefCell::new(None) };
-            static STARTUP_DRIVER_ACTIVE: ::std::cell::Cell<bool> =
-                const { ::std::cell::Cell::new(false) };
-            static STARTUP_DRIVER_CADENCE_TIME: ::std::cell::Cell<
-                ::std::option::Option<u64>
-            > = const { ::std::cell::Cell::new(None) };
         }
 
         /// Register the single engine-owned startup watchdog while recovery is pending.
@@ -167,36 +164,83 @@ fn startup_driver_tokens() -> TokenStream {
             bool,
             ::icydb::db::StartupFailure,
         > {
-            if STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some()) {
-                return Ok(false);
-            }
+            initialize_startup_timer_runtime();
             match startup_state()? {
                 ::icydb::db::DatabaseStartupState::Ready => return Ok(false),
                 ::icydb::db::DatabaseStartupState::Recovering => {}
             }
+            let was_scheduled = startup_watchdog_is_scheduled();
             ensure_startup_watchdog_registered();
-            Ok(true)
+            Ok(!was_scheduled)
         }
 
         fn ensure_startup_watchdog_registered() {
-            if STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some()) {
-                return;
-            }
-            let timer_id = ::icydb::__reexports::ic_cdk_timers::set_timer_interval_serial(
-                ::std::time::Duration::from_secs(1),
-                async || {
-                    startup_watchdog_callback();
-                },
+            reconcile_startup_watchdog(
+                ::icydb::__reexports::ic_timers::TimerReconcileState::Scheduled,
             );
-            STARTUP_WATCHDOG_TIMER.with(|timer| timer.replace(Some(timer_id)));
         }
 
-        /// Reset non-authoritative timer state before post-upgrade reconstruction.
-        #[doc(hidden)]
-        pub fn __reset_startup_watchdog_after_upgrade() {
-            STARTUP_WATCHDOG_TIMER.with(|timer| timer.replace(None));
-            STARTUP_DRIVER_ACTIVE.with(|active| active.set(false));
-            STARTUP_DRIVER_CADENCE_TIME.with(|time| time.set(None));
+        fn initialize_startup_timer_runtime() {
+            if ::icydb::__reexports::ic_timers::initialize_runtime().is_err() {
+                ::icydb::__reexports::ic_cdk::trap(
+                    "IcyDB timer runtime initialization failed",
+                );
+            }
+        }
+
+        fn startup_watchdog_identity(
+        ) -> ::icydb::__reexports::ic_timers::TimerIdentity {
+            match ::icydb::__reexports::ic_timers::TimerIdentity::try_new(
+                "icydb",
+                "startup",
+                "recovery",
+            ) {
+                Ok(identity) => identity,
+                Err(_) => ::icydb::__reexports::ic_cdk::trap(
+                    "IcyDB startup watchdog identity is invalid",
+                ),
+            }
+        }
+
+        fn startup_watchdog_cadence(
+        ) -> ::icydb::__reexports::ic_timers::TimerCadence {
+            match ::icydb::__reexports::ic_timers::TimerCadence::new(
+                ::std::time::Duration::from_secs(1),
+            ) {
+                Ok(cadence) => cadence,
+                Err(_) => ::icydb::__reexports::ic_cdk::trap(
+                    "IcyDB startup watchdog cadence is invalid",
+                ),
+            }
+        }
+
+        fn reconcile_startup_watchdog(
+            desired: ::icydb::__reexports::ic_timers::TimerReconcileState,
+        ) {
+            initialize_startup_timer_runtime();
+            let identity = startup_watchdog_identity();
+            let cadence = startup_watchdog_cadence();
+            STARTUP_WATCHDOG_REGISTRATION.with(|slot| {
+                let Ok(mut registration) = slot.try_borrow_mut() else {
+                    ::icydb::__reexports::ic_cdk::trap(
+                        "IcyDB startup watchdog reconciliation is reentrant",
+                    );
+                };
+                if ::icydb::__reexports::ic_timers::reconcile_watchdog(
+                    &mut registration,
+                    &identity,
+                    cadence,
+                    ::icydb::__reexports::ic_timers::DeclarationLifetime::Retained,
+                    desired,
+                    startup_watchdog_callback,
+                )
+                .is_err()
+                {
+                    ::icydb::__reexports::ic_cdk::trap(
+                        "IcyDB startup watchdog reconciliation failed",
+                    );
+                }
+            });
         }
 
         fn register_startup_watchdog_for_lifecycle() {
@@ -211,52 +255,71 @@ fn startup_driver_tokens() -> TokenStream {
         /// Register generated startup driving before an application install hook.
         #[doc(hidden)]
         pub(crate) fn __icydb_startup_init() {
+            initialize_startup_timer_runtime();
             register_startup_watchdog_for_lifecycle();
         }
 
         /// Reconstruct volatile startup driving before an application upgrade hook.
         #[doc(hidden)]
         pub(crate) fn __icydb_startup_post_upgrade() {
-            __reset_startup_watchdog_after_upgrade();
+            initialize_startup_timer_runtime();
             register_startup_watchdog_for_lifecycle();
         }
 
-        /// Return whether this Wasm instance retains the current watchdog registration.
+        /// Return whether this Wasm instance has a live watchdog wake-up.
         #[doc(hidden)]
         pub fn __startup_watchdog_registered() -> bool {
-            STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some())
+            startup_watchdog_is_scheduled()
         }
 
-        fn startup_watchdog_callback() {
-            if !STARTUP_WATCHDOG_TIMER.with(|timer| timer.borrow().is_some())
-                || STARTUP_DRIVER_ACTIVE.with(::std::cell::Cell::get)
-            {
-                return;
-            }
-            let now = ::icydb::__reexports::ic_cdk::api::time();
-            if STARTUP_DRIVER_CADENCE_TIME.with(::std::cell::Cell::get) == Some(now) {
-                return;
-            }
+        fn startup_watchdog_is_scheduled() -> bool {
+            ::icydb::__reexports::ic_timers::timer_snapshot(
+                &startup_watchdog_identity(),
+            )
+            .ok()
+            .flatten()
+            .and_then(|snapshot| snapshot.next_deadline_ns())
+            .is_some()
+        }
+
+        fn startup_watchdog_callback(
+            _context: ::icydb::__reexports::ic_timers::TimerContext,
+        ) -> ::icydb::__reexports::ic_timers::WatchdogRunResult {
             match startup_state() {
-                Ok(::icydb::db::DatabaseStartupState::Ready) | Err(_) => {
-                    clear_startup_watchdog();
-                    return;
+                Ok(::icydb::db::DatabaseStartupState::Ready) => {
+                    return ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
+                        ::icydb::__reexports::ic_timers::TimerCompletion::no_work(),
+                        ::icydb::__reexports::ic_timers::WatchdogDecision::Stop,
+                    );
+                }
+                Err(_) => {
+                    return ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
+                        ::icydb::__reexports::ic_timers::TimerCompletion::invariant_failure(0),
+                        ::icydb::__reexports::ic_timers::WatchdogDecision::Stop,
+                    );
                 }
                 Ok(::icydb::db::DatabaseStartupState::Recovering) => {}
             }
 
-            STARTUP_DRIVER_CADENCE_TIME.with(|time| time.set(Some(now)));
-            STARTUP_DRIVER_ACTIVE.with(|active| active.set(true));
             let result = ::icydb::db::with_request_execution(startup_driver_attempt);
-            STARTUP_DRIVER_ACTIVE.with(|active| active.set(false));
             match result {
-                Ok(true) => clear_startup_watchdog(),
-                Ok(false) => {}
+                Ok(true) => ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
+                    ::icydb::__reexports::ic_timers::TimerCompletion::success(1),
+                    ::icydb::__reexports::ic_timers::WatchdogDecision::Stop,
+                ),
+                Ok(false) => ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
+                    ::icydb::__reexports::ic_timers::TimerCompletion::success(1),
+                    ::icydb::__reexports::ic_timers::WatchdogDecision::Continue,
+                ),
                 Err(error) => {
                     ::icydb::__reexports::ic_cdk::println!(
                         "IcyDB startup driver retryable failure (E{})",
                         error.code().raw(),
                     );
+                    ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
+                        ::icydb::__reexports::ic_timers::TimerCompletion::retryable_failure(0),
+                        ::icydb::__reexports::ic_timers::WatchdogDecision::Continue,
+                    )
                 }
             }
         }
@@ -315,23 +378,6 @@ fn startup_driver_tokens() -> TokenStream {
             }
         }
 
-        fn clear_startup_watchdog() {
-            if let Some(timer_id) =
-                STARTUP_WATCHDOG_TIMER.with(::std::cell::RefCell::take)
-            {
-                // The pinned serial-timer executor restores its busy task from a
-                // completion guard after this callback returns. Removing that task
-                // inside the callback makes the guard trap, rolling back the driver.
-                // Retire our logical registration now and clear the restored task in
-                // one separate timer message after normal serial completion.
-                ::icydb::__reexports::ic_cdk_timers::set_timer(
-                    ::std::time::Duration::ZERO,
-                    async move {
-                        ::icydb::__reexports::ic_cdk_timers::clear_timer(timer_id);
-                    },
-                );
-            }
-        }
     }
 }
 
@@ -867,20 +913,24 @@ mod tests {
     }
 
     #[test]
-    fn active_startup_watchdog_is_lifecycle_owned_serial_and_has_no_endpoint() {
+    fn active_startup_watchdog_uses_shared_prearmed_runtime_and_has_no_endpoint() {
         let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
 
         for required in [
-            "STARTUP_WATCHDOG_TIMER",
-            "Option<::icydb::__reexports::ic_cdk_timers::TimerId>",
-            "STARTUP_DRIVER_ACTIVE",
-            "STARTUP_DRIVER_CADENCE_TIME",
-            "set_timer_interval_serial(::std::time::Duration::from_secs(1)",
+            "STARTUP_WATCHDOG_REGISTRATION",
+            "Option<::icydb::__reexports::ic_timers::WatchdogRegistration>",
+            "ic_timers::initialize_runtime()",
+            "TimerIdentity::try_new",
+            "\"icydb\",\"startup\",\"recovery\"",
+            "TimerCadence::new",
+            "Duration::from_secs(1)",
+            "ic_timers::reconcile_watchdog(",
+            "DeclarationLifetime::Retained",
+            "TimerReconcileState::Scheduled",
+            "TimerCompletion::retryable_failure(0)",
+            "WatchdogDecision::Continue",
             "__drive_generated_startup_recovery_page",
             "__record_generated_schema_startup_failure",
-            "set_timer(::std::time::Duration::ZERO",
-            "STARTUP_WATCHDOG_TIMER.with(::std::cell::RefCell::take)",
-            "clear_timer(timer_id)",
             "__icydb_startup_init",
             "__icydb_startup_post_upgrade",
             "__initialize_native_database_for_tests",
@@ -888,14 +938,12 @@ mod tests {
             assert!(rendered.contains(required), "missing token: {required}");
         }
         for forbidden in [
-            "set_timer_interval(",
             "ic_cdk::update",
             "ic_cdk::query",
             "ic_cdk::init",
             "ic_cdk::post_upgrade",
             "#[update]",
             "#[query]",
-            "STARTUP_WATCHDOG_TIMER.with(|timer|timer.take())",
         ] {
             assert!(
                 !rendered.contains(forbidden),

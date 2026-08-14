@@ -1,0 +1,5 @@
+error[E0433]: too many leading `super` keywords
+ --> tests/fail-guards/super.rs:4:65
+  |
+4 |     icydb_sql_query(introspection = true, authorization = guard(super::policy::guard));
+  |                                                                 ^^^^^ there are too many leading `super` keywords

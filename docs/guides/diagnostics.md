@@ -44,7 +44,12 @@ icydb diagnostic E223 --canister app --environment production \
 ```
 
 Method-not-found, authorization, and replica failures are authoritative. They
-do not cause the CLI to infer names from local source.
+do not cause the CLI to infer names from local source. In particular, E26 means
+the deployed schema method retained controller authority, while E282 means its
+application guard denied this request. Method-not-found means the standard
+schema method is absent. A later request may succeed after application policy
+changes; the CLI emits no endpoint manifest and does not guess the configured
+authorization mode.
 
 ## Offline diagnostic artifact
 

@@ -1,0 +1,12 @@
+error: unknown or invalid IcyDB endpoint declaration `icydb_sql_query`
+ --> tests/fail-guards/qualified_self.rs:3:1
+  |
+3 | / icydb::endpoints! {
+4 | |     icydb_sql_query(
+5 | |         introspection = true,
+6 | |         authorization = guard(<Policy as GuardPolicy>::guard),
+7 | |     );
+8 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

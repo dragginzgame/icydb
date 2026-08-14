@@ -110,6 +110,10 @@ fn advance_watchdog(fixture: &StandaloneCanisterFixture) {
     for _ in 0..8 {
         advance_watchdog_by(fixture, Duration::from_secs(1));
         if startup_observation(fixture).state == icydb::db::DatabaseStartupState::Ready {
+            // The pre-armed Watchdog scheduler and its work run in separate
+            // messages. An independent application poll due at the same time
+            // may observe Recovering between them and retry one cadence later.
+            advance_watchdog_by(fixture, Duration::from_secs(1));
             return;
         }
     }

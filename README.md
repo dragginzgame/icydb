@@ -478,10 +478,16 @@ collisions with non-exported application hooks. Cargo features compile private
 capabilities; source declarations alone ask IcyDB to export maintained public
 wrappers. Local-only methods use ordinary canister-owned `#[cfg(feature =
 "...")]` declarations.
-Generated SQL endpoints are controller-gated admin surfaces, not public read
-endpoint templates. Caller-facing list/count/complete reads should be
-hand-written typed endpoints using the read-intent guidance and
-endpoint templates in
+Generated SQL endpoints are controller-gated by default. A source declaration
+may instead use `authorization = guard(path)` to replace controller authority
+with one synchronous application decision for the complete generated SQL read
+lane. Guarded SQL still rejects anonymous callers and never adds an implicit
+controller fallback. The dedicated `icydb_schema` declaration independently
+accepts `public`, `controller`, or `guard(path)` authority; its schema guard
+does not authorize SQL introspection, and the SQL guard does not export the
+schema method. Caller-facing list/count/complete reads that need a narrower
+shape should be hand-written typed endpoints using the read-intent guidance
+and endpoint templates in
 [docs/guides/read-intent.md](docs/guides/read-intent.md).
 
 Out of scope by design: joins, subqueries, CTEs, quoted identifiers, window

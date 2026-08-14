@@ -21,7 +21,7 @@ struct TimerProbeSnapshot {
 }
 
 #[test]
-fn serial_watchdog_baseline_survives_instruction_exhaustion() {
+fn shared_watchdog_survives_instruction_exhaustion() {
     let fixture = install_fixture_canister("startup_timer");
     assert!(start(&fixture));
 
@@ -72,12 +72,12 @@ fn advance_timer_round(fixture: &StandaloneCanisterFixture, duration: Duration) 
 }
 
 #[test]
-fn serial_watchdog_baseline_survives_trap_and_upgrade() {
+fn shared_watchdog_survives_trap_and_upgrade() {
     let fixture = install_fixture_canister("startup_timer");
     assert!(start(&fixture));
     assert!(
         !start(&fixture),
-        "one retained TimerId must deduplicate registration"
+        "one retained Watchdog claim must deduplicate registration"
     );
 
     let before_external = snapshot(&fixture);
@@ -146,26 +146,25 @@ fn serial_watchdog_baseline_survives_trap_and_upgrade() {
 }
 
 #[test]
-fn overdue_serial_timers_have_a_bounded_shared_dispatch_burst() {
+fn overdue_shared_timers_coalesce_to_bounded_work() {
     let fixture = install_fixture_canister("startup_timer");
     assert!(start(&fixture));
 
-    fixture.pocket_ic().advance_time(Duration::from_mins(5));
-    fixture.pocket_ic().tick();
+    advance_timer_round(&fixture, Duration::from_mins(5));
     let overdue = snapshot(&fixture);
     let delivered = overdue
         .watchdog_callbacks
         .saturating_add(overdue.application_callbacks);
     assert!(delivered > 0);
     assert!(
-        delivered <= 250,
-        "one overdue dispatch burst must honor the pinned shared cap"
+        delivered <= 2,
+        "one overdue round must coalesce to one callback per logical timer"
     );
     assert!(overdue.watchdog_callbacks > 0);
     assert!(overdue.application_callbacks > 0);
 
     println!(
-        "icydb_0225_timer_overdue requested_seconds=300 watchdog_callbacks={} application_callbacks={} shared_delivered={} pinned_shared_cap=250",
+        "icydb_0225_timer_overdue requested_seconds=300 watchdog_callbacks={} application_callbacks={} shared_delivered={} coalesced_ceiling=2",
         overdue.watchdog_callbacks, overdue.application_callbacks, delivered,
     );
 }

@@ -1,0 +1,31 @@
+[package]
+name = "canister_test_read_authority"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = ["icydb-testing-audit-one-simple-fixtures"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+candid-export = []
+guarded-reads = ["sql"]
+sql = ["icydb/sql"]
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-audit-one-simple-fixtures = { workspace = true }
+
+[build-dependencies]
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-audit-one-simple-fixtures = { workspace = true }
+
+[lints]
+workspace = true

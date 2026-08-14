@@ -703,4 +703,8 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlQueryReplyBytesExceeded });
     RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING = 280 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::DatabaseStartupRecoveryPending });
+    RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED = 281 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlSurfacePolicyDenied });
+    RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED = 282 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SchemaSurfacePolicyDenied });
 }

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🔧 Changed
+
+- Hard-cuts generated recovery and maintained application timers to the exact
+  `ic-timers 0.3.1` shared runtime, removing IcyDB's direct timer-provider path
+  without changing public Candid or persisted database formats.
+
+## [0.226.x] 🔐 - 2026-08-14 - Application-Scoped SQL And Schema Read Authority
+
+Detailed notes: [docs/changelog/0.226.md](docs/changelog/0.226.md)
+
+- `0.226.0` adds synchronous application guards for generated SQL and schema
+  reads, allowing non-controller readers without granting lifecycle authority;
+  the new Rust guard contract and E281/E282 variants are potentially breaking
+  for exhaustive matches.
+
 ## [0.225.x] 🚦 - 2026-08-12 - Explicit Startup Readiness And Replicated Recovery Driving
 
 Detailed notes: [docs/changelog/0.225.md](docs/changelog/0.225.md)

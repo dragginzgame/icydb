@@ -2,7 +2,12 @@
 
 use candid::CandidType;
 use ic_cdk::{query, update};
-use ic_cdk_timers::TimerId;
+use ic_timers::{
+    AfterCompletionRegistration, DeclarationLifetime, TimerCadence, TimerCompletion,
+    TimerDirective, TimerIdentity, TimerRunResult, WatchdogDecision, WatchdogRegistration,
+    WatchdogRunResult, initialize_runtime, register_after_completion, register_watchdog,
+    timer_snapshot,
+};
 use std::{
     cell::{Cell, RefCell},
     time::Duration,
@@ -13,8 +18,8 @@ const WATCHDOG_INTERVAL_NANOS: u64 = 1_000_000_000;
 const MAX_RECORDED_CALLBACKS: usize = 512;
 
 thread_local! {
-    static WATCHDOG_TIMER: RefCell<Option<TimerId>> = const { RefCell::new(None) };
-    static APPLICATION_TIMER: RefCell<Option<TimerId>> = const { RefCell::new(None) };
+    static WATCHDOG_TIMER: RefCell<Option<WatchdogRegistration>> = const { RefCell::new(None) };
+    static APPLICATION_TIMER: RefCell<Option<AfterCompletionRegistration>> = const { RefCell::new(None) };
     static WATCHDOG_CALLBACKS: Cell<u32> = const { Cell::new(0) };
     static APPLICATION_CALLBACKS: Cell<u32> = const { Cell::new(0) };
     static WATCHDOG_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
@@ -72,27 +77,65 @@ fn startup_timer_probe_start() -> bool {
     if WATCHDOG_TIMER.with_borrow(Option::is_some) {
         return false;
     }
+    if initialize_runtime().is_err() {
+        ic_cdk::trap("startup timer probe runtime initialization failed");
+    }
+    let cadence = timer_cadence();
 
-    let watchdog = ic_cdk_timers::set_timer_interval_serial(WATCHDOG_INTERVAL, async || {
-        let should_trap = TRAP_AT.with(|trap_at| trap_at.get() == Some(ic_cdk::api::time()));
-        if should_trap {
-            ic_cdk::trap("0.225 watchdog trap probe");
-        }
-        let should_exhaust = EXHAUST_AT.with(|at| at.get() == Some(ic_cdk::api::time()));
-        if should_exhaust {
-            exhaust_message_instructions();
-        }
-        record_callback(&WATCHDOG_CALLBACKS, &WATCHDOG_INSTRUCTIONS, &WATCHDOG_TIMES);
-    });
+    let Ok(watchdog) = register_watchdog(
+        watchdog_identity(),
+        cadence,
+        DeclarationLifetime::Retained,
+        |_context| {
+            let now = ic_cdk::api::time();
+            let should_trap = TRAP_AT.with(|trap_at| {
+                trap_at.get().is_some_and(|start| {
+                    now >= start && now < start.saturating_add(WATCHDOG_INTERVAL_NANOS)
+                })
+            });
+            if should_trap {
+                ic_cdk::trap("startup watchdog trap probe");
+            }
+            let should_exhaust = EXHAUST_AT.with(|at| {
+                at.get().is_some_and(|start| {
+                    now >= start && now < start.saturating_add(WATCHDOG_INTERVAL_NANOS)
+                })
+            });
+            if should_exhaust {
+                exhaust_message_instructions();
+            }
+            record_callback(&WATCHDOG_CALLBACKS, &WATCHDOG_INSTRUCTIONS, &WATCHDOG_TIMES);
+            WatchdogRunResult::new(TimerCompletion::success(1), WatchdogDecision::Continue)
+        },
+    ) else {
+        ic_cdk::trap("startup watchdog registration failed");
+    };
+    if watchdog.ensure_scheduled().is_err() {
+        ic_cdk::trap("startup watchdog scheduling failed");
+    }
     WATCHDOG_TIMER.with_borrow_mut(|slot| *slot = Some(watchdog));
 
-    let application = ic_cdk_timers::set_timer_interval_serial(WATCHDOG_INTERVAL, async || {
-        record_callback(
-            &APPLICATION_CALLBACKS,
-            &APPLICATION_INSTRUCTIONS,
-            &APPLICATION_TIMES,
-        );
-    });
+    let Ok(application) = register_after_completion(
+        application_identity(),
+        cadence,
+        DeclarationLifetime::Retained,
+        |_context| async {
+            record_callback(
+                &APPLICATION_CALLBACKS,
+                &APPLICATION_INSTRUCTIONS,
+                &APPLICATION_TIMES,
+            );
+            TimerRunResult::new(
+                TimerCompletion::success(1),
+                TimerDirective::RecurAfterCompletion,
+            )
+        },
+    ) else {
+        ic_cdk::trap("application timer registration failed");
+    };
+    if application.ensure_scheduled().is_err() {
+        ic_cdk::trap("application timer scheduling failed");
+    }
     APPLICATION_TIMER.with_borrow_mut(|slot| *slot = Some(application));
     true
 }
@@ -100,13 +143,17 @@ fn startup_timer_probe_start() -> bool {
 #[update]
 fn startup_timer_probe_stop() {
     WATCHDOG_TIMER.with_borrow_mut(|slot| {
-        if let Some(timer) = slot.take() {
-            ic_cdk_timers::clear_timer(timer);
+        if let Some(registration) = slot.take()
+            && registration.unregister().is_err()
+        {
+            ic_cdk::trap("startup watchdog removal failed");
         }
     });
     APPLICATION_TIMER.with_borrow_mut(|slot| {
-        if let Some(timer) = slot.take() {
-            ic_cdk_timers::clear_timer(timer);
+        if let Some(registration) = slot.take()
+            && registration.unregister().is_err()
+        {
+            ic_cdk::trap("application timer removal failed");
         }
     });
 }
@@ -128,8 +175,8 @@ fn startup_timer_probe_arm_exhaustion() -> u64 {
 #[query]
 fn startup_timer_probe_snapshot() -> TimerProbeSnapshot {
     TimerProbeSnapshot {
-        watchdog_registered: WATCHDOG_TIMER.with_borrow(Option::is_some),
-        application_registered: APPLICATION_TIMER.with_borrow(Option::is_some),
+        watchdog_registered: timer_is_scheduled(&watchdog_identity()),
+        application_registered: timer_is_scheduled(&application_identity()),
         watchdog_callbacks: WATCHDOG_CALLBACKS.with(Cell::get),
         application_callbacks: APPLICATION_CALLBACKS.with(Cell::get),
         watchdog_instructions: WATCHDOG_INSTRUCTIONS.with(Cell::get),
@@ -139,6 +186,35 @@ fn startup_timer_probe_snapshot() -> TimerProbeSnapshot {
         trap_at: TRAP_AT.with(Cell::get),
         exhaust_at: EXHAUST_AT.with(Cell::get),
     }
+}
+
+fn timer_cadence() -> TimerCadence {
+    match TimerCadence::new(WATCHDOG_INTERVAL) {
+        Ok(cadence) => cadence,
+        Err(_) => ic_cdk::trap("startup timer probe cadence is invalid"),
+    }
+}
+
+fn watchdog_identity() -> TimerIdentity {
+    match TimerIdentity::try_new("icydb", "startup-probe", "watchdog") {
+        Ok(identity) => identity,
+        Err(_) => ic_cdk::trap("startup watchdog identity is invalid"),
+    }
+}
+
+fn application_identity() -> TimerIdentity {
+    match TimerIdentity::try_new("icydb", "startup-probe", "application") {
+        Ok(identity) => identity,
+        Err(_) => ic_cdk::trap("application timer identity is invalid"),
+    }
+}
+
+fn timer_is_scheduled(identity: &TimerIdentity) -> bool {
+    timer_snapshot(identity)
+        .ok()
+        .flatten()
+        .and_then(|snapshot| snapshot.next_deadline_ns())
+        .is_some()
 }
 
 #[cfg(feature = "candid-export")]

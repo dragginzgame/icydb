@@ -29,6 +29,18 @@ name = "sql_canister"
 path = "tests/sql_canister.rs"
 
 [[test]]
+name = "sql_guard"
+path = "tests/sql_guard.rs"
+
+[[test]]
+name = "read_authority"
+path = "tests/read_authority.rs"
+
+[[test]]
+name = "schema_guard"
+path = "tests/schema_guard.rs"
+
+[[test]]
 name = "query_canister"
 path = "tests/query_canister.rs"
 

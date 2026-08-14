@@ -50,10 +50,25 @@ struct ConfiguredCanisterBuild {
     final_deployable: PathBuf,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 11] = [
+static FIXTURE_CANISTERS: [FixtureCanister; 15] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "read_authority",
+        package: "canister_test_read_authority",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "schema_guard",
+        package: "canister_test_schema_guard",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "schema_public",
+        package: "canister_test_schema_public",
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
@@ -64,6 +79,11 @@ static FIXTURE_CANISTERS: [FixtureCanister; 11] = [
     FixtureCanister {
         name: "sql_bounded",
         package: "canister_test_sql_bounded",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "sql_guard",
+        package: "canister_test_sql_guard",
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {

@@ -152,7 +152,7 @@ impl ApplicationStartupState {
 std::thread_local! {
     static APPLICATION_STARTUP_STATE: std::cell::RefCell<ApplicationStartupState> =
         const { std::cell::RefCell::new(ApplicationStartupState::new(ApplicationStartupHook::Init, false)) };
-    static APPLICATION_STARTUP_TIMER: std::cell::RefCell<Option<ic_cdk_timers::TimerId>> =
+    static APPLICATION_STARTUP_TIMER: std::cell::RefCell<Option<ic_timers::OnceRegistration>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -175,53 +175,112 @@ fn begin_application_startup(hook: ApplicationStartupHook) {
             engine_registered_before_hook,
         ));
     });
-    observe_application_startup(startup_state());
+    apply_application_startup_observation(startup_state());
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn apply_application_startup_observation(
+    observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
+) {
+    if observe_application_startup(observation) {
+        schedule_application_startup_poll();
+    } else {
+        clear_application_startup_poll();
+    }
 }
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 fn observe_application_startup(
     observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
-) {
+) -> bool {
     APPLICATION_STARTUP_STATE.with(|state| {
         let mut state = state.borrow_mut();
         state.observations = state.observations.saturating_add(1);
         match observation {
             Ok(icydb::db::DatabaseStartupState::Ready) => {
                 state.ready_observations = state.ready_observations.saturating_add(1);
-                clear_application_startup_poll();
                 if state.restorations == 0 && state.failure.is_none() {
                     state.restorations = 1;
                 }
+                false
             }
             Ok(icydb::db::DatabaseStartupState::Recovering) => {
                 state.recovering_observations = state.recovering_observations.saturating_add(1);
-                schedule_application_startup_poll();
+                true
             }
             Err(failure) => {
                 state.failure = Some(failure);
-                clear_application_startup_poll();
+                false
             }
+        }
+    })
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn schedule_application_startup_poll() {
+    APPLICATION_STARTUP_TIMER.with(|timer| {
+        let mut registration = timer.borrow_mut();
+        if registration.is_none() {
+            let Ok(created) = ic_timers::register_once(
+                application_startup_timer_identity(),
+                ic_timers::DeclarationLifetime::Retained,
+                |_context| async { application_startup_poll_result() },
+            ) else {
+                ic_cdk::trap("application startup timer registration failed");
+            };
+            *registration = Some(created);
+        }
+        let Some(registration) = registration.as_ref() else {
+            ic_cdk::trap("application startup timer registration is absent");
+        };
+        if registration
+            .ensure_scheduled(ic_timers::TimerSchedule::After(
+                std::time::Duration::from_secs(1),
+            ))
+            .is_err()
+        {
+            ic_cdk::trap("application startup timer scheduling failed");
         }
     });
 }
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
-fn schedule_application_startup_poll() {
-    if APPLICATION_STARTUP_TIMER.with(|timer| timer.borrow().is_some()) {
-        return;
-    }
-    let timer_id = ic_cdk_timers::set_timer(std::time::Duration::from_secs(1), async {
-        APPLICATION_STARTUP_TIMER.with(std::cell::RefCell::take);
-        observe_application_startup(startup_state());
+fn clear_application_startup_poll() {
+    APPLICATION_STARTUP_TIMER.with(|timer| {
+        if let Some(registration) = timer.borrow().as_ref()
+            && registration.cancel().is_err()
+        {
+            ic_cdk::trap("application startup timer cancellation failed");
+        }
     });
-    APPLICATION_STARTUP_TIMER.with(|timer| timer.replace(Some(timer_id)));
 }
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
-fn clear_application_startup_poll() {
-    if let Some(timer_id) = APPLICATION_STARTUP_TIMER.with(std::cell::RefCell::take) {
-        ic_cdk_timers::clear_timer(timer_id);
+fn application_startup_poll_result() -> ic_timers::TimerRunResult {
+    let recovering = observe_application_startup(startup_state());
+    let directive = if recovering {
+        ic_timers::TimerDirective::RetryAfter(std::time::Duration::from_secs(1))
+    } else {
+        ic_timers::TimerDirective::Stop
+    };
+    ic_timers::TimerRunResult::new(ic_timers::TimerCompletion::no_work(), directive)
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn application_startup_timer_identity() -> ic_timers::TimerIdentity {
+    match ic_timers::TimerIdentity::try_new("icydb-audit", "startup", "application-poll") {
+        Ok(identity) => identity,
+        Err(_) => ic_cdk::trap("application startup timer identity is invalid"),
     }
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn application_startup_poll_scheduled() -> bool {
+    ic_timers::timer_snapshot(&application_startup_timer_identity())
+        .ok()
+        .flatten()
+        .and_then(|snapshot| snapshot.next_deadline_ns())
+        .is_some()
 }
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
@@ -235,7 +294,7 @@ fn application_startup_snapshot() -> ApplicationStartupSnapshot {
             recovering_observations: state.recovering_observations,
             ready_observations: state.ready_observations,
             restorations: state.restorations,
-            retry_scheduled: APPLICATION_STARTUP_TIMER.with(|timer| timer.borrow().is_some()),
+            retry_scheduled: application_startup_poll_scheduled(),
             failure: state.failure.clone(),
         }
     })
@@ -1685,7 +1744,7 @@ fn application_startup_contract() -> ApplicationStartupSnapshot {
 fn observe_application_startup_for_tests(
     observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
 ) {
-    observe_application_startup(observation);
+    apply_application_startup_observation(observation);
 }
 
 /// Use the predecessor admission path solely to prepare Patch 2 readiness evidence.

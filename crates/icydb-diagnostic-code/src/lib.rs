@@ -555,6 +555,10 @@ pub enum RuntimeBoundaryCode {
     SqlQueryReplyBytesExceeded,
     /// Startup recovery remains incomplete and ordinary database work must retry later.
     DatabaseStartupRecoveryPending,
+    /// An application guard denied access to the generated SQL read surface.
+    SqlSurfacePolicyDenied,
+    /// An application guard denied access to the generated accepted-schema surface.
+    SchemaSurfacePolicyDenied,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1097,7 +1101,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 280);
+        assert_eq!(last, 282);
     }
 
     #[test]

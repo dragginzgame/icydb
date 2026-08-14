@@ -121,6 +121,14 @@ const TEST_SQL_BOUNDED_PRODUCTION_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_snapshot", CanisterMethodMode::Query),
     ("icydb_update", CanisterMethodMode::Update),
 ];
+const TEST_SQL_GUARD_METHODS: &[ExpectedCanisterMethod] =
+    &[("icydb_query", CanisterMethodMode::Query)];
+const TEST_READ_AUTHORITY_METHODS: &[ExpectedCanisterMethod] = &[
+    ("icydb_query", CanisterMethodMode::Query),
+    ("icydb_schema", CanisterMethodMode::Query),
+];
+const TEST_SCHEMA_METHODS: &[ExpectedCanisterMethod] =
+    &[("icydb_schema", CanisterMethodMode::Query)];
 const RPG_PRODUCTION_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_ddl", CanisterMethodMode::Update),
     ("icydb_metrics", CanisterMethodMode::Query),
@@ -224,6 +232,38 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         ],
         production_icydb_methods: TEST_SQL_BOUNDED_PRODUCTION_METHODS,
         local_test_icydb_methods: TEST_SQL_BOUNDED_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "read_authority",
+        package: "canister_test_read_authority",
+        production_features: &["candid-export", "sql"],
+        local_test_features: &["candid-export", "guarded-reads", "sql"],
+        production_icydb_methods: TEST_READ_AUTHORITY_METHODS,
+        local_test_icydb_methods: TEST_READ_AUTHORITY_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "schema_guard",
+        package: "canister_test_schema_guard",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export", "guarded-schema"],
+        production_icydb_methods: TEST_SCHEMA_METHODS,
+        local_test_icydb_methods: TEST_SCHEMA_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "schema_public",
+        package: "canister_test_schema_public",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export"],
+        production_icydb_methods: TEST_SCHEMA_METHODS,
+        local_test_icydb_methods: TEST_SCHEMA_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "sql_guard",
+        package: "canister_test_sql_guard",
+        production_features: &["candid-export", "sql"],
+        local_test_features: &["candid-export", "guarded-sql-query", "sql"],
+        production_icydb_methods: TEST_SQL_GUARD_METHODS,
+        local_test_icydb_methods: TEST_SQL_GUARD_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "startup_timer",
@@ -757,7 +797,7 @@ mod tests {
 
     #[test]
     fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 11);
+        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 15);
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)

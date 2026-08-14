@@ -1016,6 +1016,12 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::DatabaseStartupRecoveryPending => {
             "database startup recovery is still in progress"
         }
+        RuntimeBoundaryCode::SqlSurfacePolicyDenied => {
+            "application policy denied access to the SQL endpoint"
+        }
+        RuntimeBoundaryCode::SchemaSurfacePolicyDenied => {
+            "application policy denied access to the schema endpoint"
+        }
         RuntimeBoundaryCode::SqlDdlTargetRequired => "SQL DDL requires one target entity",
         RuntimeBoundaryCode::SqlDdlEntityNotConfigured => {
             "SQL DDL target entity is not configured for this canister"
@@ -2260,6 +2266,32 @@ mod tests {
             let err = icydb::Error::from_runtime_boundary(boundary, icydb::ErrorOrigin::Interface);
             assert_eq!(render_error(&err), expected);
         }
+    }
+
+    #[test]
+    fn renders_sql_surface_policy_denial() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::SqlSurfacePolicyDenied,
+            icydb::ErrorOrigin::Interface,
+        );
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: application policy denied access to the SQL endpoint",
+        );
+    }
+
+    #[test]
+    fn renders_schema_surface_policy_denial() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::SchemaSurfacePolicyDenied,
+            icydb::ErrorOrigin::Interface,
+        );
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: application policy denied access to the schema endpoint",
+        );
     }
 
     #[test]

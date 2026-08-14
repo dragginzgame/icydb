@@ -23,7 +23,7 @@ GUARDED_PATHS=(
   "crates/icydb-core/src/db/session/sql/execute/write_returning"
 )
 
-INTERLEAVING_PATTERN="\\basync\\s+fn\\b|\\basync\\s+move\\b|\\.await\\b|\\bic_cdk::(call|spawn)\\b|\\bcall_raw\\b|\\bnotify_raw\\b|\\bic_cdk_timers\\b|\\bset_timer(_interval)?\\b"
+INTERLEAVING_PATTERN="\\basync\\s+fn\\b|\\basync\\s+move\\b|\\.await\\b|\\bic_cdk::(call|spawn)\\b|\\bcall_raw\\b|\\bnotify_raw\\b|\\bic_(cdk_)?timers\\b|\\bset_timer(_interval)?\\b"
 
 for guarded_path in "${GUARDED_PATHS[@]}"; do
   if [[ ! -e "$guarded_path" ]]; then

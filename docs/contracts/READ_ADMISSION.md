@@ -80,12 +80,32 @@ for grouped execution.
 
 ## Generated SQL Query Surface
 
-Generated `icydb_query` remains controller-gated. It calls
-the generated SQL controller authorization helper before dispatch and uses
-`execute_trusted_sql_query_with_perf_attribution`.
+Generated `icydb_query` remains controller-gated when its declaration omits an
+authorization choice. A declaration may instead specify
+`authorization = guard(path)`. Guarded mode rejects anonymous callers and
+invokes the exact synchronous function once over caller plus `Sql`, before
+query metrics, request-root construction, startup admission, parsing, or
+dispatch. `Allow` continues into `execute_trusted_sql_query_with_perf_attribution`;
+`Deny` returns the typed SQL policy diagnostic. Guard authority replaces
+controller authority and never forms an implicit union.
 
-The maintained `icydb_sql_query` declaration always produces a controller-gated
-admin surface, not a public endpoint template.
+Both declaration forms remain trusted SQL surfaces, not public endpoint
+templates. Authorization does not weaken the maintained read-only statement
+dispatcher or bypass startup admission.
+
+## Generated Accepted-Schema Surface
+
+`icydb_schema` retains its explicit `authorization = public | controller`
+forms and additionally accepts `authorization = guard(path)`. Guarded schema
+rejects anonymous callers and invokes the same exact synchronous guard type
+once with the `Schema` discriminator, before query metrics, request-root
+construction, startup admission, accepted-schema observation, or handler
+dispatch. `Deny` returns the typed schema-policy diagnostic. Guard authority
+replaces controller authority and never forms an implicit union.
+
+The dedicated method is not a second spelling for SQL introspection. SQL
+`SHOW`, `DESCRIBE`, and `EXPLAIN` remain under the complete `icydb_query` guard,
+while the schema guard protects only `icydb_schema`.
 
 ## Public Endpoint Guidance
 

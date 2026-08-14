@@ -15,7 +15,7 @@ candid-export = []
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-ic-cdk-timers = { workspace = true }
+ic-timers = { workspace = true }
 
 [lints]
 workspace = true

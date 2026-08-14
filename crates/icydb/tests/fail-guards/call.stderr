@@ -1,0 +1,10 @@
+error: expected one of `!`, `(`, `+`, `::`, or `<`, found `{`
+ --> tests/fail-guards/call.rs:6:77
+  |
+6 |         authorization = guard(policy::guard(icydb::ReadAuthorizationContext {
+  |                                                                             ^ expected one of `!`, `(`, `+`, `::`, or `<`
+  |
+ ::: src/lib.rs
+  |
+  |         authorization = guard($guard:path) $(,)?
+  |                               ----------- while parsing argument for this `path` macro fragment

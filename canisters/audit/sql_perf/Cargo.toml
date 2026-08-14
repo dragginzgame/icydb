@@ -18,7 +18,7 @@ test-admin-api = ["sql"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-ic-cdk-timers = { workspace = true }
+ic-timers = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

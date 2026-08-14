@@ -251,8 +251,13 @@ SQL entry points are explicit trusted/admin lanes:
 
 They resolve entity identity from the SQL statement against accepted catalog
 authority. They are not safe templates for caller-controlled SQL. Generated
-`icydb_query`, `icydb_ddl`, and optional update endpoints remain
-controller-gated.
+`icydb_ddl` and optional update endpoints remain controller-gated.
+`icydb_query` is controller-gated by default; a source declaration may instead
+replace controller authority with one synchronous application guard over the
+caller and complete SQL read surface. `icydb_schema` independently requires an
+explicit `public`, `controller`, or `guard(path)` choice. Its guard sees the
+`Schema` surface and protects only that dedicated accepted-schema method; SQL
+`SHOW`, `DESCRIBE`, and `EXPLAIN` remain under the SQL guard.
 
 Durable mutation jobs retain the canonical fixed-update intent and private
 engine continuation inside IcyDB. Callers keep only the job id, expected
