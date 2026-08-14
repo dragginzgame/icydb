@@ -2,8 +2,9 @@
 
 This contract defines IcyDB's maintained read lanes after the 0.213 hard cut.
 Accepted schema, the planner result, and the built-in admission policy are the
-only authorities. Generated models and application callbacks never decide
-whether a read may execute.
+only query-shape admission authorities. Generated models and application
+callbacks never replace that admission decision. A generated SQL or schema
+guard may authorize its caller before admission begins, as described below.
 
 ## Core Rule
 
@@ -42,7 +43,7 @@ owns authorization and the resource policy.
 | `execute_trusted_exhaustive_page` | trusted bypass | Authorized maintenance page with the same revision-strict proof contract. |
 | `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
-| generated `icydb_query` | trusted bypass | Controller-gated admin SQL using `execute_trusted_sql_query_with_perf_attribution`. |
+| generated `icydb_query` | trusted bypass | Controller-gated by default, or protected by one declared synchronous application guard, then uses `execute_trusted_sql_query_with_perf_attribution`. |
 | SQL `EXPLAIN` | `DiagnosticExplain` | Observational planning only on its diagnostic route. |
 
 Public scalar and grouped callers may provide only the opaque cursor issued by

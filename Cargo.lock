@@ -1225,9 +1225,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.3.1"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68bee85e57e3a40833bddd67994290e3828126adc7558938ed651f1aa3e0061"
+checksum = "9fab1123e3a310239b3f56980ced488ee9cf0ada18f33cc766291c1a060f4b50"
 dependencies = [
  "ic-cdk-timers",
  "ic0",

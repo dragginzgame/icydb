@@ -158,20 +158,32 @@ fn startup_driver_tokens() -> TokenStream {
             > = const { ::std::cell::RefCell::new(None) };
         }
 
-        /// Register the single engine-owned startup watchdog while recovery is pending.
+        /// Reconcile the single engine-owned startup watchdog from durable startup state.
         #[doc(hidden)]
         pub fn __register_startup_watchdog() -> ::std::result::Result<
             bool,
             ::icydb::db::StartupFailure,
         > {
             initialize_startup_timer_runtime();
-            match startup_state()? {
-                ::icydb::db::DatabaseStartupState::Ready => return Ok(false),
-                ::icydb::db::DatabaseStartupState::Recovering => {}
+            match startup_state() {
+                Ok(::icydb::db::DatabaseStartupState::Ready) => {
+                    reconcile_startup_watchdog(
+                        ::icydb::__reexports::ic_timers::TimerReconcileState::Inactive,
+                    );
+                    Ok(false)
+                }
+                Ok(::icydb::db::DatabaseStartupState::Recovering) => {
+                    let was_scheduled = startup_watchdog_is_scheduled();
+                    ensure_startup_watchdog_registered();
+                    Ok(!was_scheduled)
+                }
+                Err(failure) => {
+                    reconcile_startup_watchdog(
+                        ::icydb::__reexports::ic_timers::TimerReconcileState::Inactive,
+                    );
+                    Err(failure)
+                }
             }
-            let was_scheduled = startup_watchdog_is_scheduled();
-            ensure_startup_watchdog_registered();
-            Ok(!was_scheduled)
         }
 
         fn ensure_startup_watchdog_registered() {
@@ -230,7 +242,6 @@ fn startup_driver_tokens() -> TokenStream {
                     &mut registration,
                     &identity,
                     cadence,
-                    ::icydb::__reexports::ic_timers::DeclarationLifetime::Retained,
                     desired,
                     startup_watchdog_callback,
                 )
@@ -925,7 +936,7 @@ mod tests {
             "TimerCadence::new",
             "Duration::from_secs(1)",
             "ic_timers::reconcile_watchdog(",
-            "DeclarationLifetime::Retained",
+            "TimerReconcileState::Inactive",
             "TimerReconcileState::Scheduled",
             "TimerCompletion::retryable_failure(0)",
             "WatchdogDecision::Continue",

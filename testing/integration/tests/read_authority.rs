@@ -86,6 +86,7 @@ fn exercise_current_policy(
     fixture: &StandaloneCanisterFixture,
     admin: Principal,
     reader: Principal,
+    stable_before_authorization: &[u8],
 ) -> (SqlQueryResult, Vec<EntitySchemaDescription>) {
     assert_eq!(
         query_sql(fixture, reader)
@@ -104,7 +105,6 @@ fn exercise_current_policy(
         "the reader must not grant its own authority",
     );
 
-    let stable_before_policy = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
     assert!(set_policy(fixture, admin, "set_sql_reader_enabled", true));
     let allowed_sql = query_sql(fixture, reader).expect("the current SQL policy should allow");
     assert_eq!(
@@ -149,8 +149,8 @@ fn exercise_current_policy(
     );
     assert_eq!(
         fixture.pocket_ic().get_stable_memory(fixture.canister_id()),
-        stable_before_policy,
-        "application policy and IcyDB authorization must not write stable memory",
+        stable_before_authorization,
+        "denial, application policy, and IcyDB authorization must not write stable memory",
     );
     (allowed_sql, allowed_schema)
 }
@@ -265,8 +265,22 @@ fn framework_neutral_policy_is_current_least_privilege_and_upgrade_safe() {
     let fixture = install_fixture_canister("read_authority");
     let admin = principal(41);
     let reader = principal(42);
+    let stable_before_authorization = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
     let control_canister = delegate_to_control_canister(&fixture, reader);
-    let (allowed_sql, allowed_schema) = exercise_current_policy(&fixture, admin, reader);
+    assert_eq!(
+        query_sql(&fixture, control_canister)
+            .expect_err("the non-human controller must not join guarded SQL authority")
+            .code(),
+        ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
+    );
+    assert_eq!(
+        query_schema(&fixture, control_canister)
+            .expect_err("the non-human controller must not join guarded schema authority")
+            .code(),
+        ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
+    );
+    let (allowed_sql, allowed_schema) =
+        exercise_current_policy(&fixture, admin, reader, &stable_before_authorization);
 
     assert_same_release_upgrade(
         &fixture,

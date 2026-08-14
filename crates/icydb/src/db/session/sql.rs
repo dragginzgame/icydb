@@ -125,8 +125,8 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
     ///
-    /// This helper is used by generated controller-gated SQL surfaces and keeps
-    /// the same explicit trusted-boundary contract as `execute_trusted_sql_query`.
+    /// This helper is used by generated authorized SQL surfaces and keeps the
+    /// same explicit trusted-boundary contract as `execute_trusted_sql_query`.
     #[cfg(not(feature = "diagnostics"))]
     #[doc(hidden)]
     pub fn execute_trusted_sql_query_with_perf_attribution(
@@ -141,8 +141,8 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
     ///
-    /// This helper is used by generated controller-gated SQL surfaces and keeps
-    /// the same explicit trusted-boundary contract as `execute_trusted_sql_query`.
+    /// This helper is used by generated authorized SQL surfaces and keeps the
+    /// same explicit trusted-boundary contract as `execute_trusted_sql_query`.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
     pub fn execute_trusted_sql_query_with_perf_attribution(

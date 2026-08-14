@@ -70,6 +70,32 @@ const _: icydb::ReadAuthorizationGuard = inferred;
 const _: icydb::ReadAuthorizationGuard = inferred::<icydb::ReadAuthorizationContext>;
 
 icydb::endpoints! {
+    // Route every accepted Rust path form through the production macro grammar.
+    // The declarations are disabled to avoid duplicate exported methods; the
+    // exact function-pointer coercions above remain active and type-checked.
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(bare));
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(policy::guard));
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(crate::policy::guard));
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(self::policy::guard));
+    #[cfg(any())]
+    icydb_sql_query(
+        introspection = true,
+        authorization = guard(::guard_application::policy::guard),
+    );
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(r#type::r#match));
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(Policy::guard));
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(NAMED_GUARD));
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(reexported_guard));
+    #[cfg(any())]
+    icydb_sql_query(introspection = true, authorization = guard(inferred));
     icydb_sql_query(
         introspection = true,
         authorization = guard(inferred::<icydb::ReadAuthorizationContext>),
