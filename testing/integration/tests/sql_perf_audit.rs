@@ -1212,6 +1212,11 @@ const HEAP_PRIMARY_LIMIT_ONE_SQL: &str =
     "SELECT id, name FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1";
 const JOURNALED_PRIMARY_LIMIT_ONE_SQL: &str =
     "SELECT id, name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1";
+// The total-only endpoint includes accepted-schema observation by `db()` in
+// addition to the cached SQL work. The 0.228 maximum-fanout audit entity makes
+// that shared catalog deliberately wider; keep the query-owned attributed
+// ceiling at 1,000,000 and freeze the complete endpoint envelope separately.
+const WARMED_TOTAL_ONLY_LIMIT_ONE_BUDGET: u64 = 1_100_000;
 // The first update includes heap-lost startup recovery and accepted-catalog
 // reconstruction; the repeat proves that work remains one-time.
 const JOURNALED_UPGRADE_FIRST_REENTRY_BUDGET: u64 = 8_000_000_000;
@@ -1510,9 +1515,10 @@ fn assert_journaled_total_only_limit_one_variants_stay_bounded(
         let variant = query_journaled_total_only_limit_one_perf(fixture, sql);
         println!("{label}: total={}", variant.instructions);
         assert!(
-            variant.instructions < 1_000_000,
-            "{label} should stay under the warmed LIMIT 1 budget, got {}",
+            variant.instructions < WARMED_TOTAL_ONLY_LIMIT_ONE_BUDGET,
+            "{label} should stay under the warmed LIMIT 1 endpoint budget, got {} >= {}",
             variant.instructions,
+            WARMED_TOTAL_ONLY_LIMIT_ONE_BUDGET,
         );
     }
 }
@@ -1546,9 +1552,10 @@ fn assert_heap_total_only_limit_one_variants_stay_bounded(fixture: &StandaloneCa
         let variant = query_heap_total_only_limit_one_perf(fixture, sql);
         println!("{label}: total={}", variant.instructions);
         assert!(
-            variant.instructions < 1_000_000,
-            "{label} should stay under the warmed LIMIT 1 budget, got {}",
+            variant.instructions < WARMED_TOTAL_ONLY_LIMIT_ONE_BUDGET,
+            "{label} should stay under the warmed LIMIT 1 endpoint budget, got {} >= {}",
             variant.instructions,
+            WARMED_TOTAL_ONLY_LIMIT_ONE_BUDGET,
         );
     }
 }
