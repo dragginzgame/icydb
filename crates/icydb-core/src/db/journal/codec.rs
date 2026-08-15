@@ -24,7 +24,7 @@ use crate::{
 use ic_stable_structures::{Storable, storable::Bound};
 #[cfg(any(test, feature = "migration"))]
 use icydb_schema::SchemaMigrationPlanDigest;
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeSet};
 
 pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 1;
 pub(in crate::db) const MAX_JOURNAL_BATCH_BYTES: u32 = MAX_COMMIT_BYTES;
@@ -34,6 +34,11 @@ const JOURNAL_BATCH_MAGIC: [u8; 4] = *b"IJBT";
 const JOURNAL_BATCH_HEADER_BYTES: usize = 9;
 const JOURNAL_BATCH_ID_BYTES: usize = 16;
 const JOURNAL_COMMIT_MARKER_ID_BYTES: usize = 16;
+const JOURNAL_BATCH_FIXED_HEADER_BYTES: usize = JOURNAL_BATCH_HEADER_BYTES
+    + JOURNAL_BATCH_ID_BYTES
+    + JOURNAL_COMMIT_MARKER_ID_BYTES
+    + size_of::<u64>()
+    + size_of::<u32>();
 const JOURNAL_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 const JOURNAL_RECORD_ROW_PUT: u8 = 1;
 const JOURNAL_RECORD_ROW_DELETE: u8 = 2;
@@ -476,6 +481,57 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
     if bytes.len() > MAX_JOURNAL_BATCH_BYTES as usize {
         return Err(journal_batch_corruption());
     }
+    let fixed_header = inspect_raw_journal_batch_fixed_header(bytes)?;
+    if fixed_header.total_len() != bytes.len() {
+        return Err(journal_batch_corruption());
+    }
+
+    let mut cursor = JOURNAL_BATCH_FIXED_HEADER_BYTES;
+    let payload_end = fixed_header.total_len();
+    let record_count = fixed_header.record_count() as usize;
+
+    let mut records = Vec::with_capacity(record_count);
+    for _ in 0..record_count {
+        records.push(read_journal_record(bytes, &mut cursor)?);
+    }
+
+    if cursor != payload_end {
+        return Err(journal_batch_corruption());
+    }
+
+    JournalBatch::new(
+        fixed_header.batch_id(),
+        fixed_header.commit_marker_id(),
+        fixed_header.journal_sequence(),
+        records,
+    )
+}
+
+/// Current fixed journal-batch envelope facts available before payload decode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::journal) struct RawJournalBatchHeader {
+    payload_len: usize,
+    total_len: usize,
+}
+
+impl RawJournalBatchHeader {
+    /// Return the encoded payload bytes advertised by the current header.
+    #[must_use]
+    pub(in crate::db::journal) const fn payload_len(self) -> usize {
+        self.payload_len
+    }
+
+    /// Return the exact encoded batch length including the fixed header.
+    #[must_use]
+    pub(in crate::db::journal) const fn total_len(self) -> usize {
+        self.total_len
+    }
+}
+
+/// Inspect the fixed current-form journal-batch header without decoding records.
+pub(in crate::db::journal) fn inspect_raw_journal_batch_header(
+    bytes: &[u8],
+) -> Result<RawJournalBatchHeader, InternalError> {
     if bytes.len() < JOURNAL_BATCH_HEADER_BYTES {
         return Err(journal_batch_corruption());
     }
@@ -491,32 +547,95 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
     validate_journal_batch_format_version(format_version)?;
 
     let payload_len = read_len_u32(bytes, &mut cursor, "journal batch payload")? as usize;
-    let payload_end = cursor
+    let total_len = JOURNAL_BATCH_HEADER_BYTES
         .checked_add(payload_len)
         .ok_or_else(journal_batch_corruption)?;
-    if payload_end != bytes.len() {
+    if total_len > MAX_JOURNAL_BATCH_BYTES as usize {
         return Err(journal_batch_corruption());
     }
 
+    Ok(RawJournalBatchHeader {
+        payload_len,
+        total_len,
+    })
+}
+
+/// Current fixed journal-batch facts available before record decode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::journal) struct RawJournalBatchFixedHeader {
+    header: RawJournalBatchHeader,
+    batch_id: JournalBatchId,
+    commit_marker_id: JournalCommitMarkerId,
+    journal_sequence: JournalSequence,
+    record_count: u32,
+}
+
+impl RawJournalBatchFixedHeader {
+    /// Return the exact encoded batch length including the fixed header.
+    #[must_use]
+    pub(in crate::db::journal) const fn total_len(self) -> usize {
+        self.header.total_len()
+    }
+
+    /// Return the decoded marker-bound batch identity.
+    #[must_use]
+    pub(in crate::db::journal) const fn batch_id(self) -> JournalBatchId {
+        self.batch_id
+    }
+
+    /// Return the decoded commit marker identity.
+    #[must_use]
+    pub(in crate::db::journal) const fn commit_marker_id(self) -> JournalCommitMarkerId {
+        self.commit_marker_id
+    }
+
+    /// Return the decoded durable journal sequence.
+    #[must_use]
+    pub(in crate::db::journal) const fn journal_sequence(self) -> JournalSequence {
+        self.journal_sequence
+    }
+
+    /// Return the current-envelope record count.
+    #[must_use]
+    pub(in crate::db::journal) const fn record_count(self) -> u32 {
+        self.record_count
+    }
+}
+
+/// Inspect all fixed current-form journal-batch facts before decoding records.
+pub(in crate::db::journal) fn inspect_raw_journal_batch_fixed_header(
+    bytes: &[u8],
+) -> Result<RawJournalBatchFixedHeader, InternalError> {
+    let header = inspect_raw_journal_batch_header(bytes)?;
+    if header.total_len() < JOURNAL_BATCH_FIXED_HEADER_BYTES
+        || bytes.len() < JOURNAL_BATCH_FIXED_HEADER_BYTES
+    {
+        return Err(journal_batch_corruption());
+    }
+
+    let mut cursor = JOURNAL_BATCH_HEADER_BYTES;
     let batch_id = read_fixed_array::<JOURNAL_BATCH_ID_BYTES>(bytes, &mut cursor, "batch id")?;
+    if batch_id == [0; JOURNAL_BATCH_ID_BYTES] {
+        return Err(journal_batch_corruption());
+    }
     let commit_marker_id =
         read_fixed_array::<JOURNAL_COMMIT_MARKER_ID_BYTES>(bytes, &mut cursor, "commit marker id")?;
+    if commit_marker_id == [0; JOURNAL_COMMIT_MARKER_ID_BYTES] {
+        return Err(journal_batch_corruption());
+    }
     let journal_sequence = JournalSequence::new(read_u64_le(bytes, &mut cursor, "sequence")?);
-    let record_count = read_len_u32(bytes, &mut cursor, "journal batch record count")? as usize;
-    if record_count > MAX_JOURNAL_BATCH_RECORDS {
+    let record_count = read_len_u32(bytes, &mut cursor, "journal batch record count")?;
+    if record_count as usize > MAX_JOURNAL_BATCH_RECORDS {
         return Err(journal_batch_corruption());
     }
 
-    let mut records = Vec::with_capacity(record_count);
-    for _ in 0..record_count {
-        records.push(read_journal_record(bytes, &mut cursor)?);
-    }
-
-    if cursor != payload_end {
-        return Err(journal_batch_corruption());
-    }
-
-    JournalBatch::new(batch_id, commit_marker_id, journal_sequence, records)
+    Ok(RawJournalBatchFixedHeader {
+        header,
+        batch_id,
+        commit_marker_id,
+        journal_sequence,
+        record_count,
+    })
 }
 
 #[must_use]
@@ -1165,11 +1284,97 @@ fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalErro
     for record in &batch.records {
         validate_journal_record(record)?;
     }
+    validate_row_record_targets(batch)?;
+    #[cfg(any(test, feature = "migration"))]
+    validate_schema_migration_record_targets(batch)?;
     validate_identity_range_row_sets(batch)?;
+    validate_constraint_validation_job_transition(batch)?;
     validate_constraint_validation_index_set(batch)?;
     validate_accepted_schema_index_chunks(batch)?;
 
     Ok(())
+}
+
+fn validate_row_record_targets(batch: &JournalBatch) -> Result<(), InternalError> {
+    let mut targets = BTreeSet::new();
+    for record in &batch.records {
+        match record {
+            JournalRecord::RowPut { primary_key, .. }
+            | JournalRecord::RowDelete { primary_key, .. } => {
+                if !targets.insert(primary_key.as_bytes()) {
+                    return Err(journal_batch_corruption());
+                }
+            }
+            JournalRecord::SchemaPut { .. }
+            | JournalRecord::AcceptedSchemaPublish { .. }
+            | JournalRecord::AcceptedSchemaIndexDelete { .. }
+            | JournalRecord::AcceptedSchemaIndexPut { .. }
+            | JournalRecord::ConstraintValidationJobPut { .. }
+            | JournalRecord::ConstraintValidationJobDelete { .. }
+            | JournalRecord::ConstraintValidationIndexPut { .. }
+            | JournalRecord::IdentityRangeAdvance { .. } => {}
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut { .. }
+            | JournalRecord::SchemaMigrationIndexPut { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "migration"))]
+fn validate_schema_migration_record_targets(batch: &JournalBatch) -> Result<(), InternalError> {
+    let mut plan = None;
+    let mut row_targets = BTreeSet::new();
+    let mut index_targets = BTreeSet::new();
+    for record in &batch.records {
+        let Some(record_plan) = journal_record_migration_plan(record) else {
+            continue;
+        };
+        if plan.is_some_and(|existing| existing != record_plan) {
+            return Err(journal_batch_corruption());
+        }
+        plan = Some(record_plan);
+        match record {
+            JournalRecord::SchemaMigrationRowPut {
+                store_path,
+                primary_key,
+                ..
+            } => {
+                if !row_targets.insert((store_path.as_str(), primary_key.as_bytes())) {
+                    return Err(journal_batch_corruption());
+                }
+            }
+            JournalRecord::SchemaMigrationIndexPut {
+                store_path, key, ..
+            } => {
+                if !index_targets.insert((store_path.as_str(), key.as_bytes())) {
+                    return Err(journal_batch_corruption());
+                }
+            }
+            JournalRecord::RowPut { .. }
+            | JournalRecord::RowDelete { .. }
+            | JournalRecord::SchemaPut { .. }
+            | JournalRecord::AcceptedSchemaPublish { .. }
+            | JournalRecord::AcceptedSchemaIndexDelete { .. }
+            | JournalRecord::AcceptedSchemaIndexPut { .. }
+            | JournalRecord::ConstraintValidationJobPut { .. }
+            | JournalRecord::ConstraintValidationJobDelete { .. }
+            | JournalRecord::ConstraintValidationIndexPut { .. }
+            | JournalRecord::IdentityRangeAdvance { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "migration"))]
+const fn journal_record_migration_plan(
+    record: &JournalRecord,
+) -> Option<SchemaMigrationPlanDigest> {
+    match record {
+        JournalRecord::SchemaMigrationRowPut { plan_digest, .. }
+        | JournalRecord::SchemaMigrationIndexPut { plan_digest, .. } => Some(*plan_digest),
+        _ => None,
+    }
 }
 
 fn validate_accepted_schema_index_chunks(batch: &JournalBatch) -> Result<(), InternalError> {
@@ -1183,34 +1388,48 @@ fn validate_accepted_schema_index_chunks(batch: &JournalBatch) -> Result<(), Int
     if !has_chunks {
         return Ok(());
     }
-    if !matches!(
-        batch.records.first(),
-        Some(JournalRecord::AcceptedSchemaPublish { .. })
-    ) {
+    let Some(JournalRecord::AcceptedSchemaPublish {
+        store_path: publish_store_path,
+        ..
+    }) = batch.records.first()
+    else {
         return Err(journal_batch_corruption());
-    }
+    };
 
     let mut previous_entity = None;
     let mut previous_fingerprint = None;
     let mut previous_kind = 0_u8;
     let mut previous_key = None;
     for record in &batch.records[1..] {
-        let (entity_tag, fingerprint, kind, keys) = match record {
+        let (store_path, entity_tag, fingerprint, kind, keys) = match record {
             JournalRecord::AcceptedSchemaIndexDelete {
+                store_path,
                 entity_tag,
                 accepted_after_fingerprint,
                 keys,
-                ..
-            } => (*entity_tag, *accepted_after_fingerprint, 1_u8, keys),
+            } => (
+                store_path,
+                *entity_tag,
+                *accepted_after_fingerprint,
+                1_u8,
+                keys,
+            ),
             JournalRecord::AcceptedSchemaIndexPut {
+                store_path,
                 entity_tag,
                 accepted_after_fingerprint,
                 keys,
-                ..
-            } => (*entity_tag, *accepted_after_fingerprint, 2_u8, keys),
+            } => (
+                store_path,
+                *entity_tag,
+                *accepted_after_fingerprint,
+                2_u8,
+                keys,
+            ),
             _ => return Err(journal_batch_corruption()),
         };
-        if previous_entity.is_some_and(|previous| previous > entity_tag)
+        if store_path != publish_store_path
+            || previous_entity.is_some_and(|previous| previous > entity_tag)
             || (previous_entity == Some(entity_tag)
                 && (previous_fingerprint != Some(fingerprint) || previous_kind > kind))
         {
@@ -1228,6 +1447,35 @@ fn validate_accepted_schema_index_chunks(batch: &JournalBatch) -> Result<(), Int
         previous_entity = Some(entity_tag);
         previous_fingerprint = Some(fingerprint);
         previous_kind = kind;
+    }
+    Ok(())
+}
+
+fn validate_constraint_validation_job_transition(
+    batch: &JournalBatch,
+) -> Result<(), InternalError> {
+    let mut has_job_transition = false;
+    for record in &batch.records {
+        match record {
+            JournalRecord::ConstraintValidationJobPut { .. }
+            | JournalRecord::ConstraintValidationJobDelete { .. } => {
+                if has_job_transition {
+                    return Err(journal_batch_corruption());
+                }
+                has_job_transition = true;
+            }
+            JournalRecord::RowPut { .. }
+            | JournalRecord::RowDelete { .. }
+            | JournalRecord::SchemaPut { .. }
+            | JournalRecord::AcceptedSchemaPublish { .. }
+            | JournalRecord::AcceptedSchemaIndexDelete { .. }
+            | JournalRecord::AcceptedSchemaIndexPut { .. }
+            | JournalRecord::ConstraintValidationIndexPut { .. }
+            | JournalRecord::IdentityRangeAdvance { .. } => {}
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut { .. }
+            | JournalRecord::SchemaMigrationIndexPut { .. } => {}
+        }
     }
     Ok(())
 }

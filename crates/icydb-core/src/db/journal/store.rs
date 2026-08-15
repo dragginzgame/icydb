@@ -6,7 +6,7 @@
 use crate::{
     db::journal::{
         JournalBatch, JournalRecord, JournalSequence,
-        codec::{MAX_JOURNAL_BATCH_BYTES, RawJournalBatch},
+        codec::{MAX_JOURNAL_BATCH_BYTES, RawJournalBatch, inspect_raw_journal_batch_fixed_header},
     },
     error::{ErrorClass, InternalError},
 };
@@ -842,7 +842,7 @@ impl JournalTailStore {
             return Err(journal_tail_corruption());
         }
 
-        if let Some(existing) = self.raw_batch_bytes_for_sequence(sequence)? {
+        if let Some(existing) = self.raw_batch_prefix_bytes_for_sequence(sequence)? {
             if existing == bytes {
                 return Ok(());
             }
@@ -888,6 +888,56 @@ impl JournalTailStore {
     }
 
     fn raw_batch_bytes_for_sequence(
+        &self,
+        sequence: JournalSequence,
+    ) -> Result<Option<Vec<u8>>, InternalError> {
+        let mut bytes = Vec::new();
+        let mut expected_len = None;
+        let mut expected_chunk = 0u32;
+
+        for entry in self.map.range((
+            Included(JournalTailKey::new(sequence, 0)),
+            Included(JournalTailKey::new(sequence, u32::MAX)),
+        )) {
+            let key = entry.key();
+            if key.chunk_index != expected_chunk {
+                return Err(journal_tail_corruption());
+            }
+            if expected_chunk == 0 {
+                let fixed_header =
+                    inspect_raw_journal_batch_fixed_header(entry.value().as_bytes())?;
+                if fixed_header.journal_sequence() != sequence {
+                    return Err(journal_tail_corruption());
+                }
+                let total_len = fixed_header.total_len();
+                bytes = Vec::with_capacity(total_len);
+                expected_len = Some(total_len);
+            }
+            let total_len = expected_len.ok_or_else(journal_tail_corruption)?;
+            let next_len = bytes
+                .len()
+                .checked_add(entry.value().as_bytes().len())
+                .ok_or_else(journal_tail_corruption)?;
+            if next_len > total_len {
+                return Err(journal_tail_corruption());
+            }
+            bytes.extend_from_slice(entry.value().as_bytes());
+            expected_chunk = expected_chunk
+                .checked_add(1)
+                .ok_or_else(journal_tail_corruption)?;
+        }
+
+        if expected_chunk == 0 {
+            return Ok(None);
+        }
+        if bytes.len() != expected_len.ok_or_else(journal_tail_corruption)? {
+            return Err(journal_tail_corruption());
+        }
+
+        Ok(Some(bytes))
+    }
+
+    fn raw_batch_prefix_bytes_for_sequence(
         &self,
         sequence: JournalSequence,
     ) -> Result<Option<Vec<u8>>, InternalError> {

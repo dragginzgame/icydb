@@ -3,8 +3,9 @@ use super::{
     JournalTailStore,
     codec::{
         JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD,
-        MAX_JOURNAL_BATCH_BYTES, RawJournalBatch, decode_journal_batch, encode_journal_batch,
-        journal_record_payload_len,
+        MAX_JOURNAL_BATCH_BYTES, MAX_JOURNAL_BATCH_RECORDS, RawJournalBatch, decode_journal_batch,
+        encode_journal_batch, inspect_raw_journal_batch_fixed_header,
+        inspect_raw_journal_batch_header, journal_record_payload_len,
     },
     store::{
         JOURNAL_TAIL_CHUNK_BYTES, JournalInspectionCheckpoint, JournalInspectionLimits,
@@ -179,6 +180,68 @@ fn journal_batch_codec_round_trips_logical_row_and_schema_records() {
 }
 
 #[test]
+fn journal_batch_header_inspection_freezes_current_envelope_offsets() {
+    let batch = batch(1);
+    let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
+
+    let header = inspect_raw_journal_batch_header(&encoded).expect("current header should inspect");
+    let fixed_header = inspect_raw_journal_batch_fixed_header(&encoded)
+        .expect("current fixed header should inspect");
+
+    assert_eq!(header.total_len(), encoded.len());
+    assert_eq!(header.payload_len(), encoded.len() - 9);
+    assert_eq!(fixed_header.total_len(), encoded.len());
+    assert_eq!(
+        u32::from_le_bytes(encoded[5..9].try_into().unwrap()),
+        u32::try_from(header.payload_len()).expect("test header length should fit"),
+    );
+    assert_eq!(fixed_header.batch_id(), batch.batch_id());
+    assert_eq!(&encoded[9..25], batch.batch_id().as_slice());
+    assert_eq!(fixed_header.commit_marker_id(), batch.commit_marker_id());
+    assert_eq!(&encoded[25..41], batch.commit_marker_id().as_slice());
+    assert_eq!(fixed_header.journal_sequence(), batch.journal_sequence());
+    assert_eq!(
+        u64::from_le_bytes(encoded[41..49].try_into().unwrap()),
+        batch.journal_sequence().get(),
+    );
+    assert_eq!(
+        fixed_header.record_count(),
+        u32::try_from(batch.records().len()).expect("test record count should fit"),
+    );
+    assert_eq!(
+        u32::from_le_bytes(encoded[49..53].try_into().unwrap()),
+        u32::try_from(batch.records().len()).expect("test record count should fit"),
+    );
+}
+
+#[test]
+fn journal_batch_header_inspection_rejects_oversized_declared_payload_without_body() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded.truncate(9);
+    encoded[5..9].copy_from_slice(&MAX_JOURNAL_BATCH_BYTES.to_le_bytes());
+
+    let err = inspect_raw_journal_batch_header(&encoded)
+        .expect_err("oversized declared payload should fail at header inspection");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_batch_fixed_header_inspection_rejects_oversized_record_count_before_records() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    let impossible_count =
+        u32::try_from(MAX_JOURNAL_BATCH_RECORDS + 1).expect("test record count should fit");
+    encoded[49..53].copy_from_slice(&impossible_count.to_le_bytes());
+
+    let err = inspect_raw_journal_batch_fixed_header(&encoded)
+        .expect_err("oversized record count should fail in fixed-header inspection");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
 fn journal_batch_codec_round_trips_accepted_schema_publication() {
     let batch = JournalBatch::new(
         [0x31; 16],
@@ -324,6 +387,29 @@ fn accepted_schema_index_chunks_reject_unbound_oversized_and_noncanonical_sets()
 }
 
 #[test]
+fn accepted_schema_index_chunks_reject_store_path_drift_from_publication() {
+    let error = JournalBatch::new(
+        [0x38; 16],
+        [0x48; 16],
+        JournalSequence::new(3),
+        vec![
+            accepted_schema_publish_record(),
+            JournalRecord::accepted_schema_index_put(
+                "other::Store",
+                EntityTag::new(1),
+                [0x51; 16],
+                vec![accepted_schema_index_key(1, 1)],
+            )
+            .expect("accepted schema index insertion should build"),
+        ],
+    )
+    .expect_err("accepted schema index chunks must bind to the publication store path");
+
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
 fn accepted_schema_index_chunk_decode_rejects_empty_and_max_plus_one_before_keys() {
     let schema = accepted_schema_publish_record();
     let chunk = JournalRecord::accepted_schema_index_put(
@@ -405,6 +491,30 @@ fn journal_batch_codec_round_trips_validation_job_replacement_and_removal() {
 }
 
 #[test]
+fn journal_batch_codec_rejects_multiple_validation_job_transitions_without_overlay() {
+    let job = validation_job();
+    let error = JournalBatch::new(
+        [0x3C; 16],
+        [0x4C; 16],
+        JournalSequence::new(11),
+        vec![
+            JournalRecord::constraint_validation_job_put("test::Store", &job)
+                .expect("validation job record should build"),
+            JournalRecord::constraint_validation_job_delete(
+                "test::Store",
+                job.entity_tag(),
+                job.constraint_id(),
+            )
+            .expect("validation job removal should build"),
+        ],
+    )
+    .expect_err("one batch must not require multiple validation-job transitions");
+
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
 fn journal_batch_codec_binds_candidate_index_entries_to_validation_job() {
     let job = validation_job();
     let primary_key = PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(9));
@@ -479,6 +589,76 @@ fn journal_batch_codec_round_trips_exact_migration_row_and_index_effects() {
         decode_journal_batch(&encoded).expect("migration journal batch should decode"),
         batch,
     );
+}
+
+#[test]
+fn journal_batch_codec_rejects_duplicate_row_targets_without_overlay() {
+    let error = JournalBatch::new(
+        [0x3A; 16],
+        [0x4A; 16],
+        JournalSequence::new(9),
+        vec![row_put_record(1), row_delete_record(1)],
+    )
+    .expect_err("one batch must not require same-key row overlay semantics");
+
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_batch_codec_rejects_duplicate_migration_targets_without_overlay() {
+    let plan = SchemaMigrationPlanDigest::from_bytes([0x72; 32]);
+    let other_plan = SchemaMigrationPlanDigest::from_bytes([0x73; 32]);
+    let index_key = accepted_schema_index_key(7, 9);
+    for records in [
+        vec![
+            JournalRecord::schema_migration_row_put(
+                "test::Store",
+                raw_data_store_key(9),
+                vec![0x59; 8],
+                [0x69; 16],
+                plan,
+            )
+            .expect("first migration row effect should build"),
+            JournalRecord::schema_migration_row_put(
+                "test::Store",
+                raw_data_store_key(9),
+                vec![0x5A; 8],
+                [0x69; 16],
+                plan,
+            )
+            .expect("second migration row effect should build"),
+        ],
+        vec![
+            JournalRecord::schema_migration_index_put("test::Store", index_key.clone(), plan)
+                .expect("first migration index effect should build"),
+            JournalRecord::schema_migration_index_put("test::Store", index_key.clone(), plan)
+                .expect("second migration index effect should build"),
+        ],
+        vec![
+            JournalRecord::schema_migration_row_put(
+                "test::Store",
+                raw_data_store_key(10),
+                vec![0x59; 8],
+                [0x69; 16],
+                plan,
+            )
+            .expect("first-plan migration row effect should build"),
+            JournalRecord::schema_migration_row_put(
+                "test::Store",
+                raw_data_store_key(11),
+                vec![0x5A; 8],
+                [0x69; 16],
+                other_plan,
+            )
+            .expect("second-plan migration row effect should build"),
+        ],
+    ] {
+        let error = JournalBatch::new([0x3B; 16], [0x4B; 16], JournalSequence::new(10), records)
+            .expect_err("migration batches must not require duplicate or mixed-plan overlay");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
 }
 
 #[test]
@@ -1119,6 +1299,41 @@ fn journal_tail_store_rejects_corrupt_raw_batch_bytes_during_visit() {
     let err = store
         .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
         .expect_err("corrupt raw journal tail bytes should fail during ordered visit");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_tail_store_rejects_header_declared_trailing_bytes_during_visit() {
+    let mut store = JournalTailStore::init(test_memory(230));
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    let declared_payload_len = u32::try_from(encoded.len() - 10)
+        .expect("shortened payload length should fit the current header");
+    encoded[5..9].copy_from_slice(&declared_payload_len.to_le_bytes());
+    store
+        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .expect("trailing raw journal bytes should insert as a raw persisted fixture");
+
+    let err = store
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
+        .expect_err("declared trailing bytes should fail during ordered visit");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_tail_store_rejects_header_sequence_mismatch_during_visit() {
+    let mut store = JournalTailStore::init(test_memory(231));
+    let encoded = encode_journal_batch(&batch(2)).expect("journal batch should encode");
+    store
+        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .expect("sequence-mismatched raw journal bytes should insert as a raw persisted fixture");
+
+    let err = store
+        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
+        .expect_err("header sequence mismatch should fail during ordered visit");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
