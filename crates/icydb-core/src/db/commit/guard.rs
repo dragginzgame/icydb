@@ -26,7 +26,7 @@ use std::{
 #[cfg(test)]
 // Core unit fixtures exercise commit mechanics without generated lifecycle
 // wiring; generated-canister tests still install and exercise the real hook.
-fn noop_startup_recovery_wakeup() {}
+const fn noop_startup_recovery_wakeup() {}
 
 #[cfg(test)]
 const DEFAULT_STARTUP_RECOVERY_WAKEUP: Option<fn()> = Some(noop_startup_recovery_wakeup);
