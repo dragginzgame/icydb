@@ -559,6 +559,8 @@ pub enum RuntimeBoundaryCode {
     SqlSurfacePolicyDenied,
     /// An application guard denied access to the generated accepted-schema surface.
     SchemaSurfacePolicyDenied,
+    /// A structural mutation batch exceeded its canonical prepared-commit work bound.
+    MutationBatchCommitWorkExceeded,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1101,7 +1103,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 282);
+        assert_eq!(last, 283);
     }
 
     #[test]

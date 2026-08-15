@@ -605,6 +605,14 @@ fn validate_diagnostic_fact_schema(
             &fact_at,
             &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Limit],
         ),
+        283 => {
+            tags_match(fact_count, &fact_at, &[DiagnosticFactTag::Limit])
+                || tags_match(
+                    fact_count,
+                    &fact_at,
+                    &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Limit],
+                )
+        }
         196 | 234 => tags_match(
             fact_count,
             &fact_at,
@@ -719,7 +727,7 @@ const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
         6 | 16 | 18 | 24 | 197 | 198 | 233 | 239 | 240 | 274 => 3,
         141 | 142 | 169 | 170 | 175 | 235 => 1,
         19 | 21 | 138 | 177 | 178 | 180 | 201 | 202 | 203 | 205 | 236 | 237 | 238 | 269 | 270
-        | 271 | 272 => 2,
+        | 271 | 272 | 283 => 2,
         3 | 20 => 5,
         23 | 273 => 6,
         196 | 234 => 4,
@@ -1363,6 +1371,21 @@ mod tests {
         assert_eq!(
             validate_known_diagnostic_fact_schema(ErrorCode::QUERY_VALIDATE, &valid),
             Err(DiagnosticFactSchemaMismatch::CodeMaximumExceeded)
+        );
+
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_COMMIT_WORK_EXCEEDED,
+                &valid,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_COMMIT_WORK_EXCEEDED,
+                &valid[1..],
+            ),
+            Ok(())
         );
     }
 

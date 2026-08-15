@@ -52,6 +52,29 @@ struct ReadTotalOnlyPerfResult {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct StartupWatchdogPerfSnapshot {
+    scheduler_samples: u64,
+    scheduler_total_instructions: u64,
+    scheduler_maximum_instructions: Option<u64>,
+    work_samples: u64,
+    work_total_instructions: u64,
+    work_latest_instructions: Option<u64>,
+    work_maximum_instructions: Option<u64>,
+    work_started: u64,
+    work_completed: u64,
+    succeeded: u64,
+    retryable_failures: u64,
+    invariant_failures: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct JointFanoutFixtureFacts {
+    rows: u32,
+    secondary_indexes_per_row: u32,
+    load_local_instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct StorageWritePerfResult {
     first_insert_local_instructions: u64,
     steady_insert_avg_local_instructions: u64,
@@ -169,6 +192,13 @@ struct IntegrityCleanPerfObservation {
     memory_before: (u64, u64),
     memory_after_quick: (u64, u64),
     memory_after_deep: (u64, u64),
+}
+
+#[derive(Debug)]
+struct Patch1RecoveryObservation {
+    watchdog: StartupWatchdogPerfSnapshot,
+    memory_before: (u64, u64),
+    memory_after: (u64, u64),
 }
 
 const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
@@ -1554,6 +1584,58 @@ fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
     panic!("startup driver should finish within 32 delivered watchdog ticks");
 }
 
+fn measure_startup_watchdog_recovery(
+    fixture: &StandaloneCanisterFixture,
+    expected_work_samples: u64,
+) -> Patch1RecoveryObservation {
+    upgrade_fixture_canister(fixture, "sql_perf");
+    let memory_before = canister_memory_bytes(fixture);
+    advance_startup_watchdog_until_ready(fixture);
+    let memory_after = canister_memory_bytes(fixture);
+
+    let measured: StartupWatchdogPerfSnapshot = fixture
+        .query_candid("startup_watchdog_perf_snapshot", ())
+        .expect("startup watchdog performance snapshot should decode");
+    let replayed: StartupWatchdogPerfSnapshot = fixture
+        .query_candid("startup_watchdog_perf_snapshot", ())
+        .expect("replayed startup watchdog performance snapshot should decode");
+
+    assert_eq!(replayed, measured);
+    assert_eq!(measured.scheduler_samples, expected_work_samples);
+    assert_eq!(measured.work_samples, expected_work_samples);
+    assert_eq!(measured.work_started, expected_work_samples);
+    assert_eq!(measured.work_completed, expected_work_samples);
+    assert_eq!(measured.succeeded, expected_work_samples);
+    assert_eq!(measured.retryable_failures, 0);
+    assert_eq!(measured.invariant_failures, 0);
+    assert!(measured.scheduler_total_instructions > 0);
+    let scheduler_maximum = measured
+        .scheduler_maximum_instructions
+        .expect("at least one scheduler sample should have a maximum");
+    assert!(scheduler_maximum > 0);
+    assert!(scheduler_maximum <= measured.scheduler_total_instructions);
+    assert!(measured.work_total_instructions > 0);
+    let latest = measured
+        .work_latest_instructions
+        .expect("at least one work sample should have a latest value");
+    let maximum = measured
+        .work_maximum_instructions
+        .expect("at least one work sample should have a maximum");
+    assert!(latest > 0);
+    assert!(latest <= measured.work_total_instructions);
+    assert!(maximum >= latest);
+    assert!(maximum <= measured.work_total_instructions);
+    assert!(maximum < 40_000_000_000);
+    assert!(memory_after.0 >= memory_before.0);
+    assert!(memory_after.1 >= memory_before.1);
+
+    Patch1RecoveryObservation {
+        watchdog: measured,
+        memory_before,
+        memory_after,
+    }
+}
+
 fn measure_storage_write_matrix(
     fixture: &StandaloneCanisterFixture,
     method: &str,
@@ -2407,6 +2489,204 @@ fn sql_perf_journaled_upgrade_driver_then_ready_probe_stays_bounded() {
         &second,
         1,
         JOURNALED_UPGRADE_WARM_REENTRY_BUDGET,
+    );
+}
+
+#[test]
+fn patch1_current_2048_record_recovery_uses_the_real_watchdog_instruction_accounting() {
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<ScaleFixtureFacts, Error> = fixture
+        .update_candid("load_journaled_user_scale_fixture", (2_048_u32,))
+        .expect("journaled scale fixture facts should decode");
+    let loaded = loaded.expect("journaled scale fixture should load");
+    assert_eq!(loaded.surface, "journaled_user");
+    assert_eq!(loaded.fixture_rows, 2_048);
+
+    let observed = measure_startup_watchdog_recovery(&fixture, 1);
+    let measured = &observed.watchdog;
+    assert!(
+        measured
+            .work_maximum_instructions
+            .is_some_and(|instructions| instructions <= 20_000_000_000)
+    );
+
+    println!(
+        "0.228 Patch 1 current 2,048-record recovery baseline: scheduler_instructions={} work_instructions={} wasm_before={} wasm_after={} stable_before={} stable_after={}",
+        measured.scheduler_total_instructions,
+        measured.work_total_instructions,
+        observed.memory_before.0,
+        observed.memory_after.0,
+        observed.memory_before.1,
+        observed.memory_after.1,
+    );
+}
+
+#[test]
+fn joint_admitted_4096_zero_index_rows_fit_one_real_watchdog_work_message() {
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<ScaleFixtureFacts, Error> = fixture
+        .update_candid("load_joint_zero_index_boundary_fixture", ())
+        .expect("zero-index joint-boundary fixture facts should decode");
+    let loaded = loaded.expect("zero-index joint-boundary fixture should load");
+    assert_eq!(loaded.surface, "journaled_user");
+    assert_eq!(loaded.fixture_rows, 4_096);
+
+    let observed = measure_startup_watchdog_recovery(&fixture, 1);
+    let measured = &observed.watchdog;
+    assert!(
+        measured
+            .work_maximum_instructions
+            .is_some_and(|instructions| instructions <= 20_000_000_000)
+    );
+
+    println!(
+        "0.228 joint-admitted 4,096-row zero-index recovery boundary: scheduler_instructions={} work_instructions={} wasm_before={} wasm_after={} stable_before={} stable_after={}",
+        measured.scheduler_total_instructions,
+        measured.work_total_instructions,
+        observed.memory_before.0,
+        observed.memory_after.0,
+        observed.memory_before.1,
+        observed.memory_after.1,
+    );
+}
+
+#[test]
+fn patch1_near_maximum_row_and_derived_indexes_fit_one_real_watchdog_work_message() {
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<u32, Error> = fixture
+        .update_candid("load_patch1_wide_row_recovery_fixture", ())
+        .expect("Patch 1 wide-row fixture result should decode");
+    assert_eq!(
+        loaded.expect("Patch 1 wide-row fixture should load"),
+        (4 * 1024 * 1024) - 1024,
+    );
+
+    let observed = measure_startup_watchdog_recovery(&fixture, 1);
+    let measured = &observed.watchdog;
+    assert!(
+        measured
+            .work_maximum_instructions
+            .is_some_and(|instructions| instructions <= 20_000_000_000)
+    );
+
+    println!(
+        "0.228 Patch 1 near-maximum row recovery: scheduler_instructions={} work_instructions={} wasm_before={} wasm_after={} stable_before={} stable_after={}",
+        measured.scheduler_total_instructions,
+        measured.work_total_instructions,
+        observed.memory_before.0,
+        observed.memory_after.0,
+        observed.memory_before.1,
+        observed.memory_after.1,
+    );
+}
+
+#[test]
+fn joint_admitted_2048_rows_with_three_derived_indexes_use_bounded_paging() {
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<ScaleFixtureFacts, Error> = fixture
+        .update_candid("load_joint_three_index_boundary_fixture", ())
+        .expect("three-index joint-boundary fixture facts should decode");
+    let loaded = loaded.expect("three-index joint-boundary fixture should load");
+    assert_eq!(loaded.surface, "user");
+    assert_eq!(loaded.fixture_rows, 2_048);
+
+    let observed = measure_startup_watchdog_recovery(&fixture, 2);
+    let measured = &observed.watchdog;
+    assert!(
+        measured
+            .work_maximum_instructions
+            .is_some_and(|instructions| instructions > 20_000_000_000)
+    );
+
+    println!(
+        "0.228 joint-admitted 2,048-row three-index recovery: scheduler_instructions={} work_instructions={} latest_work={} maximum_work={} work_samples={} wasm_before={} wasm_after={} stable_before={} stable_after={}",
+        measured.scheduler_total_instructions,
+        measured.work_total_instructions,
+        measured.work_latest_instructions.unwrap_or_default(),
+        measured.work_maximum_instructions.unwrap_or_default(),
+        measured.work_samples,
+        observed.memory_before.0,
+        observed.memory_after.0,
+        observed.memory_before.1,
+        observed.memory_after.1,
+    );
+}
+
+#[test]
+fn joint_admission_rejects_the_first_over_limit_max_fanout_batch_before_publication() {
+    let fixture = install_fixture_canister("sql_perf");
+    let rejected: Result<u32, Error> = fixture
+        .update_candid("reject_joint_fanout_over_boundary_fixture", ())
+        .expect("over-limit maximum-fanout result should decode");
+    let error = rejected.expect_err("the 241st maximum-fanout row must reject the batch");
+    assert!(matches!(
+        error.diagnostic().detail(),
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::MutationBatchCommitWorkExceeded,
+        })
+    ));
+    assert_eq!(
+        error_fact(&error, DiagnosticFactTag::ActualCount),
+        Some(16_388)
+    );
+    assert_eq!(error_fact(&error, DiagnosticFactTag::Limit), Some(16_384));
+
+    let rejected_count = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT id FROM PerfAuditMaxFanout ORDER BY id ASC LIMIT 1",
+        1,
+    )
+    .expect("rejected maximum-fanout target should remain queryable");
+    let rejected_outcome = summarize_perf_outcome(&rejected_count.result);
+    assert_eq!(rejected_outcome.entity, "PerfAuditMaxFanout");
+    assert_eq!(rejected_outcome.row_count, 0);
+    let startup_probe: Result<(), Error> = fixture
+        .update_candid("initialize_startup_observation_fixture", ())
+        .expect("post-rejection startup probe should decode");
+    startup_probe.expect("rejection before marker publication must leave startup ready");
+
+    let loaded: Result<JointFanoutFixtureFacts, Error> = fixture
+        .update_candid("load_joint_fanout_boundary_fixture", ())
+        .expect("admitted maximum-fanout fixture result should decode");
+    let loaded = loaded.expect("admitted maximum-fanout fixture should load");
+    assert_eq!(loaded.rows, 240);
+    assert_eq!(loaded.secondary_indexes_per_row, 64);
+    assert!(loaded.load_local_instructions > 0);
+    assert!(loaded.load_local_instructions < 10_000_000_000);
+    let accepted_indexes = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SHOW INDEXES FROM PerfAuditMaxFanout",
+        1,
+    )
+    .expect("Patch 1 maximum-fanout accepted indexes should remain queryable");
+    let SqlQueryResult::ShowIndexes { entity, indexes } = accepted_indexes.result else {
+        panic!("Patch 1 maximum-fanout fixture should return accepted indexes");
+    };
+    assert_eq!(entity, "PerfAuditMaxFanout");
+    assert_eq!(indexes.len(), 65);
+
+    let observed = measure_startup_watchdog_recovery(&fixture, 1);
+    let measured = &observed.watchdog;
+    assert!(
+        measured
+            .work_maximum_instructions
+            .is_some_and(|instructions| instructions < 20_000_000_000)
+    );
+
+    println!(
+        "0.228 joint-admitted 240-row 64-secondary-index batch: load_instructions={} scheduler_instructions={} work_instructions={} latest_work={} maximum_work={} work_samples={} wasm_before={} wasm_after={} stable_before={} stable_after={}",
+        loaded.load_local_instructions,
+        measured.scheduler_total_instructions,
+        measured.work_total_instructions,
+        measured.work_latest_instructions.unwrap_or_default(),
+        measured.work_maximum_instructions.unwrap_or_default(),
+        measured.work_samples,
+        observed.memory_before.0,
+        observed.memory_after.0,
+        observed.memory_before.1,
+        observed.memory_after.1,
     );
 }
 

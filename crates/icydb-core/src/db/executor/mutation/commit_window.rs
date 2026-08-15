@@ -45,6 +45,10 @@ use std::{
 use super::constraint_scheduler::AcceptedMutationConstraintBatch;
 
 const MUTATION_COMMIT_INITIAL_RESERVE_ROWS: usize = 64;
+const MUTATION_COMMIT_WORK_UNITS_PER_ROW: usize = 4;
+const MUTATION_COMMIT_WORK_UNITS_PER_IDENTITY_RANGE: usize = 4;
+const MUTATION_COMMIT_WORK_UNITS_PER_PROGRESS_SUCCESSOR: usize = 4;
+const MAX_MUTATION_COMMIT_WORK_UNITS: usize = 16_384;
 
 /// Test-only durable interruption boundaries around mutation publication.
 #[cfg(test)]
@@ -199,29 +203,88 @@ struct PreparedRowOpBatch {
     prepared_row_ops: Vec<PreparedRowCommitOp>,
     index_store_guards: Vec<IndexStoreGenerationGuard>,
     delta: PreparedRowOpDelta,
+    commit_work_units: usize,
 }
 
 impl PreparedRowOpBatch {
     // Allocate one preflight batch with enough room for the expected row count.
-    fn with_row_capacity(row_count: usize) -> Self {
+    fn with_row_capacity(
+        row_count: usize,
+        fixed_commit_work_units: usize,
+    ) -> Result<Self, InternalError> {
+        ensure_mutation_commit_work_admitted(fixed_commit_work_units)?;
         let reserve_rows = row_count.min(MUTATION_COMMIT_INITIAL_RESERVE_ROWS);
 
-        Self {
+        Ok(Self {
             prepared_row_ops: Vec::with_capacity(reserve_rows),
             index_store_guards: Vec::new(),
             delta: PreparedRowOpDelta::zero(),
-        }
+            commit_work_units: fixed_commit_work_units,
+        })
     }
 
     // Add one prepared row op and update all derived apply metadata immediately.
-    fn push(&mut self, row_op: PreparedRowCommitOp) {
+    fn push(&mut self, row_op: PreparedRowCommitOp) -> Result<(), InternalError> {
+        let next_commit_work_units =
+            next_mutation_commit_work_units(self.commit_work_units, row_op.index_ops.len())?;
+
         for index_op in &row_op.index_ops {
             record_prepared_index_delta(&mut self.delta, index_op);
             record_index_store_generation_guard(&mut self.index_store_guards, index_op.index_store);
         }
 
         self.prepared_row_ops.push(row_op);
+        self.commit_work_units = next_commit_work_units;
+        Ok(())
     }
+}
+
+fn next_mutation_commit_work_units(
+    current_units: usize,
+    prepared_index_mutations: usize,
+) -> Result<usize, InternalError> {
+    let row_work_units = MUTATION_COMMIT_WORK_UNITS_PER_ROW
+        .checked_add(prepared_index_mutations)
+        .ok_or_else(|| {
+            InternalError::mutation_batch_commit_work_exceeded(None, MAX_MUTATION_COMMIT_WORK_UNITS)
+        })?;
+    let next_units = current_units.checked_add(row_work_units).ok_or_else(|| {
+        InternalError::mutation_batch_commit_work_exceeded(None, MAX_MUTATION_COMMIT_WORK_UNITS)
+    })?;
+    ensure_mutation_commit_work_admitted(next_units)?;
+
+    Ok(next_units)
+}
+
+fn ensure_mutation_commit_work_admitted(actual_units: usize) -> Result<(), InternalError> {
+    if actual_units > MAX_MUTATION_COMMIT_WORK_UNITS {
+        return Err(InternalError::mutation_batch_commit_work_exceeded(
+            Some(actual_units),
+            MAX_MUTATION_COMMIT_WORK_UNITS,
+        ));
+    }
+
+    Ok(())
+}
+
+fn fixed_mutation_commit_work_units(
+    identity_range_count: usize,
+    has_progress_successor: bool,
+) -> Result<usize, InternalError> {
+    let identity_units = identity_range_count
+        .checked_mul(MUTATION_COMMIT_WORK_UNITS_PER_IDENTITY_RANGE)
+        .ok_or_else(|| {
+            InternalError::mutation_batch_commit_work_exceeded(None, MAX_MUTATION_COMMIT_WORK_UNITS)
+        })?;
+    let progress_units = usize::from(has_progress_successor)
+        .checked_mul(MUTATION_COMMIT_WORK_UNITS_PER_PROGRESS_SUCCESSOR)
+        .ok_or_else(|| {
+            InternalError::mutation_batch_commit_work_exceeded(None, MAX_MUTATION_COMMIT_WORK_UNITS)
+        })?;
+
+    identity_units.checked_add(progress_units).ok_or_else(|| {
+        InternalError::mutation_batch_commit_work_exceeded(None, MAX_MUTATION_COMMIT_WORK_UNITS)
+    })
 }
 
 ///
@@ -509,9 +572,10 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: &[CommitRowOp],
     overlay: &mut PreflightStoreOverlay<'_, C>,
+    fixed_commit_work_units: usize,
 ) -> Result<PreparedRowOpBatch, InternalError> {
     let Some(first_row_op) = row_ops.first() else {
-        return Ok(PreparedRowOpBatch::with_row_capacity(0));
+        return PreparedRowOpBatch::with_row_capacity(0, fixed_commit_work_units);
     };
     let runtime_entity = db.accepted_runtime_entity_for_path(first_row_op.entity_path.as_ref())?;
     let context = runtime_entity.prepare_commit_context(
@@ -520,12 +584,12 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
         crate::db::commit::CommitPrepareMode::NormalWrite,
     )?;
 
-    let mut batch = PreparedRowOpBatch::with_row_capacity(row_ops.len());
+    let mut batch = PreparedRowOpBatch::with_row_capacity(row_ops.len(), fixed_commit_work_units)?;
 
     for row_op in row_ops {
         let row = prepare_row_commit_with_context(db, row_op, &context, overlay, overlay)?;
         overlay.stage_prepared_row_op(&row);
-        batch.push(row);
+        batch.push(row)?;
     }
 
     Ok(batch)
@@ -548,6 +612,8 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     identity_ranges: Vec<IdentityRangeAdvance>,
     mutation_progress: Option<MutationProgressRecordOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
+    let fixed_commit_work_units =
+        fixed_mutation_commit_work_units(identity_ranges.len(), mutation_progress.is_some())?;
     let mut overlay = PreflightStoreOverlay::<C>::from_row_ops(db, &row_ops)?;
     let entity_path = row_ops
         .first()
@@ -558,7 +624,13 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         prepared_row_ops,
         index_store_guards,
         delta,
-    } = preflight_prepare_row_op_batch_structural(db, &row_ops, &mut overlay)?;
+        ..
+    } = preflight_prepare_row_op_batch_structural(
+        db,
+        &row_ops,
+        &mut overlay,
+        fixed_commit_work_units,
+    )?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
     let CommitWindowPayload { marker, effects } = commit_window_payload_for_prepared_row_ops(
@@ -1180,6 +1252,52 @@ mod tests {
     }
 
     const IDENTITY_INCARNATION: DatabaseIncarnationId = DatabaseIncarnationId::for_tests(0x71);
+
+    #[test]
+    fn canonical_commit_work_bound_tracks_exact_prepared_fanout() {
+        let final_zero_index_units =
+            next_mutation_commit_work_units((4_096 - 1) * MUTATION_COMMIT_WORK_UNITS_PER_ROW, 0)
+                .expect("the final zero-index row should be admitted");
+        assert_eq!(final_zero_index_units, MAX_MUTATION_COMMIT_WORK_UNITS);
+        let zero_index_error = next_mutation_commit_work_units(final_zero_index_units, 0)
+            .expect_err("the next zero-index row must exceed the fixed work bound");
+        assert_eq!(
+            zero_index_error.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ActualCount,
+                    16_388,
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 16_384),
+            ],
+        );
+
+        let mut max_fanout_units = 0;
+        for _ in 0..240 {
+            max_fanout_units = next_mutation_commit_work_units(max_fanout_units, 64)
+                .expect("240 maximum-fanout inserts should be admitted");
+        }
+        assert_eq!(max_fanout_units, 16_320);
+        let max_fanout_error = next_mutation_commit_work_units(max_fanout_units, 64)
+            .expect_err("the 241st maximum-fanout insert must be rejected");
+        assert!(matches!(
+            max_fanout_error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary:
+                    icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchCommitWorkExceeded,
+            })
+        ));
+        assert_eq!(
+            max_fanout_error.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ActualCount,
+                    16_388,
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 16_384),
+            ],
+        );
+    }
 
     fn identity_candidate(
         store_path: &str,

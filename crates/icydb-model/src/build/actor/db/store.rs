@@ -270,7 +270,7 @@ fn startup_driver_tokens() -> TokenStream {
         }
 
         fn startup_watchdog_callback(
-            _context: ::icydb::__reexports::ic_timers::TimerContext,
+            _context: ::icydb::__reexports::ic_timers::WatchdogContext,
         ) -> ::icydb::__reexports::ic_timers::WatchdogRunResult {
             match startup_state() {
                 Ok(::icydb::db::DatabaseStartupState::Ready) => {
@@ -917,6 +917,7 @@ mod tests {
             "reconcile_startup_watchdog_from_durable_state()",
             "TimerCompletion::retryable_failure(0)",
             "WatchdogDecision::Continue",
+            "ic_timers::WatchdogContext",
             "__drive_generated_startup_recovery_page",
             "__record_generated_schema_startup_failure",
             "__icydb_startup_init",

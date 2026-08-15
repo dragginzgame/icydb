@@ -49,7 +49,7 @@ icydb::endpoints! {
 
 #[cfg(feature = "sql")]
 const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
-const IDENTITY_MAX_BATCH_ROWS: u32 = 16 * 1024 - 1;
+const IDENTITY_MAX_BATCH_ROWS: u32 = (4 * 1024) - 1;
 const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
 
 #[cfg(feature = "metrics-context-audit")]

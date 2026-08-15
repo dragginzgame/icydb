@@ -780,6 +780,28 @@ impl InternalError {
         )
     }
 
+    /// Construct an executor-origin prepared-commit work-bound rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_batch_commit_work_exceeded(
+        actual_units: Option<usize>,
+        limit: usize,
+    ) -> Self {
+        let mut facts = Vec::with_capacity(1 + usize::from(actual_units.is_some()));
+        if let Some(actual_units) = actual_units {
+            facts.push((
+                diagnostic_code::DiagnosticFactTag::ActualCount,
+                actual_units as u64,
+            ));
+        }
+        facts.push((diagnostic_code::DiagnosticFactTag::Limit, limit as u64));
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchCommitWorkExceeded,
+            facts,
+        )
+    }
+
     /// Construct a query-origin exact-key item-bound rejection.
     #[cold]
     #[inline(never)]

@@ -39,7 +39,7 @@ reported ready/complete 0.224 closeout
 0.227 Framework-Neutral IcyDB Lifecycle Participation
         |
         v
-0.228 Digest-Bound Journal Validation And Convergence Bounds
+0.228 Fingerprint-Bound Journal Validation And Convergence Bounds
         |
         v
 0.229 Continuous Journal Convergence And Bounded Backlog Admission
@@ -63,9 +63,18 @@ not authorize crossing an unfinished minor boundary.
 | [0.225](../0.225-explicit-startup-readiness-and-replicated-recovery-driving/0.225-design.md) | Two-state startup readiness, dedicated pending error, no incidental query/`db!()` recovery, dedicated replicated driver, single-flight/trap/timer/application contract | New cursor, online convergence, backlog, cardinality |
 | [0.226](../0.226-application-scoped-sql-and-schema-read-authority/0.226-design.md) | `guard(path)` on the established authorization field, replacement-not-union, bounded maintained allowlist matching, distinct SQL/schema denial, unchanged read-only semantics/ABI, and empirical standard-method discovery | Public SQL, within-SQL policy, lifecycle participation, controller assignment, bound parameters/continuations, IcyDB auth storage, external authentication/session protocols, or endpoint metadata |
 | [0.227](../0.227-framework-neutral-lifecycle-participation/0.227-design.md) | Root-only non-exporting IcyDB lifecycle participant, exact hidden callbacks, duplicate/trap/retained-Watchdog-claim safety, and framework-neutral composition evidence | Read authorization, external-framework lifecycle APIs, generic callback registry, persisted lifecycle state, or timer-provider migration |
-| [0.228](../0.228-digest-bound-journal-validation-and-convergence-bounds/0.228-design.md) | Raw inspection, digest-bound durable Validate/Apply, exact interruption safety, truthful physical/instruction/fanout/overshoot bounds | Online scheduling, backlog pressure, cardinality |
+| [0.228](../0.228-digest-bound-journal-validation-and-convergence-bounds/0.228-design.md) | IC-native raw inspection, full-batch validation, retained-versus-streaming same-message Apply, optional direct-offset paged fallback, existing typed startup-failure publication, actual message-boundary safety, truthful worst-feasible heap/stable/instruction/fanout/overshoot bounds, and universal 0.227 reinstall-only hard cut | Durable Validate or new physical record index unless separately promoted, online scheduling, backlog pressure, cardinality |
 | [0.229](../0.229-continuous-journal-convergence-and-bounded-backlog-admission/0.229-design.md) | Online reuse of 0.228, journal-positioned overlay visibility, post-commit scheduling, exact tail aggregates, fixed backlog ceiling and pre-marker pressure | Cardinality and planner statistics |
 | [0.230](../0.230-durable-exact-cardinality-generations/0.230-design.md) | Exact entity/index-prefix generations, bounded populated build, publication/invalidation/incremental maintenance, conservative fallback | Approximate statistics, histograms, optimizer work |
+
+## Deferred Adjacent Design Notes
+
+The [bounded application batch progress](bounded-application-batch-progress.md)
+intake records the E273 gap for application validation plus typed writes. It is
+unnumbered, does not alter the immediate 0.225-0.230 dependency order, and is
+not implementation authority. A later current-surface audit must decide
+whether the demonstrated workload narrows to provisional 0.239 bounded
+idempotent ingestion or requires a separate roadmap disposition.
 
 ## Exact Former-Section Disposition
 
@@ -78,7 +87,7 @@ assigned a second semantic owner.
 | Title, status, predecessor, and related authority | Replaced by this programme map and the independent planning/predecessor gates in each immediate line. The stale requirement for a completed query-audit 0.225 was deleted. The newly inserted 0.226 read-authority and 0.227 lifecycle-participant lines are independent adjacent findings, not relocated umbrella sections. |
 | `Planning Status And Authorization` | Replaced by line-local authorization gates: 0.225 follows 0.224; each later immediate line follows the preceding accepted closeout. |
 | `Decision Summary` — readiness state, pending error, query/`db!()` behavior, driver, and application contract | 0.225 sole authority. |
-| `Decision Summary` — durable validation/apply and truthful bounds | 0.228 sole authority. |
+| `Decision Summary` — complete pre-Apply validation and truthful IC bounds | 0.228 sole authority; Patch 1 selects one-shot validation unless measured evidence requires a new decision. |
 | `Decision Summary` — post-commit continuous convergence and fixed debt envelope | 0.229 sole authority; it reuses 0.225 scheduling and the 0.228 engine. |
 | `Decision Summary` — durable exact cardinality and populated build | 0.230 sole authority. |
 | `User Outcome` — explicit readiness, cheap pending calls, timer separation, and application restoration | 0.225. |
@@ -106,14 +115,14 @@ assigned a second semantic owner.
 | `Explicit Startup And Readiness` / `Startup probe` | 0.225. |
 | `Explicit Startup And Readiness` / `Application contract` | 0.225. |
 | `Explicit Startup And Readiness` / `Driver behavior` | 0.225. |
-| `Two-Phase Durable Batch Validation` / cursor | 0.228. |
-| `Two-Phase Durable Batch Validation` / `Validate` | 0.228. |
-| `Two-Phase Durable Batch Validation` / `Apply` | 0.228. |
+| `Two-Phase Durable Batch Validation` / cursor | Reduced by 0.228 to an Apply-only fingerprint-bound cursor unless Patch 1 blocks promotion. |
+| `Two-Phase Durable Batch Validation` / `Validate` | 0.228 owns complete read-only validation; durable paging is not presumed. |
+| `Two-Phase Durable Batch Validation` / `Apply` | 0.228 owns complete same-message Apply first and an Apply-only cursor only if Patch 1 proves paging necessary. |
 | `Truthful Physical And Instruction Bounds` | 0.228. |
 | `Durable Exact Cardinality` | 0.230. |
 | `Durable Exact Cardinality` / `Existing populated stores` | 0.230. |
 | `State-Space Delta` — readiness row | 0.225. |
-| `State-Space Delta` — convergence phase row | 0.228. |
+| `State-Space Delta` — convergence phase row | Deleted by 0.228's reduced default; no phase state is added unless separately authorized after measurement. |
 | `State-Space Delta` — backlog admission row | 0.229. |
 | `State-Space Delta` — cardinality generation row | 0.230. |
 | `Persisted And Public Hard Cuts` — readiness/error/`db!()` | 0.225. |
@@ -125,7 +134,7 @@ assigned a second semantic owner.
 | `Retained Adjacent Toko Ingestion Feedback` | Removed from the immediate programme. Preserved as Candidate 9 evidence and conditional 0.239 promotion in the query-capability roadmap. |
 | `Landing Plan` Patch 1 | Replaced by a distinct frozen current-state Patch 1 in every line. Each freezes only that line's owner and gates. |
 | `Landing Plan` Patch 2 | Expanded into 0.225 Patches 2–5; 0.225 Patch 6 is cross-owner real-canister closeout. |
-| `Landing Plan` Patch 3 | Expanded into 0.228 Patches 2–6; 0.228 Patch 7 is cross-owner real-canister closeout. |
+| `Landing Plan` Patch 3 | Replaced by 0.228's measurement-first four-patch provisional line; only its no-build Patch 1 is authorized. |
 | `Landing Plan` Patch 4 | Expanded into 0.229 Patches 2–6; 0.229 Patch 7 is cross-owner real-canister closeout. |
 | `Landing Plan` Patch 5 | Expanded into 0.230 Patches 2–5; 0.230 Patch 6 is cross-owner real-canister closeout. |
 | `Landing Plan` Patch 6 | Replaced by each line's final patch, containing only that line's cross-owner real-canister evidence and closeout. |
@@ -150,7 +159,7 @@ assigned a second semantic owner.
 | 5. `Ready` requires no recovery debt plus reconciliation | 0.225. |
 | 6. Queries never execute recovery mutations | 0.225. |
 | 7. Complete Validate precedes canonical mutation | 0.228. |
-| 8. Cursor binds exact batch identity/phase/ordinal | 0.228. |
+| 8. Cursor binds exact batch identity/phase/ordinal | 0.228 preserves the intent with exact identity and Apply ordinal; no durable phase is needed in the reduced protocol. |
 | 9. Partial Apply is hidden by live projection | Startup gating belongs to 0.225; online overlay visibility/retirement belongs to 0.229. |
 | 10. Canonical row/index transitions advance together | Existing record-family semantics preserved and interruption proof owned by 0.228. |
 | 11. Watermark never passes unapplied work | 0.228. |
@@ -169,9 +178,9 @@ Three collisions in the former programme are now resolved:
 1. Scheduling is not owned twice: 0.225 owns the replicated driver and
    single-flight/trap policy; 0.229 only requests that driver after commit or
    pressure.
-2. Convergence is not implemented twice: 0.228 owns raw inspection,
-   Validate/Apply, cursor, watermark, and terminal safety; 0.229 reuses it for
-   online operation.
+2. Convergence is not implemented twice: 0.228 owns raw inspection, one-shot
+   Validate, same-message Apply first, any measured Apply-only fallback cursor,
+   watermark, and terminal safety; 0.229 reuses it for online operation.
 3. Exact cardinality is not duplicated by future planner statistics: 0.230 is
    the generation/build/staleness authority; provisional 0.236 must extend it.
 
@@ -195,8 +204,15 @@ Canic composition remains independently owned and is not an IcyDB release
 gate. The fully ready participant's narrow instruction headroom remains a
 named optimization carry-forward; a later authorized slice should reduce
 accepted-schema observation cost rather than silently raise the gate.
+0.228 Patch 1 independently reproduced the same scaling direction: temporarily
+co-locating an unrelated 64-index entity more than doubled one three-index
+recovery probe. The accepted-schema lookup optimization remains separately
+owned and must remove unrelated catalog work without becoming a second
+recovery executor or changing 0.228's corruption protocol.
 
-For later lines, whether 0.228 needs physical chunks within its one current
-digest envelope and the smallest exact 0.229 overlay-position representation
-remain evidence-dependent Patch 1 decisions. None of these decisions authorize
-implementation now.
+For later lines, 0.228 first measures whether a complete batch can validate,
+prepare, Apply, and retire in one IC message. An Apply cursor, durable Validate,
+or physical-format expansion requires progressively stronger evidence and
+separate authorization. The smallest exact 0.229 overlay-position
+representation remains its own evidence-dependent Patch 1 decision. None of
+these decisions authorize implementation now.

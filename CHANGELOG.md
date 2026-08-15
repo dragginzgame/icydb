@@ -7,12 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### Cleanup
+## [0.228.x] 🧱 - 2026-08-15 - Fingerprint-Bound Journal Validation And Convergence Bounds
 
-- Removes obsolete startup-watchdog audit endpoints and generated
-  scheduling-observation scaffolding while retaining direct `ic-timers`
-  evidence in maintained fixtures, and keeps target-specific lint expectations
-  warning-clean on Wasm.
+Detailed notes: [docs/changelog/0.228.md](docs/changelog/0.228.md)
+
+- `0.228.0` bounds structural commits by exact prepared work and hardens
+  recovery wake-up ownership on `ic-timers 0.5.0`; the new E283 variant and
+  dependency hard cut are potentially breaking.
 
 ## [0.227.x] 🧩 - 2026-08-15 - Framework-Neutral Lifecycle Participation
 

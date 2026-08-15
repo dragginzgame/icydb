@@ -1079,6 +1079,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::MutationBatchResultBytesExceeded => {
             "structural mutation result exceeds the encoded response bound"
         }
+        RuntimeBoundaryCode::MutationBatchCommitWorkExceeded => {
+            "structural mutation batch exceeds the prepared-commit work bound"
+        }
         RuntimeBoundaryCode::MutationBatchEntityMismatch => {
             "structural mutation batch targets more than one accepted entity"
         }
@@ -2266,6 +2269,19 @@ mod tests {
             let err = icydb::Error::from_runtime_boundary(boundary, icydb::ErrorOrigin::Interface);
             assert_eq!(render_error(&err), expected);
         }
+    }
+
+    #[test]
+    fn renders_mutation_batch_commit_work_boundary_detail() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::MutationBatchCommitWorkExceeded,
+            icydb::ErrorOrigin::Executor,
+        );
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: structural mutation batch exceeds the prepared-commit work bound",
+        );
     }
 
     #[test]

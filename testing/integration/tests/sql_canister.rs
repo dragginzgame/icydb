@@ -261,7 +261,7 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
 }
 
 #[test]
-#[ignore = "release-closeout instruction probe over the exact journal record-cap batch"]
+#[ignore = "release-closeout instruction probe over the exact prepared-commit work bound"]
 fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     let fixture = install_sql_canister_fixture();
     let result: Result<IdentityCloseoutPerfResult, Error> = fixture
@@ -274,7 +274,7 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     assert!(result.generated_nat128_instructions > 0);
     assert!(result.one_row_batch_instructions > 0);
     assert!(result.maximum_batch_instructions > result.one_row_batch_instructions);
-    assert_eq!(result.maximum_batch_rows, 16 * 1024 - 1);
+    assert_eq!(result.maximum_batch_rows, (4 * 1024) - 1);
 
     println!(
         "identity closeout instructions: caller_nat64={} generated_nat64={} generated_nat128={} one_row_batch={} maximum_batch={} maximum_batch_rows={}",

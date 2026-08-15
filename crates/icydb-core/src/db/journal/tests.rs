@@ -241,6 +241,43 @@ fn journal_batch_codec_round_trips_bounded_accepted_schema_index_chunks() {
 }
 
 #[test]
+fn accepted_schema_index_replacement_and_validation_job_are_distinct_legal_shapes() {
+    let job = validation_job();
+    JournalBatch::new(
+        [0x36; 16],
+        [0x46; 16],
+        JournalSequence::new(1),
+        vec![
+            accepted_schema_publish_record(),
+            JournalRecord::constraint_validation_job_put("test::Store", &job)
+                .expect("validation job record should build"),
+        ],
+    )
+    .expect("accepted publication plus its validation job should build");
+
+    let error = JournalBatch::new(
+        [0x37; 16],
+        [0x47; 16],
+        JournalSequence::new(2),
+        vec![
+            accepted_schema_publish_record(),
+            JournalRecord::accepted_schema_index_put(
+                "test::Store",
+                EntityTag::new(1),
+                [0x51; 16],
+                vec![accepted_schema_index_key(1, 1)],
+            )
+            .expect("accepted schema index insertion should build"),
+            JournalRecord::constraint_validation_job_put("test::Store", &job)
+                .expect("validation job record should build"),
+        ],
+    )
+    .expect_err("index replacement and validation-job publication cannot coexist");
+    assert_eq!(error.class, ErrorClass::Corruption);
+    assert_eq!(error.origin, ErrorOrigin::Store);
+}
+
+#[test]
 fn accepted_schema_index_chunks_reject_unbound_oversized_and_noncanonical_sets() {
     let key = accepted_schema_index_key(1, 1);
     let unbound = JournalRecord::accepted_schema_index_put(

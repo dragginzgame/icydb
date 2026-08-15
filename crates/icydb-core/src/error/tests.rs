@@ -912,6 +912,14 @@ fn mutation_error_details_project_exact_bounded_numeric_facts() {
         vec![(Tag::ActualLength, 101), (Tag::Limit, 100)],
     );
     assert_eq!(
+        InternalError::mutation_batch_commit_work_exceeded(Some(16_385), 16_384).diagnostic_facts(),
+        vec![(Tag::ActualCount, 16_385), (Tag::Limit, 16_384)],
+    );
+    assert_eq!(
+        InternalError::mutation_batch_commit_work_exceeded(None, 16_384).diagnostic_facts(),
+        vec![(Tag::Limit, 16_384)],
+    );
+    assert_eq!(
         InternalError::mutation_batch_entity_mismatch(2, 17, 18).diagnostic_facts(),
         vec![
             (Tag::BatchPosition, 2),

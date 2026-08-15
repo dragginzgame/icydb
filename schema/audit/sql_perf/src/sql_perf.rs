@@ -5,7 +5,7 @@ define_fixture_canister!(
     PerfAuditCanister = "PerfAuditCanister",
     namespace = "sql_perf",
     memory_min = 180,
-    memory_max = 190,
+    memory_max = 194,
     commit_memory_id = 188,
     startup_memory_id = 190,
     integrity_progress_memory_id = 189,
@@ -19,6 +19,17 @@ define_fixture_store!(
         index_memory_id = 181,
         schema_memory_id = 182,
         journal_memory_id = 183,
+    )),
+);
+
+define_fixture_store!(
+    PerfAuditFanoutStore,
+    canister = "PerfAuditCanister",
+    storage(journaled(
+        data_memory_id = 191,
+        index_memory_id = 192,
+        schema_memory_id = 193,
+        journal_memory_id = 194,
     )),
 );
 
@@ -60,6 +71,97 @@ pub struct PerfAuditJournaledStore {}
     timestamps
 )]
 pub struct PerfAuditUser {}
+
+///
+/// PerfAuditMaxFanout
+///
+/// Closed 0.228 audit shape exercising the accepted maximum of 64 secondary
+/// indexes with nine scalar source fields. Equal-width ordered pairs keep every
+/// index semantically distinct and avoid redundant-prefix rejection without
+/// inflating row payload bytes.
+///
+
+#[entity(store = "PerfAuditFanoutStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["a", "b"]),
+    index(fields = ["a", "c"]),
+    index(fields = ["a", "d"]),
+    index(fields = ["a", "e"]),
+    index(fields = ["a", "f"]),
+    index(fields = ["a", "g"]),
+    index(fields = ["a", "h"]),
+    index(fields = ["a", "i"]),
+    index(fields = ["b", "a"]),
+    index(fields = ["b", "c"]),
+    index(fields = ["b", "d"]),
+    index(fields = ["b", "e"]),
+    index(fields = ["b", "f"]),
+    index(fields = ["b", "g"]),
+    index(fields = ["b", "h"]),
+    index(fields = ["b", "i"]),
+    index(fields = ["c", "a"]),
+    index(fields = ["c", "b"]),
+    index(fields = ["c", "d"]),
+    index(fields = ["c", "e"]),
+    index(fields = ["c", "f"]),
+    index(fields = ["c", "g"]),
+    index(fields = ["c", "h"]),
+    index(fields = ["c", "i"]),
+    index(fields = ["d", "a"]),
+    index(fields = ["d", "b"]),
+    index(fields = ["d", "c"]),
+    index(fields = ["d", "e"]),
+    index(fields = ["d", "f"]),
+    index(fields = ["d", "g"]),
+    index(fields = ["d", "h"]),
+    index(fields = ["d", "i"]),
+    index(fields = ["e", "a"]),
+    index(fields = ["e", "b"]),
+    index(fields = ["e", "c"]),
+    index(fields = ["e", "d"]),
+    index(fields = ["e", "f"]),
+    index(fields = ["e", "g"]),
+    index(fields = ["e", "h"]),
+    index(fields = ["e", "i"]),
+    index(fields = ["f", "a"]),
+    index(fields = ["f", "b"]),
+    index(fields = ["f", "c"]),
+    index(fields = ["f", "d"]),
+    index(fields = ["f", "e"]),
+    index(fields = ["f", "g"]),
+    index(fields = ["f", "h"]),
+    index(fields = ["f", "i"]),
+    index(fields = ["g", "a"]),
+    index(fields = ["g", "b"]),
+    index(fields = ["g", "c"]),
+    index(fields = ["g", "d"]),
+    index(fields = ["g", "e"]),
+    index(fields = ["g", "f"]),
+    index(fields = ["g", "h"]),
+    index(fields = ["g", "i"]),
+    index(fields = ["h", "a"]),
+    index(fields = ["h", "b"]),
+    index(fields = ["h", "c"]),
+    index(fields = ["h", "d"]),
+    index(fields = ["h", "e"]),
+    index(fields = ["h", "f"]),
+    index(fields = ["h", "g"]),
+    index(fields = ["h", "i"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "a", value(item(prim = "Int32"))),
+        field(name = "b", value(item(prim = "Int32"))),
+        field(name = "c", value(item(prim = "Int32"))),
+        field(name = "d", value(item(prim = "Int32"))),
+        field(name = "e", value(item(prim = "Int32"))),
+        field(name = "f", value(item(prim = "Int32"))),
+        field(name = "g", value(item(prim = "Int32"))),
+        field(name = "h", value(item(prim = "Int32"))),
+        field(name = "i", value(item(prim = "Int32")))
+    )
+)]
+pub struct PerfAuditMaxFanout {}
 
 ///
 /// PerfAuditHeapUser

@@ -100,6 +100,33 @@ struct StartupObservationPerfResult {
     local_instructions: u64,
 }
 
+/// Canonical instruction evidence recorded by the generated startup watchdog.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+struct StartupWatchdogPerfSnapshot {
+    scheduler_samples: u64,
+    scheduler_total_instructions: u64,
+    scheduler_maximum_instructions: Option<u64>,
+    work_samples: u64,
+    work_total_instructions: u64,
+    work_latest_instructions: Option<u64>,
+    work_maximum_instructions: Option<u64>,
+    work_started: u64,
+    work_completed: u64,
+    succeeded: u64,
+    retryable_failures: u64,
+    invariant_failures: u64,
+}
+
+/// Closed producer-side evidence for the maximum-index-fanout fixture.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+struct JointFanoutFixtureFacts {
+    rows: u32,
+    secondary_indexes_per_row: u32,
+    load_local_instructions: u64,
+}
+
 /// Application lifecycle entry that began the current readiness observation.
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
@@ -297,6 +324,38 @@ fn engine_startup_watchdog_armed() -> bool {
         Ok(Some(snapshot)) => snapshot.next_deadline_ns().is_some(),
         Ok(None) => false,
         Err(_) => ic_cdk::trap("IcyDB startup watchdog observation failed"),
+    }
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
+    let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
+        ic_cdk::trap("IcyDB startup watchdog identity is invalid");
+    };
+    let snapshot = match ic_timers::timer_snapshot(&identity) {
+        Ok(Some(snapshot)) => snapshot,
+        Ok(None) => ic_cdk::trap("IcyDB startup watchdog snapshot is absent"),
+        Err(_) => ic_cdk::trap("IcyDB startup watchdog observation failed"),
+    };
+    let observability = snapshot.observability();
+    let counters = observability.counters();
+    let performance = observability.performance();
+    let scheduler = performance.scheduler_instructions();
+    let work = performance.work_instructions();
+
+    StartupWatchdogPerfSnapshot {
+        scheduler_samples: scheduler.samples(),
+        scheduler_total_instructions: scheduler.total(),
+        scheduler_maximum_instructions: scheduler.maximum(),
+        work_samples: work.samples(),
+        work_total_instructions: work.total(),
+        work_latest_instructions: work.latest(),
+        work_maximum_instructions: work.maximum(),
+        work_started: counters.work_started(),
+        work_completed: counters.work_completed(),
+        succeeded: counters.succeeded(),
+        retryable_failures: counters.retryable_failure(),
+        invariant_failures: counters.invariant_failure(),
     }
 }
 
@@ -617,6 +676,16 @@ const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 const SCALE_FIXTURE_PROFILE_VERSION: u32 = 1;
 #[cfg(feature = "sql")]
 const SCALE_FIXTURE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+const JOINT_ZERO_INDEX_ADMITTED_ROWS: u32 = 4_096;
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+const JOINT_THREE_INDEX_ADMITTED_ROWS: u32 = 2_048;
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+const PATCH1_WIDE_ROW_PAYLOAD_BYTES: usize = (4 * 1024 * 1024) - 1024;
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+const JOINT_FANOUT_ADMITTED_ROWS: u32 = 240;
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+const JOINT_FANOUT_FIRST_REJECTED_ROWS: u32 = 241;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_FIXTURE_PROFILE_VERSION: u32 = 1;
 #[cfg(feature = "sql")]
@@ -628,7 +697,7 @@ const STREAMING_EXECUTION_FIXTURE_ROWS: i32 = 2_048;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_CONTINUATION_ROWS: i32 = 10_001;
 #[cfg(feature = "sql")]
-const STREAMING_EXECUTION_CONTINUATION_LOAD_BATCH_ROWS: i32 = 4_096;
+const STREAMING_EXECUTION_CONTINUATION_LOAD_BATCH_ROWS: i32 = 2_048;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES: &[usize] = &[300 * 1_024, 150 * 1_024, 40 * 1_024];
 
@@ -1433,6 +1502,7 @@ fn reset_perf_fixtures() -> Result<(), icydb::Error> {
         "PerfAuditBlob",
         "PerfAuditHeapUser",
         "PerfAuditJournaledUser",
+        "PerfAuditMaxFanout",
         "PerfAuditMutationScoringState",
         "PerfAuditMutationToken",
         "PerfAuditRelationTarget",
@@ -1644,6 +1714,127 @@ fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts
     })
 }
 
+/// Load the closed zero-index joint-admission boundary.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn load_joint_zero_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let rows = perf_scale_journaled_users(
+            i32::try_from(JOINT_ZERO_INDEX_ADMITTED_ROWS).map_err(|_| query_validate_error())?,
+        );
+        let facts = scale_journaled_user_fixture_facts(JOINT_ZERO_INDEX_ADMITTED_ROWS, &rows)?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
+
+        Ok(facts)
+    })
+}
+
+/// Load the closed three-index joint-admission boundary.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn load_joint_three_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let requested_rows = JOINT_THREE_INDEX_ADMITTED_ROWS;
+        let rows =
+            perf_scale_users(i32::try_from(requested_rows).map_err(|_| query_validate_error())?);
+        let facts = scale_fixture_facts(
+            "user",
+            requested_rows,
+            rows.len(),
+            rows.iter().filter(|row| row.name.starts_with('A')).count(),
+            rows.iter().filter(|row| row.id == 1).count(),
+            rows.iter()
+                .filter(|row| row.age >= 24 && row.age < 40)
+                .count(),
+            ScalePayloadProfile::NotApplicable,
+        )?;
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
+
+        Ok(facts)
+    })
+}
+
+/// Load one near-maximum row with maintained derived-index fanout.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn load_patch1_wide_row_recovery_fixture() -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        insert_fixture_rows(vec![PerfAuditBlob {
+            id: 1,
+            label: "patch1-wide-row".to_string(),
+            bucket: 1,
+            thumbnail: Vec::new().into(),
+            chunk: vec![0xA5; PATCH1_WIDE_ROW_PAYLOAD_BYTES].into(),
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        }])?;
+
+        u32::try_from(PATCH1_WIDE_ROW_PAYLOAD_BYTES).map_err(|_| query_validate_error())
+    })
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn joint_fanout_patches(row_count: u32) -> Result<Vec<StructuralPatch>, icydb::Error> {
+    (0..row_count)
+        .map(|ordinal| {
+            let value = i32::try_from(ordinal).map_err(|_| query_validate_error())?;
+            Ok(StructuralPatch::new()
+                .field("id", authored(value))
+                .field("a", authored(value))
+                .field("b", authored(value.saturating_add(1)))
+                .field("c", authored(value.saturating_add(2)))
+                .field("d", authored(value.saturating_add(3)))
+                .field("e", authored(value.saturating_add(4)))
+                .field("f", authored(value.saturating_add(5)))
+                .field("g", authored(value.saturating_add(6)))
+                .field("h", authored(value.saturating_add(7)))
+                .field("i", authored(value.saturating_add(8))))
+        })
+        .collect::<Result<Vec<_>, icydb::Error>>()
+}
+
+/// Exercise the first rejected 64-secondary-index batch through maintained admission.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn reject_joint_fanout_over_boundary_fixture() -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        let inserted = db()?.execute_trusted_structural_insert_batch(
+            "PerfAuditMaxFanout",
+            joint_fanout_patches(JOINT_FANOUT_FIRST_REJECTED_ROWS)?,
+        )?;
+
+        Ok(inserted.affected_rows)
+    })
+}
+
+/// Load one closed batch at the admitted 64-secondary-index fanout boundary.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        let start = ic_cdk::api::performance_counter(1);
+        let inserted = db()?.execute_trusted_structural_insert_batch(
+            "PerfAuditMaxFanout",
+            joint_fanout_patches(JOINT_FANOUT_ADMITTED_ROWS)?,
+        )?;
+        if inserted.affected_rows != JOINT_FANOUT_ADMITTED_ROWS {
+            return Err(query_validate_error());
+        }
+        let load_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(JointFanoutFixtureFacts {
+            rows: inserted.affected_rows,
+            secondary_indexes_per_row: 64,
+            load_local_instructions,
+        })
+    })
+}
+
 /// Load only the deterministic token scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
@@ -1746,6 +1937,13 @@ fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::
         state,
         local_instructions,
     })
+}
+
+/// Read instruction evidence from the real generated startup watchdog.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[query]
+fn startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
+    engine_startup_watchdog_perf_snapshot()
 }
 
 /// Expose application-owned readiness evidence only in the local audit actor.

@@ -707,4 +707,6 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SqlSurfacePolicyDenied });
     RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED = 282 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SchemaSurfacePolicyDenied });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_COMMIT_WORK_EXCEEDED = 283 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchCommitWorkExceeded });
 }

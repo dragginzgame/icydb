@@ -23,12 +23,23 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
+#[cfg(test)]
+// Core unit fixtures exercise commit mechanics without generated lifecycle
+// wiring; generated-canister tests still install and exercise the real hook.
+fn noop_startup_recovery_wakeup() {}
+
+#[cfg(test)]
+const DEFAULT_STARTUP_RECOVERY_WAKEUP: Option<fn()> = Some(noop_startup_recovery_wakeup);
+#[cfg(not(test))]
+const DEFAULT_STARTUP_RECOVERY_WAKEUP: Option<fn()> = None;
+
 thread_local! {
     // Generated canister lifecycle wiring installs the sole engine-owned
     // wake-up callback. Keeping the callback volatile makes its registration
     // atomic with a normally returned commit-apply failure while durable
     // recovery controls remain the only progress authority.
-    static STARTUP_RECOVERY_WAKEUP: Cell<Option<fn()>> = const { Cell::new(None) };
+    static STARTUP_RECOVERY_WAKEUP: Cell<Option<fn()>> =
+        const { Cell::new(DEFAULT_STARTUP_RECOVERY_WAKEUP) };
 }
 
 /// Install the generated watchdog wake-up used by retained-marker error exits.
@@ -37,12 +48,10 @@ pub fn install_startup_recovery_wakeup(wakeup: fn()) {
     STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(Some(wakeup)));
 }
 
-fn ensure_startup_recovery_wakeup() {
-    STARTUP_RECOVERY_WAKEUP.with(|installed| {
-        if let Some(wakeup) = installed.get() {
-            wakeup();
-        }
-    });
+fn startup_recovery_wakeup() -> Result<fn(), InternalError> {
+    STARTUP_RECOVERY_WAKEUP
+        .with(Cell::get)
+        .ok_or_else(InternalError::executor_invariant)
 }
 
 ///
@@ -162,16 +171,25 @@ impl Drop for CommitApplyGuard {
 ///
 
 #[derive(Clone, Debug)]
-pub(crate) struct CommitGuard;
+pub(crate) struct CommitGuard {
+    startup_recovery_wakeup: fn(),
+}
 
 impl CommitGuard {
-    const fn new() -> Self {
-        Self
+    const fn new(startup_recovery_wakeup: fn()) -> Self {
+        Self {
+            startup_recovery_wakeup,
+        }
     }
 
     /// Clear the commit marker after successful apply.
     fn clear() -> Result<(), InternalError> {
         with_initialized_commit_store(super::store::CommitStore::clear_verified)?
+    }
+
+    /// Ensure one future replicated attempt can advance retained recovery work.
+    fn ensure_startup_recovery_wakeup(&self) {
+        (self.startup_recovery_wakeup)();
     }
 }
 
@@ -221,12 +239,18 @@ fn begin_commit_with_preflighted_mutation_progress(
             }
         }
     }
+
+    // Capture the generated wake-up before publishing marker authority. Every
+    // normally returning commit path that can retain the marker must already
+    // own a wake-up function; missing lifecycle wiring therefore fails before
+    // any durable recovery work is created.
+    let startup_recovery_wakeup = startup_recovery_wakeup()?;
     with_commit_store(|store| {
         // Phase 1: enforce one in-flight marker at a time before opening the
         // commit window.
         store.set_if_empty(&marker)?;
 
-        Ok(CommitGuard::new())
+        Ok(CommitGuard::new(startup_recovery_wakeup))
     })
 }
 
@@ -254,7 +278,7 @@ pub(crate) fn finish_commit(
         // A normally returned apply error commits its retained marker. Ensure
         // the recurring recovery wake-up in the same IC message before the
         // error is allowed to return; a trap rolls both changes back together.
-        ensure_startup_recovery_wakeup();
+        guard.ensure_startup_recovery_wakeup();
         // Phase 1 (error path): failed apply must preserve marker authority.
         // Internal invariant: failed commit windows must preserve marker authority.
         if with_initialized_commit_store(super::store::CommitStore::is_empty)? {
@@ -267,21 +291,67 @@ pub(crate) fn finish_commit(
     // normally returned clear failure may retain the marker, so it must also
     // atomically retain a recovery wake-up.
     if let Err(error) = CommitGuard::clear() {
-        ensure_startup_recovery_wakeup();
+        guard.ensure_startup_recovery_wakeup();
         return Err(error);
     }
     // Internal invariant: successful commit windows must clear the marker.
     let marker_is_empty = match with_initialized_commit_store(super::store::CommitStore::is_empty) {
         Ok(marker_is_empty) => marker_is_empty,
         Err(error) => {
-            ensure_startup_recovery_wakeup();
+            guard.ensure_startup_recovery_wakeup();
             return Err(error);
         }
     };
     if !marker_is_empty {
-        ensure_startup_recovery_wakeup();
+        guard.ensure_startup_recovery_wakeup();
         return Err(InternalError::commit_corruption());
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        commit::{commit_memory_handle, configure_commit_memory_id},
+        database_format::initialize_current_database_control_for_tests,
+    };
+
+    struct StartupRecoveryWakeupRestore(Option<fn()>);
+
+    impl Drop for StartupRecoveryWakeupRestore {
+        fn drop(&mut self) {
+            STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(self.0));
+        }
+    }
+
+    #[test]
+    fn missing_startup_recovery_wakeup_rejects_before_marker_publication() {
+        const MEMORY_ID: u8 = 242;
+        const STABLE_KEY: &str = "icydb.test.commit-guard-missing-wakeup.v1";
+
+        configure_commit_memory_id(MEMORY_ID, STABLE_KEY)
+            .expect("commit allocation should configure");
+        let allocation = super::super::memory::current_commit_memory_allocation()
+            .expect("commit allocation should resolve");
+        let memory = commit_memory_handle(allocation).expect("commit memory should open");
+        initialize_current_database_control_for_tests(&memory);
+
+        let previous = STARTUP_RECOVERY_WAKEUP.with(|installed| installed.replace(None));
+        let _restore = StartupRecoveryWakeupRestore(previous);
+        let marker = CommitMarker::from_parts([0x6d; 16], Vec::new())
+            .expect("empty control marker should admit");
+
+        let error = begin_commit(marker).expect_err("missing wake-up wiring must fail closed");
+        assert_eq!(
+            error.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION,
+        );
+        assert!(
+            with_commit_store(super::super::store::CommitStore::marker_is_empty)
+                .expect("commit marker should remain observable"),
+            "failed admission must not publish durable recovery work",
+        );
+    }
 }
