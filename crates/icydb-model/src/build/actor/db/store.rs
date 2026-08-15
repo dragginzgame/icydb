@@ -164,7 +164,6 @@ fn startup_driver_tokens() -> TokenStream {
             bool,
             ::icydb::db::StartupFailure,
         > {
-            initialize_startup_timer_runtime();
             match startup_state() {
                 Ok(::icydb::db::DatabaseStartupState::Ready) => {
                     reconcile_startup_watchdog(
@@ -173,9 +172,9 @@ fn startup_driver_tokens() -> TokenStream {
                     Ok(false)
                 }
                 Ok(::icydb::db::DatabaseStartupState::Recovering) => {
-                    let was_scheduled = startup_watchdog_is_scheduled();
+                    let had_armed_wakeup = startup_watchdog_has_armed_wakeup();
                     ensure_startup_watchdog_registered();
-                    Ok(!was_scheduled)
+                    Ok(!had_armed_wakeup)
                 }
                 Err(failure) => {
                     reconcile_startup_watchdog(
@@ -266,31 +265,38 @@ fn startup_driver_tokens() -> TokenStream {
         /// Register generated startup driving before an application install hook.
         #[doc(hidden)]
         pub(crate) fn __icydb_startup_init() {
-            initialize_startup_timer_runtime();
             register_startup_watchdog_for_lifecycle();
         }
 
         /// Reconstruct volatile startup driving before an application upgrade hook.
         #[doc(hidden)]
         pub(crate) fn __icydb_startup_post_upgrade() {
-            initialize_startup_timer_runtime();
             register_startup_watchdog_for_lifecycle();
         }
 
         /// Return whether this Wasm instance has a live watchdog wake-up.
         #[doc(hidden)]
         pub fn __startup_watchdog_registered() -> bool {
-            startup_watchdog_is_scheduled()
+            startup_watchdog_has_armed_wakeup()
         }
 
-        fn startup_watchdog_is_scheduled() -> bool {
-            ::icydb::__reexports::ic_timers::timer_snapshot(
-                &startup_watchdog_identity(),
-            )
-            .ok()
-            .flatten()
-            .and_then(|snapshot| snapshot.next_deadline_ns())
-            .is_some()
+        fn startup_watchdog_has_armed_wakeup() -> bool {
+            STARTUP_WATCHDOG_REGISTRATION.with(|slot| {
+                let Ok(registration) = slot.try_borrow() else {
+                    ::icydb::__reexports::ic_cdk::trap(
+                        "IcyDB startup watchdog observation is reentrant",
+                    );
+                };
+                let Some(registration) = registration.as_ref() else {
+                    return false;
+                };
+                match registration.has_armed_wakeup() {
+                    Ok(has_wakeup) => has_wakeup,
+                    Err(_) => ::icydb::__reexports::ic_cdk::trap(
+                        "IcyDB startup watchdog observation failed",
+                    ),
+                }
+            })
         }
 
         fn startup_watchdog_callback(
@@ -938,6 +944,7 @@ mod tests {
             "ic_timers::reconcile_watchdog(",
             "TimerReconcileState::Inactive",
             "TimerReconcileState::Scheduled",
+            "registration.has_armed_wakeup()",
             "TimerCompletion::retryable_failure(0)",
             "WatchdogDecision::Continue",
             "__drive_generated_startup_recovery_page",
@@ -955,6 +962,7 @@ mod tests {
             "ic_cdk::post_upgrade",
             "#[update]",
             "#[query]",
+            "ic_timers::timer_snapshot(",
         ] {
             assert!(
                 !rendered.contains(forbidden),
@@ -967,6 +975,13 @@ mod tests {
                 .count()
                 >= 2,
             "install and post-upgrade must both activate lifecycle registration",
+        );
+        assert_eq!(
+            rendered
+                .matches("initialize_startup_timer_runtime();")
+                .count(),
+            1,
+            "watchdog reconciliation is the single timer-runtime initialization owner",
         );
     }
 

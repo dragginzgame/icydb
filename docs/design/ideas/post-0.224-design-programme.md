@@ -182,17 +182,19 @@ retirement, subject to Patch 1 confirming the smallest maintained shape.
 
 ## Approval Boundary
 
-The documentation reorganization itself is complete, but 0.226 deliberately
-remains blocked beyond IcyDB Patch 1 inventory. Patch 1 must still prove that
-the generated guard is justified over a hand-written endpoint, freeze the
-IcyDB-only wrapper/allowlist/raw-Wasm gates, and confirm that empirical standard
-method probing is sufficient without a second discovery artifact. No Canic
-ABI, release, tracker, or lifecycle owner is part of that decision.
+The documentation reorganization and 0.226 implementation/closeout are
+complete. 0.226 proved the generated guard, froze the IcyDB-only
+wrapper/allowlist/raw-Wasm gates, and retained empirical standard-method
+probing without a second discovery artifact. No Canic ABI, release, tracker,
+or lifecycle owner entered that line.
 
-0.227 remains planning-only and cannot begin Patch 1 until 0.226 closeout. Its
-future inventory must prove that two hidden synchronous callbacks plus one
-volatile duplicate latch are the smallest safe participant seam. Canic
-composition remains independently owned and is not an IcyDB release gate.
+0.227 Patches 1-4 are accepted. They implement one hidden module containing two
+synchronous callbacks plus one volatile duplicate latch, then prove empty and
+populated same-release recovery under a framework-neutral single-owner root.
+Canic composition remains independently owned and is not an IcyDB release
+gate. The fully ready participant's narrow instruction headroom remains a
+named optimization carry-forward; a later authorized slice should reduce
+accepted-schema observation cost rather than silently raise the gate.
 
 For later lines, whether 0.228 needs physical chunks within its one current
 digest envelope and the smallest exact 0.229 overlay-position representation

@@ -59,31 +59,8 @@ pub(super) fn observe<C: CanisterKind>(
 
     let (recovered, in_progress) =
         startup_recovery_witness(stores).map_err(database_control_failure)?;
-    let mut cursor_present = false;
-    let mut matching_journal_failure = None;
-    let journal_result = stores.with(|registry| {
-        for (_, handle) in registry.iter() {
-            let Some(journal) = handle.journal_tail_store() else {
-                continue;
-            };
-            let Some(allocation) = handle.journal_allocation() else {
-                return Err(InternalError::store_invariant());
-            };
-            let (proof, cursor) = journal.with_borrow(|journal| {
-                Ok::<_, InternalError>((journal.proof_identity()?, journal.fold_record_cursor()?))
-            })?;
-            cursor_present |= cursor.is_some();
-            if let Some(receipt) = receipt.as_ref()
-                && journal_receipt_matches(receipt, incarnation, allocation, proof, cursor)
-            {
-                matching_journal_failure = Some(receipt.failure().clone());
-            }
-        }
-        Ok::<(), InternalError>(())
-    });
-    journal_result.map_err(|error| {
-        StartupFailure::from_internal(StartupFailureKind::JournalRecovery, &error)
-    })?;
+    let (cursor_present, matching_journal_failure) =
+        observe_journal_control(stores, receipt.as_ref(), incarnation)?;
     if let Some(failure) = matching_journal_failure {
         return Err(failure);
     }
@@ -131,6 +108,52 @@ pub(super) fn observe<C: CanisterKind>(
     } else {
         DatabaseStartupState::Recovering
     })
+}
+
+fn observe_journal_control(
+    stores: &'static std::thread::LocalKey<StoreRegistry>,
+    receipt: Option<&StartupFailureReceipt>,
+    incarnation: crate::db::DatabaseIncarnationId,
+) -> Result<(bool, Option<StartupFailure>), StartupFailure> {
+    let mut cursor_present = false;
+    let mut matching_journal_failure = None;
+    let journal_failure_receipt =
+        receipt.filter(|receipt| receipt.failure().kind() == StartupFailureKind::JournalRecovery);
+    stores
+        .with(|registry| {
+            for (_, handle) in registry.iter() {
+                let Some(journal) = handle.journal_tail_store() else {
+                    continue;
+                };
+                let Some(allocation) = handle.journal_allocation() else {
+                    return Err(InternalError::store_invariant());
+                };
+                let (proof, cursor) = journal.with_borrow(|journal| {
+                    // Watermark and cursor are always part of the fixed readiness
+                    // read set. The remaining proof fields exist only to bind an
+                    // already-persisted journal failure, so avoid the reverse tail
+                    // lookup when no such receipt can match.
+                    let proof = if journal_failure_receipt.is_some() {
+                        Some(journal.proof_identity()?)
+                    } else {
+                        let _watermark = journal.fold_watermark()?;
+                        None
+                    };
+                    Ok::<_, InternalError>((proof, journal.fold_record_cursor()?))
+                })?;
+                cursor_present |= cursor.is_some();
+                if let (Some(receipt), Some(proof)) = (journal_failure_receipt, proof)
+                    && journal_receipt_matches(receipt, incarnation, allocation, proof, cursor)
+                {
+                    matching_journal_failure = Some(receipt.failure().clone());
+                }
+            }
+            Ok::<(), InternalError>(())
+        })
+        .map_err(|error| {
+            StartupFailure::from_internal(StartupFailureKind::JournalRecovery, &error)
+        })?;
+    Ok((cursor_present, matching_journal_failure))
 }
 
 fn database_control_failure(error: InternalError) -> StartupFailure {

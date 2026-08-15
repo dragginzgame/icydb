@@ -47,6 +47,10 @@ name = "compile_pass_lifecycle_declarations"
 path = "tests/pass/lifecycle_declarations.rs"
 
 [[test]]
+name = "lifecycle_participant"
+path = "tests/lifecycle_participant.rs"
+
+[[test]]
 name = "compile_pass_structural_write_surface"
 path = "tests/pass/structural_write_surface.rs"
 

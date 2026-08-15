@@ -1,0 +1,11 @@
+error[E0428]: the name `__icydb_lifecycle_participant` is defined multiple times
+  --> tests/fail-lifecycle/participant_collision.rs:11:1
+   |
+ 9 | mod __icydb_lifecycle_participant {}
+   | --------------------------------- previous definition of the module `__icydb_lifecycle_participant` here
+10 |
+11 | icydb::__icydb_start_participant_lifecycle!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `__icydb_lifecycle_participant` redefined here
+   |
+   = note: `__icydb_lifecycle_participant` must be defined only once in the type namespace of this module
+   = note: this error originates in the macro `icydb::__icydb_start_participant_lifecycle` (in Nightly builds, run with -Z macro-backtrace for more info)

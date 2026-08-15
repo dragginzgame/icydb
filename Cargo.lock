@@ -312,6 +312,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_test_lifecycle_participant"
+version = "0.226.1"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "ic-timers",
+ "icydb",
+ "icydb-testing-audit-one-simple-fixtures",
+]
+
+[[package]]
 name = "canister_test_read_authority"
 version = "0.226.1"
 dependencies = [
@@ -1225,9 +1236,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.3.4"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fab1123e3a310239b3f56980ced488ee9cf0ada18f33cc766291c1a060f4b50"
+checksum = "07d587cb785ca6fb1ccd2fde0ea93c21b61cdb2e79bf55e1793b28e23c18cf12"
 dependencies = [
  "ic-cdk-timers",
  "ic0",

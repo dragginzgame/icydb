@@ -1,12 +1,12 @@
 [package]
-name = "canister_audit_one_entity_typed_query"
+name = "canister_test_lifecycle_participant"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 
 [package.metadata.cargo-machete]
-ignored = ["candid", "icydb-testing-audit-one-simple-fixtures"]
+ignored = ["icydb-testing-audit-one-simple-fixtures"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -14,13 +14,12 @@ crate-type = ["cdylib"]
 [features]
 default = []
 candid-export = []
-exact-key-measurement = []
-lifecycle-audit = []
-lifecycle-participant = []
+population-seed = []
 
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
+ic-timers = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 

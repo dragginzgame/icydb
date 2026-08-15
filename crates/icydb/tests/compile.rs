@@ -9,6 +9,9 @@ fn public_facade_compile_contract() {
         t.compile_fail("tests/fail-endpoints/unknown.rs");
         t.compile_fail("tests/fail-endpoints/unsupported_attribute.rs");
         t.compile_fail("tests/fail-endpoints/without_start.rs");
+        t.compile_fail("tests/fail-lifecycle/participant_collision.rs");
+        t.compile_fail("tests/fail-lifecycle/participant_duplicate.rs");
+        t.compile_fail("tests/fail-lifecycle/participant_malformed.rs");
 
         #[cfg(not(feature = "sql"))]
         t.compile_fail("tests/fail-endpoints/missing_sql_capability.rs");

@@ -1,0 +1,11 @@
+error: no rules expected `,`
+ --> tests/fail-lifecycle/participant_malformed.rs:1:26
+  |
+1 | icydb::start!(participant,);
+  |                          ^ no rules expected this token in macro call
+  |
+note: while trying to match `participant`
+ --> src/lib.rs
+  |
+  |     (participant) => {
+  |      ^^^^^^^^^^^

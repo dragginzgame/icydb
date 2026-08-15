@@ -234,6 +234,14 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_icydb_methods: TEST_SQL_BOUNDED_METHODS,
     },
     MaintainedCanisterPolicy {
+        canister: "lifecycle_participant",
+        package: "canister_test_lifecycle_participant",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export", "population-seed"],
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: NO_METHODS,
+    },
+    MaintainedCanisterPolicy {
         canister: "read_authority",
         package: "canister_test_read_authority",
         production_features: &["candid-export", "sql"],
@@ -797,7 +805,7 @@ mod tests {
 
     #[test]
     fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 15);
+        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 16);
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)

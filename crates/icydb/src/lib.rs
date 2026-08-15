@@ -231,7 +231,25 @@ macro_rules! build_canister {
 ///
 /// The zero-argument form owns hidden install and post-upgrade lifecycle
 /// entries for canisters without application hooks. Applications that own
-/// lifecycle callbacks use the composed form instead:
+/// the complete lifecycle root use participant mode and invoke the matching
+/// hidden IcyDB participant synchronously:
+///
+/// ```ignore
+/// icydb::start!(participant);
+///
+/// #[ic_cdk::init]
+/// fn init() {
+///     crate::__icydb_lifecycle_participant::init();
+/// }
+///
+/// #[ic_cdk::post_upgrade]
+/// fn post_upgrade() {
+///     crate::__icydb_lifecycle_participant::post_upgrade();
+/// }
+/// ```
+///
+/// Applications that want IcyDB to own the lifecycle exports while running
+/// application callbacks afterward use the composed form:
 ///
 /// ```ignore
 /// icydb::start! {
@@ -250,6 +268,11 @@ macro_rules! start {
         $crate::__icydb_start_lifecycle!();
     };
 
+    (participant) => {
+        $crate::__icydb_start_actor!();
+        $crate::__icydb_start_participant_lifecycle!();
+    };
+
     (
         init($($init_arg:ident : $init_ty:ty),* $(,)?) => $init:path;
         post_upgrade($($upgrade_arg:ident : $upgrade_ty:ty),* $(,)?) => $post_upgrade:path;
@@ -258,6 +281,105 @@ macro_rules! start {
         $crate::__icydb_start_lifecycle! {
             init($($init_arg: $init_ty),*) => $init;
             post_upgrade($($upgrade_arg: $upgrade_ty),*) => $post_upgrade;
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+#[expect(
+    clippy::crate_in_macro_def,
+    reason = "participant functions must call the consuming canister's generated actor"
+)]
+macro_rules! __icydb_start_participant_lifecycle {
+    () => {
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        pub(crate) mod __icydb_lifecycle_participant {
+            use std::cell::Cell;
+
+            #[derive(Clone, Copy)]
+            enum State {
+                Idle,
+                Running,
+                Completed,
+            }
+
+            std::thread_local! {
+                static STATE: Cell<State> = const { Cell::new(State::Idle) };
+            }
+
+            // Native traps unwind instead of rolling back a replicated IC
+            // message. Reset only that test/runtime model so retry exercises
+            // the same latch transition that message rollback provides on Wasm.
+            #[cfg(not(target_family = "wasm"))]
+            struct NativeRollbackGuard {
+                completed: bool,
+            }
+
+            #[cfg(not(target_family = "wasm"))]
+            impl NativeRollbackGuard {
+                const fn new() -> Self {
+                    Self { completed: false }
+                }
+
+                const fn complete(&mut self) {
+                    self.completed = true;
+                }
+            }
+
+            #[cfg(not(target_family = "wasm"))]
+            impl Drop for NativeRollbackGuard {
+                fn drop(&mut self) {
+                    if !self.completed {
+                        STATE.with(|state| state.set(State::Idle));
+                    }
+                }
+            }
+
+            // Both lifecycle phases deliberately converge here. Completed is
+            // shared across them so any duplicate returns before generated
+            // timer or recovery state can be observed or changed.
+            fn participate(work: fn() -> ()) {
+                let should_run = STATE.with(|state| match state.get() {
+                    State::Idle => {
+                        state.set(State::Running);
+                        true
+                    }
+                    State::Running => $crate::__reexports::ic_cdk::trap(
+                        "IcyDB lifecycle participant re-entered while running",
+                    ),
+                    State::Completed => false,
+                });
+
+                if !should_run {
+                    return;
+                }
+
+                #[cfg(not(target_family = "wasm"))]
+                let mut rollback = NativeRollbackGuard::new();
+
+                work();
+                STATE.with(|state| state.set(State::Completed));
+
+                #[cfg(not(target_family = "wasm"))]
+                rollback.complete();
+            }
+
+            /// Participate synchronously in the canister's init lifecycle.
+            #[doc(hidden)]
+            pub(crate) fn init() -> () {
+                let participate: fn() -> () = crate::__icydb_generated::__icydb_startup_init;
+                self::participate(participate);
+            }
+
+            /// Participate synchronously in the canister's post-upgrade lifecycle.
+            #[doc(hidden)]
+            pub(crate) fn post_upgrade() -> () {
+                let participate: fn() -> () =
+                    crate::__icydb_generated::__icydb_startup_post_upgrade;
+                self::participate(participate);
+            }
         }
     };
 }

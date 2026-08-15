@@ -13,9 +13,9 @@ Canisters without application lifecycle hooks use the default declaration:
 icydb::start!();
 ```
 
-If the application owns install or post-upgrade callbacks, declare both paths
-through the composed form and leave those functions free of IC-CDK lifecycle
-attributes:
+If the application only needs install or post-upgrade callbacks, declare both
+paths through the composed form and leave those functions free of IC-CDK
+lifecycle attributes:
 
 ```rust,ignore
 icydb::start! {
@@ -31,6 +31,48 @@ in the lifecycle message, never inside a recovery-page callback. The old
 combination of `icydb::start!()` with separate `#[ic_cdk::init]` or
 `#[ic_cdk::post_upgrade]` exports is removed by the pre-1.0 hard cut because it
 creates duplicate lifecycle exports.
+
+If the application or an independent framework must own the complete IC
+lifecycle root, select participant mode instead:
+
+```rust,ignore
+icydb::start!(participant);
+
+#[ic_cdk::init]
+fn application_init() {
+    restore_ingress_local_state();
+    crate::__icydb_lifecycle_participant::init();
+    reconcile_other_synchronous_framework_state();
+    schedule_deferred_database_readiness_work();
+}
+
+#[ic_cdk::post_upgrade]
+fn application_post_upgrade() {
+    restore_ingress_local_state();
+    crate::__icydb_lifecycle_participant::post_upgrade();
+    reconcile_other_synchronous_framework_state();
+    schedule_deferred_database_readiness_work();
+}
+```
+
+The root must call the matching participant synchronously in both lifecycle
+phases, including while the application is inactive, `Prepared`, or not yet
+activated. Restore local state needed to authorize ingress first; invoke IcyDB
+before scheduling any deferred database work; finish other synchronous
+framework reconciliation before the lifecycle message returns. A participant
+trap aborts the complete lifecycle message normally.
+
+The two participant functions are hidden crate-visible Rust functions, not IC
+or Candid methods. Calls after a completed participant are inert, but this is
+duplicate safety rather than an invitation to call twice. The IC cannot prove
+that the first in-crate call came from the correct lifecycle phase, so the
+application-owned root remains responsible for exact phase placement.
+
+Do not use participant mode merely to attach ordinary application callbacks;
+the composed form above is smaller for that case. Do not claim framework
+composition unless that framework exposes a synchronous root or participant
+seam with this ordering. A deferred framework callback is insufficient because
+a later message can run after application work or roll back independently.
 
 ## Poll Typed Readiness
 
@@ -59,8 +101,9 @@ is incomplete, but that error is admission feedback rather than the
 application readiness control.
 
 IcyDB persists neither application callbacks nor application timer policy.
-Application timers are lost on upgrade, so the composed post-upgrade hook must
-recreate readiness polling before any scheduler restoration can occur.
+Application timers are lost on upgrade, so the composed callback or
+application-owned participant root must recreate readiness polling before any
+scheduler restoration can occur.
 
 ## Explicit Schema Migration
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.227.x] 🧩 - 2026-08-15 - Framework-Neutral Lifecycle Participation
+
+Detailed notes: [docs/changelog/0.227.md](docs/changelog/0.227.md)
+
+- `0.227.0` adds an opt-in non-exporting lifecycle participant so applications
+  can own one lifecycle root while IcyDB reconstruction remains synchronous
+  and exactly once.
+
 ## [0.226.x] 🔐 - 2026-08-14 - Application-Scoped SQL And Schema Read Authority
 
 Detailed notes: [docs/changelog/0.226.md](docs/changelog/0.226.md)

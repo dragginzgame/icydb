@@ -7,7 +7,11 @@ use icydb::types::{Id, Ulid};
 use icydb::{db::DynamicQuery, db::query::FieldRef};
 use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 
+#[cfg(not(feature = "lifecycle-participant"))]
 icydb::start!();
+
+#[cfg(feature = "lifecycle-participant")]
+icydb::start!(participant);
 
 #[cfg(feature = "exact-key-measurement")]
 const MAX_EXACT_KEY_MEASUREMENT_ITEMS: u16 = 1_000;
