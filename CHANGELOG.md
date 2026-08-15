@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Removes obsolete startup-watchdog audit endpoints and generated
   scheduling-observation scaffolding while retaining direct `ic-timers`
-  evidence in maintained fixtures.
+  evidence in maintained fixtures, and keeps target-specific lint expectations
+  warning-clean on Wasm.
 
 ## [0.227.x] 🧩 - 2026-08-15 - Framework-Neutral Lifecycle Participation
 
