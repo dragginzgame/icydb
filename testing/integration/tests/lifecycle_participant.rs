@@ -6,7 +6,7 @@ use icydb::types::Ulid;
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
     canister_artifact::{CanisterMethod, CanisterMethodMode, inspect_wasm_methods},
-    install_fixture_canister_without_startup_delivery, upgrade_fixture_canister,
+    install_fixture_canister_without_startup_delivery,
 };
 
 const PARTICIPANT_INSTRUCTION_CEILING: u64 = 10_750_000;
@@ -121,7 +121,8 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
         .upgrade_canister(
             fixture.canister_id(),
             wasm,
-            candid::encode_args(()).expect("empty lifecycle upgrade args should encode"),
+            candid::encode_args((Some(false),))
+                .expect("non-trapping lifecycle upgrade args should encode"),
             None,
         )
         .expect("lifecycle participant upgrade should succeed");
@@ -166,9 +167,13 @@ fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_
         !probe_row_exists(&fixture, Ulid::MIN).expect("empty participant query should succeed")
     );
 
+    let local_wasm = build_fixture_canister_wasm_bytes_with_options(
+        "lifecycle_participant",
+        CanisterBuildOptions::default(),
+    );
     let empty_stable_bytes_before_upgrade = upgrade_preserving_stable_extent(
         &fixture,
-        || upgrade_fixture_canister(&fixture, "lifecycle_participant"),
+        || upgrade_with_wasm(&fixture, local_wasm),
         "participant reconstruction must not allocate additional empty stable memory",
     );
     let upgraded = snapshot(&fixture);
@@ -244,6 +249,68 @@ fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_
         empty_stable_bytes_before_upgrade,
         populated_stable_bytes_before_upgrade,
         PARTICIPANT_INSTRUCTION_CEILING,
+    );
+}
+
+#[test]
+fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
+    let fixture = install_fixture_canister_without_startup_delivery("lifecycle_participant");
+    let active = advance_until_active(&fixture);
+    assert_eq!(active.database_work_runs, 1);
+    let probe_row_id = insert_probe_row(&fixture).expect("bounded probe-row insert should succeed");
+    let production_wasm = build_fixture_canister_wasm_bytes_with_options(
+        "lifecycle_participant",
+        production_build_options(),
+    );
+    let stable_bytes_before = fixture
+        .pocket_ic()
+        .get_stable_memory(fixture.canister_id())
+        .len();
+
+    let failed_upgrade = fixture.pocket_ic().upgrade_canister(
+        fixture.canister_id(),
+        production_wasm.clone(),
+        candid::encode_args((Some(true),)).expect("trapping lifecycle upgrade args should encode"),
+        None,
+    );
+    assert!(
+        failed_upgrade.is_err(),
+        "post-upgrade must propagate a trap after participant execution",
+    );
+    assert_eq!(
+        fixture
+            .pocket_ic()
+            .get_stable_memory(fixture.canister_id())
+            .len(),
+        stable_bytes_before,
+        "a trapped lifecycle message must roll back stable-state changes",
+    );
+    assert!(database_probe(&fixture).expect("the pre-upgrade module should remain ready"));
+    assert!(
+        probe_row_exists(&fixture, probe_row_id)
+            .expect("the pre-upgrade row should survive a trapped upgrade")
+    );
+
+    // The IC rate-limits repeated install-code work after a trapped upgrade.
+    // Move beyond that operational backoff before proving the clean retry.
+    fixture.pocket_ic().advance_time(Duration::from_hours(1));
+    fixture.pocket_ic().tick();
+    upgrade_with_wasm(&fixture, production_wasm);
+    assert_eq!(
+        fixture
+            .pocket_ic()
+            .get_stable_memory(fixture.canister_id())
+            .len(),
+        stable_bytes_before,
+        "a clean retry must preserve the stable-memory extent",
+    );
+    let retried = snapshot(&fixture);
+    assert_synchronous_ordering(&retried, LifecycleHook::PostUpgrade, "retried post-upgrade");
+    let retried_active = advance_until_active(&fixture);
+    assert_eq!(retried_active.database_work_runs, 1);
+    assert!(
+        probe_row_exists(&fixture, probe_row_id)
+            .expect("the populated row should survive the clean retry")
     );
 }
 

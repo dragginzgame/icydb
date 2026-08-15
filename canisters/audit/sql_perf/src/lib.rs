@@ -168,7 +168,7 @@ pub(crate) fn application_startup_post_upgrade() {
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 fn begin_application_startup(hook: ApplicationStartupHook) {
-    let engine_registered_before_hook = crate::__icydb_generated::__startup_watchdog_registered();
+    let engine_registered_before_hook = engine_startup_watchdog_armed();
     APPLICATION_STARTUP_STATE.with(|state| {
         state.replace(ApplicationStartupState::new(
             hook,
@@ -276,11 +276,28 @@ fn application_startup_timer_identity() -> ic_timers::TimerIdentity {
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
 fn application_startup_poll_scheduled() -> bool {
-    ic_timers::timer_snapshot(&application_startup_timer_identity())
-        .ok()
-        .flatten()
-        .and_then(|snapshot| snapshot.next_deadline_ns())
-        .is_some()
+    APPLICATION_STARTUP_TIMER.with(|timer| {
+        let registration = timer.borrow();
+        let Some(registration) = registration.as_ref() else {
+            return false;
+        };
+        match registration.has_armed_wakeup() {
+            Ok(has_wakeup) => has_wakeup,
+            Err(_) => ic_cdk::trap("application startup timer observation failed"),
+        }
+    })
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+fn engine_startup_watchdog_armed() -> bool {
+    let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
+        ic_cdk::trap("IcyDB startup watchdog identity is invalid");
+    };
+    match ic_timers::timer_snapshot(&identity) {
+        Ok(Some(snapshot)) => snapshot.next_deadline_ns().is_some(),
+        Ok(None) => false,
+        Err(_) => ic_cdk::trap("IcyDB startup watchdog observation failed"),
+    }
 }
 
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
@@ -1767,23 +1784,6 @@ fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
         );
     }
     result
-}
-
-/// Explicitly register the otherwise dormant Patch 3 watchdog for real-canister evidence.
-// Lifecycle registration is active in Patch 4; this retained test-admin method
-// now proves duplicate registration is idempotent.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
-#[update]
-fn register_dormant_startup_watchdog() -> Result<bool, icydb::db::StartupFailure> {
-    crate::__icydb_generated::__register_startup_watchdog()
-}
-
-/// Observe only the generated volatile registration fact used by Patch 3 evidence.
-// The volatile fact remains the same after lifecycle activation.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
-#[query]
-fn dormant_startup_watchdog_registered() -> bool {
-    crate::__icydb_generated::__startup_watchdog_registered()
 }
 
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry

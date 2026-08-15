@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### Cleanup
+
+- Removes obsolete startup-watchdog audit endpoints and generated
+  scheduling-observation scaffolding while retaining direct `ic-timers`
+  evidence in maintained fixtures.
+
 ## [0.227.x] 🧩 - 2026-08-15 - Framework-Neutral Lifecycle Participation
 
 Detailed notes: [docs/changelog/0.227.md](docs/changelog/0.227.md)

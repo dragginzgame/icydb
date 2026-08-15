@@ -158,23 +158,18 @@ fn startup_driver_tokens() -> TokenStream {
             > = const { ::std::cell::RefCell::new(None) };
         }
 
-        /// Reconcile the single engine-owned startup watchdog from durable startup state.
-        #[doc(hidden)]
-        pub fn __register_startup_watchdog() -> ::std::result::Result<
-            bool,
-            ::icydb::db::StartupFailure,
-        > {
+        fn reconcile_startup_watchdog_from_durable_state(
+        ) -> ::std::result::Result<(), ::icydb::db::StartupFailure> {
             match startup_state() {
                 Ok(::icydb::db::DatabaseStartupState::Ready) => {
                     reconcile_startup_watchdog(
                         ::icydb::__reexports::ic_timers::TimerReconcileState::Inactive,
                     );
-                    Ok(false)
+                    Ok(())
                 }
                 Ok(::icydb::db::DatabaseStartupState::Recovering) => {
-                    let had_armed_wakeup = startup_watchdog_has_armed_wakeup();
                     ensure_startup_watchdog_registered();
-                    Ok(!had_armed_wakeup)
+                    Ok(())
                 }
                 Err(failure) => {
                     reconcile_startup_watchdog(
@@ -254,9 +249,9 @@ fn startup_driver_tokens() -> TokenStream {
         }
 
         fn register_startup_watchdog_for_lifecycle() {
-            if let Err(failure) = __register_startup_watchdog() {
+            if let Err(failure) = reconcile_startup_watchdog_from_durable_state() {
                 ::icydb::__reexports::ic_cdk::println!(
-                    "IcyDB startup watchdog registration failed (E{})",
+                    "IcyDB startup failure observed during watchdog reconciliation (E{})",
                     failure.error().code().raw(),
                 );
             }
@@ -272,31 +267,6 @@ fn startup_driver_tokens() -> TokenStream {
         #[doc(hidden)]
         pub(crate) fn __icydb_startup_post_upgrade() {
             register_startup_watchdog_for_lifecycle();
-        }
-
-        /// Return whether this Wasm instance has a live watchdog wake-up.
-        #[doc(hidden)]
-        pub fn __startup_watchdog_registered() -> bool {
-            startup_watchdog_has_armed_wakeup()
-        }
-
-        fn startup_watchdog_has_armed_wakeup() -> bool {
-            STARTUP_WATCHDOG_REGISTRATION.with(|slot| {
-                let Ok(registration) = slot.try_borrow() else {
-                    ::icydb::__reexports::ic_cdk::trap(
-                        "IcyDB startup watchdog observation is reentrant",
-                    );
-                };
-                let Some(registration) = registration.as_ref() else {
-                    return false;
-                };
-                match registration.has_armed_wakeup() {
-                    Ok(has_wakeup) => has_wakeup,
-                    Err(_) => ::icydb::__reexports::ic_cdk::trap(
-                        "IcyDB startup watchdog observation failed",
-                    ),
-                }
-            })
         }
 
         fn startup_watchdog_callback(
@@ -944,7 +914,7 @@ mod tests {
             "ic_timers::reconcile_watchdog(",
             "TimerReconcileState::Inactive",
             "TimerReconcileState::Scheduled",
-            "registration.has_armed_wakeup()",
+            "reconcile_startup_watchdog_from_durable_state()",
             "TimerCompletion::retryable_failure(0)",
             "WatchdogDecision::Continue",
             "__drive_generated_startup_recovery_page",

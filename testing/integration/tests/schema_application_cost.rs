@@ -71,19 +71,6 @@ fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservatio
     result.expect("startup observation should not fail")
 }
 
-fn register_watchdog(fixture: &StandaloneCanisterFixture) -> bool {
-    let result: Result<bool, icydb::db::StartupFailure> = fixture
-        .update_candid("register_dormant_startup_watchdog", ())
-        .expect("watchdog registration should decode");
-    result.expect("watchdog registration should not observe terminal failure")
-}
-
-fn watchdog_registered(fixture: &StandaloneCanisterFixture) -> bool {
-    fixture
-        .query_candid("dormant_startup_watchdog_registered", ())
-        .expect("watchdog state should decode")
-}
-
 fn application_startup_contract(fixture: &StandaloneCanisterFixture) -> ApplicationStartupSnapshot {
     fixture
         .query_candid("application_startup_contract", ())
@@ -187,15 +174,12 @@ fn application_readiness_restores_only_after_ready_and_stops_on_typed_failure() 
 }
 
 #[test]
-fn lifecycle_driver_is_private_idempotent_and_reconstructable_after_upgrade() {
+fn lifecycle_driver_is_private_and_reconstructable_after_upgrade() {
     let fixture = install_fixture_canister_without_startup_delivery("sql_perf");
     assert_eq!(
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Recovering,
     );
-    assert!(watchdog_registered(&fixture));
-    assert!(!register_watchdog(&fixture));
-
     let external = fixture.pocket_ic().update_call(
         fixture.canister_id(),
         Principal::anonymous(),
@@ -217,21 +201,16 @@ fn lifecycle_driver_is_private_idempotent_and_reconstructable_after_upgrade() {
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Ready,
     );
-    assert!(!watchdog_registered(&fixture));
-
     upgrade_fixture_canister(&fixture, "sql_perf");
     assert_eq!(
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Recovering,
     );
-    assert!(watchdog_registered(&fixture));
-    assert!(!register_watchdog(&fixture));
     advance_watchdog_by(&fixture, Duration::from_mins(5));
     assert_eq!(
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Ready,
     );
-    assert!(!watchdog_registered(&fixture));
 }
 
 #[test]
@@ -262,8 +241,6 @@ fn startup_observation_is_bounded_before_after_readiness_and_upgrade() {
     let upgraded = startup_observation(&fixture);
     assert_eq!(upgraded.state, icydb::db::DatabaseStartupState::Recovering);
     assert!(upgraded.local_instructions <= OBSERVATION_INSTRUCTION_CEILING);
-    assert!(watchdog_registered(&fixture));
-
     println!(
         "icydb_0225_startup_observation fresh_instructions={} ready_instructions={} post_upgrade_instructions={} ceiling={}",
         fresh.local_instructions,

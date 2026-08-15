@@ -96,7 +96,7 @@ fn begin_lifecycle(hook: LifecycleHook) {
 
 fn complete_synchronous_lifecycle(participant_instructions: u64) {
     let startup = startup_state();
-    let watchdog_armed = crate::__icydb_generated::__startup_watchdog_registered();
+    let watchdog_armed = engine_startup_watchdog_armed();
     let may_schedule_deferred = startup.is_ok();
 
     with_composition_mut(|snapshot| {
@@ -110,6 +110,17 @@ fn complete_synchronous_lifecycle(participant_instructions: u64) {
 
     if may_schedule_deferred {
         schedule_deferred_database_work();
+    }
+}
+
+fn engine_startup_watchdog_armed() -> bool {
+    let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
+        ic_cdk::trap("IcyDB startup watchdog identity is invalid");
+    };
+    match ic_timers::timer_snapshot(&identity) {
+        Ok(Some(snapshot)) => snapshot.next_deadline_ns().is_some(),
+        Ok(None) => false,
+        Err(_) => ic_cdk::trap("IcyDB startup watchdog observation failed"),
     }
 }
 
@@ -210,11 +221,14 @@ fn application_init() {
 }
 
 #[ic_cdk::post_upgrade]
-fn application_post_upgrade() {
+fn application_post_upgrade(trap_after_participant: Option<bool>) {
     begin_lifecycle(LifecycleHook::PostUpgrade);
     let start = ic_cdk::api::performance_counter(1);
     crate::__icydb_lifecycle_participant::post_upgrade();
     let participant_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if trap_after_participant.unwrap_or(false) {
+        ic_cdk::trap("lifecycle participant post-upgrade rollback probe");
+    }
     complete_synchronous_lifecycle(participant_instructions);
 }
 
