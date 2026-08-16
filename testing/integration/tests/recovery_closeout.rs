@@ -11,8 +11,8 @@ use pocket_ic::common::rest::BlobCompression;
 use serde::Deserialize;
 
 const JOURNAL_BATCH_MAGIC: &[u8; 4] = b"IJBT";
-const JOURNAL_BATCH_VERSION_CURRENT: u8 = 2;
-const JOURNAL_BATCH_VERSION_PREDECESSOR: u8 = 1;
+const JOURNAL_BATCH_VERSION_CURRENT: u8 = 3;
+const JOURNAL_BATCH_VERSION_PREDECESSOR: u8 = 2;
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 enum ScalePayloadProfile {
