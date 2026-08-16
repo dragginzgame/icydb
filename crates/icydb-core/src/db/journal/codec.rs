@@ -460,8 +460,8 @@ impl RawJournalBatch {
 }
 
 pub(in crate::db) fn encode_journal_batch(batch: &JournalBatch) -> Result<Vec<u8>, InternalError> {
-    validate_journal_batch_shape(batch)?;
-
+    // `JournalBatch::new` is the sole construction boundary and the batch has no
+    // mutable surface, so its complete shape has already been validated.
     let payload_len = journal_batch_payload_len(batch);
     let total_len = JOURNAL_BATCH_HEADER_BYTES.saturating_add(payload_len);
     if total_len > MAX_JOURNAL_BATCH_BYTES as usize {

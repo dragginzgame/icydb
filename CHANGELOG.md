@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Fixed the journal duplicate-target test fixture to satisfy warning-denying
   Clippy validation without an unnecessary final key clone.
+- Restored the frozen durable-mutation Forward instruction ceiling by keeping
+  immutable journal-batch shape validation at its sole construction boundary.
 
 ## [0.228.x] 🧱 - 2026-08-15 - Fingerprint-Bound Journal Validation And Convergence Bounds
 
