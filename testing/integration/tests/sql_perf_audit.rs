@@ -2610,7 +2610,7 @@ fn patch1_near_maximum_row_and_derived_indexes_fit_one_real_watchdog_work_messag
 }
 
 #[test]
-fn joint_admitted_2048_rows_with_three_derived_indexes_use_bounded_paging() {
+fn joint_admitted_2048_rows_with_three_derived_indexes_finish_in_one_recovery_message() {
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<ScaleFixtureFacts, Error> = fixture
         .update_candid("load_joint_three_index_boundary_fixture", ())
@@ -2619,7 +2619,7 @@ fn joint_admitted_2048_rows_with_three_derived_indexes_use_bounded_paging() {
     assert_eq!(loaded.surface, "user");
     assert_eq!(loaded.fixture_rows, 2_048);
 
-    let observed = measure_startup_watchdog_recovery(&fixture, 2);
+    let observed = measure_startup_watchdog_recovery(&fixture, 1);
     let measured = &observed.watchdog;
     assert!(
         measured
