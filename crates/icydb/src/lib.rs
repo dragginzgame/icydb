@@ -105,6 +105,7 @@ pub mod build {
         canister_path: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed=build.rs");
+        println!("cargo:rustc-check-cfg=cfg(feature, values(\"test-admin-api\"))");
         let out_dir = std::env::var("OUT_DIR")?;
         let actor_file = std::path::PathBuf::from(out_dir).join("actor.rs");
         let actor = icydb_model::build::generate(canister_path);
