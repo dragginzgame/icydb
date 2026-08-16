@@ -654,6 +654,32 @@ mod tests {
             .expect("exact terminal replay should stop without retrying recovery"),
             GeneratedStartupDriverStep::Terminal,
         );
+
+        let changed_record =
+            JournalRecord::schema_put(JOURNAL_RECOVERY_FAILURE_STORE_PATH, vec![0xfe; 8])
+                .expect("changed semantic-corruption record should build");
+        let changed_batch = JournalBatch::new(
+            [0x23; 16],
+            [0x29; 16],
+            JournalSequence::new(2),
+            vec![changed_record],
+        )
+        .expect("changed journal batch should build");
+        let changed_encoded =
+            encode_journal_batch(&changed_batch).expect("changed journal batch should encode");
+        JOURNAL_RECOVERY_FAILURE_TAIL.with(|tail| {
+            tail.borrow_mut()
+                .insert_raw_batch_for_tests(JournalSequence::new(2), changed_encoded)
+                .expect("changed journal authority should insert");
+        });
+        assert_eq!(
+            observe_generated_startup_state::<JournalRecoveryFailureCanister>(
+                &JOURNAL_RECOVERY_FAILURE_STORES,
+                SUBMISSION,
+            ),
+            Ok(DatabaseStartupState::Recovering),
+            "a receipt bound to the predecessor tail proof must become stale",
+        );
     }
 
     #[test]

@@ -34,6 +34,7 @@ use ic_stable_structures::{
     memory_manager::{MemoryId, MemoryManager},
 };
 use icydb_schema::SchemaMigrationPlanDigest;
+use sha2::{Digest, Sha256};
 use std::{borrow::Cow, mem::size_of};
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
@@ -215,6 +216,32 @@ fn journal_batch_header_inspection_freezes_current_envelope_offsets() {
         fixed_header.batch_fingerprint().as_slice(),
         &encoded[53..85]
     );
+}
+
+#[test]
+fn journal_batch_fingerprint_binds_the_exact_domain_and_non_fingerprint_bytes() {
+    let encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    let mut expected = Sha256::new();
+    expected.update(b"ICYDB-JOURNAL-BATCH-FINGERPRINT\0");
+    expected.update(&encoded[..53]);
+    expected.update(&encoded[85..]);
+
+    assert_eq!(expected.finalize().as_slice(), &encoded[53..85]);
+}
+
+#[test]
+fn journal_batch_header_inspection_accepts_the_exact_encoded_maximum() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded.truncate(9);
+    let maximum_payload = MAX_JOURNAL_BATCH_BYTES
+        .checked_sub(9)
+        .expect("journal maximum should include the outer header");
+    encoded[5..9].copy_from_slice(&maximum_payload.to_le_bytes());
+
+    let header = inspect_raw_journal_batch_header(&encoded)
+        .expect("the exact declared journal maximum should inspect");
+
+    assert_eq!(header.total_len(), MAX_JOURNAL_BATCH_BYTES as usize);
 }
 
 #[test]
@@ -1278,6 +1305,53 @@ fn journal_tail_store_republishes_missing_chunks_after_prefix_append() {
         .expect("repaired journal batch should visit cleanly");
     assert_eq!(visited, vec![1]);
     assert_eq!(store.len(), 1);
+}
+
+#[test]
+fn marker_owned_append_rejects_fixed_header_identity_and_count_mismatches() {
+    let encoded_batch = batch(1);
+    let encoded = encode_journal_batch(&encoded_batch).expect("journal batch should encode");
+    let mismatches = [
+        JournalBatch::new(
+            [0xF1; 16],
+            encoded_batch.commit_marker_id(),
+            encoded_batch.journal_sequence(),
+            encoded_batch.records().to_vec(),
+        )
+        .expect("batch-id mismatch fixture should build"),
+        JournalBatch::new(
+            encoded_batch.batch_id(),
+            [0xF2; 16],
+            encoded_batch.journal_sequence(),
+            encoded_batch.records().to_vec(),
+        )
+        .expect("marker-id mismatch fixture should build"),
+        JournalBatch::new(
+            encoded_batch.batch_id(),
+            encoded_batch.commit_marker_id(),
+            JournalSequence::new(2),
+            encoded_batch.records().to_vec(),
+        )
+        .expect("sequence mismatch fixture should build"),
+        JournalBatch::new(
+            encoded_batch.batch_id(),
+            encoded_batch.commit_marker_id(),
+            encoded_batch.journal_sequence(),
+            vec![row_put_record(1)],
+        )
+        .expect("record-count mismatch fixture should build"),
+    ];
+
+    for (ordinal, mismatch) in mismatches.iter().enumerate() {
+        let memory_id = u8::try_from(232 + ordinal).expect("test memory ID should fit");
+        let mut store = JournalTailStore::init(test_memory(memory_id));
+        let error = store
+            .append_marker_encoded_batch(mismatch, &encoded)
+            .expect_err("marker-owned bytes must match every fixed batch identity field");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+        assert!(store.is_empty());
+    }
 }
 
 #[test]

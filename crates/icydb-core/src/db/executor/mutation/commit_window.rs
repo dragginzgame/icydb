@@ -1302,6 +1302,15 @@ mod tests {
                 (icydb_diagnostic_code::DiagnosticFactTag::Limit, 16_384),
             ],
         );
+
+        let mut identity_boundary_units =
+            fixed_mutation_commit_work_units(1, false).expect("one Identity range should fit");
+        for _ in 0..4_095 {
+            identity_boundary_units = next_mutation_commit_work_units(identity_boundary_units, 0)
+                .expect("4,095 zero-index rows plus one Identity range should fit");
+        }
+        assert_eq!(identity_boundary_units, MAX_MUTATION_COMMIT_WORK_UNITS);
+        assert!(next_mutation_commit_work_units(identity_boundary_units, 0).is_err());
     }
 
     fn identity_candidate(

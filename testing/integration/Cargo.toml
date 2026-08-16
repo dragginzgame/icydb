@@ -13,10 +13,12 @@ authors = { workspace = true }
 [dependencies]
 blake3 = { workspace = true }
 candid = { workspace = true }
+flate2 = { workspace = true }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, features = ["diagnostics", "migration", "sql"] }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
+pocket-ic = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -95,3 +97,7 @@ path = "tests/durable_mutation_job_scale.rs"
 [[test]]
 name = "schema_migration_closeout"
 path = "tests/schema_migration_closeout.rs"
+
+[[test]]
+name = "recovery_closeout"
+path = "tests/recovery_closeout.rs"

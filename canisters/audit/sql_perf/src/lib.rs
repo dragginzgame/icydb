@@ -1984,6 +1984,27 @@ fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
     result
 }
 
+/// Trap only after one canonical startup-driver attempt reaches `Ready`.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn trap_after_complete_startup_recovery() -> Result<(), icydb::Error> {
+    let complete = icydb::db::with_request_execution(
+        crate::__icydb_generated::__icydb_startup_driver_attempt_for_tests,
+    )?;
+    if !complete {
+        return Err(icydb::db::__startup_recovery_pending());
+    }
+    match startup_state() {
+        Ok(icydb::db::DatabaseStartupState::Ready) => {
+            ic_cdk::trap("intentional complete startup-recovery rollback probe")
+        }
+        Ok(icydb::db::DatabaseStartupState::Recovering) => {
+            Err(icydb::db::__startup_recovery_pending())
+        }
+        Err(failure) => Err(failure.error().clone()),
+    }
+}
+
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry
 /// instruction probes. The full SQL perf corpus intentionally remains larger
 /// than this audit budget.

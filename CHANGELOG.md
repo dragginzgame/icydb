@@ -7,13 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Correct the SQL audit canister's Candid export boundary so its final two
-  local-only promotion-fixture updates are declared alongside their existing
-  Wasm exports.
-
 ## [0.228.x] 🧱 - 2026-08-15 - Fingerprint-Bound Journal Validation And Convergence Bounds
 
 Detailed notes: [docs/changelog/0.228.md](docs/changelog/0.228.md)
+
+- `0.228.3` closes the line with real-canister rollback, watchdog retry, and
+  predecessor rejection/recreation evidence; production interfaces are unchanged.
 
 - `0.228.2` hard-cuts persisted journal recovery to fingerprint-bound complete
   batches and removes the fold cursor; existing state requires reinstall or

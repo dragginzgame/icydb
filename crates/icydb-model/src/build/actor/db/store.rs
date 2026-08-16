@@ -325,6 +325,14 @@ fn startup_driver_tokens() -> TokenStream {
             }
         }
 
+        /// Invoke the canonical generated startup driver from a local audit endpoint.
+        #[cfg(feature = "test-admin-api")]
+        #[doc(hidden)]
+        pub(super) fn __icydb_startup_driver_attempt_for_tests(
+        ) -> ::std::result::Result<bool, ::icydb::Error> {
+            startup_driver_attempt()
+        }
+
         /// Initialize one fresh thread-local database for native libtest use.
         ///
         /// Native tests do not execute IC lifecycle hooks or timer callbacks.
@@ -923,6 +931,7 @@ mod tests {
             "ic_timers::WatchdogContext",
             "__drive_generated_startup_recovery_page",
             "GeneratedStartupDriverStep::Terminal=>Ok(true)",
+            "__icydb_startup_driver_attempt_for_tests",
             "Ok(true)=>",
             "__record_generated_schema_startup_failure",
             "__icydb_startup_init",
