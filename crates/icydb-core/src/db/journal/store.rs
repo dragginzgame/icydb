@@ -606,7 +606,7 @@ impl JournalTailStore {
             return Err(journal_tail_corruption());
         }
         if !repairing_prefix
-            && current_control.batch_count() != 0
+            && current_control.batch_count != 0
             && let Some(previous_sequence) = key.get().checked_sub(1).map(JournalSequence::new)
             && let Some(last_database_sequence) =
                 self.database_commit_sequence_at(previous_sequence)?
@@ -648,7 +648,7 @@ impl JournalTailStore {
     /// Return the next contiguous append sequence for this tail.
     pub(in crate::db) fn next_append_sequence(&self) -> Result<JournalSequence, InternalError> {
         let watermark = self.fold_watermark()?;
-        let retained_batch_count = self.current_tail_control()?.batch_count();
+        let retained_batch_count = self.current_tail_control()?.batch_count;
         watermark
             .highest_folded_journal_sequence()
             .get()

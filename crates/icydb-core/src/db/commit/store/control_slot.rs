@@ -29,6 +29,8 @@ const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 3;
 const DATABASE_INCARNATION_BYTES: usize = 16;
 const CURSOR_AUTHENTICATION_KEY_BYTES: usize = 32;
 const DATABASE_COMMIT_SEQUENCE_BYTES: usize = 8;
+pub(super) const DATABASE_COMMIT_SEQUENCE_OFFSET: usize =
+    COMMIT_CONTROL_MAGIC.len() + 1 + DATABASE_INCARNATION_BYTES + CURSOR_AUTHENTICATION_KEY_BYTES;
 const REGISTRY_COUNT_BYTES: usize = 1;
 const COMMIT_MARKER_LENGTH_BYTES: usize = 4;
 const COMMIT_MARKER_HEADER_BYTES: usize = 5;
@@ -55,12 +57,17 @@ pub(super) const MAX_CURRENT_COMMIT_CONTROL_HEADER_BYTES: usize = CURRENT_CONTRO
 #[derive(Debug)]
 pub(in crate::db::commit) struct EncodedCommitControlSlot {
     bytes: Vec<u8>,
+    marker_length_offset: usize,
     journal_batch_ranges: Vec<Range<usize>>,
 }
 
 impl EncodedCommitControlSlot {
     pub(in crate::db::commit) const fn as_bytes(&self) -> &[u8] {
         self.bytes.as_slice()
+    }
+
+    pub(in crate::db::commit) const fn marker_length_offset(&self) -> usize {
+        self.marker_length_offset
     }
 
     pub(in crate::db::commit) fn journal_batch_bytes(
@@ -163,6 +170,7 @@ pub(super) struct CommitControlSlotRef<'a> {
     pub(super) cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     pub(super) database_commit_sequence: u64,
     pub(super) registry: Vec<PersistedStoreAllocation>,
+    pub(super) marker_length_offset: usize,
     pub(super) marker_bytes: &'a [u8],
 }
 
@@ -205,11 +213,16 @@ pub(super) fn inspect_commit_control_slot(
     let marker_bytes = bytes
         .get(parsed.marker_offset..parsed.encoded_len)
         .ok_or_else(control_slot_canonical_envelope_required)?;
+    let marker_length_offset = parsed
+        .marker_offset
+        .checked_sub(COMMIT_MARKER_LENGTH_BYTES)
+        .ok_or_else(control_slot_canonical_envelope_required)?;
     Ok(CommitControlSlotRef {
         database_incarnation_id: parsed.database_incarnation_id,
         cursor_authentication_key: parsed.cursor_authentication_key,
         database_commit_sequence: parsed.database_commit_sequence,
         registry: parsed.registry,
+        marker_length_offset,
         marker_bytes,
     })
 }
@@ -288,29 +301,36 @@ pub(super) fn encode_commit_control_slot(
 }
 
 pub(super) fn encode_commit_control_slot_from_marker(
+    current_bytes: &[u8],
     current: &CommitControlSlotRef<'_>,
     database_commit_sequence: u64,
     marker: &CommitMarker,
 ) -> Result<EncodedCommitControlSlot, InternalError> {
     validate_commit_marker_shape(marker)?;
     let marker_payload_len = commit_marker_payload_capacity(marker);
-    let permanent_len = current_control_permanent_len(&current.registry)?;
+    let permanent_len = current.marker_length_offset;
     let lengths = checked_control_slot_lengths(permanent_len, marker_payload_len)?;
 
     let mut encoded = Vec::with_capacity(lengths.capacity);
-    write_current_control_prefix(
-        &mut encoded,
-        current.database_incarnation_id,
-        current.cursor_authentication_key,
-        database_commit_sequence,
-        &current.registry,
-    )?;
+    encoded.extend_from_slice(
+        current_bytes
+            .get(..permanent_len)
+            .ok_or_else(control_slot_canonical_envelope_required)?,
+    );
+    let sequence_end = DATABASE_COMMIT_SEQUENCE_OFFSET
+        .checked_add(DATABASE_COMMIT_SEQUENCE_BYTES)
+        .ok_or_else(control_slot_canonical_envelope_required)?;
+    encoded
+        .get_mut(DATABASE_COMMIT_SEQUENCE_OFFSET..sequence_end)
+        .ok_or_else(control_slot_canonical_envelope_required)?
+        .copy_from_slice(&database_commit_sequence.to_le_bytes());
     encoded.extend_from_slice(&lengths.marker_length.to_le_bytes());
     write_commit_marker_envelope_header(&mut encoded, lengths.payload_size)?;
     let journal_batch_ranges = write_commit_marker_payload(&mut encoded, marker)?;
 
     Ok(EncodedCommitControlSlot {
         bytes: encoded,
+        marker_length_offset: permanent_len,
         journal_batch_ranges,
     })
 }
@@ -475,24 +495,6 @@ fn write_current_control_prefix(
     Ok(())
 }
 
-fn current_control_permanent_len(
-    registry: &[PersistedStoreAllocation],
-) -> Result<usize, InternalError> {
-    validate_registry(registry)?;
-    let mut len = CURRENT_CONTROL_PREFIX_BYTES;
-    for entry in registry {
-        len = len
-            .checked_add(1)
-            .ok_or_else(InternalError::store_unsupported)?;
-        for role in &entry.roles {
-            len = len
-                .checked_add(2 + role.stable_key.len())
-                .ok_or_else(InternalError::store_unsupported)?;
-        }
-    }
-    Ok(len)
-}
-
 fn read_registry_entry(
     bytes: &[u8],
     cursor: &mut usize,
@@ -506,19 +508,21 @@ fn read_registry_entry(
     for _ in 0..STORE_ALLOCATION_ROLES {
         let memory_id = read_u8(bytes, cursor)?;
         let key_len = usize::from(read_u8(bytes, cursor)?);
-        let key_bytes = bytes
-            .get(*cursor..cursor.saturating_add(key_len))
+        let key_end = cursor
+            .checked_add(key_len)
             .ok_or_else(control_slot_canonical_envelope_required)?;
-        *cursor = cursor.saturating_add(key_len);
+        let key_bytes = bytes
+            .get(*cursor..key_end)
+            .ok_or_else(control_slot_canonical_envelope_required)?;
+        *cursor = key_end;
         let stable_key = std::str::from_utf8(key_bytes)
             .map_err(|_| control_slot_canonical_envelope_required())?;
-        validate_stable_key(stable_key)?;
         roles.push(PersistedStoreAllocationIdentity {
             memory_id,
             stable_key: stable_key.to_string(),
         });
     }
-    let roles: [PersistedStoreAllocationIdentity; STORE_ALLOCATION_ROLES] = roles
+    let roles = roles
         .try_into()
         .map_err(|_| control_slot_canonical_envelope_required())?;
     Ok(PersistedStoreAllocation { state, roles })

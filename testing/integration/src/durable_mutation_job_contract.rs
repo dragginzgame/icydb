@@ -19,11 +19,11 @@ pub const DURABLE_MUTATION_JOB_BASELINE_TREE: &str = "09dc2a58d260932adac03c40c4
 /// Matching rows in each collection-scale tier and scoring fixture.
 pub const DURABLE_MUTATION_JOB_FIXTURE_ROWS: u32 = 10_001;
 
-/// Existing engine-owned maximum authoritative keys examined by one step.
-pub const DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT: u32 = 256;
+/// Current engine-owned maximum authoritative keys examined by one step.
+pub const DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT: u32 = 224;
 
-/// Existing engine-owned maximum fixed updates staged by one Forward step.
-pub const DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT: u32 = 64;
+/// Current engine-owned maximum fixed updates staged by one Forward step.
+pub const DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT: u32 = 56;
 
 /// Existing exact one-shot update admission ceiling used by the incident control.
 pub const DURABLE_MUTATION_JOB_EAGER_UPDATE_ROW_LIMIT: u32 = 4_096;
@@ -81,6 +81,16 @@ const _: () = {
     assert!(CURRENT_MUTATION_JOB_STABLE_BYTES.len() == 3);
     assert!(CURRENT_DURABLE_START_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[0] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[1] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[2] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[3] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[4] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[5] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[6] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[7] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[8] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[9] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[0] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[1] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[2] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
@@ -115,41 +125,42 @@ pub const BASELINE_VERIFY_INSTRUCTIONS: &[u64] = &[6_431_179, 6_440_484];
 pub const DURABLE_START_INSTRUCTION_REVIEW_CEILING: u64 = 5_000_000;
 
 /// Current first sequence-zero durable-start instruction sample.
-pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_051_601;
+pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_744_553;
 
 /// Current canonically equivalent retained-start replay instruction sample.
-pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_161_322;
+pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_854_730;
 
-/// Current durable 64-update Forward samples over the fixed 512-row fixture.
+/// Current durable 56-update Forward samples over the fixed 512-row fixture.
 pub const CURRENT_DURABLE_FORWARD_INSTRUCTIONS: &[u64] = &[
-    27_223_505, 27_658_598, 27_795_993, 27_935_343, 28_139_677, 28_458_826, 28_644_212, 29_045_296,
+    23_891_965, 24_092_605, 24_270_423, 24_451_151, 24_617_198, 24_785_238, 24_974_127, 24_938_486,
+    24_677_596, 7_654_901,
 ];
 
 /// Current exact replay sample for the final retained Forward receipt.
-pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_882;
+pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_812;
 
-/// Current durable 256-key Verify samples over the fixed 512-row fixture.
-pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[7_738_627, 7_733_889, 7_661_521];
+/// Current durable 224-key Verify samples over the fixed 512-row fixture.
+pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[7_121_262, 7_142_524, 3_375_602];
 
 /// Current exact replay sample for one retained nonterminal Verify receipt.
-pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 124_946;
+pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 125_041;
 
 /// Current pre-scan revision-drift restart sample.
-pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_775_370;
+pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_888_985;
 
 /// Current terminal mutation-job state-load sample.
-pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 105_155;
+pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 105_140;
 
 /// Current exact replay sample for the retained completion receipt.
-pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_389;
+pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_270;
 
 /// Current sequence-checked terminal acknowledgement sample.
-pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 118_079;
+pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 118_047;
 
-/// Maximum reviewed instruction cost for one fingerprint-bound 64-update Forward step.
+/// Maximum reviewed instruction cost for one fingerprint-bound 56-update Forward step.
 pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 31_000_000;
 
-/// Maximum reviewed instruction cost for one 256-key Verify step.
+/// Maximum reviewed instruction cost for one 224-key Verify step.
 pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 8_000_000;
 
 /// Maximum reviewed instruction cost for state, replay, or acknowledgement.
@@ -396,10 +407,11 @@ mod tests {
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_TAG, "v0.222.4");
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_COMMIT.len(), 40);
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_TREE.len(), 40);
-        assert_eq!(minimum_forward_advances(10_001), 157);
-        assert_eq!(minimum_verify_advances(10_001), 40);
+        assert_eq!(minimum_forward_advances(10_001), 179);
+        assert_eq!(minimum_verify_advances(10_001), 45);
         assert_eq!(BASELINE_FORWARD_INSTRUCTIONS.len(), 8);
         assert_eq!(BASELINE_VERIFY_INSTRUCTIONS.len(), 2);
+        assert_eq!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS.len(), 10);
         assert_eq!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS.len(), 3);
         assert_eq!(BASELINE_DYNAMIC_QUERY_RAW_WASM_BYTES, 2_607_381);
         assert_eq!(BASELINE_TYPED_QUERY_RAW_WASM_BYTES, 1_792_657);
@@ -460,10 +472,10 @@ mod tests {
             "MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES,\n    RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,\n    2 * 1024"
         ));
         assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,\n    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,\n    256"
+            "MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,\n    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,\n    224"
         ));
         assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_FORWARD_ROWS,\n    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,\n    64"
+            "MAX_RESUMABLE_UPDATE_FORWARD_ROWS,\n    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,\n    56"
         ));
 
         let exact_update = fs::read_to_string(

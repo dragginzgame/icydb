@@ -11,9 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.229.md](docs/changelog/0.229.md)
 
-- `0.229.0` establishes version-3 journal controls and dormant bounded-backlog
-  foundations; upgrades require quiesced empty 0.228 tails and production
-  online convergence remains disabled, making this potentially breaking.
+- `0.229.0` establishes current journal controls, dormant bounded-backlog
+  foundations, and recalibrated durable-mutation pages; upgrades require
+  quiesced empty 0.228 tails and production online convergence remains
+  disabled, making this potentially breaking.
 
 ## [0.228.x] 🧱 - 2026-08-15 - Fingerprint-Bound Journal Validation And Convergence Bounds
 

@@ -1853,18 +1853,24 @@ fn assert_mutation_forward_perf_stays_bounded(result: &MutationJobForwardPerfRes
         result.start_local_instructions > 0
             && result.start_local_instructions < DURABLE_START_INSTRUCTION_REVIEW_CEILING
     );
-    assert_eq!(result.forward_local_instructions.len(), 8);
+    assert_eq!(result.forward_local_instructions.len(), 10);
     assert_eq!(result.forward_keys_scanned, 512);
     assert_eq!(result.rows_updated, 512);
-    assert_eq!(result.forward_keys_scanned_per_step, vec![64; 8]);
-    assert_eq!(result.rows_updated_per_step, vec![64; 8]);
-    assert_eq!(result.committed_sequence, 8);
+    assert_eq!(
+        result.forward_keys_scanned_per_step,
+        [vec![56; 9], vec![8]].concat(),
+    );
+    assert_eq!(
+        result.rows_updated_per_step,
+        [vec![56; 9], vec![8]].concat(),
+    );
+    assert_eq!(result.committed_sequence, 10);
     assert!(result.replay_matches);
     assert!(
         result.replay_local_instructions > 0
             && result.replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
     );
-    assert_eq!(result.zero_candidate_keys_scanned, 256);
+    assert_eq!(result.zero_candidate_keys_scanned, 224);
     assert_eq!(result.zero_candidate_rows_updated, 0);
     assert_eq!(result.zero_candidate_sequence, 1);
     assert!(result.stale_request_preserved_sequence);
@@ -2186,13 +2192,13 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
         result.acknowledgement_local_instructions,
     );
 
-    assert_eq!(result.first_verify_keys_scanned, 256);
+    assert_eq!(result.first_verify_keys_scanned, 224);
     assert!(result.first_verify_local_instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(result.replay.verify_matches);
     assert!(result.verify_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert_eq!(result.drift_restart_keys_scanned, 0);
     assert!(result.drift_restart_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
-    assert_eq!(result.stable_verify_local_instructions.len(), 2);
+    assert_eq!(result.stable_verify_local_instructions.len(), 3);
     assert!(
         result
             .stable_verify_local_instructions
@@ -2201,7 +2207,7 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
     );
     assert_eq!(result.verify_restarts_total, 1);
     assert_eq!(result.restarted_forward_rows_updated, 1);
-    assert_eq!(result.completed_sequence, 14);
+    assert_eq!(result.completed_sequence, 18);
     assert!(result.state_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert!(result.terminal_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert!(result.replay.terminal_matches);

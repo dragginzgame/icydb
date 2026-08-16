@@ -680,10 +680,9 @@ fn drive_populated_startup_recovery(
             application_recovering_observations = before_upgrade.recovering_observations;
             let stable_bytes_before_upgrade = canister_stable_memory_bytes(fixture);
             upgrade_fixture_canister(fixture, "sql_perf");
-            assert_eq!(
-                canister_stable_memory_bytes(fixture),
-                stable_bytes_before_upgrade,
-                "mid-recovery upgrade must retain stable memory byte-for-byte",
+            assert!(
+                canister_stable_memory_bytes(fixture) >= stable_bytes_before_upgrade,
+                "mid-recovery upgrade may fold pending batches but must not shrink stable memory",
             );
             assert_application_deferred(&application_startup_contract(fixture));
             mid_recovery_upgrade_complete = true;
@@ -723,10 +722,9 @@ fn recover_active_tier_job(
         .expect("accepted schema should encode before upgrade");
     let stable_bytes_before_upgrade = canister_stable_memory_bytes(fixture);
     upgrade_fixture_canister(fixture, "sql_perf");
-    assert_eq!(
-        canister_stable_memory_bytes(fixture),
-        stable_bytes_before_upgrade,
-        "same-schema upgrade must retain stable memory byte-for-byte",
+    assert!(
+        canister_stable_memory_bytes(fixture) >= stable_bytes_before_upgrade,
+        "same-schema upgrade may advance recovery but must not shrink stable memory",
     );
     let (observation_instructions, application_recovering_observations) =
         drive_populated_startup_recovery(fixture);

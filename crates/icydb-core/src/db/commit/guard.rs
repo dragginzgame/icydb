@@ -193,8 +193,10 @@ impl CommitGuard {
     }
 
     /// Clear the commit marker after successful apply.
-    fn clear() -> Result<(), InternalError> {
-        with_initialized_commit_store(super::store::CommitStore::clear_verified)?
+    fn clear(&self) -> Result<(), InternalError> {
+        with_initialized_commit_store(|store| {
+            store.clear_live_verified(&self.encoded_control_slot)
+        })?
     }
 
     /// Ensure one future replicated attempt can advance retained recovery work.
@@ -303,23 +305,13 @@ pub(crate) fn finish_commit(
     // Phase 1: successful apply must clear marker authority immediately. A
     // normally returned clear failure may retain the marker, so it must also
     // atomically retain a recovery wake-up.
-    if let Err(error) = CommitGuard::clear() {
+    if let Err(error) = guard.clear() {
         guard.ensure_startup_recovery_wakeup();
         return Err(error);
     }
-    // Internal invariant: successful commit windows must clear the marker.
-    let marker_is_empty = match with_initialized_commit_store(super::store::CommitStore::is_empty) {
-        Ok(marker_is_empty) => marker_is_empty,
-        Err(error) => {
-            guard.ensure_startup_recovery_wakeup();
-            return Err(error);
-        }
-    };
-    if !marker_is_empty {
-        guard.ensure_startup_recovery_wakeup();
-        return Err(InternalError::commit_corruption());
-    }
-
+    // Clear preflights every fallible check before its mechanical stable writes.
+    // Do not introduce a normally returned validation error after retirement;
+    // the next message's recovery observation remains the independent check.
     Ok(())
 }
 

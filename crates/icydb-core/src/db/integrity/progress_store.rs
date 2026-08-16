@@ -148,6 +148,10 @@ pub(in crate::db) enum InsertMutationJobResult {
 }
 
 /// Exact mutation-progress compare-and-replace effect carried by one commit marker.
+///
+/// Every constructor validates the complete before/after proof. Store
+/// preflight and apply therefore compare only the already-canonical bytes and
+/// do not repeat bounded record decoding on the commit hot path.
 #[derive(Clone, Debug)]
 pub(in crate::db) struct MutationProgressRecordOp {
     key: ProgressRecordKey,
@@ -434,7 +438,6 @@ impl InspectionProgressStore {
         &self,
         operation: &MutationProgressRecordOp,
     ) -> Result<(), MutationJobError> {
-        operation.validate()?;
         let current = self
             .map
             .get(&operation.key)
@@ -449,7 +452,6 @@ impl InspectionProgressStore {
         &mut self,
         operation: &MutationProgressRecordOp,
     ) -> Result<(), MutationJobError> {
-        operation.validate()?;
         let current = self
             .map
             .get(&operation.key)
@@ -471,7 +473,6 @@ impl InspectionProgressStore {
         &mut self,
         operation: &MutationProgressRecordOp,
     ) -> Result<(), MutationJobError> {
-        self.preflight_mutation_progress(operation)?;
         self.apply_mutation_progress(operation)
     }
 

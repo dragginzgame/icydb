@@ -74,12 +74,12 @@ resumable_policy_bound!(
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,
     RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,
-    256
+    224
 );
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
     RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,
-    64
+    56
 );
 // Bump the owning component whenever its semantics change. Numeric bounds and
 // the continuation format participate directly, so their drift changes the
@@ -751,6 +751,16 @@ impl<C: CanisterKind> DbSession<C> {
             }
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
+        let captured_revision = continuation
+            .verify_revision
+            .ok_or(MutationJobError::CorruptProgressStore)?;
+        if durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?
+            != captured_revision
+        {
+            continuation.restart_forward();
+            return persist_verify_restart::<C>(before, request, &continuation, 0);
+        }
+
         let identity = catalog.identity();
         let PreparedMutationJobTraversalRuntime {
             compiled_scope,
@@ -762,15 +772,6 @@ impl<C: CanisterKind> DbSession<C> {
             }
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
-        let captured_revision = continuation
-            .verify_revision
-            .ok_or(MutationJobError::CorruptProgressStore)?;
-        if durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?
-            != captured_revision
-        {
-            continuation.restart_forward();
-            return persist_verify_restart::<C>(before, request, &continuation, 0);
-        }
         let scan = scan_mutation_job_verify(
             &store,
             continuation.checkpoint.as_ref(),

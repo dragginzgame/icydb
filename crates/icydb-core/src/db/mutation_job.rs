@@ -25,9 +25,9 @@ pub const MAX_MUTATION_JOB_RECEIPT_BYTES: usize = 8 * 1024;
 pub const MAX_MUTATION_JOB_RECORD_BYTES: usize = 64 * 1024;
 
 /// Maximum authoritative keys examined by one mutation-job advance.
-pub const MAX_MUTATION_JOB_STEP_KEYS_SCANNED: u64 = 256;
+pub const MAX_MUTATION_JOB_STEP_KEYS_SCANNED: u64 = 224;
 /// Maximum target rows changed by one mutation-job advance.
-pub const MAX_MUTATION_JOB_STEP_ROWS_UPDATED: u64 = 64;
+pub const MAX_MUTATION_JOB_STEP_ROWS_UPDATED: u64 = 56;
 
 /// Nonzero application-owned identity for one durable mutation job.
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]

@@ -24,7 +24,7 @@ use crate::{
             },
             store::{
                 control_slot::{
-                    MAX_CURRENT_COMMIT_CONTROL_HEADER_BYTES,
+                    DATABASE_COMMIT_SEQUENCE_OFFSET, MAX_CURRENT_COMMIT_CONTROL_HEADER_BYTES,
                     PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES, commit_control_slot_encoded_len,
                     decode_commit_control_slot, encode_commit_control_slot_from_marker,
                     encode_empty_commit_control_slot, inspect_commit_control_header,
@@ -225,10 +225,21 @@ impl CommitStore {
     }
 
     /// Preview the next database-wide commit order without durable mutation.
+    ///
+    /// Marker publication immediately re-reads and validates the complete
+    /// checksummed control envelope before accepting this preview. Reading only
+    /// the fixed high-water field here avoids decoding the same registry twice
+    /// on every synchronous commit without creating a second authority.
     pub(super) fn next_database_commit_sequence(&self) -> Result<u64, InternalError> {
-        let bytes = self.read_control_slot()?;
-        inspect_commit_control_slot(&bytes)?
-            .database_commit_sequence
+        let sequence_offset = COMMIT_CONTROL_SLOT_OFFSET
+            .checked_add(
+                u64::try_from(DATABASE_COMMIT_SEQUENCE_OFFSET)
+                    .map_err(|_| InternalError::store_unsupported())?,
+            )
+            .ok_or_else(InternalError::store_unsupported)?;
+        let mut encoded = [0_u8; size_of::<u64>()];
+        self.memory.read(sequence_offset, &mut encoded);
+        u64::from_le_bytes(encoded)
             .checked_add(1)
             .ok_or_else(InternalError::store_unsupported)
     }
@@ -243,19 +254,14 @@ impl CommitStore {
 
     /// Return whether the marker slot is empty without decoding.
     pub(super) fn is_empty(&self) -> bool {
-        self.read_control_slot()
-            .and_then(|bytes| {
-                inspect_commit_control_slot(&bytes).map(|slot| slot.marker_bytes.is_empty())
-            })
-            .unwrap_or(false)
+        self.marker_is_empty().unwrap_or(false)
     }
 
     /// Return whether the marker payload is empty while still validating the
     /// outer control-slot envelope.
     pub(super) fn marker_is_empty(&self) -> Result<bool, InternalError> {
-        self.read_control_slot().and_then(|bytes| {
-            inspect_commit_control_slot(&bytes).map(|slot| slot.marker_bytes.is_empty())
-        })
+        let bytes = self.read_framed_control_slot()?;
+        inspect_commit_control_slot(&bytes).map(|slot| slot.marker_bytes.is_empty())
     }
 
     /// Persist one commit marker while proving the current slot has no marker.
@@ -263,7 +269,7 @@ impl CommitStore {
         &self,
         marker: &CommitMarker,
     ) -> Result<EncodedCommitControlSlot, InternalError> {
-        let bytes = self.read_control_slot()?;
+        let bytes = self.read_framed_control_slot()?;
         let slot = inspect_commit_control_slot(&bytes)?;
         if !slot.marker_bytes.is_empty() {
             return Err(InternalError::store_invariant());
@@ -277,8 +283,15 @@ impl CommitStore {
                 return Err(InternalError::store_invariant());
             }
         }
-        let encoded =
-            encode_commit_control_slot_from_marker(&slot, database_commit_sequence, marker)?;
+        let encoded = encode_commit_control_slot_from_marker(
+            &bytes,
+            &slot,
+            database_commit_sequence,
+            marker,
+        )?;
+        if encoded.marker_length_offset() != slot.marker_length_offset {
+            return Err(InternalError::store_invariant());
+        }
 
         self.write_control_slot(encoded.as_bytes())?;
         mark_commit_marker_may_be_present();
@@ -287,14 +300,32 @@ impl CommitStore {
 
     /// Clear marker bytes after a verified commit/recovery success.
     pub(super) fn clear_verified(&self) -> Result<(), InternalError> {
-        let control_slot = self.read_control_slot()?;
+        let control_slot = self.read_framed_control_slot()?;
         let slot = inspect_commit_control_slot(&control_slot)?;
-        let encoded = encode_empty_commit_control_slot(
-            slot.database_incarnation_id,
-            slot.cursor_authentication_key,
-            slot.database_commit_sequence,
-            &slot.registry,
-        )?;
+        self.clear_encoded_marker(&control_slot, slot.marker_length_offset)
+    }
+
+    /// Retire the exact live marker retained by its synchronous commit guard.
+    pub(super) fn clear_live_verified(
+        &self,
+        encoded: &EncodedCommitControlSlot,
+    ) -> Result<(), InternalError> {
+        self.clear_encoded_marker(encoded.as_bytes(), encoded.marker_length_offset())
+    }
+
+    fn clear_encoded_marker(
+        &self,
+        control_slot: &[u8],
+        marker_length_offset: usize,
+    ) -> Result<(), InternalError> {
+        let empty_len = marker_length_offset
+            .checked_add(size_of::<u32>())
+            .ok_or_else(InternalError::commit_corruption)?;
+        let mut encoded = control_slot
+            .get(..empty_len)
+            .ok_or_else(InternalError::commit_corruption)?
+            .to_vec();
+        encoded[marker_length_offset..].copy_from_slice(&0_u32.to_le_bytes());
         self.write_control_slot(&encoded)?;
         mark_commit_marker_verified_absent();
 
@@ -403,20 +434,35 @@ impl CommitStore {
     }
 
     fn write_control_slot(&self, bytes: &[u8]) -> Result<(), InternalError> {
+        let header = self.prepare_control_slot_write(bytes)?;
+        self.memory.write(COMMIT_CONTROL_SLOT_OFFSET, bytes);
+        self.memory
+            .write(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &header);
+        Ok(())
+    }
+
+    fn prepare_control_slot_write(
+        &self,
+        bytes: &[u8],
+    ) -> Result<[u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES], InternalError> {
         if bytes.len() > MAX_COMMIT_BYTES as usize {
             return Err(InternalError::commit_marker_exceeds_max_size());
         }
         let encoded_len = u32::try_from(bytes.len())
             .map_err(|_| InternalError::commit_control_slot_exceeds_max_size())?;
 
-        let end = COMMIT_CONTROL_SLOT_OFFSET.saturating_add(bytes.len() as u64);
+        let end = COMMIT_CONTROL_SLOT_OFFSET
+            .checked_add(
+                u64::try_from(bytes.len())
+                    .map_err(|_| InternalError::commit_control_slot_exceeds_max_size())?,
+            )
+            .ok_or_else(InternalError::commit_control_slot_exceeds_max_size)?;
         let required_pages = end.div_ceil(WASM_PAGE_BYTES);
         let current_pages = self.memory.size();
         if required_pages > current_pages && self.memory.grow(required_pages - current_pages) < 0 {
             return Err(InternalError::commit_control_memory_growth_failed());
         }
 
-        self.memory.write(COMMIT_CONTROL_SLOT_OFFSET, bytes);
         let mut header = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
         header[..DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()]
             .copy_from_slice(DATABASE_CONTROL_SLOT_FRAME_MAGIC);
@@ -426,9 +472,7 @@ impl CommitStore {
             .copy_from_slice(&encoded_len.to_be_bytes());
         header[DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET..]
             .copy_from_slice(&crc32c(bytes).to_be_bytes());
-        self.memory
-            .write(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &header);
-        Ok(())
+        Ok(header)
     }
 
     #[cfg(test)]

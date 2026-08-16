@@ -262,7 +262,7 @@ explicit `public`, `controller`, or `guard(path)` choice. Its guard sees the
 Durable mutation jobs retain the canonical fixed-update intent and private
 engine continuation inside IcyDB. Callers keep only the job id, expected
 sequence, and a bounded idempotency key. Each advance performs at most one
-256-key/64-update Forward step or one 256-key Verify step, and exact request
+224-key/56-update Forward step or one 224-key Verify step, and exact request
 replay returns the retained receipt without scanning or mutating again. Verify
 completes only after a clean exhaustive pass at one unchanged durable target
 revision. A target revision change or residual row restarts Forward; accepted
