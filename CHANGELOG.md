@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Fixed the journal duplicate-target test fixture to satisfy warning-denying
+  Clippy validation without an unnecessary final key clone.
+
 ## [0.228.x] 🧱 - 2026-08-15 - Fingerprint-Bound Journal Validation And Convergence Bounds
 
 Detailed notes: [docs/changelog/0.228.md](docs/changelog/0.228.md)

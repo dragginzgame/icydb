@@ -651,7 +651,7 @@ fn journal_batch_codec_rejects_duplicate_migration_targets_without_overlay() {
         vec![
             JournalRecord::schema_migration_index_put("test::Store", index_key.clone(), plan)
                 .expect("first migration index effect should build"),
-            JournalRecord::schema_migration_index_put("test::Store", index_key.clone(), plan)
+            JournalRecord::schema_migration_index_put("test::Store", index_key, plan)
                 .expect("second migration index effect should build"),
         ],
         vec![
