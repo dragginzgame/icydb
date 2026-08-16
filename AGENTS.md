@@ -20,10 +20,22 @@ Keep this file small. Open detailed governance docs only when the task needs the
   shims, compatibility wrappers, legacy fallback paths, dual dispatch,
   backwards-compatibility layers, or legacy feature support unless the user
   explicitly asks.
+- Before `1.0.0`, every internal protocol, persisted/runtime format, generated
+  API encoding, cursor encoding, or schema/catalog encoding that has a format
+  version discriminator uses exactly version `1`. Do not increment a current
+  pre-1.0 format to version `2`, `3`, or later. A version field exists only
+  where the representation genuinely needs a versioned boundary; it is not a
+  release counter or an implementation-history counter.
 - Internal protocols, persisted/runtime formats, generated API shapes, cursor
-  formats, and schema/catalog representations should move directly to the
-  latest current form. Either decode/execute the current form or fail with a
-  typed error; do not silently reconstruct, translate, or tolerate old forms.
+  formats, and schema/catalog representations move directly to the latest
+  current version-1 form by replacing the encoder, decoder, and canonical shape
+  in place. Decode and execute only that current version-1 form or fail with a
+  typed error. Do not retain or add predecessor-version constants, decoders,
+  inspectors, upgrade bridges, translators, repair shims, fallback tags, dual
+  formats, or old-form fixtures.
+- An incompatible pre-1.0 representation change requires reinstall,
+  recreation, or explicit regeneration of the current form. Never preserve an
+  old pre-1.0 representation merely to make an in-place upgrade succeed.
 - Before `1.0.0`, do not add, keep, or maintain anti-resurrection tests for
   removed legacy behavior, old aliases, retired feature spellings, or deleted
   compatibility paths. Delete tests whose only purpose is proving the old path

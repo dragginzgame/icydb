@@ -606,7 +606,10 @@ impl JournalTailStore {
             return Err(journal_tail_corruption());
         }
         if !repairing_prefix
-            && let Some(last_database_sequence) = self.last_database_commit_sequence()?
+            && current_control.batch_count() != 0
+            && let Some(previous_sequence) = key.get().checked_sub(1).map(JournalSequence::new)
+            && let Some(last_database_sequence) =
+                self.database_commit_sequence_at(previous_sequence)?
             && header.database_commit_sequence() <= last_database_sequence
         {
             return Err(journal_tail_corruption());
@@ -645,20 +648,14 @@ impl JournalTailStore {
     /// Return the next contiguous append sequence for this tail.
     pub(in crate::db) fn next_append_sequence(&self) -> Result<JournalSequence, InternalError> {
         let watermark = self.fold_watermark()?;
-        let mut last_sequence = watermark.highest_folded_journal_sequence();
-
-        for entry in self.map.iter().rev() {
-            let key = entry.key();
-            if key.sequence == FOLD_WATERMARK_CONTROL_SEQUENCE {
-                continue;
-            }
-            if key.sequence > last_sequence {
-                last_sequence = key.sequence;
-            }
-            break;
-        }
-
-        last_sequence.next().ok_or_else(journal_tail_corruption)
+        let retained_batch_count = self.current_tail_control()?.batch_count();
+        watermark
+            .highest_folded_journal_sequence()
+            .get()
+            .checked_add(retained_batch_count)
+            .and_then(|last_sequence| last_sequence.checked_add(1))
+            .map(JournalSequence::new)
+            .ok_or_else(journal_tail_corruption)
     }
 
     /// Reserve the next mutation sequence while retaining its successor as
@@ -1115,25 +1112,13 @@ impl JournalTailStore {
         Ok(())
     }
 
-    fn last_database_commit_sequence(
+    fn database_commit_sequence_at(
         &self,
+        sequence: JournalSequence,
     ) -> Result<Option<DatabaseCommitSequence>, InternalError> {
-        let Some(entry) = self
-            .map
-            .range((
-                Included(JournalTailKey::new(JournalSequence::new(1), 0)),
-                Unbounded,
-            ))
-            .rev()
-            .find(|entry| entry.key().sequence != FOLD_WATERMARK_CONTROL_SEQUENCE)
-        else {
+        let Some(first) = self.map.get(&JournalTailKey::new(sequence, 0)) else {
             return Ok(None);
         };
-        let sequence = entry.key().sequence;
-        let first = self
-            .map
-            .get(&JournalTailKey::new(sequence, 0))
-            .ok_or_else(journal_tail_corruption)?;
         inspect_raw_journal_batch_fixed_header(first.as_bytes())
             .map(|header| Some(header.database_commit_sequence()))
     }

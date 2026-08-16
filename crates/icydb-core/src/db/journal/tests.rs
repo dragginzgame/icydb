@@ -1266,20 +1266,25 @@ fn journal_tail_store_persists_fold_watermark_without_counting_it_as_tail_batch(
 #[test]
 fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
     let mut store = JournalTailStore::init(test_memory(217));
-    store.append_batch(&batch(1)).expect("batch should append");
-    store.append_batch(&batch(2)).expect("batch should append");
-    store
-        .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(2), 1))
-        .expect("fold watermark should persist");
+    let first = batch(1);
+    let second = batch(2);
+    store.append_batch(&first).expect("batch should append");
+    store.append_batch(&second).expect("batch should append");
+    let first_retirement = store
+        .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
+        .expect("first retirement should preflight");
+    store.apply_prepared_batch_retirement(first_retirement);
     assert!(
         store.has_stored_batch(),
-        "persisting a watermark alone must not claim physical cleanup",
+        "retiring the first batch must retain the second batch",
     );
-
-    store.clear_batches_through(JournalSequence::new(2));
+    let second_retirement = store
+        .prepare_batch_retirement(&second, FoldWatermark::new(JournalSequence::new(2), 2))
+        .expect("second retirement should preflight");
+    store.apply_prepared_batch_retirement(second_retirement);
     assert!(
         !store.has_stored_batch(),
-        "recovery closure must observe the physically empty tail",
+        "complete retirement must leave the physical tail empty",
     );
 
     let mut visited = Vec::new();
@@ -1310,6 +1315,9 @@ fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
 #[test]
 fn journal_tail_store_reserves_a_representable_post_commit_revision() {
     let mut store = JournalTailStore::init(test_memory(224));
+    store
+        .initialize_current_tail_control()
+        .expect("current tail control should initialize");
     store
         .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(u64::MAX - 1), 1))
         .expect("near-exhausted fold watermark should persist");
@@ -1753,11 +1761,15 @@ fn journal_inspection_reports_a_malformed_batch_without_hiding_tail_exhaustion()
 #[test]
 fn journal_proof_identity_tracks_tail_append_and_fold_topology() {
     let mut store = JournalTailStore::init(test_memory(227));
+    store
+        .initialize_current_tail_control()
+        .expect("current tail control should initialize");
     let empty = store
         .proof_identity()
         .expect("empty proof identity should capture");
 
-    store.append_batch(&batch(1)).expect("batch should append");
+    let first = batch(1);
+    store.append_batch(&first).expect("batch should append");
     let appended = store
         .proof_identity()
         .expect("appended proof identity should capture");
@@ -1765,10 +1777,10 @@ fn journal_proof_identity_tracks_tail_append_and_fold_topology() {
     assert_eq!(appended.next_append_sequence(), 2);
     assert!(appended.physical_record_count() > empty.physical_record_count());
 
-    store
-        .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(1), 1))
-        .expect("fold watermark should persist");
-    store.clear_batches_through(JournalSequence::new(1));
+    let retirement = store
+        .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
+        .expect("retirement should preflight");
+    store.apply_prepared_batch_retirement(retirement);
     let folded = store
         .proof_identity()
         .expect("folded proof identity should capture");
