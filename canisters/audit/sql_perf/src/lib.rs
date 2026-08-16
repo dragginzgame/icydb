@@ -4106,9 +4106,6 @@ fn perf_audit_tokens() -> Vec<PerfAuditToken> {
     tokens
 }
 
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
-
 /// Closed producer and recovery facts for one maximum accepted-index publication.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(all(feature = "sql", feature = "test-admin-api"))]
@@ -4186,3 +4183,6 @@ fn publish_promotion_index_fixture() -> Result<PromotionIndexPublicationFacts, i
         })
     })
 }
+
+#[cfg(feature = "candid-export")]
+ic_cdk::export_candid!();
