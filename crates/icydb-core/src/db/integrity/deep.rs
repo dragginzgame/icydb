@@ -8,17 +8,18 @@ use crate::{
         Db,
         commit::database_incarnation_id,
         integrity::{
-            DeepIntegrityPage, DeepIntegrityPageStatus, DerivedInspectionLimits,
-            IntegrityAbortReceipt, IntegrityAbortStatus, IntegrityAuthorityDiagnostic,
-            IntegrityCheckpoint, IntegrityDeepError, IntegrityEntityIdentity, IntegrityFinding,
-            IntegrityFindingClass, IntegrityFindingKind, IntegrityJob, IntegrityJobError,
-            IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityJobState,
-            IntegrityPendingTerminal, IntegrityPhase, IntegrityReceiptEnvelope,
-            IntegrityReceiptReplayKey, IntegrityResourceDiagnostic, IntegritySeverity,
-            IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
-            MAX_INTEGRITY_IN_PROGRESS_PAGES, PhysicalUnitCheckpoint, QuickIntegrityStatus,
-            RowInspectionLimits, capture_integrity_proof_vector, execute_index_integrity_page,
-            execute_quick_integrity, execute_reverse_integrity_page, execute_row_integrity_page,
+            DatabaseIncarnationId, DeepIntegrityPage, DeepIntegrityPageStatus,
+            DerivedInspectionLimits, IntegrityAbortReceipt, IntegrityAbortStatus,
+            IntegrityAuthorityDiagnostic, IntegrityCheckpoint, IntegrityDeepError,
+            IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
+            IntegrityJob, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
+            IntegrityJobReceipt, IntegrityJobState, IntegrityPendingTerminal, IntegrityPhase,
+            IntegrityReceiptEnvelope, IntegrityReceiptReplayKey, IntegrityResourceDiagnostic,
+            IntegritySeverity, IntegritySubmissionKey, IntegrityTerminalOutcome,
+            IntegrityVerifierFamily, MAX_INTEGRITY_IN_PROGRESS_PAGES, PhysicalUnitCheckpoint,
+            QuickIntegrityStatus, RowInspectionLimits, capture_integrity_proof_vector,
+            execute_index_integrity_page, execute_quick_integrity, execute_reverse_integrity_page,
+            execute_row_integrity_page,
             progress_store::{InsertJobResult, with_progress_store},
         },
         journal::{JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue},
@@ -443,7 +444,9 @@ fn execute_candidate_page<C: CanisterKind>(
     job: &IntegrityJob,
 ) -> Result<CandidatePage, InternalError> {
     match &job.checkpoint {
-        IntegrityCheckpoint::QuickMetadata => execute_quick_candidate(db, plan),
+        IntegrityCheckpoint::QuickMetadata => {
+            execute_quick_candidate(db, plan, job.database_incarnation_id)
+        }
         IntegrityCheckpoint::Rows(checkpoint) => execute_row_candidate(db, plan, job, checkpoint),
         IntegrityCheckpoint::Index {
             ordinal,
@@ -464,8 +467,9 @@ fn execute_candidate_page<C: CanisterKind>(
 fn execute_quick_candidate<C: CanisterKind>(
     db: &Db<C>,
     plan: &AcceptedInspectionPlan,
+    incarnation: DatabaseIncarnationId,
 ) -> Result<CandidatePage, InternalError> {
-    let quick = execute_quick_integrity(db, plan)?;
+    let quick = execute_quick_integrity(db, plan, incarnation)?;
     let terminal = match quick.status() {
         QuickIntegrityStatus::CompleteClean | QuickIntegrityStatus::CompleteWithFindings => None,
         QuickIntegrityStatus::Uninspectable(diagnostic) => {

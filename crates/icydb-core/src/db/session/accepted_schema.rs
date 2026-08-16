@@ -550,14 +550,27 @@ impl<C: CanisterKind> DbSession<C> {
         runtime_entity: AcceptedRuntimeEntity,
         store: StoreHandle,
     ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
-        let expected_store = runtime_entity.store(&self.db)?;
+        self.accepted_integrity_catalog_context_for_runtime_entity(runtime_entity, store)
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)
+    }
+
+    pub(in crate::db::session) fn accepted_integrity_catalog_context_for_runtime_entity(
+        &self,
+        runtime_entity: AcceptedRuntimeEntity,
+        store: StoreHandle,
+    ) -> Result<AcceptedSchemaCatalogContext, AcceptedInspectionPlanLoadError> {
+        let expected_store = runtime_entity
+            .store(&self.db)
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
         if !std::ptr::eq(store.schema_store(), expected_store.schema_store()) {
-            return Err(InternalError::store_invariant());
+            return Err(AcceptedInspectionPlanLoadError::Unselected(
+                InternalError::store_invariant(),
+            ));
         }
-        let root = self
-            .accepted_schema_runtime_root()
-            .map_err(AcceptedInspectionPlanLoadError::into_internal)?;
-        let entity = root.entity_for_runtime_entity(&runtime_entity)?;
+        let root = self.accepted_schema_runtime_root()?;
+        let entity = root
+            .entity_for_runtime_entity(&runtime_entity)
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
 
         Ok(AcceptedSchemaCatalogContext::new(root, entity))
     }
@@ -621,20 +634,8 @@ impl<C: CanisterKind> DbSession<C> {
         runtime_entity: AcceptedRuntimeEntity,
         store: StoreHandle,
     ) -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError> {
-        let expected_store = runtime_entity
-            .store(&self.db)
-            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
-        if !std::ptr::eq(store.schema_store(), expected_store.schema_store()) {
-            return Err(AcceptedInspectionPlanLoadError::Unselected(
-                InternalError::store_invariant(),
-            ));
-        }
-        let root = self.accepted_schema_runtime_root()?;
-        let entity = root
-            .entity_for_runtime_entity(&runtime_entity)
-            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
-
-        Ok(entity.inspection_plan.clone())
+        self.accepted_integrity_catalog_context_for_runtime_entity(runtime_entity, store)
+            .map(|catalog| catalog.inspection_plan().clone())
     }
 
     /// Verify accepted authority for a schema-resolved structural operation.

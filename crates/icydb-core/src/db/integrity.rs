@@ -13,9 +13,7 @@ mod row;
 
 use crate::{
     db::{
-        commit::{
-            database_control_proof_identity, database_incarnation_id, ensure_recovery_admitted,
-        },
+        commit::ensure_recovery_admitted,
         registry::{
             StoreAllocationIdentities, StoreHandle, StoreRuntimeStorageCapabilities,
             StoreRuntimeStorageMode,
@@ -144,7 +142,10 @@ fn validate_quick_integrity_control<C: CanisterKind>(
             .or_insert_with(|| relation.target_store());
     }
 
-    let _database_control = database_control_proof_identity()?;
+    // The session's accepted-root capture or the Deep job's proof capture has
+    // already validated the database-control envelope that supplied this
+    // incarnation. Deep persists the envelope hash across pages; Quick must
+    // not decode and hash those same stable bytes a second time.
     proof::validate_integrity_allocation_registry()?;
     validate_quick_identity_control(db, incarnation)?;
     let mut findings = Vec::new();
@@ -968,9 +969,9 @@ pub(in crate::db) fn uninspectable_quick_integrity(
 pub(in crate::db) fn execute_quick_integrity<C: CanisterKind>(
     db: &crate::db::Db<C>,
     plan: &AcceptedInspectionPlan,
+    incarnation: DatabaseIncarnationId,
 ) -> Result<QuickIntegrityResult, InternalError> {
     ensure_recovery_admitted(db)?;
-    let incarnation = database_incarnation_id()?;
     let findings = match validate_quick_integrity_control(db, plan, incarnation) {
         Ok(findings) => findings,
         Err(error) => {

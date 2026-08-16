@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Removed duplicate current-control, accepted-catalog, and startup-readiness
+  work so Quick integrity and warmed SQL stay within their frozen instruction
+  budgets without weakening control or failure-receipt validation.
+
 ## [0.229.x] 🔄 - 2026-08-16 - Continuous Journal Convergence And Bounded Backlog Admission
 
 Detailed notes: [docs/changelog/0.229.md](docs/changelog/0.229.md)

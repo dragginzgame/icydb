@@ -52,6 +52,7 @@ use icydb_schema::{
 };
 use serde::Deserialize;
 use sha2::Digest;
+use std::cell::RefCell;
 #[cfg(feature = "migration")]
 use std::collections::BTreeMap;
 
@@ -89,6 +90,21 @@ const STORE_TARGET_FINGERPRINT_PROFILE: &[u8] = b"icydb.schema-target.store.v1";
 const ACCEPTED_DATABASE_HEAD_FINGERPRINT_PROFILE: &[u8] = b"icydb.accepted-schema.database-head.v1";
 #[cfg(feature = "migration")]
 const SCHEMA_MIGRATION_SUBMISSION_PROFILE: &[u8] = b"icydb.schema-migration.submission.v1";
+
+#[derive(Clone, Copy)]
+struct GeneratedDatabaseIdentityCacheEntry {
+    registry: usize,
+    incarnation: DatabaseIncarnationId,
+    identity: TargetDatabaseIdentity,
+}
+
+thread_local! {
+    // Generated store registration is immutable after wiring. This heap-only
+    // derivation cache is replaced when the database incarnation changes; it
+    // never caches readiness, receipts, or mutable accepted-schema authority.
+    static GENERATED_DATABASE_IDENTITY: RefCell<Option<GeneratedDatabaseIdentityCacheEntry>> =
+        const { RefCell::new(None) };
+}
 
 ///
 /// SchemaApplicationStore
@@ -2886,33 +2902,49 @@ pub(in crate::db) fn generated_schema_reconciled(
     let submission_key = SchemaSubmissionKey::try_new(submission_key.to_string())
         .map_err(|_| InternalError::store_invariant())?;
     let (database_identity, accepted_head) = generated_schema_authority(registry, incarnation)?;
-    let reconciled = load_schema_application_record_read_only(database_identity, &submission_key)?
-        .is_some_and(|record| match record.receipt().outcome() {
-            // The generated submission key is derived from the complete
-            // generated fragment and migration plan. A terminal receipt proves
-            // that exact source was applied in this database incarnation.
-            // Compatible SQL DDL may subsequently advance the accepted head
-            // while intentionally preserving generated-owned identities and
-            // semantics; exact submission replay returns the original receipt
-            // and cannot rebind it to that later DDL-owned head.
-            SchemaChangeOutcome::NoOp { .. } | SchemaChangeOutcome::Applied { .. } => true,
-            SchemaChangeOutcome::Pending { .. } | SchemaChangeOutcome::Aborted { .. } => false,
-        });
+    let reconciled = generated_submission_is_reconciled(database_identity, &submission_key)?;
     Ok((reconciled, accepted_head))
+}
+
+pub(in crate::db) fn generated_schema_is_reconciled(
+    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+    incarnation: DatabaseIncarnationId,
+    submission_key: &str,
+) -> Result<bool, InternalError> {
+    let submission_key = SchemaSubmissionKey::try_new(submission_key.to_string())
+        .map_err(|_| InternalError::store_invariant())?;
+    let database_identity = generated_database_identity(registry, incarnation)?;
+    generated_submission_is_reconciled(database_identity, &submission_key)
+}
+
+fn generated_submission_is_reconciled(
+    database_identity: TargetDatabaseIdentity,
+    submission_key: &SchemaSubmissionKey,
+) -> Result<bool, InternalError> {
+    Ok(
+        load_schema_application_record_read_only(database_identity, submission_key)?.is_some_and(
+            |record| match record.receipt().outcome() {
+                // The generated submission key is derived from the complete
+                // generated fragment and migration plan. A terminal receipt proves
+                // that exact source was applied in this database incarnation.
+                // Compatible SQL DDL may subsequently advance the accepted head
+                // while intentionally preserving generated-owned identities and
+                // semantics; exact submission replay returns the original receipt
+                // and cannot rebind it to that later DDL-owned head.
+                SchemaChangeOutcome::NoOp { .. } | SchemaChangeOutcome::Applied { .. } => true,
+                SchemaChangeOutcome::Pending { .. } | SchemaChangeOutcome::Aborted { .. } => false,
+            },
+        ),
+    )
 }
 
 pub(in crate::db) fn generated_schema_authority(
     registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
     incarnation: DatabaseIncarnationId,
 ) -> Result<(TargetDatabaseIdentity, ExpectedAcceptedHead), InternalError> {
-    let mut stores = registry.with(|registry| {
-        registry
-            .iter()
-            .map(|(path, handle)| StoreApplicationAuthority { path, handle })
-            .collect::<Vec<_>>()
-    });
+    let database_identity = generated_database_identity(registry, incarnation)?;
+    let mut stores = store_application_authorities(registry);
     stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
-    let database_identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
     let heads = stores
         .iter()
         .map(|store| {
@@ -2928,6 +2960,54 @@ pub(in crate::db) fn generated_schema_authority(
         .collect::<Result<Vec<_>, InternalError>>()?;
     let accepted_head = derive_accepted_head(heads.as_slice());
     Ok((database_identity, accepted_head))
+}
+
+fn generated_database_identity(
+    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+    incarnation: DatabaseIncarnationId,
+) -> Result<TargetDatabaseIdentity, InternalError> {
+    let registry_key = std::ptr::from_ref(registry).cast::<()>() as usize;
+    let cached = GENERATED_DATABASE_IDENTITY.with(|entry| {
+        entry
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())
+            .map(|entry| {
+                entry.as_ref().and_then(|entry| {
+                    (entry.registry == registry_key && entry.incarnation == incarnation)
+                        .then_some(entry.identity)
+                })
+            })
+    })?;
+    if let Some(identity) = cached {
+        return Ok(identity);
+    }
+
+    let mut stores = store_application_authorities(registry);
+    stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
+    let identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
+    GENERATED_DATABASE_IDENTITY.with(|entry| {
+        *entry
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())? =
+            Some(GeneratedDatabaseIdentityCacheEntry {
+                registry: registry_key,
+                incarnation,
+                identity,
+            });
+        Ok::<(), InternalError>(())
+    })?;
+    Ok(identity)
+}
+
+fn store_application_authorities(
+    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+) -> Vec<StoreApplicationAuthority> {
+    registry.with(|registry| {
+        registry
+            .iter()
+            .map(|(path, handle)| StoreApplicationAuthority { path, handle })
+            .collect()
+    })
 }
 
 fn write_store_authority(hasher: &mut sha2::Sha256, store: &StoreApplicationAuthority) {
@@ -3025,7 +3105,7 @@ mod tests {
         aborted_generated_row_local_candidate, accepted_head_after_candidates,
         application_authorities, apply_schema, continue_schema_application, derive_accepted_head,
         derive_schema_change_job_id, final_candidates_for_pending_row_local_constraint,
-        include_identity_state_count, lower_existing_schema_proposal,
+        generated_database_identity, include_identity_state_count, lower_existing_schema_proposal,
         lower_initial_schema_proposal, publish_accepted_schema_candidates_with_application_record,
         require_exact_empty_entity_count, schema_application_target,
     };
@@ -3113,6 +3193,27 @@ mod tests {
             .expect_err("the next owner in another store must reject");
         assert_eq!(error.class(), ErrorClass::Unsupported);
         assert_eq!(error.origin(), ErrorOrigin::Identity);
+    }
+
+    #[test]
+    fn generated_database_identity_cache_is_bound_to_the_incarnation() {
+        let first_incarnation = crate::db::DatabaseIncarnationId::for_tests(0x41);
+        let second_incarnation = crate::db::DatabaseIncarnationId::for_tests(0x42);
+        let first = generated_database_identity(&ABORT_REGISTRY, first_incarnation)
+            .expect("first generated database identity should derive");
+        assert_eq!(
+            generated_database_identity(&ABORT_REGISTRY, first_incarnation)
+                .expect("matching generated database identity should reuse"),
+            first,
+        );
+        let second = generated_database_identity(&ABORT_REGISTRY, second_incarnation)
+            .expect("replacement incarnation should derive independently");
+        assert_ne!(second, first);
+        assert_eq!(
+            generated_database_identity(&ABORT_REGISTRY, first_incarnation)
+                .expect("original incarnation should still derive exactly"),
+            first,
+        );
     }
 
     #[test]

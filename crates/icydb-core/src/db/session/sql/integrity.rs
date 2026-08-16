@@ -11,6 +11,7 @@ use crate::{
             IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
             IntegritySubmissionKey,
         },
+        session::AcceptedSchemaCatalogContext,
         sql::{SqlIntegrityStatement, parse_integrity_sql},
     },
     traits::CanisterKind,
@@ -68,48 +69,68 @@ impl<C: CanisterKind> DbSession<C> {
         owner: IntegrityJobOwner,
     ) -> Result<IntegrityCheckResult, SqlIntegrityError> {
         let statement = parse_integrity_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-        let request = self.lower_integrity_sql_request(statement)?;
+        let (request, quick_catalog) = self.lower_integrity_sql_request(statement)?;
 
-        self.execute_admin_integrity(request, owner)
+        self.execute_admin_integrity_with_quick_catalog(request, owner, quick_catalog)
             .map_err(SqlIntegrityError::from)
     }
 
     fn lower_integrity_sql_request(
         &self,
         statement: SqlIntegrityStatement,
-    ) -> Result<IntegrityCheckRequest, SqlIntegrityError> {
+    ) -> Result<(IntegrityCheckRequest, Option<AcceptedSchemaCatalogContext>), SqlIntegrityError>
+    {
         match statement {
-            SqlIntegrityStatement::Quick { entity } => Ok(IntegrityCheckRequest::Quick {
-                entity: self.integrity_sql_entity_selector(entity.as_str())?,
-            }),
+            SqlIntegrityStatement::Quick { entity } => {
+                let catalog = self.integrity_sql_entity_catalog(entity.as_str())?;
+                let request = IntegrityCheckRequest::Quick {
+                    entity: IntegrityEntityIdentity::from_accepted_identity(
+                        catalog.inspection_plan().identity_ref(),
+                    ),
+                };
+                Ok((request, Some(catalog)))
+            }
             SqlIntegrityStatement::DeepStart {
                 entity,
                 submission_key,
-            } => Ok(IntegrityCheckRequest::DeepStart {
-                entity: self.integrity_sql_entity_selector(entity.as_str())?,
-                submission_key: IntegritySubmissionKey::new(submission_key)?,
-            }),
+            } => Ok((
+                IntegrityCheckRequest::DeepStart {
+                    entity: self.integrity_sql_entity_selector(entity.as_str())?,
+                    submission_key: IntegritySubmissionKey::new(submission_key)?,
+                },
+                None,
+            )),
             SqlIntegrityStatement::DeepContinue {
                 job_id,
                 acknowledged_sequence,
-            } => Ok(IntegrityCheckRequest::deep_continue(
-                IntegrityJobId::try_from_hex(job_id.as_str())?,
-                acknowledged_sequence,
+            } => Ok((
+                IntegrityCheckRequest::deep_continue(
+                    IntegrityJobId::try_from_hex(job_id.as_str())?,
+                    acknowledged_sequence,
+                ),
+                None,
             )),
-            SqlIntegrityStatement::DeepAbort { job_id } => Ok(IntegrityCheckRequest::deep_abort(
-                IntegrityJobId::try_from_hex(job_id.as_str())?,
+            SqlIntegrityStatement::DeepAbort { job_id } => Ok((
+                IntegrityCheckRequest::deep_abort(IntegrityJobId::try_from_hex(job_id.as_str())?),
+                None,
             )),
         }
+    }
+
+    fn integrity_sql_entity_catalog(
+        &self,
+        sql_entity: &str,
+    ) -> Result<AcceptedSchemaCatalogContext, SqlIntegrityError> {
+        self.find_accepted_schema_catalog_context_for_entity_name(sql_entity)
+            .map_err(IntegrityDeepError::from)?
+            .ok_or_else(|| QueryError::sql_lowering(SqlLoweringCode::EntityMismatch).into())
     }
 
     fn integrity_sql_entity_selector(
         &self,
         sql_entity: &str,
     ) -> Result<IntegrityEntityIdentity, SqlIntegrityError> {
-        let catalog = self
-            .find_accepted_schema_catalog_context_for_entity_name(sql_entity)
-            .map_err(IntegrityDeepError::from)?
-            .ok_or_else(|| QueryError::sql_lowering(SqlLoweringCode::EntityMismatch))?;
+        let catalog = self.integrity_sql_entity_catalog(sql_entity)?;
         Ok(IntegrityEntityIdentity::from_accepted_identity(
             catalog.inspection_plan().identity_ref(),
         ))

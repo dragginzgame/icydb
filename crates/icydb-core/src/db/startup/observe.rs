@@ -8,10 +8,10 @@ use crate::{
         StoreRegistry,
         commit::{
             CommitControlObservation, configure_commit_memory_id, observe_commit_control,
-            startup_recovery_witness,
+            observe_commit_control_without_proof, startup_recovery_witness,
         },
         database_format::{DatabaseFormatObservation, observe_database_format},
-        schema::generated_schema_reconciled,
+        schema::{generated_schema_is_reconciled, generated_schema_reconciled},
         startup::{
             DatabaseStartupState, StartupFailure, StartupFailureKind,
             receipt::{AcceptedHeadBinding, StartupFailureBinding, StartupFailureReceipt},
@@ -36,8 +36,12 @@ pub(super) fn observe<C: CanisterKind>(
             .map_or(Ok(DatabaseStartupState::Recovering), Err);
     }
 
-    let control = observe_commit_control()
-        .map_err(|error| database_control_or_allocation_failure::<C>(receipt.as_ref(), &error))?;
+    let control = if receipt.is_some() {
+        observe_commit_control()
+    } else {
+        observe_commit_control_without_proof()
+    }
+    .map_err(|error| database_control_or_allocation_failure::<C>(receipt.as_ref(), &error))?;
     let CommitControlObservation::Present {
         incarnation,
         empty_control_proof,
@@ -93,19 +97,19 @@ pub(super) fn observe<C: CanisterKind>(
         return Ok(DatabaseStartupState::Recovering);
     }
 
-    let (reconciled, accepted_head) = match schema_observation {
-        Some(observation) => observation,
-        None => {
-            generated_schema_reconciled(stores, incarnation, submission_key).map_err(|error| {
-                StartupFailure::from_internal(StartupFailureKind::SchemaReconciliation, &error)
-            })?
+    let reconciled = match schema_observation {
+        Some((reconciled, accepted_head)) => {
+            if let Some(receipt) = receipt.as_ref()
+                && schema_receipt_matches(receipt, incarnation, submission_key, &accepted_head)
+            {
+                return Err(receipt.failure().clone());
+            }
+            reconciled
         }
+        None => generated_schema_is_reconciled(stores, incarnation, submission_key).map_err(
+            |error| StartupFailure::from_internal(StartupFailureKind::SchemaReconciliation, &error),
+        )?,
     };
-    if let Some(receipt) = receipt.as_ref()
-        && schema_receipt_matches(receipt, incarnation, submission_key, &accepted_head)
-    {
-        return Err(receipt.failure().clone());
-    }
     Ok(if reconciled {
         DatabaseStartupState::Ready
     } else {

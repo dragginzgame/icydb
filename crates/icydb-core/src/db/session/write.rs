@@ -5263,8 +5263,12 @@ mod identity_pre_key_tests {
             "empty-tail recovery must not clear or rebuild secondary indexes",
         );
 
-        let quick = execute_quick_integrity(&session.db, catalog.inspection_plan())
-            .expect("quiescent Identity control inventory should be inspectable");
+        let quick = execute_quick_integrity(
+            &session.db,
+            catalog.inspection_plan(),
+            catalog.runtime_root_identity().database_incarnation(),
+        )
+        .expect("quiescent Identity control inventory should be inspectable");
         assert_eq!(quick.status(), &QuickIntegrityStatus::CompleteClean);
         let row_page = execute_row_integrity_page(
             &session.db,

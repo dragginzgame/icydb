@@ -214,14 +214,16 @@ impl CommitStore {
 
     /// Load the durable database-lifecycle identity.
     pub(super) fn database_incarnation_id(&self) -> Result<DatabaseIncarnationId, InternalError> {
-        self.read_control_slot()
-            .and_then(|bytes| Ok(inspect_commit_control_slot(&bytes)?.database_incarnation_id))
+        validate_current_boot_record(&self.memory)?;
+        let bytes = self.read_framed_control_slot()?;
+        inspect_commit_control_slot(&bytes).map(|slot| slot.database_incarnation_id)
     }
 
     /// Load the durable scalar-cursor authentication key.
     pub(super) fn cursor_authentication_key(&self) -> Result<[u8; 32], InternalError> {
-        self.read_control_slot()
-            .and_then(|bytes| Ok(inspect_commit_control_slot(&bytes)?.cursor_authentication_key))
+        validate_current_boot_record(&self.memory)?;
+        let bytes = self.read_framed_control_slot()?;
+        inspect_commit_control_slot(&bytes).map(|slot| slot.cursor_authentication_key)
     }
 
     /// Preview the next database-wide commit order without durable mutation.
@@ -606,6 +608,17 @@ pub(in crate::db) fn initialize_predecessor_commit_control_for_tests(
 }
 
 pub(in crate::db) fn observe_commit_control() -> Result<CommitControlObservation, InternalError> {
+    observe_commit_control_with_proof(true)
+}
+
+pub(in crate::db) fn observe_commit_control_without_proof()
+-> Result<CommitControlObservation, InternalError> {
+    observe_commit_control_with_proof(false)
+}
+
+fn observe_commit_control_with_proof(
+    include_empty_control_proof: bool,
+) -> Result<CommitControlObservation, InternalError> {
     let allocation = current_commit_memory_allocation()?;
     let memory = commit_memory_handle(allocation)?;
     validate_current_boot_record(&memory)?;
@@ -661,10 +674,7 @@ pub(in crate::db) fn observe_commit_control() -> Result<CommitControlObservation
         if encoded_len != control.len() || stored_checksum != crc32c(&control) {
             return Err(InternalError::commit_corruption());
         }
-        let mut hasher = Sha256::new();
-        hasher.update(b"icydb.database-control-proof.v1");
-        hasher.update(control);
-        Some(hasher.finalize().into())
+        include_empty_control_proof.then(|| control_proof(&control))
     };
     Ok(CommitControlObservation::Present {
         incarnation: header.database_incarnation_id,

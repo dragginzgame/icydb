@@ -89,7 +89,8 @@ pub(in crate::db) use application::generated_schema_authority;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use application::{
     abort_schema_application, apply_schema, continue_schema_application,
-    generated_schema_reconciled, schema_application_receipt, schema_application_target,
+    generated_schema_is_reconciled, generated_schema_reconciled, schema_application_receipt,
+    schema_application_target,
 };
 #[cfg(feature = "migration")]
 pub(in crate::db) use application::{

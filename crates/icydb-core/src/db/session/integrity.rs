@@ -17,7 +17,7 @@ use crate::{
         },
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::AcceptedInspectionPlan,
-        session::accepted_schema::AcceptedInspectionPlanLoadError,
+        session::{AcceptedSchemaCatalogContext, accepted_schema::AcceptedInspectionPlanLoadError},
     },
     traits::CanisterKind,
 };
@@ -40,11 +40,20 @@ impl<C: CanisterKind> DbSession<C> {
         request: IntegrityCheckRequest,
         owner: IntegrityJobOwner,
     ) -> Result<IntegrityCheckResult, IntegrityDeepError> {
+        self.execute_admin_integrity_with_quick_catalog(request, owner, None)
+    }
+
+    pub(in crate::db::session) fn execute_admin_integrity_with_quick_catalog(
+        &self,
+        request: IntegrityCheckRequest,
+        owner: IntegrityJobOwner,
+        quick_catalog: Option<AcceptedSchemaCatalogContext>,
+    ) -> Result<IntegrityCheckResult, IntegrityDeepError> {
         self.db.ensure_recovered_control_state()?;
         owner.validate()?;
         let result = match request {
             IntegrityCheckRequest::Quick { entity } => self
-                .execute_quick_integrity_for_identity(&entity)
+                .execute_quick_integrity_for_identity(&entity, quick_catalog.as_ref())
                 .map(IntegrityCheckResult::Quick),
             IntegrityCheckRequest::DeepStart {
                 entity,
@@ -72,25 +81,44 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_quick_integrity_for_identity(
         &self,
         entity: &IntegrityEntityIdentity,
+        catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<QuickIntegrityResult, IntegrityDeepError> {
+        if let Some(catalog) = catalog {
+            return self.execute_quick_integrity_with_catalog(entity, catalog);
+        }
         let (runtime_entity, store) = self.integrity_target(entity)?;
-        let incarnation = database_incarnation_id()?;
-        match self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store) {
-            Ok(plan) => {
-                Self::validate_integrity_plan_identity(entity, &plan)?;
-                execute_quick_integrity(&self.db, &plan).map_err(IntegrityDeepError::from)
-            }
+        match self.accepted_integrity_catalog_context_for_runtime_entity(runtime_entity, store) {
+            Ok(catalog) => self.execute_quick_integrity_with_catalog(entity, &catalog),
             Err(AcceptedInspectionPlanLoadError::Selected { identity, error }) => {
                 let accepted = IntegrityEntityIdentity::from_accepted_identity(&identity);
                 if entity != &accepted {
                     return Err(IntegrityJobError::EntityIdentityMismatch.into());
                 }
-                Ok(uninspectable_quick_integrity(identity, incarnation, &error))
+                Ok(uninspectable_quick_integrity(
+                    identity,
+                    database_incarnation_id()?,
+                    &error,
+                ))
             }
             Err(AcceptedInspectionPlanLoadError::Unselected(error)) => {
                 Err(IntegrityDeepError::from(error))
             }
         }
+    }
+
+    fn execute_quick_integrity_with_catalog(
+        &self,
+        entity: &IntegrityEntityIdentity,
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<QuickIntegrityResult, IntegrityDeepError> {
+        let plan = catalog.inspection_plan();
+        Self::validate_integrity_plan_identity(entity, plan)?;
+        execute_quick_integrity(
+            &self.db,
+            plan,
+            catalog.runtime_root_identity().database_incarnation(),
+        )
+        .map_err(IntegrityDeepError::from)
     }
 
     fn integrity_target(
