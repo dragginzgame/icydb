@@ -8,6 +8,9 @@ use crate::{
         data::{CanonicalRow, RawDataStoreKey, RawRow},
         direction::Direction,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
+        positioned_overlay::{
+            JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
+        },
     },
     types::EntityTag,
 };
@@ -53,6 +56,7 @@ enum DataStoreBackend {
         canonical: StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
         live: HeapBTreeMap<RawDataStoreKey, RawRow>,
         tombstones: BTreeSet<RawDataStoreKey>,
+        positions: PositionedOverlayMetadata<RawDataStoreKey>,
     },
 }
 
@@ -131,6 +135,7 @@ impl DataStore {
                 canonical,
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
+                positions: PositionedOverlayMetadata::new(),
             },
             generation: 0,
             // Stable rows remain authoritative after reinitialization. Exact
@@ -229,6 +234,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -256,6 +262,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -285,6 +292,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -303,6 +311,88 @@ impl DataStore {
         Ok(previous)
     }
 
+    /// Publish one positioned row value or tombstone to the live projection.
+    ///
+    /// This dormant Patch-2 boundary is not called by the production commit or
+    /// recovery paths until atomic online-convergence activation.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Patch 2 state machine remains dormant until Patch 6"
+        )
+    )]
+    pub(in crate::db) fn publish_positioned_journal_entry(
+        &mut self,
+        key: RawDataStoreKey,
+        row: Option<RawRow>,
+        position: JournalOverlayPosition,
+    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+            positions,
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        positions.preflight_publish(&key, position)?;
+        let previous = if tombstones.contains(&key) {
+            None
+        } else {
+            live.get(&key).cloned().or_else(|| canonical.get(&key))
+        };
+        let cardinality_key = key.clone();
+        if let Some(row) = row {
+            tombstones.remove(&key);
+            live.insert(key.clone(), row);
+            self.entity_cardinality
+                .apply_insert(&cardinality_key, previous.as_ref());
+        } else {
+            live.remove(&key);
+            tombstones.insert(key.clone());
+            self.entity_cardinality
+                .apply_remove(&cardinality_key, previous.as_ref());
+        }
+        positions.publish_preflighted(key, position);
+        self.bump_generation();
+
+        Ok(previous)
+    }
+
+    /// Retire this batch's row overlay only when it still owns the target.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Patch 2 state machine remains dormant until Patch 6"
+        )
+    )]
+    pub(in crate::db) fn retire_positioned_journal_effect(
+        &mut self,
+        key: &RawDataStoreKey,
+        position: JournalOverlayPosition,
+    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
+        let DataStoreBackend::Journaled {
+            live,
+            tombstones,
+            positions,
+            ..
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        let retirement = positions.preflight_retirement(key, position)?;
+        if retirement == PositionedOverlayRetirement::Exact {
+            live.remove(key);
+            tombstones.remove(key);
+            positions.retire_preflighted(key, retirement);
+            self.bump_generation();
+        }
+        Ok(retirement)
+    }
+
     /// Apply one folded journal row put into the canonical stable base.
     pub(in crate::db) fn fold_recovered_journal_put(
         &mut self,
@@ -313,6 +403,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -339,6 +430,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -382,6 +474,7 @@ impl DataStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => {
                 if tombstones.contains(key) {
                     StoredRowRead::Missing
@@ -405,6 +498,7 @@ impl DataStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => {
                 !tombstones.contains(key)
                     && (live.contains_key(key) || canonical.get(key).is_some())
@@ -453,11 +547,7 @@ impl DataStore {
                     }
                 }
             }
-            DataStoreBackend::Journaled {
-                canonical: _,
-                live: _,
-                tombstones: _,
-            } => Self::visit_journaled_entries_in_bounds(
+            DataStoreBackend::Journaled { .. } => Self::visit_journaled_entries_in_bounds(
                 &self.backend,
                 (Bound::Unbounded, Bound::Unbounded),
                 visitor,
@@ -482,11 +572,9 @@ impl DataStore {
                     }
                 }
             }
-            DataStoreBackend::Journaled {
-                canonical: _,
-                live: _,
-                tombstones: _,
-            } => Self::visit_journaled_entries_in_bounds(&self.backend, bounds, visitor)?,
+            DataStoreBackend::Journaled { .. } => {
+                Self::visit_journaled_entries_in_bounds(&self.backend, bounds, visitor)?;
+            }
         }
 
         Ok(())
@@ -523,6 +611,7 @@ impl DataStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } if canonical.is_empty() => {
                 for (key, row) in live.range((bounds.0.clone(), bounds.1)) {
                     if tombstones.contains(key) {
@@ -542,6 +631,7 @@ impl DataStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((bounds.0.clone(), bounds.1)) {
                     if preflight(entry.key())?.should_stop() {
@@ -671,6 +761,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
+            ..
         } = backend
         else {
             return Ok(());
@@ -770,6 +861,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
+            ..
         } = backend
         else {
             return Ok(());

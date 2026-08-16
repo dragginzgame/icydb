@@ -588,6 +588,9 @@ fn fold_journaled_store_page<C: CanisterKind>(
             JournalRecordApplyMode::Fold,
         )
         .map_err(journal_failure)?;
+        let retirement = journal_store
+            .with_borrow(|store| store.prepare_batch_retirement(&batch, next_watermark))
+            .map_err(journal_failure)?;
         for (record_ordinal, record) in batch.records().iter().enumerate() {
             if let Err(error) = apply_journal_record(
                 db,
@@ -602,9 +605,9 @@ fn fold_journaled_store_page<C: CanisterKind>(
             }
         }
 
-        if let Err(error) = complete_folded_journal_batch(journal_store, &batch, next_watermark) {
-            trap_validated_journal_fold_contradiction(error);
-        }
+        journal_store.with_borrow_mut(|store| {
+            store.apply_prepared_batch_retirement(retirement);
+        });
         budget.batch_applied(batch_bytes);
     }
 }
@@ -621,18 +624,6 @@ fn prepare_folded_journal_batch_completion(
         .checked_add(1)
         .ok_or_else(InternalError::store_corruption)?;
     Ok(FoldWatermark::new(batch.journal_sequence(), next_epoch))
-}
-
-fn complete_folded_journal_batch(
-    journal_store: &'static LocalKey<RefCell<JournalTailStore>>,
-    batch: &JournalBatch,
-    next_watermark: FoldWatermark,
-) -> Result<(), InternalError> {
-    journal_store.with_borrow_mut(|store| {
-        store.persist_fold_watermark(next_watermark)?;
-        store.clear_batches_through(batch.journal_sequence());
-        Ok(())
-    })
 }
 
 #[cfg(target_arch = "wasm32")]

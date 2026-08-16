@@ -5,8 +5,11 @@
 
 use crate::{
     db::journal::{
-        JournalBatch, JournalRecord, JournalSequence,
-        codec::{MAX_JOURNAL_BATCH_BYTES, RawJournalBatch, inspect_raw_journal_batch_fixed_header},
+        DatabaseCommitSequence, JournalBatch, JournalRecord, JournalSequence,
+        codec::{
+            JOURNAL_BATCH_FIXED_HEADER_BYTES, MAX_JOURNAL_BATCH_BYTES, MAX_JOURNAL_BATCH_RECORDS,
+            RawJournalBatch, RawJournalBatchFixedHeader, inspect_raw_journal_batch_fixed_header,
+        },
     },
     error::{ErrorClass, InternalError},
 };
@@ -22,6 +25,7 @@ use std::ops::Bound::{Included, Unbounded};
 const FOLD_WATERMARK_CONTROL_SEQUENCE: JournalSequence = JournalSequence::new(0);
 const DATA_MUTATION_REVISION_CONTROL_CHUNK: u32 = 1;
 const ACCESS_STATE_REVISION_CONTROL_CHUNK: u32 = 2;
+const TAIL_CONVERGENCE_CONTROL_CHUNK: u32 = 3;
 const FOLD_WATERMARK_MAGIC: &[u8] = b"ICYDB-FOLD-WATERMARK";
 const FOLD_WATERMARK_VERSION: u8 = 1;
 const FOLD_WATERMARK_BYTES: usize = FOLD_WATERMARK_MAGIC.len() + 1 + 8 + 8;
@@ -31,6 +35,9 @@ const DATA_MUTATION_REVISION_BYTES: usize = DATA_MUTATION_REVISION_MAGIC.len() +
 const ACCESS_STATE_REVISION_MAGIC: &[u8] = b"ICYDB-ACCESS-REVISION";
 const ACCESS_STATE_REVISION_VERSION: u8 = 1;
 const ACCESS_STATE_REVISION_BYTES: usize = ACCESS_STATE_REVISION_MAGIC.len() + 1 + 8;
+const TAIL_CONVERGENCE_MAGIC: &[u8] = b"ICYDB-TAIL-CONTROL";
+const TAIL_CONVERGENCE_VERSION: u8 = 1;
+const TAIL_CONVERGENCE_BYTES: usize = TAIL_CONVERGENCE_MAGIC.len() + 1 + 8 + 8 + 8 + 1 + 8;
 pub(in crate::db::journal) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
 const JOURNAL_TAIL_KEY_BYTES: u32 = 12;
 const MAX_JOURNAL_INSPECTION_BATCHES_PER_PAGE: usize = 2;
@@ -221,6 +228,65 @@ pub(in crate::db) struct FoldWatermark {
     fold_epoch: u64,
 }
 
+/// Exact current-format retained-tail contribution owned by one journal store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct JournalTailControl {
+    batch_count: u64,
+    record_count: u64,
+    encoded_batch_bytes: u64,
+    head_database_commit_sequence: Option<DatabaseCommitSequence>,
+}
+
+impl JournalTailControl {
+    #[must_use]
+    pub(in crate::db) const fn empty() -> Self {
+        Self {
+            batch_count: 0,
+            record_count: 0,
+            encoded_batch_bytes: 0,
+            head_database_commit_sequence: None,
+        }
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn batch_count(self) -> u64 {
+        self.batch_count
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn record_count(self) -> u64 {
+        self.record_count
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn encoded_batch_bytes(self) -> u64 {
+        self.encoded_batch_bytes
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn head_database_commit_sequence(
+        self,
+    ) -> Option<DatabaseCommitSequence> {
+        self.head_database_commit_sequence
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn is_empty(self) -> bool {
+        self.batch_count == 0
+            && self.record_count == 0
+            && self.encoded_batch_bytes == 0
+            && self.head_database_commit_sequence.is_none()
+    }
+}
+
+/// Fully preflighted exact retirement applied only after canonical batch mutation.
+pub(in crate::db) struct PreparedJournalBatchRetirement {
+    next_watermark: FoldWatermark,
+    next_control: JournalTailControl,
+    batch_keys: Vec<JournalTailKey>,
+}
+
 impl FoldWatermark {
     #[must_use]
     pub(in crate::db) const fn initial() -> Self {
@@ -293,6 +359,13 @@ impl JournalTailKey {
         Self::new(
             FOLD_WATERMARK_CONTROL_SEQUENCE,
             ACCESS_STATE_REVISION_CONTROL_CHUNK,
+        )
+    }
+
+    const fn tail_convergence_control() -> Self {
+        Self::new(
+            FOLD_WATERMARK_CONTROL_SEQUENCE,
+            TAIL_CONVERGENCE_CONTROL_CHUNK,
         )
     }
 }
@@ -377,6 +450,97 @@ impl JournalTailStore {
         }
     }
 
+    /// Initialize the exact current-format tail control on an empty predecessor tail.
+    #[cfg(test)]
+    pub(in crate::db) fn initialize_current_tail_control(&mut self) -> Result<(), InternalError> {
+        if !self.preflight_current_tail_control_initialization()? {
+            return Ok(());
+        }
+        self.apply_current_tail_control_initialization();
+        Ok(())
+    }
+
+    /// Preflight zero-control initialization without mutating the journal allocation.
+    pub(in crate::db) fn preflight_current_tail_control_initialization(
+        &self,
+    ) -> Result<bool, InternalError> {
+        if self
+            .map
+            .contains_key(&JournalTailKey::tail_convergence_control())
+        {
+            let control = self.current_tail_control()?;
+            if !control.is_empty() || self.has_stored_batch() {
+                return Err(journal_tail_corruption());
+            }
+            return Ok(false);
+        }
+        if self.has_stored_batch() {
+            return Err(InternalError::store_unsupported());
+        }
+        Ok(true)
+    }
+
+    /// Mechanically publish an already-preflighted empty current tail control.
+    pub(in crate::db) fn apply_current_tail_control_initialization(&mut self) {
+        self.map.insert(
+            JournalTailKey::tail_convergence_control(),
+            RawJournalChunk::from_bytes(encode_tail_control(JournalTailControl::empty())),
+        );
+    }
+
+    /// Return whether current-format exact tail authority is present.
+    #[must_use]
+    pub(in crate::db) fn has_current_tail_control(&self) -> bool {
+        self.map
+            .contains_key(&JournalTailKey::tail_convergence_control())
+    }
+
+    /// Load the exact current-format retained-tail contribution.
+    pub(in crate::db) fn current_tail_control(&self) -> Result<JournalTailControl, InternalError> {
+        self.map
+            .get(&JournalTailKey::tail_convergence_control())
+            .ok_or_else(journal_tail_corruption)
+            .and_then(|raw| decode_tail_control(raw.as_bytes()))
+    }
+
+    /// Validate current fixed control authority against the physical tail head.
+    ///
+    /// Routine startup intentionally does not recompute aggregate equality;
+    /// that history-sized comparison belongs to explicit integrity work.
+    pub(in crate::db) fn validate_current_tail_authority(
+        &self,
+    ) -> Result<JournalTailControl, InternalError> {
+        let control = self.current_tail_control()?;
+        let watermark = self.fold_watermark()?;
+        let expected_head = watermark
+            .highest_folded_journal_sequence()
+            .next()
+            .ok_or_else(journal_tail_corruption)?;
+        let first = self
+            .map
+            .range((
+                Included(JournalTailKey::new(JournalSequence::new(1), 0)),
+                Unbounded,
+            ))
+            .next();
+        match (control.is_empty(), first) {
+            (true, None) => Ok(control),
+            (false, Some(entry))
+                if entry.key().sequence == expected_head && entry.key().chunk_index == 0 =>
+            {
+                let header = inspect_raw_journal_batch_fixed_header(entry.value().as_bytes())?;
+                if header.journal_sequence() != expected_head
+                    || control.head_database_commit_sequence()
+                        != Some(header.database_commit_sequence())
+                {
+                    return Err(journal_tail_corruption());
+                }
+                Ok(control)
+            }
+            _ => Err(journal_tail_corruption()),
+        }
+    }
+
     /// Append one complete marker-bound journal batch.
     ///
     /// Re-appending identical bytes for the same sequence is idempotent.
@@ -410,16 +574,71 @@ impl JournalTailStore {
         if key == FOLD_WATERMARK_CONTROL_SEQUENCE {
             return Err(journal_tail_corruption());
         }
-        validate_encoded_batch_header(batch, bytes)?;
-        self.append_raw_batch(key, bytes)?;
-        if batch.records().iter().any(|record| match record {
+        let header = validate_encoded_batch_header(batch, bytes)?;
+        let existing_prefix = self.raw_batch_prefix_bytes_for_sequence(key)?;
+        let repairing_prefix = match existing_prefix.as_deref() {
+            Some(existing) if existing == bytes => {
+                self.validate_replayed_batch_against_control(header)?;
+                return Ok(());
+            }
+            Some(existing) if existing.len() < bytes.len() && bytes.starts_with(existing) => true,
+            Some(_) => return Err(journal_tail_corruption()),
+            None => false,
+        };
+        #[cfg(test)]
+        if !self.has_current_tail_control() {
+            if repairing_prefix {
+                self.apply_current_tail_control_initialization();
+            } else {
+                self.initialize_current_tail_control()?;
+            }
+        }
+        let current_control = self.current_tail_control()?;
+        let expected_sequence = if repairing_prefix {
+            self.fold_watermark()?
+                .highest_folded_journal_sequence()
+                .next()
+                .ok_or_else(journal_tail_corruption)?
+        } else {
+            self.next_append_sequence()?
+        };
+        if key != expected_sequence {
+            return Err(journal_tail_corruption());
+        }
+        if !repairing_prefix
+            && let Some(last_database_sequence) = self.last_database_commit_sequence()?
+            && header.database_commit_sequence() <= last_database_sequence
+        {
+            return Err(journal_tail_corruption());
+        }
+        let next_control = prepare_appended_tail_control(current_control, header)?;
+        let chunks = prepare_raw_batch_chunks(key, bytes)?;
+        let row_mutation = batch.records().iter().any(|record| match record {
             JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => true,
             #[cfg(any(test, feature = "migration"))]
             JournalRecord::SchemaMigrationRowPut { .. } => true,
             _ => false,
-        }) {
-            self.persist_data_mutation_revision(key)?;
+        });
+        let next_data_mutation_revision = if row_mutation {
+            self.prepare_data_mutation_revision(key)?
+        } else {
+            None
+        };
+
+        for (chunk_key, chunk) in chunks {
+            self.map
+                .insert(chunk_key, RawJournalChunk::from_bytes(chunk));
         }
+        if let Some(revision) = next_data_mutation_revision {
+            self.map.insert(
+                JournalTailKey::data_mutation_revision(),
+                RawJournalChunk::from_bytes(encode_data_mutation_revision(revision)),
+            );
+        }
+        self.map.insert(
+            JournalTailKey::tail_convergence_control(),
+            RawJournalChunk::from_bytes(encode_tail_control(next_control)),
+        );
         Ok(())
     }
 
@@ -530,6 +749,9 @@ impl JournalTailStore {
                 ACCESS_STATE_REVISION_CONTROL_CHUNK => {
                     let _revision = decode_access_state_revision(entry.value().as_bytes())?;
                 }
+                TAIL_CONVERGENCE_CONTROL_CHUNK => {
+                    let _control = decode_tail_control(entry.value().as_bytes())?;
+                }
                 _ => return Err(journal_tail_corruption()),
             }
         }
@@ -541,6 +763,7 @@ impl JournalTailStore {
     /// Watermarks may advance or be rewritten idempotently, but they never
     /// move backward. The journal tail itself is the replay-boundary authority;
     /// no extra stable memory ID is required.
+    #[cfg(test)]
     pub(in crate::db) fn persist_fold_watermark(
         &mut self,
         watermark: FoldWatermark,
@@ -566,6 +789,7 @@ impl JournalTailStore {
     ///
     /// The persisted fold watermark remains authoritative if cleanup is
     /// interrupted after the watermark is advanced.
+    #[cfg(test)]
     pub(in crate::db) fn clear_batches_through(&mut self, watermark: JournalSequence) {
         if watermark == FOLD_WATERMARK_CONTROL_SEQUENCE {
             return;
@@ -580,6 +804,63 @@ impl JournalTailStore {
             .map(|entry| *entry.key())
             .collect::<Vec<_>>();
         for key in keys {
+            let _ = self.map.remove(&key);
+        }
+    }
+
+    /// Preflight exact complete-batch retirement before canonical mutation begins.
+    pub(in crate::db) fn prepare_batch_retirement(
+        &self,
+        batch: &JournalBatch,
+        next_watermark: FoldWatermark,
+    ) -> Result<PreparedJournalBatchRetirement, InternalError> {
+        let current_watermark = self.fold_watermark()?;
+        if current_watermark.highest_folded_journal_sequence().next()
+            != Some(batch.journal_sequence())
+            || next_watermark.highest_folded_journal_sequence() != batch.journal_sequence()
+            || Some(next_watermark.fold_epoch()) != current_watermark.fold_epoch().checked_add(1)
+        {
+            return Err(journal_tail_corruption());
+        }
+        let bytes = self
+            .raw_batch_bytes_for_sequence(batch.journal_sequence())?
+            .ok_or_else(journal_tail_corruption)?;
+        let header = validate_encoded_batch_header(batch, &bytes)?;
+        let current_control = self.current_tail_control()?;
+        if current_control.head_database_commit_sequence() != Some(batch.database_commit_sequence())
+        {
+            return Err(journal_tail_corruption());
+        }
+        let next_control = self.prepare_retired_tail_control(current_control, header, batch)?;
+        let batch_keys = self
+            .map
+            .range((
+                Included(JournalTailKey::new(batch.journal_sequence(), 0)),
+                Included(JournalTailKey::new(batch.journal_sequence(), u32::MAX)),
+            ))
+            .map(|entry| *entry.key())
+            .collect();
+        Ok(PreparedJournalBatchRetirement {
+            next_watermark,
+            next_control,
+            batch_keys,
+        })
+    }
+
+    /// Mechanically publish one already-preflighted watermark/control/retirement boundary.
+    pub(in crate::db) fn apply_prepared_batch_retirement(
+        &mut self,
+        retirement: PreparedJournalBatchRetirement,
+    ) {
+        self.map.insert(
+            JournalTailKey::fold_watermark(),
+            RawJournalChunk::from_bytes(encode_fold_watermark(retirement.next_watermark)),
+        );
+        self.map.insert(
+            JournalTailKey::tail_convergence_control(),
+            RawJournalChunk::from_bytes(encode_tail_control(retirement.next_control)),
+        );
+        for key in retirement.batch_keys {
             let _ = self.map.remove(&key);
         }
     }
@@ -765,6 +1046,7 @@ impl JournalTailStore {
         self.append_raw_batch(sequence, bytes.as_slice())
     }
 
+    #[cfg(test)]
     fn append_raw_batch(
         &mut self,
         sequence: JournalSequence,
@@ -799,10 +1081,10 @@ impl JournalTailStore {
         Ok(())
     }
 
-    fn persist_data_mutation_revision(
-        &mut self,
+    fn prepare_data_mutation_revision(
+        &self,
         sequence: JournalSequence,
-    ) -> Result<(), InternalError> {
+    ) -> Result<Option<JournalSequence>, InternalError> {
         let current = self
             .map
             .get(&JournalTailKey::data_mutation_revision())
@@ -810,16 +1092,92 @@ impl JournalTailStore {
                 decode_data_mutation_revision(raw.as_bytes())
             })?;
         if sequence <= current {
-            return Ok(());
+            return Ok(None);
         }
         let _ = sequence
             .next()
             .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
-        self.map.insert(
-            JournalTailKey::data_mutation_revision(),
-            RawJournalChunk::from_bytes(encode_data_mutation_revision(sequence)),
-        );
+        Ok(Some(sequence))
+    }
+
+    fn validate_replayed_batch_against_control(
+        &self,
+        header: RawJournalBatchFixedHeader,
+    ) -> Result<(), InternalError> {
+        let control = self.validate_current_tail_authority()?;
+        if control.is_empty()
+            || control.record_count() < u64::from(header.record_count())
+            || control.encoded_batch_bytes()
+                < u64::try_from(header.total_len()).map_err(|_| journal_tail_corruption())?
+        {
+            return Err(journal_tail_corruption());
+        }
         Ok(())
+    }
+
+    fn last_database_commit_sequence(
+        &self,
+    ) -> Result<Option<DatabaseCommitSequence>, InternalError> {
+        let Some(entry) = self
+            .map
+            .range((
+                Included(JournalTailKey::new(JournalSequence::new(1), 0)),
+                Unbounded,
+            ))
+            .rev()
+            .find(|entry| entry.key().sequence != FOLD_WATERMARK_CONTROL_SEQUENCE)
+        else {
+            return Ok(None);
+        };
+        let sequence = entry.key().sequence;
+        let first = self
+            .map
+            .get(&JournalTailKey::new(sequence, 0))
+            .ok_or_else(journal_tail_corruption)?;
+        inspect_raw_journal_batch_fixed_header(first.as_bytes())
+            .map(|header| Some(header.database_commit_sequence()))
+    }
+
+    fn prepare_retired_tail_control(
+        &self,
+        current: JournalTailControl,
+        header: RawJournalBatchFixedHeader,
+        batch: &JournalBatch,
+    ) -> Result<JournalTailControl, InternalError> {
+        let batch_count = current
+            .batch_count
+            .checked_sub(1)
+            .ok_or_else(journal_tail_corruption)?;
+        let record_count = current
+            .record_count
+            .checked_sub(u64::from(header.record_count()))
+            .ok_or_else(journal_tail_corruption)?;
+        let encoded_batch_bytes = current
+            .encoded_batch_bytes
+            .checked_sub(u64::try_from(header.total_len()).map_err(|_| journal_tail_corruption())?)
+            .ok_or_else(journal_tail_corruption)?;
+        let next_sequence = batch
+            .journal_sequence()
+            .next()
+            .ok_or_else(journal_tail_corruption)?;
+        let next_head = self
+            .raw_batch_bytes_for_sequence(next_sequence)?
+            .map(|bytes| inspect_raw_journal_batch_fixed_header(&bytes))
+            .transpose()?
+            .map(RawJournalBatchFixedHeader::database_commit_sequence);
+        if batch_count == 0 {
+            if record_count != 0 || encoded_batch_bytes != 0 || next_head.is_some() {
+                return Err(journal_tail_corruption());
+            }
+        } else if next_head.is_none() {
+            return Err(journal_tail_corruption());
+        }
+        Ok(JournalTailControl {
+            batch_count,
+            record_count,
+            encoded_batch_bytes,
+            head_database_commit_sequence: next_head,
+        })
     }
 
     fn raw_batch_bytes_for_sequence(
@@ -1293,7 +1651,126 @@ fn decode_access_state_revision(bytes: &[u8]) -> Result<u64, InternalError> {
     Ok(revision)
 }
 
-fn validate_encoded_batch_header(batch: &JournalBatch, bytes: &[u8]) -> Result<(), InternalError> {
+fn encode_tail_control(control: JournalTailControl) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(TAIL_CONVERGENCE_BYTES);
+    bytes.extend_from_slice(TAIL_CONVERGENCE_MAGIC);
+    bytes.push(TAIL_CONVERGENCE_VERSION);
+    bytes.extend_from_slice(&control.batch_count.to_be_bytes());
+    bytes.extend_from_slice(&control.record_count.to_be_bytes());
+    bytes.extend_from_slice(&control.encoded_batch_bytes.to_be_bytes());
+    match control.head_database_commit_sequence {
+        None => {
+            bytes.push(0);
+            bytes.extend_from_slice(&0_u64.to_be_bytes());
+        }
+        Some(sequence) => {
+            bytes.push(1);
+            bytes.extend_from_slice(&sequence.get().to_be_bytes());
+        }
+    }
+    bytes
+}
+
+fn decode_tail_control(bytes: &[u8]) -> Result<JournalTailControl, InternalError> {
+    if bytes.len() != TAIL_CONVERGENCE_BYTES
+        || !bytes.starts_with(TAIL_CONVERGENCE_MAGIC)
+        || bytes[TAIL_CONVERGENCE_MAGIC.len()] != TAIL_CONVERGENCE_VERSION
+    {
+        return Err(journal_tail_corruption());
+    }
+    let mut cursor = TAIL_CONVERGENCE_MAGIC.len() + 1;
+    let batch_count = read_control_u64(bytes, &mut cursor)?;
+    let record_count = read_control_u64(bytes, &mut cursor)?;
+    let encoded_batch_bytes = read_control_u64(bytes, &mut cursor)?;
+    let head_tag = *bytes.get(cursor).ok_or_else(journal_tail_corruption)?;
+    cursor = cursor.saturating_add(1);
+    let head_value = read_control_u64(bytes, &mut cursor)?;
+    let head_database_commit_sequence = match (head_tag, head_value) {
+        (0, 0) => None,
+        (1, value) if value != 0 => Some(DatabaseCommitSequence::new(value)),
+        _ => return Err(journal_tail_corruption()),
+    };
+    let control = JournalTailControl {
+        batch_count,
+        record_count,
+        encoded_batch_bytes,
+        head_database_commit_sequence,
+    };
+    let maximum_record_count = u64::try_from(MAX_JOURNAL_BATCH_RECORDS)
+        .ok()
+        .and_then(|maximum| maximum.checked_mul(batch_count));
+    let minimum_encoded_bytes = u64::try_from(JOURNAL_BATCH_FIXED_HEADER_BYTES)
+        .ok()
+        .and_then(|minimum| minimum.checked_mul(batch_count));
+    if control.is_empty()
+        || (batch_count > 0
+            && maximum_record_count.is_some_and(|maximum| record_count <= maximum)
+            && minimum_encoded_bytes.is_some_and(|minimum| encoded_batch_bytes >= minimum)
+            && head_database_commit_sequence.is_some())
+    {
+        return Ok(control);
+    }
+    Err(journal_tail_corruption())
+}
+
+fn read_control_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, InternalError> {
+    let end = cursor.saturating_add(size_of::<u64>());
+    let encoded = bytes
+        .get(*cursor..end)
+        .ok_or_else(journal_tail_corruption)?
+        .try_into()
+        .map_err(|_| journal_tail_corruption())?;
+    *cursor = end;
+    Ok(u64::from_be_bytes(encoded))
+}
+
+fn prepare_appended_tail_control(
+    current: JournalTailControl,
+    header: RawJournalBatchFixedHeader,
+) -> Result<JournalTailControl, InternalError> {
+    let batch_count = current
+        .batch_count
+        .checked_add(1)
+        .ok_or_else(journal_tail_corruption)?;
+    let record_count = current
+        .record_count
+        .checked_add(u64::from(header.record_count()))
+        .ok_or_else(journal_tail_corruption)?;
+    let encoded_batch_bytes = current
+        .encoded_batch_bytes
+        .checked_add(u64::try_from(header.total_len()).map_err(|_| journal_tail_corruption())?)
+        .ok_or_else(journal_tail_corruption)?;
+    Ok(JournalTailControl {
+        batch_count,
+        record_count,
+        encoded_batch_bytes,
+        head_database_commit_sequence: current
+            .head_database_commit_sequence
+            .or_else(|| Some(header.database_commit_sequence())),
+    })
+}
+
+fn prepare_raw_batch_chunks(
+    sequence: JournalSequence,
+    bytes: &[u8],
+) -> Result<Vec<(JournalTailKey, Vec<u8>)>, InternalError> {
+    if bytes.is_empty() || bytes.len() > MAX_JOURNAL_BATCH_BYTES as usize {
+        return Err(journal_tail_corruption());
+    }
+    bytes
+        .chunks(JOURNAL_TAIL_CHUNK_BYTES as usize)
+        .enumerate()
+        .map(|(chunk_index, chunk)| {
+            let chunk_index = u32::try_from(chunk_index).map_err(|_| journal_tail_corruption())?;
+            Ok((JournalTailKey::new(sequence, chunk_index), chunk.to_vec()))
+        })
+        .collect()
+}
+
+fn validate_encoded_batch_header(
+    batch: &JournalBatch,
+    bytes: &[u8],
+) -> Result<RawJournalBatchFixedHeader, InternalError> {
     let header = inspect_raw_journal_batch_fixed_header(bytes)?;
     let record_count =
         u32::try_from(batch.records().len()).map_err(|_| journal_tail_corruption())?;
@@ -1302,6 +1779,7 @@ fn validate_encoded_batch_header(batch: &JournalBatch, bytes: &[u8]) -> Result<(
         header.batch_id(),
         header.commit_marker_id(),
         header.journal_sequence(),
+        header.database_commit_sequence(),
         header.record_count(),
     );
     let expected = (
@@ -1309,14 +1787,258 @@ fn validate_encoded_batch_header(batch: &JournalBatch, bytes: &[u8]) -> Result<(
         batch.batch_id(),
         batch.commit_marker_id(),
         batch.journal_sequence(),
+        batch.database_commit_sequence(),
         record_count,
     );
     if observed != expected {
         return Err(journal_tail_corruption());
     }
-    Ok(())
+    Ok(header)
 }
 
 fn journal_tail_corruption() -> InternalError {
     InternalError::store_corruption()
+}
+
+#[cfg(test)]
+mod convergence_control_tests {
+    use super::*;
+    use crate::{
+        db::{
+            journal::{
+                DatabaseCommitSequence, JournalBatch, encode_journal_batch,
+                journal_batch_encoded_len, journal_record_payload_len,
+            },
+            schema::MAX_SCHEMA_SNAPSHOT_BYTES,
+        },
+        error::{ErrorClass, ErrorOrigin},
+        testing::test_memory,
+    };
+
+    fn batch(journal_sequence: u64, database_commit_sequence: u64) -> JournalBatch {
+        let batch_id = u8::try_from(journal_sequence).expect("test sequence should fit u8");
+        JournalBatch::new_with_database_commit_sequence(
+            [batch_id; 16],
+            [0xA5; 16],
+            JournalSequence::new(journal_sequence),
+            DatabaseCommitSequence::new(database_commit_sequence),
+            Vec::new(),
+        )
+        .expect("test journal batch should build")
+    }
+
+    fn set_control(store: &mut JournalTailStore, control: JournalTailControl) {
+        store.map.insert(
+            JournalTailKey::tail_convergence_control(),
+            RawJournalChunk::from_bytes(encode_tail_control(control)),
+        );
+    }
+
+    #[test]
+    fn exact_controls_append_replay_retire_and_reopen() {
+        let memory = test_memory(176);
+        let mut store = JournalTailStore::init(memory.clone());
+        store
+            .initialize_current_tail_control()
+            .expect("empty current control should initialize");
+        let first = batch(1, 7);
+        let second = batch(2, 8);
+        let first_bytes = encode_journal_batch(&first).expect("first batch should encode");
+        let second_bytes = encode_journal_batch(&second).expect("second batch should encode");
+
+        store
+            .append_batch(&first)
+            .expect("first batch should append");
+        let first_control = store.current_tail_control().expect("control should decode");
+        assert_eq!(first_control.batch_count(), 1);
+        assert_eq!(first_control.record_count(), 0);
+        assert_eq!(
+            first_control.encoded_batch_bytes(),
+            first_bytes.len() as u64
+        );
+        assert_eq!(
+            first_control.head_database_commit_sequence(),
+            Some(DatabaseCommitSequence::new(7)),
+        );
+
+        store
+            .append_batch(&first)
+            .expect("identical replay should be idempotent");
+        assert_eq!(store.current_tail_control().unwrap(), first_control);
+        store
+            .append_batch(&second)
+            .expect("second batch should append");
+        let both = store.current_tail_control().expect("control should decode");
+        assert_eq!(both.batch_count(), 2);
+        assert_eq!(
+            both.encoded_batch_bytes(),
+            (first_bytes.len() + second_bytes.len()) as u64
+        );
+        assert_eq!(
+            both.head_database_commit_sequence(),
+            Some(DatabaseCommitSequence::new(7)),
+        );
+
+        let retirement = store
+            .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
+            .expect("first retirement should preflight");
+        store.apply_prepared_batch_retirement(retirement);
+        drop(store);
+
+        let mut reopened = JournalTailStore::init(memory);
+        let remaining = reopened
+            .current_tail_control()
+            .expect("control should reopen");
+        assert_eq!(remaining.batch_count(), 1);
+        assert_eq!(remaining.encoded_batch_bytes(), second_bytes.len() as u64);
+        assert_eq!(
+            remaining.head_database_commit_sequence(),
+            Some(DatabaseCommitSequence::new(8)),
+        );
+        let retirement = reopened
+            .prepare_batch_retirement(&second, FoldWatermark::new(JournalSequence::new(2), 2))
+            .expect("second retirement should preflight");
+        reopened.apply_prepared_batch_retirement(retirement);
+        assert_eq!(
+            reopened
+                .current_tail_control()
+                .expect("control should decode"),
+            JournalTailControl::empty(),
+        );
+        assert!(!reopened.has_stored_batch());
+    }
+
+    #[test]
+    fn exact_maximum_encoded_batch_append_is_counted_without_approximation() {
+        let mut records = (0..31)
+            .map(|ordinal| {
+                JournalRecord::schema_put(
+                    format!("test::MaximumStore{ordinal}"),
+                    vec![0xA5; MAX_SCHEMA_SNAPSHOT_BYTES as usize],
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let final_empty = JournalRecord::schema_put("test::MaximumStoreFinal", Vec::new()).unwrap();
+        let used = JOURNAL_BATCH_FIXED_HEADER_BYTES
+            + records
+                .iter()
+                .map(journal_record_payload_len)
+                .sum::<usize>();
+        let final_payload_len = (MAX_JOURNAL_BATCH_BYTES as usize)
+            .checked_sub(used)
+            .and_then(|remaining| remaining.checked_sub(journal_record_payload_len(&final_empty)))
+            .expect("maximum envelope should retain one final schema payload");
+        assert!(final_payload_len <= MAX_SCHEMA_SNAPSHOT_BYTES as usize);
+        records.push(
+            JournalRecord::schema_put("test::MaximumStoreFinal", vec![0x5A; final_payload_len])
+                .unwrap(),
+        );
+        let batch = JournalBatch::new_with_database_commit_sequence(
+            [0xC1; 16],
+            [0xC2; 16],
+            JournalSequence::new(1),
+            DatabaseCommitSequence::new(1),
+            records,
+        )
+        .unwrap();
+        assert_eq!(
+            journal_batch_encoded_len(&batch),
+            MAX_JOURNAL_BATCH_BYTES as usize
+        );
+
+        let mut store = JournalTailStore::init(test_memory(174));
+        store.initialize_current_tail_control().unwrap();
+        store.append_batch(&batch).unwrap();
+        let control = store.current_tail_control().unwrap();
+        assert_eq!(control.batch_count(), 1);
+        assert_eq!(control.record_count(), 32);
+        assert_eq!(
+            control.encoded_batch_bytes(),
+            u64::from(MAX_JOURNAL_BATCH_BYTES),
+        );
+    }
+
+    #[test]
+    fn append_rejects_nonmonotonic_database_sequence_before_tail_mutation() {
+        let mut store = JournalTailStore::init(test_memory(177));
+        store.initialize_current_tail_control().unwrap();
+        store.append_batch(&batch(1, 10)).unwrap();
+
+        let error = store
+            .append_batch(&batch(2, 9))
+            .expect_err("database order must advance across local appends");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+        assert_eq!(store.current_tail_control().unwrap().batch_count(), 1);
+    }
+
+    #[test]
+    fn aggregate_overflow_and_retirement_underflow_fail_closed() {
+        let mut overflow = JournalTailStore::init(test_memory(178));
+        overflow.initialize_current_tail_control().unwrap();
+        set_control(
+            &mut overflow,
+            JournalTailControl {
+                batch_count: u64::MAX,
+                record_count: 0,
+                encoded_batch_bytes: u64::MAX,
+                head_database_commit_sequence: Some(DatabaseCommitSequence::new(1)),
+            },
+        );
+        assert!(overflow.append_batch(&batch(1, 2)).is_err());
+        assert!(!overflow.has_stored_batch());
+
+        let mut underflow = JournalTailStore::init(test_memory(179));
+        underflow.initialize_current_tail_control().unwrap();
+        let retained = batch(1, 3);
+        underflow.append_batch(&retained).unwrap();
+        let encoded_len = encode_journal_batch(&retained).unwrap().len() as u64;
+        set_control(
+            &mut underflow,
+            JournalTailControl {
+                batch_count: 1,
+                record_count: 0,
+                encoded_batch_bytes: encoded_len - 1,
+                head_database_commit_sequence: Some(DatabaseCommitSequence::new(3)),
+            },
+        );
+        assert!(
+            underflow
+                .prepare_batch_retirement(
+                    &retained,
+                    FoldWatermark::new(JournalSequence::new(1), 1),
+                )
+                .is_err()
+        );
+        assert!(underflow.has_stored_batch());
+    }
+
+    #[test]
+    fn missing_malformed_and_mismatched_head_controls_fail_closed() {
+        let mut store = JournalTailStore::init(test_memory(180));
+        assert!(store.current_tail_control().is_err());
+        store.map.insert(
+            JournalTailKey::tail_convergence_control(),
+            RawJournalChunk::from_bytes(vec![0xFF; TAIL_CONVERGENCE_BYTES]),
+        );
+        assert!(store.current_tail_control().is_err());
+
+        let mut mismatch = JournalTailStore::init(test_memory(175));
+        mismatch.initialize_current_tail_control().unwrap();
+        let retained = batch(1, 4);
+        mismatch.append_batch(&retained).unwrap();
+        let mut control = mismatch.current_tail_control().unwrap();
+        control.head_database_commit_sequence = Some(DatabaseCommitSequence::new(5));
+        set_control(&mut mismatch, control);
+        assert!(mismatch.append_batch(&retained).is_err());
+        assert!(
+            mismatch
+                .prepare_batch_retirement(
+                    &retained,
+                    FoldWatermark::new(JournalSequence::new(1), 1),
+                )
+                .is_err()
+        );
+    }
 }

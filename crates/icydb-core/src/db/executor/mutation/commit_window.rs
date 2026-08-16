@@ -4,14 +4,15 @@
 //! Boundary: shared commit marker and prepared-op apply pipeline for mutations.
 
 use crate::{
-    db::journal::{JournalBatch, JournalRecord},
+    db::journal::{DatabaseCommitSequence, JournalBatch, JournalRecord},
     db::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedIndexMutation,
             PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
             database_incarnation_id, finish_commit, generate_commit_id, generate_marker_batch_id,
-            prepare_row_commit_with_context, rollback_prepared_row_ops_reverse,
+            next_database_commit_sequence, prepare_row_commit_with_context,
+            rollback_prepared_row_ops_reverse,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -963,6 +964,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
     let mut journal_appends = Vec::with_capacity(journal_records.len());
     let mut marker_batches = Vec::with_capacity(journal_records.len());
     let mut identity_range_applies = Vec::with_capacity(identity_ranges.len());
+    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     for (ordinal, (handle, records)) in journal_records.into_iter().enumerate() {
         let journal_store = handle.journal_tail_store();
         let sequence =
@@ -974,7 +976,13 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         // Preserve the established single-store bytes while giving every
         // additional tail its own marker-local batch identity.
         let batch_id = generate_marker_batch_id(marker_id, ordinal)?;
-        let batch = JournalBatch::new(batch_id, marker_id, sequence, records)?;
+        let batch = JournalBatch::new_with_database_commit_sequence(
+            batch_id,
+            marker_id,
+            sequence,
+            database_commit_sequence,
+            records,
+        )?;
         let store_path = registered_stores
             .iter()
             .find_map(|(store_path, registered_handle)| {
@@ -1313,6 +1321,29 @@ mod tests {
         assert!(next_mutation_commit_work_units(identity_boundary_units, 0).is_err());
     }
 
+    #[test]
+    fn individual_gate_keeps_priority_over_dormant_cumulative_pressure() {
+        let gate_two_called = std::cell::Cell::new(false);
+        let result = ensure_mutation_commit_work_admitted(MAX_MUTATION_COMMIT_WORK_UNITS + 1)
+            .and_then(|()| {
+                gate_two_called.set(true);
+                crate::db::commit::admit_dormant_backlog_for_tests(
+                    crate::db::commit::ExactBacklogMeasurement::new(1, 1, 1),
+                    crate::db::commit::ExactBacklogMeasurement::new(1, 1, 1),
+                    crate::db::commit::CandidateBacklogLimits::new(1, 1, 1),
+                )
+            });
+        let error = result.expect_err("individual admission must reject before dormant Gate 2");
+        assert!(!gate_two_called.get());
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary:
+                    icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchCommitWorkExceeded,
+            })
+        ));
+    }
+
     fn identity_candidate(
         store_path: &str,
         entity_tag: EntityTag,
@@ -1357,10 +1388,10 @@ mod tests {
                 &FIRST_IDENTITY_SCHEMA,
                 &FIRST_IDENTITY_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(240, "icydb.test.identity-set.first.data.v1"),
-                    StoreAllocationIdentity::new(241, "icydb.test.identity-set.first.index.v1"),
-                    StoreAllocationIdentity::new(242, "icydb.test.identity-set.first.schema.v1"),
-                    StoreAllocationIdentity::new(243, "icydb.test.identity-set.first.journal.v1"),
+                    StoreAllocationIdentity::new(240, "icydb.test.identity_set.first.data.v1"),
+                    StoreAllocationIdentity::new(241, "icydb.test.identity_set.first.index.v1"),
+                    StoreAllocationIdentity::new(242, "icydb.test.identity_set.first.schema.v1"),
+                    StoreAllocationIdentity::new(243, "icydb.test.identity_set.first.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ),
@@ -1370,10 +1401,10 @@ mod tests {
                 &SECOND_IDENTITY_SCHEMA,
                 &SECOND_IDENTITY_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(244, "icydb.test.identity-set.second.data.v1"),
-                    StoreAllocationIdentity::new(245, "icydb.test.identity-set.second.index.v1"),
-                    StoreAllocationIdentity::new(246, "icydb.test.identity-set.second.schema.v1"),
-                    StoreAllocationIdentity::new(247, "icydb.test.identity-set.second.journal.v1"),
+                    StoreAllocationIdentity::new(244, "icydb.test.identity_set.second.data.v1"),
+                    StoreAllocationIdentity::new(245, "icydb.test.identity_set.second.index.v1"),
+                    StoreAllocationIdentity::new(246, "icydb.test.identity_set.second.schema.v1"),
+                    StoreAllocationIdentity::new(247, "icydb.test.identity_set.second.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ),

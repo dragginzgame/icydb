@@ -20,6 +20,9 @@ use crate::{
         direction::Direction,
         integrity::DatabaseIncarnationId,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
+        positioned_overlay::{
+            JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
+        },
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
@@ -792,6 +795,7 @@ enum SchemaStoreBackend {
             StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>,
         live: StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
         tombstones: BTreeSet<RawSchemaKey>,
+        positions: PositionedOverlayMetadata<RawSchemaKey>,
     },
 }
 
@@ -848,6 +852,7 @@ impl SchemaStore {
                 canonical: StableBTreeMap::init(memory),
                 live: StdBTreeMap::new(),
                 tombstones: BTreeSet::new(),
+                positions: PositionedOverlayMetadata::new(),
             },
             accepted_bundle_cache: RefCell::new(None),
             accepted_catalog_scope: OnceCell::new(),
@@ -1144,6 +1149,7 @@ impl SchemaStore {
                     canonical,
                     live,
                     tombstones,
+                    ..
                 },
                 IdentityStateStorageView::Effective,
             ) => Self::visit_journaled_raw_snapshot_range(
@@ -1347,6 +1353,89 @@ impl SchemaStore {
         self.accepted_bundle_cache.get_mut().take();
 
         Ok(())
+    }
+
+    /// Publish one positioned schema/control value or tombstone.
+    ///
+    /// This dormant Patch-2 boundary is not called by the production commit or
+    /// recovery paths until atomic online-convergence activation.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Patch 2 state machine remains dormant until Patch 6"
+        )
+    )]
+    fn publish_positioned_journal_entry(
+        &mut self,
+        key: RawSchemaKey,
+        snapshot: Option<RawSchemaSnapshot>,
+        position: JournalOverlayPosition,
+    ) -> Result<Option<RawSchemaSnapshot>, InternalError> {
+        let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        positions.preflight_publish(&key, position)?;
+        self.invalidate_accepted_bundle_cache_for_key(key);
+
+        let SchemaStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+            positions,
+        } = &mut self.backend
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        let previous = if tombstones.contains(&key) {
+            None
+        } else {
+            live.get(&key).cloned().or_else(|| canonical.get(&key))
+        };
+        if let Some(snapshot) = snapshot {
+            tombstones.remove(&key);
+            live.insert(key, snapshot);
+        } else {
+            live.remove(&key);
+            tombstones.insert(key);
+        }
+        positions.publish_preflighted(key, position);
+        Ok(previous)
+    }
+
+    /// Retire this batch's schema overlay only when it still owns the target.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Patch 2 state machine remains dormant until Patch 6"
+        )
+    )]
+    fn retire_positioned_journal_effect(
+        &mut self,
+        key: RawSchemaKey,
+        position: JournalOverlayPosition,
+    ) -> Result<PositionedOverlayRetirement, InternalError> {
+        let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let retirement = positions.preflight_retirement(&key, position)?;
+        if retirement == PositionedOverlayRetirement::Exact {
+            self.invalidate_accepted_bundle_cache_for_key(key);
+            let SchemaStoreBackend::Journaled {
+                live,
+                tombstones,
+                positions,
+                ..
+            } = &mut self.backend
+            else {
+                return Err(InternalError::store_invariant());
+            };
+            live.remove(&key);
+            tombstones.remove(&key);
+            positions.retire_preflighted(&key, retirement);
+        }
+        Ok(retirement)
     }
 
     /// Apply one folded journal schema snapshot into the canonical stable base.
@@ -2513,6 +2602,7 @@ impl SchemaStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => {
                 live.remove(&key);
                 tombstones.remove(&key);
@@ -2542,6 +2632,7 @@ impl SchemaStore {
                     canonical,
                     live,
                     tombstones,
+                    ..
                 } => {
                     live.remove(&key);
                     tombstones.remove(&key);
@@ -2601,6 +2692,7 @@ impl SchemaStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => {
                 let stale = canonical
                     .iter()
@@ -2630,6 +2722,7 @@ impl SchemaStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(InternalError::store_invariant());
@@ -2728,6 +2821,7 @@ impl SchemaStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => {
                 live.clear();
                 tombstones.clear();
@@ -2853,6 +2947,7 @@ impl SchemaStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => Self::visit_journaled_raw_snapshot_range(
                 canonical,
                 live,
@@ -2884,6 +2979,7 @@ impl SchemaStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => Self::visit_journaled_raw_snapshot_range(
                 canonical,
                 live,
@@ -2910,6 +3006,7 @@ impl SchemaStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &self.backend
         else {
             return None;

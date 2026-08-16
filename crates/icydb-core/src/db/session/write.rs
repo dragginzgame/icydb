@@ -3128,10 +3128,10 @@ mod identity_pre_key_tests {
                 &JOURNALED_SCHEMA_STORE,
                 &JOURNALED_TAIL_STORE,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(186, "icydb.test.identity-range.data.v1"),
-                    StoreAllocationIdentity::new(187, "icydb.test.identity-range.index.v1"),
-                    StoreAllocationIdentity::new(188, "icydb.test.identity-range.schema.v1"),
-                    StoreAllocationIdentity::new(189, "icydb.test.identity-range.journal.v1"),
+                    StoreAllocationIdentity::new(186, "icydb.test.identity_range.data.v1"),
+                    StoreAllocationIdentity::new(187, "icydb.test.identity_range.index.v1"),
+                    StoreAllocationIdentity::new(188, "icydb.test.identity_range.schema.v1"),
+                    StoreAllocationIdentity::new(189, "icydb.test.identity_range.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("identity range journaled store should register");

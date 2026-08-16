@@ -3,6 +3,8 @@
 //! Does not own: commit-marker, schema, row, or journal payload decoding.
 //! Boundary: database control memory + registered durable allocations -> recovery gate.
 
+mod convergence;
+
 use crate::{
     db::{
         commit::{CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation},
@@ -108,18 +110,6 @@ enum DatabaseFormatAdmissionError {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DatabaseFormatGateError {
-    Admission(DatabaseFormatAdmissionError),
-    ControlMemoryGrowthFailed,
-}
-
-impl From<DatabaseFormatAdmissionError> for DatabaseFormatGateError {
-    fn from(error: DatabaseFormatAdmissionError) -> Self {
-        Self::Admission(error)
-    }
-}
-
 enum BootInspection {
     Missing,
     Present(DatabaseBootRecord),
@@ -166,14 +156,22 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
     db: &crate::db::Db<C>,
 ) -> Result<(), InternalError> {
     let allocation = current_commit_memory_allocation()?;
-    if database_format_already_admitted(allocation)? {
-        return Ok(());
-    }
+    ADMITTED_DATABASE_FORMATS.with(|admitted| {
+        let mut admitted = admitted
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())?;
+        if admitted.contains(&allocation) {
+            return Ok(());
+        }
 
-    let control_memory = commit_memory_handle(allocation)?;
-    let store_roles = open_registered_store_roles(db)?;
-    admit_or_initialize_database_format(&control_memory, &store_roles).map_err(map_gate_error)?;
-    mark_database_format_admitted(allocation)
+        let control_memory = commit_memory_handle(allocation)?;
+        let store_roles = open_registered_store_roles(db)?;
+        let fresh = admit_or_initialize_database_format(&control_memory, &store_roles)
+            .map_err(map_admission_error)?;
+        convergence::ensure_current_convergence_format::<C>(db, &control_memory, fresh)?;
+        admitted.push(allocation);
+        Ok(())
+    })
 }
 
 /// Inspect the current boot prefix and registered durable-role sizes without mutation.
@@ -214,31 +212,29 @@ pub(in crate::db) fn observe_database_format(
 fn admit_or_initialize_database_format<M: Memory>(
     control_memory: &M,
     store_roles: &[StoreRoleMemories<M>],
-) -> Result<(), DatabaseFormatGateError> {
+) -> Result<bool, DatabaseFormatAdmissionError> {
     match inspect_boot_record(control_memory)? {
         BootInspection::Present(record)
             if record.format_version == DATABASE_FORMAT_VERSION_CURRENT =>
         {
-            Ok(())
+            Ok(false)
         }
         BootInspection::Present(record) => {
             Err(DatabaseFormatAdmissionError::UnsupportedFormatVersion {
                 found: Some(record.format_version),
                 required: DATABASE_FORMAT_VERSION_CURRENT,
-            }
-            .into())
+            })
         }
         BootInspection::Missing
             if control_memory_is_virgin(control_memory)
                 && store_roles.iter().all(StoreRoleMemories::physically_virgin) =>
         {
-            write_current_boot_record(control_memory)
+            Ok(true)
         }
         BootInspection::Missing => Err(DatabaseFormatAdmissionError::UnsupportedFormatVersion {
             found: None,
             required: DATABASE_FORMAT_VERSION_CURRENT,
-        }
-        .into()),
+        }),
     }
 }
 
@@ -268,8 +264,12 @@ pub(in crate::db) fn validate_current_boot_record<M: Memory>(
 }
 
 #[cfg(test)]
-pub(in crate::db) fn initialize_current_database_control_for_tests<M: Memory>(memory: &M) {
+pub(in crate::db) fn initialize_current_database_control_for_tests(
+    memory: &VirtualMemory<DefaultMemoryImpl>,
+) {
     write_current_boot_record(memory).expect("test database control memory should grow");
+    crate::db::commit::initialize_current_commit_control_for_tests(memory.clone())
+        .expect("test current commit control should initialize");
 }
 
 fn open_registered_store_roles<C: crate::traits::CanisterKind>(
@@ -322,13 +322,19 @@ fn inspect_boot_record<M: Memory>(
         .map_err(|reason| DatabaseFormatAdmissionError::MalformedFormatMarker { reason })
 }
 
-fn write_current_boot_record<M: Memory>(control_memory: &M) -> Result<(), DatabaseFormatGateError> {
+#[cfg(test)]
+fn write_current_boot_record<M: Memory>(control_memory: &M) -> Result<(), InternalError> {
     if control_memory.size() == 0 && control_memory.grow(1) < 0 {
-        return Err(DatabaseFormatGateError::ControlMemoryGrowthFailed);
+        return Err(InternalError::recovery_database_format_control_unavailable());
     }
 
     control_memory.write(0, &DatabaseBootRecord::current().encode());
     Ok(())
+}
+
+fn publish_preflighted_current_boot_record<M: Memory>(control_memory: &M) {
+    debug_assert!(control_memory.size() > 0);
+    control_memory.write(0, &DatabaseBootRecord::current().encode());
 }
 
 fn control_memory_is_virgin<M: Memory>(memory: &M) -> bool {
@@ -384,15 +390,6 @@ fn map_admission_error(error: DatabaseFormatAdmissionError) -> InternalError {
     }
 }
 
-fn map_gate_error(error: DatabaseFormatGateError) -> InternalError {
-    match error {
-        DatabaseFormatGateError::Admission(error) => map_admission_error(error),
-        DatabaseFormatGateError::ControlMemoryGrowthFailed => {
-            InternalError::recovery_database_format_control_unavailable()
-        }
-    }
-}
-
 thread_local! {
     #[cfg(test)]
     static TEST_STORE_ROLE_MEMORIES: RefCell<
@@ -403,30 +400,6 @@ thread_local! {
     // another runtime's empty memory.
     static ADMITTED_DATABASE_FORMATS: RefCell<Vec<CommitMemoryAllocation>> =
         const { RefCell::new(Vec::new()) };
-}
-
-fn database_format_already_admitted(
-    allocation: CommitMemoryAllocation,
-) -> Result<bool, InternalError> {
-    ADMITTED_DATABASE_FORMATS.with(|allocations| {
-        Ok(allocations
-            .try_borrow()
-            .map_err(|_| InternalError::store_invariant())?
-            .contains(&allocation))
-    })
-}
-
-fn mark_database_format_admitted(allocation: CommitMemoryAllocation) -> Result<(), InternalError> {
-    ADMITTED_DATABASE_FORMATS.with(|allocations| {
-        let mut allocations = allocations
-            .try_borrow_mut()
-            .map_err(|_| InternalError::store_invariant())?;
-        if !allocations.contains(&allocation) {
-            allocations.push(allocation);
-        }
-
-        Ok(())
-    })
 }
 
 #[cfg(test)]

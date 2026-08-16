@@ -27,7 +27,7 @@ use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
 use std::{borrow::Cow, collections::BTreeSet};
 
-pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 2;
+pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 3;
 pub(in crate::db) const MAX_JOURNAL_BATCH_BYTES: u32 = MAX_COMMIT_BYTES;
 pub(in crate::db) const MAX_JOURNAL_BATCH_RECORDS: usize = 16 * 1024;
 const MAX_JOURNAL_PATH_BYTES: usize = 4 * 1024;
@@ -41,8 +41,9 @@ const JOURNAL_BATCH_FINGERPRINT_OFFSET: usize = JOURNAL_BATCH_HEADER_BYTES
     + JOURNAL_BATCH_ID_BYTES
     + JOURNAL_COMMIT_MARKER_ID_BYTES
     + size_of::<u64>()
+    + size_of::<u64>()
     + size_of::<u32>();
-const JOURNAL_BATCH_FIXED_HEADER_BYTES: usize =
+pub(in crate::db) const JOURNAL_BATCH_FIXED_HEADER_BYTES: usize =
     JOURNAL_BATCH_FINGERPRINT_OFFSET + JOURNAL_BATCH_FINGERPRINT_BYTES;
 const JOURNAL_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 const JOURNAL_RECORD_ROW_PUT: u8 = 1;
@@ -116,6 +117,22 @@ impl Storable for JournalSequence {
         max_size: 8,
         is_fixed_size: true,
     };
+}
+
+/// Database-wide durable order shared by every journal batch in one commit marker.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::db) struct DatabaseCommitSequence(u64);
+
+impl DatabaseCommitSequence {
+    #[must_use]
+    pub(in crate::db) const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn get(self) -> u64 {
+        self.0
+    }
 }
 
 /// Logical journal record. Ordinary index entries remain derived materialized
@@ -392,14 +409,16 @@ pub(in crate::db) struct JournalBatch {
     batch_id: JournalBatchId,
     commit_marker_id: JournalCommitMarkerId,
     journal_sequence: JournalSequence,
+    database_commit_sequence: DatabaseCommitSequence,
     records: Vec<JournalRecord>,
 }
 
 impl JournalBatch {
-    pub(in crate::db) fn new(
+    pub(in crate::db) fn new_with_database_commit_sequence(
         batch_id: JournalBatchId,
         commit_marker_id: JournalCommitMarkerId,
         journal_sequence: JournalSequence,
+        database_commit_sequence: DatabaseCommitSequence,
         records: Vec<JournalRecord>,
     ) -> Result<Self, InternalError> {
         let _ = journal_sequence
@@ -409,11 +428,28 @@ impl JournalBatch {
             batch_id,
             commit_marker_id,
             journal_sequence,
+            database_commit_sequence,
             records,
         };
         validate_journal_batch_shape(&batch)?;
 
         Ok(batch)
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn new(
+        batch_id: JournalBatchId,
+        commit_marker_id: JournalCommitMarkerId,
+        journal_sequence: JournalSequence,
+        records: Vec<JournalRecord>,
+    ) -> Result<Self, InternalError> {
+        Self::new_with_database_commit_sequence(
+            batch_id,
+            commit_marker_id,
+            journal_sequence,
+            DatabaseCommitSequence::new(journal_sequence.get().max(1)),
+            records,
+        )
     }
 
     #[must_use]
@@ -429,6 +465,12 @@ impl JournalBatch {
     #[must_use]
     pub(in crate::db) const fn journal_sequence(&self) -> JournalSequence {
         self.journal_sequence
+    }
+
+    /// Return the database-wide commit order bound into this batch envelope.
+    #[must_use]
+    pub(in crate::db) const fn database_commit_sequence(&self) -> DatabaseCommitSequence {
+        self.database_commit_sequence
     }
 
     #[must_use]
@@ -510,10 +552,11 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
         return Err(journal_batch_corruption());
     }
 
-    JournalBatch::new(
+    JournalBatch::new_with_database_commit_sequence(
         fixed_header.batch_id(),
         fixed_header.commit_marker_id(),
         fixed_header.journal_sequence(),
+        fixed_header.database_commit_sequence(),
         records,
     )
 }
@@ -578,6 +621,7 @@ pub(in crate::db::journal) struct RawJournalBatchFixedHeader {
     batch_id: JournalBatchId,
     commit_marker_id: JournalCommitMarkerId,
     journal_sequence: JournalSequence,
+    database_commit_sequence: DatabaseCommitSequence,
     record_count: u32,
     batch_fingerprint: [u8; JOURNAL_BATCH_FINGERPRINT_BYTES],
 }
@@ -605,6 +649,12 @@ impl RawJournalBatchFixedHeader {
     #[must_use]
     pub(in crate::db::journal) const fn journal_sequence(self) -> JournalSequence {
         self.journal_sequence
+    }
+
+    /// Return the database-wide commit order carried by the current envelope.
+    #[must_use]
+    pub(in crate::db::journal) const fn database_commit_sequence(self) -> DatabaseCommitSequence {
+        self.database_commit_sequence
     }
 
     /// Return the current-envelope record count.
@@ -644,6 +694,11 @@ pub(in crate::db::journal) fn inspect_raw_journal_batch_fixed_header(
         return Err(journal_batch_corruption());
     }
     let journal_sequence = JournalSequence::new(read_u64_le(bytes, &mut cursor, "sequence")?);
+    let database_commit_sequence =
+        DatabaseCommitSequence::new(read_u64_le(bytes, &mut cursor, "database commit sequence")?);
+    if database_commit_sequence.get() == 0 {
+        return Err(journal_batch_corruption());
+    }
     let record_count = read_len_u32(bytes, &mut cursor, "journal batch record count")?;
     if record_count as usize > MAX_JOURNAL_BATCH_RECORDS {
         return Err(journal_batch_corruption());
@@ -659,6 +714,7 @@ pub(in crate::db::journal) fn inspect_raw_journal_batch_fixed_header(
         batch_id,
         commit_marker_id,
         journal_sequence,
+        database_commit_sequence,
         record_count,
         batch_fingerprint,
     })
@@ -684,6 +740,7 @@ pub(in crate::db) const fn journal_batch_encoded_len_for_record_payloads(
         JOURNAL_BATCH_HEADER_BYTES
             .saturating_add(JOURNAL_BATCH_ID_BYTES)
             .saturating_add(JOURNAL_COMMIT_MARKER_ID_BYTES)
+            .saturating_add(size_of::<u64>())
             .saturating_add(size_of::<u64>())
             .saturating_add(size_of::<u32>())
             .saturating_add(JOURNAL_BATCH_FINGERPRINT_BYTES)
@@ -724,6 +781,7 @@ fn write_journal_batch_payload(
     out.extend_from_slice(&batch.batch_id);
     out.extend_from_slice(&batch.commit_marker_id);
     out.extend_from_slice(&batch.journal_sequence.get().to_le_bytes());
+    out.extend_from_slice(&batch.database_commit_sequence.get().to_le_bytes());
     write_len_u32(out, batch.records.len(), "journal batch record count")?;
     out.extend_from_slice(&[0; JOURNAL_BATCH_FINGERPRINT_BYTES]);
     for record in &batch.records {
@@ -1304,6 +1362,9 @@ fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalErro
         return Err(journal_batch_corruption());
     }
     if batch.commit_marker_id == [0; JOURNAL_COMMIT_MARKER_ID_BYTES] {
+        return Err(journal_batch_corruption());
+    }
+    if batch.database_commit_sequence.get() == 0 {
         return Err(journal_batch_corruption());
     }
     if batch.records.len() > MAX_JOURNAL_BATCH_RECORDS {

@@ -110,7 +110,7 @@ require_pattern \
   "persisted-format inventory must cover journal-tail batches"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
-  "Journal tail batches and sequences.*version-2.*SHA-256" \
+  "Journal tail batches and sequences.*version-3.*SHA-256" \
   "persisted-format inventory must document the active fingerprinted journal envelope"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
@@ -156,9 +156,9 @@ unexpected_format_versions="$(
   printf '%s\n' "$format_version_matches" |
     rg -v \
       -e '^crates/icydb-core/src/db/commit/marker\.rs:[0-9]+:pub\(in crate::db\) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 3;$' \
-      -e '^crates/icydb-core/src/db/commit/store/control_slot\.rs:[0-9]+:const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 2;$' \
+      -e '^crates/icydb-core/src/db/commit/store/control_slot\.rs:[0-9]+:const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 3;$' \
       -e '^crates/icydb-core/src/db/cursor/token/codec\.rs:[0-9]+:const SCALAR_TOKEN_WIRE_VERSION: u8 = 2;$' \
-      -e '^crates/icydb-core/src/db/journal/codec\.rs:[0-9]+:pub\(in crate::db\) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 2;$' \
+      -e '^crates/icydb-core/src/db/journal/codec\.rs:[0-9]+:pub\(in crate::db\) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 3;$' \
       -e '^crates/icydb-core/src/db/integrity/progress_store\.rs:[0-9]+:const JOB_RECORD_VERSION: u8 = 2;$' || true
 )"
 if [[ -n "$unexpected_format_versions" ]]

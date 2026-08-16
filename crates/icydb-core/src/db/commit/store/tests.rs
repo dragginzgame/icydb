@@ -9,8 +9,11 @@ use crate::{
             encode_commit_marker_payload,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
-        integrity::{DatabaseIncarnationId, MutationProgressRecordOp},
-        journal::{JournalBatch, JournalRecord, JournalSequence, encode_journal_batch},
+        integrity::MutationProgressRecordOp,
+        journal::{
+            DatabaseCommitSequence, JournalBatch, JournalRecord, JournalSequence,
+            encode_journal_batch,
+        },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         mutation_job::{MutationJobRecord, MutationJobTransition},
     },
@@ -89,12 +92,9 @@ fn maximal_mutation_progress_operation() -> MutationProgressRecordOp {
 #[test]
 fn commit_control_slot_rejects_corrupt_magic() {
     let store = super::CommitStore::init(test_memory(233));
-    let mut malformed = Vec::new();
-    malformed.extend_from_slice(b"XMCS");
-    malformed.push(2);
-    malformed.extend_from_slice(&DatabaseIncarnationId::for_tests(0x41).to_bytes());
-    malformed.extend_from_slice(&[0x51; 32]);
-    malformed.extend_from_slice(&0u32.to_le_bytes());
+    let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+        .expect("current empty commit-control slot should encode");
+    malformed[0] = b'X';
     store.set_raw_marker_bytes_for_tests(malformed);
 
     let err = store
@@ -310,6 +310,46 @@ fn persisted_marker_retains_exact_journal_envelopes_for_live_append() {
 }
 
 #[test]
+fn marker_publication_owns_one_database_sequence_without_consuming_rejections() {
+    let store = super::CommitStore::init(test_memory(224));
+    let first_marker_id = [0xB1; 16];
+    let first = JournalBatch::new_with_database_commit_sequence(
+        [0xB2; 16],
+        first_marker_id,
+        JournalSequence::new(7),
+        DatabaseCommitSequence::new(1),
+        Vec::new(),
+    )
+    .unwrap();
+    let second = JournalBatch::new_with_database_commit_sequence(
+        [0xB3; 16],
+        first_marker_id,
+        JournalSequence::new(3),
+        DatabaseCommitSequence::new(1),
+        Vec::new(),
+    )
+    .unwrap();
+    let marker = CommitMarker::from_parts(first_marker_id, vec![first, second]).unwrap();
+    store.set_if_empty(&marker).unwrap();
+    store.clear_verified().unwrap();
+    assert_eq!(store.next_database_commit_sequence().unwrap(), 2);
+
+    let rejected_marker_id = [0xB4; 16];
+    let rejected = JournalBatch::new_with_database_commit_sequence(
+        [0xB5; 16],
+        rejected_marker_id,
+        JournalSequence::new(8),
+        DatabaseCommitSequence::new(3),
+        Vec::new(),
+    )
+    .unwrap();
+    let rejected_marker = CommitMarker::from_parts(rejected_marker_id, vec![rejected]).unwrap();
+    assert!(store.set_if_empty(&rejected_marker).is_err());
+    assert!(store.marker_is_empty().unwrap());
+    assert_eq!(store.next_database_commit_sequence().unwrap(), 2);
+}
+
+#[test]
 fn commit_marker_accepts_equal_sequences_from_distinct_journal_tails() {
     let marker_id = [0xAB; 16];
     let first = JournalBatch::new(
@@ -408,12 +448,10 @@ fn commit_marker_rejects_oversized_stored_payload_as_corruption() {
 #[test]
 fn clear_verified_rejects_malformed_control_slot() {
     let store = super::CommitStore::init(test_memory(232));
-    let mut malformed = Vec::new();
-    malformed.extend_from_slice(b"ICCS");
-    malformed.push(2);
-    malformed.extend_from_slice(&DatabaseIncarnationId::for_tests(0x42).to_bytes());
-    malformed.extend_from_slice(&[0x52; 32]);
-    malformed.extend_from_slice(&1u32.to_le_bytes());
+    let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+        .expect("current empty commit-control slot should encode");
+    let marker_length_offset = malformed.len() - size_of::<u32>();
+    malformed[marker_length_offset..].copy_from_slice(&1_u32.to_le_bytes());
     store.set_raw_marker_bytes_for_tests(malformed.clone());
 
     let err = store
@@ -498,12 +536,18 @@ fn commit_marker_transitions_preserve_database_incarnation() {
             .expect("cleared control slot should carry a cursor key"),
         cursor_key_before,
     );
-    assert_eq!(
+    assert_ne!(
         store
             .proof_identity()
             .expect("cleared current control slot should fingerprint"),
         proof_before,
-        "clearing the marker must restore the empty control proof",
+        "advancing the database sequence must change the empty control proof",
+    );
+    assert_eq!(
+        store
+            .next_database_commit_sequence()
+            .expect("cleared control should preview its successor"),
+        2,
     );
 }
 
@@ -538,12 +582,9 @@ fn ordinary_reopen_preserves_database_incarnation() {
 #[test]
 fn database_control_rejects_zero_incarnation() {
     let store = super::CommitStore::init(test_memory(226));
-    let mut control_slot = Vec::new();
-    control_slot.extend_from_slice(b"ICCS");
-    control_slot.push(2);
-    control_slot.extend_from_slice(&[0; 16]);
-    control_slot.extend_from_slice(&[0x53; 32]);
-    control_slot.extend_from_slice(&0_u32.to_le_bytes());
+    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+        .expect("current empty commit-control slot should encode");
+    control_slot[5..21].fill(0);
     store.set_raw_marker_bytes_for_tests(control_slot);
 
     let err = store
@@ -557,12 +598,9 @@ fn database_control_rejects_zero_incarnation() {
 #[test]
 fn database_control_rejects_zero_cursor_authentication_key() {
     let store = super::CommitStore::init(test_memory(234));
-    let mut control_slot = Vec::new();
-    control_slot.extend_from_slice(b"ICCS");
-    control_slot.push(2);
-    control_slot.extend_from_slice(&DatabaseIncarnationId::for_tests(0x54).to_bytes());
-    control_slot.extend_from_slice(&[0; 32]);
-    control_slot.extend_from_slice(&0_u32.to_le_bytes());
+    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+        .expect("current empty commit-control slot should encode");
+    control_slot[21..53].fill(0);
     store.set_raw_marker_bytes_for_tests(control_slot);
 
     let err = store
@@ -616,7 +654,7 @@ fn commit_control_slot_future_version_fails_closed() {
     let store = super::CommitStore::init(test_memory(228));
     let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
         .expect("current empty commit-control slot should encode");
-    control_slot[4] = 3;
+    control_slot[4] = control_slot[4].saturating_add(1);
     store.set_raw_marker_bytes_for_tests(control_slot);
 
     let err = store

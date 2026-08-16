@@ -16,6 +16,8 @@
 //! batches and rebuilds derived projections from current durable authority.
 
 mod apply;
+#[cfg(test)]
+mod backlog_admission;
 mod guard;
 mod marker;
 mod memory;
@@ -26,6 +28,10 @@ mod rollback;
 mod schema_publication;
 mod store;
 
+#[cfg(test)]
+pub(in crate::db) use backlog_admission::{
+    CandidateBacklogLimits, ExactBacklogMeasurement, admit_dormant_backlog_for_tests,
+};
 #[doc(hidden)]
 pub use guard::install_startup_recovery_wakeup;
 ///
@@ -75,8 +81,18 @@ pub(in crate::db) use schema_publication::{
     publish_constraint_validation_job, publish_generated_row_local_abort_with_application_record,
 };
 pub(in crate::db) use store::{
-    CommitControlObservation, cursor_authentication_key, database_control_proof_identity,
-    database_incarnation_id, observe_commit_control,
+    CommitControlObservation, PersistedCommitControlObservation,
+    apply_prepared_commit_control_replacement, cursor_authentication_key,
+    database_control_proof_identity, database_incarnation_id, inspect_persisted_commit_control,
+    next_database_commit_sequence, observe_commit_control, prepare_commit_control_replacement,
+};
+pub(in crate::db) use store::{
+    MAX_PERSISTED_STORE_ALLOCATIONS, PersistedStoreAllocation, PersistedStoreAllocationState,
+    canonicalize_store_registry,
+};
+#[cfg(test)]
+pub(in crate::db) use store::{
+    initialize_current_commit_control_for_tests, initialize_predecessor_commit_control_for_tests,
 };
 #[cfg(test)]
 pub(in crate::db) use store::{

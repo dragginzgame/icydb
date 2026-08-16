@@ -12,6 +12,13 @@ REQUIRED_MATCHES=(
   $'crates/icydb-core/src/db/commit/recovery.rs\tconfigure_commit_memory_id\\(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY\\)\trecovery must configure explicit commit memory id and stable key from canister contract'
   $'crates/icydb-model/src/node/canister.rs\tcommit_memory_id: u8,\tmodel canister node must carry commit_memory_id'
   $'crates/icydb-model/src/node/canister.rs\tmemory_namespace: &\'static str,\tmodel canister node must carry memory_namespace'
+  $'crates/icydb-model/src/node/mod.rs\tpub const APP_MEMORY_ID_MIN: u8 = 100;\tmodel must retain the canonical application memory-id floor'
+  $'crates/icydb-model/src/node/mod.rs\tpub const APP_MEMORY_ID_MAX: u8 = 254;\tmodel must retain the canonical application memory-id ceiling'
+  $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const APP_MEMORY_ID_MIN: u8 = 100;\truntime convergence must retain the generated application memory-id floor'
+  $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const APP_MEMORY_ID_MAX: u8 = 254;\truntime convergence must retain the generated application memory-id ceiling'
+  $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const CANISTER_CONTROL_ALLOCATION_COUNT: usize = 3;\tconvergence must reserve the three generated canister controls'
+  $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;\tconvergence must charge all four journaled-store allocations'
+  $'crates/icydb-core/src/db/commit/store/control_slot.rs\tpub\(in crate::db\) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 38;\tcommit control must retain the derived bounded store registry'
 )
 
 FORBIDDEN_MATCHES=(

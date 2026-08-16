@@ -191,7 +191,9 @@ mod tests {
                 current_commit_memory_allocation, database_incarnation_id, finish_commit,
                 mark_startup_recovery_complete_for_tests, persist_raw_commit_marker_for_tests,
             },
-            database_format::initialize_current_database_control_for_tests,
+            database_format::{
+                ensure_database_format_admitted, initialize_current_database_control_for_tests,
+            },
             journal::{
                 JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
                 encode_journal_batch,
@@ -221,11 +223,11 @@ mod tests {
 
     impl CanisterKind for FreshCanister {
         const COMMIT_MEMORY_ID: u8 = 232;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup-fresh.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_fresh.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 233;
-        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup-fresh.control.v1";
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_fresh.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 234;
-        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup-fresh.integrity.v1";
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup_fresh.integrity.v1";
     }
 
     thread_local! {
@@ -241,12 +243,12 @@ mod tests {
 
     impl CanisterKind for CurrentCanister {
         const COMMIT_MEMORY_ID: u8 = 228;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup-current.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_current.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 229;
-        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup-current.control.v1";
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_current.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 230;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.startup-current.integrity.v1";
+            "icydb.test.startup_current.integrity.v1";
     }
 
     struct CorruptCanister;
@@ -257,12 +259,12 @@ mod tests {
 
     impl CanisterKind for CorruptCanister {
         const COMMIT_MEMORY_ID: u8 = 224;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup-corrupt.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 225;
-        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup-corrupt.control.v1";
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 226;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.startup-corrupt.integrity.v1";
+            "icydb.test.startup_corrupt.integrity.v1";
     }
 
     thread_local! {
@@ -277,12 +279,12 @@ mod tests {
 
     impl CanisterKind for DriverCanister {
         const COMMIT_MEMORY_ID: u8 = 248;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup-driver.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_driver.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 249;
-        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup-driver.control.v1";
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_driver.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 250;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.startup-driver.integrity.v1";
+            "icydb.test.startup_driver.integrity.v1";
     }
 
     thread_local! {
@@ -596,6 +598,13 @@ mod tests {
         )
         .expect("commit memory should open");
         initialize_current_database_control_for_tests(&memory);
+        let format_root = RequestExecutionRoot::__new_runtime_root();
+        let format_database = crate::db::Db::<JournalRecoveryFailureCanister>::new(
+            &JOURNAL_RECOVERY_FAILURE_STORES,
+            format_root.scope(),
+        );
+        ensure_database_format_admitted(&format_database)
+            .expect("current journal registry should initialize before corruption injection");
 
         let record = JournalRecord::schema_put(JOURNAL_RECOVERY_FAILURE_STORE_PATH, vec![0xff; 8])
             .expect("syntactically bounded schema record should build");
@@ -606,10 +615,9 @@ mod tests {
             vec![record],
         )
         .expect("syntactically current journal batch should build");
-        let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
         JOURNAL_RECOVERY_FAILURE_TAIL.with(|tail| {
             tail.borrow_mut()
-                .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+                .append_batch(&batch)
                 .expect("persisted semantic-corruption fixture should insert");
         });
 

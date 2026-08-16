@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn missing_startup_recovery_wakeup_rejects_before_marker_publication() {
         const MEMORY_ID: u8 = 242;
-        const STABLE_KEY: &str = "icydb.test.commit-guard-missing-wakeup.v1";
+        const STABLE_KEY: &str = "icydb.test.commit_guard_missing_wakeup.v1";
 
         configure_commit_memory_id(MEMORY_ID, STABLE_KEY)
             .expect("commit allocation should configure");

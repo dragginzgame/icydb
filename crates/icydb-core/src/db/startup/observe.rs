@@ -42,6 +42,7 @@ pub(super) fn observe<C: CanisterKind>(
         incarnation,
         empty_control_proof,
         marker_present,
+        current_format,
     } = control
     else {
         return Ok(DatabaseStartupState::Recovering);
@@ -55,6 +56,9 @@ pub(super) fn observe<C: CanisterKind>(
         if matches {
             return Err(receipt.failure().clone());
         }
+    }
+    if !current_format {
+        return Ok(DatabaseStartupState::Recovering);
     }
 
     let (recovered, in_progress) =

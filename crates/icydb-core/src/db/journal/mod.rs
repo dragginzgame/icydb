@@ -12,11 +12,13 @@ pub(in crate::db) use codec::JournalRecord;
 #[cfg(feature = "sql")]
 pub(in crate::db) use codec::MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD;
 pub(in crate::db) use codec::{
-    JournalBatch, JournalSequence, decode_journal_batch, encode_journal_batch,
-    journal_batch_encoded_len,
+    DatabaseCommitSequence, JournalBatch, JournalSequence, decode_journal_batch,
+    encode_journal_batch, journal_batch_encoded_len,
 };
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use codec::{MAX_JOURNAL_BATCH_RECORDS, journal_record_payload_len};
+#[cfg(test)]
+pub(in crate::db) use store::JournalTailControl;
 pub use store::JournalTailStore;
 pub(in crate::db) use store::{
     FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue,

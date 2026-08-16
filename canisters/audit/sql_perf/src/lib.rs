@@ -84,7 +84,7 @@ struct ReadTotalOnlyPerfResult {
 
 /// Exact schema-application work observed inside one IC message.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 struct SchemaApplicationPerfResult {
     local_instructions: u64,
     reconcile_checks: u64,
@@ -94,7 +94,7 @@ struct SchemaApplicationPerfResult {
 
 /// Pure startup-state work observed inside one IC query message.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 struct StartupObservationPerfResult {
     state: icydb::db::DatabaseStartupState,
     local_instructions: u64,
@@ -102,7 +102,7 @@ struct StartupObservationPerfResult {
 
 /// Canonical instruction evidence recorded by the generated startup watchdog.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 struct StartupWatchdogPerfSnapshot {
     scheduler_samples: u64,
     scheduler_total_instructions: u64,
@@ -120,7 +120,7 @@ struct StartupWatchdogPerfSnapshot {
 
 /// Closed producer-side evidence for the maximum-index-fanout fixture.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 struct JointFanoutFixtureFacts {
     rows: u32,
     secondary_indexes_per_row: u32,
@@ -129,7 +129,7 @@ struct JointFanoutFixtureFacts {
 
 /// Application lifecycle entry that began the current readiness observation.
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 enum ApplicationStartupHook {
     Init,
     PostUpgrade,
@@ -137,7 +137,7 @@ enum ApplicationStartupHook {
 
 /// Application-owned readiness and restoration evidence.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 struct ApplicationStartupSnapshot {
     hook: ApplicationStartupHook,
     engine_registered_before_hook: bool,
@@ -149,7 +149,7 @@ struct ApplicationStartupSnapshot {
     failure: Option<icydb::db::StartupFailure>,
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 struct ApplicationStartupState {
     hook: ApplicationStartupHook,
     engine_registered_before_hook: bool,
@@ -160,7 +160,7 @@ struct ApplicationStartupState {
     failure: Option<icydb::db::StartupFailure>,
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 impl ApplicationStartupState {
     const fn new(hook: ApplicationStartupHook, engine_registered_before_hook: bool) -> Self {
         Self {
@@ -175,7 +175,7 @@ impl ApplicationStartupState {
     }
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 std::thread_local! {
     static APPLICATION_STARTUP_STATE: std::cell::RefCell<ApplicationStartupState> =
         const { std::cell::RefCell::new(ApplicationStartupState::new(ApplicationStartupHook::Init, false)) };
@@ -183,17 +183,17 @@ std::thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 pub(crate) fn application_startup_init() {
     begin_application_startup(ApplicationStartupHook::Init);
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 pub(crate) fn application_startup_post_upgrade() {
     begin_application_startup(ApplicationStartupHook::PostUpgrade);
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn begin_application_startup(hook: ApplicationStartupHook) {
     let engine_registered_before_hook = engine_startup_watchdog_armed();
     APPLICATION_STARTUP_STATE.with(|state| {
@@ -205,7 +205,7 @@ fn begin_application_startup(hook: ApplicationStartupHook) {
     apply_application_startup_observation(startup_state());
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn apply_application_startup_observation(
     observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
 ) {
@@ -216,7 +216,7 @@ fn apply_application_startup_observation(
     }
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn observe_application_startup(
     observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
 ) -> bool {
@@ -243,7 +243,7 @@ fn observe_application_startup(
     })
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn schedule_application_startup_poll() {
     APPLICATION_STARTUP_TIMER.with(|timer| {
         let mut registration = timer.borrow_mut();
@@ -271,7 +271,7 @@ fn schedule_application_startup_poll() {
     });
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn clear_application_startup_poll() {
     APPLICATION_STARTUP_TIMER.with(|timer| {
         if let Some(registration) = timer.borrow().as_ref()
@@ -282,7 +282,7 @@ fn clear_application_startup_poll() {
     });
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn application_startup_poll_result() -> ic_timers::TimerRunResult {
     let recovering = observe_application_startup(startup_state());
     let directive = if recovering {
@@ -293,7 +293,7 @@ fn application_startup_poll_result() -> ic_timers::TimerRunResult {
     ic_timers::TimerRunResult::new(ic_timers::TimerCompletion::no_work(), directive)
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn application_startup_timer_identity() -> ic_timers::TimerIdentity {
     match ic_timers::TimerIdentity::try_new("icydb-audit", "startup", "application-poll") {
         Ok(identity) => identity,
@@ -301,7 +301,7 @@ fn application_startup_timer_identity() -> ic_timers::TimerIdentity {
     }
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn application_startup_poll_scheduled() -> bool {
     APPLICATION_STARTUP_TIMER.with(|timer| {
         let registration = timer.borrow();
@@ -315,7 +315,7 @@ fn application_startup_poll_scheduled() -> bool {
     })
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn engine_startup_watchdog_armed() -> bool {
     let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
         ic_cdk::trap("IcyDB startup watchdog identity is invalid");
@@ -327,7 +327,7 @@ fn engine_startup_watchdog_armed() -> bool {
     }
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
         ic_cdk::trap("IcyDB startup watchdog identity is invalid");
@@ -359,7 +359,7 @@ fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     }
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn application_startup_snapshot() -> ApplicationStartupSnapshot {
     APPLICATION_STARTUP_STATE.with(|state| {
         let state = state.borrow();
@@ -676,15 +676,15 @@ const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 const SCALE_FIXTURE_PROFILE_VERSION: u32 = 1;
 #[cfg(feature = "sql")]
 const SCALE_FIXTURE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 const JOINT_ZERO_INDEX_ADMITTED_ROWS: u32 = 4_096;
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 const JOINT_THREE_INDEX_ADMITTED_ROWS: u32 = 2_048;
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 const PATCH1_WIDE_ROW_PAYLOAD_BYTES: usize = (4 * 1024 * 1024) - 1024;
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 const JOINT_FANOUT_ADMITTED_ROWS: u32 = 240;
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 const JOINT_FANOUT_FIRST_REJECTED_ROWS: u32 = 241;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_FIXTURE_PROFILE_VERSION: u32 = 1;
@@ -1715,7 +1715,7 @@ fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts
 }
 
 /// Load the closed zero-index joint-admission boundary.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn load_joint_zero_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -1731,7 +1731,7 @@ fn load_joint_zero_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::
 }
 
 /// Load the closed three-index joint-admission boundary.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn load_joint_three_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -1757,7 +1757,7 @@ fn load_joint_three_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb:
 }
 
 /// Load one near-maximum row with maintained derived-index fanout.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn load_patch1_wide_row_recovery_fixture() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -1776,7 +1776,7 @@ fn load_patch1_wide_row_recovery_fixture() -> Result<u32, icydb::Error> {
     })
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn joint_fanout_patches(row_count: u32) -> Result<Vec<StructuralPatch>, icydb::Error> {
     (0..row_count)
         .map(|ordinal| {
@@ -1797,7 +1797,7 @@ fn joint_fanout_patches(row_count: u32) -> Result<Vec<StructuralPatch>, icydb::E
 }
 
 /// Exercise the first rejected 64-secondary-index batch through maintained admission.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn reject_joint_fanout_over_boundary_fixture() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -1812,7 +1812,7 @@ fn reject_joint_fanout_over_boundary_fixture() -> Result<u32, icydb::Error> {
 }
 
 /// Load one closed batch at the admitted 64-secondary-index fanout boundary.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -1885,7 +1885,7 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
     })
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Error> {
     let session = icydb::db::DbSession::new(crate::__icydb_generated::core_db()?);
     let target = session.schema_application_target()?;
@@ -1911,21 +1911,21 @@ fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Er
 }
 
 /// Measure schema application inside a rollback-scoped query message.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[query]
 fn measure_schema_application_query() -> Result<SchemaApplicationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(measure_schema_application)
 }
 
 /// Measure and persist schema application through an update message.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(measure_schema_application)
 }
 
 /// Measure the generated pure startup observer without opening a session.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[query]
 fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::db::StartupFailure>
 {
@@ -1940,21 +1940,21 @@ fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::
 }
 
 /// Read instruction evidence from the real generated startup watchdog.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[query]
 fn startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     engine_startup_watchdog_perf_snapshot()
 }
 
 /// Expose application-owned readiness evidence only in the local audit actor.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[query]
 fn application_startup_contract() -> ApplicationStartupSnapshot {
     application_startup_snapshot()
 }
 
 /// Feed the application policy one typed observation without changing IcyDB state.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn observe_application_startup_for_tests(
     observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
@@ -1965,7 +1965,7 @@ fn observe_application_startup_for_tests(
 /// Use the predecessor admission path solely to prepare Patch 2 readiness evidence.
 // The test-admin Candid documentation above is frozen. The maintained body now
 // exercises state-only ordinary admission and never initializes recovery.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
     let start = ic_cdk::api::performance_counter(1);
@@ -1985,7 +1985,7 @@ fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
 }
 
 /// Trap only after one canonical startup-driver attempt reaches `Ready`.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn trap_after_complete_startup_recovery() -> Result<(), icydb::Error> {
     let complete = icydb::db::with_request_execution(
@@ -4129,20 +4129,20 @@ fn perf_audit_tokens() -> Vec<PerfAuditToken> {
 
 /// Closed producer and recovery facts for one maximum accepted-index publication.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 struct PromotionIndexPublicationFacts {
     rows_scanned: u64,
     index_keys_written: u64,
     local_instructions: u64,
 }
 
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 const PROMOTION_INDEX_LOAD_PAGE_ROWS: u32 = 4_096;
 
 /// Append one admitted page of the maximum accepted-index promotion fixture.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn append_promotion_index_fixture_page(first_id: u32, row_count: u32) -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -4171,7 +4171,7 @@ fn append_promotion_index_fixture_page(first_id: u32, row_count: u32) -> Result<
 }
 
 /// Publish the largest maintained accepted-index key set through ordinary DDL.
-#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn publish_promotion_index_fixture() -> Result<PromotionIndexPublicationFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {

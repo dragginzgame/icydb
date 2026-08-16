@@ -18,6 +18,7 @@ use crate::{
         index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
         integrity::DatabaseIncarnationId,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+        positioned_overlay::{OnlineOverlayDecision, classify_journal_overlay},
         schema::{
             AcceptedCheckExprV1, AcceptedSchemaFingerprint, AcceptedSchemaRevision,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
@@ -180,6 +181,91 @@ fn journal_batch_codec_round_trips_logical_row_and_schema_records() {
 }
 
 #[test]
+fn every_journal_record_family_has_an_explicit_online_overlay_decision() {
+    let job = validation_job();
+    let index_key = accepted_schema_index_key(7, 9);
+    let plan = SchemaMigrationPlanDigest::from_bytes([0x72; 32]);
+    let records = vec![
+        (row_put_record(1), OnlineOverlayDecision::DataPositive),
+        (row_delete_record(2), OnlineOverlayDecision::DataTombstone),
+        (schema_put_record(3), OnlineOverlayDecision::SchemaPositive),
+        (
+            accepted_schema_publish_record(),
+            OnlineOverlayDecision::SchemaPositive,
+        ),
+        (
+            JournalRecord::accepted_schema_index_delete(
+                "test::Store",
+                EntityTag::new(1),
+                [0x51; 16],
+                vec![index_key.clone()],
+            )
+            .expect("accepted-schema index deletion should build"),
+            OnlineOverlayDecision::IndexTombstone,
+        ),
+        (
+            JournalRecord::accepted_schema_index_put(
+                "test::Store",
+                EntityTag::new(1),
+                [0x51; 16],
+                vec![index_key.clone()],
+            )
+            .expect("accepted-schema index insertion should build"),
+            OnlineOverlayDecision::IndexPositive,
+        ),
+        (
+            JournalRecord::constraint_validation_job_put("test::Store", &job)
+                .expect("validation-job insertion should build"),
+            OnlineOverlayDecision::SchemaPositive,
+        ),
+        (
+            JournalRecord::constraint_validation_job_delete(
+                "test::Store",
+                job.entity_tag(),
+                job.constraint_id(),
+            )
+            .expect("validation-job deletion should build"),
+            OnlineOverlayDecision::SchemaTombstone,
+        ),
+        (
+            JournalRecord::constraint_validation_index_put(
+                "test::Store",
+                job.entity_tag(),
+                job.constraint_id(),
+                index_key.clone(),
+            )
+            .expect("validation candidate index insertion should build"),
+            OnlineOverlayDecision::IndexPositive,
+        ),
+        (
+            identity_range_record(1),
+            OnlineOverlayDecision::SchemaPositive,
+        ),
+        (
+            JournalRecord::schema_migration_row_put(
+                "test::Store",
+                raw_data_store_key(9),
+                vec![0x59; 8],
+                [0x69; 16],
+                plan,
+            )
+            .expect("migration row insertion should build"),
+            OnlineOverlayDecision::DataPositive,
+        ),
+        (
+            JournalRecord::schema_migration_index_put("test::Store", index_key, plan)
+                .expect("migration index insertion should build"),
+            OnlineOverlayDecision::IndexPositive,
+        ),
+    ];
+
+    assert_eq!(records.len(), 12);
+    for (record, expected) in records {
+        assert_eq!(classify_journal_overlay(&record), expected);
+    }
+}
+
+#[test]
 fn journal_batch_header_inspection_freezes_current_envelope_offsets() {
     let batch = batch(1);
     let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
@@ -205,16 +291,24 @@ fn journal_batch_header_inspection_freezes_current_envelope_offsets() {
         batch.journal_sequence().get(),
     );
     assert_eq!(
+        fixed_header.database_commit_sequence(),
+        batch.database_commit_sequence(),
+    );
+    assert_eq!(
+        u64::from_le_bytes(encoded[49..57].try_into().unwrap()),
+        batch.database_commit_sequence().get(),
+    );
+    assert_eq!(
         fixed_header.record_count(),
         u32::try_from(batch.records().len()).expect("test record count should fit"),
     );
     assert_eq!(
-        u32::from_le_bytes(encoded[49..53].try_into().unwrap()),
+        u32::from_le_bytes(encoded[57..61].try_into().unwrap()),
         u32::try_from(batch.records().len()).expect("test record count should fit"),
     );
     assert_eq!(
         fixed_header.batch_fingerprint().as_slice(),
-        &encoded[53..85]
+        &encoded[61..93]
     );
 }
 
@@ -223,10 +317,10 @@ fn journal_batch_fingerprint_binds_the_exact_domain_and_non_fingerprint_bytes() 
     let encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     let mut expected = Sha256::new();
     expected.update(b"ICYDB-JOURNAL-BATCH-FINGERPRINT\0");
-    expected.update(&encoded[..53]);
-    expected.update(&encoded[85..]);
+    expected.update(&encoded[..61]);
+    expected.update(&encoded[93..]);
 
-    assert_eq!(expected.finalize().as_slice(), &encoded[53..85]);
+    assert_eq!(expected.finalize().as_slice(), &encoded[61..93]);
 }
 
 #[test]
@@ -262,7 +356,7 @@ fn journal_batch_fixed_header_inspection_rejects_oversized_record_count_before_r
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     let impossible_count =
         u32::try_from(MAX_JOURNAL_BATCH_RECORDS + 1).expect("test record count should fit");
-    encoded[49..53].copy_from_slice(&impossible_count.to_le_bytes());
+    encoded[57..61].copy_from_slice(&impossible_count.to_le_bytes());
 
     let err = inspect_raw_journal_batch_fixed_header(&encoded)
         .expect_err("oversized record count should fail in fixed-header inspection");
@@ -478,8 +572,8 @@ fn accepted_schema_index_chunk_decode_rejects_empty_and_max_plus_one_before_keys
     .expect("accepted schema index batch should build");
     let encoded = encode_journal_batch(&batch).expect("accepted schema index batch should encode");
 
-    // Batch header + IDs + sequence + record count, then the schema record.
-    let chunk_offset = 9 + 16 + 16 + 8 + 4 + schema_bytes;
+    // Complete fixed version-3 envelope, then the schema record.
+    let chunk_offset = 9 + 16 + 16 + 8 + 8 + 4 + 32 + schema_bytes;
     // Tag + store path + entity + accepted-after fingerprint precede key count.
     let key_count_offset = chunk_offset + 1 + 4 + "test::Store".len() + 8 + 16;
     let key_count_end = key_count_offset + size_of::<u32>();
@@ -1035,7 +1129,7 @@ fn journal_batch_decode_rejects_trailing_bytes() {
 #[test]
 fn journal_batch_decode_rejects_unknown_record_tag() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
-    let first_record_tag_offset = 9 + 16 + 16 + 8 + 4 + 32;
+    let first_record_tag_offset = 9 + 16 + 16 + 8 + 8 + 4 + 32;
     encoded[first_record_tag_offset] = 0xFF;
 
     let err = decode_journal_batch(&encoded).expect_err("unknown record tag should fail closed");
@@ -1048,7 +1142,7 @@ fn journal_batch_decode_rejects_unknown_record_tag() {
 fn journal_batch_decode_rejects_first_middle_and_last_record_corruption() {
     let batch = batch(1);
     let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
-    let mut record_offset = 85;
+    let mut record_offset = 93;
 
     for record in batch.records() {
         let mut corrupt = encoded.clone();
@@ -1067,7 +1161,7 @@ fn journal_batch_decode_rejects_first_middle_and_last_record_corruption() {
 #[test]
 fn journal_batch_decode_rejects_fingerprint_substitution() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
-    encoded[53] ^= 0x01;
+    encoded[61] ^= 0x01;
 
     let err = decode_journal_batch(&encoded)
         .expect_err("substituted journal batch fingerprint must fail closed");
@@ -1376,7 +1470,13 @@ fn journal_tail_store_rejects_batch_at_fold_watermark_control_sequence() {
 #[test]
 fn journal_tail_store_rejects_sequence_gap_above_watermark() {
     let mut store = JournalTailStore::init(test_memory(213));
-    store.append_batch(&batch(2)).expect("batch should append");
+    let gap_batch = batch(2);
+    store
+        .insert_raw_batch_for_tests(
+            gap_batch.journal_sequence(),
+            encode_journal_batch(&gap_batch).expect("gap batch should encode"),
+        )
+        .expect("gap fixture should insert");
 
     let err = store
         .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
@@ -1582,7 +1682,13 @@ fn journal_inspection_reports_a_nonadjacent_duplicate_batch_identity() {
 #[test]
 fn journal_inspection_reports_a_sequence_gap_and_resumes_at_the_next_physical_batch() {
     let mut store = JournalTailStore::init(test_memory(228));
-    store.append_batch(&batch(2)).expect("batch should append");
+    let gap_batch = batch(2);
+    store
+        .insert_raw_batch_for_tests(
+            gap_batch.journal_sequence(),
+            encode_journal_batch(&gap_batch).expect("gap batch should encode"),
+        )
+        .expect("gap fixture should insert");
     let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
 
     let gap = store

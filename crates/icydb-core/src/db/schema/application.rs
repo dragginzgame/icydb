@@ -3145,10 +3145,10 @@ mod tests {
                 &ABORT_SCHEMA,
                 &ABORT_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(180, "icydb.test.application-abort.data.v1"),
-                    StoreAllocationIdentity::new(181, "icydb.test.application-abort.index.v1"),
-                    StoreAllocationIdentity::new(182, "icydb.test.application-abort.schema.v1"),
-                    StoreAllocationIdentity::new(183, "icydb.test.application-abort.journal.v1"),
+                    StoreAllocationIdentity::new(180, "icydb.test.application_abort.data.v1"),
+                    StoreAllocationIdentity::new(181, "icydb.test.application_abort.index.v1"),
+                    StoreAllocationIdentity::new(182, "icydb.test.application_abort.schema.v1"),
+                    StoreAllocationIdentity::new(183, "icydb.test.application_abort.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("abort journaled store should register");
@@ -3175,10 +3175,10 @@ mod tests {
                 &MIGRATION_EXECUTION_SCHEMA,
                 &MIGRATION_EXECUTION_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(210, "icydb.test.migration-execution.data.v1"),
-                    StoreAllocationIdentity::new(211, "icydb.test.migration-execution.index.v1"),
-                    StoreAllocationIdentity::new(212, "icydb.test.migration-execution.schema.v1"),
-                    StoreAllocationIdentity::new(213, "icydb.test.migration-execution.journal.v1"),
+                    StoreAllocationIdentity::new(210, "icydb.test.migration_execution.data.v1"),
+                    StoreAllocationIdentity::new(211, "icydb.test.migration_execution.index.v1"),
+                    StoreAllocationIdentity::new(212, "icydb.test.migration_execution.schema.v1"),
+                    StoreAllocationIdentity::new(213, "icydb.test.migration_execution.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("migration execution store should register");
@@ -3205,10 +3205,10 @@ mod tests {
                 &MIGRATION_SCHEMA,
                 &MIGRATION_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(200, "icydb.test.migration-validation.data.v1"),
-                    StoreAllocationIdentity::new(201, "icydb.test.migration-validation.index.v1"),
-                    StoreAllocationIdentity::new(202, "icydb.test.migration-validation.schema.v1"),
-                    StoreAllocationIdentity::new(203, "icydb.test.migration-validation.journal.v1"),
+                    StoreAllocationIdentity::new(200, "icydb.test.migration_validation.data.v1"),
+                    StoreAllocationIdentity::new(201, "icydb.test.migration_validation.index.v1"),
+                    StoreAllocationIdentity::new(202, "icydb.test.migration_validation.schema.v1"),
+                    StoreAllocationIdentity::new(203, "icydb.test.migration_validation.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("migration validation store should register");
@@ -3235,10 +3235,10 @@ mod tests {
                 &MIGRATION_FINDING_SCHEMA,
                 &MIGRATION_FINDING_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(206, "icydb.test.migration-finding.data.v1"),
-                    StoreAllocationIdentity::new(207, "icydb.test.migration-finding.index.v1"),
-                    StoreAllocationIdentity::new(208, "icydb.test.migration-finding.schema.v1"),
-                    StoreAllocationIdentity::new(209, "icydb.test.migration-finding.journal.v1"),
+                    StoreAllocationIdentity::new(206, "icydb.test.migration_finding.data.v1"),
+                    StoreAllocationIdentity::new(207, "icydb.test.migration_finding.index.v1"),
+                    StoreAllocationIdentity::new(208, "icydb.test.migration_finding.schema.v1"),
+                    StoreAllocationIdentity::new(209, "icydb.test.migration_finding.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("migration finding store should register");
@@ -3264,10 +3264,10 @@ mod tests {
                 &EVOLUTION_SCHEMA,
                 &EVOLUTION_JOURNAL,
                 StoreAllocationIdentities::new_journaled(
-                    StoreAllocationIdentity::new(192, "icydb.test.rule-evolution.data.v1"),
-                    StoreAllocationIdentity::new(193, "icydb.test.rule-evolution.index.v1"),
-                    StoreAllocationIdentity::new(194, "icydb.test.rule-evolution.schema.v1"),
-                    StoreAllocationIdentity::new(195, "icydb.test.rule-evolution.journal.v1"),
+                    StoreAllocationIdentity::new(192, "icydb.test.rule_evolution.data.v1"),
+                    StoreAllocationIdentity::new(193, "icydb.test.rule_evolution.index.v1"),
+                    StoreAllocationIdentity::new(194, "icydb.test.rule_evolution.schema.v1"),
+                    StoreAllocationIdentity::new(195, "icydb.test.rule_evolution.journal.v1"),
                 ),
                 StoreRuntimeStorageCapabilities::journaled(),
             ).expect("rule-evolution journaled store should register");
@@ -3283,12 +3283,12 @@ mod tests {
 
     impl CanisterKind for AbortCanister {
         const COMMIT_MEMORY_ID: u8 = 184;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.application-abort.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.application_abort.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 186;
-        const STARTUP_STABLE_KEY: &'static str = "icydb.test.application-abort.startup.control.v1";
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.application_abort.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 185;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.application-abort.integrity.v1";
+            "icydb.test.application_abort.integrity.v1";
     }
 
     struct EvolutionCanister;
@@ -3299,12 +3299,12 @@ mod tests {
 
     impl CanisterKind for EvolutionCanister {
         const COMMIT_MEMORY_ID: u8 = 196;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.rule-evolution.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.rule_evolution.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 198;
-        const STARTUP_STABLE_KEY: &'static str = "icydb.test.rule-evolution.startup.control.v1";
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.rule_evolution.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 197;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.rule-evolution.integrity.v1";
+            "icydb.test.rule_evolution.integrity.v1";
     }
 
     #[cfg(feature = "migration")]
@@ -3318,13 +3318,13 @@ mod tests {
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationCanister {
         const COMMIT_MEMORY_ID: u8 = 204;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-validation.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_validation.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 206;
         const STARTUP_STABLE_KEY: &'static str =
-            "icydb.test.migration-validation.startup.control.v1";
+            "icydb.test.migration_validation.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 205;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.migration-validation.integrity.v1";
+            "icydb.test.migration_validation.integrity.v1";
     }
 
     #[cfg(feature = "migration")]
@@ -3338,13 +3338,13 @@ mod tests {
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationExecutionCanister {
         const COMMIT_MEMORY_ID: u8 = 214;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-execution.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_execution.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 216;
         const STARTUP_STABLE_KEY: &'static str =
-            "icydb.test.migration-execution.startup.control.v1";
+            "icydb.test.migration_execution.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 215;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.migration-execution.integrity.v1";
+            "icydb.test.migration_execution.integrity.v1";
     }
 
     #[cfg(feature = "migration")]
@@ -3358,12 +3358,12 @@ mod tests {
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationFindingCanister {
         const COMMIT_MEMORY_ID: u8 = 210;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration-finding.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_finding.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 212;
-        const STARTUP_STABLE_KEY: &'static str = "icydb.test.migration-finding.startup.control.v1";
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.migration_finding.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 211;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.migration-finding.integrity.v1";
+            "icydb.test.migration_finding.integrity.v1";
     }
 
     fn name(value: &str) -> SchemaName {

@@ -16,13 +16,14 @@ use crate::{
         Db,
         commit::{
             CommitMarker, DatabaseControlOp, begin_commit, finish_commit, generate_commit_id,
-            generate_marker_batch_id,
+            generate_marker_batch_id, next_database_commit_sequence,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit, StructuralSlotReader},
         direction::Direction,
         index::{IndexEntryValue, IndexId, IndexKey, RawIndexStoreKey},
         journal::{
-            JournalBatch, JournalRecord, MAX_JOURNAL_BATCH_RECORDS, journal_record_payload_len,
+            DatabaseCommitSequence, JournalBatch, JournalRecord, MAX_JOURNAL_BATCH_RECORDS,
+            journal_record_payload_len,
         },
         key_taxonomy::RawDataStoreKeyRange,
         registry::{StoreHandle, StoreRecoveryCapability},
@@ -437,6 +438,7 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
     effects
         .dedup_by(|left, right| left.store_path == right.store_path && left.record == right.record);
     let marker_id = generate_commit_id()?;
+    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let mut grouped = BTreeMap::<&'static str, (StoreHandle, Vec<JournalRecord>)>::new();
     for effect in effects {
         require_journaled(effect.store)?;
@@ -458,7 +460,13 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
         batches.push((
             store_path,
             store,
-            JournalBatch::new(batch_id, marker_id, sequence, records)?,
+            JournalBatch::new_with_database_commit_sequence(
+                batch_id,
+                marker_id,
+                sequence,
+                database_commit_sequence,
+                records,
+            )?,
         ));
     }
     let marker = CommitMarker::from_parts_with_database_control(

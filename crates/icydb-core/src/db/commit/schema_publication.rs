@@ -18,9 +18,9 @@ use crate::{
     db::{
         commit::{
             CommitMarker, DatabaseControlOp, begin_commit, database_incarnation_id, finish_commit,
-            generate_commit_id, generate_marker_batch_id,
+            generate_commit_id, generate_marker_batch_id, next_database_commit_sequence,
         },
-        journal::{JournalBatch, JournalRecord, JournalSequence},
+        journal::{DatabaseCommitSequence, JournalBatch, JournalRecord, JournalSequence},
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
@@ -408,13 +408,20 @@ fn publish_live_candidate_with_prepared_domains(
     })?;
     preflight_live_schema_checkpoint(incarnation, store_path, expected_revision, candidate)?;
     let marker_id = generate_commit_id()?;
+    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let record = JournalRecord::accepted_schema_publish(
         store_path,
         expected_revision,
         candidate.encoded_bundle().to_vec(),
         candidate.encoded_root().to_vec(),
     )?;
-    let batch = JournalBatch::new(marker_id, marker_id, JournalSequence::new(0), vec![record])?;
+    let batch = JournalBatch::new_with_database_commit_sequence(
+        marker_id,
+        marker_id,
+        JournalSequence::new(0),
+        database_commit_sequence,
+        vec![record],
+    )?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch])?;
     let commit = begin_commit(marker)?;
 
@@ -449,6 +456,7 @@ fn publish_journaled_candidate(
         .journal_tail_store()
         .ok_or_else(InternalError::store_invariant)?;
     let marker_id = generate_commit_id()?;
+    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let sequence = journal_store
         .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
     let schema_record = JournalRecord::accepted_schema_publish(
@@ -462,7 +470,13 @@ fn publish_journaled_candidate(
     if let Some(record) = constraint_validation_job_journal_record(store_path, job_change)? {
         records.push(record);
     }
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
+    let batch = JournalBatch::new_with_database_commit_sequence(
+        marker_id,
+        marker_id,
+        sequence,
+        database_commit_sequence,
+        records,
+    )?;
     let marker = CommitMarker::from_parts_with_schema_application(
         marker_id,
         vec![batch.clone()],
@@ -552,6 +566,7 @@ fn publish_candidates_atomically(
 ) -> Result<(), InternalError> {
     let incarnation = database_incarnation_id()?;
     let marker_id = generate_commit_id()?;
+    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let mut batches = Vec::with_capacity(publications.len());
     for (ordinal, publication) in publications.iter().enumerate() {
         let sequence = match (
@@ -569,10 +584,11 @@ fn publish_candidates_atomically(
             publication.candidate.encoded_root().to_vec(),
         )?;
         let batch_id = generate_marker_batch_id(marker_id, ordinal)?;
-        batches.push(JournalBatch::new(
+        batches.push(JournalBatch::new_with_database_commit_sequence(
             batch_id,
             marker_id,
             sequence,
+            database_commit_sequence,
             vec![record],
         )?);
     }
@@ -679,10 +695,17 @@ fn publish_journaled_constraint_validation_job(
         .journal_tail_store()
         .ok_or_else(InternalError::store_invariant)?;
     let marker_id = generate_commit_id()?;
+    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let sequence = journal_store
         .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
     let record = JournalRecord::constraint_validation_job_put(store_path, job)?;
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, vec![record])?;
+    let batch = JournalBatch::new_with_database_commit_sequence(
+        marker_id,
+        marker_id,
+        sequence,
+        database_commit_sequence,
+        vec![record],
+    )?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
@@ -704,6 +727,7 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
         .journal_tail_store()
         .ok_or_else(InternalError::store_invariant)?;
     let marker_id = generate_commit_id()?;
+    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let sequence = journal_store
         .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
     let mut records = Vec::with_capacity(entries.len().saturating_add(1));
@@ -718,7 +742,13 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
             key.clone(),
         )?);
     }
-    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
+    let batch = JournalBatch::new_with_database_commit_sequence(
+        marker_id,
+        marker_id,
+        sequence,
+        database_commit_sequence,
+        records,
+    )?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
@@ -989,11 +1019,11 @@ mod tests {
             commit::recovery::forget_recovered_domain_for_tests,
             commit::{
                 CommitMarker, DatabaseControlOp, RecoveryProgress, begin_commit, continue_recovery,
-                generate_commit_id, generate_marker_batch_id,
+                generate_commit_id, generate_marker_batch_id, next_database_commit_sequence,
             },
             data::DataStore,
             index::IndexStore,
-            journal::{JournalBatch, JournalRecord, JournalSequence},
+            journal::{DatabaseCommitSequence, JournalBatch, JournalRecord, JournalSequence},
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::{
                 AcceptedFieldKind, AcceptedSchemaRevision, CandidateSchemaRevision, FieldId,
@@ -1146,13 +1176,13 @@ mod tests {
     impl CanisterKind for CompletionCanister {
         const COMMIT_MEMORY_ID: u8 = 240;
         const COMMIT_STABLE_KEY: &'static str =
-            "icydb.test.schema-publication.completion.commit.v1";
+            "icydb.test.schema_publication.completion.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 244;
         const STARTUP_STABLE_KEY: &'static str =
-            "icydb.test.schema-publication.completion.startup.control.v1";
+            "icydb.test.schema_publication.completion.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 243;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.schema-publication.completion.integrity.v1";
+            "icydb.test.schema_publication.completion.integrity.v1";
     }
 
     struct RecoveryCanister;
@@ -1163,13 +1193,13 @@ mod tests {
 
     impl CanisterKind for RecoveryCanister {
         const COMMIT_MEMORY_ID: u8 = 241;
-        const COMMIT_STABLE_KEY: &'static str = "icydb.test.schema-publication.recovery.commit.v1";
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.schema_publication.recovery.commit.v1";
         const STARTUP_MEMORY_ID: u8 = 244;
         const STARTUP_STABLE_KEY: &'static str =
-            "icydb.test.schema-publication.recovery.startup.control.v1";
+            "icydb.test.schema_publication.recovery.startup.control.v1";
         const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 242;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-            "icydb.test.schema-publication.recovery.integrity.v1";
+            "icydb.test.schema_publication.recovery.integrity.v1";
     }
 
     fn applied_record(
@@ -1363,10 +1393,13 @@ mod tests {
         let migration = prepared_schema_migration_record_op_for_tests()
             .expect("migration operation should prepare");
         let marker_id = generate_commit_id().expect("marker id should generate");
-        let batch = JournalBatch::new(
+        let batch = JournalBatch::new_with_database_commit_sequence(
             generate_marker_batch_id(marker_id, 0).expect("batch id should derive"),
             marker_id,
             JournalSequence::new(0),
+            DatabaseCommitSequence::new(
+                next_database_commit_sequence().expect("database sequence should preview"),
+            ),
             vec![
                 JournalRecord::accepted_schema_publish(
                     RECOVERY_STORE_PATH,

@@ -41,6 +41,7 @@ pub(in crate::db) mod journal;
 pub(in crate::db) mod key_taxonomy;
 pub(in crate::db) mod numeric;
 pub(in crate::db) mod ordered_overlay;
+pub(in crate::db) mod positioned_overlay;
 pub(in crate::db) mod relation;
 pub(in crate::db) mod sql_shared;
 #[cfg(test)]
@@ -315,6 +316,10 @@ impl<C: CanisterKind> Db<C> {
     /// Execute one closure against the registered store set.
     pub(crate) fn with_store_registry<R>(&self, f: impl FnOnce(&StoreRegistry) -> R) -> R {
         self.store.with(|reg| f(reg))
+    }
+
+    pub(in crate::db) const fn store_registry(&self) -> &'static LocalKey<StoreRegistry> {
+        self.store
     }
 
     /// Resolve one stable in-process cache scope identifier for this store registry.

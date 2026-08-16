@@ -50,12 +50,12 @@ impl Path for TestCanister {
 
 impl CanisterKind for TestCanister {
     const COMMIT_MEMORY_ID: u8 = 220;
-    const COMMIT_STABLE_KEY: &'static str = "icydb.test.unit-ordering.commit.v1";
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.unit_ordering.commit.v1";
     const STARTUP_MEMORY_ID: u8 = 222;
-    const STARTUP_STABLE_KEY: &'static str = "icydb.test.unit-ordering.startup.control.v1";
+    const STARTUP_STABLE_KEY: &'static str = "icydb.test.unit_ordering.startup.control.v1";
     const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 221;
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
-        "icydb.test.unit-ordering.integrity.progress.v1";
+        "icydb.test.unit_ordering.integrity.progress.v1";
 }
 
 thread_local! {

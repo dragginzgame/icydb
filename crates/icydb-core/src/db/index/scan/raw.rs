@@ -324,6 +324,7 @@ impl IndexStore {
                     canonical,
                     live,
                     tombstones,
+                    ..
                 },
                 Direction::Asc,
             ) if canonical.is_empty() => {
@@ -346,6 +347,7 @@ impl IndexStore {
                     canonical,
                     live,
                     tombstones,
+                    ..
                 },
                 Direction::Desc,
             ) if canonical.is_empty() => {
@@ -369,6 +371,7 @@ impl IndexStore {
                     canonical,
                     live,
                     tombstones,
+                    ..
                 },
                 Direction::Asc,
             ) if live.is_empty() && tombstones.is_empty() => {
@@ -390,6 +393,7 @@ impl IndexStore {
                     canonical,
                     live,
                     tombstones,
+                    ..
                 },
                 Direction::Desc,
             ) if live.is_empty() && tombstones.is_empty() => {

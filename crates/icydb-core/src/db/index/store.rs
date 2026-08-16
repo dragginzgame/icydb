@@ -8,6 +8,9 @@ use crate::db::{
     direction::Direction,
     index::{IndexEntryValue, cardinality::IndexPrefixCardinality, key::RawIndexStoreKey},
     ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
+    positioned_overlay::{
+        JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
+    },
 };
 
 use candid::CandidType;
@@ -129,6 +132,7 @@ pub(super) enum IndexStoreBackend {
             StableBTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>,
         live: HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
         tombstones: BTreeSet<RawIndexStoreKey>,
+        positions: PositionedOverlayMetadata<RawIndexStoreKey>,
     },
 }
 
@@ -175,6 +179,7 @@ impl IndexStore {
                 canonical,
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
+                positions: PositionedOverlayMetadata::new(),
             },
             generation: 0,
             state: IndexState::Ready,
@@ -202,11 +207,7 @@ impl IndexStore {
                     }
                 }
             }
-            IndexStoreBackend::Journaled {
-                canonical: _,
-                live: _,
-                tombstones: _,
-            } => self.visit_journaled_entries_in_range(
+            IndexStoreBackend::Journaled { .. } => self.visit_journaled_entries_in_range(
                 (&Bound::Unbounded, &Bound::Unbounded),
                 Direction::Asc,
                 |key, value| visitor(key, value).map(IndexStoreVisit::should_stop),
@@ -396,6 +397,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -415,6 +417,89 @@ impl IndexStore {
         Ok(())
     }
 
+    /// Publish one positioned derived or explicit index effect.
+    ///
+    /// This dormant Patch-2 boundary is not called by the production commit or
+    /// recovery paths until atomic online-convergence activation.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Patch 2 state machine remains dormant until Patch 6"
+        )
+    )]
+    pub(in crate::db) fn publish_positioned_journal_entry(
+        &mut self,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
+        position: JournalOverlayPosition,
+    ) -> Result<Option<IndexEntryValue>, crate::error::InternalError> {
+        let IndexStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+            positions,
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        positions.preflight_publish(&key, position)?;
+        let previous = if tombstones.contains(&key) {
+            None
+        } else {
+            live.get(&key).cloned().or_else(|| canonical.get(&key))
+        };
+        let cardinality_key = key.clone();
+
+        if let Some(value) = value {
+            tombstones.remove(&key);
+            live.insert(key.clone(), value.clone());
+            self.prefix_cardinality
+                .apply_insert(&cardinality_key, previous.as_ref(), &value);
+        } else {
+            live.remove(&key);
+            tombstones.insert(key.clone());
+            self.prefix_cardinality
+                .apply_remove(&cardinality_key, previous.as_ref());
+        }
+        positions.publish_preflighted(key, position);
+        self.bump_generation();
+
+        Ok(previous)
+    }
+
+    /// Retire this batch's index overlay only when it still owns the target.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Patch 2 state machine remains dormant until Patch 6"
+        )
+    )]
+    pub(in crate::db) fn retire_positioned_journal_effect(
+        &mut self,
+        key: &RawIndexStoreKey,
+        position: JournalOverlayPosition,
+    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
+        let IndexStoreBackend::Journaled {
+            live,
+            tombstones,
+            positions,
+            ..
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        let retirement = positions.preflight_retirement(key, position)?;
+        if retirement == PositionedOverlayRetirement::Exact {
+            live.remove(key);
+            tombstones.remove(key);
+            positions.retire_preflighted(key, retirement);
+            self.bump_generation();
+        }
+        Ok(retirement)
+    }
+
     /// Apply one recovered index entry directly to canonical stable storage.
     pub(in crate::db) fn fold_recovered_journal_entry(
         &mut self,
@@ -425,6 +510,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -468,6 +554,7 @@ impl IndexStore {
                 canonical,
                 live,
                 tombstones,
+                ..
             } => {
                 live.clear();
                 tombstones.clear();
@@ -491,6 +578,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -585,6 +673,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
+            ..
         } = backend
         else {
             return None;
@@ -607,6 +696,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
+            ..
         } = backend
         else {
             return HeapBTreeMap::new();
@@ -638,6 +728,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
+            ..
         } = &self.backend
         else {
             return Ok(());
@@ -745,7 +836,10 @@ mod tests {
         db::{
             direction::Direction,
             index::{IndexId, IndexKey, IndexKeyKind},
+            journal::JournalSequence,
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            positioned_overlay::{JournalOverlayPosition, PositionedOverlayRetirement},
+            registry::StoreAllocationIdentity,
         },
         testing::test_memory,
         types::EntityTag,
@@ -755,6 +849,13 @@ mod tests {
 
     fn raw_key(value: u8) -> RawIndexStoreKey {
         <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+    }
+
+    fn overlay_position(sequence: u64) -> JournalOverlayPosition {
+        JournalOverlayPosition::new(
+            StoreAllocationIdentity::new(231, "test::index"),
+            JournalSequence::new(sequence),
+        )
     }
 
     fn indexed_raw_key(
@@ -1347,5 +1448,83 @@ mod tests {
             ),
             Some(0),
         );
+    }
+
+    #[test]
+    fn positioned_index_overlay_preserves_later_membership_until_exact_retirement() {
+        let key = raw_key(7);
+        let mut store = IndexStore::init_journaled(test_memory(97));
+        store
+            .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence()))
+            .expect("canonical membership should seed");
+
+        store
+            .publish_positioned_journal_entry(key.clone(), None, overlay_position(1))
+            .expect("positioned tombstone should publish");
+        store
+            .publish_positioned_journal_entry(
+                key.clone(),
+                Some(IndexEntryValue::presence()),
+                overlay_position(2),
+            )
+            .expect("later membership should supersede the tombstone");
+        store
+            .fold_recovered_journal_entry(key.clone(), None)
+            .expect("tombstone batch should become canonical");
+        assert_eq!(
+            store
+                .retire_positioned_journal_effect(&key, overlay_position(1))
+                .expect("older retirement should preserve later membership"),
+            PositionedOverlayRetirement::Superseded,
+        );
+        assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
+
+        store
+            .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence()))
+            .expect("membership batch should become canonical");
+        assert_eq!(
+            store
+                .retire_positioned_journal_effect(&key, overlay_position(2))
+                .expect("latest retirement should be exact"),
+            PositionedOverlayRetirement::Exact,
+        );
+        assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
+
+        let mut visible = Vec::new();
+        store
+            .visit_entries(|visited_key, value| {
+                visible.push((visited_key.clone(), value.clone()));
+                Ok::<_, Infallible>(IndexStoreVisit::Continue)
+            })
+            .expect("positioned index should remain range-visible");
+        assert_eq!(visible, vec![(key, IndexEntryValue::presence())]);
+    }
+
+    #[test]
+    fn positioned_index_overlay_coalesces_repeated_same_batch_target() {
+        let key = raw_key(8);
+        let position = overlay_position(3);
+        let mut store = IndexStore::init_journaled(test_memory(98));
+
+        store
+            .publish_positioned_journal_entry(
+                key.clone(),
+                Some(IndexEntryValue::presence()),
+                position,
+            )
+            .expect("first same-batch effect should publish");
+        store
+            .publish_positioned_journal_entry(key.clone(), None, position)
+            .expect("final same-batch effect should coalesce by logical target");
+        store
+            .fold_recovered_journal_entry(key.clone(), None)
+            .expect("coalesced final effect should become canonical");
+        assert_eq!(
+            store
+                .retire_positioned_journal_effect(&key, position)
+                .expect("coalesced target should retire once"),
+            PositionedOverlayRetirement::Exact,
+        );
+        assert!(store.get(&key).is_none());
     }
 }

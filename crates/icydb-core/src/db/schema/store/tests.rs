@@ -16,6 +16,9 @@ use crate::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         direction::Direction,
         integrity::DatabaseIncarnationId,
+        journal::JournalSequence,
+        positioned_overlay::{JournalOverlayPosition, PositionedOverlayRetirement},
+        registry::StoreAllocationIdentity,
         schema::{
             AcceptedCheckExprV1, AcceptedCompositeCatalog, AcceptedFieldKind,
             AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
@@ -35,9 +38,17 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
+
 use ic_stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 use std::convert::Infallible;
+
+fn overlay_position(sequence: u64) -> JournalOverlayPosition {
+    JournalOverlayPosition::new(
+        StoreAllocationIdentity::new(232, "test::schema"),
+        JournalSequence::new(sequence),
+    )
+}
 
 fn accepted_field_kind_fingerprint(kind: &AcceptedFieldKind) -> [u8; 32] {
     let mut hasher = new_hash_sha256();
@@ -1832,6 +1843,59 @@ fn raw_schema_snapshot_encodes_and_decodes_typed_snapshot() {
     assert_eq!(decoded, snapshot);
 }
 
+#[test]
+fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
+    let key = RawSchemaKey::from_entity_version(EntityTag::new(229), SchemaVersion::initial());
+    let snapshot = |value| RawSchemaSnapshot::from_encoded_control_record(vec![value]);
+    let mut store = SchemaStore::init_journaled(test_memory(232));
+    let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
+        panic!("positioned schema test requires a journaled store");
+    };
+    canonical.insert(key, snapshot(11));
+
+    store
+        .publish_positioned_journal_entry(key, None, overlay_position(1))
+        .expect("positioned tombstone should publish");
+    store
+        .publish_positioned_journal_entry(key, Some(snapshot(33)), overlay_position(2))
+        .expect("later schema value should supersede the tombstone");
+    let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
+        panic!("positioned schema test requires a journaled store");
+    };
+    canonical.remove(&key);
+    assert_eq!(
+        store
+            .retire_positioned_journal_effect(key, overlay_position(1))
+            .expect("older retirement should preserve the later value"),
+        PositionedOverlayRetirement::Superseded,
+    );
+    assert_eq!(
+        store
+            .get_raw_snapshot_for_backend(&key)
+            .expect("later schema value must remain visible")
+            .as_bytes(),
+        [33],
+    );
+
+    let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
+        panic!("positioned schema test requires a journaled store");
+    };
+    canonical.insert(key, snapshot(33));
+    assert_eq!(
+        store
+            .retire_positioned_journal_effect(key, overlay_position(2))
+            .expect("latest schema value should retire exactly"),
+        PositionedOverlayRetirement::Exact,
+    );
+    assert_eq!(
+        store
+            .get_raw_snapshot_for_backend(&key)
+            .expect("canonical schema value should remain visible")
+            .as_bytes(),
+        [33],
+    );
+}
+
 // Build one typed schema snapshot used by schema-store tests. The exact
 // field contracts are intentionally rich enough to cover nested metadata,
 // scalar codecs, and structural payloads through the raw store.
@@ -1873,6 +1937,7 @@ fn visit_journaled_schema_range(
         canonical,
         live,
         tombstones,
+        ..
     } = &store.backend
     else {
         panic!("schema range test helper requires a journaled store");

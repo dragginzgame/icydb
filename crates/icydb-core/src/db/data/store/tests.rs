@@ -2,7 +2,10 @@ use super::*;
 use crate::{
     db::{
         data::DecodedDataStoreKey,
+        journal::JournalSequence,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+        positioned_overlay::{JournalOverlayPosition, PositionedOverlayRetirement},
+        registry::StoreAllocationIdentity,
     },
     testing::test_memory,
 };
@@ -25,6 +28,13 @@ fn raw_key(entity: u64, id: u64) -> RawDataStoreKey {
 
 fn raw_row(value: u8) -> RawRow {
     RawRow::try_new(vec![value]).expect("test raw row should be bounded")
+}
+
+fn overlay_position(sequence: u64) -> JournalOverlayPosition {
+    JournalOverlayPosition::new(
+        StoreAllocationIdentity::new(230, "test::data"),
+        JournalSequence::new(sequence),
+    )
 }
 
 fn seed_store(memory_id: u8, entries: &[(u64, u64, u8)]) -> DataStore {
@@ -67,6 +77,74 @@ fn data_store_read_borrows_heap_and_live_rows_but_owns_stable_rows() {
         journaled.read(&raw_key(1, 1)),
         StoredRowRead::Borrowed(row) if row.as_bytes() == [22]
     ));
+}
+
+#[test]
+fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
+    let key = raw_key(1, 1);
+    let mut store = DataStore::init_journaled(test_memory(230));
+    store
+        .fold_recovered_journal_put(key.clone(), raw_row(11))
+        .expect("canonical row should seed");
+    store.rebuild_entity_cardinality_from_entries();
+
+    store
+        .publish_positioned_journal_entry(key.clone(), Some(raw_row(22)), overlay_position(1))
+        .expect("first positioned put should publish");
+    store
+        .publish_positioned_journal_entry(key.clone(), None, overlay_position(2))
+        .expect("later positioned delete should publish");
+    store
+        .fold_recovered_journal_put(key.clone(), raw_row(22))
+        .expect("first batch should become canonical");
+    assert_eq!(
+        store
+            .retire_positioned_journal_effect(&key, overlay_position(1))
+            .expect("older batch retirement should preflight"),
+        PositionedOverlayRetirement::Superseded,
+    );
+    assert!(
+        store.get(&key).is_none(),
+        "newer tombstone must remain visible"
+    );
+
+    store
+        .publish_positioned_journal_entry(key.clone(), Some(raw_row(33)), overlay_position(3))
+        .expect("reinsert should supersede the tombstone");
+    store
+        .fold_recovered_journal_delete(&key)
+        .expect("delete batch should become canonical");
+    assert_eq!(
+        store
+            .retire_positioned_journal_effect(&key, overlay_position(2))
+            .expect("delete retirement should preserve the reinsert"),
+        PositionedOverlayRetirement::Superseded,
+    );
+    assert_eq!(
+        store
+            .get(&key)
+            .expect("reinsert must remain visible")
+            .as_bytes(),
+        [33],
+    );
+
+    store
+        .fold_recovered_journal_put(key.clone(), raw_row(33))
+        .expect("reinsert batch should become canonical");
+    assert_eq!(
+        store
+            .retire_positioned_journal_effect(&key, overlay_position(3))
+            .expect("newest batch should retire exactly"),
+        PositionedOverlayRetirement::Exact,
+    );
+    assert_eq!(
+        store
+            .get(&key)
+            .expect("canonical reinsert should remain")
+            .as_bytes(),
+        [33],
+    );
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(1));
 }
 
 #[test]

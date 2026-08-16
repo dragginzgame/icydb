@@ -755,11 +755,18 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     // sequence.
     let mut batch_ids = BTreeSet::new();
     let mut identity_owners = Vec::new();
+    let mut database_commit_sequence = None;
     for batch in &marker.journal_batches {
         if batch.commit_marker_id() != marker.id {
             return Err(InternalError::commit_corruption());
         }
         if !batch_ids.insert(batch.batch_id()) {
+            return Err(InternalError::commit_corruption());
+        }
+        if database_commit_sequence
+            .replace(batch.database_commit_sequence())
+            .is_some_and(|prior| prior != batch.database_commit_sequence())
+        {
             return Err(InternalError::commit_corruption());
         }
         for record in batch.records() {
