@@ -1432,7 +1432,7 @@ mod tests {
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_compatibility_input() {
-        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x81a4_6027);
+        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x16c4_42df);
         assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
 
         for index in 0..RESUMABLE_UPDATE_BATCH_POLICY_INPUTS.len() {
