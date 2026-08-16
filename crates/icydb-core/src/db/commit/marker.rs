@@ -22,6 +22,7 @@ use std::cell::Cell;
 use std::{
     borrow::Cow,
     collections::BTreeSet,
+    ops::Range,
     rc::Rc,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -315,7 +316,7 @@ pub(in crate::db) fn encode_commit_marker_payload(
 
     // Phase 2: emit one length-delimited frame for deterministic recovery replay.
     let mut encoded = Vec::with_capacity(capacity);
-    write_commit_marker_payload(&mut encoded, marker)?;
+    let _journal_batch_ranges = write_commit_marker_payload(&mut encoded, marker)?;
 
     Ok(encoded)
 }
@@ -380,16 +381,20 @@ const fn encoded_replace_capacity(before: Option<&[u8]>, after: &[u8]) -> usize 
 pub(in crate::db) fn write_commit_marker_payload(
     out: &mut Vec<u8>,
     marker: &CommitMarker,
-) -> Result<(), InternalError> {
+) -> Result<Vec<Range<usize>>, InternalError> {
     out.extend_from_slice(&marker.id);
     write_len_u32(
         out,
         marker.journal_batches.len(),
         "commit marker journal batch count",
     )?;
+    let mut journal_batch_ranges = Vec::with_capacity(marker.journal_batches.len());
     for batch in &marker.journal_batches {
         let encoded = encode_journal_batch(batch)?;
-        write_len_prefixed_bytes(out, &encoded, "commit marker journal batch")?;
+        write_len_u32(out, encoded.len(), "commit marker journal batch")?;
+        let batch_start = out.len();
+        out.extend_from_slice(&encoded);
+        journal_batch_ranges.push(batch_start..out.len());
     }
     out.push(
         u8::try_from(marker.database_control().len())
@@ -447,7 +452,7 @@ pub(in crate::db) fn write_commit_marker_payload(
         }
     }
 
-    Ok(())
+    Ok(journal_batch_ranges)
 }
 
 /// Decode one commit-marker payload from the canonical binary format.

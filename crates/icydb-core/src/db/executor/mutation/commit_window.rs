@@ -135,6 +135,7 @@ pub(in crate::db::executor) struct OpenCommitWindow {
 pub(in crate::db::executor) struct PreparedJournalAppend {
     journal_store: &'static LocalKey<RefCell<crate::db::journal::JournalTailStore>>,
     batch: JournalBatch,
+    marker_batch_ordinal: usize,
 }
 
 struct CommitWindowPayload {
@@ -664,8 +665,6 @@ fn apply_prepared_row_ops<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     finish_commit(commit, |guard| {
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
-        let _ = guard;
-
         // Enforce that index stores are unchanged between preflight and apply.
         for index_store_guard in &index_store_guards {
             index_store_guard.verify()?;
@@ -675,7 +674,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
-        append_prepared_journal_batches(&effects.journal_appends)?;
+        append_prepared_journal_batches(guard, &effects.journal_appends)?;
         #[cfg(test)]
         if take_mutation_commit_interruption(MutationCommitInterruption::JournalPublished) {
             std::mem::forget(apply_guard);
@@ -1001,11 +1000,13 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
                 advance_id,
             });
         }
+        let marker_batch_ordinal = marker_batches.len();
         marker_batches.push(batch.clone());
         if let Some(journal_store) = journal_store {
             journal_appends.push(PreparedJournalAppend {
                 journal_store,
                 batch,
+                marker_batch_ordinal,
             });
         }
     }
@@ -1111,11 +1112,15 @@ fn push_journal_record(
     journal_records.push((handle, vec![record]));
 }
 
-fn append_prepared_journal_batches(appends: &[PreparedJournalAppend]) -> Result<(), InternalError> {
+fn append_prepared_journal_batches(
+    guard: &CommitGuard,
+    appends: &[PreparedJournalAppend],
+) -> Result<(), InternalError> {
     for append in appends {
-        append
-            .journal_store
-            .with_borrow_mut(|store| store.append_batch(&append.batch))?;
+        let marker_bytes = guard.journal_batch_bytes(append.marker_batch_ordinal)?;
+        append.journal_store.with_borrow_mut(|store| {
+            store.append_marker_encoded_batch(&append.batch, marker_bytes)
+        })?;
     }
 
     Ok(())

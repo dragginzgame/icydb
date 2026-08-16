@@ -101,7 +101,7 @@ fn native_exact_key_batch_instruction_measurement() {
 }
 
 #[test]
-fn request_diagnostics_expose_toko_shaped_n_plus_one_work() {
+fn request_diagnostics_expose_collection_scale_n_plus_one_work() {
     let fixture = install_fixture_canister("one_entity_dynamic_query");
 
     let ((executions, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture

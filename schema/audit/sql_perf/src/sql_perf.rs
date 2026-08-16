@@ -206,7 +206,7 @@ pub struct PerfAuditJournaledUser {}
 ///
 /// PerfAuditMutationToken
 ///
-/// Toko-shaped journaled token used only by the durable mutation-job scale
+/// Collection-scale journaled token used only by the durable mutation-job
 /// contract. The collection index preserves the production scope shape while
 /// `tier` remains the fixed field converged by the first durable phase.
 ///
@@ -227,7 +227,7 @@ pub struct PerfAuditMutationToken {}
 ///
 /// PerfAuditMutationScoringState
 ///
-/// Toko-shaped scoring state paired one-for-one with the token fixture. It is
+/// Collection-scale scoring state paired one-for-one with the token fixture. It is
 /// a separate entity so both application phases can be made durable before
 /// either phase begins executing.
 ///

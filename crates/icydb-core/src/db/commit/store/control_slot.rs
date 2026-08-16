@@ -16,6 +16,37 @@ use crate::{
     },
     error::InternalError,
 };
+use std::ops::Range;
+
+/// Current encoded commit-control bytes retained through the live apply phase.
+///
+/// Journal batch ranges point into the exact bytes already persisted as marker
+/// authority, allowing normal apply to append those bytes without recomputing
+/// the batch fingerprint.
+#[derive(Debug)]
+pub(in crate::db::commit) struct EncodedCommitControlSlot {
+    bytes: Vec<u8>,
+    journal_batch_ranges: Vec<Range<usize>>,
+}
+
+impl EncodedCommitControlSlot {
+    pub(in crate::db::commit) const fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+
+    pub(in crate::db::commit) fn journal_batch_bytes(
+        &self,
+        ordinal: usize,
+    ) -> Result<&[u8], InternalError> {
+        let range = self
+            .journal_batch_ranges
+            .get(ordinal)
+            .ok_or_else(InternalError::store_invariant)?;
+        self.bytes
+            .get(range.clone())
+            .ok_or_else(InternalError::store_invariant)
+    }
+}
 
 ///
 /// CommitControlSlotRef
@@ -219,7 +250,7 @@ pub(super) fn encode_commit_control_slot_from_marker(
     database_incarnation_id: DatabaseIncarnationId,
     cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     marker: &CommitMarker,
-) -> Result<Vec<u8>, InternalError> {
+) -> Result<EncodedCommitControlSlot, InternalError> {
     validate_commit_marker_shape(marker)?;
 
     let marker_payload_len = commit_marker_payload_capacity(marker);
@@ -233,9 +264,12 @@ pub(super) fn encode_commit_control_slot_from_marker(
         lengths.marker_length,
     );
     write_commit_marker_envelope_header(&mut encoded, lengths.payload_size)?;
-    write_commit_marker_payload(&mut encoded, marker)?;
+    let journal_batch_ranges = write_commit_marker_payload(&mut encoded, marker)?;
 
-    Ok(encoded)
+    Ok(EncodedCommitControlSlot {
+        bytes: encoded,
+        journal_batch_ranges,
+    })
 }
 
 // Validate and materialize the shared control-slot lengths used by the direct

@@ -146,8 +146,8 @@ pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_389;
 /// Current sequence-checked terminal acknowledgement sample.
 pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 118_079;
 
-/// Maximum reviewed instruction cost for one 64-update Forward step.
-pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 30_000_000;
+/// Maximum reviewed instruction cost for one fingerprint-bound 64-update Forward step.
+pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 31_000_000;
 
 /// Maximum reviewed instruction cost for one 256-key Verify step.
 pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 8_000_000;

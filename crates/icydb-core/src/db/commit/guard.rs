@@ -10,7 +10,7 @@ use crate::{
         commit::{
             PreparedRowCommitOp,
             marker::{CommitMarker, DatabaseControlOp},
-            store::{with_commit_store, with_initialized_commit_store},
+            store::{EncodedCommitControlSlot, with_commit_store, with_initialized_commit_store},
         },
         integrity::preflight_mutation_progress_record_op,
         schema::preflight_schema_application_record_op,
@@ -170,16 +170,26 @@ impl Drop for CommitApplyGuard {
 /// Must not be leaked across mutation boundaries.
 ///
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct CommitGuard {
     startup_recovery_wakeup: fn(),
+    encoded_control_slot: EncodedCommitControlSlot,
 }
 
 impl CommitGuard {
-    const fn new(startup_recovery_wakeup: fn()) -> Self {
+    const fn new(
+        startup_recovery_wakeup: fn(),
+        encoded_control_slot: EncodedCommitControlSlot,
+    ) -> Self {
         Self {
             startup_recovery_wakeup,
+            encoded_control_slot,
         }
+    }
+
+    /// Borrow one exact journal envelope already persisted in this marker.
+    pub(crate) fn journal_batch_bytes(&self, ordinal: usize) -> Result<&[u8], InternalError> {
+        self.encoded_control_slot.journal_batch_bytes(ordinal)
     }
 
     /// Clear the commit marker after successful apply.
@@ -248,9 +258,12 @@ fn begin_commit_with_preflighted_mutation_progress(
     with_commit_store(|store| {
         // Phase 1: enforce one in-flight marker at a time before opening the
         // commit window.
-        store.set_if_empty(&marker)?;
+        let encoded_control_slot = store.set_if_empty(&marker)?;
 
-        Ok(CommitGuard::new(startup_recovery_wakeup))
+        Ok(CommitGuard::new(
+            startup_recovery_wakeup,
+            encoded_control_slot,
+        ))
     })
 }
 

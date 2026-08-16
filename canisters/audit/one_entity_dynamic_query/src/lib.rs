@@ -106,7 +106,7 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
     })
 }
 
-/// Return bounded request evidence for a Toko-shaped point-query loop.
+/// Return bounded request evidence for a collection-scale point-query loop.
 #[ic_cdk::query]
 #[cfg(feature = "request-diagnostics")]
 fn diagnose_repeated_point_queries(

@@ -113,7 +113,7 @@
     },
     {
       "classification": "watch_only",
-      "item": "Rebenchmark the Toko populated-ingestion signal after application replay and repeated lookup work is removed."
+      "item": "Rebenchmark the reference application populated-ingestion signal after application replay and repeated lookup work is removed."
     }
   ]
 }

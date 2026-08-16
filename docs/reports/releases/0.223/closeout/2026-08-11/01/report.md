@@ -170,7 +170,7 @@ Each command used
 | `cargo test --locked -p icydb-testing-integration --test sql_perf_audit sql_perf_mutation_forward_steps_stay_bounded -- --exact --nocapture --test-threads=1` | Pass; eight Forward samples below 30M |
 | `cargo test --locked -p icydb-testing-integration --test sql_perf_audit sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably -- --exact --nocapture --test-threads=1` | Pass; drift restarts, stable Verify completes |
 | `cargo test --locked -p icydb-testing-integration --test sql_perf_audit sql_perf_mutation_job_start_is_durable_replayable_and_non_mutating -- --exact --nocapture --test-threads=1` | Pass; sequence zero durable, zero target changes |
-| `cargo test --locked -p icydb-testing-integration --test durable_mutation_job_scale toko_shaped_jobs_finish_across_calls_and_upgrade -- --exact --nocapture --test-threads=1` | Pass; exact 10,001-row multi-page/recovery proof |
+| `cargo test --locked -p icydb-testing-integration --test durable_mutation_job_scale collection_scale_jobs_finish_across_calls_and_upgrade -- --exact --nocapture --test-threads=1` | Pass; exact 10,001-row multi-page/recovery proof |
 | `cargo test --locked -p icydb-testing-integration --test streaming_execution_baseline -- --nocapture --test-threads=1` | Pass, 6/6 inherited 0.222 executor fixtures |
 
 The first sandboxed PocketIC attempt failed environmentally before canister
@@ -283,7 +283,7 @@ two-file `+86/-10` correction above.
 - **0.226-owned, outside 0.223:** explicit constant-cost startup readiness and
   continuous journal convergence remain the only accepted high-risk ownership
   direction. No 0.226 implementation was started.
-- **Watch-only ingestion signal:** the Toko populated-ingestion slowdown remains
+- **Watch-only ingestion signal:** the reference application populated-ingestion slowdown remains
   provisional until application replay/repeated lookup work is removed and the
   new-record cost is remeasured. Generic UPSERT/import is not a 0.223 contract.
 - **Separate dependency slice:** the existing `rusqlite` 0.40.2 worktree update

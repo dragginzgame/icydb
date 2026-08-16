@@ -10,7 +10,7 @@ numbered directory is the only proposed authority for that line. This file
 cannot authorize implementation or satisfy a predecessor closeout.
 
 The independent Explorer least-privilege read-authority finding, including its
-Canic/Toko production incident evidence, now owns 0.226. IcyDB's design remains
+framework/application production incident evidence, now owns 0.226. IcyDB's design remains
 framework-neutral; no Canic design or release is its predecessor or promotion
 gate. The separate framework-neutral lifecycle-participant need now owns 0.227
 so read authority is not gated by lifecycle engineering. The three later
@@ -131,7 +131,7 @@ assigned a second semantic owner.
 | `Persisted And Public Hard Cuts` — cardinality generation/build | 0.230. |
 | Former 0.223 journal-tag warning | Remains historical/predecessor-line evidence. None of 0.225–0.230 owns a compatibility map or casual renumbering. |
 | `Scope` | Replaced completely by the four non-overlapping former-umbrella scope/non-goal sections. Independent 0.226 read authority and 0.227 lifecycle participation have separate scopes and do not absorb journal or cardinality work. |
-| `Retained Adjacent Toko Ingestion Feedback` | Removed from the immediate programme. Preserved as Candidate 9 evidence and conditional 0.239 promotion in the query-capability roadmap. |
+| `Retained Adjacent reference application Ingestion Feedback` | Removed from the immediate programme. Preserved as Candidate 9 evidence and conditional 0.239 promotion in the query-capability roadmap. |
 | `Landing Plan` Patch 1 | Replaced by a distinct frozen current-state Patch 1 in every line. Each freezes only that line's owner and gates. |
 | `Landing Plan` Patch 2 | Expanded into 0.225 Patches 2–5; 0.225 Patch 6 is cross-owner real-canister closeout. |
 | `Landing Plan` Patch 3 | Replaced by 0.228's measurement-first four-patch provisional line; only its no-build Patch 1 is authorized. |
@@ -143,7 +143,7 @@ assigned a second semantic owner.
 | `Validation Matrix` / `Validation and apply` | 0.228. |
 | `Validation Matrix` / `Online convergence` | 0.229. |
 | `Validation Matrix` / `Cardinality` | 0.230. |
-| `Validation Matrix` / `Real integration` | Split across the final patch of each line. Toko evidence is retained only when it tests the receiving line's invariant. |
+| `Validation Matrix` / `Real integration` | Split across the final patch of each line. Reference-application evidence is retained only when it tests the receiving line's invariant. |
 | `Complexity And Maintenance Gate` | Replaced by four former-umbrella line-local gates plus independent 0.226 read-authority and 0.227 lifecycle-participant need/alternative/owner/state-delta/failure gates. |
 | `Audit Finding Disposition` | Replaced by the section rows above and six immediate design scope tables; no finding remains owned by the retired umbrella. |
 | `Promotion Gate` | Replaced by six sequential immediate line-local promotion gates. The former umbrella and this programme map cannot authorize any code work. |

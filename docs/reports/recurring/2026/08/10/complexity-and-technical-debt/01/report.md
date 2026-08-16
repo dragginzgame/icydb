@@ -104,7 +104,7 @@ owners rather than being re-derived by the hubs.
 
 | ID | Debt family | Risk | Owner | Evidence | Present friction | Disposition | Trigger |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| CTD-001 | `OwnershipDebt` | `HIGH` | commit recovery and generated startup coordination | internal `RecoveryProgress` is only `Complete`/`Pending`, but ordinary `recovered_store` entry advances recovery; Toko observed read-only query budget exhaustion, shared timer-envelope exhaustion, and application grace-period/retry logic | database readiness is inferred outside its owner and recovery work can consume the arriving operation's budget | `FIX WHEN TOUCHED` | explicit user authorization to start 0.226 after its predecessor, baseline, and promotion gates |
+| CTD-001 | `OwnershipDebt` | `HIGH` | commit recovery and generated startup coordination | internal `RecoveryProgress` is only `Complete`/`Pending`, but ordinary `recovered_store` entry advances recovery; reference application observed read-only query budget exhaustion, shared timer-envelope exhaustion, and application grace-period/retry logic | database readiness is inferred outside its owner and recovery work can consume the arriving operation's budget | `FIX WHEN TOUCHED` | explicit user authorization to start 0.226 after its predecessor, baseline, and promotion gates |
 
 The `DuplicatedFlowDebt` found by the shared FCD run was fixed immediately by
 the authorized same-owner consolidation and is not retained as active debt.
@@ -172,4 +172,4 @@ unchanged and isolated.
 | Old custody and historical-label absence | `PASS` | no maintained production occurrence |
 | Memory dependency and automatic bootstrap trace | `PASS` | `ic-memory` only; no Canic manifest dependency or caller policy |
 | Full repository suite | `BLOCKED` | push-owned and prohibited for this focused correction |
-| 0.226 readiness/canister reproduction | `BLOCKED` | future explicitly gated design work; released Toko evidence was inspected but not rerun |
+| 0.226 readiness/canister reproduction | `BLOCKED` | future explicitly gated design work; released reference application evidence was inspected but not rerun |

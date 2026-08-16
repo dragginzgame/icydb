@@ -116,7 +116,7 @@ other's facts.
 | Estimate/actual comparison, rejected routes, stale evidence, warnings | 0.236 only. |
 | Generated/stored owner, subaccount, or bucket projections | A 0.237 promotion question; they are not automatically added if canonical expressions suffice. |
 | Unknown-field detail, symbolic runtime-boundary documentation, concise human enum rendering | 0.232 only when direct bounded propagation/rendering fallout from Candidate 14; structured values remain canonical. |
-| Toko no-op/upsert observations | 0.239 evidence only after application-side replay and lookup costs are removed and benchmarks are repeated. |
+| reference application no-op/upsert observations | 0.239 evidence only after application-side replay and lookup costs are removed and benchmarks are repeated. |
 
 ## Provisional Lines And Promotion Questions
 
@@ -125,12 +125,12 @@ other's facts.
 | 0.231 | Explicit Nullable Unique-Index Contracts | 13 | Can current partial-index semantics make nullable membership and uniqueness explicit before acceptance without adding encoded-null keys? |
 | 0.232 | Typed Public SQL Diagnostics | 14 | What smallest bounded typed detail preserves rejected field and clause identity through core, facade, Candid, CLI, and docs without a second error model? |
 | 0.233 | Bound SQL Invocation And Authenticated Continuation | 1 and 2, narrowed to current facade/generated gaps | What typed request and continuation envelope is externally missing, and how does it bind values to the existing cache, policy, 0.226 read-authority boundary, and authenticated live cursor without a second authorization owner, cursor, or snapshot model? |
-| 0.234 | Bounded Indexed Relation Semi-Joins | 15 | Can one indexed `IN`/`EXISTS` semi-join, or one evidenced fixed second bridge, solve the Toko relation hop under existing intermediate/result budgets? |
+| 0.234 | Bounded Indexed Relation Semi-Joins | 15 | Can one indexed `IN`/`EXISTS` semi-join, or one evidenced fixed second bridge, solve the reference application relation hop under existing intermediate/result budgets? |
 | 0.235 | Covering Index Payloads And Physical Index Evidence | 3 and Candidate 5 physical fields | Which admitted projections still load base rows, and do included payloads justify their exact entry bytes, write amplification, rebuild cost, and schema-transition surface? |
 | 0.236 | Deterministic Planner Statistics And Plan Observability | 4 and Candidate 5 planner fields | What smallest deterministic advisory evidence improves measured choices while extending 0.230's generation/build/staleness authority and keeping observability bounded? |
 | 0.237 | Canonical Component And Time-Bucket Expressions | 6 and 7 | Which owner/subaccount and UTC nanosecond bucket operations have one canonical typed meaning across predicates, grouping, ordering, projection, and optional indexes? |
 | 0.238 | Exact NatBig Aggregate Semantics | 8 | What exact accumulator and result types preserve NatBig `SUM` and define bounded `AVG` behavior without Decimal narrowing, floating point, or silent saturation? |
-| 0.239 | Bounded Idempotent Ingestion | 9 | After Toko removes full-cache replay, unchanged replacements, and repeated lookups, does per-new-row or identical-replay engine cost still grow enough to justify one catalog-native idempotent batch primitive? |
+| 0.239 | Bounded Idempotent Ingestion | 9 | After reference application removes full-cache replay, unchanged replacements, and repeated lookups, does per-new-row or identical-replay engine cost still grow enough to justify one catalog-native idempotent batch primitive? |
 | 0.240 | Durable Resumable Aggregate Jobs | 11 | Which opt-in aggregate state can reuse durable-job identity/lifecycle principles while keeping accumulator, checkpoint, result, expiry, ownership, and schema drift bounded? |
 | 0.241 | Incrementally Maintained Rollups | 10 | Which deliberately small deterministic aggregate class can have one atomic or typed-lag replay/repair model after exact scalar, aggregate, ingestion, and job semantics settle? |
 | 0.242 | Partitioned And Archive-Aware History | 12 | What accepted catalog authority can prove complete/pruned/unavailable ranges across planning, continuations, jobs, statistics, and archives without silent omission? |

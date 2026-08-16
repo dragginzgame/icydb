@@ -1827,7 +1827,7 @@ Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 - `0.183.25` restores non-diagnostics SQL builds by removing a cfg-gated
   compiled-SQL attribution fallback from the catalog-aware execution path.
 
-- `0.183.24` trims Toko-shaped indexed lookup pressure by pruning empty index
+- `0.183.24` trims collection-scale indexed lookup pressure by pruning empty index
   prefixes, bounding limited `IN (...)` pages, answering covered
   `count()`/`exists()` from exact prefix cardinality, and adding range-scan
   perf diagnostics.

@@ -4949,7 +4949,7 @@ mod tests {
     #[test]
     // Keep the complete downstream schema shape visible in one regression.
     #[allow(clippy::too_many_lines)]
-    fn initial_lowering_publishes_and_round_trips_toko_shaped_named_type_cycles() {
+    fn initial_lowering_publishes_and_round_trips_collection_named_type_cycles() {
         let field_key = TypeSourceKey::try_new("FieldKey").expect("type source should admit");
         let values = TypeSourceKey::try_new("Values").expect("type source should admit");
         let field_value = TypeSourceKey::try_new("FieldValue").expect("type source should admit");
@@ -5101,7 +5101,7 @@ mod tests {
                 SchemaCapability::EXACT_COMPOSITE_TYPES,
             ],
             TargetDatabaseIdentity::from_bytes([0x71; 32]),
-            SchemaSubmissionKey::try_new("toko-cyclic-named-types")
+            SchemaSubmissionKey::try_new("collection-cyclic-named-types")
                 .expect("submission key should admit"),
             ExpectedAcceptedHead::Empty,
             vec![fragment],
@@ -5114,7 +5114,7 @@ mod tests {
         let candidates = lower_initial_schema_proposal(
             &proposal,
             &[ProposalStoreTarget {
-                path: "toko::Store",
+                path: "fixture::Store",
                 identity: store,
             }],
         )

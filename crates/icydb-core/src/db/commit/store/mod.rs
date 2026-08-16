@@ -9,6 +9,8 @@ mod marker_envelope;
 #[cfg(test)]
 mod tests;
 
+pub(super) use control_slot::EncodedCommitControlSlot;
+
 use crate::{
     db::{
         commit::{
@@ -230,7 +232,10 @@ impl CommitStore {
     }
 
     /// Persist one commit marker while proving the current slot has no marker.
-    pub(super) fn set_if_empty(&self, marker: &CommitMarker) -> Result<(), InternalError> {
+    pub(super) fn set_if_empty(
+        &self,
+        marker: &CommitMarker,
+    ) -> Result<EncodedCommitControlSlot, InternalError> {
         let (database_incarnation_id, cursor_authentication_key) =
             self.require_empty_marker_slot()?;
         let encoded = encode_commit_control_slot_from_marker(
@@ -239,9 +244,9 @@ impl CommitStore {
             marker,
         )?;
 
-        self.write_control_slot(&encoded)?;
+        self.write_control_slot(encoded.as_bytes())?;
         mark_commit_marker_may_be_present();
-        Ok(())
+        Ok(encoded)
     }
 
     /// Clear marker bytes after a verified commit/recovery success.

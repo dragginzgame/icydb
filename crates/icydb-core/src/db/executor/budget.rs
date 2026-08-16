@@ -1232,7 +1232,7 @@ mod tests {
     }
 
     #[test]
-    fn toko_shaped_n_plus_one_work_fails_at_the_aggregate_request_boundary() {
+    fn collection_scale_n_plus_one_work_fails_at_the_aggregate_request_boundary() {
         let root = RequestExecutionRoot::__new_runtime_root();
         let scope = root.scope();
         let mut rejected = None;

@@ -93,9 +93,9 @@ This workload is a diagnostic lens, not special-case authority. Accepted schema
 snapshots remain runtime authority, and improvements must remain useful for
 general IcyDB entities.
 
-### Toko Feed normalized-catalogue evidence
+### Reference feed application normalized-catalogue evidence
 
-A second production integration audit exercised Toko Feed's normalized
+A second production integration audit exercised the reference feed application's normalized
 catalogue against 0.222.2, the regressed 0.222.3 release, and 0.223.0. It adds
 evidence that the ledger-shaped audit alone could not expose:
 
@@ -116,7 +116,7 @@ evidence that the ledger-shaped audit alone could not expose:
   rendering.
 
 The same integration verified useful existing behavior: 0.223.0 fixes the
-accepted-enum runtime-corruption regression, all 28 IcyDB-backed Toko store
+accepted-enum runtime-corruption regression, all 28 IcyDB-backed reference application store
 tests pass, and the intended indexes are selected for normalized HP, mechanic,
 set, item, and variant candidate queries. Startup recovery/readiness findings
 from this audit belong to the focused 0.225 readiness design and are not
@@ -459,7 +459,7 @@ A unique index containing an optional component omits the whole entry when that
 component is `NULL`. The index therefore neither rejects duplicate natural
 identities nor supports prefix lookup for those rows. The behavior is coherent
 with IcyDB's current non-indexable-null key encoding but is too easy to mistake
-for complete natural-identity enforcement. Toko encountered this with
+for complete natural-identity enforcement. The reference application encountered this with
 `release_date`, `collector_number`, and `edition_code` components in `Set`,
 `Item`, and `ItemVariant` natural identities.
 
@@ -522,7 +522,7 @@ Audit a single-hop indexed semi-join expressed through a small standard SQL
 shape such as an admitted `IN` subquery or `EXISTS`. Both sides must have an
 accepted indexed access path, intermediate keys and final rows remain bounded,
 and `EXPLAIN` identifies both access paths and their limits. Start with one hop;
-if the exact Toko mechanic-to-metadata-to-item fixture proves that a second
+if the exact reference application mechanic-to-metadata-to-item fixture proves that a second
 indexed bridge is necessary, the promoted design may admit exactly that fixed
 depth rather than arbitrary nesting.
 
@@ -534,7 +534,7 @@ optimizer search explosion. Existing input-term, index-entry, row-load, result,
 response-byte, and execution budgets remain authoritative, and pagination
 cannot silently change relation snapshot semantics.
 
-## Toko Feed Feedback Disposition
+## Reference Feed Application Feedback Disposition
 
 | Observed integration behavior | Intake action |
 | --- | --- |
@@ -546,7 +546,7 @@ cannot silently change relation snapshot semantics.
 | `COLLECTION_CONTAINS` is residual, and maps are not predicate-queryable | Add explicit public query/index documentation; multivalue indexes remain deferred |
 | Execution-budget code 273 leaks into application protocol knowledge | Document symbolic `ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED`; add no per-code helper unless a later API audit disproves sufficiency |
 | Enum cells render the full accepted Rust path | Consider CLI-only human shortening in Candidate 14; structured output remains canonical |
-| Toko's intended normalized indexes are selected | Freeze minimal representative `EXPLAIN` fixtures for promoted planner/traversal slices; do not import the complete application schema |
+| the reference application's intended normalized indexes are selected | Freeze minimal representative `EXPLAIN` fixtures for promoted planner/traversal slices; do not import the complete application schema |
 
 ## Secondary Candidates To Place During Review
 

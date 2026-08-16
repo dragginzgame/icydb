@@ -470,8 +470,10 @@ fn publish_journaled_candidate(
     )?;
     let commit = begin_commit(marker)?;
 
-    finish_commit(commit, |_guard| {
-        journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
+    finish_commit(commit, |guard| {
+        let marker_bytes = guard.journal_batch_bytes(0)?;
+        journal_store
+            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(&batch, marker_bytes))?;
         store.with_schema_mut(|schema_store| {
             schema_store.apply_journaled_accepted_schema_candidate(
                 incarnation,
@@ -581,12 +583,15 @@ fn publish_candidates_atomically(
     )?;
     let commit = begin_commit(marker)?;
 
-    finish_commit(commit, |_guard| {
-        for (publication, batch) in publications.iter().zip(&batches) {
+    finish_commit(commit, |guard| {
+        for (batch_ordinal, (publication, batch)) in publications.iter().zip(&batches).enumerate() {
             if batch.journal_sequence() != JournalSequence::new(0)
                 && let Some(journal_store) = publication.store.journal_tail_store()
             {
-                journal_store.with_borrow_mut(|journal| journal.append_batch(batch))?;
+                let marker_bytes = guard.journal_batch_bytes(batch_ordinal)?;
+                journal_store.with_borrow_mut(|journal| {
+                    journal.append_marker_encoded_batch(batch, marker_bytes)
+                })?;
             }
         }
         for publication in publications {
@@ -681,8 +686,10 @@ fn publish_journaled_constraint_validation_job(
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
-    finish_commit(commit, |_guard| {
-        journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
+    finish_commit(commit, |guard| {
+        let marker_bytes = guard.journal_batch_bytes(0)?;
+        journal_store
+            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(&batch, marker_bytes))?;
         store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
     })
 }
@@ -715,8 +722,10 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
-    finish_commit(commit, |_guard| {
-        journal_store.with_borrow_mut(|journal| journal.append_batch(&batch))?;
+    finish_commit(commit, |guard| {
+        let marker_bytes = guard.journal_batch_bytes(0)?;
+        journal_store
+            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(&batch, marker_bytes))?;
         store.with_index_mut(|index_store| {
             for key in entries {
                 index_store.insert(key, IndexEntryValue::presence());

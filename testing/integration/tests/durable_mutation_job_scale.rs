@@ -1,4 +1,4 @@
-//! Toko-shaped 0.223 durable mutation-job scale and composition evidence.
+//! Collection-scale durable mutation-job composition and upgrade evidence.
 
 use candid::CandidType;
 use icydb::{
@@ -248,7 +248,7 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
     while first_id <= DURABLE_MUTATION_JOB_FIXTURE_ROWS {
         let row_count = LOAD_PAGE_ROWS.min(DURABLE_MUTATION_JOB_FIXTURE_ROWS - first_id + 1);
         let evidence: Result<MutationScaleLoadEvidence, Error> = fixture
-            .update_candid("load_toko_mutation_scale_page", (first_id, row_count))
+            .update_candid("load_collection_mutation_scale_page", (first_id, row_count))
             .expect("scale load page should decode");
         let evidence = evidence.expect("scale load page should succeed");
         assert_eq!(evidence.first_id, first_id);
@@ -267,7 +267,7 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
 fn scale_facts(fixture: &ic_testkit::pic::StandaloneCanisterFixture) -> MutationScaleFixtureFacts {
     let count = |fact| {
         let count: Result<u32, Error> = fixture
-            .query_candid("toko_mutation_scale_fact", (fact,))
+            .query_candid("collection_mutation_scale_fact", (fact,))
             .expect("scale fact should decode");
         count.expect("scale fact should load")
     };
@@ -393,7 +393,7 @@ fn start_scale_job(
     job: MutationScaleJob,
 ) -> MutationJobState {
     let state: Result<MutationJobState, MutationJobError> = fixture
-        .update_candid("start_toko_mutation_scale_job", (job,))
+        .update_candid("start_collection_mutation_scale_job", (job,))
         .expect("scale start should decode");
     state.expect("scale start should succeed")
 }
@@ -403,7 +403,7 @@ fn scale_job_state(
     job: MutationScaleJob,
 ) -> Result<MutationJobState, MutationJobError> {
     fixture
-        .update_candid("toko_mutation_scale_job_state", (job,))
+        .update_candid("collection_mutation_scale_job_state", (job,))
         .expect("scale job state should decode")
 }
 
@@ -414,7 +414,7 @@ fn advance_scale_job(
 ) -> Result<MutationScaleAdvancePerfResult, MutationJobError> {
     fixture
         .update_candid(
-            "advance_toko_mutation_scale_job",
+            "advance_collection_mutation_scale_job",
             (job, sequence, format!("{}-{sequence}", job.label())),
         )
         .expect("scale advance should decode")
@@ -499,7 +499,7 @@ fn acknowledge_scale_job(
 ) {
     for _ in 0..2 {
         let result: Result<(), MutationJobError> = fixture
-            .update_candid("acknowledge_toko_mutation_scale_job", (job, sequence))
+            .update_candid("acknowledge_collection_mutation_scale_job", (job, sequence))
             .expect("scale acknowledgement should decode");
         result.expect("terminal acknowledgement should be replay-safe");
     }
@@ -532,7 +532,7 @@ fn prove_eager_control_is_bounded(
     initial: &MutationScaleFixtureFacts,
 ) {
     let eager: Result<SqlQueryResult, Error> = fixture
-        .update_candid("try_toko_eager_tier_reset", ())
+        .update_candid("try_collection_eager_tier_reset", ())
         .expect("eager control should decode");
     let eager_error = eager.expect_err("10,001 rows must exceed one-shot exact admission");
     assert!(matches!(
@@ -662,7 +662,7 @@ fn drive_populated_startup_recovery(
     loop {
         advance_startup_timers(fixture);
         let observation: Result<MutationScaleRecoveryEvidence, Error> = fixture
-            .update_candid("recover_toko_mutation_scale_store", ())
+            .update_candid("recover_collection_mutation_scale_store", ())
             .expect("scale recovery observation should decode");
         let observation =
             observation.expect("scale target store observation should remain available");
@@ -802,7 +802,7 @@ fn print_scale_evidence(
         .copied()
         .unwrap_or(0);
     println!(
-        "icydb_0223_toko_scale rows={} recovery_ticks={} recovery_observation_instructions={} tier_forward_calls={} tier_verify_calls={} \
+        "icydb_collection_scale rows={} recovery_ticks={} recovery_observation_instructions={} tier_forward_calls={} tier_verify_calls={} \
          tier_forward_max={} tier_recovery_reentry={} tier_verify_max={} tier_replay_max={} \
          scoring_forward_calls={} scoring_verify_calls={} scoring_forward_max={} \
          scoring_verify_max={} scoring_replay_max={} recovered_forward_max={} recovered_verify_max={} \
@@ -836,7 +836,7 @@ fn print_scale_evidence(
 }
 
 #[test]
-fn toko_shaped_jobs_finish_across_calls_and_upgrade() {
+fn collection_scale_jobs_finish_across_calls_and_upgrade() {
     let fixture = install_fixture_canister("sql_perf");
     load_scale_fixture(&fixture);
     let initial = assert_initial_scale_facts(&fixture);

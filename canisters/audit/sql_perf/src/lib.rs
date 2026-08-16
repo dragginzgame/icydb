@@ -542,7 +542,7 @@ struct MutationJobStartPerfResult {
     target_rows_changed: u32,
 }
 
-/// Fixed application phase in the Toko-shaped durable scale fixture.
+/// Fixed application phase in the collection-scale durable fixture.
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[cfg(feature = "sql")]
 enum MutationScaleJob {
@@ -2594,7 +2594,7 @@ fn mutation_scale_count(sql: &str) -> Result<u32, icydb::Error> {
 /// Load one bounded page of the fixed 10,001-row tier and scoring fixture.
 #[cfg(feature = "sql")]
 #[update]
-fn load_toko_mutation_scale_page(
+fn load_collection_mutation_scale_page(
     first_id: u32,
     row_count: u32,
 ) -> Result<MutationScaleLoadEvidence, icydb::Error> {
@@ -2636,7 +2636,7 @@ fn load_toko_mutation_scale_page(
 /// Return one count-only fact without resetting the aggregate request budget.
 #[cfg(feature = "sql")]
 #[query]
-fn toko_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb::Error> {
+fn collection_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| mutation_scale_count(fact.sql()))
 }
 
@@ -2646,7 +2646,8 @@ fn toko_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb::Error
 // observes lifecycle-driven progress; it owns no recovery page.
 #[cfg(feature = "sql")]
 #[update]
-fn recover_toko_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, icydb::Error> {
+fn recover_collection_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, icydb::Error>
+{
     icydb::db::with_request_execution(|| {
         let start = ic_cdk::api::performance_counter(1);
         let ready = match startup_state() {
@@ -2676,7 +2677,7 @@ fn recover_toko_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, 
 /// Prove that the one-shot 10,001-row assertion is rejected before mutation.
 #[cfg(feature = "sql")]
 #[update]
-fn try_toko_eager_tier_reset() -> Result<SqlQueryResult, icydb::Error> {
+fn try_collection_eager_tier_reset() -> Result<SqlQueryResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
         db()?.execute_trusted_sql_exact_update(
             MutationScaleJob::Tier.sql(),
@@ -2685,10 +2686,10 @@ fn try_toko_eager_tier_reset() -> Result<SqlQueryResult, icydb::Error> {
     })
 }
 
-/// Start or exactly replay one fixed Toko-shaped application phase.
+/// Start or exactly replay one fixed collection-scale application phase.
 #[cfg(feature = "sql")]
 #[update]
-fn start_toko_mutation_scale_job(
+fn start_collection_mutation_scale_job(
     job: MutationScaleJob,
 ) -> Result<MutationJobState, MutationJobError> {
     icydb::db::with_request_execution(|| {
@@ -2697,10 +2698,10 @@ fn start_toko_mutation_scale_job(
     })
 }
 
-/// Advance exactly one bounded page of one Toko-shaped application phase.
+/// Advance exactly one bounded page of one collection-scale application phase.
 #[cfg(feature = "sql")]
 #[update]
-fn advance_toko_mutation_scale_job(
+fn advance_collection_mutation_scale_job(
     job: MutationScaleJob,
     expected_sequence: u64,
     idempotency_key: String,
@@ -2725,13 +2726,13 @@ fn advance_toko_mutation_scale_job(
     })
 }
 
-/// Load current count-only public state for one Toko-shaped application phase.
+/// Load current count-only public state for one collection-scale application phase.
 /// This audit surface is an update so a post-upgrade call retains the IC's
 /// update headroom while the current guarded-reentry contract recovers a large
 /// journal tail.
 #[cfg(feature = "sql")]
 #[update]
-fn toko_mutation_scale_job_state(
+fn collection_mutation_scale_job_state(
     job: MutationScaleJob,
 ) -> Result<MutationJobState, MutationJobError> {
     icydb::db::with_request_execution(|| {
@@ -2743,7 +2744,7 @@ fn toko_mutation_scale_job_state(
 /// Acknowledge one terminal scale job; repeating after response loss is safe.
 #[cfg(feature = "sql")]
 #[update]
-fn acknowledge_toko_mutation_scale_job(
+fn acknowledge_collection_mutation_scale_job(
     job: MutationScaleJob,
     expected_sequence: u64,
 ) -> Result<(), MutationJobError> {

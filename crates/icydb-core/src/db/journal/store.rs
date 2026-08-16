@@ -385,12 +385,33 @@ impl JournalTailStore {
         &mut self,
         batch: &JournalBatch,
     ) -> Result<(), InternalError> {
+        let raw = RawJournalBatch::from_batch(batch)?;
+        self.append_batch_bytes(batch, raw.as_bytes())
+    }
+
+    /// Append the exact batch envelope already persisted in the live marker.
+    ///
+    /// The fixed identity facts are rechecked, but the fingerprint is not
+    /// recomputed: recovery owns verification if this message does not finish.
+    pub(in crate::db) fn append_marker_encoded_batch(
+        &mut self,
+        batch: &JournalBatch,
+        bytes: &[u8],
+    ) -> Result<(), InternalError> {
+        self.append_batch_bytes(batch, bytes)
+    }
+
+    fn append_batch_bytes(
+        &mut self,
+        batch: &JournalBatch,
+        bytes: &[u8],
+    ) -> Result<(), InternalError> {
         let key = batch.journal_sequence();
         if key == FOLD_WATERMARK_CONTROL_SEQUENCE {
             return Err(journal_tail_corruption());
         }
-        let raw = RawJournalBatch::from_batch(batch)?;
-        self.append_raw_batch(key, raw.as_bytes())?;
+        validate_encoded_batch_header(batch, bytes)?;
+        self.append_raw_batch(key, bytes)?;
         if batch.records().iter().any(|record| match record {
             JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => true,
             #[cfg(any(test, feature = "migration"))]
@@ -1270,6 +1291,30 @@ fn decode_access_state_revision(bytes: &[u8]) -> Result<u64, InternalError> {
         return Err(journal_tail_corruption());
     }
     Ok(revision)
+}
+
+fn validate_encoded_batch_header(batch: &JournalBatch, bytes: &[u8]) -> Result<(), InternalError> {
+    let header = inspect_raw_journal_batch_fixed_header(bytes)?;
+    let record_count =
+        u32::try_from(batch.records().len()).map_err(|_| journal_tail_corruption())?;
+    let observed = (
+        header.total_len(),
+        header.batch_id(),
+        header.commit_marker_id(),
+        header.journal_sequence(),
+        header.record_count(),
+    );
+    let expected = (
+        bytes.len(),
+        batch.batch_id(),
+        batch.commit_marker_id(),
+        batch.journal_sequence(),
+        record_count,
+    );
+    if observed != expected {
+        return Err(journal_tail_corruption());
+    }
+    Ok(())
 }
 
 fn journal_tail_corruption() -> InternalError {

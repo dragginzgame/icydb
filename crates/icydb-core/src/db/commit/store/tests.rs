@@ -10,7 +10,7 @@ use crate::{
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
         integrity::{DatabaseIncarnationId, MutationProgressRecordOp},
-        journal::{JournalBatch, JournalRecord, JournalSequence},
+        journal::{JournalBatch, JournalRecord, JournalSequence, encode_journal_batch},
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         mutation_job::{MutationJobRecord, MutationJobTransition},
     },
@@ -248,6 +248,65 @@ fn commit_marker_embeds_marker_bound_journal_batches() {
         .expect("marker payload should decode embedded journal batch");
 
     assert_eq!(decoded.journal_batches(), &[journal_batch]);
+}
+
+#[test]
+fn persisted_marker_retains_exact_journal_envelopes_for_live_append() {
+    let marker_id = [0xAC; 16];
+    let journal_batch = JournalBatch::new(
+        [0x45; 16],
+        marker_id,
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::row_put(
+                "test::Entity",
+                raw_data_store_key(5),
+                vec![0x78; 3],
+                [0x56; 16],
+            )
+            .expect("journal row record should build"),
+        ],
+    )
+    .expect("journal batch should build");
+    let second_batch = JournalBatch::new(
+        [0x46; 16],
+        marker_id,
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::row_put(
+                "test::SecondEntity",
+                raw_data_store_key(6),
+                vec![0x79; 3],
+                [0x57; 16],
+            )
+            .expect("second journal row record should build"),
+        ],
+    )
+    .expect("second journal batch should build");
+    let expected_first =
+        encode_journal_batch(&journal_batch).expect("first journal batch should encode");
+    let expected_second =
+        encode_journal_batch(&second_batch).expect("second journal batch should encode");
+    let marker = CommitMarker::from_parts(marker_id, vec![journal_batch, second_batch])
+        .expect("marker-bound journal batch should build");
+    let store = super::CommitStore::init(test_memory(235));
+
+    let persisted = store
+        .set_if_empty(&marker)
+        .expect("marker should persist once");
+
+    assert_eq!(
+        persisted
+            .journal_batch_bytes(0)
+            .expect("persisted marker should retain its journal range"),
+        expected_first,
+    );
+    assert_eq!(
+        persisted
+            .journal_batch_bytes(1)
+            .expect("persisted marker should retain its second journal range"),
+        expected_second,
+    );
 }
 
 #[test]
