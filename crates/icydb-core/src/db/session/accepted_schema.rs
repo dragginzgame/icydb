@@ -249,13 +249,8 @@ impl AcceptedSchemaRuntimeRoot {
     }
 
     #[must_use]
-    fn matches(
-        &self,
-        database_incarnation: crate::db::DatabaseIncarnationId,
-        store_roots: &[AcceptedSchemaRuntimeStoreRoot],
-    ) -> bool {
-        self.identity.database_incarnation() == database_incarnation
-            && self.store_roots == store_roots
+    fn matches_store_roots(&self, store_roots: &[AcceptedSchemaRuntimeStoreRoot]) -> bool {
+        self.store_roots == store_roots
     }
 
     fn entity_for_runtime_entity(
@@ -459,7 +454,9 @@ impl AcceptedInspectionPlanLoadError {
 thread_local! {
     // Each registry owns one database-wide accepted runtime root. A cache hit
     // revalidates only the compact store-root records and never serializes or
-    // hashes an accepted entity snapshot.
+    // hashes an accepted entity snapshot. The root binds the incarnation when
+    // built; upgrade/reinstall clears this heap cache, while schema publication
+    // explicitly invalidates it before another ordinary operation.
     static ACCEPTED_SCHEMA_RUNTIME_ROOTS: RefCell<HashMap<usize, Rc<AcceptedSchemaRuntimeRoot>>> =
         RefCell::new(HashMap::default());
 }
@@ -497,8 +494,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.db
             .ensure_recovered_state()
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
-        let database_incarnation =
-            database_incarnation_id().map_err(AcceptedInspectionPlanLoadError::Unselected)?;
         let store_roots = self
             .capture_accepted_runtime_store_roots()
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
@@ -507,13 +502,15 @@ impl<C: CanisterKind> DbSession<C> {
             roots
                 .borrow()
                 .get(&scope_id)
-                .filter(|root| root.matches(database_incarnation, store_roots.as_slice()))
+                .filter(|root| root.matches_store_roots(store_roots.as_slice()))
                 .cloned()
         });
         if let Some(root) = cached {
             return Ok(root);
         }
 
+        let database_incarnation =
+            database_incarnation_id().map_err(AcceptedInspectionPlanLoadError::Unselected)?;
         #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
         record_accepted_schema_runtime_root_identity_build();
         let identity = AcceptedSchemaRuntimeRootIdentity::from_store_roots(

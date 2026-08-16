@@ -52,7 +52,7 @@ use icydb_schema::{
 };
 use serde::Deserialize;
 use sha2::Digest;
-use std::cell::RefCell;
+use std::cell::Cell;
 #[cfg(feature = "migration")]
 use std::collections::BTreeMap;
 
@@ -102,8 +102,8 @@ thread_local! {
     // Generated store registration is immutable after wiring. This heap-only
     // derivation cache is replaced when the database incarnation changes; it
     // never caches readiness, receipts, or mutable accepted-schema authority.
-    static GENERATED_DATABASE_IDENTITY: RefCell<Option<GeneratedDatabaseIdentityCacheEntry>> =
-        const { RefCell::new(None) };
+    static GENERATED_DATABASE_IDENTITY: Cell<Option<GeneratedDatabaseIdentityCacheEntry>> =
+        const { Cell::new(None) };
 }
 
 ///
@@ -2913,7 +2913,7 @@ pub(in crate::db) fn generated_schema_is_reconciled(
 ) -> Result<bool, InternalError> {
     let submission_key = SchemaSubmissionKey::try_new(submission_key.to_string())
         .map_err(|_| InternalError::store_invariant())?;
-    let database_identity = generated_database_identity(registry, incarnation)?;
+    let database_identity = generated_database_identity(registry, incarnation);
     generated_submission_is_reconciled(database_identity, &submission_key)
 }
 
@@ -2942,7 +2942,7 @@ pub(in crate::db) fn generated_schema_authority(
     registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
     incarnation: DatabaseIncarnationId,
 ) -> Result<(TargetDatabaseIdentity, ExpectedAcceptedHead), InternalError> {
-    let database_identity = generated_database_identity(registry, incarnation)?;
+    let database_identity = generated_database_identity(registry, incarnation);
     let mut stores = store_application_authorities(registry);
     stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
     let heads = stores
@@ -2965,38 +2965,27 @@ pub(in crate::db) fn generated_schema_authority(
 fn generated_database_identity(
     registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
     incarnation: DatabaseIncarnationId,
-) -> Result<TargetDatabaseIdentity, InternalError> {
+) -> TargetDatabaseIdentity {
     let registry_key = std::ptr::from_ref(registry).cast::<()>() as usize;
-    let cached = GENERATED_DATABASE_IDENTITY.with(|entry| {
-        entry
-            .try_borrow()
-            .map_err(|_| InternalError::store_invariant())
-            .map(|entry| {
-                entry.as_ref().and_then(|entry| {
-                    (entry.registry == registry_key && entry.incarnation == incarnation)
-                        .then_some(entry.identity)
-                })
-            })
-    })?;
+    let cached = GENERATED_DATABASE_IDENTITY
+        .with(Cell::get)
+        .and_then(|entry| {
+            (entry.registry == registry_key && entry.incarnation == incarnation)
+                .then_some(entry.identity)
+        });
     if let Some(identity) = cached {
-        return Ok(identity);
+        return identity;
     }
 
     let mut stores = store_application_authorities(registry);
     stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
     let identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
-    GENERATED_DATABASE_IDENTITY.with(|entry| {
-        *entry
-            .try_borrow_mut()
-            .map_err(|_| InternalError::store_invariant())? =
-            Some(GeneratedDatabaseIdentityCacheEntry {
-                registry: registry_key,
-                incarnation,
-                identity,
-            });
-        Ok::<(), InternalError>(())
-    })?;
-    Ok(identity)
+    GENERATED_DATABASE_IDENTITY.set(Some(GeneratedDatabaseIdentityCacheEntry {
+        registry: registry_key,
+        incarnation,
+        identity,
+    }));
+    identity
 }
 
 fn store_application_authorities(
@@ -3199,19 +3188,15 @@ mod tests {
     fn generated_database_identity_cache_is_bound_to_the_incarnation() {
         let first_incarnation = crate::db::DatabaseIncarnationId::for_tests(0x41);
         let second_incarnation = crate::db::DatabaseIncarnationId::for_tests(0x42);
-        let first = generated_database_identity(&ABORT_REGISTRY, first_incarnation)
-            .expect("first generated database identity should derive");
+        let first = generated_database_identity(&ABORT_REGISTRY, first_incarnation);
         assert_eq!(
-            generated_database_identity(&ABORT_REGISTRY, first_incarnation)
-                .expect("matching generated database identity should reuse"),
+            generated_database_identity(&ABORT_REGISTRY, first_incarnation),
             first,
         );
-        let second = generated_database_identity(&ABORT_REGISTRY, second_incarnation)
-            .expect("replacement incarnation should derive independently");
+        let second = generated_database_identity(&ABORT_REGISTRY, second_incarnation);
         assert_ne!(second, first);
         assert_eq!(
-            generated_database_identity(&ABORT_REGISTRY, first_incarnation)
-                .expect("original incarnation should still derive exactly"),
+            generated_database_identity(&ABORT_REGISTRY, first_incarnation),
             first,
         );
     }
