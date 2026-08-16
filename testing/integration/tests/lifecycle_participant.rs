@@ -13,7 +13,7 @@ use icydb_testing_integration::{
 
 const PARTICIPANT_INSTRUCTION_CEILING: u64 = 10_750_000;
 const INSTALL_CODE_RETRY_LIMIT: usize = 4;
-const INSTALL_CODE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+const INSTALL_CODE_COOLDOWN: Duration = Duration::from_mins(5);
 
 fn production_build_options() -> CanisterBuildOptions {
     CanisterBuildOptions {
