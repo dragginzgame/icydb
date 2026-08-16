@@ -1327,7 +1327,7 @@ mod tests {
         let result = ensure_mutation_commit_work_admitted(MAX_MUTATION_COMMIT_WORK_UNITS + 1)
             .and_then(|()| {
                 gate_two_called.set(true);
-                crate::db::commit::admit_dormant_backlog_for_tests(
+                crate::db::commit::admit_dormant_backlog(
                     crate::db::commit::ExactBacklogMeasurement::new(1, 1, 1),
                     crate::db::commit::ExactBacklogMeasurement::new(1, 1, 1),
                     crate::db::commit::CandidateBacklogLimits::new(1, 1, 1),

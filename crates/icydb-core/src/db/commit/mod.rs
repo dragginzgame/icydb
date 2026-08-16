@@ -30,7 +30,7 @@ mod store;
 
 #[cfg(test)]
 pub(in crate::db) use backlog_admission::{
-    CandidateBacklogLimits, ExactBacklogMeasurement, admit_dormant_backlog_for_tests,
+    CandidateBacklogLimits, ExactBacklogMeasurement, admit_dormant_backlog,
 };
 #[doc(hidden)]
 pub use guard::install_startup_recovery_wakeup;

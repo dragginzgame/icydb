@@ -210,7 +210,7 @@ impl PreparedBacklogProposal {
 }
 
 /// Evaluate the candidate tuple after individual admission has already succeeded.
-pub(in crate::db) fn admit_dormant_backlog_for_tests(
+pub(in crate::db) fn admit_dormant_backlog(
     current: ExactBacklogMeasurement,
     proposed: ExactBacklogMeasurement,
     limits: CandidateBacklogLimits,
@@ -355,7 +355,7 @@ mod tests {
         ];
         for (current, limits, expected_dimension) in cases {
             let DormantBacklogAdmission::Pressure(pressure) =
-                admit_dormant_backlog_for_tests(current, proposed, limits).unwrap()
+                admit_dormant_backlog(current, proposed, limits).unwrap()
             else {
                 panic!("retained debt should exceed the isolated candidate dimension");
             };
@@ -374,8 +374,7 @@ mod tests {
 
         let limits = CandidateBacklogLimits::from_measurement(proposed);
         assert_eq!(
-            admit_dormant_backlog_for_tests(ExactBacklogMeasurement::EMPTY, proposed, limits,)
-                .unwrap(),
+            admit_dormant_backlog(ExactBacklogMeasurement::EMPTY, proposed, limits,).unwrap(),
             DormantBacklogAdmission::Admitted {
                 projected: proposed,
             },
@@ -402,7 +401,7 @@ mod tests {
         assert_eq!(prepared.contribution().batch_count(), 38);
         assert_eq!(prepared.contribution().record_count(), 4_096);
         assert_eq!(
-            admit_dormant_backlog_for_tests(
+            admit_dormant_backlog(
                 ExactBacklogMeasurement::EMPTY,
                 prepared.contribution(),
                 CandidateBacklogLimits::from_measurement(prepared.contribution()),
@@ -418,7 +417,7 @@ mod tests {
     fn current_sum_and_projection_overflow_fail_closed() {
         let malformed = ExactBacklogMeasurement::new(u64::MAX, 0, 0);
         assert!(
-            admit_dormant_backlog_for_tests(
+            admit_dormant_backlog(
                 malformed,
                 ExactBacklogMeasurement::new(1, 0, 0),
                 CandidateBacklogLimits::new(u64::MAX, u64::MAX, u64::MAX),
