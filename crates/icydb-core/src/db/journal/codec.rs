@@ -607,7 +607,7 @@ pub(in crate::db::journal) fn inspect_raw_journal_batch_fixed_header(
     bytes: &[u8],
 ) -> Result<RawJournalBatchFixedHeader, InternalError> {
     let header = inspect_raw_journal_batch_header(bytes)?;
-    if header.total_len() < JOURNAL_BATCH_FIXED_HEADER_BYTES
+    if header.payload_len() < JOURNAL_BATCH_FIXED_HEADER_BYTES - JOURNAL_BATCH_HEADER_BYTES
         || bytes.len() < JOURNAL_BATCH_FIXED_HEADER_BYTES
     {
         return Err(journal_batch_corruption());
