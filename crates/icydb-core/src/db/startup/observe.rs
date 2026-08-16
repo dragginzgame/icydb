@@ -59,8 +59,7 @@ pub(super) fn observe<C: CanisterKind>(
 
     let (recovered, in_progress) =
         startup_recovery_witness(stores).map_err(database_control_failure)?;
-    let (cursor_present, matching_journal_failure) =
-        observe_journal_control(stores, receipt.as_ref(), incarnation)?;
+    let matching_journal_failure = observe_journal_control(stores, receipt.as_ref(), incarnation)?;
     if let Some(failure) = matching_journal_failure {
         return Err(failure);
     }
@@ -86,7 +85,7 @@ pub(super) fn observe<C: CanisterKind>(
     } else {
         None
     };
-    if marker_present || cursor_present || in_progress || !recovered {
+    if marker_present || in_progress || !recovered {
         return Ok(DatabaseStartupState::Recovering);
     }
 
@@ -114,8 +113,7 @@ fn observe_journal_control(
     stores: &'static std::thread::LocalKey<StoreRegistry>,
     receipt: Option<&StartupFailureReceipt>,
     incarnation: crate::db::DatabaseIncarnationId,
-) -> Result<(bool, Option<StartupFailure>), StartupFailure> {
-    let mut cursor_present = false;
+) -> Result<Option<StartupFailure>, StartupFailure> {
     let mut matching_journal_failure = None;
     let journal_failure_receipt =
         receipt.filter(|receipt| receipt.failure().kind() == StartupFailureKind::JournalRecovery);
@@ -128,22 +126,20 @@ fn observe_journal_control(
                 let Some(allocation) = handle.journal_allocation() else {
                     return Err(InternalError::store_invariant());
                 };
-                let (proof, cursor) = journal.with_borrow(|journal| {
-                    // Watermark and cursor are always part of the fixed readiness
-                    // read set. The remaining proof fields exist only to bind an
-                    // already-persisted journal failure, so avoid the reverse tail
-                    // lookup when no such receipt can match.
+                let proof = journal.with_borrow(|journal| {
+                    // The watermark is always part of the fixed readiness read
+                    // set. Remaining proof fields bind only an already-persisted
+                    // journal failure, avoiding a reverse tail lookup otherwise.
                     let proof = if journal_failure_receipt.is_some() {
                         Some(journal.proof_identity()?)
                     } else {
                         let _watermark = journal.fold_watermark()?;
                         None
                     };
-                    Ok::<_, InternalError>((proof, journal.fold_record_cursor()?))
+                    Ok::<_, InternalError>(proof)
                 })?;
-                cursor_present |= cursor.is_some();
                 if let (Some(receipt), Some(proof)) = (journal_failure_receipt, proof)
-                    && journal_receipt_matches(receipt, incarnation, allocation, proof, cursor)
+                    && journal_receipt_matches(receipt, incarnation, allocation, proof)
                 {
                     matching_journal_failure = Some(receipt.failure().clone());
                 }
@@ -153,7 +149,7 @@ fn observe_journal_control(
         .map_err(|error| {
             StartupFailure::from_internal(StartupFailureKind::JournalRecovery, &error)
         })?;
-    Ok((cursor_present, matching_journal_failure))
+    Ok(matching_journal_failure)
 }
 
 fn database_control_failure(error: InternalError) -> StartupFailure {
@@ -208,7 +204,6 @@ fn journal_receipt_matches(
     incarnation: crate::db::DatabaseIncarnationId,
     allocation: crate::db::StoreAllocationIdentity,
     proof: crate::db::journal::JournalTailProofIdentity,
-    cursor: Option<crate::db::journal::FoldRecordCursor>,
 ) -> bool {
     matches!(
         receipt.binding(),
@@ -216,12 +211,10 @@ fn journal_receipt_matches(
             incarnation: bound_incarnation,
             allocation: bound_allocation,
             proof: bound_proof,
-            cursor: bound_cursor,
         } if *bound_incarnation == incarnation
             && bound_allocation.memory_id == allocation.memory_id()
             && bound_allocation.stable_key == allocation.stable_key()
             && *bound_proof == proof
-            && *bound_cursor == cursor
     )
 }
 

@@ -192,6 +192,11 @@ mod tests {
                 mark_startup_recovery_complete_for_tests, persist_raw_commit_marker_for_tests,
             },
             database_format::initialize_current_database_control_for_tests,
+            journal::{
+                JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
+                encode_journal_batch,
+            },
+            registry::StoreAllocationIdentity,
             schema::{
                 SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
                 SchemaChangeReceipt, SchemaStore, apply_schema_application_record_op,
@@ -200,6 +205,7 @@ mod tests {
             },
             session::RequestExecutionRoot,
         },
+        testing::test_memory,
         traits::Path,
     };
     use ic_stable_structures::Memory;
@@ -340,6 +346,67 @@ mod tests {
                 StoreAllocationIdentities::absent(),
                 StoreRuntimeStorageCapabilities::heap(),
             ).expect("heap checkpoint failure store should register");
+            registry
+        };
+    }
+
+    const JOURNAL_RECOVERY_FAILURE_STORE_PATH: &str = "startup_tests::JournalRecoveryFailureStore";
+
+    struct JournalRecoveryFailureCanister;
+
+    impl Path for JournalRecoveryFailureCanister {
+        const PATH: &'static str = "startup_tests::JournalRecoveryFailureCanister";
+    }
+
+    impl CanisterKind for JournalRecoveryFailureCanister {
+        const COMMIT_MEMORY_ID: u8 = 185;
+        const COMMIT_STABLE_KEY: &'static str =
+            "icydb.test.startup.journal.recovery.failure.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 186;
+        const STARTUP_STABLE_KEY: &'static str =
+            "icydb.test.startup.journal.recovery.failure.control.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 187;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.startup.journal.recovery.failure.integrity.v1";
+    }
+
+    thread_local! {
+        static JOURNAL_RECOVERY_FAILURE_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(181)));
+        static JOURNAL_RECOVERY_FAILURE_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(182)));
+        static JOURNAL_RECOVERY_FAILURE_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(183)));
+        static JOURNAL_RECOVERY_FAILURE_TAIL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(184)));
+        static JOURNAL_RECOVERY_FAILURE_STORES: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                JOURNAL_RECOVERY_FAILURE_STORE_PATH,
+                &JOURNAL_RECOVERY_FAILURE_DATA,
+                &JOURNAL_RECOVERY_FAILURE_INDEX,
+                &JOURNAL_RECOVERY_FAILURE_SCHEMA,
+                &JOURNAL_RECOVERY_FAILURE_TAIL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(
+                        181,
+                        "icydb.test.startup.journal.recovery.failure.data.v1",
+                    ),
+                    StoreAllocationIdentity::new(
+                        182,
+                        "icydb.test.startup.journal.recovery.failure.index.v1",
+                    ),
+                    StoreAllocationIdentity::new(
+                        183,
+                        "icydb.test.startup.journal.recovery.failure.schema.v1",
+                    ),
+                    StoreAllocationIdentity::new(
+                        184,
+                        "icydb.test.startup.journal.recovery.failure.journal.v1",
+                    ),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("journal recovery failure store should register");
             registry
         };
     }
@@ -512,6 +579,80 @@ mod tests {
         assert_eq!(
             failure.diagnostic().error_code(),
             ErrorCode::RUNTIME_CORRUPTION
+        );
+    }
+
+    #[test]
+    fn persisted_journal_record_corruption_becomes_a_durable_journal_failure() {
+        const SUBMISSION: &str = "generated/2280bad0bad0bad0";
+
+        configure_commit_memory_id(
+            JournalRecoveryFailureCanister::COMMIT_MEMORY_ID,
+            JournalRecoveryFailureCanister::COMMIT_STABLE_KEY,
+        )
+        .expect("commit allocation should configure");
+        let memory = commit_memory_handle(
+            current_commit_memory_allocation().expect("commit allocation should resolve"),
+        )
+        .expect("commit memory should open");
+        initialize_current_database_control_for_tests(&memory);
+
+        let record = JournalRecord::schema_put(JOURNAL_RECOVERY_FAILURE_STORE_PATH, vec![0xff; 8])
+            .expect("syntactically bounded schema record should build");
+        let batch = JournalBatch::new(
+            [0x22; 16],
+            [0x28; 16],
+            JournalSequence::new(1),
+            vec![record],
+        )
+        .expect("syntactically current journal batch should build");
+        let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
+        JOURNAL_RECOVERY_FAILURE_TAIL.with(|tail| {
+            tail.borrow_mut()
+                .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+                .expect("persisted semantic-corruption fixture should insert");
+        });
+
+        assert_eq!(
+            observe_generated_startup_state::<JournalRecoveryFailureCanister>(
+                &JOURNAL_RECOVERY_FAILURE_STORES,
+                SUBMISSION,
+            ),
+            Ok(DatabaseStartupState::Recovering),
+        );
+        let request_root = RequestExecutionRoot::__new_runtime_root();
+        let session = crate::db::DbSession::<JournalRecoveryFailureCanister>::new(
+            &JOURNAL_RECOVERY_FAILURE_STORES,
+            &request_root,
+        );
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &session,
+                &JOURNAL_RECOVERY_FAILURE_STORES,
+                SUBMISSION,
+            )
+            .expect("journal corruption should publish one durable receipt"),
+            GeneratedStartupDriverStep::Terminal,
+        );
+
+        let failure = observe_generated_startup_state::<JournalRecoveryFailureCanister>(
+            &JOURNAL_RECOVERY_FAILURE_STORES,
+            SUBMISSION,
+        )
+        .expect_err("the durable journal failure should replace blind recovery retries");
+        assert_eq!(failure.kind(), StartupFailureKind::JournalRecovery);
+        assert_eq!(
+            failure.diagnostic().error_code(),
+            ErrorCode::STORE_CORRUPTION,
+        );
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &session,
+                &JOURNAL_RECOVERY_FAILURE_STORES,
+                SUBMISSION,
+            )
+            .expect("exact terminal replay should stop without retrying recovery"),
+            GeneratedStartupDriverStep::Terminal,
         );
     }
 

@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Fixed the journal duplicate-target test fixture to satisfy warning-denying
-  Clippy validation without an unnecessary final key clone.
-- Restored the frozen durable-mutation Forward instruction ceiling by keeping
-  immutable journal-batch shape validation at its sole construction boundary.
-
 ## [0.228.x] 🧱 - 2026-08-15 - Fingerprint-Bound Journal Validation And Convergence Bounds
 
 Detailed notes: [docs/changelog/0.228.md](docs/changelog/0.228.md)
+
+- `0.228.2` hard-cuts persisted journal recovery to fingerprint-bound complete
+  batches and removes the fold cursor; existing state requires reinstall or
+  recreation, making this potentially breaking.
 
 - `0.228.1` hardens current journal-batch header, tail-read, and record-family
   validation, including accepted-schema publication family checks, while

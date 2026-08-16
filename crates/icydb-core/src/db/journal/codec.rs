@@ -24,9 +24,10 @@ use crate::{
 use ic_stable_structures::{Storable, storable::Bound};
 #[cfg(any(test, feature = "migration"))]
 use icydb_schema::SchemaMigrationPlanDigest;
+use sha2::{Digest, Sha256};
 use std::{borrow::Cow, collections::BTreeSet};
 
-pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 1;
+pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 2;
 pub(in crate::db) const MAX_JOURNAL_BATCH_BYTES: u32 = MAX_COMMIT_BYTES;
 pub(in crate::db) const MAX_JOURNAL_BATCH_RECORDS: usize = 16 * 1024;
 const MAX_JOURNAL_PATH_BYTES: usize = 4 * 1024;
@@ -34,11 +35,15 @@ const JOURNAL_BATCH_MAGIC: [u8; 4] = *b"IJBT";
 const JOURNAL_BATCH_HEADER_BYTES: usize = 9;
 const JOURNAL_BATCH_ID_BYTES: usize = 16;
 const JOURNAL_COMMIT_MARKER_ID_BYTES: usize = 16;
-const JOURNAL_BATCH_FIXED_HEADER_BYTES: usize = JOURNAL_BATCH_HEADER_BYTES
+const JOURNAL_BATCH_FINGERPRINT_BYTES: usize = 32;
+const JOURNAL_BATCH_FINGERPRINT_DOMAIN: &[u8] = b"ICYDB-JOURNAL-BATCH-FINGERPRINT\0";
+const JOURNAL_BATCH_FINGERPRINT_OFFSET: usize = JOURNAL_BATCH_HEADER_BYTES
     + JOURNAL_BATCH_ID_BYTES
     + JOURNAL_COMMIT_MARKER_ID_BYTES
     + size_of::<u64>()
     + size_of::<u32>();
+const JOURNAL_BATCH_FIXED_HEADER_BYTES: usize =
+    JOURNAL_BATCH_FINGERPRINT_OFFSET + JOURNAL_BATCH_FINGERPRINT_BYTES;
 const JOURNAL_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 const JOURNAL_RECORD_ROW_PUT: u8 = 1;
 const JOURNAL_RECORD_ROW_DELETE: u8 = 2;
@@ -473,6 +478,9 @@ pub(in crate::db) fn encode_journal_batch(batch: &JournalBatch) -> Result<Vec<u8
     encoded.push(JOURNAL_BATCH_FORMAT_VERSION_CURRENT);
     write_len_u32(&mut encoded, payload_len, "journal batch payload")?;
     write_journal_batch_payload(&mut encoded, batch)?;
+    let fingerprint = journal_batch_fingerprint(encoded.as_slice())?;
+    encoded[JOURNAL_BATCH_FINGERPRINT_OFFSET..JOURNAL_BATCH_FIXED_HEADER_BYTES]
+        .copy_from_slice(&fingerprint);
 
     Ok(encoded)
 }
@@ -483,6 +491,9 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
     }
     let fixed_header = inspect_raw_journal_batch_fixed_header(bytes)?;
     if fixed_header.total_len() != bytes.len() {
+        return Err(journal_batch_corruption());
+    }
+    if journal_batch_fingerprint(bytes)? != fixed_header.batch_fingerprint() {
         return Err(journal_batch_corruption());
     }
 
@@ -568,6 +579,7 @@ pub(in crate::db::journal) struct RawJournalBatchFixedHeader {
     commit_marker_id: JournalCommitMarkerId,
     journal_sequence: JournalSequence,
     record_count: u32,
+    batch_fingerprint: [u8; JOURNAL_BATCH_FINGERPRINT_BYTES],
 }
 
 impl RawJournalBatchFixedHeader {
@@ -600,6 +612,14 @@ impl RawJournalBatchFixedHeader {
     pub(in crate::db::journal) const fn record_count(self) -> u32 {
         self.record_count
     }
+
+    /// Return the fingerprint binding the complete canonical envelope bytes.
+    #[must_use]
+    pub(in crate::db::journal) const fn batch_fingerprint(
+        self,
+    ) -> [u8; JOURNAL_BATCH_FINGERPRINT_BYTES] {
+        self.batch_fingerprint
+    }
 }
 
 /// Inspect all fixed current-form journal-batch facts before decoding records.
@@ -628,6 +648,11 @@ pub(in crate::db::journal) fn inspect_raw_journal_batch_fixed_header(
     if record_count as usize > MAX_JOURNAL_BATCH_RECORDS {
         return Err(journal_batch_corruption());
     }
+    let batch_fingerprint = read_fixed_array::<JOURNAL_BATCH_FINGERPRINT_BYTES>(
+        bytes,
+        &mut cursor,
+        "journal batch fingerprint",
+    )?;
 
     Ok(RawJournalBatchFixedHeader {
         header,
@@ -635,6 +660,7 @@ pub(in crate::db::journal) fn inspect_raw_journal_batch_fixed_header(
         commit_marker_id,
         journal_sequence,
         record_count,
+        batch_fingerprint,
     })
 }
 
@@ -660,6 +686,7 @@ pub(in crate::db) const fn journal_batch_encoded_len_for_record_payloads(
             .saturating_add(JOURNAL_COMMIT_MARKER_ID_BYTES)
             .saturating_add(size_of::<u64>())
             .saturating_add(size_of::<u32>())
+            .saturating_add(JOURNAL_BATCH_FINGERPRINT_BYTES)
             .saturating_add(record_payload_bytes),
     )
 }
@@ -698,6 +725,7 @@ fn write_journal_batch_payload(
     out.extend_from_slice(&batch.commit_marker_id);
     out.extend_from_slice(&batch.journal_sequence.get().to_le_bytes());
     write_len_u32(out, batch.records.len(), "journal batch record count")?;
+    out.extend_from_slice(&[0; JOURNAL_BATCH_FINGERPRINT_BYTES]);
     for record in &batch.records {
         write_journal_record(out, record)?;
     }
@@ -1837,6 +1865,21 @@ fn validate_journal_batch_format_version(format_version: u8) -> Result<(), Inter
     let _ = format_version;
 
     Err(InternalError::serialize_incompatible_persisted_format())
+}
+
+fn journal_batch_fingerprint(bytes: &[u8]) -> Result<[u8; 32], InternalError> {
+    let fixed_prefix = bytes
+        .get(..JOURNAL_BATCH_FINGERPRINT_OFFSET)
+        .ok_or_else(journal_batch_corruption)?;
+    let records = bytes
+        .get(JOURNAL_BATCH_FIXED_HEADER_BYTES..)
+        .ok_or_else(journal_batch_corruption)?;
+    let mut hasher = Sha256::new();
+    hasher.update(JOURNAL_BATCH_FINGERPRINT_DOMAIN);
+    hasher.update(fixed_prefix);
+    hasher.update(records);
+
+    Ok(hasher.finalize().into())
 }
 
 fn write_len_u32(out: &mut Vec<u8>, len: usize, _label: &'static str) -> Result<(), InternalError> {

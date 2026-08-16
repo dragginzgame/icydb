@@ -4107,3 +4107,81 @@ fn perf_audit_tokens() -> Vec<PerfAuditToken> {
 
 #[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();
+
+/// Closed producer and recovery facts for one maximum accepted-index publication.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+struct PromotionIndexPublicationFacts {
+    rows_scanned: u64,
+    index_keys_written: u64,
+    local_instructions: u64,
+}
+
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+const PROMOTION_INDEX_LOAD_PAGE_ROWS: u32 = 4_096;
+
+/// Append one admitted page of the maximum accepted-index promotion fixture.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn append_promotion_index_fixture_page(first_id: u32, row_count: u32) -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        if first_id == 0 || row_count == 0 || row_count > PROMOTION_INDEX_LOAD_PAGE_ROWS {
+            return Err(query_validate_error());
+        }
+        let last_id = first_id
+            .checked_add(row_count.saturating_sub(1))
+            .ok_or_else(query_validate_error)?;
+        if last_id > PROMOTION_INDEX_FIXTURE_ROWS {
+            return Err(query_validate_error());
+        }
+        let rows = (first_id..=last_id)
+            .map(|id| {
+                let id = i32::try_from(id).map_err(|_| query_validate_error())?;
+                Ok(build_perf_audit_journaled_user(
+                    id,
+                    &format!("promotion-index-user-{id:05}"),
+                    31,
+                ))
+            })
+            .collect::<Result<Vec<_>, icydb::Error>>()?;
+        insert_fixture_rows(rows)?;
+        Ok(row_count)
+    })
+}
+
+/// Publish the largest maintained accepted-index key set through ordinary DDL.
+#[cfg(all(feature = "sql", feature = "test-admin-api"))]
+#[update]
+fn publish_promotion_index_fixture() -> Result<PromotionIndexPublicationFacts, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let result = db()?.execute_admin_sql_ddl(
+            "CREATE INDEX perf_promotion_name_idx ON PerfAuditJournaledUser (name) \
+             EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
+        )?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let SqlQueryResult::Ddl {
+            rows_scanned,
+            index_keys_written,
+            status,
+            ..
+        } = result
+        else {
+            return Err(query_validate_error());
+        };
+        if status != "published"
+            || rows_scanned != u64::from(PROMOTION_INDEX_FIXTURE_ROWS)
+            || index_keys_written != u64::from(PROMOTION_INDEX_FIXTURE_ROWS)
+        {
+            return Err(query_validate_error());
+        }
+
+        Ok(PromotionIndexPublicationFacts {
+            rows_scanned,
+            index_keys_written,
+            local_instructions,
+        })
+    })
+}

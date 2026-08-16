@@ -354,6 +354,16 @@ impl DataStore {
         Ok(previous)
     }
 
+    /// Prove that recovered journal rows can be folded into canonical storage.
+    pub(in crate::db) fn preflight_fold_recovered_journal(
+        &self,
+    ) -> Result<(), crate::error::InternalError> {
+        match self.backend {
+            DataStoreBackend::Journaled { .. } => Ok(()),
+            DataStoreBackend::Heap(_) => Err(crate::error::InternalError::store_invariant()),
+        }
+    }
+
     /// Load one row by raw key.
     pub(in crate::db) fn get(&self, key: &RawDataStoreKey) -> Option<RawRow> {
         self.read(key).into_owned()

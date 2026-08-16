@@ -10,7 +10,7 @@ use icydb_schema::{ExpectedAcceptedHead, SchemaSubmissionKey};
 
 use crate::{
     db::{
-        DbSession, StoreRegistry,
+        DbSession, JournalTailStore, StoreRegistry,
         commit::{
             CommitControlObservation, StartupRecoveryFailure, StartupRecoveryFailureAuthority,
             database_incarnation_id, observe_commit_control,
@@ -199,14 +199,11 @@ fn capture_journal_binding(
         })
     });
     let (journal, allocation) = candidate.ok_or_else(InternalError::store_invariant)?;
-    let (proof, cursor) = journal.with_borrow(|store| {
-        Ok::<_, InternalError>((store.proof_identity()?, store.fold_record_cursor()?))
-    })?;
+    let proof = journal.with_borrow(JournalTailStore::proof_identity)?;
     Ok(StartupFailureBinding::JournalRecovery {
         incarnation,
         allocation: StoreAllocationIdentityOwned::from_identity(allocation),
         proof,
-        cursor,
     })
 }
 

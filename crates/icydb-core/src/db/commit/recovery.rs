@@ -1,5 +1,5 @@
 //! Module: db::commit::recovery
-//! Responsibility: publish and resumably fold marker-bound journal batches from the startup driver.
+//! Responsibility: publish and atomically fold complete marker-bound journal batches from startup.
 //! Does not own: marker storage encoding, mutation planning, or query semantics.
 //! Boundary: startup driver -> commit::recovery -> commit::store + journal fold (one-way).
 //!
@@ -8,11 +8,11 @@
 //! state forward before any new operation proceeds.
 //!
 //! Important semantic notes:
-//! - Recovery runs in bounded durable pages at startup.
+//! - Recovery runs in bounded pages of complete durable batches at startup.
 //! - Read and write paths perform state-only admission and never replay.
 //! - Reads must not proceed while a persisted partial commit marker is present.
 
-use crate::db::index::{IndexEntryValue, IndexKey, IndexKeyKind};
+use crate::db::index::{IndexEntryValue, IndexKey, IndexKeyKind, IndexStore};
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::{apply_schema_migration_record_op, verify_schema_migration_record_op};
 use crate::{
@@ -31,14 +31,14 @@ use crate::{
             },
         },
         data::{
-            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey, RawRow,
-            StructuralSlotReader,
+            AcceptedStructuralRowAuthority, DataStore, DecodedDataStoreKey, RawDataStoreKey,
+            RawRow, StructuralSlotReader,
         },
         database_format::ensure_database_format_admitted,
         integrity::{apply_mutation_progress_record_op, verify_mutation_progress_record_op},
         journal::{
-            FoldRecordCursor, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
-            JournalTailStore, journal_batch_encoded_len,
+            FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
+            journal_batch_encoded_len,
         },
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         runtime_entity_catalog::AcceptedRuntimeEntity,
@@ -247,7 +247,7 @@ fn journaled_tails_are_empty<C: CanisterKind>(db: &Db<C>) -> bool {
         .all(|(_, handle)| {
             handle.journal_tail_store().is_some_and(|tail| {
                 tail.with_borrow(|store| {
-                    !store.has_stored_batch() && !store.has_fold_record_cursor()
+                    store.fold_watermark().is_ok() && !store.has_stored_batch()
                 })
             })
         })
@@ -306,11 +306,11 @@ fn perform_recovery_page<C: CanisterKind>(
 
     // Disposable overlays may contain effects from the predecessor Wasm or a
     // same-process interruption test. Canonical row, index, and schema stores
-    // remain the only fold inputs across resumable recovery pages.
+    // remain the only fold inputs across recovery pages.
     reset_journaled_live_projections(db)?;
 
-    // Fold one bounded journal page. Each row transition updates its canonical
-    // data and derived-index effects before the existing watermark advances.
+    // Fold one bounded journal page. Every batch validates completely before
+    // its canonical effects and watermark retire in one replicated message.
     if !fold_journaled_tail_page(db)? {
         return Ok(RecoveryProgress::Pending);
     }
@@ -497,17 +497,12 @@ fn reset_journaled_live_projections<C: CanisterKind>(
 const RECOVERY_JOURNAL_BATCHES_PER_PAGE: usize = 128;
 #[cfg(not(test))]
 const RECOVERY_JOURNAL_BATCHES_PER_PAGE: usize = 2_048;
-#[cfg(test)]
-const RECOVERY_JOURNAL_RECORDS_PER_PAGE: usize = 128;
-#[cfg(not(test))]
-const RECOVERY_JOURNAL_RECORDS_PER_PAGE: usize = 4_096;
 const RECOVERY_JOURNAL_BYTES_PER_PAGE: usize = 8 * 1_024 * 1_024;
 #[cfg(target_arch = "wasm32")]
 const RECOVERY_INSTRUCTIONS_PER_PAGE: u64 = 20_000_000_000;
 
 struct RecoveryPageBudget {
     remaining_batches: usize,
-    remaining_records: usize,
     remaining_bytes: usize,
     instruction_start: u64,
     progressed: bool,
@@ -517,7 +512,6 @@ impl RecoveryPageBudget {
     const fn new(instruction_start: u64) -> Self {
         Self {
             remaining_batches: RECOVERY_JOURNAL_BATCHES_PER_PAGE,
-            remaining_records: RECOVERY_JOURNAL_RECORDS_PER_PAGE,
             remaining_bytes: RECOVERY_JOURNAL_BYTES_PER_PAGE,
             instruction_start,
             progressed: false,
@@ -525,25 +519,17 @@ impl RecoveryPageBudget {
     }
 
     const fn page_exhausted(&self) -> bool {
-        self.remaining_batches == 0 || self.remaining_records == 0
+        self.remaining_batches == 0
     }
 
     const fn batch_bytes_exhausted(&self, batch_bytes: usize) -> bool {
         batch_bytes > self.remaining_bytes
     }
 
-    const fn record_count_exhausted(&self) -> bool {
-        self.remaining_records == 0
-    }
-
-    const fn record_applied(&mut self) {
-        self.remaining_records = self.remaining_records.saturating_sub(1);
-        self.progressed = true;
-    }
-
     const fn batch_applied(&mut self, batch_bytes: usize) {
         self.remaining_batches = self.remaining_batches.saturating_sub(1);
         self.remaining_bytes = self.remaining_bytes.saturating_sub(batch_bytes);
+        self.progressed = true;
     }
 }
 
@@ -582,148 +568,81 @@ fn fold_journaled_store_page<C: CanisterKind>(
             })
             .map_err(journal_failure)?
         else {
-            if journal_store.with_borrow(JournalTailStore::has_fold_record_cursor) {
-                return Err(StartupRecoveryFailure::journal_store(
-                    store_path,
-                    InternalError::store_corruption(),
-                ));
-            }
             return Ok(true);
         };
         let batch_bytes = journal_batch_encoded_len(&batch);
-        let stored_cursor = journal_store
-            .with_borrow(JournalTailStore::fold_record_cursor)
-            .map_err(journal_failure)?;
-        if stored_cursor.is_none()
-            && budget.progressed
+        if budget.progressed
             && (budget.batch_bytes_exhausted(batch_bytes)
                 || recovery_instruction_budget_reached(budget.instruction_start))
         {
             return Ok(false);
         }
 
-        let (mut next_record_ordinal, cursor_created) = prepare_fold_record_cursor(
+        let next_watermark =
+            prepare_folded_journal_batch_completion(&batch, watermark).map_err(journal_failure)?;
+        let _candidate = validate_journal_batch_records(
             db,
             store_path,
             handle,
-            journal_store,
             &batch,
-            stored_cursor,
+            JournalRecordApplyMode::Fold,
         )
         .map_err(journal_failure)?;
-        budget.progressed |= cursor_created;
-        let candidate = validated_journal_batch_schema_candidate(store_path, &batch)
-            .map_err(journal_failure)?;
-        while next_record_ordinal < batch.records().len() {
-            if budget.progressed
-                && (budget.record_count_exhausted()
-                    || recovery_instruction_budget_reached(budget.instruction_start))
-            {
-                return Ok(false);
+        for (record_ordinal, record) in batch.records().iter().enumerate() {
+            if let Err(error) = apply_journal_record(
+                db,
+                store_path,
+                handle,
+                &batch,
+                record_ordinal,
+                record,
+                JournalRecordApplyMode::Fold,
+            ) {
+                trap_validated_journal_fold_contradiction(error);
             }
-            let record = batch
-                .records()
-                .get(next_record_ordinal)
-                .ok_or_else(InternalError::store_corruption)
-                .map_err(journal_failure)?;
-            validate_journal_batch_record(
-                db,
-                store_path,
-                handle,
-                candidate.as_ref(),
-                &batch,
-                next_record_ordinal,
-                record,
-                JournalRecordApplyMode::Fold,
-            )
-            .map_err(journal_failure)?;
-            apply_journal_record(
-                db,
-                store_path,
-                handle,
-                &batch,
-                next_record_ordinal,
-                record,
-                JournalRecordApplyMode::Fold,
-            )
-            .map_err(journal_failure)?;
-            next_record_ordinal = next_record_ordinal
-                .checked_add(1)
-                .ok_or_else(InternalError::store_corruption)
-                .map_err(journal_failure)?;
-            persist_fold_record_cursor(journal_store, &batch, next_record_ordinal)
-                .map_err(journal_failure)?;
-            budget.record_applied();
         }
 
-        complete_folded_journal_batch(journal_store, &batch, watermark).map_err(journal_failure)?;
+        if let Err(error) = complete_folded_journal_batch(journal_store, &batch, next_watermark) {
+            trap_validated_journal_fold_contradiction(error);
+        }
         budget.batch_applied(batch_bytes);
     }
+}
+
+fn prepare_folded_journal_batch_completion(
+    batch: &JournalBatch,
+    watermark: FoldWatermark,
+) -> Result<FoldWatermark, InternalError> {
+    if watermark.highest_folded_journal_sequence().next() != Some(batch.journal_sequence()) {
+        return Err(InternalError::store_corruption());
+    }
+    let next_epoch = watermark
+        .fold_epoch()
+        .checked_add(1)
+        .ok_or_else(InternalError::store_corruption)?;
+    Ok(FoldWatermark::new(batch.journal_sequence(), next_epoch))
 }
 
 fn complete_folded_journal_batch(
     journal_store: &'static LocalKey<RefCell<JournalTailStore>>,
     batch: &JournalBatch,
-    watermark: FoldWatermark,
+    next_watermark: FoldWatermark,
 ) -> Result<(), InternalError> {
-    let next_epoch = watermark
-        .fold_epoch()
-        .checked_add(1)
-        .ok_or_else(InternalError::store_corruption)?;
-    let next_watermark = FoldWatermark::new(batch.journal_sequence(), next_epoch);
     journal_store.with_borrow_mut(|store| {
         store.persist_fold_watermark(next_watermark)?;
-        store.clear_fold_record_cursor();
         store.clear_batches_through(batch.journal_sequence());
         Ok(())
     })
 }
 
-fn prepare_fold_record_cursor<C: CanisterKind>(
-    db: &Db<C>,
-    store_path: &'static str,
-    handle: StoreHandle,
-    journal_store: &'static LocalKey<RefCell<JournalTailStore>>,
-    batch: &JournalBatch,
-    stored_cursor: Option<FoldRecordCursor>,
-) -> Result<(usize, bool), InternalError> {
-    if let Some(cursor) = stored_cursor {
-        return validate_fold_record_cursor(batch, cursor).map(|ordinal| (ordinal, false));
-    }
-
-    validate_journal_batch_envelope(db, store_path, handle, batch)?;
-    persist_fold_record_cursor(journal_store, batch, 0)?;
-    Ok((0, true))
+#[cfg(target_arch = "wasm32")]
+fn trap_validated_journal_fold_contradiction(_error: InternalError) -> ! {
+    ic_cdk::trap("validated journal fold contradicted its complete preflight")
 }
 
-fn persist_fold_record_cursor(
-    journal_store: &'static LocalKey<RefCell<JournalTailStore>>,
-    batch: &JournalBatch,
-    next_record_ordinal: usize,
-) -> Result<(), InternalError> {
-    let cursor = FoldRecordCursor::new(
-        batch.journal_sequence(),
-        batch.batch_id(),
-        u32::try_from(batch.records().len()).map_err(|_| InternalError::store_corruption())?,
-        u32::try_from(next_record_ordinal).map_err(|_| InternalError::store_corruption())?,
-    );
-    journal_store.with_borrow_mut(|store| store.persist_fold_record_cursor(cursor))
-}
-
-fn validate_fold_record_cursor(
-    batch: &JournalBatch,
-    cursor: FoldRecordCursor,
-) -> Result<usize, InternalError> {
-    let record_count =
-        u32::try_from(batch.records().len()).map_err(|_| InternalError::store_corruption())?;
-    if cursor.journal_sequence() != batch.journal_sequence()
-        || cursor.batch_id() != batch.batch_id()
-        || cursor.record_count() != record_count
-        || cursor.next_record_ordinal() > record_count
-    {
-        return Err(InternalError::store_corruption());
-    }
-    usize::try_from(cursor.next_record_ordinal()).map_err(|_| InternalError::store_corruption())
+#[cfg(not(target_arch = "wasm32"))]
+fn trap_validated_journal_fold_contradiction(_error: InternalError) -> ! {
+    std::process::abort()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1137,6 +1056,11 @@ fn validate_journal_batch_records<C: CanisterKind>(
     batch: &JournalBatch,
     mode: JournalRecordApplyMode,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    if mode == JournalRecordApplyMode::Fold {
+        expected_handle.with_data(DataStore::preflight_fold_recovered_journal)?;
+        expected_handle.with_index(IndexStore::preflight_fold_recovered_journal)?;
+        expected_handle.with_schema(SchemaStore::preflight_fold_recovered_journal)?;
+    }
     let candidate =
         validate_journal_batch_envelope(db, expected_store_path, expected_handle, batch)?;
 
@@ -1176,13 +1100,6 @@ fn validate_journal_batch_envelope<C: CanisterKind>(
     )?;
 
     Ok(candidate)
-}
-
-fn validated_journal_batch_schema_candidate(
-    expected_store_path: &'static str,
-    batch: &JournalBatch,
-) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    journal_batch_schema_candidate(expected_store_path, batch)
 }
 
 #[expect(
@@ -1236,13 +1153,39 @@ fn validate_journal_batch_record<C: CanisterKind>(
             if runtime_entity.store_path() != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
+            if mode == JournalRecordApplyMode::Fold {
+                expected_handle
+                    .with_schema(|store| store.preflight_fold_persisted_snapshot(&snapshot))?;
+            }
         }
-        JournalRecord::AcceptedSchemaPublish { .. }
-        | JournalRecord::ConstraintValidationJobPut { .. }
-        | JournalRecord::ConstraintValidationJobDelete { .. } => {
-            // The first pass decoded and verified the candidate before any
-            // candidate-bound row rewrite was admitted, including the exact
-            // final activation/job closure.
+        JournalRecord::AcceptedSchemaPublish {
+            expected_revision, ..
+        } => {
+            let candidate = candidate.ok_or_else(InternalError::store_corruption)?;
+            if mode == JournalRecordApplyMode::Fold {
+                let incarnation = database_incarnation_id()?;
+                expected_handle.with_schema(|store| {
+                    store.preflight_fold_journaled_accepted_schema_candidate(
+                        incarnation,
+                        *expected_revision,
+                        candidate,
+                    )
+                })?;
+            }
+        }
+        JournalRecord::ConstraintValidationJobPut { job_bytes, .. } => {
+            if mode == JournalRecordApplyMode::Fold {
+                let job = decode_constraint_validation_job(job_bytes)?;
+                expected_handle
+                    .with_schema(|store| store.preflight_fold_constraint_validation_job(&job))?;
+            }
+        }
+        JournalRecord::ConstraintValidationJobDelete { .. } => {
+            if mode == JournalRecordApplyMode::Fold {
+                expected_handle.with_schema(|store| {
+                    store.preflight_fold_constraint_validation_job_removal()
+                })?;
+            }
         }
         JournalRecord::AcceptedSchemaIndexDelete {
             store_path,
@@ -1302,6 +1245,9 @@ fn validate_journal_batch_record<C: CanisterKind>(
                 &job,
                 std::slice::from_ref(key),
             )?;
+            if mode == JournalRecordApplyMode::Fold {
+                expected_handle.with_index(IndexStore::preflight_fold_recovered_journal)?;
+            }
         }
         JournalRecord::IdentityRangeAdvance { range } => {
             let runtime_entity = db
@@ -1323,6 +1269,11 @@ fn validate_journal_batch_record<C: CanisterKind>(
             if commit_state.materialized_high_water() > commit_state.committed_high_water() {
                 return Err(InternalError::identity_state_corruption());
             }
+            if mode == JournalRecordApplyMode::Fold {
+                expected_handle.with_schema(|store| {
+                    store.preflight_fold_identity_range_advance(*range, advance_id)
+                })?;
+            }
         }
         #[cfg(any(test, feature = "migration"))]
         JournalRecord::SchemaMigrationRowPut {
@@ -1339,6 +1290,9 @@ fn validate_journal_batch_record<C: CanisterKind>(
             DecodedDataStoreKey::try_from_raw(primary_key)
                 .map_err(|_| InternalError::store_corruption())?;
             RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            if mode == JournalRecordApplyMode::Fold {
+                expected_handle.with_data(DataStore::preflight_fold_recovered_journal)?;
+            }
         }
         #[cfg(any(test, feature = "migration"))]
         JournalRecord::SchemaMigrationIndexPut {
@@ -1351,6 +1305,9 @@ fn validate_journal_batch_record<C: CanisterKind>(
             }
             validate_schema_migration_journal_plan(*plan_digest)?;
             IndexKey::try_from_raw(key).map_err(|_| InternalError::store_corruption())?;
+            if mode == JournalRecordApplyMode::Fold {
+                expected_handle.with_index(IndexStore::preflight_fold_recovered_journal)?;
+            }
         }
     }
     Ok(())
@@ -1497,15 +1454,24 @@ fn validate_journal_batch_row_delete<C: CanisterKind>(
                 schema_fingerprint,
             )
         }
-        JournalRecordApplyMode::Fold => canonical_journal_row_selection(
-            db,
-            expected_store_path,
-            expected_handle,
-            entity_path,
-            primary_key,
-            schema_fingerprint,
-        )
-        .map(drop),
+        JournalRecordApplyMode::Fold => {
+            canonical_journal_row_selection(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            )?;
+            preflight_fold_recovered_row_transition(
+                db,
+                expected_handle,
+                entity_path,
+                primary_key,
+                None,
+                schema_fingerprint,
+            )
+        }
     }
 }
 
@@ -1704,6 +1670,43 @@ fn validate_candidate_journal_row_put(
     reader.validate_primary_key(&decoded_key)
 }
 
+fn preflight_fold_recovered_row_transition<C: CanisterKind>(
+    db: &Db<C>,
+    expected_handle: StoreHandle,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    after: Option<&RawRow>,
+    schema_fingerprint: CommitSchemaFingerprint,
+) -> Result<(), InternalError> {
+    let before = expected_handle
+        .with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
+    let op = CommitRowOp::try_new_bytes(
+        entity_path,
+        primary_key.as_bytes(),
+        before,
+        after.map(|row| row.as_bytes().to_vec()),
+        schema_fingerprint,
+    )?;
+    let prepared = db.prepare_row_commit_op_for_replay(&op)?;
+    if !std::ptr::eq(prepared.data_store, expected_handle.data_store())
+        || prepared.data_key != *primary_key
+    {
+        return Err(InternalError::store_corruption());
+    }
+    prepared
+        .data_store
+        .with_borrow(DataStore::preflight_fold_recovered_journal)?;
+    prepared
+        .data_index_store
+        .with_borrow(IndexStore::preflight_fold_recovered_journal)?;
+    for index_op in &prepared.index_ops {
+        index_op
+            .index_store
+            .with_borrow(IndexStore::preflight_fold_recovered_journal)?;
+    }
+    Ok(())
+}
+
 fn validate_canonical_journal_row_put<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -1728,7 +1731,15 @@ fn validate_canonical_journal_row_put<C: CanisterKind>(
     )?
     .into_row_contract();
     let reader = StructuralSlotReader::from_raw_row_with_validated_contract(&row, contract)?;
-    reader.validate_primary_key(&decoded_key)
+    reader.validate_primary_key(&decoded_key)?;
+    preflight_fold_recovered_row_transition(
+        db,
+        expected_handle,
+        entity_path,
+        primary_key,
+        Some(&row),
+        schema_fingerprint,
+    )
 }
 
 fn canonical_journal_row_selection<C: CanisterKind>(

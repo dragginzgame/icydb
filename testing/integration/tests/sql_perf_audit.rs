@@ -75,6 +75,16 @@ struct JointFanoutFixtureFacts {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct PromotionIndexPublicationFacts {
+    rows_scanned: u64,
+    index_keys_written: u64,
+    local_instructions: u64,
+}
+
+const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
+const PROMOTION_INDEX_LOAD_PAGE_ROWS: u32 = 4_096;
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct StorageWritePerfResult {
     first_insert_local_instructions: u64,
     steady_insert_avg_local_instructions: u64,
@@ -1595,6 +1605,18 @@ fn measure_startup_watchdog_recovery(
     fixture: &StandaloneCanisterFixture,
     expected_work_samples: u64,
 ) -> Patch1RecoveryObservation {
+    let observed = observe_startup_watchdog_recovery(fixture);
+    assert_eq!(observed.watchdog.scheduler_samples, expected_work_samples);
+    assert_eq!(observed.watchdog.work_samples, expected_work_samples);
+    assert_eq!(observed.watchdog.work_started, expected_work_samples);
+    assert_eq!(observed.watchdog.work_completed, expected_work_samples);
+    assert_eq!(observed.watchdog.succeeded, expected_work_samples);
+    observed
+}
+
+fn observe_startup_watchdog_recovery(
+    fixture: &StandaloneCanisterFixture,
+) -> Patch1RecoveryObservation {
     upgrade_fixture_canister(fixture, "sql_perf");
     let memory_before = canister_memory_bytes(fixture);
     advance_startup_watchdog_until_ready(fixture);
@@ -1608,11 +1630,11 @@ fn measure_startup_watchdog_recovery(
         .expect("replayed startup watchdog performance snapshot should decode");
 
     assert_eq!(replayed, measured);
-    assert_eq!(measured.scheduler_samples, expected_work_samples);
-    assert_eq!(measured.work_samples, expected_work_samples);
-    assert_eq!(measured.work_started, expected_work_samples);
-    assert_eq!(measured.work_completed, expected_work_samples);
-    assert_eq!(measured.succeeded, expected_work_samples);
+    assert!(measured.scheduler_samples > 0);
+    assert_eq!(measured.scheduler_samples, measured.work_samples);
+    assert_eq!(measured.work_started, measured.work_samples);
+    assert_eq!(measured.work_completed, measured.work_samples);
+    assert_eq!(measured.succeeded, measured.work_samples);
     assert_eq!(measured.retryable_failures, 0);
     assert_eq!(measured.invariant_failures, 0);
     assert!(measured.scheduler_total_instructions > 0);
@@ -2694,6 +2716,70 @@ fn joint_admission_rejects_the_first_over_limit_max_fanout_batch_before_publicat
         observed.memory_after.0,
         observed.memory_before.1,
         observed.memory_after.1,
+    );
+}
+
+#[test]
+fn maximum_accepted_index_publication_records_canonical_watchdog_promotion_evidence() {
+    let fixture = install_fixture_canister("sql_perf");
+    let mut first_id = 1_u32;
+    while first_id <= PROMOTION_INDEX_FIXTURE_ROWS {
+        let loaded: Result<u32, Error> = fixture
+            .update_candid(
+                "append_promotion_index_fixture_page",
+                (first_id, PROMOTION_INDEX_LOAD_PAGE_ROWS),
+            )
+            .expect("promotion index load page should decode");
+        assert_eq!(
+            loaded.expect("promotion index load page should succeed"),
+            PROMOTION_INDEX_LOAD_PAGE_ROWS,
+        );
+        first_id = first_id
+            .checked_add(PROMOTION_INDEX_LOAD_PAGE_ROWS)
+            .expect("bounded fixture page should advance");
+    }
+
+    // Complete-batch recovery admits two zero-index fixture batches within
+    // each maintained watchdog work callback.
+    let load_recovery = measure_startup_watchdog_recovery(
+        &fixture,
+        u64::from(PROMOTION_INDEX_FIXTURE_ROWS / (PROMOTION_INDEX_LOAD_PAGE_ROWS * 2)),
+    );
+    assert!(load_recovery.watchdog.work_maximum_instructions.is_some());
+
+    let published: Result<PromotionIndexPublicationFacts, Error> = fixture
+        .update_candid("publish_promotion_index_fixture", ())
+        .expect("promotion index publication facts should decode");
+    let published = published.expect("promotion index publication should succeed");
+    assert_eq!(
+        published.rows_scanned,
+        u64::from(PROMOTION_INDEX_FIXTURE_ROWS)
+    );
+    assert_eq!(
+        published.index_keys_written,
+        u64::from(PROMOTION_INDEX_FIXTURE_ROWS)
+    );
+    assert!(published.local_instructions > 0);
+    assert!(published.local_instructions < 40_000_000_000);
+
+    let recovered = observe_startup_watchdog_recovery(&fixture);
+    assert_eq!(recovered.watchdog.work_samples, 1);
+
+    println!(
+        "0.228 Patch 4 fingerprint-bound maximum accepted-index recovery: rows={} keys={} producer_instructions={} recovery_total={} recovery_maximum={} recovery_samples={} wasm_before={} wasm_after={} stable_before={} stable_after={}",
+        published.rows_scanned,
+        published.index_keys_written,
+        published.local_instructions,
+        recovered.watchdog.work_total_instructions,
+        recovered
+            .watchdog
+            .work_maximum_instructions
+            .unwrap_or_default(),
+        recovered.watchdog.work_samples,
+        recovered.memory_before.0,
+        recovered.memory_after.0,
+        recovered.memory_before.1,
+        recovered.memory_after.1,
     );
 }
 

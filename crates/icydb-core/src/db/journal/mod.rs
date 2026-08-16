@@ -19,6 +19,6 @@ pub(in crate::db) use codec::{
 pub(in crate::db) use codec::{MAX_JOURNAL_BATCH_RECORDS, journal_record_payload_len};
 pub use store::JournalTailStore;
 pub(in crate::db) use store::{
-    FoldRecordCursor, FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits,
-    JournalIntegrityIssue, JournalTailProofIdentity,
+    FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue,
+    JournalTailProofIdentity,
 };

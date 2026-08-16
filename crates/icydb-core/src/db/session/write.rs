@@ -3023,7 +3023,10 @@ mod identity_pre_key_tests {
                 RowInspectionLimits, execute_quick_integrity, execute_row_integrity_page,
                 with_mutation_progress_store,
             },
-            journal::JournalTailStore,
+            journal::{
+                JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
+                encode_journal_batch,
+            },
             registry::{
                 StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
                 StoreRuntimeStorageCapabilities,
@@ -5295,7 +5298,7 @@ mod identity_pre_key_tests {
     }
 
     #[test]
-    fn journaled_startup_recovery_resumes_by_durable_pages_without_reallocating_ids() {
+    fn journaled_startup_recovery_resumes_between_complete_batches_without_reallocating_ids() {
         const SUBMISSION: &str = "generated/8899aabbccddeeff";
         let session = initialize_journaled();
         let catalog = session
@@ -5344,7 +5347,7 @@ mod identity_pre_key_tests {
                 }
             }
         }
-        assert!(pages >= 2);
+        assert_eq!(pages, 1);
 
         assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 129);
         assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
@@ -5366,7 +5369,7 @@ mod identity_pre_key_tests {
     }
 
     #[test]
-    fn journaled_startup_recovery_resumes_within_one_large_batch() {
+    fn journaled_startup_recovery_completes_one_large_batch_atomically() {
         let session = initialize_journaled();
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -5387,36 +5390,82 @@ mod identity_pre_key_tests {
         forget_recovered_domain_for_tests(&session.db)
             .expect("upgrade should reset recovery ownership");
         assert!(
-            !session
-                .db
-                .drive_startup_recovery_page()
-                .expect("the first record-bounded recovery page should commit"),
-            "a single batch larger than the record bound must remain resumable",
-        );
-        JOURNALED_TAIL_STORE.with(|tail| {
-            let tail = tail.borrow();
-            let cursor = tail
-                .fold_record_cursor()
-                .expect("the fold cursor should decode")
-                .expect("the incomplete batch should retain a fold cursor");
-            assert_eq!(cursor.next_record_ordinal(), 128);
-            assert!(tail.has_stored_batch());
-        });
-        assert!(
             session
                 .db
                 .drive_startup_recovery_page()
-                .expect("the terminal record-bounded recovery page should commit"),
+                .expect("the complete batch recovery page should commit"),
         );
 
         assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 129);
         JOURNALED_TAIL_STORE.with(|tail| {
             let tail = tail.borrow();
             assert!(!tail.has_stored_batch());
-            assert!(!tail.has_fold_record_cursor());
         });
         assert_dynamic_payload(&session, 1, 0);
         assert_dynamic_payload(&session, 129, 128);
+    }
+
+    #[test]
+    fn complete_batch_validation_rejects_a_late_record_before_canonical_writes() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled identity catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled identity row layout should build");
+        session
+            .execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                batch(&[7]),
+                Timestamp::from_millis(9),
+                Ok,
+            )
+            .expect("journal batch predecessor should commit");
+
+        JOURNALED_TAIL_STORE.with(|tail| {
+            let mut tail = tail.borrow_mut();
+            let original = tail
+                .next_batch_after(JournalSequence::new(0))
+                .expect("journal batch should decode")
+                .expect("journal batch should exist");
+            let mut records = original.records().to_vec();
+            records.push(
+                JournalRecord::schema_put(JOURNALED_STORE_PATH, vec![0xff; 8])
+                    .expect("bounded semantic corruption should build"),
+            );
+            let corrupted = JournalBatch::new(
+                original.batch_id(),
+                original.commit_marker_id(),
+                original.journal_sequence(),
+                records,
+            )
+            .expect("current corrupt batch shape should build");
+            let encoded = encode_journal_batch(&corrupted)
+                .expect("current corrupt batch envelope should encode");
+            tail.clear_batches_through(original.journal_sequence());
+            tail.insert_raw_batch_for_tests(original.journal_sequence(), encoded)
+                .expect("corrupt persisted batch should replace the predecessor");
+        });
+
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("upgrade should reset recovery ownership");
+        let error = session
+            .db
+            .drive_startup_recovery_page()
+            .expect_err("late semantic corruption must fail before fold apply");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 0);
+        JOURNALED_TAIL_STORE.with(|tail| {
+            let tail = tail.borrow();
+            assert_eq!(
+                tail.fold_watermark()
+                    .expect("watermark should remain readable")
+                    .highest_folded_journal_sequence(),
+                JournalSequence::new(0),
+            );
+            assert!(tail.has_stored_batch());
+        });
     }
 
     #[test]

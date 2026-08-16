@@ -24,7 +24,7 @@ use std::cell::RefCell;
 use crate::{
     db::{
         integrity::DatabaseIncarnationId,
-        journal::{FoldRecordCursor, JournalTailProofIdentity},
+        journal::JournalTailProofIdentity,
         registry::StoreAllocationIdentity,
         startup::{StartupFailure, StartupFailureKind},
     },
@@ -38,13 +38,13 @@ use ic_memory::open_default_memory_manager_memory;
 
 pub(in crate::db) const MAX_STARTUP_FAILURE_RECEIPT_BYTES: usize = 2_048;
 const RECEIPT_MAGIC: &[u8; 8] = b"ICYSUP01";
-const RECEIPT_VERSION: u8 = 1;
+const RECEIPT_VERSION: u8 = 2;
 const RECEIPT_HEADER_BYTES: usize = 15;
 const WASM_PAGE_BYTES: u64 = 65_536;
 const MAX_BINDING_KEY_BYTES: usize = 128;
 const FAILURE_IDENTITY_BYTES: usize = 1 + 2 + 1 + 1;
 const MAX_DIAGNOSTIC_FACT_BYTES: usize = MAX_PUBLIC_DIAGNOSTIC_FACTS * (1 + 8);
-const MAX_JOURNAL_BINDING_BYTES: usize = 1 + 16 + 1 + 1 + MAX_BINDING_KEY_BYTES + 40 + 1 + 32;
+const MAX_JOURNAL_BINDING_BYTES: usize = 1 + 16 + 1 + 1 + MAX_BINDING_KEY_BYTES + 40;
 pub(in crate::db) const MAX_ENCODED_STARTUP_FAILURE_RECEIPT_BYTES: usize = RECEIPT_HEADER_BYTES
     + FAILURE_IDENTITY_BYTES
     + MAX_DIAGNOSTIC_FACT_BYTES
@@ -63,7 +63,6 @@ pub(in crate::db) enum StartupFailureBinding {
         incarnation: DatabaseIncarnationId,
         allocation: StoreAllocationIdentityOwned,
         proof: JournalTailProofIdentity,
-        cursor: Option<FoldRecordCursor>,
     },
     SchemaReconciliation {
         incarnation: DatabaseIncarnationId,
@@ -324,15 +323,10 @@ fn validate_receipt(receipt: &StartupFailureReceipt) -> Result<(), InternalError
             commit_stable_key, ..
         } => validate_stable_key(commit_stable_key),
         StartupFailureBinding::JournalRecovery {
-            allocation,
-            proof,
-            cursor,
-            ..
+            allocation, proof, ..
         } => {
             validate_stable_key(&allocation.stable_key)?;
-            if !proof.is_well_formed()
-                || cursor.is_some_and(|cursor| cursor.next_record_ordinal() > cursor.record_count())
-            {
+            if !proof.is_well_formed() {
                 return Err(InternalError::store_invariant());
             }
             Ok(())
@@ -378,7 +372,6 @@ fn encode_binding(out: &mut Vec<u8>, binding: &StartupFailureBinding) -> Result<
             incarnation,
             allocation,
             proof,
-            cursor,
         } => {
             out.push(2);
             out.extend_from_slice(&incarnation.to_bytes());
@@ -389,16 +382,6 @@ fn encode_binding(out: &mut Vec<u8>, binding: &StartupFailureBinding) -> Result<
             out.extend_from_slice(&proof.fold_epoch().to_le_bytes());
             out.extend_from_slice(&proof.next_append_sequence().to_le_bytes());
             out.extend_from_slice(&proof.physical_record_count().to_le_bytes());
-            match cursor {
-                None => out.push(0),
-                Some(cursor) => {
-                    out.push(1);
-                    out.extend_from_slice(&cursor.journal_sequence().get().to_le_bytes());
-                    out.extend_from_slice(&cursor.batch_id());
-                    out.extend_from_slice(&cursor.record_count().to_le_bytes());
-                    out.extend_from_slice(&cursor.next_record_ordinal().to_le_bytes());
-                }
-            }
         }
         StartupFailureBinding::SchemaReconciliation {
             incarnation,
@@ -458,21 +441,10 @@ fn decode_binding(reader: &mut Reader<'_>) -> Result<StartupFailureBinding, Inte
                 reader.u64()?,
                 reader.u64()?,
             );
-            let cursor = match reader.u8()? {
-                0 => None,
-                1 => Some(FoldRecordCursor::new(
-                    crate::db::journal::JournalSequence::new(reader.u64()?),
-                    reader.array()?,
-                    reader.u32()?,
-                    reader.u32()?,
-                )),
-                _ => return Err(InternalError::startup_control_corruption()),
-            };
             Ok(StartupFailureBinding::JournalRecovery {
                 incarnation,
                 allocation,
                 proof,
-                cursor,
             })
         }
         3 => {
@@ -574,10 +546,6 @@ impl<'a> Reader<'a> {
         Ok(u16::from_le_bytes(self.array()?))
     }
 
-    fn u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_le_bytes(self.array()?))
-    }
-
     fn u64(&mut self) -> Result<u64, InternalError> {
         Ok(u64::from_le_bytes(self.array()?))
     }
@@ -633,7 +601,7 @@ pub(in crate::db) fn startup_memory<C: CanisterKind>()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::journal::JournalSequence, traits::Path};
+    use crate::traits::Path;
     use ic_stable_structures::VectorMemory;
 
     struct ReceiptCanister;
@@ -678,7 +646,7 @@ mod tests {
 
     #[test]
     fn every_closed_binding_round_trips_in_the_current_envelope() {
-        assert_eq!(MAX_ENCODED_STARTUP_FAILURE_RECEIPT_BYTES, 960);
+        assert_eq!(MAX_ENCODED_STARTUP_FAILURE_RECEIPT_BYTES, 927);
         let database = StartupFailureReceipt::new(
             failure(StartupFailureKind::DatabaseControl),
             StartupFailureBinding::DatabaseControl {
@@ -698,12 +666,6 @@ mod tests {
                     StoreAllocationIdentity::new(239, "icydb.test.rows.journal.v1"),
                 ),
                 proof: JournalTailProofIdentity::from_persisted_parts(1, 0, 0, 1, 2),
-                cursor: Some(FoldRecordCursor::new(
-                    JournalSequence::new(1),
-                    [8; 16],
-                    4,
-                    2,
-                )),
             },
         )
         .expect("journal binding should admit");
@@ -786,24 +748,6 @@ mod tests {
             },
         );
         assert!(malformed_allocation.is_err());
-
-        let impossible_cursor = StartupFailureReceipt::new(
-            failure(StartupFailureKind::JournalRecovery),
-            StartupFailureBinding::JournalRecovery {
-                incarnation: incarnation(),
-                allocation: StoreAllocationIdentityOwned::from_identity(
-                    StoreAllocationIdentity::new(239, "icydb.test.rows.journal.v1"),
-                ),
-                proof: JournalTailProofIdentity::from_persisted_parts(1, 0, 0, 1, 2),
-                cursor: Some(FoldRecordCursor::new(
-                    JournalSequence::new(1),
-                    [8; 16],
-                    4,
-                    5,
-                )),
-            },
-        );
-        assert!(impossible_cursor.is_err());
     }
 
     #[test]

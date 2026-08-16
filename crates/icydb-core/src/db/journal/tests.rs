@@ -1,6 +1,5 @@
 use super::{
-    FoldRecordCursor, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
-    JournalTailStore,
+    FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
     codec::{
         JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD,
         MAX_JOURNAL_BATCH_BYTES, MAX_JOURNAL_BATCH_RECORDS, RawJournalBatch, decode_journal_batch,
@@ -211,6 +210,10 @@ fn journal_batch_header_inspection_freezes_current_envelope_offsets() {
     assert_eq!(
         u32::from_le_bytes(encoded[49..53].try_into().unwrap()),
         u32::try_from(batch.records().len()).expect("test record count should fit"),
+    );
+    assert_eq!(
+        fixed_header.batch_fingerprint().as_slice(),
+        &encoded[53..85]
     );
 }
 
@@ -1005,13 +1008,45 @@ fn journal_batch_decode_rejects_trailing_bytes() {
 #[test]
 fn journal_batch_decode_rejects_unknown_record_tag() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
-    let first_record_tag_offset = 9 + 16 + 16 + 8 + 4;
+    let first_record_tag_offset = 9 + 16 + 16 + 8 + 4 + 32;
     encoded[first_record_tag_offset] = 0xFF;
 
     let err = decode_journal_batch(&encoded).expect_err("unknown record tag should fail closed");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_batch_decode_rejects_first_middle_and_last_record_corruption() {
+    let batch = batch(1);
+    let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
+    let mut record_offset = 85;
+
+    for record in batch.records() {
+        let mut corrupt = encoded.clone();
+        corrupt[record_offset] = 0xff;
+        let error = decode_journal_batch(&corrupt)
+            .expect_err("record corruption at every tested ordinal should fail closed");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+        record_offset = record_offset
+            .checked_add(journal_record_payload_len(record))
+            .expect("bounded record offset should fit");
+    }
+    assert_eq!(record_offset, encoded.len());
+}
+
+#[test]
+fn journal_batch_decode_rejects_fingerprint_substitution() {
+    let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
+    encoded[53] ^= 0x01;
+
+    let err = decode_journal_batch(&encoded)
+        .expect_err("substituted journal batch fingerprint must fail closed");
+
+    assert_eq!(err.class(), ErrorClass::Corruption);
+    assert_eq!(err.origin(), ErrorOrigin::Store);
 }
 
 #[test]
@@ -1105,35 +1140,6 @@ fn journal_tail_store_persists_fold_watermark_without_counting_it_as_tail_batch(
     assert_eq!(watermark.highest_folded_journal_sequence().get(), 2);
     assert_eq!(watermark.fold_epoch(), 1);
     assert_eq!(store.len(), 2);
-}
-
-#[test]
-fn journal_tail_store_persists_record_level_fold_continuation() {
-    let memory = test_memory(254);
-    let mut store = JournalTailStore::init(memory.clone());
-    let batch = batch(1);
-    store.append_batch(&batch).expect("batch should append");
-    let cursor = FoldRecordCursor::new(
-        batch.journal_sequence(),
-        batch.batch_id(),
-        u32::try_from(batch.records().len()).expect("small record count should fit"),
-        2,
-    );
-    store
-        .persist_fold_record_cursor(cursor)
-        .expect("record cursor should persist");
-    drop(store);
-
-    let mut reopened = JournalTailStore::init(memory);
-    assert_eq!(
-        reopened
-            .fold_record_cursor()
-            .expect("record cursor should decode"),
-        Some(cursor),
-    );
-    assert!(reopened.has_fold_record_cursor());
-    reopened.clear_fold_record_cursor();
-    assert!(!reopened.has_fold_record_cursor());
 }
 
 #[test]

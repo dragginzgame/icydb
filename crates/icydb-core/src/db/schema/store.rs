@@ -854,6 +854,14 @@ impl SchemaStore {
         }
     }
 
+    /// Prove that recovered journal metadata can fold into canonical storage.
+    pub(in crate::db) fn preflight_fold_recovered_journal(&self) -> Result<(), InternalError> {
+        match self.backend {
+            SchemaStoreBackend::Journaled { .. } => Ok(()),
+            SchemaStoreBackend::Heap(_) => Err(InternalError::store_invariant()),
+        }
+    }
+
     fn prepare_identity_state_transition(
         &self,
         incarnation: DatabaseIncarnationId,
@@ -982,6 +990,22 @@ impl SchemaStore {
             IdentityStateStorageView::Canonical,
             IdentityStateWriteTarget::Canonical,
         )
+    }
+
+    /// Preflight one canonical Identity range fold without changing storage.
+    pub(in crate::db) fn preflight_fold_identity_range_advance(
+        &self,
+        range: IdentityRangeAdvance,
+        advance_id: IdentityAdvanceId,
+    ) -> Result<(), InternalError> {
+        if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
+            return Err(InternalError::store_invariant());
+        }
+        let state =
+            self.identity_state_for_owner(range.owner(), IdentityStateStorageView::Canonical)?;
+        let advanced = state.apply_range_advance(range, advance_id)?;
+        let _encoded = encode_identity_state(&advanced)?;
+        Ok(())
     }
 
     /// Verify one exact range identity against effective state.
@@ -1270,6 +1294,18 @@ impl SchemaStore {
         Ok(())
     }
 
+    /// Preflight one canonical validation-job fold without changing storage.
+    pub(in crate::db) fn preflight_fold_constraint_validation_job(
+        &self,
+        job: &ConstraintValidationJob,
+    ) -> Result<(), InternalError> {
+        if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
+            return Err(InternalError::store_invariant());
+        }
+        let _encoded = encode_constraint_validation_job(job)?;
+        Ok(())
+    }
+
     /// Fold one committed validation-job removal into the canonical stable base.
     pub(in crate::db) fn fold_constraint_validation_job_removal(
         &mut self,
@@ -1284,6 +1320,16 @@ impl SchemaStore {
             constraint_id,
         ));
         Ok(())
+    }
+
+    /// Preflight one canonical validation-job removal without changing storage.
+    pub(in crate::db) fn preflight_fold_constraint_validation_job_removal(
+        &self,
+    ) -> Result<(), InternalError> {
+        match self.backend {
+            SchemaStoreBackend::Journaled { .. } => Ok(()),
+            SchemaStoreBackend::Heap(_) => Err(InternalError::store_invariant()),
+        }
     }
 
     /// Reset the volatile projection for journaled recovery without mutating
@@ -1317,6 +1363,18 @@ impl SchemaStore {
         let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
         canonical.insert(key, raw_snapshot);
 
+        Ok(())
+    }
+
+    /// Preflight one canonical schema-snapshot fold without changing storage.
+    pub(in crate::db) fn preflight_fold_persisted_snapshot(
+        &self,
+        snapshot: &PersistedSchemaSnapshot,
+    ) -> Result<(), InternalError> {
+        if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
+            return Err(InternalError::store_invariant());
+        }
+        let _encoded = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
         Ok(())
     }
 
@@ -1924,6 +1982,51 @@ impl SchemaStore {
         .map_err(map_schema_publication_error)?;
 
         Ok(false)
+    }
+
+    /// Preflight one accepted candidate against canonical journaled authority.
+    pub(in crate::db) fn preflight_fold_journaled_accepted_schema_candidate(
+        &self,
+        incarnation: DatabaseIncarnationId,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &CandidateSchemaRevision,
+    ) -> Result<(), InternalError> {
+        if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
+            return Err(InternalError::store_invariant());
+        }
+        let identity_transition = self.prepare_identity_state_transition(
+            incarnation,
+            candidate,
+            IdentityStateStorageView::Canonical,
+        )?;
+        let candidate_is_current = self.canonical_root_matches_candidate(candidate)?;
+        if candidate_is_current && !identity_transition.is_empty() {
+            return Err(InternalError::identity_state_corruption());
+        }
+        for state in identity_transition.into_updates() {
+            let _encoded = encode_identity_state(&state)?;
+        }
+        for snapshot in candidate.bundle().entity_snapshots().values() {
+            let _encoded = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
+        }
+
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        let root_slot = if candidate_is_current {
+            select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
+                .ok_or_else(InternalError::store_corruption)?
+                .slot()
+        } else {
+            prepare_accepted_schema_root_publication(
+                [first.as_deref(), second.as_deref()],
+                expected_revision,
+                candidate,
+            )
+            .map_err(map_schema_publication_error)?
+            .target_slot()
+        };
+        let _retained = Self::candidate_entry_keys(candidate, root_slot)?;
+        Ok(())
     }
 
     /// Return the retained Identity owner count after admitting one candidate.

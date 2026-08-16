@@ -451,6 +451,16 @@ impl IndexStore {
         Ok(())
     }
 
+    /// Prove that recovered journal entries can be folded into canonical storage.
+    pub(in crate::db) fn preflight_fold_recovered_journal(
+        &self,
+    ) -> Result<(), crate::error::InternalError> {
+        match self.backend {
+            IndexStoreBackend::Journaled { .. } => Ok(()),
+            IndexStoreBackend::Heap(_) => Err(crate::error::InternalError::store_invariant()),
+        }
+    }
+
     pub fn clear(&mut self) {
         match &mut self.backend {
             IndexStoreBackend::Heap(map) => map.clear(),
