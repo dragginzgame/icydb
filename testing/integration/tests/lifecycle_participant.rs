@@ -1,7 +1,9 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use candid::{CandidType, Deserialize};
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{
+    CanisterInstallExt, ErrorCode, RejectResponse, RetryPolicy, StandaloneCanisterFixture,
+};
 use icydb::types::Ulid;
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
@@ -10,6 +12,8 @@ use icydb_testing_integration::{
 };
 
 const PARTICIPANT_INSTRUCTION_CEILING: u64 = 10_750_000;
+const INSTALL_CODE_RETRY_LIMIT: usize = 4;
+const INSTALL_CODE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 
 fn production_build_options() -> CanisterBuildOptions {
     CanisterBuildOptions {
@@ -115,16 +119,32 @@ fn advance_until_active(fixture: &StandaloneCanisterFixture) -> LifecycleComposi
     panic!("deferred application work should activate within twelve ticks");
 }
 
-fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
+fn install_code_retry_policy() -> RetryPolicy {
+    RetryPolicy::try_new(INSTALL_CODE_RETRY_LIMIT, INSTALL_CODE_COOLDOWN)
+        .expect("install-code retry policy should be valid")
+}
+
+fn upgrade_with_retry(
+    fixture: &StandaloneCanisterFixture,
+    wasm: &[u8],
+    args: &[u8],
+) -> Result<(), RejectResponse> {
     fixture
         .pocket_ic()
-        .upgrade_canister(
-            fixture.canister_id(),
-            wasm,
-            candid::encode_args((Some(false),))
-                .expect("non-trapping lifecycle upgrade args should encode"),
-            None,
-        )
+        .retry_install_code(install_code_retry_policy(), || {
+            fixture.pocket_ic().upgrade_canister(
+                fixture.canister_id(),
+                wasm.to_vec(),
+                args.to_vec(),
+                None,
+            )
+        })
+}
+
+fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
+    let args = candid::encode_args((Some(false),))
+        .expect("non-trapping lifecycle upgrade args should encode");
+    upgrade_with_retry(fixture, &wasm, &args)
         .expect("lifecycle participant upgrade should succeed");
 }
 
@@ -267,15 +287,14 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
         .get_stable_memory(fixture.canister_id())
         .len();
 
-    let failed_upgrade = fixture.pocket_ic().upgrade_canister(
-        fixture.canister_id(),
-        production_wasm.clone(),
-        candid::encode_args((Some(true),)).expect("trapping lifecycle upgrade args should encode"),
-        None,
-    );
-    assert!(
-        failed_upgrade.is_err(),
-        "post-upgrade must propagate a trap after participant execution",
+    let trap_args =
+        candid::encode_args((Some(true),)).expect("trapping lifecycle upgrade args should encode");
+    let failed_upgrade = upgrade_with_retry(&fixture, &production_wasm, &trap_args)
+        .expect_err("post-upgrade must propagate a trap after participant execution");
+    assert_eq!(
+        failed_upgrade.error_code,
+        ErrorCode::CanisterCalledTrap,
+        "the rollback probe must fail from its lifecycle trap, not install-code throttling",
     );
     assert_eq!(
         fixture
@@ -291,10 +310,6 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
             .expect("the pre-upgrade row should survive a trapped upgrade")
     );
 
-    // The IC rate-limits repeated install-code work after a trapped upgrade.
-    // Move beyond that operational backoff before proving the clean retry.
-    fixture.pocket_ic().advance_time(Duration::from_hours(1));
-    fixture.pocket_ic().tick();
     upgrade_with_wasm(&fixture, production_wasm);
     assert_eq!(
         fixture
