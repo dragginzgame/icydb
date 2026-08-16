@@ -258,6 +258,25 @@ fn journal_batch_codec_round_trips_accepted_schema_publication() {
 }
 
 #[test]
+fn accepted_schema_publication_rejects_late_duplicate_and_non_schema_suffixes() {
+    for records in [
+        vec![row_put_record(1), accepted_schema_publish_record()],
+        vec![
+            accepted_schema_publish_record(),
+            accepted_schema_publish_record(),
+        ],
+        vec![accepted_schema_publish_record(), row_put_record(1)],
+        vec![accepted_schema_publish_record(), identity_range_record(1)],
+    ] {
+        let error = JournalBatch::new([0x3D; 16], [0x4D; 16], JournalSequence::new(12), records)
+            .expect_err("accepted schema publication batches must stay schema-owned");
+
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
+}
+
+#[test]
 fn journal_batch_codec_round_trips_bounded_accepted_schema_index_chunks() {
     let deletions = (0..=MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
         .map(|value| {

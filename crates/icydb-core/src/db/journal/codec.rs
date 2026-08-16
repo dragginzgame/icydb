@@ -1290,6 +1290,7 @@ fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalErro
     validate_identity_range_row_sets(batch)?;
     validate_constraint_validation_job_transition(batch)?;
     validate_constraint_validation_index_set(batch)?;
+    validate_accepted_schema_publication_family(batch)?;
     validate_accepted_schema_index_chunks(batch)?;
 
     Ok(())
@@ -1375,6 +1376,49 @@ const fn journal_record_migration_plan(
         | JournalRecord::SchemaMigrationIndexPut { plan_digest, .. } => Some(*plan_digest),
         _ => None,
     }
+}
+
+fn validate_accepted_schema_publication_family(batch: &JournalBatch) -> Result<(), InternalError> {
+    let mut has_publication = false;
+    for (position, record) in batch.records.iter().enumerate() {
+        match record {
+            JournalRecord::AcceptedSchemaPublish { .. } => {
+                if position != 0 || has_publication {
+                    return Err(journal_batch_corruption());
+                }
+                has_publication = true;
+            }
+            JournalRecord::AcceptedSchemaIndexDelete { .. }
+            | JournalRecord::AcceptedSchemaIndexPut { .. }
+            | JournalRecord::ConstraintValidationJobPut { .. }
+            | JournalRecord::ConstraintValidationJobDelete { .. } => {}
+            JournalRecord::RowPut { .. }
+            | JournalRecord::RowDelete { .. }
+            | JournalRecord::SchemaPut { .. }
+            | JournalRecord::ConstraintValidationIndexPut { .. }
+            | JournalRecord::IdentityRangeAdvance { .. }
+                if has_publication =>
+            {
+                return Err(journal_batch_corruption());
+            }
+            JournalRecord::RowPut { .. }
+            | JournalRecord::RowDelete { .. }
+            | JournalRecord::SchemaPut { .. }
+            | JournalRecord::ConstraintValidationIndexPut { .. }
+            | JournalRecord::IdentityRangeAdvance { .. } => {}
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut { .. }
+            | JournalRecord::SchemaMigrationIndexPut { .. }
+                if has_publication =>
+            {
+                return Err(journal_batch_corruption());
+            }
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut { .. }
+            | JournalRecord::SchemaMigrationIndexPut { .. } => {}
+        }
+    }
+    Ok(())
 }
 
 fn validate_accepted_schema_index_chunks(batch: &JournalBatch) -> Result<(), InternalError> {

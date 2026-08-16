@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Detailed notes: [docs/changelog/0.228.md](docs/changelog/0.228.md)
 
 - `0.228.1` hardens current journal-batch header, tail-read, and record-family
-  validation while moving generated timers to compatible `ic-timers 0.6.1`,
-  without changing persisted formats, cursors, or recovery routes.
+  validation, including accepted-schema publication family checks, while
+  moving generated timers to compatible `ic-timers 0.6.1` without changing
+  persisted formats, cursors, or recovery routes.
 
 - `0.228.0` bounds structural commits by exact prepared work and hardens
   recovery wake-up ownership on `ic-timers 0.5.0`; the new E283 variant and
