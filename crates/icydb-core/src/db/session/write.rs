@@ -5648,10 +5648,11 @@ mod identity_pre_key_tests {
                 JournalRecord::schema_put(JOURNALED_STORE_PATH, vec![0xff; 8])
                     .expect("bounded semantic corruption should build"),
             );
-            let corrupted = JournalBatch::new(
+            let corrupted = JournalBatch::new_with_database_commit_sequence(
                 original.batch_id(),
                 original.commit_marker_id(),
                 original.journal_sequence(),
+                original.database_commit_sequence(),
                 records,
             )
             .expect("current corrupt batch shape should build");
@@ -5718,10 +5719,11 @@ mod identity_pre_key_tests {
                 }
             }
             assert_eq!(row_ordinal, 2, "the late row record should be present");
-            let corrupted = JournalBatch::new(
+            let corrupted = JournalBatch::new_with_database_commit_sequence(
                 original.batch_id(),
                 original.commit_marker_id(),
                 original.journal_sequence(),
+                original.database_commit_sequence(),
                 records,
             )
             .expect("current corrupt batch shape should build");
