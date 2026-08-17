@@ -22,6 +22,7 @@ use icydb::{
     },
 };
 use icydb_testing_integration::{
+    MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
         DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT, DURABLE_START_INSTRUCTION_REVIEW_CEILING,
@@ -30,7 +31,6 @@ use icydb_testing_integration::{
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
 use serde::Deserialize;
-use std::time::Duration;
 
 // Mirror the dedicated perf-audit query envelope so the testkit can decode the
 // query result plus the compile/execute instruction split from the canister.
@@ -333,9 +333,36 @@ fn install_sql_perf_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'
 }
 
 fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
-    // Clear retained state from an earlier scenario batch and reload the
-    // deterministic perf fixture window before sampling.
+    // Keep each measurement independent of retained work from the preceding
+    // scenario, then materialize the reset fixture before sampling.
+    drain_online_watchdog_until_quiescent(fixture);
     reset_icydb_fixtures(fixture);
+    drain_online_watchdog_until_quiescent(fixture);
+}
+
+fn startup_watchdog_perf_snapshot(
+    fixture: &StandaloneCanisterFixture,
+) -> StartupWatchdogPerfSnapshot {
+    fixture
+        .query_candid("startup_watchdog_perf_snapshot", ())
+        .expect("startup watchdog performance snapshot should decode")
+}
+
+fn drain_online_watchdog_until_quiescent(fixture: &StandaloneCanisterFixture) {
+    let mut previous = startup_watchdog_perf_snapshot(fixture);
+    for _ in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+        deliver_startup_watchdog_message(fixture);
+        let current = startup_watchdog_perf_snapshot(fixture);
+        if current.work_samples == previous.work_samples {
+            assert_eq!(current.work_started, current.work_completed);
+            assert_eq!(current.work_completed, current.succeeded);
+            assert_eq!(current.retryable_failures, 0);
+            assert_eq!(current.invariant_failures, 0);
+            return;
+        }
+        previous = current;
+    }
+    panic!("online watchdog should quiesce within its frozen residual delivery bound");
 }
 
 fn measure_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> IntegritySqlPerfResult {
@@ -1585,7 +1612,7 @@ fn measure_journaled_ready_total_only_perf(
 }
 
 fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
-    for _ in 0..32 {
+    for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
         let probe: Result<(), Error> = fixture
             .update_candid("initialize_startup_observation_fixture", ())
             .expect("ordinary startup probe should decode");
@@ -1595,27 +1622,24 @@ fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
                 if error.code()
                     == icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
             {
-                fixture.pocket_ic().advance_time(Duration::from_secs(1));
-                fixture.pocket_ic().tick();
-                fixture.pocket_ic().tick();
+                if delivered == MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+                    break;
+                }
+                deliver_startup_watchdog_message(fixture);
             }
             Err(error) => panic!("startup driver returned terminal error: {error}"),
         }
     }
-    panic!("startup driver should finish within 32 delivered watchdog ticks");
+    panic!("startup driver should finish within its frozen residual delivery bound");
 }
 
 fn advance_online_watchdog_until_work_sample(
     fixture: &StandaloneCanisterFixture,
     previous_work_samples: u64,
 ) {
-    for _ in 0..32 {
-        fixture.pocket_ic().advance_time(Duration::from_secs(1));
-        fixture.pocket_ic().tick();
-        fixture.pocket_ic().tick();
-        let snapshot: StartupWatchdogPerfSnapshot = fixture
-            .query_candid("startup_watchdog_perf_snapshot", ())
-            .expect("online watchdog performance snapshot should decode");
+    for _ in 0..MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+        deliver_startup_watchdog_message(fixture);
+        let snapshot = startup_watchdog_perf_snapshot(fixture);
         if snapshot.work_samples > previous_work_samples {
             assert_eq!(snapshot.work_completed, snapshot.work_samples);
             assert_eq!(snapshot.succeeded, snapshot.work_samples);
@@ -1624,7 +1648,7 @@ fn advance_online_watchdog_until_work_sample(
             return;
         }
     }
-    panic!("online watchdog should fold the admitted batch within 32 delivered ticks");
+    panic!("online watchdog should fold the admitted batch within its residual delivery bound");
 }
 
 fn measure_startup_watchdog_recovery(
@@ -2124,6 +2148,7 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     assert_journaled_cached_limit_one_reports(&fixture, &read_samples.journaled);
     assert_storage_total_limit_one_reports(&fixture);
     assert_storage_write_matrix_reports(&fixture);
+    drain_online_watchdog_until_quiescent(&fixture);
     assert_sql_write_materialization_matrix_reports(&fixture);
 }
 
@@ -2136,6 +2161,7 @@ fn sql_perf_journaled_check_write_cost_is_measured() {
         .update_candid("measure_journaled_user_constraint_write_perf", ())
         .expect("constraint write perf result should decode");
     let result = result.expect("constraint write perf endpoint should succeed");
+    drain_online_watchdog_until_quiescent(&fixture);
     let checked: Result<StorageWritePerfResult, Error> = fixture
         .update_candid("measure_journaled_user_checked_write_perf", ())
         .expect("checked write perf result should decode");

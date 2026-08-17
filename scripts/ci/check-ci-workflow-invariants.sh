@@ -57,6 +57,49 @@ if rg -q '^[[:space:]]+tags:' .github/workflows/ci.yml; then
   fail "CI must not duplicate the main release commit through a tag trigger"
 fi
 
+for job in static rust check; do
+  if ! rg -q "^  ${job}:$" .github/workflows/ci.yml; then
+    fail "CI is missing the ${job} validation job"
+  fi
+done
+
+for lane in core workspace tier-a tier-b; do
+  if ! rg -q --fixed-strings -- "- lane: $lane" .github/workflows/ci.yml; then
+    fail "CI is missing the $lane Rust validation lane"
+  fi
+done
+
+if ! rg -q '^[[:space:]]+fail-fast:[[:space:]]+false$' .github/workflows/ci.yml; then
+  fail "parallel Rust validation must retain every lane after one lane fails"
+fi
+
+if ! rg -q --fixed-strings 'needs: [static, rust]' .github/workflows/ci.yml ||
+   ! rg -q --fixed-strings 'needs: [dependency_msrv, check]' .github/workflows/ci.yml; then
+  fail "the terminal check identity must aggregate every validation lane before Wasm evidence"
+fi
+
+for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b; do
+  if ! rg -q "^${target}:$" Makefile; then
+    fail "Make is missing the shared $target validation authority"
+  fi
+  if [[ "$target" != "ci-static" ]] &&
+     ! rg -q --fixed-strings "make_target: $target" .github/workflows/ci.yml; then
+    fail "CI is missing the shared $target validation authority"
+  fi
+done
+
+if ! rg -q 'run:[[:space:]]+make ci-static' .github/workflows/ci.yml ||
+   ! rg -q --fixed-strings 'make "$MAKE_TARGET"' .github/workflows/ci.yml; then
+  fail "CI jobs must consume the shared local validation targets"
+fi
+
+if [[ ! -x scripts/ci/run-validation-targets.sh ]] ||
+   ! rg -q '^validate-fast:$' Makefile ||
+   ! rg -q '^test-integration-feedback:$' Makefile ||
+   ! rg -q '^test-durability:$' Makefile; then
+  fail "the local fast, focused, and grouped validation feedback loop is incomplete"
+fi
+
 for owned_path in \
   '/.github/workflows/' \
   '/.github/dependabot.yml' \

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Validation now provides grouped timing and complete failure summaries, a
+  fast preflight, an exact-test-to-binary loop, and a focused durability
+  matrix, while CI runs the same static, core, workspace, and SQL evidence in
+  parallel behind the unchanged required `check` gate.
 - Tag cleanup now verifies both selected local and remote refs, while release
   publication atomically pushes only the current branch and exact release tag
   so deleted historical annotated tags are not implicitly republished.

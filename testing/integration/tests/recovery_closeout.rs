@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
@@ -8,13 +6,15 @@ use icydb::{
     diagnostic::DiagnosticFactTag,
 };
 use icydb_testing_integration::{
-    CanisterBuildOptions, build_fixture_canister_wasm_bytes_with_options, install_fixture_canister,
+    CanisterBuildOptions, MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES,
+    build_fixture_canister_wasm_bytes_with_options, deliver_startup_watchdog_message,
+    install_fixture_canister,
 };
 use serde::Deserialize;
 
 const CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT: u64 = 30_000_000_000;
 const CONVERGENCE_CALLBACK_WASM_MEMORY_LIMIT: u64 = 768 * 1_024 * 1_024;
-const CONVERGENCE_RESIDUAL_MESSAGE_LIMIT: u64 = 42;
+const CONVERGENCE_RESIDUAL_MESSAGE_LIMIT: u64 = MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES as u64;
 const FIRST_CLOSEOUT_ID: i32 = 100_001;
 const SECOND_CLOSEOUT_ID: i32 = 200_001;
 
@@ -149,9 +149,7 @@ fn run_bounded_convergence_watchdog(
     let memory_before = canister_memory_bytes(fixture);
 
     for _ in 0..CONVERGENCE_RESIDUAL_MESSAGE_LIMIT {
-        fixture.pocket_ic().advance_time(Duration::from_secs(1));
-        fixture.pocket_ic().tick();
-        fixture.pocket_ic().tick();
+        deliver_startup_watchdog_message(fixture);
         if !startup_watchdog_armed(fixture) {
             break;
         }
@@ -273,7 +271,7 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
 }
 
 fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
-    for _ in 0..32 {
+    for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
         let probe: Result<(), Error> = fixture
             .update_candid("initialize_startup_observation_fixture", ())
             .expect("ordinary startup probe should decode");
@@ -283,14 +281,15 @@ fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
                 if error.code()
                     == ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
             {
-                fixture.pocket_ic().advance_time(Duration::from_secs(1));
-                fixture.pocket_ic().tick();
-                fixture.pocket_ic().tick();
+                if delivered == MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+                    break;
+                }
+                deliver_startup_watchdog_message(fixture);
             }
             Err(error) => panic!("startup driver returned terminal error: {error}"),
         }
     }
-    panic!("startup driver should finish within 32 delivered watchdog ticks");
+    panic!("startup driver should finish within its frozen residual delivery bound");
 }
 
 fn stable_memory_fingerprint(fixture: &StandaloneCanisterFixture) -> ([u8; 32], usize) {

@@ -1,6 +1,7 @@
 .PHONY: help version tags patch minor major package publish release-prepare release-clean release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-canister-artifact-contract test-sql-canister-matrix \
+        test test-unit test-integration-feedback test-durability \
+        test-canister-artifact-contract test-sql-canister-matrix \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-sql-perf-wasm build-canister-local build-canister-production \
@@ -9,11 +10,19 @@
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
         test-sql-perf-instrumentation test-sql-perf-calibration-review test-sql-perf-baseline \
         test-sql-perf-baseline-contract \
-        build check clippy fmt fmt-check validate clean install install-dev update-dev install-gh install-hooks \
+        build check clippy fmt fmt-check validate validate-fast clean install install-dev update-dev install-gh install-hooks \
         fetch test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
         wasm-size-report wasm-audit-report \
         lint-workflows shellcheck check-invariants check-feature-matrix \
+        ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b \
+        _test-icydb-no-default _test-core-no-default _test-workspace _test-canister-libs \
+        _test-durability-core-commit _test-durability-core-mutation-job _test-durability-integration \
+        _ci-format _ci-core-no-default-check _ci-core-no-default-test \
+        _ci-core-sql-check _ci-core-sql-clippy \
+        _ci-core-diagnostics-check _ci-core-diagnostics-clippy \
+        _ci-workspace-clippy _ci-workspace-integration-clippy _ci-workspace-tests \
+        _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -34,6 +43,7 @@ CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
 PERF_POCKET_IC_ENV := POCKET_IC_BIN="$(POCKET_IC_BIN)"
+VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-validation-targets.sh"
 ACTIONLINT_VERSION ?= 1.7.12
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
@@ -107,6 +117,9 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
+	@echo "  test-integration-feedback TEST_TARGET=... TEST_NAME=..."
+	@echo "                  Run one exact integration test, then its complete binary"
+	@echo "  test-durability  Run the focused commit, mutation-job, convergence, recovery, and perf matrix"
 	@echo "  test-canister-artifact-contract"
 	@echo "                  Build and inspect all 20 maintained production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
@@ -149,6 +162,7 @@ help:
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
 	@echo "  validate         Run formatting, invariants, feature checks, clippy, and tests"
+	@echo "  validate-fast    Run the quick formatting, automation, invariant, and workspace-check preflight"
 	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
@@ -315,18 +329,58 @@ release-major:
 # Tests
 #
 
-test: test-unit test-canister-artifact-contract
+test:
+	$(VALIDATION_RUNNER) test-unit test-canister-artifact-contract
 
 test-unit:
-	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
-	$(CARGO_WORK_ENV) cargo test -p icydb-core --no-default-features
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql_bounded --lib
+	$(VALIDATION_RUNNER) \
+		_test-icydb-no-default \
+		_test-core-no-default \
+		_test-workspace \
+		_test-canister-libs
+
+_test-icydb-no-default:
+	$(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb --no-default-features
+
+_test-core-no-default:
+	$(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-core --no-default-features
+
+_test-workspace:
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
+
+_test-canister-libs:
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
 
 test-no-default-smoke:
-	$(CARGO_WORK_ENV) cargo test -p icydb --no-default-features
-	$(CARGO_WORK_ENV) cargo test -p icydb-core --no-default-features
+	$(VALIDATION_RUNNER) _test-icydb-no-default _test-core-no-default
+
+test-integration-feedback:
+	@test -n "$(TEST_TARGET)" || { echo "TEST_TARGET must name one icydb-testing-integration test binary" >&2; exit 1; }
+	@test -n "$(TEST_NAME)" || { echo "TEST_NAME must name one exact test in $(TEST_TARGET)" >&2; exit 1; }
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+		--test "$(TEST_TARGET)" "$(TEST_NAME)" -- --exact --nocapture
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+		-p icydb-testing-integration --test "$(TEST_TARGET)"
+
+test-durability:
+	$(VALIDATION_RUNNER) \
+		_test-durability-core-commit \
+		_test-durability-core-mutation-job \
+		_test-durability-integration
+
+_test-durability-core-commit:
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib 'db::commit::'
+
+_test-durability-core-mutation-job:
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib 'db::mutation_job::'
+
+_test-durability-integration:
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+		-p icydb-testing-integration \
+		--test convergence_candidate \
+		--test durable_mutation_job_scale \
+		--test recovery_closeout \
+		--test sql_perf_audit
 
 test-canister-artifact-contract:
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
@@ -335,7 +389,7 @@ test-canister-artifact-contract:
 		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p icydb-testing-integration --test sql_canister -- --nocapture
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
 
 test-sql-tier-c-shard:
 	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
@@ -532,14 +586,25 @@ fmt-check:
 	$(CARGO_WORK_ENV) cargo fmt --all -- --check
 
 validate:
-	$(MAKE) --no-print-directory fmt-check
-	$(MAKE) --no-print-directory lint-workflows
-	$(MAKE) --no-print-directory shellcheck
-	$(MAKE) --no-print-directory check-invariants
-	$(MAKE) --no-print-directory check-feature-matrix
-	$(MAKE) --no-print-directory check
-	$(MAKE) --no-print-directory clippy
-	$(MAKE) --no-print-directory test
+	$(VALIDATION_RUNNER) \
+		fmt-check \
+		lint-workflows \
+		shellcheck \
+		check-invariants \
+		check-feature-matrix \
+		check \
+		clippy \
+		test
+
+# Fast local/Codex preflight. This intentionally does not replace `validate`:
+# feature-specific clippy lanes and executable tests remain in the full gate.
+validate-fast:
+	$(VALIDATION_RUNNER) \
+		fmt-check \
+		lint-workflows \
+		shellcheck \
+		check-invariants \
+		check
 
 clean:
 	$(CARGO_WORK_ENV) cargo clean
@@ -599,6 +664,89 @@ lint-workflows:
 shellcheck:
 	shellcheck --exclude=SC2001,SC2016 \
 		scripts/ci/*.sh scripts/dev/*.sh .githooks/pre-commit
+
+# GitHub Actions consumes these exact local targets as parallel lanes. The
+# terminal `check` job remains the one branch-protection and release gate.
+ci-static:
+	$(VALIDATION_RUNNER) _ci-format lint-workflows shellcheck check-invariants
+
+_ci-format:
+	$(CARGO_WORK_ENV) cargo fmt --all -- --check
+
+ci-core:
+	$(VALIDATION_RUNNER) \
+		_ci-core-no-default-check \
+		_ci-core-no-default-test \
+		_ci-core-sql-check \
+		_ci-core-sql-clippy \
+		_ci-core-diagnostics-check \
+		_ci-core-diagnostics-clippy
+
+_ci-core-no-default-check:
+	$(CARGO_WORK_ENV) cargo check --locked -p icydb -p icydb-core --no-default-features
+	$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
+
+_ci-core-no-default-test:
+	$(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+		-p icydb -p icydb-core --no-default-features
+
+_ci-core-sql-check:
+	$(CARGO_WORK_ENV) cargo check --locked \
+		-p icydb -p icydb-core --no-default-features --features sql
+
+_ci-core-sql-clippy:
+	$(CARGO_WORK_ENV) cargo clippy --locked \
+		-p icydb-core --no-default-features --features sql -- -D warnings
+
+_ci-core-diagnostics-check:
+	$(CARGO_WORK_ENV) cargo check --locked \
+		-p icydb -p icydb-core --no-default-features --features diagnostics
+
+_ci-core-diagnostics-clippy:
+	$(CARGO_WORK_ENV) cargo clippy --locked \
+		-p icydb-core --no-default-features --features diagnostics -- -D warnings
+
+ci-workspace:
+	$(VALIDATION_RUNNER) \
+		_ci-workspace-clippy \
+		_ci-workspace-integration-clippy \
+		_ci-workspace-tests
+
+_ci-workspace-clippy:
+	$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \
+		--exclude icydb-testing-integration -- -D warnings
+
+_ci-workspace-integration-clippy:
+	$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-testing-integration \
+		--test sql_correctness --test sql_canister -- -D warnings
+
+_ci-workspace-tests:
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+		--workspace --all-targets --exclude icydb-testing-integration --verbose
+
+ci-sql-tier-a:
+	$(VALIDATION_RUNNER) \
+		_ci-tier-a-sqlite \
+		_ci-tier-a-mutation \
+		_ci-tier-a-integration
+
+_ci-tier-a-sqlite:
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
+		--no-default-features --features sql \
+		db::session::tests::sqlite_reference --verbose
+
+_ci-tier-a-mutation:
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
+		--no-default-features --features sql \
+		db::session::tests::mutation_reference --verbose
+
+_ci-tier-a-integration:
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+		-p icydb-testing-integration --test sql_correctness --verbose
+
+ci-sql-tier-b:
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+		-p icydb-testing-integration --test sql_canister --verbose
 
 # Run tests in watch mode
 test-watch:

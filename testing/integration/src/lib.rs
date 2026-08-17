@@ -32,6 +32,18 @@ use crate::canister_build_cache::{
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
 const POST_LINK_BUILD_BATCH_SIZE: usize = 2;
 
+/// Maximum watchdog deliveries in the frozen normal convergence residual proof.
+///
+/// This is `B_0 + C_driver`, or `38 + 4`, for the maximum admitted backlog.
+pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 42;
+
+/// Deliver one scheduled startup-watchdog message in PocketIC.
+pub fn deliver_startup_watchdog_message(fixture: &StandaloneCanisterFixture) {
+    fixture.pocket_ic().advance_time(Duration::from_secs(1));
+    fixture.pocket_ic().tick();
+    fixture.pocket_ic().tick();
+}
+
 struct FixtureCanister {
     name: &'static str,
     package: &'static str,

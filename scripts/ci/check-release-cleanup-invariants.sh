@@ -22,19 +22,24 @@ target_recipe() {
 }
 
 if ! target_recipe validate | awk '
-  /\$\(MAKE\).* fmt-check([[:space:]]|$)/ { fmt_line = NR }
-  /\$\(MAKE\).* check-invariants([[:space:]]|$)/ { invariants_line = NR }
-  /\$\(MAKE\).* check-feature-matrix([[:space:]]|$)/ { features_line = NR }
-  /\$\(MAKE\).* check([[:space:]]|$)/ { check_line = NR }
-  /\$\(MAKE\).* clippy([[:space:]]|$)/ { clippy_line = NR }
-  /\$\(MAKE\).* test([[:space:]]|$)/ { test_line = NR }
+  /\$\(VALIDATION_RUNNER\)/ { runner_line = NR }
+  $1 == "fmt-check" { fmt_line = NR }
+  $1 == "lint-workflows" { workflow_line = NR }
+  $1 == "shellcheck" { shell_line = NR }
+  $1 == "check-invariants" { invariants_line = NR }
+  $1 == "check-feature-matrix" { features_line = NR }
+  $1 == "check" { check_line = NR }
+  $1 == "clippy" { clippy_line = NR }
+  $1 == "test" { test_line = NR }
   END {
-    exit !(fmt_line > 0 && invariants_line > fmt_line &&
+    exit !(runner_line > 0 && fmt_line > runner_line &&
+           workflow_line > fmt_line && shell_line > workflow_line &&
+           invariants_line > shell_line &&
            features_line > invariants_line && check_line > features_line &&
            clippy_line > check_line && test_line > clippy_line)
   }
 '; then
-  echo "validate must compose formatting, invariants, feature checks, check, clippy, and tests in order" >&2
+  echo "validate must aggregate formatting, automation, invariants, feature checks, check, clippy, and tests in order" >&2
   exit 1
 fi
 
