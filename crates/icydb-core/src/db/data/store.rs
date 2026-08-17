@@ -324,10 +324,8 @@ impl DataStore {
         Ok(previous)
     }
 
-    /// Publish one positioned row value or tombstone to the live projection.
-    ///
-    /// Production commits use this after Gate 2 and marker publication.
-    pub(in crate::db) fn publish_positioned_journal_entry(
+    /// Publish one preflighted positioned row value or tombstone.
+    pub(in crate::db) fn publish_preflighted_journal_entry(
         &mut self,
         key: RawDataStoreKey,
         row: Option<RawRow>,
@@ -342,7 +340,6 @@ impl DataStore {
         else {
             return Err(crate::error::InternalError::store_invariant());
         };
-        positions.preflight_publish(&key, position)?;
         let previous = if tombstones.contains(&key) {
             None
         } else {
@@ -364,6 +361,18 @@ impl DataStore {
         self.bump_generation();
 
         Ok(previous)
+    }
+
+    /// Validate and publish one positioned row for direct store tests.
+    #[cfg(test)]
+    pub(in crate::db) fn publish_positioned_journal_entry(
+        &mut self,
+        key: RawDataStoreKey,
+        row: Option<RawRow>,
+        position: JournalOverlayPosition,
+    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+        self.preflight_positioned_journal_entry(&key, position)?;
+        self.publish_preflighted_journal_entry(key, row, position)
     }
 
     /// Preflight row provenance before marker publication.

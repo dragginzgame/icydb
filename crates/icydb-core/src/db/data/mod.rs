@@ -21,6 +21,8 @@ pub(in crate::db) use key::{DecodedDataStoreKey, DecodedDataStoreKeyDecodeError}
 pub(in crate::db) use persisted_row::AcceptedFixedUpdatePatch;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use persisted_row::canonical_row_from_runtime_value_source_with_accepted_contract;
+#[cfg(test)]
+pub(in crate::db) use persisted_row::canonical_row_from_stored_raw_row;
 pub(in crate::db) use persisted_row::decode_admitted_value_from_accepted_field_contract;
 pub(in crate::db) use persisted_row::encode_accepted_value_ref_for_accepted_field_contract;
 pub(in crate::db) use persisted_row::encode_canonical_value_for_accepted_field_contract;
@@ -30,7 +32,7 @@ pub(in crate::db) use persisted_row::validate_default_payload_for_accepted_field
 pub(in crate::db) use persisted_row::{
     AcceptedFieldWriteProvenance, AcceptedMutationIntentPatch, AcceptedPreKeyInsert,
     CanonicalSlotReader, FieldSlot, StructuralSlotReader,
-    canonical_row_from_raw_row_with_accepted_decode_contract, canonical_row_from_stored_raw_row,
+    canonical_row_from_raw_row_with_accepted_decode_contract,
     canonical_row_from_structural_slot_reader_with_accepted_contract,
     resolve_existing_replace_structural_patch_with_accepted_contract,
     resolve_insert_structural_patch_with_accepted_contract,

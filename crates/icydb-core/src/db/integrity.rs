@@ -54,8 +54,9 @@ pub(in crate::db) use progress_store::InsertMutationJobResult;
 pub(in crate::db) use progress_store::replace_mutation_progress_record_op;
 pub(in crate::db) use progress_store::{
     MutationProgressRecordOp, apply_mutation_progress_record_op,
-    preflight_mutation_progress_record_op, verify_mutation_progress_record_op,
-    with_mutation_progress_store, with_resumable_progress_store,
+    apply_preflighted_mutation_progress_record_op, preflight_mutation_progress_record_op,
+    verify_mutation_progress_record_op, with_mutation_progress_store,
+    with_resumable_progress_store,
 };
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
 pub(in crate::db) use row::{

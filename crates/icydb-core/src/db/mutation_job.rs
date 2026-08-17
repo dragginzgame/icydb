@@ -25,7 +25,7 @@ pub const MAX_MUTATION_JOB_RECEIPT_BYTES: usize = 8 * 1024;
 pub const MAX_MUTATION_JOB_RECORD_BYTES: usize = 64 * 1024;
 
 /// Maximum authoritative keys examined by one mutation-job advance.
-pub const MAX_MUTATION_JOB_STEP_KEYS_SCANNED: u64 = 224;
+pub const MAX_MUTATION_JOB_STEP_KEYS_SCANNED: u64 = 208;
 /// Maximum target rows changed by one mutation-job advance.
 pub const MAX_MUTATION_JOB_STEP_ROWS_UPDATED: u64 = 56;
 

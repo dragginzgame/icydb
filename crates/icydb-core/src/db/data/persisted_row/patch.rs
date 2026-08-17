@@ -376,6 +376,7 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_accepted_decode_contract(
 }
 
 // Rewrap one row already loaded from storage as a canonical write token.
+#[cfg(test)]
 pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) -> CanonicalRow {
     CanonicalRow::from_canonical_raw_row(raw_row)
 }

@@ -24,7 +24,8 @@ use icydb::{
 use icydb_testing_integration::{
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
-        DURABLE_START_INSTRUCTION_REVIEW_CEILING, DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
+        DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT, DURABLE_START_INSTRUCTION_REVIEW_CEILING,
+        DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
     },
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
@@ -1895,7 +1896,10 @@ fn assert_mutation_forward_perf_stays_bounded(result: &MutationJobForwardPerfRes
         result.replay_local_instructions > 0
             && result.replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
     );
-    assert_eq!(result.zero_candidate_keys_scanned, 224);
+    assert_eq!(
+        result.zero_candidate_keys_scanned,
+        u64::from(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT),
+    );
     assert_eq!(result.zero_candidate_rows_updated, 0);
     assert_eq!(result.zero_candidate_sequence, 1);
     assert!(result.stale_request_preserved_sequence);
@@ -2217,7 +2221,10 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
         result.acknowledgement_local_instructions,
     );
 
-    assert_eq!(result.first_verify_keys_scanned, 224);
+    assert_eq!(
+        result.first_verify_keys_scanned,
+        u64::from(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT),
+    );
     assert!(result.first_verify_local_instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(result.replay.verify_matches);
     assert!(result.verify_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);

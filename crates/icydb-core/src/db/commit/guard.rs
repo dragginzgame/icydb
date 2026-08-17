@@ -8,8 +8,8 @@ use crate::db::schema::preflight_schema_migration_record_op;
 use crate::{
     db::{
         commit::{
-            BACKLOG_LIMITS, BacklogAdmission, ExactBacklogMeasurement, PreparedRowCommitOp,
-            admit_backlog, current_database_backlog,
+            BACKLOG_LIMITS, BacklogAdmission, ExactBacklogMeasurement, admit_backlog,
+            current_database_backlog,
             marker::{CommitMarker, DatabaseControlOp},
             store::{EncodedCommitControlSlot, with_commit_store, with_initialized_commit_store},
         },
@@ -19,10 +19,12 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use std::{
-    cell::Cell,
-    panic::{AssertUnwindSafe, catch_unwind},
-};
+use std::cell::Cell;
+
+#[cfg(test)]
+use crate::db::commit::PreparedRowCommitOp;
+#[cfg(test)]
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[cfg(test)]
 // Core unit fixtures exercise commit mechanics without generated lifecycle
@@ -65,6 +67,7 @@ fn startup_recovery_wakeup() -> Result<fn(), InternalError> {
 /// - no transactional semantics beyond "try to unwind local process state"
 ///
 
+#[cfg(test)]
 enum ApplyRollback {
     None,
     Closure(Box<dyn FnOnce()>),
@@ -87,11 +90,13 @@ enum ApplyRollback {
 /// can be removed without changing user-visible correctness.
 ///
 
+#[cfg(test)]
 pub(crate) struct CommitApplyGuard {
     finished: bool,
     rollback: ApplyRollback,
 }
 
+#[cfg(test)]
 impl CommitApplyGuard {
     /// Create one apply-phase rollback guard for diagnostic context `phase`.
     pub(crate) const fn new(_phase: &'static str) -> Self {
@@ -156,6 +161,7 @@ impl CommitApplyGuard {
     }
 }
 
+#[cfg(test)]
 impl Drop for CommitApplyGuard {
     fn drop(&mut self) {
         if !self.finished {

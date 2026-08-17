@@ -258,10 +258,13 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
             evidence.unrelated_rows_loaded,
             if first_id == 1 { UNRELATED_ROWS } else { 0 },
         );
-        // The endpoint publishes two journaled fixture families. Deliver one
-        // callback between pages so their retained records remain within the
-        // production cumulative bound while preserving debt for upgrade.
-        advance_startup_timers(fixture);
+        // The first page publishes both matching and unrelated rows for two
+        // journaled families; later pages publish only the two matching
+        // families. Four rounds therefore drain every page completely, with
+        // inactive extra rounds becoming no-ops after later pages quiesce.
+        for _ in 0..4 {
+            advance_startup_timers(fixture);
+        }
         loaded = loaded.saturating_add(row_count);
         first_id = first_id.saturating_add(row_count);
     }
@@ -575,6 +578,10 @@ fn start_composed_scale_jobs(
             .expect("later phase must survive an earlier phase failure"),
         scoring_state,
     );
+    // Keep the Forward instruction fixture independent of setup debt. The
+    // recovery scenario below creates and retains its own current batches.
+    advance_startup_timers(fixture);
+    advance_startup_timers(fixture);
     (tier_state, scoring_state)
 }
 
@@ -595,6 +602,7 @@ fn run_warm_scale_jobs(
         replay_scale_advance(fixture, MutationScaleJob::Tier, 0, &first_tier);
     tier_evidence.forward_replayed = true;
     tier_evidence.record_committed(MutationScaleJob::Tier, &first_tier);
+    advance_startup_timers(fixture);
     tier_evidence = run_scale_job(
         fixture,
         MutationScaleJob::Tier,

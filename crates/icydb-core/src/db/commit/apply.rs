@@ -76,14 +76,14 @@ impl PreparedRowCommitOp {
         for index_op in self.index_ops {
             index_op.index_store.with_borrow_mut(|store| {
                 store
-                    .publish_positioned_journal_entry(index_op.key, index_op.value, position)
+                    .publish_preflighted_journal_entry(index_op.key, index_op.value, position)
                     .map(|_| ())
             })?;
         }
 
         let data_generation = self.data_store.with_borrow_mut(|store| {
             store
-                .publish_positioned_journal_entry(
+                .publish_preflighted_journal_entry(
                     self.data_key,
                     self.data_value.map(|value| value.as_raw_row().clone()),
                     position,

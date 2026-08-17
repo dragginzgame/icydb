@@ -20,7 +20,7 @@ pub const DURABLE_MUTATION_JOB_BASELINE_TREE: &str = "09dc2a58d260932adac03c40c4
 pub const DURABLE_MUTATION_JOB_FIXTURE_ROWS: u32 = 10_001;
 
 /// Current engine-owned maximum authoritative keys examined by one step.
-pub const DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT: u32 = 224;
+pub const DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT: u32 = 208;
 
 /// Current engine-owned maximum fixed updates staged by one Forward step.
 pub const DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT: u32 = 56;
@@ -125,42 +125,42 @@ pub const BASELINE_VERIFY_INSTRUCTIONS: &[u64] = &[6_431_179, 6_440_484];
 pub const DURABLE_START_INSTRUCTION_REVIEW_CEILING: u64 = 5_000_000;
 
 /// Current first sequence-zero durable-start instruction sample.
-pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_744_553;
+pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_289_113;
 
 /// Current canonically equivalent retained-start replay instruction sample.
-pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_854_730;
+pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_400_734;
 
 /// Current durable 56-update Forward samples over the fixed 512-row fixture.
 pub const CURRENT_DURABLE_FORWARD_INSTRUCTIONS: &[u64] = &[
-    23_891_965, 24_092_605, 24_270_423, 24_451_151, 24_617_198, 24_785_238, 24_974_127, 24_938_486,
-    24_677_596, 7_654_901,
+    24_030_464, 24_229_369, 24_442_946, 24_652_856, 24_850_432, 25_065_241, 25_234_624, 25_237_006,
+    25_053_790, 7_706_084,
 ];
 
 /// Current exact replay sample for the final retained Forward receipt.
-pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_812;
+pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_766;
 
-/// Current durable 224-key Verify samples over the fixed 512-row fixture.
-pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[7_121_262, 7_142_524, 3_375_602];
+/// Current durable 208-key Verify samples over the fixed 512-row fixture.
+pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[6_312_686, 6_335_489, 3_672_197];
 
 /// Current exact replay sample for one retained nonterminal Verify receipt.
-pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 125_041;
+pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 125_020;
 
 /// Current pre-scan revision-drift restart sample.
-pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_888_985;
+pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_433_011;
 
 /// Current terminal mutation-job state-load sample.
-pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 105_140;
+pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 104_970;
 
 /// Current exact replay sample for the retained completion receipt.
-pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_270;
+pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_100;
 
 /// Current sequence-checked terminal acknowledgement sample.
-pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 118_047;
+pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 117_731;
 
 /// Maximum reviewed instruction cost for one fingerprint-bound 56-update Forward step.
 pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 31_000_000;
 
-/// Maximum reviewed instruction cost for one 224-key Verify step.
+/// Maximum reviewed instruction cost for one 208-key Verify step.
 pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 8_000_000;
 
 /// Maximum reviewed instruction cost for state, replay, or acknowledgement.
@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_COMMIT.len(), 40);
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_TREE.len(), 40);
         assert_eq!(minimum_forward_advances(10_001), 179);
-        assert_eq!(minimum_verify_advances(10_001), 45);
+        assert_eq!(minimum_verify_advances(10_001), 49);
         assert_eq!(BASELINE_FORWARD_INSTRUCTIONS.len(), 8);
         assert_eq!(BASELINE_VERIFY_INSTRUCTIONS.len(), 2);
         assert_eq!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS.len(), 10);
@@ -472,7 +472,7 @@ mod tests {
             "MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES,\n    RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,\n    2 * 1024"
         ));
         assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,\n    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,\n    224"
+            "MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,\n    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,\n    208"
         ));
         assert!(resumable_update.contains(
             "MAX_RESUMABLE_UPDATE_FORWARD_ROWS,\n    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,\n    56"

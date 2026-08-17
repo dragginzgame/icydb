@@ -467,6 +467,11 @@ impl InspectionProgressStore {
         Ok(())
     }
 
+    fn apply_preflighted_mutation_progress(&mut self, operation: &MutationProgressRecordOp) {
+        self.map
+            .insert(operation.key, ProgressRecordBytes(operation.after.clone()));
+    }
+
     /// Replace one mutation record without target-row work using the same exact
     /// before/after proof as marker-owned mutation progress.
     pub(in crate::db) fn replace_mutation_progress(
@@ -859,6 +864,17 @@ pub(in crate::db) fn apply_mutation_progress_record_op<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     with_mutation_progress_store::<C, _>(|store| store.apply_mutation_progress(operation))
         .map_err(|_| InternalError::commit_corruption())
+}
+
+/// Mechanically publish one mutation-progress replacement already proved by preflight.
+pub(in crate::db) fn apply_preflighted_mutation_progress_record_op<C: CanisterKind>(
+    operation: &MutationProgressRecordOp,
+) -> Result<(), InternalError> {
+    with_mutation_progress_store::<C, _>(|store| {
+        store.apply_preflighted_mutation_progress(operation);
+        Ok(())
+    })
+    .map_err(|_| InternalError::commit_corruption())
 }
 
 pub(in crate::db) fn replace_mutation_progress_record_op<C: CanisterKind>(

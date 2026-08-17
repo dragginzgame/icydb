@@ -464,10 +464,8 @@ impl IndexStore {
         Ok(())
     }
 
-    /// Publish one positioned derived or explicit index effect.
-    ///
-    /// Production commits use this after Gate 2 and marker publication.
-    pub(in crate::db) fn publish_positioned_journal_entry(
+    /// Publish one preflighted positioned derived or explicit index effect.
+    pub(in crate::db) fn publish_preflighted_journal_entry(
         &mut self,
         key: RawIndexStoreKey,
         value: Option<IndexEntryValue>,
@@ -482,7 +480,6 @@ impl IndexStore {
         else {
             return Err(crate::error::InternalError::store_invariant());
         };
-        positions.preflight_publish(&key, position)?;
         let previous = if tombstones.contains(&key) {
             None
         } else {
@@ -505,6 +502,18 @@ impl IndexStore {
         self.bump_generation();
 
         Ok(previous)
+    }
+
+    /// Validate and publish one positioned index effect for direct store tests.
+    #[cfg(test)]
+    pub(in crate::db) fn publish_positioned_journal_entry(
+        &mut self,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
+        position: JournalOverlayPosition,
+    ) -> Result<Option<IndexEntryValue>, crate::error::InternalError> {
+        self.preflight_positioned_journal_entry(&key, position)?;
+        self.publish_preflighted_journal_entry(key, value, position)
     }
 
     /// Preflight index provenance before marker publication.

@@ -8,11 +8,10 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedIndexMutation,
-            PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
-            database_incarnation_id, finish_commit, generate_commit_id, generate_marker_batch_id,
-            next_database_commit_sequence, prepare_row_commit_with_context,
-            rollback_prepared_row_ops_reverse,
+            CommitGuard, CommitMarker, CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp,
+            begin_commit, begin_mutation_progress_commit, database_incarnation_id, finish_commit,
+            generate_commit_id, generate_marker_batch_id, next_database_commit_sequence,
+            prepare_row_commit_with_context,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -20,7 +19,7 @@ use crate::{
             IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
-        integrity::{MutationProgressRecordOp, apply_mutation_progress_record_op},
+        integrity::{MutationProgressRecordOp, apply_preflighted_mutation_progress_record_op},
         key_taxonomy::PrimaryKeyValue,
         positioned_overlay::JournalOverlayPosition,
         registry::{
@@ -46,6 +45,9 @@ use std::{
 };
 
 use super::constraint_scheduler::AcceptedMutationConstraintBatch;
+
+#[cfg(test)]
+use crate::db::commit::{CommitApplyGuard, rollback_prepared_row_ops_reverse};
 
 const MUTATION_COMMIT_INITIAL_RESERVE_ROWS: usize = 64;
 const MUTATION_COMMIT_WORK_UNITS_PER_ROW: usize = 4;
@@ -677,6 +679,9 @@ fn apply_prepared_row_ops<C: CanisterKind>(
         return Err(InternalError::query_executor_invariant());
     }
     finish_commit(commit, |guard| {
+        #[cfg(not(test))]
+        let _ = apply_phase;
+        #[cfg(test)]
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
         // Enforce that index stores are unchanged between preflight and apply.
         for index_store_guard in &index_store_guards {
@@ -706,10 +711,11 @@ fn apply_prepared_row_ops<C: CanisterKind>(
             let Some(position) = position_iter.next() else {
                 return Err(InternalError::query_executor_invariant());
             };
+            #[cfg(test)]
             apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
 
             match position {
-                Some(position) => row_op.apply_positioned(position)?,
+                Some(position) => enforce_preflighted_apply(row_op.apply_positioned(position))?,
                 None => row_op.apply(),
             }
             #[cfg(test)]
@@ -717,7 +723,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(
                 std::mem::forget(apply_guard);
                 return Err(InternalError::executor_invariant());
             }
-            apply_prepared_state_effects::<C>(&effects)?;
+            enforce_preflighted_apply(apply_prepared_state_effects::<C>(&effects))?;
             #[cfg(test)]
             if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
                 || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
@@ -725,22 +731,26 @@ fn apply_prepared_row_ops<C: CanisterKind>(
                 std::mem::forget(apply_guard);
                 return Err(InternalError::executor_invariant());
             }
+            #[cfg(test)]
             apply_guard.finish()?;
 
             return Ok(());
         }
 
-        let mut rollback = Vec::with_capacity(prepared_row_ops.len());
-        for row_op in &prepared_row_ops {
-            rollback.push(row_op.snapshot_rollback());
+        #[cfg(test)]
+        {
+            let mut rollback = Vec::with_capacity(prepared_row_ops.len());
+            for row_op in &prepared_row_ops {
+                rollback.push(row_op.snapshot_rollback());
+            }
+            apply_guard.record_rollback(move || rollback_prepared_row_ops_reverse(rollback));
         }
-        apply_guard.record_rollback(move || rollback_prepared_row_ops_reverse(rollback));
 
         #[cfg(test)]
         let mut row_index = 0_usize;
         for (row_op, position) in prepared_row_ops.into_iter().zip(positioned_rows) {
             match position {
-                Some(position) => row_op.apply_positioned(position)?,
+                Some(position) => enforce_preflighted_apply(row_op.apply_positioned(position))?,
                 None => row_op.apply(),
             }
             #[cfg(test)]
@@ -760,7 +770,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
-        apply_prepared_state_effects::<C>(&effects)?;
+        enforce_preflighted_apply(apply_prepared_state_effects::<C>(&effects))?;
         #[cfg(test)]
         if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
             || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
@@ -768,10 +778,34 @@ fn apply_prepared_row_ops<C: CanisterKind>(
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
+        #[cfg(test)]
         apply_guard.finish()?;
 
         Ok(())
     })
+}
+
+#[cfg(test)]
+const fn enforce_preflighted_apply(result: Result<(), InternalError>) -> Result<(), InternalError> {
+    result
+}
+
+#[cfg(not(test))]
+fn enforce_preflighted_apply(result: Result<(), InternalError>) -> Result<(), InternalError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => trap_preflighted_commit_apply_contradiction(error),
+    }
+}
+
+#[cfg(all(not(test), target_arch = "wasm32"))]
+fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
+    ic_cdk::trap("preflighted commit application contradicted its complete preflight")
+}
+
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
+fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
+    std::process::abort()
 }
 
 fn apply_prepared_state_effects<C: CanisterKind>(
@@ -784,7 +818,7 @@ fn apply_prepared_state_effects<C: CanisterKind>(
         });
     }
     if let Some(operation) = effects.mutation_progress.as_ref() {
-        apply_mutation_progress_record_op::<C>(operation)?;
+        apply_preflighted_mutation_progress_record_op::<C>(operation)?;
     }
     Ok(())
 }

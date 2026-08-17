@@ -25,6 +25,7 @@ mod memory;
 mod prepare;
 mod prepared_op;
 mod recovery;
+#[cfg(test)]
 mod rollback;
 mod schema_publication;
 mod store;
@@ -37,13 +38,15 @@ pub(in crate::db) use backlog_admission::{
 pub(in crate::db) use backlog_admission::{
     BacklogLimits, register_runtime_journal_tails_for_backlog,
 };
-#[doc(hidden)]
-pub use guard::install_startup_recovery_wakeup;
 ///
 /// Re-exports
 ///
+#[cfg(test)]
+pub(in crate::db) use guard::CommitApplyGuard;
+#[doc(hidden)]
+pub use guard::install_startup_recovery_wakeup;
 pub(in crate::db) use guard::{
-    CommitApplyGuard, CommitGuard, begin_commit, begin_mutation_progress_commit, finish_commit,
+    CommitGuard, begin_commit, begin_mutation_progress_commit, finish_commit,
 };
 #[cfg(test)]
 pub(in crate::db) use marker::{
@@ -73,6 +76,7 @@ pub(in crate::db) use recovery::{
 pub(in crate::db) use recovery::{
     continue_recovery, forget_recovered_domain_for_tests, mark_startup_recovery_complete_for_tests,
 };
+#[cfg(test)]
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 #[cfg(feature = "sql")]

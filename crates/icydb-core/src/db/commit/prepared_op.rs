@@ -68,6 +68,7 @@ impl PreparedIndexMutation {
     }
 
     /// Build one rollback index mutation without delta counter attribution.
+    #[cfg(test)]
     pub(crate) const fn rollback_snapshot(
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: RawIndexStoreKey,
