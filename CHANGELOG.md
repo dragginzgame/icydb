@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   publication atomically pushes only the current branch and exact release tag
   so deleted historical annotated tags are not implicitly republished.
 
+## [0.230.x] 🧮 - 2026-08-17 - Durable Exact Cardinality Generations
+
+Detailed notes: [docs/changelog/0.230.md](docs/changelog/0.230.md)
+
+- `0.230.0` freezes the accepted cardinality, populated-reopen, bounded-build,
+  planner-fallback, storage, startup, and artifact contracts without changing
+  runtime behavior or persisted and public surfaces.
+
 ## [0.229.x] 🔄 - 2026-08-16 - Continuous Journal Convergence And Bounded Backlog Admission
 
 Detailed notes: [docs/changelog/0.229.md](docs/changelog/0.229.md)

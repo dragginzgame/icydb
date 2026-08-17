@@ -115,9 +115,9 @@ assigned a second semantic owner.
 | `Explicit Startup And Readiness` / `Startup probe` | 0.225. |
 | `Explicit Startup And Readiness` / `Application contract` | 0.225. |
 | `Explicit Startup And Readiness` / `Driver behavior` | 0.225. |
-| `Two-Phase Durable Batch Validation` / cursor | Reduced by 0.228 to an Apply-only fingerprint-bound cursor unless Patch 1 blocks promotion. |
-| `Two-Phase Durable Batch Validation` / `Validate` | 0.228 owns complete read-only validation; durable paging is not presumed. |
-| `Two-Phase Durable Batch Validation` / `Apply` | 0.228 owns complete same-message Apply first and an Apply-only cursor only if Patch 1 proves paging necessary. |
+| `Two-Phase Durable Batch Validation` / cursor | Superseded by 0.228's cursor-free complete-batch Validate/Apply route and exact fold watermark. |
+| `Two-Phase Durable Batch Validation` / `Validate` | 0.228 owns complete read-only validation before the first canonical mutation. |
+| `Two-Phase Durable Batch Validation` / `Apply` | 0.228 owns one complete same-message mechanical Apply with no durable paging or convergence cursor. |
 | `Truthful Physical And Instruction Bounds` | 0.228. |
 | `Durable Exact Cardinality` | 0.230. |
 | `Durable Exact Cardinality` / `Existing populated stores` | 0.230. |
@@ -159,7 +159,7 @@ assigned a second semantic owner.
 | 5. `Ready` requires no recovery debt plus reconciliation | 0.225. |
 | 6. Queries never execute recovery mutations | 0.225. |
 | 7. Complete Validate precedes canonical mutation | 0.228. |
-| 8. Cursor binds exact batch identity/phase/ordinal | 0.228 preserves the intent with exact identity and Apply ordinal; no durable phase is needed in the reduced protocol. |
+| 8. Cursor binds exact batch identity/phase/ordinal | Superseded by 0.228's immutable complete-batch identity, preflighted Apply, and fold watermark; no convergence cursor or durable phase remains. |
 | 9. Partial Apply is hidden by live projection | Startup gating belongs to 0.225; online overlay visibility/retirement belongs to 0.229. |
 | 10. Canonical row/index transitions advance together | Existing record-family semantics preserved and interruption proof owned by 0.228. |
 | 11. Watermark never passes unapplied work | 0.228. |
@@ -179,8 +179,8 @@ Three collisions in the former programme are now resolved:
    single-flight/trap policy; 0.229 only requests that driver after commit or
    pressure.
 2. Convergence is not implemented twice: 0.228 owns raw inspection, one-shot
-   Validate, same-message Apply first, any measured Apply-only fallback cursor,
-   watermark, and terminal safety; 0.229 reuses it for online operation.
+   Validate, complete same-message Apply, watermark, and terminal safety with
+   no convergence cursor; 0.229 reuses it for online operation.
 3. Exact cardinality is not duplicated by future planner statistics: 0.230 is
    the generation/build/staleness authority; provisional 0.236 must extend it.
 
