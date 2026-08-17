@@ -258,6 +258,10 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
             evidence.unrelated_rows_loaded,
             if first_id == 1 { UNRELATED_ROWS } else { 0 },
         );
+        // The endpoint publishes two journaled fixture families. Deliver one
+        // callback between pages so their retained records remain within the
+        // production cumulative bound while preserving debt for upgrade.
+        advance_startup_timers(fixture);
         loaded = loaded.saturating_add(row_count);
         first_id = first_id.saturating_add(row_count);
     }
@@ -469,6 +473,9 @@ fn run_scale_job(
         } else {
             evidence.record_recovered(job, &result);
         }
+        // Model separate user calls with the replicated watchdog running
+        // between them; each callback owns at most one complete batch.
+        advance_startup_timers(fixture);
     }
 
     assert_eq!(evidence.status, MutationJobStatus::Completed);
