@@ -6,10 +6,11 @@
 pub(crate) mod artifact;
 
 use icydb::diagnostic::{
-    DiagnosticCode, DiagnosticComponentKind, DiagnosticConstraintContext, DiagnosticConstraintKind,
-    DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
-    DiagnosticExecutionLane, DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode,
-    ErrorOrigin, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
+    DiagnosticBacklogResource, DiagnosticCode, DiagnosticComponentKind,
+    DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDetail,
+    DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
+    DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode, ErrorOrigin,
+    QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
     RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode,
     SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
@@ -398,11 +399,21 @@ fn render_fact_value(
         DiagnosticFactTag::MutationOperation => mutation_operation_text(value),
         DiagnosticFactTag::ComponentKind => component_kind_text(value),
         DiagnosticFactTag::BudgetResource => execution_budget_resource_text(value),
+        DiagnosticFactTag::BacklogResource => backlog_resource_text(value),
         DiagnosticFactTag::ExecutionBudgetScope => execution_budget_scope_text(value),
         DiagnosticFactTag::ExecutionLane => execution_lane_text(value),
         _ => None,
     };
     label.map_or_else(|| value.to_string(), |label| format!("{value}({label})"))
+}
+
+const fn backlog_resource_text(value: u64) -> Option<&'static str> {
+    match DiagnosticBacklogResource::known(value) {
+        Some(DiagnosticBacklogResource::Batches) => Some("batches"),
+        Some(DiagnosticBacklogResource::Records) => Some("records"),
+        Some(DiagnosticBacklogResource::EncodedBytes) => Some("encoded-bytes"),
+        None => None,
+    }
 }
 
 const fn execution_budget_resource_text(value: u64) -> Option<&'static str> {
@@ -601,6 +612,8 @@ const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static st
         DiagnosticFactTag::Limit => "limit",
         DiagnosticFactTag::ExpectedCount => "expected_count",
         DiagnosticFactTag::ActualCount => "actual_count",
+        DiagnosticFactTag::CurrentCount => "current_count",
+        DiagnosticFactTag::ProposedCount => "proposed_count",
         DiagnosticFactTag::ExpectedRevision => "expected_revision",
         DiagnosticFactTag::ActualRevision => "actual_revision",
         DiagnosticFactTag::CurrentRevision => "current_revision",
@@ -637,6 +650,7 @@ const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static st
         DiagnosticFactTag::MismatchKind => "mismatch_kind",
         DiagnosticFactTag::DecodeReason => "decode_reason",
         DiagnosticFactTag::BudgetResource => "budget_resource",
+        DiagnosticFactTag::BacklogResource => "backlog_resource",
         DiagnosticFactTag::MigrationPhase => "migration_phase",
         DiagnosticFactTag::DatabaseControlRecordKind => "database_control_record_kind",
         DiagnosticFactTag::StateKind => "state_kind",
@@ -1015,6 +1029,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         }
         RuntimeBoundaryCode::DatabaseStartupRecoveryPending => {
             "database startup recovery is still in progress"
+        }
+        RuntimeBoundaryCode::ConvergenceBacklogPressure => {
+            "journal convergence backlog exceeds its cumulative admission limit"
         }
         RuntimeBoundaryCode::SqlSurfacePolicyDenied => {
             "application policy denied access to the SQL endpoint"
@@ -1642,6 +1659,36 @@ mod tests {
     }
 
     #[test]
+    fn renders_convergence_backlog_pressure_attribution() {
+        let err: icydb::Error = serde_json::from_value(serde_json::json!({
+            "code": icydb::ErrorCode::RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE.raw(),
+            "class": icydb::diagnostic::ErrorClass::Conflict.wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Executor.wire_code(),
+            "facts": [
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::BacklogResource.raw(),
+                    "value": icydb::diagnostic::DiagnosticBacklogResource::Batches.raw(),
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::CurrentCount.raw(),
+                    "value": 38,
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::ProposedCount.raw(),
+                    "value": 1,
+                },
+                { "tag": icydb::diagnostic::DiagnosticFactTag::Limit.raw(), "value": 38 },
+            ],
+        }))
+        .expect("backlog-pressure fact error should decode");
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_CONFLICT: journal convergence backlog exceeds its cumulative admission limit; facts backlog_resource=1(batches) current_count=38 proposed_count=1 limit=38",
+        );
+    }
+
+    #[test]
     fn exact_artifact_humanizes_constraint_facts_and_stale_artifact_does_not() {
         use icydb::diagnostic::DiagnosticFactTag;
 
@@ -2262,6 +2309,10 @@ mod tests {
             (
                 icydb::diagnostic::RuntimeBoundaryCode::RequestExecutionRootMismatch,
                 "E_RUNTIME_CONFLICT: explicit IcyDB request root conflicts with the active request root",
+            ),
+            (
+                icydb::diagnostic::RuntimeBoundaryCode::ConvergenceBacklogPressure,
+                "E_RUNTIME_CONFLICT: journal convergence backlog exceeds its cumulative admission limit",
             ),
         ];
 
