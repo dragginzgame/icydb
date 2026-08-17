@@ -3024,7 +3024,7 @@ mod identity_pre_key_tests {
                 with_mutation_progress_store,
             },
             journal::{
-                JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
+                JournalBatch, JournalRecord, JournalSequence, JournalTailControl, JournalTailStore,
                 encode_journal_batch,
             },
             registry::{
@@ -4203,6 +4203,50 @@ mod identity_pre_key_tests {
         );
     }
 
+    fn assert_exact_batch_backlog_pressure(
+        pressure: &InternalError,
+        before: JournalTailControl,
+        next_sequence: u64,
+    ) {
+        assert_eq!(
+            pressure.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE,
+        );
+        assert_eq!(
+            pressure.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::BacklogResource,
+                    icydb_diagnostic_code::DiagnosticBacklogResource::Batches.raw(),
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::CurrentCount, 38),
+                (icydb_diagnostic_code::DiagnosticFactTag::ProposedCount, 1),
+                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 38),
+            ],
+        );
+        assert_eq!(
+            crate::db::commit::next_database_commit_sequence()
+                .expect("pressure must leave the database sequence readable"),
+            next_sequence,
+        );
+        assert!(matches!(
+            crate::db::commit::observe_commit_control()
+                .expect("pressure must leave commit control observable"),
+            crate::db::commit::CommitControlObservation::Present {
+                marker_present: false,
+                ..
+            },
+        ));
+        assert_eq!(
+            JOURNALED_TAIL_STORE.with(|tail| {
+                tail.borrow()
+                    .current_tail_control()
+                    .expect("pressure must preserve the exact tail control")
+            }),
+            before,
+        );
+    }
+
     fn batch(values: &[u64]) -> Vec<AcceptedStructuralMutation> {
         values
             .iter()
@@ -5353,53 +5397,16 @@ mod identity_pre_key_tests {
         assert_eq!(before.batch_count(), 38);
         let next_sequence = crate::db::commit::next_database_commit_sequence()
             .expect("database sequence preview should remain readable");
-        let pressure = match session.execute_accepted_structural_save_batch(
+        let Err(pressure) = session.execute_accepted_structural_save_batch(
             &catalog,
             &descriptor,
             batch(&[38]),
             Timestamp::from_millis(8),
             Ok,
-        ) {
-            Ok(_) => panic!("the exact cumulative batch ceiling should reject one more batch"),
-            Err(error) => error,
+        ) else {
+            panic!("the exact cumulative batch ceiling should reject one more batch")
         };
-        assert_eq!(
-            pressure.diagnostic().error_code(),
-            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE,
-        );
-        assert_eq!(
-            pressure.diagnostic_facts(),
-            vec![
-                (
-                    icydb_diagnostic_code::DiagnosticFactTag::BacklogResource,
-                    icydb_diagnostic_code::DiagnosticBacklogResource::Batches.raw(),
-                ),
-                (icydb_diagnostic_code::DiagnosticFactTag::CurrentCount, 38),
-                (icydb_diagnostic_code::DiagnosticFactTag::ProposedCount, 1),
-                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 38),
-            ],
-        );
-        assert_eq!(
-            crate::db::commit::next_database_commit_sequence()
-                .expect("pressure must leave the database sequence readable"),
-            next_sequence,
-        );
-        assert!(matches!(
-            crate::db::commit::observe_commit_control()
-                .expect("pressure must leave commit control observable"),
-            crate::db::commit::CommitControlObservation::Present {
-                marker_present: false,
-                ..
-            },
-        ));
-        assert_eq!(
-            JOURNALED_TAIL_STORE.with(|tail| {
-                tail.borrow()
-                    .current_tail_control()
-                    .expect("pressure must preserve the exact tail control")
-            }),
-            before,
-        );
+        assert_exact_batch_backlog_pressure(&pressure, before, next_sequence);
 
         for folded_batches in 1..=38 {
             let complete = session

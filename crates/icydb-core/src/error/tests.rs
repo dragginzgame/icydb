@@ -919,6 +919,28 @@ fn mutation_error_details_project_exact_bounded_numeric_facts() {
         InternalError::mutation_batch_commit_work_exceeded(None, 16_384).diagnostic_facts(),
         vec![(Tag::Limit, 16_384)],
     );
+    assert_eq!(
+        InternalError::mutation_batch_entity_mismatch(2, 17, 18).diagnostic_facts(),
+        vec![
+            (Tag::BatchPosition, 2),
+            (Tag::ExpectedEntityTag, 17),
+            (Tag::ActualEntityTag, 18),
+        ],
+    );
+    assert_eq!(
+        InternalError::mutation_atomic_save_duplicate_key(17, 1, 4).diagnostic_facts(),
+        vec![
+            (Tag::EntityTag, 17),
+            (Tag::FirstBatchPosition, 1),
+            (Tag::DuplicateBatchPosition, 4),
+        ],
+    );
+}
+
+#[test]
+fn convergence_backlog_pressure_projects_exact_bounded_numeric_facts() {
+    use icydb_diagnostic_code::DiagnosticFactTag as Tag;
+
     let pressure = InternalError::convergence_backlog_pressure(
         icydb_diagnostic_code::DiagnosticBacklogResource::Batches,
         38,
@@ -940,22 +962,6 @@ fn mutation_error_details_project_exact_bounded_numeric_facts() {
             (Tag::CurrentCount, 38),
             (Tag::ProposedCount, 1),
             (Tag::Limit, 38),
-        ],
-    );
-    assert_eq!(
-        InternalError::mutation_batch_entity_mismatch(2, 17, 18).diagnostic_facts(),
-        vec![
-            (Tag::BatchPosition, 2),
-            (Tag::ExpectedEntityTag, 17),
-            (Tag::ActualEntityTag, 18),
-        ],
-    );
-    assert_eq!(
-        InternalError::mutation_atomic_save_duplicate_key(17, 1, 4).diagnostic_facts(),
-        vec![
-            (Tag::EntityTag, 17),
-            (Tag::FirstBatchPosition, 1),
-            (Tag::DuplicateBatchPosition, 4),
         ],
     );
 }

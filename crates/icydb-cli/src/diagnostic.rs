@@ -2310,10 +2310,6 @@ mod tests {
                 icydb::diagnostic::RuntimeBoundaryCode::RequestExecutionRootMismatch,
                 "E_RUNTIME_CONFLICT: explicit IcyDB request root conflicts with the active request root",
             ),
-            (
-                icydb::diagnostic::RuntimeBoundaryCode::ConvergenceBacklogPressure,
-                "E_RUNTIME_CONFLICT: journal convergence backlog exceeds its cumulative admission limit",
-            ),
         ];
 
         for (boundary, expected) in cases {

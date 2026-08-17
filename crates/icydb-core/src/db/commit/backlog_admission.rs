@@ -32,12 +32,16 @@ use crate::{
 use std::{cell::RefCell, thread::LocalKey};
 
 #[cfg(test)]
+type TestRuntimeJournalTail = (
+    super::memory::CommitMemoryAllocation,
+    StoreAllocationIdentity,
+    &'static LocalKey<RefCell<JournalTailStore>>,
+);
+
+#[cfg(test)]
 thread_local! {
-    static TEST_RUNTIME_JOURNAL_TAILS: RefCell<Vec<(
-        super::memory::CommitMemoryAllocation,
-        StoreAllocationIdentity,
-        &'static LocalKey<RefCell<JournalTailStore>>,
-    )>> = const { RefCell::new(Vec::new()) };
+    static TEST_RUNTIME_JOURNAL_TAILS: RefCell<Vec<TestRuntimeJournalTail>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]
@@ -345,11 +349,9 @@ pub(in crate::db) fn current_database_backlog() -> Result<ExactBacklogMeasuremen
 }
 
 #[cfg(test)]
-pub(in crate::db) fn register_runtime_journal_tails_for_backlog<C: CanisterKind>(
-    db: &Db<C>,
-) -> Result<(), InternalError> {
+pub(in crate::db) fn register_runtime_journal_tails_for_backlog<C: CanisterKind>(db: &Db<C>) {
     let Some(commit_allocation) = current_commit_memory_allocation_if_configured() else {
-        return Ok(());
+        return;
     };
     let tails = db.with_store_registry(|registry| {
         registry
@@ -368,7 +370,6 @@ pub(in crate::db) fn register_runtime_journal_tails_for_backlog<C: CanisterKind>
                 .map(|(identity, tail)| (commit_allocation, identity, tail)),
         );
     });
-    Ok(())
 }
 
 #[cfg(test)]

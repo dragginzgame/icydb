@@ -87,7 +87,7 @@ pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
     };
     result?;
     #[cfg(test)]
-    crate::db::commit::register_runtime_journal_tails_for_backlog(db)?;
+    crate::db::commit::register_runtime_journal_tails_for_backlog(db);
     Ok(())
 }
 
