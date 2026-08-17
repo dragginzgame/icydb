@@ -18,7 +18,7 @@ use crate::{
         integrity::DatabaseIncarnationId,
         journal::JournalSequence,
         positioned_overlay::{JournalOverlayPosition, PositionedOverlayRetirement},
-        registry::StoreAllocationIdentity,
+        registry::{StoreAllocationIdentities, StoreAllocationIdentity},
         schema::{
             AcceptedCheckExprV1, AcceptedCompositeCatalog, AcceptedFieldKind,
             AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
@@ -28,6 +28,12 @@ use crate::{
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
             SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout,
             SchemaVersion, accepted_schema_cache_fingerprint, accepted_schema_candidate_for_tests,
+            cardinality_generation::{
+                CardinalityBuildCursor, CardinalityBuildPhase, CardinalityBuildTotals,
+                CardinalityCountRecord, CardinalityCountSlot, CardinalityGenerationHeader,
+                CardinalityGenerationId, CardinalityGenerationState, CardinalityLogicalCountKey,
+                CardinalitySourceIdentity,
+            },
             composite_catalog::CompositeTypeId,
             empty_accepted_schema_candidate_for_tests,
             encode_unchecked_persisted_schema_snapshot_for_tests,
@@ -58,6 +64,22 @@ fn accepted_field_kind_fingerprint(kind: &AcceptedFieldKind) -> [u8; 32] {
 
 const fn test_database_incarnation() -> DatabaseIncarnationId {
     DatabaseIncarnationId::for_tests(0x61)
+}
+
+fn cardinality_source_identity() -> CardinalitySourceIdentity {
+    CardinalitySourceIdentity::derive(
+        test_database_incarnation(),
+        StoreAllocationIdentities::new_journaled(
+            StoreAllocationIdentity::new(180, "test.cardinality.data.v1"),
+            StoreAllocationIdentity::new(181, "test.cardinality.index.v1"),
+            StoreAllocationIdentity::new(182, "test.cardinality.schema.v1"),
+            StoreAllocationIdentity::new(183, "test.cardinality.journal.v1"),
+        ),
+        None,
+        [],
+        crate::db::journal::FoldWatermark::initial(),
+    )
+    .expect("complete current source identity should derive")
 }
 
 #[test]
@@ -314,6 +336,95 @@ fn raw_schema_control_record_round_trips_opaque_bytes() {
 
     assert_eq!(decoded.as_bytes(), b"ICYDBAEB\x01\x02\x03");
     assert_eq!(decoded.into_bytes(), b"ICYDBAEB\x01\x02\x03");
+}
+
+#[test]
+fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reopen() {
+    let memory = test_memory(253);
+    let source = cardinality_source_identity();
+    let header = CardinalityGenerationHeader::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityGenerationState::Building,
+        CardinalityCountSlot::B,
+        source,
+    );
+    let cursor = CardinalityBuildCursor::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityCountSlot::B,
+        source,
+        CardinalityBuildPhase::Rows,
+        None,
+        CardinalityBuildTotals::default(),
+    )
+    .expect("initial row cursor should be valid");
+    let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(42))
+        .digest()
+        .expect("entity count key should hash");
+    let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, u64::MAX)
+        .expect("maximum nonzero count should encode");
+
+    let header_key = RawSchemaKey::from_cardinality_generation_header();
+    let cursor_key = RawSchemaKey::from_cardinality_build_cursor();
+    let inactive_count_key = RawSchemaKey::from_cardinality_count(CardinalityCountSlot::A, digest);
+    let building_count_key = RawSchemaKey::from_cardinality_count(CardinalityCountSlot::B, digest);
+    assert_eq!(
+        header_key.to_bytes().as_ref(),
+        &[5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        cursor_key.to_bytes().as_ref(),
+        &[5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+    );
+    assert_eq!(inactive_count_key.to_bytes().as_ref()[0], 6);
+    assert_eq!(building_count_key.to_bytes().as_ref()[0], 7);
+    assert_eq!(
+        &building_count_key.to_bytes().as_ref()[1..],
+        &digest.as_bytes()[..15]
+    );
+
+    let mut store = SchemaStore::init_journaled(memory.clone());
+    store
+        .insert_canonical_raw_value(header_key, header.encode())
+        .expect("generation header should persist");
+    store
+        .insert_canonical_raw_value(
+            cursor_key,
+            cursor.encode().expect("bounded build cursor should encode"),
+        )
+        .expect("build cursor should persist");
+    store
+        .insert_canonical_raw_value(building_count_key, count.encode().to_vec())
+        .expect("count record should persist");
+    drop(store);
+
+    let reopened = SchemaStore::init_journaled(memory);
+    let reopened_header = reopened
+        .get_canonical_raw_value(&header_key)
+        .expect("header read should succeed")
+        .expect("header should exist");
+    let reopened_cursor = reopened
+        .get_canonical_raw_value(&cursor_key)
+        .expect("cursor read should succeed")
+        .expect("cursor should exist");
+    let reopened_count = reopened
+        .get_canonical_raw_value(&building_count_key)
+        .expect("count read should succeed")
+        .expect("count should exist");
+    assert_eq!(
+        CardinalityGenerationHeader::decode(reopened_header.as_bytes())
+            .expect("reopened header should decode"),
+        header,
+    );
+    assert_eq!(
+        CardinalityBuildCursor::decode(reopened_cursor.as_bytes())
+            .expect("reopened cursor should decode"),
+        cursor,
+    );
+    assert_eq!(
+        CardinalityCountRecord::decode(reopened_count.as_bytes())
+            .expect("reopened count should decode"),
+        count,
+    );
 }
 
 #[test]

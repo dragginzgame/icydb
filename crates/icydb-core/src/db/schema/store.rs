@@ -3,6 +3,7 @@
 //! Does not own: reconciliation policy, typed snapshot encoding, or generated proposal construction.
 //! Boundary: provides the third per-store stable memory alongside row and index stores.
 
+use crate::db::schema::cardinality_generation::{CardinalityCountDigest, CardinalityCountSlot};
 use crate::db::schema::identity_state::{
     IdentityAdvanceId, IdentityRangeAdvance, IdentityRangeCommitState, IdentityState,
     IdentityStateInventory, IdentityStateLifecycle, IdentityStateTransition,
@@ -264,6 +265,45 @@ impl RawSchemaKey {
         self.is_constraint_validation_job()
             .then(|| ConstraintId::new(self.version()))
             .flatten()
+    }
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Patch 2 reserves cardinality keys that the bounded Patch 3 builder activates"
+    )
+)]
+impl RawSchemaKey {
+    const NAMESPACE_CARDINALITY_CONTROL: u8 = 5;
+    const NAMESPACE_CARDINALITY_COUNT_A: u8 = 6;
+    const NAMESPACE_CARDINALITY_COUNT_B: u8 = 7;
+    const CARDINALITY_HEADER_DISCRIMINATOR: u8 = 0;
+    const CARDINALITY_BUILD_CURSOR_DISCRIMINATOR: u8 = 1;
+
+    const fn from_cardinality_generation_header() -> Self {
+        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        out[0] = Self::NAMESPACE_CARDINALITY_CONTROL;
+        out[SCHEMA_KEY_BYTES_USIZE - 1] = Self::CARDINALITY_HEADER_DISCRIMINATOR;
+        Self(out)
+    }
+
+    const fn from_cardinality_build_cursor() -> Self {
+        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        out[0] = Self::NAMESPACE_CARDINALITY_CONTROL;
+        out[SCHEMA_KEY_BYTES_USIZE - 1] = Self::CARDINALITY_BUILD_CURSOR_DISCRIMINATOR;
+        Self(out)
+    }
+
+    fn from_cardinality_count(slot: CardinalityCountSlot, digest: CardinalityCountDigest) -> Self {
+        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        out[0] = match slot {
+            CardinalityCountSlot::A => Self::NAMESPACE_CARDINALITY_COUNT_A,
+            CardinalityCountSlot::B => Self::NAMESPACE_CARDINALITY_COUNT_B,
+        };
+        out[1..].copy_from_slice(&digest.as_bytes()[..SCHEMA_KEY_BYTES_USIZE - 1]);
+        Self(out)
     }
 }
 

@@ -93,6 +93,13 @@ if ! rg -q 'run:[[:space:]]+make ci-static' .github/workflows/ci.yml ||
   fail "CI jobs must consume the shared local validation targets"
 fi
 
+if rg -q '^[[:space:]]+CARGO_HOME:' .github/workflows/ci.yml &&
+   ! rg -q --fixed-strings \
+     "printf '%s\\n' \"\$CARGO_HOME/bin\" >> \"\$GITHUB_PATH\"" \
+     .github/workflows/ci.yml; then
+  fail "repo-local Cargo installs must expose their bin directory to later CI steps"
+fi
+
 if [[ ! -x scripts/ci/run-validation-targets.sh ]] ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||

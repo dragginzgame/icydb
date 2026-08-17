@@ -7,20 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Validation now provides grouped timing and complete failure summaries, a
-  fast preflight, an exact-test-to-binary loop, and a focused durability
-  matrix, while CI runs the same static, core, workspace, and SQL evidence in
-  parallel behind the unchanged required `check` gate.
-- Tag cleanup now verifies both selected local and remote refs, while release
-  publication atomically pushes only the current branch and exact release tag
-  so deleted historical annotated tags are not implicitly republished.
-
 ## [0.230.x] 🧮 - 2026-08-17 - Durable Exact Cardinality Generations
 
 Detailed notes: [docs/changelog/0.230.md](docs/changelog/0.230.md)
 
-- `0.230.0` freezes the accepted cardinality, populated-reopen, bounded-build,
-  planner-fallback, storage, startup, and artifact contracts without changing
+- `0.230.1` adds the sole current version-1 durable cardinality-generation
+  identity, bounded build-cursor and exact count-record formats in reserved
+  schema namespaces without yet activating construction or planner use.
+
+- `0.230.0` freezes the cardinality-generation contracts and makes validation,
+  CI evidence, and release publication faster and safer without changing
   runtime behavior or persisted and public surfaces.
 
 ## [0.229.x] 🔄 - 2026-08-16 - Continuous Journal Convergence And Bounded Backlog Admission

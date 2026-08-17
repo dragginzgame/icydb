@@ -11,6 +11,7 @@ mod application_receipt;
 mod application_store;
 #[cfg(any(test, feature = "sql"))]
 mod capabilities;
+pub(in crate::db) mod cardinality_generation;
 mod check;
 mod codec;
 mod composite_catalog;

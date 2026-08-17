@@ -173,7 +173,11 @@ jobs:
           sudo apt-get install -y binaryen=108-1
           scripts/ci/verify-wasm-optimizer.sh
       - name: Install wasm reporting tools
-        run: cargo install candid-extractor ic-wasm --locked
+        run: |
+          cargo install candid-extractor ic-wasm --locked
+          test -x "$CARGO_HOME/bin/candid-extractor"
+          test -x "$CARGO_HOME/bin/ic-wasm"
+          printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       - name: Report default-empty wasm size
         run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
