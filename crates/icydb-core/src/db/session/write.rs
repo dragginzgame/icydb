@@ -5030,8 +5030,8 @@ mod identity_pre_key_tests {
             .expect("uninterrupted atomic transition should clear its marker");
         assert_eq!(
             STARTUP_WAKEUPS.with(Cell::get),
-            wakeups_before_success,
-            "a successful commit must not schedule recovery work",
+            wakeups_before_success.saturating_add(1),
+            "a successful retained commit must request online convergence",
         );
         let retained = with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
             store.load_mutation(before.state().job_id)
@@ -5052,7 +5052,7 @@ mod identity_pre_key_tests {
             session
                 .db
                 .drive_startup_recovery_page()
-                .expect("post-clear driver recovery should remain a no-op"),
+                .expect("post-clear driver recovery should fold the retained batch"),
         );
     }
 

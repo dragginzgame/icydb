@@ -3123,6 +3123,7 @@ mod tests {
         testing::test_memory,
         traits::{CanisterKind, Path},
     };
+    use ic_stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
         EntitySourceKey, EntityStoreAssignment, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
@@ -3214,14 +3215,26 @@ mod tests {
     }
 
     thread_local! {
+        static ABORT_DATA_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(180);
+        static ABORT_INDEX_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(181);
+        static ABORT_SCHEMA_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(182);
+        static ABORT_JOURNAL_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(183);
         static ABORT_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(180)));
+            ABORT_DATA_MEMORY.with(|memory| {
+                RefCell::new(DataStore::init_journaled(memory.clone()))
+            });
         static ABORT_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(181)));
+            ABORT_INDEX_MEMORY.with(|memory| {
+                RefCell::new(IndexStore::init_journaled(memory.clone()))
+            });
         static ABORT_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(182)));
+            ABORT_SCHEMA_MEMORY.with(|memory| {
+                RefCell::new(SchemaStore::init_journaled(memory.clone()))
+            });
         static ABORT_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(183)));
+            ABORT_JOURNAL_MEMORY.with(|memory| {
+                RefCell::new(JournalTailStore::init(memory.clone()))
+            });
         static ABORT_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(
@@ -4369,27 +4382,24 @@ mod tests {
 
         let root = crate::db::RequestExecutionRoot::__new_runtime_root();
         let session = DbSession::<AbortCanister>::new(&ABORT_REGISTRY, &root);
-        for id in 1..=257 {
-            session
-                .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
-                    entity: "Item".to_string(),
-                    patch: DynamicStructuralPatch::new(vec![
-                        (
-                            "id".to_string(),
-                            DynamicWriteCell::Value(InputValue::Nat64(id)),
-                        ),
-                        (
-                            "score".to_string(),
-                            DynamicWriteCell::Value(InputValue::Int64(if id == 257 {
-                                -1
-                            } else {
-                                1
-                            })),
-                        ),
-                    ]),
-                })
-                .expect("historical finding fixture row should commit");
-        }
+        let rows = (1..=257)
+            .map(|id| DynamicMutation::Insert {
+                entity: "Item".to_string(),
+                patch: DynamicStructuralPatch::new(vec![
+                    (
+                        "id".to_string(),
+                        DynamicWriteCell::Value(InputValue::Nat64(id)),
+                    ),
+                    (
+                        "score".to_string(),
+                        DynamicWriteCell::Value(InputValue::Int64(if id == 257 { -1 } else { 1 })),
+                    ),
+                ]),
+            })
+            .collect();
+        session
+            .execute_trusted_dynamic_mutation_batch(rows)
+            .expect("historical finding fixture rows should commit as one legal batch");
 
         let target =
             schema_application_target(&db).expect("existing application target should issue");
@@ -4616,16 +4626,24 @@ mod tests {
         );
 
         ABORT_DATA.with(|store| {
-            *store.borrow_mut() = DataStore::init_journaled(test_memory(180));
+            ABORT_DATA_MEMORY.with(|memory| {
+                *store.borrow_mut() = DataStore::init_journaled(memory.clone());
+            });
         });
         ABORT_INDEX.with(|store| {
-            *store.borrow_mut() = IndexStore::init_journaled(test_memory(181));
+            ABORT_INDEX_MEMORY.with(|memory| {
+                *store.borrow_mut() = IndexStore::init_journaled(memory.clone());
+            });
         });
         ABORT_SCHEMA.with(|store| {
-            *store.borrow_mut() = SchemaStore::init_journaled(test_memory(182));
+            ABORT_SCHEMA_MEMORY.with(|memory| {
+                *store.borrow_mut() = SchemaStore::init_journaled(memory.clone());
+            });
         });
         ABORT_JOURNAL.with(|store| {
-            *store.borrow_mut() = JournalTailStore::init(test_memory(183));
+            ABORT_JOURNAL_MEMORY.with(|memory| {
+                *store.borrow_mut() = JournalTailStore::init(memory.clone());
+            });
         });
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
         drive_startup_recovery_to_completion(&db);
@@ -4645,6 +4663,16 @@ mod tests {
         let startup_root = crate::db::RequestExecutionRoot::__new_runtime_root();
         let startup_session =
             crate::db::DbSession::<AbortCanister>::new(&ABORT_REGISTRY, &startup_root);
+        ABORT_JOURNAL.with(|journal| {
+            let journal = journal.borrow();
+            assert!(
+                journal
+                    .validate_current_tail_authority()
+                    .expect("recovered abort tail control should remain readable")
+                    .is_empty(),
+                "recovered abort tail control should close exactly",
+            );
+        });
         assert_eq!(
             drive_generated_startup_recovery_page(
                 &startup_session,

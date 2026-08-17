@@ -133,13 +133,21 @@ if [[ "$(grep -c 'record-release-gate-receipt\.sh' "$MAKEFILE")" -ne 1 ]]; then
 fi
 
 if ! target_recipe release-push | awk -v cleanup="$CLEANUP_SCRIPT" '
-  /git push --follow-tags/ { push_line = NR }
+  /git push --no-follow-tags --atomic origin/ { push_line = NR }
+  /HEAD:refs\/heads\/\$\$branch/ { branch_ref_line = NR }
+  /refs\/tags\/v\$\$version:refs\/tags\/v\$\$version/ { tag_ref_line = NR }
   index($0, cleanup) { cleanup_line = NR }
   END {
-    exit !(push_line > 0 && cleanup_line > push_line)
+    exit !(push_line > 0 && branch_ref_line > push_line &&
+           tag_ref_line > branch_ref_line && cleanup_line > tag_ref_line)
   }
 '; then
-  echo "release-push must clean only after git push --follow-tags succeeds" >&2
+  echo "release-push must atomically push only the current branch and exact tag before cleanup" >&2
+  exit 1
+fi
+
+if target_recipe release-push | grep -Eq -- '--follow-tags|--tags([[:space:]]|$)'; then
+  echo "release-push must not publish historical annotated tags implicitly" >&2
   exit 1
 fi
 
@@ -155,5 +163,6 @@ if [[ "$automatic_cleanup_calls" -ne 2 ]]; then
 fi
 
 "$ROOT/scripts/ci/test-release-candidate-receipt.sh"
+"$ROOT/scripts/ci/test-delete-github-tags-up-to.sh"
 
 echo "release workflow and cleanup invariants passed"

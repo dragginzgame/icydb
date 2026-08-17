@@ -97,7 +97,7 @@ help:
 	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Verify the tested candidate transition, commit, and tag"
-	@echo "  release-push     Push the release commit and tags, then clean release artifacts"
+	@echo "  release-push     Atomically push the release commit and exact tag, then clean artifacts"
 	@echo "  release-patch    Human-owned one-shot patch release"
 	@echo "  release-minor    Confirm, bump, stage, commit, tag, and push a minor release"
 	@echo "  release-major    Confirm, bump, stage, commit, tag, and push a major release"
@@ -285,7 +285,12 @@ release-commit:
 		scripts/ci/record-release-gate-receipt.sh
 
 release-push:
-	git push --follow-tags
+	@set -e; \
+	version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \
+	branch="$$(git symbolic-ref --quiet --short HEAD)"; \
+	git push --no-follow-tags --atomic origin \
+		"HEAD:refs/heads/$$branch" \
+		"refs/tags/v$$version:refs/tags/v$$version"
 	@bash scripts/ci/cleanup-release-workspace.sh
 
 release-patch:

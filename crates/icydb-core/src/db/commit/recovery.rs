@@ -238,7 +238,7 @@ fn recover_domain<C: CanisterKind>(
     let marker = with_commit_store(super::store::CommitStore::load).map_err(|error| {
         StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
     })?;
-    let progress = if marker.is_none() && journaled_tails_are_empty(db) {
+    let progress = if marker.is_none() && journaled_tails_are_empty(db)? {
         restore_live_schema_checkpoints(db, None).map_err(|error| {
             StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
         })?;
@@ -260,16 +260,20 @@ fn recover_domain<C: CanisterKind>(
     Ok(progress)
 }
 
-fn journaled_tails_are_empty<C: CanisterKind>(db: &Db<C>) -> bool {
-    sorted_journaled_store_handles(db)
-        .into_iter()
-        .all(|(_, handle)| {
-            handle.journal_tail_store().is_some_and(|tail| {
-                tail.with_borrow(|store| {
-                    store.fold_watermark().is_ok() && !store.has_stored_batch()
-                })
-            })
-        })
+fn journaled_tails_are_empty<C: CanisterKind>(db: &Db<C>) -> Result<bool, StartupRecoveryFailure> {
+    let mut all_empty = true;
+    for (store_path, handle) in sorted_journaled_store_handles(db) {
+        let journal_failure = |error| StartupRecoveryFailure::journal_store(store_path, error);
+        let journal = handle
+            .journal_tail_store()
+            .ok_or_else(InternalError::store_corruption)
+            .map_err(journal_failure)?;
+        let control = journal
+            .with_borrow(JournalTailStore::validate_current_tail_authority)
+            .map_err(journal_failure)?;
+        all_empty &= control.is_empty();
+    }
+    Ok(all_empty)
 }
 
 fn perform_recovery_page<C: CanisterKind>(
@@ -705,7 +709,7 @@ fn fold_oldest_journal_batch<C: CanisterKind>(
         return Ok(true);
     };
     fold_selected_journal_head(db, selected, projection)?;
-    Ok(journaled_tails_are_empty(db))
+    journaled_tails_are_empty(db)
 }
 
 fn select_oldest_journal_head<C: CanisterKind>(

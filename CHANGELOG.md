@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Tag cleanup now verifies both selected local and remote refs, while release
+  publication atomically pushes only the current branch and exact release tag
+  so deleted historical annotated tags are not implicitly republished.
+
 ## [0.229.x] 🔄 - 2026-08-16 - Continuous Journal Convergence And Bounded Backlog Admission
 
 Detailed notes: [docs/changelog/0.229.md](docs/changelog/0.229.md)
@@ -14,8 +18,9 @@ Detailed notes: [docs/changelog/0.229.md](docs/changelog/0.229.md)
 - `0.229.1` activates bounded continuous journal convergence and retryable
   backlog pressure with complete E284 CLI diagnostics under a rollback-safe
   version-1 hard cut, while closing batch-final uniqueness, fixed-control
-  selection, and accepted-index one-message bounds; existing state must be
-  reinstalled or recreated, making this potentially breaking.
+  selection and startup closure, and accepted-index one-message bounds;
+  existing state must be reinstalled or recreated, making this potentially
+  breaking.
 
 - `0.229.0` establishes current journal controls, dormant bounded-backlog
   foundations, and recalibrated durable-mutation pages; upgrades require
