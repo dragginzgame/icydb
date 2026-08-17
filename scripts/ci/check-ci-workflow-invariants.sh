@@ -101,10 +101,14 @@ if rg -q '^[[:space:]]+CARGO_HOME:' .github/workflows/ci.yml &&
 fi
 
 if [[ ! -x scripts/ci/run-validation-targets.sh ]] ||
+   ! rg -q --fixed-strings 'tee "$log"' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'Failure details (repeated from the full logs)' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'GITHUB_STEP_SUMMARY' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'ICYDB_VALIDATION_RUNNER_DEPTH' scripts/ci/run-validation-targets.sh ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||
    ! rg -q '^test-durability:$' Makefile; then
-  fail "the local fast, focused, and grouped validation feedback loop is incomplete"
+  fail "the local fast, focused, grouped, and failure-detail validation feedback loop is incomplete"
 fi
 
 for owned_path in \

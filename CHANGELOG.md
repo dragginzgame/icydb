@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Validation failures now repeat actionable compiler, panic, and failed-test
+  context in the final terminal and GitHub step summaries while retaining the
+  complete live log.
+
 ## [0.230.x] 🧮 - 2026-08-17 - Durable Exact Cardinality Generations
 
 Detailed notes: [docs/changelog/0.230.md](docs/changelog/0.230.md)
