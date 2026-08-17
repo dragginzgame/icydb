@@ -120,17 +120,17 @@ pub mod diagnostic {
     //! Compact diagnostic identity for CLI and canister callers.
 
     pub use icydb_diagnostic_code::{
-        Diagnostic, DiagnosticAggregateKind, DiagnosticCode, DiagnosticComponentKind,
-        DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDecodeReason,
-        DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
-        DiagnosticExecutionLane, DiagnosticFactSchemaMismatch, DiagnosticFactTag,
-        DiagnosticFunctionKind, DiagnosticMutationOperation, DiagnosticOperatorKind,
-        DiagnosticTypeFamily, ErrorClass, ErrorCode, ErrorOrigin, MAX_PUBLIC_DIAGNOSTIC_FACTS,
-        QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
-        RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode,
-        SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
-        pack_u32_pair, unpack_u32_pair, validate_known_diagnostic_fact_schema,
-        validate_raw_diagnostic_fact_schema,
+        Diagnostic, DiagnosticAggregateKind, DiagnosticBacklogResource, DiagnosticCode,
+        DiagnosticComponentKind, DiagnosticConstraintContext, DiagnosticConstraintKind,
+        DiagnosticDecodeReason, DiagnosticDetail, DiagnosticExecutionBudgetResource,
+        DiagnosticExecutionBudgetScope, DiagnosticExecutionLane, DiagnosticFactSchemaMismatch,
+        DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation,
+        DiagnosticOperatorKind, DiagnosticTypeFamily, ErrorClass, ErrorCode, ErrorOrigin,
+        MAX_PUBLIC_DIAGNOSTIC_FACTS, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode,
+        QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
+        SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
+        SqlWriteBoundaryCode, pack_u32_pair, unpack_u32_pair,
+        validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
     };
 }
 mod error;
