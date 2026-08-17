@@ -24,8 +24,8 @@ use crate::{
             },
             store::{
                 control_slot::{
-                    DATABASE_COMMIT_SEQUENCE_OFFSET, MAX_CURRENT_COMMIT_CONTROL_HEADER_BYTES,
-                    PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES, commit_control_slot_encoded_len,
+                    CURRENT_COMMIT_CONTROL_HEADER_BYTES, DATABASE_COMMIT_SEQUENCE_OFFSET,
+                    MAX_CURRENT_COMMIT_CONTROL_HEADER_BYTES, commit_control_slot_encoded_len,
                     decode_commit_control_slot, encode_commit_control_slot_from_marker,
                     encode_empty_commit_control_slot, inspect_commit_control_header,
                     inspect_commit_control_slot,
@@ -128,6 +128,18 @@ pub(super) struct CommitStore {
     memory: VirtualMemory<DefaultMemoryImpl>,
 }
 
+/// Fully checked marker bytes awaiting pre-publication Gate-2 admission.
+pub(super) struct PreparedCommitMarkerPublication {
+    encoded: EncodedCommitControlSlot,
+    expected_control_proof: [u8; 32],
+}
+
+impl PreparedCommitMarkerPublication {
+    pub(super) const fn encoded(&self) -> &EncodedCommitControlSlot {
+        &self.encoded
+    }
+}
+
 const DATABASE_CONTROL_SLOT_FRAME_OFFSET: u64 = DATABASE_BOOT_RECORD_BYTES as u64;
 const DATABASE_CONTROL_SLOT_FRAME_MAGIC: &[u8; 4] = b"IDCS";
 const DATABASE_CONTROL_SLOT_FRAME_VERSION: u8 = 1;
@@ -145,18 +157,12 @@ pub(in crate::db) enum CommitControlObservation {
         incarnation: DatabaseIncarnationId,
         empty_control_proof: Option<[u8; 32]>,
         marker_present: bool,
-        current_format: bool,
     },
 }
 
 /// Bounded persisted-format observation used only by current-format initialization.
 pub(in crate::db) enum PersistedCommitControlObservation {
     Uninitialized,
-    Predecessor {
-        incarnation: DatabaseIncarnationId,
-        cursor_authentication_key: [u8; 32],
-        control_proof: [u8; 32],
-    },
     Current {
         incarnation: DatabaseIncarnationId,
         cursor_authentication_key: [u8; 32],
@@ -226,6 +232,14 @@ impl CommitStore {
         inspect_commit_control_slot(&bytes).map(|slot| slot.cursor_authentication_key)
     }
 
+    /// Load the bounded active-plus-retired allocation registry.
+    pub(super) fn persisted_store_allocations(
+        &self,
+    ) -> Result<Vec<PersistedStoreAllocation>, InternalError> {
+        let bytes = self.read_framed_control_slot()?;
+        inspect_commit_control_slot(&bytes).map(|slot| slot.registry)
+    }
+
     /// Preview the next database-wide commit order without durable mutation.
     ///
     /// Marker publication immediately re-reads and validates the complete
@@ -267,10 +281,20 @@ impl CommitStore {
     }
 
     /// Persist one commit marker while proving the current slot has no marker.
+    #[cfg(test)]
     pub(super) fn set_if_empty(
         &self,
         marker: &CommitMarker,
     ) -> Result<EncodedCommitControlSlot, InternalError> {
+        let prepared = self.prepare_set_if_empty(marker)?;
+        self.publish_prepared_marker(prepared)
+    }
+
+    /// Encode and preflight one marker without publishing durable authority.
+    pub(super) fn prepare_set_if_empty(
+        &self,
+        marker: &CommitMarker,
+    ) -> Result<PreparedCommitMarkerPublication, InternalError> {
         let bytes = self.read_framed_control_slot()?;
         let slot = inspect_commit_control_slot(&bytes)?;
         if !slot.marker_bytes.is_empty() {
@@ -295,9 +319,27 @@ impl CommitStore {
             return Err(InternalError::store_invariant());
         }
 
-        self.write_control_slot(encoded.as_bytes())?;
+        Ok(PreparedCommitMarkerPublication {
+            encoded,
+            expected_control_proof: control_proof(&bytes),
+        })
+    }
+
+    /// Publish exact preflighted bytes after Gate 2 has admitted them.
+    pub(super) fn publish_prepared_marker(
+        &self,
+        prepared: PreparedCommitMarkerPublication,
+    ) -> Result<EncodedCommitControlSlot, InternalError> {
+        let current = self.read_framed_control_slot()?;
+        let slot = inspect_commit_control_slot(&current)?;
+        if !slot.marker_bytes.is_empty()
+            || control_proof(&current) != prepared.expected_control_proof
+        {
+            return Err(InternalError::store_invariant());
+        }
+        self.write_control_slot(prepared.encoded.as_bytes())?;
         mark_commit_marker_may_be_present();
-        Ok(encoded)
+        Ok(prepared.encoded)
     }
 
     /// Clear marker bytes after a verified commit/recovery success.
@@ -415,8 +457,7 @@ impl CommitStore {
                 ..DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET],
         );
         let encoded_len = u32::from_be_bytes(length_bytes) as usize;
-        if !(PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES..=MAX_COMMIT_BYTES as usize)
-            .contains(&encoded_len)
+        if !(CURRENT_COMMIT_CONTROL_HEADER_BYTES..=MAX_COMMIT_BYTES as usize).contains(&encoded_len)
         {
             return Err(InternalError::commit_corruption());
         }
@@ -493,26 +534,13 @@ pub(in crate::db) fn inspect_persisted_commit_control(
         return Ok(PersistedCommitControlObservation::Uninitialized);
     }
     let bytes = store.read_framed_control_slot()?;
-    let header = inspect_commit_control_header(&bytes)?;
-    if header.current_format {
-        let current = inspect_commit_control_slot(&bytes)?;
-        return Ok(PersistedCommitControlObservation::Current {
-            incarnation: current.database_incarnation_id,
-            cursor_authentication_key: current.cursor_authentication_key,
-            database_commit_sequence: current.database_commit_sequence,
-            registry: current.registry,
-            marker_present: !current.marker_bytes.is_empty(),
-        });
-    }
-    if header.marker_len != 0 {
-        return Err(InternalError::store_unsupported());
-    }
-    let (incarnation, cursor_authentication_key) =
-        control_slot::predecessor_empty_control_identity(&bytes)?;
-    Ok(PersistedCommitControlObservation::Predecessor {
-        incarnation,
-        cursor_authentication_key,
-        control_proof: control_proof(&bytes),
+    let current = inspect_commit_control_slot(&bytes)?;
+    Ok(PersistedCommitControlObservation::Current {
+        incarnation: current.database_incarnation_id,
+        cursor_authentication_key: current.cursor_authentication_key,
+        database_commit_sequence: current.database_commit_sequence,
+        registry: current.registry,
+        marker_present: !current.marker_bytes.is_empty(),
     })
 }
 
@@ -594,19 +622,6 @@ pub(in crate::db) fn initialize_current_commit_control_for_tests(
     Ok(())
 }
 
-#[cfg(test)]
-pub(in crate::db) fn initialize_predecessor_commit_control_for_tests(
-    memory: VirtualMemory<DefaultMemoryImpl>,
-    incarnation: DatabaseIncarnationId,
-    cursor_authentication_key: [u8; 32],
-) -> Result<(), InternalError> {
-    let encoded = control_slot::encode_empty_predecessor_commit_control_slot(
-        incarnation,
-        cursor_authentication_key,
-    )?;
-    CommitStore { memory }.write_control_slot(&encoded)
-}
-
 pub(in crate::db) fn observe_commit_control() -> Result<CommitControlObservation, InternalError> {
     observe_commit_control_with_proof(true)
 }
@@ -646,7 +661,7 @@ fn observe_commit_control_with_proof(
         .size()
         .checked_mul(WASM_PAGE_BYTES)
         .ok_or_else(InternalError::commit_corruption)?;
-    if !(PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES..=MAX_COMMIT_BYTES as usize).contains(&encoded_len)
+    if !(CURRENT_COMMIT_CONTROL_HEADER_BYTES..=MAX_COMMIT_BYTES as usize).contains(&encoded_len)
         || encoded_end > memory_bytes
     {
         return Err(InternalError::commit_corruption());
@@ -680,7 +695,6 @@ fn observe_commit_control_with_proof(
         incarnation: header.database_incarnation_id,
         empty_control_proof,
         marker_present,
-        current_format: header.current_format,
     })
 }
 

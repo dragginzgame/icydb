@@ -43,6 +43,12 @@ pub(in crate::db) fn current_commit_memory_allocation()
     })
 }
 
+#[cfg(test)]
+pub(in crate::db) fn current_commit_memory_allocation_if_configured()
+-> Option<CommitMemoryAllocation> {
+    CURRENT_COMMIT_STORE_ALLOCATION.with(Cell::get)
+}
+
 /// Configure and register the commit marker memory id.
 pub(in crate::db) fn configure_commit_memory_id(
     memory_id: u8,

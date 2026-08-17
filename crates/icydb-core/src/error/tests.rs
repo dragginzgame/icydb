@@ -919,6 +919,29 @@ fn mutation_error_details_project_exact_bounded_numeric_facts() {
         InternalError::mutation_batch_commit_work_exceeded(None, 16_384).diagnostic_facts(),
         vec![(Tag::Limit, 16_384)],
     );
+    let pressure = InternalError::convergence_backlog_pressure(
+        icydb_diagnostic_code::DiagnosticBacklogResource::Batches,
+        38,
+        1,
+        38,
+    );
+    assert_eq!(
+        pressure.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
+    );
+    assert_eq!(
+        pressure.diagnostic().error_code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE,
+    );
+    assert_eq!(
+        pressure.diagnostic_facts(),
+        vec![
+            (Tag::BacklogResource, 1),
+            (Tag::CurrentCount, 38),
+            (Tag::ProposedCount, 1),
+            (Tag::Limit, 38),
+        ],
+    );
     assert_eq!(
         InternalError::mutation_batch_entity_mismatch(2, 17, 18).diagnostic_facts(),
         vec![

@@ -27,6 +27,7 @@ DEV_SYSTEM_PACKAGES=(
   libssl-dev
   pkg-config
   ripgrep
+  shellcheck
   nodejs
   npm
   bubblewrap
@@ -117,6 +118,8 @@ ensure_rustup() {
 
 install_tooling() {
   export PATH="$ACTIONLINT_INSTALL_DIR:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+
+  bash "$ROOT/scripts/ci/install-gh.sh"
 
   if [[ "$MODE" == "update" ]]; then
     command -v rustup >/dev/null 2>&1 || {

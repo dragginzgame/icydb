@@ -320,12 +320,9 @@ fn prepare_initial_scalar_route_plan_from_handoff(
 /// route and continuation together.
 ///
 
-#[cfg_attr(
-    not(target_family = "wasm"),
-    expect(
-        clippy::large_enum_variant,
-        reason = "the initial hot route remains inline to avoid one allocation per scalar execution"
-    )
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the initial hot route remains inline to avoid one allocation per scalar execution"
 )]
 enum ScalarRouteSource {
     Initial {

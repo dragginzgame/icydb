@@ -17,7 +17,7 @@ use std::{
 };
 
 /// Current hard-cut Tier C correctness evidence format.
-pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 4;
+pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 1;
 
 /// Semantic SQL coverage-manifest revision required by current Tier C evidence.
 ///

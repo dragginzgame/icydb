@@ -51,7 +51,9 @@ pub(in crate::db) use row::CanonicalRow;
 pub(in crate::db) use row::DataRow;
 pub(in crate::db) use row::RawRow;
 pub use store::DataStore;
-pub(in crate::db) use store::StoreVisit;
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) use store::PreparedDataPositionPublication;
+pub(in crate::db) use store::{PreparedDataPositionRetirement, StoreVisit};
 pub(in crate::db) use structural_field::FieldDecodeError;
 #[cfg(test)]
 pub(in crate::db) use structural_field::decode_canonical_value_storage_bytes;

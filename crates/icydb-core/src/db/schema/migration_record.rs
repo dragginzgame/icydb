@@ -1519,7 +1519,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_record_operation_round_trips_inside_marker_version_two() {
+    fn migration_record_operation_round_trips_inside_current_marker() {
         let prepared = record();
         let operation = SchemaMigrationRecordOp::insert(&prepared)
             .expect("prepared migration insertion should admit");

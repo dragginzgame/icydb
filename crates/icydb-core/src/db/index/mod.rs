@@ -50,5 +50,7 @@ pub(in crate::db) use range::{
 pub(in crate::db) use readers::{
     IndexReadContract, StructuralIndexEntryReader, StructuralPrimaryRowReader,
 };
-pub(in crate::db) use store::IndexStoreVisit;
 pub use store::{IndexState, IndexStore};
+pub(in crate::db) use store::{
+    IndexStoreVisit, PreparedIndexPositionPublication, PreparedIndexPositionRetirement,
+};

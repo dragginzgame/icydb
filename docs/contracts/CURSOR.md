@@ -16,9 +16,8 @@ closed before execution. Binary scalar tokens are capped at 8 KiB.
 
 ## Current Wires
 
-Grouped continuation retains the sole current bounded version-1 wire. Scalar
-live and exhaustive pages use the sole current authenticated version-2 wire.
-No legacy scalar decoder or translation path exists.
+Grouped continuation and scalar live/exhaustive pages retain their sole current
+bounded version-1 wires. No legacy scalar decoder or translation path exists.
 
 The scalar MAC covers the current payload before semantic fields are used. Its
 contract binds:

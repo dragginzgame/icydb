@@ -179,7 +179,7 @@ write_summary_report() {
         current_final="$(jq -er '.artifacts.final_deployable_wasm.bytes' "$size_report_path")"
         current_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$size_report_path")"
         if ! jq -e '
-            .format_version == 3
+            .format_version == 1
             and .measurement_profile.identity == "icydb-wasm-footprint/0.220/v1"
             and .pipeline.build_profile == "production"
             and .pipeline.candid_metadata == "enabled"
@@ -201,7 +201,7 @@ write_summary_report() {
             baseline_artifact="$ROOT/${baseline_path%/*}/artifacts/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
             if [[ -f "$baseline_artifact" ]] \
                 && jq -e --slurpfile current "$size_report_path" '
-                    .format_version == 3
+                    .format_version == 1
                     and .measurement_profile.identity == "icydb-wasm-footprint/0.220/v1"
                     and .provenance.source_dirty == false
                     and .pipeline.final_deployable_stage == "binaryen_oz_wasm"

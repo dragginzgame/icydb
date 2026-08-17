@@ -110,11 +110,11 @@ require_pattern \
   "persisted-format inventory must cover journal-tail batches"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
-  "Journal tail batches and sequences.*version-3.*SHA-256" \
+  "Journal tail batches and sequences.*version-1.*SHA-256" \
   "persisted-format inventory must document the active fingerprinted journal envelope"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
-  "Startup failure receipts.*version-2" \
+  "Startup failure receipts.*version-1" \
   "persisted-format inventory must document current startup failure receipts"
 require_pattern \
   "docs/contracts/PERSISTED_FORMAT_INVENTORY.md" \
@@ -143,8 +143,8 @@ require_pattern \
 
 format_version_matches="$(
   rg -n --no-heading --color=never \
-    'const\s+[A-Z0-9_]*(?:FORMAT_VERSION|CODEC_VERSION|HEADER_VERSION|RECORD_VERSION|WIRE_VERSION|VERSION_CURRENT|CURRENT_VERSION)[A-Z0-9_]*\s*:[^=]+=[^;]*\b(?:[2-9]|[1-9][0-9]+)\b[^;]*;' \
-    crates \
+    '(?:const\s+[A-Z0-9_]*VERSION[A-Z0-9_]*\s*:\s*(?:u8|u16|u32|u64|usize)\s*=\s*(?:[2-9]|[1-9][0-9]+)\s*;|const\s+CURRENT\s*:\s*Self\s*=\s*Self\((?:[2-9]|[1-9][0-9]+)\)\s*;)' \
+    crates testing \
     --glob '*.rs' || {
       rg_status=$?
       if [[ $rg_status -ne 1 ]]; then
@@ -152,19 +152,10 @@ format_version_matches="$(
       fi
     }
 )"
-unexpected_format_versions="$(
-  printf '%s\n' "$format_version_matches" |
-    rg -v \
-      -e '^crates/icydb-core/src/db/commit/marker\.rs:[0-9]+:pub\(in crate::db\) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 3;$' \
-      -e '^crates/icydb-core/src/db/commit/store/control_slot\.rs:[0-9]+:const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 3;$' \
-      -e '^crates/icydb-core/src/db/cursor/token/codec\.rs:[0-9]+:const SCALAR_TOKEN_WIRE_VERSION: u8 = 2;$' \
-      -e '^crates/icydb-core/src/db/journal/codec\.rs:[0-9]+:pub\(in crate::db\) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 3;$' \
-      -e '^crates/icydb-core/src/db/integrity/progress_store\.rs:[0-9]+:const JOB_RECORD_VERSION: u8 = 2;$' || true
-)"
-if [[ -n "$unexpected_format_versions" ]]
+if [[ -n "$format_version_matches" ]]
 then
-  printf '%s\n' "$unexpected_format_versions"
-  echo "[ERROR] An undocumented active format/version constant exceeds version 1." >&2
+  printf '%s\n' "$format_version_matches"
+  echo "[ERROR] An active format/version constant exceeds version 1." >&2
   status=1
 fi
 

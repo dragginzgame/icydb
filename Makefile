@@ -8,11 +8,12 @@
         test-sql-perf-p1-shard test-sql-perf-p1-merge \
         test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
         test-sql-perf-instrumentation test-sql-perf-calibration-review test-sql-perf-baseline \
-        build check clippy fmt fmt-check validate clean install install-dev update-dev install-hooks \
+        test-sql-perf-baseline-contract \
+        build check clippy fmt fmt-check validate clean install install-dev update-dev install-gh install-hooks \
         fetch test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
         wasm-size-report wasm-audit-report \
-        lint-workflows check-invariants check-feature-matrix \
+        lint-workflows shellcheck check-invariants check-feature-matrix \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -45,6 +46,7 @@ PERF_CALIBRATION_RUN_1_DIR ?=
 PERF_CALIBRATION_RUN_2_DIR ?=
 PERF_CALIBRATION_RUN_3_DIR ?=
 PERF_CALIBRATION_REVIEW_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_calibration_review.json
+PERF_BASELINE_DIR ?=
 P2_SELECTION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_candidates.json
 P2_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_shards
 P2_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_report.json
@@ -81,8 +83,9 @@ help:
 	@echo ""
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
-	@echo "  install-dev      Install developer dependencies, actionlint, and the formatting hook"
-	@echo "  update-dev       Update developer tooling and ensure the formatting hook is installed"
+	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
+	@echo "  update-dev       Update developer tooling and ensure GitHub CLI and the formatting hook are installed"
+	@echo "  install-gh       Ensure the GitHub CLI is installed"
 	@echo "  install-hooks    Configure the formatting-only pre-commit hook"
 	@echo ""
 	@echo "Version Management:"
@@ -140,6 +143,8 @@ help:
 	@echo "                  Validate and review one exact three-run initial calibration cohort"
 	@echo "  test-sql-perf-baseline P2_BASELINE_PATH=..."
 	@echo "                  Compare reviewed P2 and scale baselines"
+	@echo "  test-sql-perf-baseline-contract PERF_BASELINE_DIR=..."
+	@echo "                  Validate one reviewed Tier D bundle against current artifact contracts"
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
@@ -152,6 +157,7 @@ help:
 	@echo "  wasm-audit-report Build wasm + write Twiggy audit reports for default_empty + one/ten entity audit canisters"
 	@echo "  wasm-query-attribution Build symbol-bearing typed/dynamic/SQL query attribution artifacts"
 	@echo "  lint-workflows   Lint GitHub Actions workflows with pinned actionlint"
+	@echo "  shellcheck       Lint repository shell automation"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  test-watch       Run tests in watch mode"
@@ -180,6 +186,10 @@ install-dev:
 # Update user-local Rust/Cargo/actionlint/ICP developer tooling and the hook.
 update-dev:
 	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
+
+# Keep one idempotent GitHub CLI installer for workstation setup and CI jobs.
+install-gh:
+	bash scripts/ci/install-gh.sh
 
 # Keep hook installation explicit and refuse to replace an unrelated local
 # hook authority. Git resolves the relative path from this repository.
@@ -247,7 +257,7 @@ release-clean:
 	@bash scripts/ci/cleanup-release-workspace.sh
 
 release: ensure-clean
-	@echo "Release handled by CI on tag push"
+	@echo "Release artifacts are handled by CI on the main release commit"
 
 package: ensure-clean
 	$(CARGO_WORK_ENV) cargo package
@@ -472,6 +482,13 @@ test-sql-perf-baseline:
 	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
 		sql_perf_compares_saved_baseline -- --ignored --nocapture
 
+test-sql-perf-baseline-contract:
+	@test -d "$(call workspace_path,$(PERF_BASELINE_DIR))" || { echo "PERF_BASELINE_DIR must name a reviewed Tier D baseline bundle" >&2; exit 1; }
+	ICYDB_SQL_PERF_BASELINE_BUNDLE_DIR="$(call workspace_path,$(PERF_BASELINE_DIR))" \
+	$(CARGO_WORK_ENV) \
+	cargo test --locked -p icydb-testing-integration --test sql_perf_matrix_audit \
+		sql_perf_baseline_bundle_is_current -- --ignored --exact --nocapture
+
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)
 
@@ -511,6 +528,8 @@ fmt-check:
 
 validate:
 	$(MAKE) --no-print-directory fmt-check
+	$(MAKE) --no-print-directory lint-workflows
+	$(MAKE) --no-print-directory shellcheck
 	$(MAKE) --no-print-directory check-invariants
 	$(MAKE) --no-print-directory check-feature-matrix
 	$(MAKE) --no-print-directory check
@@ -536,6 +555,7 @@ check-versioning: security-check
 	@echo "Versioning tooling checks passed."
 
 check-invariants:
+	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/ci/check-dependency-graph-invariants.sh
 	bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
@@ -570,6 +590,10 @@ lint-workflows:
 		exit 1; \
 	fi; \
 	"$(ACTIONLINT_BIN)"
+
+shellcheck:
+	shellcheck --exclude=SC2001,SC2016 \
+		scripts/ci/*.sh scripts/dev/*.sh .githooks/pre-commit
 
 # Run tests in watch mode
 test-watch:

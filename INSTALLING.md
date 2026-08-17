@@ -161,7 +161,7 @@ formatting hook is installed, then runs the maintainer update checks.
 On Ubuntu, `make install-dev` installs the normal build and script dependencies:
 
 ```bash
-build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep nodejs npm
+build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep shellcheck nodejs npm
 ```
 
 Canister development and wasm inspection also need:
@@ -172,6 +172,11 @@ bubblewrap binaryen wabt jq
 
 On other operating systems, install those packages manually before using the
 developer targets.
+
+Both `make install-dev` and `make update-dev` use the shared `make install-gh`
+path to ensure the GitHub CLI is available. It installs the apt-backed `gh`
+package only when the command is missing; on non-apt systems it reports the
+required manual action.
 
 ### Rust
 
@@ -305,6 +310,19 @@ reviewed baseline only after exact current P2 and scale reports exist:
 ```bash
 make test-sql-perf-baseline P2_BASELINE_PATH=... SCALE_BASELINE_PATH=...
 ```
+
+Validate all three artifacts in a downloaded Tier D bundle before starting a
+measurement run:
+
+```bash
+make test-sql-perf-baseline-contract PERF_BASELINE_DIR=/path/to/tier-d-bundle
+```
+
+The scheduled workflow runs this check before building its shared Wasm or
+launching shards. A current-format failure is a hard cut: capture and review a
+fresh three-run calibration cohort, then update
+`ICYDB_SQL_PERF_BASELINE_RUN_ID` to the selected current run. Do not translate
+or inject fields into an older artifact.
 
 After three initial-calibration workflow bundles exist, validate them together
 and produce the bounded review projection with:

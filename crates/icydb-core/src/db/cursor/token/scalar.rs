@@ -324,6 +324,7 @@ mod tests {
         let key = [0x66; 32];
         let token = token();
         let encoded = token.encode(&key).expect("bounded token should encode");
+        assert_eq!(encoded[4], 1);
         let decoded = ScalarPageToken::decode(encoded.as_slice(), &key)
             .expect("authenticated token should decode");
 

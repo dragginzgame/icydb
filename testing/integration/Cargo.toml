@@ -101,3 +101,7 @@ path = "tests/schema_migration_closeout.rs"
 [[test]]
 name = "recovery_closeout"
 path = "tests/recovery_closeout.rs"
+
+[[test]]
+name = "convergence_candidate"
+path = "tests/convergence_candidate.rs"

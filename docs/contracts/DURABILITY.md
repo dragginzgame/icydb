@@ -169,7 +169,7 @@ the gate only with its terminal record.
 
 Schema-application receipts use a checksummed BTreeMap region after the
 bounded commit-control region in the same database-control allocation. The
-restricted regions cannot overlap. Marker version 2 carries at most four
+restricted regions cannot overlap. The current version-1 marker carries at most four
 canonically ordered exact before/after database-control effects. Normal apply
 and recovery accept only each recorded compare value or its already-applied
 final bytes. Receipt, lineage, and migration progress therefore cannot become

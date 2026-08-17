@@ -6,6 +6,7 @@ Configure branch protection for `main` to gate merges on reviews and CI.
 
 - Branch name pattern: `main`
 - Require a pull request before merging: enabled (min 1 approving review)
+- Require review from Code Owners: enabled
 - Dismiss stale approvals when new commits are pushed: enabled
 - Require status checks to pass before merging: enabled
   - Select checks:
@@ -30,4 +31,8 @@ Notes
 
 - Status check names correspond to jobs in `.github/workflows/ci.yml`.
 - After saving, GitHub will surface these required checks on each PR into `main`.
-- Combine with CODEOWNERS if you want specific reviewers to be auto‑required.
+- `.github/CODEOWNERS` requires maintainer review for CI, release, hook, and
+  toolchain authority.
+- CI runs once for the `main` release commit. The annotated tag does not start
+  a duplicate workflow; release artifacts are selected from the main-branch
+  run whose commit message begins with `Release `.

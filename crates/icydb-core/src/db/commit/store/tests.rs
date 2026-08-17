@@ -178,8 +178,8 @@ fn commit_marker_current_version_round_trip_succeeds() {
 }
 
 #[test]
-fn commit_marker_version_three_round_trips_one_bounded_mutation_progress_effect() {
-    assert_eq!(COMMIT_MARKER_FORMAT_VERSION_CURRENT, 3);
+fn current_commit_marker_round_trips_one_bounded_mutation_progress_effect() {
+    assert_eq!(COMMIT_MARKER_FORMAT_VERSION_CURRENT, 1);
     let operation = maximal_mutation_progress_operation();
     assert_eq!(operation.before_bytes().len(), 18_842);
     assert_eq!(operation.after_bytes().len(), 18_842);

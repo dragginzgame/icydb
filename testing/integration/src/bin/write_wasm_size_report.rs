@@ -19,7 +19,7 @@ use icydb_testing_integration::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const SIZE_REPORT_FORMAT_VERSION: u32 = 3;
+const SIZE_REPORT_FORMAT_VERSION: u32 = 1;
 
 const GENERATED_EXPORTS: &[&str] = &[
     "icydb_query",

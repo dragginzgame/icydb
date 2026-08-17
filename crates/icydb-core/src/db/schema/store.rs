@@ -19,6 +19,7 @@ use crate::{
         commit::CommitSchemaFingerprint,
         direction::Direction,
         integrity::DatabaseIncarnationId,
+        journal::{JournalBatch, JournalRecord},
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
         positioned_overlay::{
             JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
@@ -823,6 +824,18 @@ enum IdentityStateStorageView {
     Canonical,
 }
 
+/// Exact schema/control keys whose live values belong to one journal batch.
+#[derive(Clone)]
+pub(in crate::db) struct PreparedSchemaPositionPublication {
+    keys: Vec<RawSchemaKey>,
+    position: JournalOverlayPosition,
+}
+
+/// Preflighted exact schema/control retirement for one complete journal batch.
+pub(in crate::db) struct PreparedSchemaPositionRetirement {
+    entries: Vec<(RawSchemaKey, PositionedOverlayRetirement)>,
+}
+
 #[derive(Clone, Copy)]
 enum IdentityStateWriteTarget {
     Durable,
@@ -1205,7 +1218,7 @@ impl SchemaStore {
         Ok(())
     }
 
-    fn current_canonical_accepted_schema_bundle(
+    pub(in crate::db) fn current_canonical_accepted_schema_bundle(
         &self,
     ) -> Result<Option<AcceptedSchemaRevisionBundle>, InternalError> {
         let first = self.canonical_root_slot_bytes(0)?;
@@ -1342,7 +1355,10 @@ impl SchemaStore {
     /// the canonical stable schema base.
     pub(in crate::db) fn reset_journaled_live_projection(&mut self) -> Result<(), InternalError> {
         let SchemaStoreBackend::Journaled {
-            live, tombstones, ..
+            live,
+            tombstones,
+            positions,
+            ..
         } = &mut self.backend
         else {
             return Err(InternalError::store_invariant());
@@ -1350,22 +1366,109 @@ impl SchemaStore {
 
         live.clear();
         tombstones.clear();
+        positions.clear();
         self.accepted_bundle_cache.get_mut().take();
 
         Ok(())
     }
 
-    /// Publish one positioned schema/control value or tombstone.
-    ///
-    /// This dormant Patch-2 boundary is not called by the production commit or
-    /// recovery paths until atomic online-convergence activation.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Patch 2 state machine remains dormant until Patch 6"
-        )
-    )]
+    /// Preflight every schema/control position represented by one online batch.
+    pub(in crate::db) fn prepare_positioned_journal_batch_publication(
+        &self,
+        incarnation: DatabaseIncarnationId,
+        batch: &JournalBatch,
+        position: JournalOverlayPosition,
+    ) -> Result<PreparedSchemaPositionPublication, InternalError> {
+        let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let keys = self.positioned_journal_batch_keys(
+            incarnation,
+            batch,
+            IdentityStateStorageView::Effective,
+        )?;
+        for key in &keys {
+            positions.preflight_publish(key, position)?;
+        }
+        Ok(PreparedSchemaPositionPublication {
+            keys: keys.into_iter().collect(),
+            position,
+        })
+    }
+
+    /// Preflight exact schema/control retirement before canonical mutation.
+    pub(in crate::db) fn prepare_positioned_journal_batch_retirement(
+        &self,
+        incarnation: DatabaseIncarnationId,
+        batch: &JournalBatch,
+        position: JournalOverlayPosition,
+    ) -> Result<PreparedSchemaPositionRetirement, InternalError> {
+        let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let keys = self.positioned_journal_batch_keys(
+            incarnation,
+            batch,
+            IdentityStateStorageView::Canonical,
+        )?;
+        let entries = keys
+            .into_iter()
+            .map(|key| {
+                positions
+                    .preflight_retirement(&key, position)
+                    .map(|retirement| (key, retirement))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(PreparedSchemaPositionRetirement { entries })
+    }
+
+    /// Publish schema positions after their values have been mechanically applied.
+    pub(in crate::db) fn publish_prepared_journal_batch_positions(
+        &mut self,
+        prepared: PreparedSchemaPositionPublication,
+    ) {
+        let SchemaStoreBackend::Journaled { positions, .. } = &mut self.backend else {
+            debug_assert!(
+                false,
+                "preflighted schema positions require a journaled store"
+            );
+            return;
+        };
+        for key in prepared.keys {
+            positions.publish_preflighted(key, prepared.position);
+        }
+    }
+
+    /// Retire only exact schema/control overlays after canonical mutation.
+    pub(in crate::db) fn apply_prepared_journal_batch_retirement(
+        &mut self,
+        prepared: PreparedSchemaPositionRetirement,
+    ) {
+        for (key, retirement) in prepared.entries {
+            if retirement != PositionedOverlayRetirement::Exact {
+                continue;
+            }
+            self.invalidate_accepted_bundle_cache_for_key(key);
+            let SchemaStoreBackend::Journaled {
+                live,
+                tombstones,
+                positions,
+                ..
+            } = &mut self.backend
+            else {
+                debug_assert!(
+                    false,
+                    "preflighted schema retirement requires a journaled store"
+                );
+                return;
+            };
+            live.remove(&key);
+            tombstones.remove(&key);
+            positions.retire_preflighted(&key, retirement);
+        }
+    }
+
+    #[cfg(test)]
     fn publish_positioned_journal_entry(
         &mut self,
         key: RawSchemaKey,
@@ -1377,7 +1480,6 @@ impl SchemaStore {
         };
         positions.preflight_publish(&key, position)?;
         self.invalidate_accepted_bundle_cache_for_key(key);
-
         let SchemaStoreBackend::Journaled {
             canonical,
             live,
@@ -1403,14 +1505,7 @@ impl SchemaStore {
         Ok(previous)
     }
 
-    /// Retire this batch's schema overlay only when it still owns the target.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Patch 2 state machine remains dormant until Patch 6"
-        )
-    )]
+    #[cfg(test)]
     fn retire_positioned_journal_effect(
         &mut self,
         key: RawSchemaKey,
@@ -1420,21 +1515,10 @@ impl SchemaStore {
             return Err(InternalError::store_invariant());
         };
         let retirement = positions.preflight_retirement(&key, position)?;
-        if retirement == PositionedOverlayRetirement::Exact {
-            self.invalidate_accepted_bundle_cache_for_key(key);
-            let SchemaStoreBackend::Journaled {
-                live,
-                tombstones,
-                positions,
-                ..
-            } = &mut self.backend
-            else {
-                return Err(InternalError::store_invariant());
-            };
-            live.remove(&key);
-            tombstones.remove(&key);
-            positions.retire_preflighted(&key, retirement);
-        }
+        let prepared = PreparedSchemaPositionRetirement {
+            entries: vec![(key, retirement)],
+        };
+        self.apply_prepared_journal_batch_retirement(prepared);
         Ok(retirement)
     }
 
@@ -1538,6 +1622,31 @@ impl SchemaStore {
         .map(Some)
     }
 
+    /// Resolve one entity tag from the canonical accepted predecessor.
+    pub(in crate::db) fn current_canonical_accepted_runtime_entity_for_tag(
+        &self,
+        registered_store_path: &'static str,
+        entity_tag: EntityTag,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+        let Some(bundle) = self.current_canonical_accepted_schema_bundle()? else {
+            return Ok(None);
+        };
+        if bundle.store_path() != registered_store_path {
+            return Err(InternalError::store_corruption());
+        }
+        let Some(snapshot) = bundle.entity_snapshots().get(&entity_tag) else {
+            return Ok(None);
+        };
+
+        AcceptedRuntimeEntity::from_accepted_snapshot(
+            &bundle,
+            entity_tag,
+            snapshot,
+            registered_store_path,
+        )
+        .map(Some)
+    }
+
     /// Resolve one accepted entity source path without materializing the full store catalog.
     pub(in crate::db) fn current_accepted_runtime_entity_for_path(
         &self,
@@ -1547,6 +1656,38 @@ impl SchemaStore {
         self.current_accepted_runtime_entity_matching(registered_store_path, |snapshot_path, _| {
             snapshot_path == entity_path
         })
+    }
+
+    /// Resolve one entity path from the canonical accepted predecessor.
+    pub(in crate::db) fn current_canonical_accepted_runtime_entity_for_path(
+        &self,
+        registered_store_path: &'static str,
+        entity_path: &str,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+        let Some(bundle) = self.current_canonical_accepted_schema_bundle()? else {
+            return Ok(None);
+        };
+        if bundle.store_path() != registered_store_path {
+            return Err(InternalError::store_corruption());
+        }
+
+        let mut matched = None;
+        for (entity_tag, snapshot) in bundle.entity_snapshots() {
+            if snapshot.entity_path() != entity_path {
+                continue;
+            }
+            let entity = AcceptedRuntimeEntity::from_accepted_snapshot(
+                &bundle,
+                *entity_tag,
+                snapshot,
+                registered_store_path,
+            )?;
+            if matched.replace(entity).is_some() {
+                return Err(InternalError::store_corruption());
+            }
+        }
+
+        Ok(matched)
     }
 
     /// Resolve one accepted entity display name without materializing the full store catalog.
@@ -1670,6 +1811,24 @@ impl SchemaStore {
         let Some(current) = self.current_accepted_schema_bundle()? else {
             return Ok(());
         };
+        Self::validate_activation_transition_from(&current, candidate)
+    }
+
+    /// Validate one transition against the canonical accepted predecessor.
+    pub(in crate::db) fn validate_canonical_activation_transition(
+        &self,
+        candidate: &AcceptedSchemaRevisionBundle,
+    ) -> Result<(), InternalError> {
+        let Some(current) = self.current_canonical_accepted_schema_bundle()? else {
+            return Ok(());
+        };
+        Self::validate_activation_transition_from(&current, candidate)
+    }
+
+    fn validate_activation_transition_from(
+        current: &AcceptedSchemaRevisionBundle,
+        candidate: &AcceptedSchemaRevisionBundle,
+    ) -> Result<(), InternalError> {
         for (entity_tag, before) in current.entity_snapshots() {
             if before.constraint_activations().is_empty() {
                 continue;
@@ -1764,6 +1923,36 @@ impl SchemaStore {
         replacement: Option<&ConstraintValidationJob>,
         removal: Option<(EntityTag, ConstraintId)>,
     ) -> Result<(), InternalError> {
+        self.validate_constraint_validation_job_closure_with_change_in_view(
+            bundle,
+            replacement,
+            removal,
+            IdentityStateStorageView::Effective,
+        )
+    }
+
+    /// Prove activation/job closure against the canonical predecessor view.
+    pub(in crate::db) fn validate_canonical_constraint_validation_job_closure_with_change(
+        &self,
+        bundle: &AcceptedSchemaRevisionBundle,
+        replacement: Option<&ConstraintValidationJob>,
+        removal: Option<(EntityTag, ConstraintId)>,
+    ) -> Result<(), InternalError> {
+        self.validate_constraint_validation_job_closure_with_change_in_view(
+            bundle,
+            replacement,
+            removal,
+            IdentityStateStorageView::Canonical,
+        )
+    }
+
+    fn validate_constraint_validation_job_closure_with_change_in_view(
+        &self,
+        bundle: &AcceptedSchemaRevisionBundle,
+        replacement: Option<&ConstraintValidationJob>,
+        removal: Option<(EntityTag, ConstraintId)>,
+        view: IdentityStateStorageView,
+    ) -> Result<(), InternalError> {
         if replacement.is_some() && removal.is_some() {
             return Err(InternalError::store_invariant());
         }
@@ -1786,6 +1975,7 @@ impl SchemaStore {
                                 replacement,
                                 replacement_key,
                                 removal_key,
+                                view,
                             )?
                             .is_some()
                         {
@@ -1799,6 +1989,7 @@ impl SchemaStore {
                                 replacement,
                                 replacement_key,
                                 removal_key,
+                                view,
                             )?
                             .ok_or_else(InternalError::store_corruption)?;
                         if job.entity_tag() != *entity_tag
@@ -1813,7 +2004,7 @@ impl SchemaStore {
             }
         }
 
-        self.visit_constraint_validation_jobs(|key, raw| {
+        self.visit_constraint_validation_jobs_in_view(view, |key, raw| {
             if removal_key == Some(*key) || replacement_key == Some(*key) {
                 return Ok(SchemaStoreVisit::Continue);
             }
@@ -1849,6 +2040,7 @@ impl SchemaStore {
         replacement: Option<&ConstraintValidationJob>,
         replacement_key: Option<RawSchemaKey>,
         removal_key: Option<RawSchemaKey>,
+        view: IdentityStateStorageView,
     ) -> Result<Option<ConstraintValidationJob>, InternalError> {
         if removal_key == Some(key) {
             return Ok(None);
@@ -1856,8 +2048,11 @@ impl SchemaStore {
         if replacement_key == Some(key) {
             return Ok(replacement.cloned());
         }
-        self.get_raw_snapshot(&key)
-            .map(|raw| decode_constraint_validation_job(raw.as_bytes()))
+        let raw = match view {
+            IdentityStateStorageView::Effective => self.get_raw_snapshot(&key),
+            IdentityStateStorageView::Canonical => self.get_canonical_raw_value(&key)?,
+        };
+        raw.map(|raw| decode_constraint_validation_job(raw.as_bytes()))
             .transpose()
     }
 
@@ -2674,6 +2869,160 @@ impl SchemaStore {
         Ok(keys)
     }
 
+    fn positioned_candidate_effect_keys(
+        &self,
+        incarnation: DatabaseIncarnationId,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &CandidateSchemaRevision,
+        view: IdentityStateStorageView,
+    ) -> Result<BTreeSet<RawSchemaKey>, InternalError> {
+        let identity_transition =
+            self.prepare_identity_state_transition(incarnation, candidate, view)?;
+        let (first, second, candidate_is_current) = match view {
+            IdentityStateStorageView::Effective => (
+                self.accepted_root_slot_bytes(0)?,
+                self.accepted_root_slot_bytes(1)?,
+                self.current_root_matches_candidate(candidate)?,
+            ),
+            IdentityStateStorageView::Canonical => (
+                self.canonical_root_slot_bytes(0)?,
+                self.canonical_root_slot_bytes(1)?,
+                self.canonical_root_matches_candidate(candidate)?,
+            ),
+        };
+        let root_slot = if candidate_is_current {
+            select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
+                .ok_or_else(InternalError::store_corruption)?
+                .slot()
+        } else {
+            prepare_accepted_schema_root_publication(
+                [first.as_deref(), second.as_deref()],
+                expected_revision,
+                candidate,
+            )
+            .map_err(map_schema_publication_error)?
+            .target_slot()
+        };
+        let mut keys = Self::candidate_entry_keys(candidate, root_slot)?;
+        for state in identity_transition.into_updates() {
+            keys.insert(RawSchemaKey::from_identity_state(
+                state.owner().entity_tag(),
+                state.owner().field_id(),
+            ));
+        }
+
+        let SchemaStoreBackend::Journaled {
+            canonical, live, ..
+        } = &self.backend
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        for entry in canonical.iter() {
+            if !keys.contains(entry.key()) && !entry.key().is_identity_state() {
+                keys.insert(*entry.key());
+            }
+        }
+        if matches!(view, IdentityStateStorageView::Effective) {
+            for key in live.keys() {
+                if !keys.contains(key) && !key.is_identity_state() {
+                    keys.insert(*key);
+                }
+            }
+        }
+        Ok(keys)
+    }
+
+    fn positioned_journal_batch_keys(
+        &self,
+        incarnation: DatabaseIncarnationId,
+        batch: &JournalBatch,
+        view: IdentityStateStorageView,
+    ) -> Result<BTreeSet<RawSchemaKey>, InternalError> {
+        let mut keys = BTreeSet::new();
+        for record in batch.records() {
+            match record {
+                JournalRecord::SchemaPut {
+                    schema_snapshot_bytes,
+                    ..
+                } => {
+                    let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
+                    let entity_tag = match view {
+                        IdentityStateStorageView::Effective => self
+                            .current_accepted_schema_bundle_ref()?
+                            .ok_or_else(InternalError::store_corruption)?
+                            .entity_snapshots()
+                            .iter()
+                            .find_map(|(entity_tag, accepted)| {
+                                (accepted.entity_path() == snapshot.entity_path())
+                                    .then_some(*entity_tag)
+                            }),
+                        IdentityStateStorageView::Canonical => self
+                            .current_canonical_accepted_schema_bundle()?
+                            .ok_or_else(InternalError::store_corruption)?
+                            .entity_snapshots()
+                            .iter()
+                            .find_map(|(entity_tag, accepted)| {
+                                (accepted.entity_path() == snapshot.entity_path())
+                                    .then_some(*entity_tag)
+                            }),
+                    }
+                    .ok_or_else(InternalError::store_corruption)?;
+                    keys.insert(RawSchemaKey::from_entity_version(
+                        entity_tag,
+                        snapshot.version(),
+                    ));
+                }
+                JournalRecord::AcceptedSchemaPublish {
+                    expected_revision,
+                    schema_bundle_bytes,
+                    schema_root_bytes,
+                    ..
+                } => {
+                    let candidate = CandidateSchemaRevision::from_encoded(
+                        schema_bundle_bytes.clone(),
+                        schema_root_bytes.clone(),
+                    )?;
+                    keys.extend(self.positioned_candidate_effect_keys(
+                        incarnation,
+                        *expected_revision,
+                        &candidate,
+                        view,
+                    )?);
+                }
+                JournalRecord::ConstraintValidationJobPut {
+                    entity_tag,
+                    constraint_id,
+                    ..
+                }
+                | JournalRecord::ConstraintValidationJobDelete {
+                    entity_tag,
+                    constraint_id,
+                    ..
+                } => {
+                    keys.insert(RawSchemaKey::from_constraint_validation_job(
+                        *entity_tag,
+                        *constraint_id,
+                    ));
+                }
+                JournalRecord::IdentityRangeAdvance { range } => {
+                    keys.insert(RawSchemaKey::from_identity_state(
+                        range.owner().entity_tag(),
+                        range.owner().field_id(),
+                    ));
+                }
+                JournalRecord::RowPut { .. }
+                | JournalRecord::RowDelete { .. }
+                | JournalRecord::AcceptedSchemaIndexDelete { .. }
+                | JournalRecord::AcceptedSchemaIndexPut { .. }
+                | JournalRecord::ConstraintValidationIndexPut { .. } => {}
+                #[cfg(any(test, feature = "migration"))]
+                JournalRecord::SchemaMigrationRowPut { .. }
+                | JournalRecord::SchemaMigrationIndexPut { .. } => {}
+            }
+        }
+        Ok(keys)
+    }
+
     // Keep only the current entity snapshots, immutable bundle, and selected
     // root. The inactive root is needed only during publication and is removed
     // after the new root has been verified.
@@ -2961,13 +3310,14 @@ impl SchemaStore {
         Ok(())
     }
 
-    fn visit_constraint_validation_jobs<E>(
+    fn visit_constraint_validation_jobs_in_view<E>(
         &self,
+        view: IdentityStateStorageView,
         visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
         let bounds = RawSchemaKey::all_constraint_validation_job_range_bounds();
-        match &self.backend {
-            SchemaStoreBackend::Heap(map) => {
+        match (&self.backend, view) {
+            (SchemaStoreBackend::Heap(map), _) => {
                 let mut visitor = visitor;
                 for (key, snapshot) in map.range((bounds.0, bounds.1)) {
                     if visitor(key, snapshot)?.should_stop() {
@@ -2975,12 +3325,15 @@ impl SchemaStore {
                     }
                 }
             }
-            SchemaStoreBackend::Journaled {
-                canonical,
-                live,
-                tombstones,
-                ..
-            } => Self::visit_journaled_raw_snapshot_range(
+            (
+                SchemaStoreBackend::Journaled {
+                    canonical,
+                    live,
+                    tombstones,
+                    ..
+                },
+                IdentityStateStorageView::Effective,
+            ) => Self::visit_journaled_raw_snapshot_range(
                 canonical,
                 live,
                 tombstones,
@@ -2988,6 +3341,17 @@ impl SchemaStore {
                 Direction::Asc,
                 visitor,
             )?,
+            (
+                SchemaStoreBackend::Journaled { canonical, .. },
+                IdentityStateStorageView::Canonical,
+            ) => {
+                let mut visitor = visitor;
+                for entry in canonical.range((bounds.0, bounds.1)) {
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        break;
+                    }
+                }
+            }
         }
         Ok(())
     }

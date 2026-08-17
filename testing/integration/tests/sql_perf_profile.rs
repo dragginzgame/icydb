@@ -17,7 +17,7 @@ use icydb_testing_sql_generator::{
 use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
 
 /// Current checked-in SQL performance profile version.
-pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 3;
+pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
 /// Stable identity of the PocketIC 15 SQL performance authority.
 pub(crate) const SQL_PERFORMANCE_PROFILE_ID: &str = "icydb-sql-performance/0.220/v3";
 

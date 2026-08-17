@@ -33,19 +33,21 @@ env:
 jobs:
   review:
     name: Review exact three-run calibration cohort
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Require three distinct workflow runs
         run: >-
           test "$RUN_1_ID" != "$RUN_2_ID" &&
           test "$RUN_1_ID" != "$RUN_3_ID" &&
           test "$RUN_2_ID" != "$RUN_3_ID"
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
@@ -53,21 +55,21 @@ jobs:
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
       - name: Download calibration ordinal 1
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-tier-d-current
           path: artifacts/perf-calibration/run-1
           github-token: ${{ github.token }}
           run-id: ${{ env.RUN_1_ID }}
       - name: Download calibration ordinal 2
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-tier-d-current
           path: artifacts/perf-calibration/run-2
           github-token: ${{ github.token }}
           run-id: ${{ env.RUN_2_ID }}
       - name: Download calibration ordinal 3
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-tier-d-current
           path: artifacts/perf-calibration/run-3
@@ -80,7 +82,7 @@ jobs:
           PERF_CALIBRATION_RUN_1_DIR=artifacts/perf-calibration/run-1
           PERF_CALIBRATION_RUN_2_DIR=artifacts/perf-calibration/run-2
           PERF_CALIBRATION_RUN_3_DIR=artifacts/perf-calibration/run-3
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-calibration-review
           path: artifacts/perf-audit/sql_perf_calibration_review.json

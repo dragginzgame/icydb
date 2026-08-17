@@ -37,16 +37,17 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
     stores: &'static LocalKey<StoreRegistry>,
     submission_key: &str,
 ) -> Result<GeneratedStartupDriverStep, InternalError> {
-    match observe::observe::<C>(stores, submission_key) {
-        Ok(DatabaseStartupState::Ready) => {
-            super::receipt::clear::<C>()?;
-            return Ok(GeneratedStartupDriverStep::Terminal);
-        }
+    let startup_ready = match observe::observe::<C>(stores, submission_key) {
+        Ok(DatabaseStartupState::Ready) => true,
         Err(_) => return Ok(GeneratedStartupDriverStep::Terminal),
-        Ok(DatabaseStartupState::Recovering) => {}
-    }
+        Ok(DatabaseStartupState::Recovering) => false,
+    };
 
     match session.drive_startup_recovery_page_with_failure_authority() {
+        Ok(true) if startup_ready => {
+            super::receipt::clear::<C>()?;
+            Ok(GeneratedStartupDriverStep::Terminal)
+        }
         Ok(true) => drive_generated_schema_application::<C>(session, stores, submission_key),
         Ok(false) => Ok(GeneratedStartupDriverStep::Recovering),
         Err(error) => record_recovery_failure::<C>(stores, submission_key, error),

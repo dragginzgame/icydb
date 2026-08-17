@@ -572,7 +572,7 @@ fn accepted_schema_index_chunk_decode_rejects_empty_and_max_plus_one_before_keys
     .expect("accepted schema index batch should build");
     let encoded = encode_journal_batch(&batch).expect("accepted schema index batch should encode");
 
-    // Complete fixed version-3 envelope, then the schema record.
+    // Complete fixed current envelope, then the schema record.
     let chunk_offset = 9 + 16 + 16 + 8 + 8 + 4 + 32 + schema_bytes;
     // Tag + store path + entity + accepted-after fingerprint precede key count.
     let key_count_offset = chunk_offset + 1 + 4 + "test::Store".len() + 8 + 16;

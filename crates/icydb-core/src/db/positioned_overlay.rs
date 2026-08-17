@@ -1,15 +1,7 @@
 //! Module: db::positioned_overlay
-//! Responsibility: dormant provenance and retirement rules for journal live overlays.
+//! Responsibility: provenance and retirement rules for journal live overlays.
 //! Does not own: journal scheduling, canonical fold, admission, or persisted controls.
 //! Boundary: data/index/schema stores own values while this module owns exact batch positions.
-
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Patch 2 overlay machinery remains dormant until atomic Patch 6 activation"
-    )
-)]
 
 use crate::{
     db::{
@@ -66,7 +58,7 @@ pub(in crate::db) struct PositionedOverlayMetadata<K> {
 }
 
 impl<K> PositionedOverlayMetadata<K> {
-    /// Build empty dormant provenance for one overlay family.
+    /// Build empty provenance for one overlay family.
     #[must_use]
     pub(in crate::db) const fn new() -> Self {
         Self {
@@ -79,6 +71,11 @@ impl<K> PositionedOverlayMetadata<K> {
     #[must_use]
     pub(in crate::db) fn len(&self) -> usize {
         self.positions.len()
+    }
+
+    /// Drop all volatile positions during startup projection reconstruction.
+    pub(in crate::db) fn clear(&mut self) {
+        self.positions.clear();
     }
 }
 
@@ -149,8 +146,6 @@ pub(in crate::db) enum OnlineOverlayDecision {
     IndexTombstone,
     SchemaPositive,
     SchemaTombstone,
-    TerminalOnly,
-    ProhibitedOnline,
 }
 
 /// Classify every maintained journal record without a fallback decision.
@@ -245,14 +240,6 @@ mod tests {
         assert_eq!(
             classify_derived_index_overlay(None),
             OnlineOverlayDecision::IndexTombstone,
-        );
-    }
-
-    #[test]
-    fn dormant_decision_space_keeps_terminal_and_prohibited_outcomes_explicit() {
-        assert_ne!(
-            OnlineOverlayDecision::TerminalOnly,
-            OnlineOverlayDecision::ProhibitedOnline,
         );
     }
 }

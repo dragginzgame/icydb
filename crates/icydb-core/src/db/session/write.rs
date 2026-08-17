@@ -3163,7 +3163,7 @@ mod identity_pre_key_tests {
         FieldSourceKey::try_new(source).expect("identity test field source should admit")
     }
 
-    fn identity_snapshot(store_path: &str) -> PersistedSchemaSnapshot {
+    fn identity_snapshot(store_path: &str, payload_unique: bool) -> PersistedSchemaSnapshot {
         let fields = vec![
             PersistedFieldSnapshot::new_initial_with_write_policy(
                 FieldId::new(1),
@@ -3209,7 +3209,7 @@ mod identity_pre_key_tests {
                 1,
                 "by_payload".to_string(),
                 store_path.to_string(),
-                false,
+                payload_unique,
                 PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
                     FieldId::new(2),
                     SchemaFieldSlot::new(1),
@@ -3240,7 +3240,7 @@ mod identity_pre_key_tests {
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
             STORE_PATH,
             AcceptedSchemaRevision::INITIAL,
-            BTreeMap::from([(ENTITY_TAG, identity_snapshot(STORE_PATH))]),
+            BTreeMap::from([(ENTITY_TAG, identity_snapshot(STORE_PATH, false))]),
             BTreeMap::from([
                 ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
                 ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
@@ -3260,7 +3260,9 @@ mod identity_pre_key_tests {
         session
     }
 
-    fn initialize_journaled_with_root() -> (
+    fn initialize_journaled_with_root_and_payload_uniqueness(
+        payload_unique: bool,
+    ) -> (
         DbSession<JournaledTestCanister>,
         crate::db::RequestExecutionRoot,
     ) {
@@ -3273,7 +3275,10 @@ mod identity_pre_key_tests {
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
             JOURNALED_STORE_PATH,
             AcceptedSchemaRevision::INITIAL,
-            BTreeMap::from([(ENTITY_TAG, identity_snapshot(JOURNALED_STORE_PATH))]),
+            BTreeMap::from([(
+                ENTITY_TAG,
+                identity_snapshot(JOURNALED_STORE_PATH, payload_unique),
+            )]),
             BTreeMap::from([
                 ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
                 ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
@@ -3293,8 +3298,32 @@ mod identity_pre_key_tests {
         (session, root)
     }
 
+    fn initialize_journaled_with_root() -> (
+        DbSession<JournaledTestCanister>,
+        crate::db::RequestExecutionRoot,
+    ) {
+        initialize_journaled_with_root_and_payload_uniqueness(false)
+    }
+
     fn initialize_journaled() -> DbSession<JournaledTestCanister> {
         initialize_journaled_with_root().0
+    }
+
+    fn initialize_journaled_with_unique_payload() -> DbSession<JournaledTestCanister> {
+        initialize_journaled_with_root_and_payload_uniqueness(true).0
+    }
+
+    fn drive_journaled_recovery_to_completion(session: &DbSession<JournaledTestCanister>) {
+        for _ in 0..8 {
+            if session
+                .db
+                .drive_startup_recovery_page()
+                .expect("dedicated driver recovery should remain valid")
+            {
+                return;
+            }
+        }
+        panic!("dedicated driver recovery should quiesce within eight complete batches");
     }
 
     fn payload_patch(value: u64) -> AcceptedMutationIntentPatch {
@@ -5107,12 +5136,7 @@ mod identity_pre_key_tests {
                 pending.diagnostic().error_code(),
                 icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
             );
-            assert!(
-                session
-                    .db
-                    .drive_startup_recovery_page()
-                    .expect("dedicated driver should recover before allocation"),
-            );
+            drive_journaled_recovery_to_completion(&session);
 
             let committed = session
                 .execute_accepted_structural_save_batch(
@@ -5197,12 +5221,7 @@ mod identity_pre_key_tests {
                 pending.diagnostic().error_code(),
                 icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
             );
-            assert!(
-                session
-                    .db
-                    .drive_startup_recovery_page()
-                    .expect("dedicated driver should complete the mixed batch"),
-            );
+            drive_journaled_recovery_to_completion(&session);
             let recovered_update = session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
@@ -5302,7 +5321,8 @@ mod identity_pre_key_tests {
     }
 
     #[test]
-    fn journaled_startup_recovery_resumes_between_complete_batches_without_reallocating_ids() {
+    fn journaled_online_convergence_drains_the_full_backlog_in_complete_batch_callbacks_without_reallocating_ids()
+     {
         const SUBMISSION: &str = "generated/8899aabbccddeeff";
         let session = initialize_journaled();
         let catalog = session
@@ -5311,7 +5331,7 @@ mod identity_pre_key_tests {
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
             .expect("journaled identity row layout should build");
 
-        for payload in 0_u64..129 {
+        for payload in 0_u64..38 {
             session
                 .execute_accepted_structural_save_batch(
                     &catalog,
@@ -5320,43 +5340,103 @@ mod identity_pre_key_tests {
                     Timestamp::from_millis(8),
                     Ok,
                 )
-                .expect("journaled identity fixture row should commit");
+                .unwrap_or_else(|error| {
+                    panic!("journaled identity fixture row {payload} should commit: {error:?}")
+                });
         }
 
-        forget_recovered_domain_for_tests(&session.db)
-            .expect("upgrade should reset recovery ownership");
+        let before = JOURNALED_TAIL_STORE.with(|tail| {
+            tail.borrow()
+                .current_tail_control()
+                .expect("online backlog control should remain valid")
+        });
+        assert_eq!(before.batch_count(), 38);
+        let next_sequence = crate::db::commit::next_database_commit_sequence()
+            .expect("database sequence preview should remain readable");
+        let pressure = match session.execute_accepted_structural_save_batch(
+            &catalog,
+            &descriptor,
+            batch(&[38]),
+            Timestamp::from_millis(8),
+            Ok,
+        ) {
+            Ok(_) => panic!("the exact cumulative batch ceiling should reject one more batch"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            pressure.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE,
+        );
+        assert_eq!(
+            pressure.diagnostic_facts(),
+            vec![
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::BacklogResource,
+                    icydb_diagnostic_code::DiagnosticBacklogResource::Batches.raw(),
+                ),
+                (icydb_diagnostic_code::DiagnosticFactTag::CurrentCount, 38),
+                (icydb_diagnostic_code::DiagnosticFactTag::ProposedCount, 1),
+                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 38),
+            ],
+        );
+        assert_eq!(
+            crate::db::commit::next_database_commit_sequence()
+                .expect("pressure must leave the database sequence readable"),
+            next_sequence,
+        );
+        assert!(matches!(
+            crate::db::commit::observe_commit_control()
+                .expect("pressure must leave commit control observable"),
+            crate::db::commit::CommitControlObservation::Present {
+                marker_present: false,
+                ..
+            },
+        ));
+        assert_eq!(
+            JOURNALED_TAIL_STORE.with(|tail| {
+                tail.borrow()
+                    .current_tail_control()
+                    .expect("pressure must preserve the exact tail control")
+            }),
+            before,
+        );
+
+        for folded_batches in 1..=38 {
+            let complete = session
+                .db
+                .drive_startup_recovery_page()
+                .expect("online complete-batch callback should commit");
+            assert_eq!(complete, folded_batches == 38);
+        }
+
+        assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+        session
+            .execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                batch(&[38]),
+                Timestamp::from_millis(8),
+                Ok,
+            )
+            .expect("drain should make the rejected mutation retryable");
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("the retry tail should converge"),
+        );
+
         assert_eq!(
             drive_generated_startup_recovery_page(&session, &JOURNALED_STORE_REGISTRY, SUBMISSION,)
-                .expect("the first bounded driver page should commit"),
-            GeneratedStartupDriverStep::Recovering,
-            "one page must not consume a tail larger than the production page bound",
+                .expect("online convergence should commit"),
+            GeneratedStartupDriverStep::Terminal,
+            "the quiescent generated driver should stop",
         );
-        assert!(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
-        let mut pages = 1;
-        loop {
-            match drive_generated_startup_recovery_page(
-                &session,
-                &JOURNALED_STORE_REGISTRY,
-                SUBMISSION,
-            )
-            .expect("each bounded driver page should commit")
-            {
-                GeneratedStartupDriverStep::Recovering => {
-                    pages += 1;
-                    assert!(pages <= 4, "the small fixture should finish promptly");
-                }
-                GeneratedStartupDriverStep::ApplyGeneratedSchema => break,
-                GeneratedStartupDriverStep::Terminal => {
-                    panic!("recovery must not report terminal before schema handoff")
-                }
-            }
-        }
-        assert_eq!(pages, 1);
 
-        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 129);
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 39);
         assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
         assert_dynamic_payload(&session, 1, 0);
-        assert_dynamic_payload(&session, 129, 128);
+        assert_dynamic_payload(&session, 39, 38);
         JOURNALED_SCHEMA_STORE.with(|store| {
             let cursor = store
                 .borrow()
@@ -5366,10 +5446,133 @@ mod identity_pre_key_tests {
                     FieldId::new(1),
                     &AcceptedFieldKind::Nat64,
                 )
-                .expect("paged recovery must preserve active Identity state");
-            assert_eq!(cursor.expected_high_water(), 129);
+                .expect("online convergence must preserve active Identity state");
+            assert_eq!(cursor.expected_high_water(), 39);
             assert!(!cursor.has_allocations());
         });
+    }
+
+    #[test]
+    fn journaled_online_convergence_reconstructs_same_key_batches_from_canonical_predecessors() {
+        let session = initialize_journaled();
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(10),
+            })
+            .expect("the initial positioned row should commit");
+        for payload in [20, 30] {
+            session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(payload),
+                })
+                .unwrap_or_else(|error| {
+                    panic!("the positioned same-key update should commit: {error:?}")
+                });
+        }
+
+        assert_dynamic_payload(&session, 1, 30);
+        assert_eq!(
+            JOURNALED_INDEX_STORE.with(|store| store.borrow().len()),
+            1,
+            "the newest live index effect should hide every predecessor",
+        );
+        for folded_batches in 1..=3 {
+            let complete = session
+                .db
+                .drive_startup_recovery_page()
+                .expect("the positioned same-key batch should converge");
+            assert_eq!(complete, folded_batches == 3);
+        }
+
+        assert_dynamic_payload(&session, 1, 30);
+        assert_eq!(
+            JOURNALED_INDEX_STORE.with(|store| store.borrow().len()),
+            1,
+            "canonical derived state must contain only the newest membership",
+        );
+        assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    }
+
+    #[test]
+    fn journaled_convergence_uses_final_batch_rows_for_unique_release() {
+        let session = initialize_journaled_with_unique_payload();
+        let inserted = session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![dynamic_payload_patch(10), dynamic_payload_patch(20)],
+            )
+            .expect("the unique journal fixture should commit");
+        assert_eq!(
+            inserted.rows,
+            vec![expected_dynamic_row(1, 10), expected_dynamic_row(2, 20)],
+        );
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("the unique fixture should become canonical"),
+        );
+
+        let swapped = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                    patch: dynamic_payload_patch(20),
+                },
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(2),
+                    patch: dynamic_payload_patch(10),
+                },
+            ])
+            .expect("one journal batch should admit a final-row unique swap");
+        assert_eq!(
+            swapped.rows,
+            vec![expected_dynamic_row(1, 20), expected_dynamic_row(2, 10)],
+        );
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("the unique swap should converge in one complete batch"),
+        );
+
+        let released = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Delete {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(1),
+                },
+                DynamicMutation::Insert {
+                    entity: ENTITY_NAME.to_string(),
+                    patch: dynamic_payload_patch(20),
+                },
+            ])
+            .expect("a journaled delete should release its unique value to the final insert");
+        assert_eq!(
+            released.rows,
+            vec![expected_dynamic_row(1, 20), expected_dynamic_row(3, 20)],
+        );
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("the delete and unique reuse should converge together"),
+        );
+
+        assert_dynamic_payload(&session, 2, 10);
+        assert_dynamic_payload(&session, 3, 20);
+        assert_eq!(JOURNALED_INDEX_STORE.with(|store| store.borrow().len()), 2);
+        assert!(
+            session
+                .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(20)],)
+                .is_err(),
+            "the converged unique index must remain authoritative",
+        );
     }
 
     #[test]
@@ -5458,6 +5661,76 @@ mod identity_pre_key_tests {
             .db
             .drive_startup_recovery_page()
             .expect_err("late semantic corruption must fail before fold apply");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 0);
+        JOURNALED_TAIL_STORE.with(|tail| {
+            let tail = tail.borrow();
+            assert_eq!(
+                tail.fold_watermark()
+                    .expect("watermark should remain readable")
+                    .highest_folded_journal_sequence(),
+                JournalSequence::new(0),
+            );
+            assert!(tail.has_stored_batch());
+        });
+    }
+
+    #[test]
+    fn prepared_batch_row_evidence_rejects_a_late_malformed_row_before_canonical_writes() {
+        let session = initialize_journaled();
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .expect("journaled identity catalog should resolve");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
+            .expect("journaled identity row layout should build");
+        session
+            .execute_accepted_structural_save_batch(
+                &catalog,
+                &descriptor,
+                batch(&[7, 8]),
+                Timestamp::from_millis(9),
+                Ok,
+            )
+            .expect("two-row journal batch should commit");
+
+        JOURNALED_TAIL_STORE.with(|tail| {
+            let mut tail = tail.borrow_mut();
+            let original = tail
+                .next_batch_after(JournalSequence::new(0))
+                .expect("journal batch should decode")
+                .expect("journal batch should exist");
+            let mut records = original.records().to_vec();
+            let mut row_ordinal = 0_u8;
+            for record in &mut records {
+                if let JournalRecord::RowPut { row_bytes, .. } = record {
+                    row_ordinal = row_ordinal.saturating_add(1);
+                    if row_ordinal == 2 {
+                        *row_bytes = vec![0xff; 8];
+                        break;
+                    }
+                }
+            }
+            assert_eq!(row_ordinal, 2, "the late row record should be present");
+            let corrupted = JournalBatch::new(
+                original.batch_id(),
+                original.commit_marker_id(),
+                original.journal_sequence(),
+                records,
+            )
+            .expect("current corrupt batch shape should build");
+            let encoded = encode_journal_batch(&corrupted)
+                .expect("current corrupt batch envelope should encode");
+            tail.clear_batches_through(original.journal_sequence());
+            tail.insert_raw_batch_for_tests(original.journal_sequence(), encoded)
+                .expect("corrupt persisted batch should replace the predecessor");
+        });
+
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("upgrade should reset recovery ownership");
+        let error = session
+            .db
+            .drive_startup_recovery_page()
+            .expect_err("late malformed row must fail during complete batch preparation");
         assert_eq!(error.class(), ErrorClass::Corruption);
         assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 0);
         JOURNALED_TAIL_STORE.with(|tail| {

@@ -318,10 +318,6 @@ impl<C: CanisterKind> Db<C> {
         self.store.with(|reg| f(reg))
     }
 
-    pub(in crate::db) const fn store_registry(&self) -> &'static LocalKey<StoreRegistry> {
-        self.store
-    }
-
     /// Resolve one stable in-process cache scope identifier for this store registry.
     ///
     /// Session-level SQL and structural query caches use this scope to share
@@ -373,6 +369,14 @@ impl<C: CanisterKind> Db<C> {
             op,
             commit::CommitPrepareMode::RecoveryReplay,
         )
+    }
+
+    // Rebuild one complete batch against shared immutable accepted authority.
+    pub(in crate::db) fn prepare_row_commit_batch_for_replay(
+        &self,
+        ops: &[CommitRowOp],
+    ) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
+        runtime_entity_catalog::prepare_row_commit_batch_for_replay(self, ops)
     }
 
     // Rebuild live derived state while candidate generations follow their

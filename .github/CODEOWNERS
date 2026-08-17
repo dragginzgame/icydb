@@ -1,0 +1,8 @@
+# CI, release, and toolchain authority requires explicit maintainer review.
+/.github/workflows/ @dragginzgame
+/.github/dependabot.yml @dragginzgame
+/.githooks/ @dragginzgame
+/scripts/ci/ @dragginzgame
+/Makefile @dragginzgame
+/rust-toolchain.toml @dragginzgame
+

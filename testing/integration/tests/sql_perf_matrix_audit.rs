@@ -121,6 +121,7 @@ use crate::sql_perf_scale_shard::{
 const SQL_PERF_P1_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_INDEX";
 const SQL_PERF_P1_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_DIR";
 const SQL_PERF_P1_BASELINE_PATH_ENV: &str = "ICYDB_SQL_PERF_P1_BASELINE_PATH";
+const SQL_PERF_BASELINE_BUNDLE_DIR_ENV: &str = "ICYDB_SQL_PERF_BASELINE_BUNDLE_DIR";
 const SQL_PERF_CALIBRATION_COHORT_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_COHORT";
 const SQL_PERF_CALIBRATION_RUN_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_RUN";
 const SQL_PERF_CALIBRATION_RUN_1_DIR_ENV: &str = "ICYDB_SQL_PERF_CALIBRATION_RUN_1_DIR";
@@ -7486,6 +7487,36 @@ fn sql_perf_reviews_initial_calibration_cohort() {
         review.unresolved_promotion_count(),
     );
     println!("calibration review JSON: {}", path.display());
+}
+
+#[test]
+#[ignore = "validates one downloaded reviewed baseline bundle before performance execution"]
+fn sql_perf_baseline_bundle_is_current() {
+    let scenarios = deterministic_matrix();
+    let baseline_dir = required_perf_artifact_path(SQL_PERF_BASELINE_BUNDLE_DIR_ENV);
+    let wasm_profile = matrix_canister_wasm_profile();
+
+    read_matrix_report(&baseline_dir.join("sql_perf_deterministic_matrix.json"))
+        .unwrap_or_else(|error| panic!("P1 baseline artifact failed: {error}"));
+    read_merged_p2_report(
+        &baseline_dir.join("sql_perf_p2_report.json"),
+        SQL_PERFORMANCE_PROFILE,
+        wasm_profile.as_str(),
+        &scenarios,
+    )
+    .unwrap_or_else(|error| panic!("P2 baseline artifact failed: {error}"));
+    read_merged_scale_report(
+        &baseline_dir.join("sql_perf_scale_report.json"),
+        SQL_PERFORMANCE_PROFILE,
+        wasm_profile.as_str(),
+        &scenarios,
+    )
+    .unwrap_or_else(|error| panic!("scale baseline artifact failed: {error}"));
+
+    println!(
+        "current SQL performance baseline: {}",
+        baseline_dir.display()
+    );
 }
 
 #[test]

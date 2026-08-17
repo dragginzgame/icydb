@@ -36,7 +36,7 @@ use std::{
 /// Stored commit-id byte width shared by marker and guard paths.
 pub(in crate::db) const COMMIT_ID_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
-pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 3;
+pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;
 pub(in crate::db) const MAX_DATABASE_CONTROL_OPS_PER_MARKER: usize = 4;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];

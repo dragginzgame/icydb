@@ -1,3 +1,5 @@
+# shellcheck shell=bash
+
 COMMON_GLOBS=(
   --glob '!**/tests/**'
   --glob '!**/tests.rs'

@@ -31,12 +31,15 @@ platform() {
 
 main() {
   local version_no_v="${VERSION#v}"
-  local archive="actionlint_${version_no_v}_$(platform).tar.gz"
-  local url="https://github.com/rhysd/actionlint/releases/download/v${version_no_v}/${archive}"
+  local archive
+  local url
   local archive_path
   local install_path="$INSTALL_DIR/actionlint"
   local installed_version
   local tmp_dir
+
+  archive="actionlint_${version_no_v}_$(platform).tar.gz"
+  url="https://github.com/rhysd/actionlint/releases/download/v${version_no_v}/${archive}"
 
   if [[ -x "$install_path" ]]; then
     installed_version="$("$install_path" -version 2>&1 | sed -n '1{s/[[:space:]].*//;p;}')"

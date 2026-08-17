@@ -802,6 +802,28 @@ impl InternalError {
         )
     }
 
+    /// Construct the retryable cumulative journal-backlog pressure boundary.
+    pub(crate) fn convergence_backlog_pressure(
+        resource: diagnostic_code::DiagnosticBacklogResource,
+        current: u64,
+        proposed: u64,
+        limit: u64,
+    ) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Conflict,
+            diagnostic_code::RuntimeBoundaryCode::ConvergenceBacklogPressure,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::BacklogResource,
+                    resource.raw(),
+                ),
+                (diagnostic_code::DiagnosticFactTag::CurrentCount, current),
+                (diagnostic_code::DiagnosticFactTag::ProposedCount, proposed),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit),
+            ],
+        )
+    }
+
     /// Construct a query-origin exact-key item-bound rejection.
     #[cold]
     #[inline(never)]

@@ -118,6 +118,17 @@ struct StartupWatchdogPerfSnapshot {
     invariant_failures: u64,
 }
 
+/// Exact admitted debt and retryable pressure observed by the closeout fixture.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "test-admin-api")]
+struct ConvergenceCloseoutDebtFacts {
+    admitted_batches: u32,
+    first_id: i32,
+    last_admitted_id: i32,
+    rejected_id: i32,
+    pressure: icydb::Error,
+}
+
 /// Closed producer-side evidence for the maximum-index-fanout fixture.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "test-admin-api")]
@@ -125,6 +136,19 @@ struct JointFanoutFixtureFacts {
     rows: u32,
     secondary_indexes_per_row: u32,
     load_local_instructions: u64,
+}
+
+/// Isolated IC instruction evidence for the dormant 0.229 selector and
+/// maximum accepted-index positioned-metadata lifecycle.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "test-admin-api")]
+struct ConvergenceCandidatePerfResult {
+    effects: u32,
+    stores: u32,
+    selected_store: u8,
+    remaining_effects: u32,
+    checksum: u64,
+    local_instructions: u64,
 }
 
 /// Application lifecycle entry that began the current readiness observation.
@@ -660,6 +684,8 @@ const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
 #[cfg(feature = "sql")]
 const INTEGRITY_JOURNAL_TAIL_BATCHES: i32 = 6;
+#[cfg(feature = "test-admin-api")]
+const CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES: u32 = 38;
 #[cfg(feature = "sql")]
 const JOURNALED_REENTRY_PROBE_ROWS: i32 = 32;
 #[cfg(feature = "sql")]
@@ -1530,6 +1556,61 @@ fn load_perf_fixtures() -> Result<(), icydb::Error> {
     Ok(())
 }
 
+/// Measure a conservative isolated form of Patch-6 candidate overhead.
+///
+/// The measured body performs both publication and retirement for the full
+/// 65,536-key accepted-index shape, while a real fold callback performs only
+/// retirement. It also scans all 38 possible store heads.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
+    const EFFECTS: u32 = 65_536;
+    const STORES: u32 = 38;
+
+    let start = ic_cdk::api::performance_counter(0);
+    let mut positions = std::collections::BTreeMap::new();
+    for target in 0..EFFECTS {
+        positions.insert(target, (100_u8, 1_u64));
+    }
+    let selected = (0..STORES)
+        .map(|ordinal| {
+            let allocation_ordinal =
+                u8::try_from(ordinal).expect("the fixed store ordinal should fit u8");
+            if ordinal + 1 == STORES {
+                (1_u64, 100_u8 + allocation_ordinal, 1_u64)
+            } else {
+                (
+                    1_000_u64 + u64::from(ordinal),
+                    100_u8 + allocation_ordinal,
+                    1_u64,
+                )
+            }
+        })
+        .min()
+        .expect("the fixed 38-head candidate cannot be empty");
+    let mut checksum = 0_u64;
+    for target in 0..EFFECTS {
+        let (_, sequence) = positions
+            .remove(&target)
+            .expect("each measured positioned target should retire exactly");
+        checksum = checksum
+            .wrapping_add(u64::from(target))
+            .wrapping_add(sequence);
+    }
+    std::hint::black_box(checksum);
+    let local_instructions = ic_cdk::api::performance_counter(0).saturating_sub(start);
+
+    ConvergenceCandidatePerfResult {
+        effects: EFFECTS,
+        stores: STORES,
+        selected_store: selected.1,
+        remaining_effects: u32::try_from(positions.len())
+            .expect("the measured effect count should fit u32"),
+        checksum,
+        local_instructions,
+    }
+}
+
 /// Load the fixed key-stream/materialization baseline fixture.
 #[cfg(feature = "sql")]
 #[update]
@@ -1756,6 +1837,51 @@ fn load_joint_three_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb:
     })
 }
 
+/// Fill the cumulative batch ceiling with one three-index row per commit.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn load_convergence_closeout_debt(
+    first_id: i32,
+) -> Result<ConvergenceCloseoutDebtFacts, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let last_admitted_id = convergence_closeout_id(
+            first_id,
+            CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES.saturating_sub(1),
+        )?;
+        let rejected_id = convergence_closeout_id(first_id, CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES)?;
+
+        for offset in 0..CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES {
+            let id = convergence_closeout_id(first_id, offset)?;
+            insert_fixture_rows(vec![convergence_closeout_user(id)])?;
+        }
+
+        let pressure = match insert_fixture_rows(vec![convergence_closeout_user(rejected_id)]) {
+            Ok(()) => return Err(query_validate_error()),
+            Err(error)
+                if error.code() == ErrorCode::RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE =>
+            {
+                error
+            }
+            Err(error) => return Err(error),
+        };
+
+        Ok(ConvergenceCloseoutDebtFacts {
+            admitted_batches: CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES,
+            first_id,
+            last_admitted_id,
+            rejected_id,
+            pressure,
+        })
+    })
+}
+
+/// Retry the row rejected by the populated convergence closeout fixture.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn retry_convergence_closeout_row(id: i32) -> Result<(), icydb::Error> {
+    icydb::db::with_request_execution(|| insert_fixture_rows(vec![convergence_closeout_user(id)]))
+}
+
 /// Load one near-maximum row with maintained derived-index fanout.
 #[cfg(feature = "test-admin-api")]
 #[update]
@@ -1944,6 +2070,13 @@ fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::
 #[query]
 fn startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     engine_startup_watchdog_perf_snapshot()
+}
+
+/// Report whether the generated production watchdog retains a scheduled wake-up.
+#[cfg(feature = "test-admin-api")]
+#[query]
+fn startup_watchdog_armed() -> bool {
+    engine_startup_watchdog_armed()
 }
 
 /// Expose application-owned readiness evidence only in the local audit actor.
@@ -3486,6 +3619,31 @@ fn scale_journaled_user_fixture_facts(
             .count(),
         ScalePayloadProfile::NotApplicable,
     )
+}
+
+#[cfg(feature = "test-admin-api")]
+fn convergence_closeout_id(first_id: i32, offset: u32) -> Result<i32, icydb::Error> {
+    if first_id <= 0 {
+        return Err(query_validate_error());
+    }
+    let offset = i32::try_from(offset).map_err(|_| query_validate_error())?;
+    first_id
+        .checked_add(offset)
+        .ok_or_else(query_validate_error)
+}
+
+#[cfg(feature = "test-admin-api")]
+fn convergence_closeout_user(id: i32) -> PerfAuditUser {
+    PerfAuditUser {
+        id,
+        name: format!("convergence-closeout-{id}"),
+        age: 31,
+        age_nat: 31,
+        rank: 29,
+        active: true,
+        created_at: Timestamp::default(),
+        updated_at: Timestamp::default(),
+    }
 }
 
 #[cfg(feature = "sql")]

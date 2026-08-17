@@ -22,12 +22,14 @@ use crate::{
         },
         integrity::{MutationProgressRecordOp, apply_mutation_progress_record_op},
         key_taxonomy::PrimaryKeyValue,
+        positioned_overlay::JournalOverlayPosition,
         registry::{
             StoreCommitParticipation, StoreHandle, StoreRecoveryCapability,
             StoreSchemaMetadataCapability,
         },
         schema::{
-            IdentityAdvanceId, IdentityRangeAdvance, apply_live_identity_range_checkpoint,
+            IdentityAdvanceId, IdentityRangeAdvance, PreparedSchemaPositionPublication,
+            SchemaStore, apply_live_identity_range_checkpoint,
             preflight_live_identity_range_checkpoint,
         },
     },
@@ -126,17 +128,21 @@ impl PreparedRowOpDelta {
 pub(in crate::db::executor) struct OpenCommitWindow {
     pub(in crate::db::executor) commit: CommitGuard,
     pub(in crate::db::executor) prepared_row_ops: Vec<PreparedRowCommitOp>,
+    positioned_rows: Vec<Option<JournalOverlayPosition>>,
     effects: PreparedCommitEffects,
     pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
     pub(in crate::db::executor) delta: PreparedRowOpDelta,
     pub(in crate::db::executor) commit_class: MutationCommitClass,
 }
 
-#[derive(Clone)]
 pub(in crate::db::executor) struct PreparedJournalAppend {
     journal_store: &'static LocalKey<RefCell<crate::db::journal::JournalTailStore>>,
     batch: JournalBatch,
     marker_batch_ordinal: usize,
+    data_store: &'static LocalKey<RefCell<crate::db::data::DataStore>>,
+    position: JournalOverlayPosition,
+    schema_store: &'static LocalKey<RefCell<SchemaStore>>,
+    schema_positions: PreparedSchemaPositionPublication,
 }
 
 struct CommitWindowPayload {
@@ -643,11 +649,13 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         mutation_progress,
     )?;
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
+    let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
     let commit = begin_commit_window_payload::<C>(marker, effects.mutation_progress.is_some())?;
 
     Ok(OpenCommitWindow {
         commit,
         prepared_row_ops,
+        positioned_rows,
         effects,
         index_store_guards,
         delta,
@@ -661,9 +669,13 @@ fn apply_prepared_row_ops<C: CanisterKind>(
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_ops: Vec<PreparedRowCommitOp>,
+    positioned_rows: Vec<Option<JournalOverlayPosition>>,
     effects: PreparedCommitEffects,
     index_store_guards: Vec<IndexStoreGenerationGuard>,
 ) -> Result<(), InternalError> {
+    if positioned_rows.len() != prepared_row_ops.len() {
+        return Err(InternalError::query_executor_invariant());
+    }
     finish_commit(commit, |guard| {
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
         // Enforce that index stores are unchanged between preflight and apply.
@@ -687,12 +699,19 @@ fn apply_prepared_row_ops<C: CanisterKind>(
         // row op remains.
         if prepared_row_ops.len() == 1 {
             let mut prepared_iter = prepared_row_ops.into_iter();
+            let mut position_iter = positioned_rows.into_iter();
             let Some(row_op) = prepared_iter.next() else {
+                return Err(InternalError::query_executor_invariant());
+            };
+            let Some(position) = position_iter.next() else {
                 return Err(InternalError::query_executor_invariant());
             };
             apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
 
-            row_op.apply();
+            match position {
+                Some(position) => row_op.apply_positioned(position)?,
+                None => row_op.apply(),
+            }
             #[cfg(test)]
             if take_mutation_commit_interruption(MutationCommitInterruption::RowsPublished) {
                 std::mem::forget(apply_guard);
@@ -719,8 +738,11 @@ fn apply_prepared_row_ops<C: CanisterKind>(
 
         #[cfg(test)]
         let mut row_index = 0_usize;
-        for row_op in prepared_row_ops {
-            row_op.apply();
+        for (row_op, position) in prepared_row_ops.into_iter().zip(positioned_rows) {
+            match position {
+                Some(position) => row_op.apply_positioned(position)?,
+                None => row_op.apply(),
+            }
             #[cfg(test)]
             if row_index == 0
                 && take_mutation_commit_interruption(MutationCommitInterruption::RowPrefixPublished)
@@ -756,6 +778,11 @@ fn apply_prepared_state_effects<C: CanisterKind>(
     effects: &PreparedCommitEffects,
 ) -> Result<(), InternalError> {
     apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
+    for append in &effects.journal_appends {
+        append.schema_store.with_borrow_mut(|store| {
+            store.publish_prepared_journal_batch_positions(append.schema_positions.clone());
+        });
+    }
     if let Some(operation) = effects.mutation_progress.as_ref() {
         apply_mutation_progress_record_op::<C>(operation)?;
     }
@@ -775,6 +802,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_window_for_path<C: CanisterK
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
+        positioned_rows,
         effects,
         index_store_guards,
         delta,
@@ -789,6 +817,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_window_for_path<C: CanisterK
         commit,
         apply_phase,
         prepared_row_ops,
+        positioned_rows,
         effects,
         index_store_guards,
     )?;
@@ -810,6 +839,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress_for_path<C
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
+        positioned_rows,
         effects,
         index_store_guards,
         delta,
@@ -830,6 +860,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress_for_path<C
         commit,
         apply_phase,
         prepared_row_ops,
+        positioned_rows,
         effects,
         index_store_guards,
     )?;
@@ -1011,10 +1042,23 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         let marker_batch_ordinal = marker_batches.len();
         marker_batches.push(batch.clone());
         if let Some(journal_store) = journal_store {
+            let position = JournalOverlayPosition::new(
+                handle
+                    .journal_allocation()
+                    .ok_or_else(InternalError::store_invariant)?,
+                sequence,
+            );
+            let schema_positions = handle.with_schema(|store| {
+                store.prepare_positioned_journal_batch_publication(incarnation, &batch, position)
+            })?;
             journal_appends.push(PreparedJournalAppend {
                 journal_store,
                 batch,
                 marker_batch_ordinal,
+                data_store: handle.data_store(),
+                position,
+                schema_store: handle.schema_store(),
+                schema_positions,
             });
         }
     }
@@ -1039,6 +1083,24 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
             mutation_progress,
         },
     })
+}
+
+fn preflight_positioned_rows(
+    rows: &[PreparedRowCommitOp],
+    appends: &[PreparedJournalAppend],
+) -> Result<Vec<Option<JournalOverlayPosition>>, InternalError> {
+    rows.iter()
+        .map(|row| {
+            let position = appends
+                .iter()
+                .find(|append| ptr::eq(append.data_store, row.data_store))
+                .map(|append| append.position);
+            if let Some(position) = position {
+                row.preflight_positioned(position)?;
+            }
+            Ok(position)
+        })
+        .collect()
 }
 
 fn preflight_identity_range_applies(
@@ -1322,15 +1384,15 @@ mod tests {
     }
 
     #[test]
-    fn individual_gate_keeps_priority_over_dormant_cumulative_pressure() {
+    fn individual_gate_keeps_priority_over_cumulative_pressure() {
         let gate_two_called = std::cell::Cell::new(false);
         let result = ensure_mutation_commit_work_admitted(MAX_MUTATION_COMMIT_WORK_UNITS + 1)
             .and_then(|()| {
                 gate_two_called.set(true);
-                crate::db::commit::admit_dormant_backlog(
+                crate::db::commit::admit_backlog(
                     crate::db::commit::ExactBacklogMeasurement::new(1, 1, 1),
                     crate::db::commit::ExactBacklogMeasurement::new(1, 1, 1),
-                    crate::db::commit::CandidateBacklogLimits::new(1, 1, 1),
+                    crate::db::commit::BacklogLimits::new(1, 1, 1),
                 )
             });
         let error = result.expect_err("individual admission must reject before dormant Gate 2");

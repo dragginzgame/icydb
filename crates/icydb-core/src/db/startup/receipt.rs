@@ -38,7 +38,7 @@ use ic_memory::open_default_memory_manager_memory;
 
 pub(in crate::db) const MAX_STARTUP_FAILURE_RECEIPT_BYTES: usize = 2_048;
 const RECEIPT_MAGIC: &[u8; 8] = b"ICYSUP01";
-const RECEIPT_VERSION: u8 = 2;
+const RECEIPT_VERSION: u8 = 1;
 const RECEIPT_HEADER_BYTES: usize = 15;
 const WASM_PAGE_BYTES: u64 = 65_536;
 const MAX_BINDING_KEY_BYTES: usize = 128;
@@ -634,6 +634,7 @@ mod tests {
 
     fn round_trip(receipt: &StartupFailureReceipt) {
         let encoded = encode_receipt(receipt).expect("valid receipt should encode");
+        assert_eq!(encoded[8], 1);
         assert!(encoded.len() <= MAX_STARTUP_FAILURE_RECEIPT_BYTES);
         let memory = VectorMemory::default();
         assert_eq!(memory.grow(1), 0);

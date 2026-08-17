@@ -468,6 +468,42 @@ impl IndexStore {
 
         Ok(())
     }
+
+    /// Visit only canonical predecessor entries in one bounded raw-key range.
+    ///
+    /// Complete online folds use this view while reconstructing the exact
+    /// derived effects of an older batch ahead of newer live overlays.
+    pub(in crate::db) fn visit_canonical_raw_entries_in_range<F>(
+        &self,
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+        mut visit: F,
+    ) -> Result<(), InternalError>
+    where
+        F: FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, InternalError>,
+    {
+        if envelope_is_empty(bounds.0, bounds.1) {
+            return Ok(());
+        }
+
+        match &self.backend {
+            IndexStoreBackend::Heap(map) => {
+                for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())) {
+                    if visit(key, value)? {
+                        break;
+                    }
+                }
+            }
+            IndexStoreBackend::Journaled { canonical, .. } => {
+                for entry in canonical.range((bounds.0.clone(), bounds.1.clone())) {
+                    if visit(entry.key(), &entry.value())? {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn raw_bound_backing_bytes(bound: &Bound<RawIndexStoreKey>) -> usize {

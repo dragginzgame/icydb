@@ -27,7 +27,7 @@ use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
 use std::{borrow::Cow, collections::BTreeSet};
 
-pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 3;
+pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 1;
 pub(in crate::db) const MAX_JOURNAL_BATCH_BYTES: u32 = MAX_COMMIT_BYTES;
 pub(in crate::db) const MAX_JOURNAL_BATCH_RECORDS: usize = 16 * 1024;
 const MAX_JOURNAL_PATH_BYTES: usize = 4 * 1024;

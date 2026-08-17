@@ -334,7 +334,7 @@ fn expression_stack_shape_is_validated() {
 
 #[test]
 fn contract_version_is_current_and_nonzero() {
-    assert_eq!(ProposalContractVersion::CURRENT.get(), 2);
+    assert_eq!(ProposalContractVersion::CURRENT.get(), 1);
 }
 
 #[test]

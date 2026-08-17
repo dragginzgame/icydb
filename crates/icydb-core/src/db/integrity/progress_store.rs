@@ -43,7 +43,7 @@ const PROGRESS_HEADER_MAGIC: &[u8; 8] = b"ICYIPROG";
 const PROGRESS_HEADER_VERSION: u8 = 1;
 const PROGRESS_HEADER_BYTES: usize = 8 + 1 + 4;
 const JOB_RECORD_MAGIC: &[u8; 8] = b"ICYIJPTH";
-const JOB_RECORD_VERSION: u8 = 2;
+const JOB_RECORD_VERSION: u8 = 1;
 const JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const RESUMABLE_JOB_KEY_DOMAIN: &[u8] = b"icydb.resumable-job.progress-key.v1";
 const RESUMABLE_JOB_RECORD_MAGIC: &[u8; 8] = b"ICYRJOB1";
@@ -985,22 +985,15 @@ mod tests {
     }
 
     #[test]
-    fn current_job_record_uses_only_the_direct_version_two_payload() {
+    fn current_job_record_uses_the_direct_bounded_payload() {
         let job = current_job_codec_fixture();
         let encoded = encode_job_record(&job).expect("current job should encode");
 
-        assert_eq!(encoded[JOB_RECORD_MAGIC.len()], 2);
+        assert_eq!(encoded[JOB_RECORD_MAGIC.len()], 1);
         assert!(!encoded[JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
         assert_eq!(
             decode_job_record(&encoded, job.id).expect("current job should decode"),
             job,
-        );
-
-        let mut retired_version = encoded.clone();
-        retired_version[JOB_RECORD_MAGIC.len()] = 1;
-        assert_eq!(
-            decode_job_record(&retired_version, job.id),
-            Err(IntegrityJobError::IncompatibleProgressFormat),
         );
 
         let mut corrupt = encoded;

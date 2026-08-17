@@ -709,4 +709,6 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SchemaSurfacePolicyDenied });
     RUNTIME_BOUNDARY_MUTATION_BATCH_COMMIT_WORK_EXCEEDED = 283 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchCommitWorkExceeded });
+    RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE = 284 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ConvergenceBacklogPressure });
 }

@@ -24,7 +24,7 @@ pub struct ProposalContractVersion(u16);
 
 impl ProposalContractVersion {
     /// Current pre-1.0 hard-cut proposal contract version.
-    pub const CURRENT: Self = Self(2);
+    pub const CURRENT: Self = Self(1);
 
     /// Construct a version token for decoding and incompatibility tests.
     #[must_use]
@@ -1167,13 +1167,13 @@ mod tests {
     fn decoded_future_contract_version_fails_typed() {
         let proposal = empty_proposal_with(Vec::new());
         let mut bytes = crate::encode_schema_proposal(&proposal).expect("proposal should encode");
-        bytes[5..7].copy_from_slice(&3_u16.to_be_bytes());
+        bytes[5..7].copy_from_slice(&2_u16.to_be_bytes());
 
         assert_eq!(
             decode_schema_proposal(&bytes),
             Err(SchemaContractError::UnsupportedVersion {
-                found: 3,
-                supported: 2,
+                found: 2,
+                supported: 1,
             }),
         );
     }

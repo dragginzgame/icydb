@@ -143,6 +143,9 @@ define_fact_tag_registry! {
     ExecutionBudgetScope = 90;
     ExecutionLane = 91;
     QueryShapeFingerprintPrefix = 92;
+    BacklogResource = 93;
+    CurrentCount = 94;
+    ProposedCount = 95;
 }
 
 /// Compact reason carried by [`DiagnosticFactTag::DecodeReason`].
@@ -213,6 +216,15 @@ macro_rules! define_numeric_fact_value_registry {
             }
         }
     };
+}
+
+define_numeric_fact_value_registry! {
+    /// Compact cumulative journal resource carried by [`DiagnosticFactTag::BacklogResource`].
+    pub enum DiagnosticBacklogResource {
+        Batches = 1;
+        Records = 2;
+        EncodedBytes = 3;
+    }
 }
 
 define_numeric_fact_value_registry! {
@@ -613,6 +625,16 @@ fn validate_diagnostic_fact_schema(
                     &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Limit],
                 )
         }
+        284 => tags_match(
+            fact_count,
+            &fact_at,
+            &[
+                DiagnosticFactTag::BacklogResource,
+                DiagnosticFactTag::CurrentCount,
+                DiagnosticFactTag::ProposedCount,
+                DiagnosticFactTag::Limit,
+            ],
+        ),
         196 | 234 => tags_match(
             fact_count,
             &fact_at,
@@ -730,7 +752,7 @@ const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
         | 271 | 272 | 283 => 2,
         3 | 20 => 5,
         23 | 273 => 6,
-        196 | 234 => 4,
+        196 | 234 | 284 => 4,
         223 => 73,
         225 => 9,
         _ => 0,
@@ -1133,6 +1155,7 @@ const fn diagnostic_fact_value_is_valid(tag: DiagnosticFactTag, value: u64) -> b
         | DiagnosticFactTag::MapEntryKey
         | DiagnosticFactTag::MapEntryValue => value <= u32::MAX as u64,
         DiagnosticFactTag::ConstraintKind => DiagnosticConstraintKind::known(value).is_some(),
+        DiagnosticFactTag::BacklogResource => DiagnosticBacklogResource::known(value).is_some(),
         DiagnosticFactTag::ConstraintContext => DiagnosticConstraintContext::known(value).is_some(),
         DiagnosticFactTag::TypeFamily => DiagnosticTypeFamily::known(value).is_some(),
         DiagnosticFactTag::FunctionKind => DiagnosticFunctionKind::known(value).is_some(),
@@ -1155,12 +1178,12 @@ const fn diagnostic_fact_value_is_valid(tag: DiagnosticFactTag, value: u64) -> b
 #[cfg(test)]
 mod tests {
     use super::{
-        DiagnosticAggregateKind, DiagnosticComponentKind, DiagnosticConstraintContext,
-        DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticExecutionBudgetResource,
-        DiagnosticExecutionBudgetScope, DiagnosticExecutionLane, DiagnosticFactSchemaMismatch,
-        DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation,
-        DiagnosticOperatorKind, DiagnosticTypeFamily, ORDERED_FACT_TAGS, pack_u32_pair,
-        unpack_u32_pair, validate_known_diagnostic_fact_schema,
+        DiagnosticAggregateKind, DiagnosticBacklogResource, DiagnosticComponentKind,
+        DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDecodeReason,
+        DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
+        DiagnosticFactSchemaMismatch, DiagnosticFactTag, DiagnosticFunctionKind,
+        DiagnosticMutationOperation, DiagnosticOperatorKind, DiagnosticTypeFamily,
+        ORDERED_FACT_TAGS, pack_u32_pair, unpack_u32_pair, validate_known_diagnostic_fact_schema,
         validate_raw_diagnostic_fact_schema,
     };
     use crate::ErrorCode;
@@ -1174,12 +1197,17 @@ mod tests {
         }
 
         assert_eq!(DiagnosticFactTag::known(0), None);
-        assert_eq!(DiagnosticFactTag::known(93), None);
+        assert_eq!(DiagnosticFactTag::known(96), None);
         assert_eq!(DiagnosticFactTag::known(u8::MAX), None);
     }
 
     #[test]
     fn execution_budget_fact_value_registries_are_fixed() {
+        assert_eq!(DiagnosticBacklogResource::Batches.raw(), 1);
+        assert_eq!(DiagnosticBacklogResource::Records.raw(), 2);
+        assert_eq!(DiagnosticBacklogResource::EncodedBytes.raw(), 3);
+        assert_eq!(DiagnosticBacklogResource::known(4), None);
+
         for (index, resource) in DiagnosticExecutionBudgetResource::ALL
             .iter()
             .copied()

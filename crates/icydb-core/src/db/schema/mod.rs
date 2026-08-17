@@ -393,8 +393,9 @@ pub(in crate::db) use storage::{
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
-    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, SchemaStoreAllocationMetadata,
-    SchemaStoreCatalogMetadata, load_accepted_schema_snapshot,
+    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, PreparedSchemaPositionPublication,
+    PreparedSchemaPositionRetirement, SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
+    load_accepted_schema_snapshot,
 };
 
 #[cfg(test)]

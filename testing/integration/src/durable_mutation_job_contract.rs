@@ -65,7 +65,7 @@ pub const CURRENT_MUTATION_JOB_MAX_ACTIVE_RECORD_BYTES: u32 = 18_842;
 pub const CURRENT_MUTATION_JOB_MAX_REPLAY_RECEIPT_BYTES: u32 = 319;
 
 /// Sole current marker envelope after atomic mutation-progress custody lands.
-pub const CURRENT_MUTATION_PROGRESS_MARKER_VERSION: u8 = 3;
+pub const CURRENT_MUTATION_PROGRESS_MARKER_VERSION: u8 = 1;
 
 /// Exact maximum current mutation-progress contribution to one marker payload.
 pub const CURRENT_MUTATION_PROGRESS_MAX_MARKER_PAYLOAD_BYTES: u32 = 37_797;
@@ -507,10 +507,10 @@ mod tests {
         let commit_marker =
             fs::read_to_string(workspace.join("crates/icydb-core/src/db/commit/marker.rs"))
                 .expect("commit-marker authority should be readable");
-        assert!(commit_marker.contains("const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 3;"));
+        assert!(commit_marker.contains("const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;"));
         assert!(commit_marker.contains("from_parts_with_mutation_progress"));
         assert!(commit_marker.contains("DatabaseControlOp::MutationProgress"));
-        assert_eq!(CURRENT_MUTATION_PROGRESS_MARKER_VERSION, 3);
+        assert_eq!(CURRENT_MUTATION_PROGRESS_MARKER_VERSION, 1);
         assert_eq!(CURRENT_MUTATION_PROGRESS_MAX_MARKER_PAYLOAD_BYTES, 37_797);
     }
 

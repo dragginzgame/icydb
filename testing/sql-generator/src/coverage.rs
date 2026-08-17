@@ -26,7 +26,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut Tier C coverage-distribution artifact format.
-pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 3;
+pub const TIER_C_DISTRIBUTION_FORMAT_VERSION: u32 = 1;
 
 // -----------------------------------------------------------------------------
 // Shared coverage taxonomy

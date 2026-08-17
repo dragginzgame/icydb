@@ -7,17 +7,106 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitRowOp, PreparedRowCommitOp, prepare_commit_context_for_runtime_entity,
-            prepare_row_commit_with_context,
+            CommitPrepareContext, CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
+            prepare_commit_context_for_runtime_entity, prepare_row_commit_with_context,
         },
-        data::RawDataStoreKey,
-        registry::StoreHandle,
+        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
+        index::{
+            IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
+            StructuralIndexEntryReader, StructuralPrimaryRowReader,
+        },
+        key_taxonomy::PrimaryKeyValue,
+        registry::{StoreHandle, StoreRecoveryCapability},
     },
     error::InternalError,
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{collections::BTreeSet, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    ops::Bound,
+    rc::Rc,
+    thread::LocalKey,
+};
+
+/// Canonical predecessor reads used only while folding one retained batch.
+struct CanonicalCommitReader<'a, C: CanisterKind> {
+    db: &'a Db<C>,
+    batch_final_rows: BTreeMap<RawDataStoreKey, Option<RawRow>>,
+}
+
+impl<'a, C: CanisterKind> CanonicalCommitReader<'a, C> {
+    /// Build the canonical predecessor reader with one immutable final-row
+    /// view for same-batch uniqueness release proofs.
+    fn from_row_ops(db: &'a Db<C>, ops: &[CommitRowOp]) -> Result<Self, InternalError> {
+        let mut batch_final_rows = BTreeMap::new();
+        for op in ops {
+            let final_row = op
+                .after
+                .as_ref()
+                .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
+                .transpose()?;
+            if batch_final_rows.insert(op.key.clone(), final_row).is_some() {
+                return Err(InternalError::store_corruption());
+            }
+        }
+        Ok(Self {
+            db,
+            batch_final_rows,
+        })
+    }
+}
+
+impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C> {
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
+        let raw_key = key.to_raw()?;
+        if let Some(final_row) = self.batch_final_rows.get(&raw_key) {
+            return Ok(final_row.clone());
+        }
+        let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
+        let store = runtime_entity.store(self.db)?;
+        Ok(store.with_data(|data_store| data_store.get_canonical(&raw_key)))
+    }
+
+    fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        Ok(self.batch_final_rows.contains_key(&key.to_raw()?))
+    }
+}
+
+impl<C: CanisterKind> StructuralIndexEntryReader for CanonicalCommitReader<'_, C> {
+    fn read_index_entry(
+        &self,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
+        Ok(index_store.with_borrow(|store| store.get_canonical(key)))
+    }
+
+    fn read_index_keys_in_raw_range(
+        &self,
+        _entity_path: &str,
+        _entity_tag: EntityTag,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
+        _index: IndexReadContract<'_>,
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+        limit: usize,
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
+        let mut out = Vec::with_capacity(limit.min(32));
+        index_store.with_borrow(|store| {
+            store.visit_canonical_raw_entries_in_range(bounds, |raw_key, raw_entry| {
+                raw_entry.push_row_identity_primary_key_values_limited(
+                    raw_key,
+                    &mut out,
+                    limit,
+                    |_err| InternalError::index_plan_index_corruption(),
+                )?;
+                Ok(out.len() >= limit)
+            })
+        })?;
+        Ok(out)
+    }
+}
 
 /// One accepted entity joined to its registry-owned runtime store.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -158,12 +247,66 @@ pub(in crate::db) fn accepted_runtime_entity_for_tag<C: CanisterKind>(
     matched.ok_or_else(|| InternalError::unsupported_entity_tag_in_data_store(entity_tag))
 }
 
+pub(in crate::db) fn canonical_runtime_entity_for_tag<C: CanisterKind>(
+    db: &Db<C>,
+    entity_tag: EntityTag,
+) -> Result<AcceptedRuntimeEntity, InternalError> {
+    find_canonical_runtime_entity_for_tag(db, entity_tag)?
+        .ok_or_else(InternalError::store_corruption)
+}
+
+fn find_canonical_runtime_entity_for_tag<C: CanisterKind>(
+    db: &Db<C>,
+    entity_tag: EntityTag,
+) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+    let mut matched = None;
+    for (store_path, store) in sorted_registered_stores(db) {
+        if store.storage_capabilities().recovery()
+            != StoreRecoveryCapability::StableBasePlusJournalReplay
+        {
+            continue;
+        }
+        let entity = store.with_schema(|schema| {
+            schema.current_canonical_accepted_runtime_entity_for_tag(store_path, entity_tag)
+        })?;
+        merge_unique_entity_match(&mut matched, entity)?;
+    }
+    Ok(matched)
+}
+
 pub(in crate::db) fn accepted_runtime_entity_for_path<C: CanisterKind>(
     db: &Db<C>,
     entity_path: &str,
 ) -> Result<AcceptedRuntimeEntity, InternalError> {
     find_accepted_runtime_entity_for_path(db, entity_path)?
         .ok_or_else(|| InternalError::unsupported_entity_path(entity_path))
+}
+
+pub(in crate::db) fn canonical_runtime_entity_for_path<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &str,
+) -> Result<AcceptedRuntimeEntity, InternalError> {
+    find_canonical_runtime_entity_for_path(db, entity_path)?
+        .ok_or_else(InternalError::store_corruption)
+}
+
+fn find_canonical_runtime_entity_for_path<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &str,
+) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+    let mut matched = None;
+    for (store_path, store) in sorted_registered_stores(db) {
+        if store.storage_capabilities().recovery()
+            != StoreRecoveryCapability::StableBasePlusJournalReplay
+        {
+            continue;
+        }
+        let entity = store.with_schema(|schema| {
+            schema.current_canonical_accepted_runtime_entity_for_path(store_path, entity_path)
+        })?;
+        merge_unique_entity_match(&mut matched, entity)?;
+    }
+    Ok(matched)
 }
 
 /// Find an exact immutable accepted entity path without classifying absence as
@@ -249,11 +392,79 @@ pub(in crate::db) fn prepare_row_commit<C: CanisterKind>(
     op: &CommitRowOp,
     mode: crate::db::commit::CommitPrepareMode,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    let entity = accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?;
+    let entity = if matches!(mode, crate::db::commit::CommitPrepareMode::RecoveryReplay) {
+        match find_canonical_runtime_entity_for_path(db, op.entity_path.as_ref())? {
+            Some(entity) => entity,
+            None => accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?,
+        }
+    } else {
+        accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?
+    };
     let store = entity.store(db)?;
     let context = entity.prepare_commit_context(db, op.schema_fingerprint, mode)?;
+    if matches!(mode, crate::db::commit::CommitPrepareMode::RecoveryReplay) {
+        let reader = CanonicalCommitReader::from_row_ops(db, std::slice::from_ref(op))?;
+        prepare_row_commit_with_context(db, op, &context, &reader, &reader)
+    } else {
+        prepare_row_commit_with_context(db, op, &context, db, &store)
+    }
+}
 
-    prepare_row_commit_with_context(db, op, &context, db, &store)
+/// Prepare one recovery batch while resolving immutable accepted authority once per entity.
+pub(in crate::db) fn prepare_row_commit_batch_for_replay<C: CanisterKind>(
+    db: &Db<C>,
+    ops: &[CommitRowOp],
+) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
+    let reader = CanonicalCommitReader::from_row_ops(db, ops)?;
+    let mut contexts: Vec<(
+        Rc<str>,
+        CommitSchemaFingerprint,
+        EntityTag,
+        CommitPrepareContext,
+    )> = Vec::new();
+    let mut prepared = Vec::with_capacity(ops.len());
+    for op in ops {
+        let context_index = contexts
+            .iter()
+            .position(|(entity_path, fingerprint, _, _)| {
+                entity_path.as_ref() == op.entity_path.as_ref()
+                    && *fingerprint == op.schema_fingerprint
+            });
+        let context_index = if let Some(index) = context_index {
+            index
+        } else {
+            let entity = match find_canonical_runtime_entity_for_path(db, op.entity_path.as_ref())?
+            {
+                Some(entity) => entity,
+                None => accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?,
+            };
+            let context = entity.prepare_commit_context(
+                db,
+                op.schema_fingerprint,
+                crate::db::commit::CommitPrepareMode::RecoveryReplay,
+            )?;
+            contexts.push((
+                entity.entity_path_handle(),
+                op.schema_fingerprint,
+                entity.entity_tag(),
+                context,
+            ));
+            contexts.len().saturating_sub(1)
+        };
+        let decoded_key = DecodedDataStoreKey::try_from_raw(&op.key)
+            .map_err(|_| InternalError::store_corruption())?;
+        if decoded_key.entity_tag() != contexts[context_index].2 {
+            return Err(InternalError::store_corruption());
+        }
+        prepared.push(prepare_row_commit_with_context(
+            db,
+            op,
+            &contexts[context_index].3,
+            &reader,
+            &reader,
+        )?);
+    }
+    Ok(prepared)
 }
 
 pub(in crate::db) fn validate_delete_relations<C: CanisterKind>(

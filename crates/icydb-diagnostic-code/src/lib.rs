@@ -14,11 +14,12 @@ use std::fmt;
 mod fact;
 
 pub use fact::{
-    DiagnosticAggregateKind, DiagnosticComponentKind, DiagnosticConstraintContext,
-    DiagnosticConstraintKind, DiagnosticDecodeReason, DiagnosticExecutionBudgetResource,
-    DiagnosticExecutionBudgetScope, DiagnosticExecutionLane, DiagnosticFactSchemaMismatch,
-    DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation, DiagnosticOperatorKind,
-    DiagnosticTypeFamily, MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
+    DiagnosticAggregateKind, DiagnosticBacklogResource, DiagnosticComponentKind,
+    DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDecodeReason,
+    DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
+    DiagnosticFactSchemaMismatch, DiagnosticFactTag, DiagnosticFunctionKind,
+    DiagnosticMutationOperation, DiagnosticOperatorKind, DiagnosticTypeFamily,
+    MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
     validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
 };
 
@@ -561,6 +562,8 @@ pub enum RuntimeBoundaryCode {
     SchemaSurfacePolicyDenied,
     /// A structural mutation batch exceeded its canonical prepared-commit work bound.
     MutationBatchCommitWorkExceeded,
+    /// Retained journal debt leaves insufficient bounded convergence capacity.
+    ConvergenceBacklogPressure,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1103,7 +1106,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 283);
+        assert_eq!(last, 284);
     }
 
     #[test]

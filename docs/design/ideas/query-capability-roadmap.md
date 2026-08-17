@@ -80,7 +80,7 @@ numeric operations or using lossy conversion.
 | 10. Incremental Rollups Or Maintained Materializations | Provisional future slice | 0.241 incrementally maintained rollups |
 | 11. Durable Resumable Aggregate Jobs | Provisional future slice | 0.240 durable resumable aggregate jobs |
 | 12. Range Partitioning And Archive-Aware History | Provisional future slice | 0.242 partitioned/archive-aware history |
-| 13. Explicit Nullable Unique-Index Semantics | Provisional future slice | 0.231 explicit nullable unique-index contracts |
+| 13. Explicit Nullable Unique-Index Semantics | Documentation-only proposed design; implementation remains gated | [0.231 explicit nullable unique-index contracts](../0.231-explicit-nullable-unique-index-contracts/0.231-design.md) |
 | 14. Specific Bounded Public SQL Diagnostics | Provisional future slice | 0.232 typed public SQL diagnostics plus direct bounded CLI/documentation fallout |
 | 15. Bounded Indexed Relation Traversal | Provisional future slice | 0.234 bounded indexed relation semi-joins |
 
@@ -122,7 +122,7 @@ other's facts.
 
 | Order | Provisional line | Candidate input | Concise promotion question |
 | --- | --- | --- | --- |
-| 0.231 | Explicit Nullable Unique-Index Contracts | 13 | Can current partial-index semantics make nullable membership and uniqueness explicit before acceptance without adding encoded-null keys? |
+| 0.231 | [Explicit Nullable Unique-Index Contracts](../0.231-explicit-nullable-unique-index-contracts/0.231-design.md) | 13 | Can current partial-index semantics make nullable membership and uniqueness explicit before acceptance without adding encoded-null keys? |
 | 0.232 | Typed Public SQL Diagnostics | 14 | What smallest bounded typed detail preserves rejected field and clause identity through core, facade, Candid, CLI, and docs without a second error model? |
 | 0.233 | Bound SQL Invocation And Authenticated Continuation | 1 and 2, narrowed to current facade/generated gaps | What typed request and continuation envelope is externally missing, and how does it bind values to the existing cache, policy, 0.226 read-authority boundary, and authenticated live cursor without a second authorization owner, cursor, or snapshot model? |
 | 0.234 | Bounded Indexed Relation Semi-Joins | 15 | Can one indexed `IN`/`EXISTS` semi-join, or one evidenced fixed second bridge, solve the reference application relation hop under existing intermediate/result budgets? |
@@ -136,9 +136,13 @@ other's facts.
 | 0.242 | Partitioned And Archive-Aware History | 12 | What accepted catalog authority can prove complete/pruned/unavailable ranges across planning, continuations, jobs, statistics, and archives without silent omission? |
 
 If a promotion audit finds no maintained gap, that line is removed or
-contracted before a full design is written. Candidate 2 is already contracted
-to public SQL integration over the maintained cursor engine; snapshot isolation
+contracted before implementation begins. Candidate 2 is already contracted to
+public SQL integration over the maintained cursor engine; snapshot isolation
 is not promoted. The 0.238 gap is currently confirmed, so that line remains.
+
+The user authorized an early documentation-only 0.231 design on 2026-08-17.
+That document does not satisfy predecessor closeout, promote implementation,
+or alter the numeric dependency order below.
 
 ## Final Dependency Order
 

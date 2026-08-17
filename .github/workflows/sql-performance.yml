@@ -43,12 +43,65 @@ env:
   TMPDIR: ${{ github.workspace }}/.cache
 
 jobs:
+  baseline_contract:
+    name: Validate reviewed baseline contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Require a reviewed baseline or exact calibration mode
+        run: |
+          if [ -z "$SQL_PERF_CALIBRATION_COHORT" ]; then
+            test -n "$REVIEWED_SQL_PERF_BASELINE_RUN_ID"
+          else
+            test -n "$SQL_PERF_CALIBRATION_RUN"
+          fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        with:
+          workspaces: |
+            . -> target/icydb
+          cache-targets: "false"
+      - name: Download reviewed Tier D baseline
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sql-perf-tier-d-current
+          path: artifacts/perf-baseline
+          github-token: ${{ github.token }}
+          run-id: ${{ env.REVIEWED_SQL_PERF_BASELINE_RUN_ID }}
+      - run: cargo fetch --locked
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+      - name: Validate all reviewed baseline artifacts
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        run: make test-sql-perf-baseline-contract PERF_BASELINE_DIR=artifacts/perf-baseline
+      - name: Publish the validated baseline for this run
+        if: env.SQL_PERF_CALIBRATION_COHORT == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sql-perf-reviewed-baseline
+          path: artifacts/perf-baseline/*
+          if-no-files-found: error
+          retention-days: 1
+
   wasm:
     name: Prepare shared SQL performance subject
-    runs-on: ubuntu-latest
+    needs: baseline_contract
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Ensure GitHub CLI
+        run: make install-gh
       - name: Require the triggered subject and exact calibration mode
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
@@ -63,14 +116,14 @@ jobs:
               *) exit 1 ;;
             esac
           fi
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         with:
           toolchain: ${{ env.RUST_CURRENT }}
       - name: Install WASM target
         if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         run: rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID == ''
         with:
           workspaces: |
@@ -90,7 +143,7 @@ jobs:
           test "$(gh api "$run_path" --jq '.path')" = ".github/workflows/sql-performance.yml"
       - name: Download exact calibration subject
         if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
@@ -98,7 +151,7 @@ jobs:
           run-id: ${{ env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID }}
       - name: Download exact calibration subject identity
         if: env.SQL_PERF_CALIBRATION_SUBJECT_RUN_ID != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-p1-merged
           path: artifacts/perf-calibration-subject
@@ -147,7 +200,7 @@ jobs:
         run: make build-sql-perf-wasm
       - name: Require the exact shared Wasm
         run: test -s artifacts/perf-audit/sql_perf_canister.wasm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-wasm
           path: |
@@ -159,25 +212,27 @@ jobs:
   p1:
     name: P1 shard ${{ matrix.shard }}
     needs: wasm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
@@ -186,7 +241,7 @@ jobs:
       - run: cargo fetch --locked
       - name: Capture P1 shard
         run: make test-sql-perf-p1-shard P1_SHARD=${{ matrix.shard }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-p1-shard-${{ matrix.shard }}
           path: artifacts/perf-audit/sql_perf_p1_shards/p1-shard-${{ matrix.shard }}.json
@@ -196,25 +251,27 @@ jobs:
   scale:
     name: Scale shard ${{ matrix.shard }}
     needs: wasm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
@@ -223,7 +280,7 @@ jobs:
       - run: cargo fetch --locked
       - name: Capture scale shard
         run: make test-sql-perf-scale-shard SCALE_SHARD=${{ matrix.shard }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-scale-shard-${{ matrix.shard }}
           path: artifacts/perf-audit/sql_perf_scale_shards/scale-shard-${{ matrix.shard }}.json
@@ -233,39 +290,36 @@ jobs:
   p1_merge:
     name: Merge P1 and scale evidence
     needs: [p1, scale]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - name: Require a reviewed baseline run
-        if: env.SQL_PERF_CALIBRATION_COHORT == ''
-        run: test -n "$REVIEWED_SQL_PERF_BASELINE_RUN_ID"
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: sql-perf-p1-shard-*
           path: artifacts/perf-audit/sql_perf_p1_shards
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: sql-perf-scale-shard-*
           path: artifacts/perf-audit/sql_perf_scale_shards
           merge-multiple: true
-      - name: Download reviewed P1 baseline
+      - name: Download validated P1 baseline
         if: env.SQL_PERF_CALIBRATION_COHORT == ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: sql-perf-tier-d-current
+          name: sql-perf-reviewed-baseline
           path: artifacts/perf-baseline
-          github-token: ${{ github.token }}
-          run-id: ${{ env.REVIEWED_SQL_PERF_BASELINE_RUN_ID }}
       - run: cargo fetch --locked
       - name: Merge complete P1 and scale receipts
         run: |
@@ -277,7 +331,7 @@ jobs:
             make test-sql-perf-p1-merge \
               P1_BASELINE_PATH=artifacts/perf-baseline/sql_perf_deterministic_matrix.json
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-p1-merged
           path: |
@@ -290,29 +344,31 @@ jobs:
   p2:
     name: P2 shard ${{ matrix.shard }}
     needs: [p1_merge, wasm]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-p1-merged
           path: artifacts/perf-audit
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
@@ -321,7 +377,7 @@ jobs:
       - run: cargo fetch --locked
       - name: Confirm P2 shard
         run: make test-sql-perf-p2-shard P2_SHARD=${{ matrix.shard }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-p2-shard-${{ matrix.shard }}
           path: artifacts/perf-audit/sql_perf_p2_shards/p2-shard-${{ matrix.shard }}.json
@@ -331,21 +387,23 @@ jobs:
   instrumentation:
     name: Attribution overhead calibration
     needs: [p1_merge, wasm]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
       - name: Prepare local cache
         run: mkdir -p "$TMPDIR"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-wasm
           path: artifacts/perf-audit
@@ -354,7 +412,7 @@ jobs:
       - run: cargo fetch --locked
       - name: Capture attributed versus total-only overhead
         run: make test-sql-perf-instrumentation
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-instrumentation
           path: artifacts/perf-audit/sql_perf_instrumentation.json
@@ -364,23 +422,25 @@ jobs:
   p2_merge:
     name: Merge P2 evidence
     needs: p2
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-p1-merged
           path: artifacts/perf-audit
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: sql-perf-p2-shard-*
           path: artifacts/perf-audit/sql_perf_p2_shards
@@ -388,7 +448,7 @@ jobs:
       - run: cargo fetch --locked
       - name: Merge complete P2 receipts
         run: make test-sql-perf-p2-merge
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-p2-merged
           path: artifacts/perf-audit/sql_perf_p2_report.json
@@ -398,21 +458,22 @@ jobs:
   current_evidence_bundle:
     name: Bundle current Tier D evidence
     needs: [p2_merge, instrumentation]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-p1-merged
           path: artifacts/perf-audit
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-p2-merged
           path: artifacts/perf-audit
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-instrumentation
           path: artifacts/perf-audit
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sql-perf-tier-d-current
           path: artifacts/perf-audit/*
@@ -423,31 +484,29 @@ jobs:
     name: Gate reviewed Tier D baseline
     needs: current_evidence_bundle
     if: inputs.calibration_cohort == ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - name: Require a reviewed baseline run
-        run: test -n "$REVIEWED_SQL_PERF_BASELINE_RUN_ID"
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sql-perf-tier-d-current
           path: artifacts/perf-current
-      - name: Download reviewed Tier D baseline
-        uses: actions/download-artifact@v4
+      - name: Download validated Tier D baseline
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: sql-perf-tier-d-current
+          name: sql-perf-reviewed-baseline
           path: artifacts/perf-baseline
-          github-token: ${{ github.token }}
-          run-id: ${{ env.REVIEWED_SQL_PERF_BASELINE_RUN_ID }}
       - run: cargo fetch --locked
       - name: Compare confirmed current evidence to the reviewed baseline
         run: >-
@@ -456,7 +515,7 @@ jobs:
           P2_CURRENT_PATH=artifacts/perf-current/sql_perf_p2_report.json
           SCALE_BASELINE_PATH=artifacts/perf-baseline/sql_perf_scale_report.json
           SCALE_CURRENT_PATH=artifacts/perf-current/sql_perf_scale_report.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: sql-perf-tier-d-comparison

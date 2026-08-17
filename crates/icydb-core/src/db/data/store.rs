@@ -60,6 +60,18 @@ enum DataStoreBackend {
     },
 }
 
+/// Preflighted provenance publication for direct journal record families.
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) struct PreparedDataPositionPublication {
+    keys: Vec<RawDataStoreKey>,
+    position: JournalOverlayPosition,
+}
+
+/// Preflighted exact retirement for one complete journal batch.
+pub(in crate::db) struct PreparedDataPositionRetirement {
+    entries: Vec<(RawDataStoreKey, PositionedOverlayRetirement)>,
+}
+
 /// One visible row read that borrows heap/live state and owns stable state.
 ///
 /// Callers that only need selected fields can evaluate a borrowed row while
@@ -234,7 +246,7 @@ impl DataStore {
             canonical,
             live,
             tombstones,
-            ..
+            positions,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -242,6 +254,7 @@ impl DataStore {
 
         live.clear();
         tombstones.clear();
+        positions.clear();
         self.entity_cardinality = if canonical.is_empty() {
             EntityCardinality::empty()
         } else {
@@ -313,15 +326,7 @@ impl DataStore {
 
     /// Publish one positioned row value or tombstone to the live projection.
     ///
-    /// This dormant Patch-2 boundary is not called by the production commit or
-    /// recovery paths until atomic online-convergence activation.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Patch 2 state machine remains dormant until Patch 6"
-        )
-    )]
+    /// Production commits use this after Gate 2 and marker publication.
     pub(in crate::db) fn publish_positioned_journal_entry(
         &mut self,
         key: RawDataStoreKey,
@@ -361,19 +366,80 @@ impl DataStore {
         Ok(previous)
     }
 
-    /// Retire this batch's row overlay only when it still owns the target.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Patch 2 state machine remains dormant until Patch 6"
-        )
-    )]
-    pub(in crate::db) fn retire_positioned_journal_effect(
-        &mut self,
+    /// Preflight row provenance before marker publication.
+    pub(in crate::db) fn preflight_positioned_journal_entry(
+        &self,
         key: &RawDataStoreKey,
         position: JournalOverlayPosition,
-    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
+    ) -> Result<(), crate::error::InternalError> {
+        let DataStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        positions.preflight_publish(key, position)
+    }
+
+    /// Preflight direct row provenance before marker publication.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db) fn prepare_position_publication(
+        &self,
+        keys: impl IntoIterator<Item = RawDataStoreKey>,
+        position: JournalOverlayPosition,
+    ) -> Result<PreparedDataPositionPublication, crate::error::InternalError> {
+        let DataStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        let keys = keys.into_iter().collect::<BTreeSet<_>>();
+        for key in &keys {
+            positions.preflight_publish(key, position)?;
+        }
+        Ok(PreparedDataPositionPublication {
+            keys: keys.into_iter().collect(),
+            position,
+        })
+    }
+
+    /// Publish direct row provenance after its values have been applied.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db) fn publish_prepared_positions(
+        &mut self,
+        prepared: PreparedDataPositionPublication,
+    ) {
+        let DataStoreBackend::Journaled { positions, .. } = &mut self.backend else {
+            debug_assert!(false, "preflighted row positions require a journaled store");
+            return;
+        };
+        for key in prepared.keys {
+            positions.publish_preflighted(key, prepared.position);
+        }
+    }
+
+    /// Preflight exact row-overlay retirement before canonical mutation.
+    pub(in crate::db) fn prepare_position_retirement(
+        &self,
+        keys: impl IntoIterator<Item = RawDataStoreKey>,
+        position: JournalOverlayPosition,
+    ) -> Result<PreparedDataPositionRetirement, crate::error::InternalError> {
+        let DataStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        let entries = keys
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|key| {
+                positions
+                    .preflight_retirement(&key, position)
+                    .map(|retirement| (key, retirement))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(PreparedDataPositionRetirement { entries })
+    }
+
+    /// Retire only exact row overlays after canonical mutation succeeds.
+    pub(in crate::db) fn apply_prepared_position_retirement(
+        &mut self,
+        prepared: PreparedDataPositionRetirement,
+    ) {
         let DataStoreBackend::Journaled {
             live,
             tombstones,
@@ -381,15 +447,35 @@ impl DataStore {
             ..
         } = &mut self.backend
         else {
+            debug_assert!(
+                false,
+                "preflighted row retirement requires a journaled store"
+            );
+            return;
+        };
+        for (key, retirement) in prepared.entries {
+            if retirement == PositionedOverlayRetirement::Exact {
+                live.remove(&key);
+                tombstones.remove(&key);
+                positions.retire_preflighted(&key, retirement);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn retire_positioned_journal_effect(
+        &mut self,
+        key: &RawDataStoreKey,
+        position: JournalOverlayPosition,
+    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
+        let DataStoreBackend::Journaled { positions, .. } = &self.backend else {
             return Err(crate::error::InternalError::store_invariant());
         };
         let retirement = positions.preflight_retirement(key, position)?;
-        if retirement == PositionedOverlayRetirement::Exact {
-            live.remove(key);
-            tombstones.remove(key);
-            positions.retire_preflighted(key, retirement);
-            self.bump_generation();
-        }
+        let prepared = PreparedDataPositionRetirement {
+            entries: vec![(key.clone(), retirement)],
+        };
+        self.apply_prepared_position_retirement(prepared);
         Ok(retirement)
     }
 
@@ -459,6 +545,18 @@ impl DataStore {
     /// Load one row by raw key.
     pub(in crate::db) fn get(&self, key: &RawDataStoreKey) -> Option<RawRow> {
         self.read(key).into_owned()
+    }
+
+    /// Load one row from the canonical predecessor view.
+    ///
+    /// Online journal folding uses this view so a newer positioned live effect
+    /// cannot replace the predecessor evidence for the older batch being
+    /// canonicalized.
+    pub(in crate::db) fn get_canonical(&self, key: &RawDataStoreKey) -> Option<RawRow> {
+        match &self.backend {
+            DataStoreBackend::Heap(map) => map.get(key).cloned(),
+            DataStoreBackend::Journaled { canonical, .. } => canonical.get(key),
+        }
     }
 
     /// Read one visible row without cloning heap/live payloads.

@@ -403,7 +403,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn store_memory_handle(
+pub(in crate::db) fn store_memory_handle(
     allocation: StoreAllocationIdentity,
 ) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
     TEST_STORE_ROLE_MEMORIES.with(|memories| {
@@ -422,9 +422,18 @@ fn store_memory_handle(
 }
 
 #[cfg(not(test))]
-fn store_memory_handle(
+pub(in crate::db) fn store_memory_handle(
     allocation: StoreAllocationIdentity,
 ) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(allocation.stable_key(), allocation.memory_id())
+        .map_err(InternalError::database_format_memory_registration_failed)
+}
+
+#[cfg(not(test))]
+pub(in crate::db) fn open_registered_store_memory(
+    memory_id: u8,
+    stable_key: &str,
+) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+    open_default_memory_manager_memory(stable_key, memory_id)
         .map_err(InternalError::database_format_memory_registration_failed)
 }

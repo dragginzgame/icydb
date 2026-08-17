@@ -16,7 +16,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut Tier C minimized-failure artifact format.
-pub const TIER_C_FAILURE_ARTIFACT_FORMAT_VERSION: u32 = 3;
+pub const TIER_C_FAILURE_ARTIFACT_FORMAT_VERSION: u32 = 1;
 
 /// Domain separator for deterministic Tier C failure-artifact identities.
 const TIER_C_FAILURE_ARTIFACT_ID_DOMAIN: &[u8] = b"icydb-sql-tier-c-failure-artifact/v3";

@@ -24,8 +24,7 @@ pub(in crate::db) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 38;
 const STORE_ALLOCATION_ROLES: usize = 4;
 const MAX_STABLE_KEY_BYTES: usize = 128;
 const COMMIT_CONTROL_MAGIC: [u8; 4] = *b"ICCS";
-const COMMIT_CONTROL_STATE_VERSION_PREDECESSOR: u8 = 2;
-const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 3;
+const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 1;
 const DATABASE_INCARNATION_BYTES: usize = 16;
 const CURSOR_AUTHENTICATION_KEY_BYTES: usize = 32;
 const DATABASE_COMMIT_SEQUENCE_BYTES: usize = 8;
@@ -40,11 +39,8 @@ const CURRENT_CONTROL_PREFIX_BYTES: usize = COMMIT_CONTROL_MAGIC.len()
     + CURSOR_AUTHENTICATION_KEY_BYTES
     + DATABASE_COMMIT_SEQUENCE_BYTES
     + REGISTRY_COUNT_BYTES;
-pub(super) const PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES: usize = COMMIT_CONTROL_MAGIC.len()
-    + 1
-    + DATABASE_INCARNATION_BYTES
-    + CURSOR_AUTHENTICATION_KEY_BYTES
-    + COMMIT_MARKER_LENGTH_BYTES;
+pub(super) const CURRENT_COMMIT_CONTROL_HEADER_BYTES: usize =
+    CURRENT_CONTROL_PREFIX_BYTES + COMMIT_MARKER_LENGTH_BYTES;
 pub(super) const MAX_CURRENT_COMMIT_CONTROL_HEADER_BYTES: usize = CURRENT_CONTROL_PREFIX_BYTES
     + MAX_PERSISTED_STORE_ALLOCATIONS * (1 + STORE_ALLOCATION_ROLES * (2 + MAX_STABLE_KEY_BYTES))
     + COMMIT_MARKER_LENGTH_BYTES;
@@ -178,7 +174,6 @@ pub(super) struct CommitControlHeader {
     pub(super) database_incarnation_id: DatabaseIncarnationId,
     pub(super) header_len: usize,
     pub(super) marker_len: usize,
-    pub(super) current_format: bool,
 }
 
 struct ControlSlotLengths {
@@ -234,28 +229,12 @@ pub(super) fn commit_control_slot_encoded_len(bytes: &[u8]) -> Result<usize, Int
 pub(super) fn inspect_commit_control_header(
     bytes: &[u8],
 ) -> Result<CommitControlHeader, InternalError> {
-    let version = control_version(bytes)?;
-    match version {
-        COMMIT_CONTROL_STATE_VERSION_CURRENT => {
-            let parsed = parse_current_control(bytes)?;
-            Ok(CommitControlHeader {
-                database_incarnation_id: parsed.database_incarnation_id,
-                header_len: parsed.marker_offset,
-                marker_len: parsed.marker_len,
-                current_format: true,
-            })
-        }
-        COMMIT_CONTROL_STATE_VERSION_PREDECESSOR => {
-            let parsed = parse_predecessor_control(bytes)?;
-            Ok(CommitControlHeader {
-                database_incarnation_id: parsed.database_incarnation_id,
-                header_len: PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES,
-                marker_len: parsed.marker_len,
-                current_format: false,
-            })
-        }
-        _ => Err(InternalError::serialize_incompatible_persisted_format()),
-    }
+    let parsed = parse_current_control(bytes)?;
+    Ok(CommitControlHeader {
+        database_incarnation_id: parsed.database_incarnation_id,
+        header_len: parsed.marker_offset,
+        marker_len: parsed.marker_len,
+    })
 }
 
 pub(super) fn encode_empty_commit_control_slot(
@@ -404,63 +383,6 @@ fn parse_current_control(bytes: &[u8]) -> Result<ParsedCurrentControl, InternalE
         marker_len,
         encoded_len,
     })
-}
-
-struct ParsedPredecessorControl {
-    database_incarnation_id: DatabaseIncarnationId,
-    cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
-    marker_len: usize,
-}
-
-fn parse_predecessor_control(bytes: &[u8]) -> Result<ParsedPredecessorControl, InternalError> {
-    if bytes.len() < PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES
-        || control_version(bytes)? != COMMIT_CONTROL_STATE_VERSION_PREDECESSOR
-    {
-        return Err(InternalError::serialize_incompatible_persisted_format());
-    }
-    let mut cursor = COMMIT_CONTROL_MAGIC.len() + 1;
-    let database_incarnation_id = read_incarnation(bytes, &mut cursor)?;
-    let cursor_authentication_key = read_cursor_key(bytes, &mut cursor)?;
-    let marker_len = read_u32_le(bytes, &mut cursor, "predecessor commit control-slot")? as usize;
-    let encoded_len = cursor
-        .checked_add(marker_len)
-        .ok_or_else(control_slot_canonical_envelope_required)?;
-    if encoded_len != bytes.len() || encoded_len > MAX_COMMIT_BYTES as usize {
-        return Err(control_slot_canonical_envelope_required());
-    }
-    Ok(ParsedPredecessorControl {
-        database_incarnation_id,
-        cursor_authentication_key,
-        marker_len,
-    })
-}
-
-#[cfg(test)]
-pub(super) fn encode_empty_predecessor_commit_control_slot(
-    database_incarnation_id: DatabaseIncarnationId,
-    cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
-) -> Result<Vec<u8>, InternalError> {
-    validate_cursor_key(cursor_authentication_key)?;
-    let mut encoded = Vec::with_capacity(PREDECESSOR_COMMIT_CONTROL_HEADER_BYTES);
-    encoded.extend_from_slice(&COMMIT_CONTROL_MAGIC);
-    encoded.push(COMMIT_CONTROL_STATE_VERSION_PREDECESSOR);
-    encoded.extend_from_slice(&database_incarnation_id.to_bytes());
-    encoded.extend_from_slice(&cursor_authentication_key);
-    encoded.extend_from_slice(&0_u32.to_le_bytes());
-    Ok(encoded)
-}
-
-pub(in crate::db::commit) fn predecessor_empty_control_identity(
-    bytes: &[u8],
-) -> Result<(DatabaseIncarnationId, [u8; CURSOR_AUTHENTICATION_KEY_BYTES]), InternalError> {
-    let parsed = parse_predecessor_control(bytes)?;
-    if parsed.marker_len != 0 {
-        return Err(InternalError::store_unsupported());
-    }
-    Ok((
-        parsed.database_incarnation_id,
-        parsed.cursor_authentication_key,
-    ))
 }
 
 fn write_current_control_prefix(

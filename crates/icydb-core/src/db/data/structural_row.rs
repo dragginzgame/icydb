@@ -158,6 +158,15 @@ impl StructuralRowContract {
         Self::from_accepted_decode_contract(entity_path, accepted_decode_contract)
     }
 
+    /// Return whether two authorities decode the same persisted row shape.
+    #[must_use]
+    pub(in crate::db) fn has_same_decode_authority(&self, other: &Self) -> bool {
+        self.entity_path == other.entity_path
+            && self.field_count == other.field_count
+            && self.primary_key_slot == other.primary_key_slot
+            && self.accepted_decode_contract == other.accepted_decode_contract
+    }
+
     /// Borrow the owning entity path for diagnostics.
     #[must_use]
     pub(in crate::db) fn entity_path(&self) -> &str {

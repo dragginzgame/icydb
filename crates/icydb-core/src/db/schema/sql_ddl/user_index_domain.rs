@@ -114,25 +114,40 @@ fn stage_user_index_domain_replacement(
             if data_key.entity_tag() != entity_tag {
                 return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
             }
-            let accepted_before_slots = StructuralSlotReader::from_raw_row_with_validated_contract(
-                raw_row,
-                accepted_before_row_contract.clone(),
-            )?;
+            let accepted_before_slots =
+                StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                    raw_row,
+                    &accepted_before_row_contract,
+                )?;
             accepted_before_slots.validate_primary_key(&data_key)?;
-            let accepted_after_slots = StructuralSlotReader::from_raw_row_with_validated_contract(
-                raw_row,
-                accepted_after_row_contract.clone(),
-            )?;
-            accepted_after_slots.validate_primary_key(&data_key)?;
-            let row = SchemaUserIndexDomainRow::new(
-                data_key.primary_key_value(),
-                &accepted_before_slots,
-                &accepted_after_slots,
-                raw_row.len(),
-            );
-            builder
-                .observe_row(&row)
-                .map_err(StagedUserIndexDomainError::into_internal_error)?;
+            if accepted_before_row_contract.has_same_decode_authority(&accepted_after_row_contract)
+            {
+                let row = SchemaUserIndexDomainRow::new(
+                    data_key.primary_key_value(),
+                    &accepted_before_slots,
+                    &accepted_before_slots,
+                    raw_row.len(),
+                );
+                builder
+                    .observe_row(&row)
+                    .map_err(StagedUserIndexDomainError::into_internal_error)?;
+            } else {
+                let accepted_after_slots =
+                    StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                        raw_row,
+                        &accepted_after_row_contract,
+                    )?;
+                accepted_after_slots.validate_primary_key(&data_key)?;
+                let row = SchemaUserIndexDomainRow::new(
+                    data_key.primary_key_value(),
+                    &accepted_before_slots,
+                    &accepted_after_slots,
+                    raw_row.len(),
+                );
+                builder
+                    .observe_row(&row)
+                    .map_err(StagedUserIndexDomainError::into_internal_error)?;
+            }
             Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
         })
     })?;

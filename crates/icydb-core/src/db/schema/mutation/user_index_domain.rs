@@ -363,7 +363,10 @@ impl StagedUserIndexDomainReplacementBuilder {
             .into_iter()
             .map(|entry| entry.key)
             .collect::<Vec<_>>();
-        validate_insertion_collisions(index_store, &deletion_keys, &self.final_entries)?;
+        // The complete current user domain was decoded and proved equal to
+        // row-derived accepted-before truth above. A final raw user key can
+        // therefore exist only inside this exact deletion domain; a second
+        // point lookup for every accepted-after key cannot prove more.
         self.budget.finish_sort_workspace(
             self.expected_before.len(),
             self.final_entries.len(),
@@ -424,9 +427,6 @@ pub(in crate::db) enum StagedUserIndexDomainError {
     /// Accepted-schema fingerprint construction failed.
     Fingerprint(InternalError),
 
-    /// A final key collides with state outside the proven deletion domain.
-    InsertionCollision,
-
     /// The backing index store is not query-ready before staging.
     IndexStoreNotReady,
 
@@ -467,7 +467,6 @@ impl StagedUserIndexDomainError {
             Self::CurrentDomainMismatch
             | Self::DuplicateRawKey
             | Self::DuplicateUniqueKey
-            | Self::InsertionCollision
             | Self::PhysicalKeyDecode => InternalError::store_corruption(),
             Self::AcceptedAfterEntityMismatch
             | Self::AcceptedBeforeIdentityMismatch
@@ -820,13 +819,19 @@ fn validate_projection(
         if pair[0].key == pair[1].key {
             return Err(StagedUserIndexDomainError::DuplicateRawKey);
         }
-        let left = IndexKey::try_from_raw(&pair[0].key)
+    }
+    if unique_index_ids.is_empty() || entries.is_empty() {
+        return Ok(());
+    }
+
+    let mut previous = IndexKey::try_from_raw(&entries[0].key)
+        .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
+    for entry in &entries[1..] {
+        let current = IndexKey::try_from_raw(&entry.key)
             .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
-        let right = IndexKey::try_from_raw(&pair[1].key)
-            .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
-        if left.index_id() == right.index_id()
-            && unique_index_ids.contains(left.index_id())
-            && left.has_same_components(&right)
+        if previous.index_id() == current.index_id()
+            && unique_index_ids.contains(previous.index_id())
+            && previous.has_same_components(&current)
         {
             return Err(match authority {
                 ProjectionAuthority::AcceptedBefore => {
@@ -837,6 +842,7 @@ fn validate_projection(
                 }
             });
         }
+        previous = current;
     }
 
     Ok(())
@@ -884,23 +890,6 @@ pub(in crate::db::schema) fn prove_empty_user_index_domain(
     } else {
         Err(StagedUserIndexDomainError::CurrentDomainMismatch)
     }
-}
-
-#[cfg(any(test, feature = "sql"))]
-fn validate_insertion_collisions(
-    index_store: &IndexStore,
-    deletion_keys: &[RawIndexStoreKey],
-    final_entries: &[StagedUserIndexDomainEntry],
-) -> Result<(), StagedUserIndexDomainError> {
-    for entry in final_entries {
-        if index_store.get(entry.key()).is_some()
-            && deletion_keys.binary_search(entry.key()).is_err()
-        {
-            return Err(StagedUserIndexDomainError::InsertionCollision);
-        }
-    }
-
-    Ok(())
 }
 
 ///

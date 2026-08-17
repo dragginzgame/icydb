@@ -8,7 +8,8 @@ use crate::db::schema::preflight_schema_migration_record_op;
 use crate::{
     db::{
         commit::{
-            PreparedRowCommitOp,
+            BACKLOG_LIMITS, BacklogAdmission, ExactBacklogMeasurement, PreparedRowCommitOp,
+            admit_backlog, current_database_backlog,
             marker::{CommitMarker, DatabaseControlOp},
             store::{EncodedCommitControlSlot, with_commit_store, with_initialized_commit_store},
         },
@@ -174,16 +175,19 @@ impl Drop for CommitApplyGuard {
 pub(crate) struct CommitGuard {
     startup_recovery_wakeup: fn(),
     encoded_control_slot: EncodedCommitControlSlot,
+    retained_journal_debt: bool,
 }
 
 impl CommitGuard {
     const fn new(
         startup_recovery_wakeup: fn(),
         encoded_control_slot: EncodedCommitControlSlot,
+        retained_journal_debt: bool,
     ) -> Self {
         Self {
             startup_recovery_wakeup,
             encoded_control_slot,
+            retained_journal_debt,
         }
     }
 
@@ -202,6 +206,10 @@ impl CommitGuard {
     /// Ensure one future replicated attempt can advance retained recovery work.
     fn ensure_startup_recovery_wakeup(&self) {
         (self.startup_recovery_wakeup)();
+    }
+
+    const fn retained_journal_debt(&self) -> bool {
+        self.retained_journal_debt
     }
 }
 
@@ -257,16 +265,24 @@ fn begin_commit_with_preflighted_mutation_progress(
     // own a wake-up function; missing lifecycle wiring therefore fails before
     // any durable recovery work is created.
     let startup_recovery_wakeup = startup_recovery_wakeup()?;
-    with_commit_store(|store| {
-        // Phase 1: enforce one in-flight marker at a time before opening the
-        // commit window.
-        let encoded_control_slot = store.set_if_empty(&marker)?;
-
-        Ok(CommitGuard::new(
-            startup_recovery_wakeup,
-            encoded_control_slot,
-        ))
-    })
+    // Encode once without publishing marker authority so Gate 2 consumes the
+    // exact envelopes later appended by the successful commit.
+    let prepared = with_commit_store(|store| store.prepare_set_if_empty(&marker))?;
+    let proposed = ExactBacklogMeasurement::from_prepared_marker(&marker, prepared.encoded())?;
+    let current = current_database_backlog()?;
+    match admit_backlog(current, proposed, BACKLOG_LIMITS)? {
+        BacklogAdmission::Admitted { .. } => {}
+        BacklogAdmission::Pressure(pressure) => {
+            startup_recovery_wakeup();
+            return Err(pressure.into_error());
+        }
+    }
+    let encoded_control_slot = with_commit_store(|store| store.publish_prepared_marker(prepared))?;
+    Ok(CommitGuard::new(
+        startup_recovery_wakeup,
+        encoded_control_slot,
+        proposed.batch_count() != 0,
+    ))
 }
 
 /// Apply commit ops and clear the marker only on successful completion.
@@ -308,6 +324,9 @@ pub(crate) fn finish_commit(
     if let Err(error) = guard.clear() {
         guard.ensure_startup_recovery_wakeup();
         return Err(error);
+    }
+    if guard.retained_journal_debt() {
+        guard.ensure_startup_recovery_wakeup();
     }
     // Clear preflights every fallible check before its mechanical stable writes.
     // Do not introduce a normally returned validation error after retirement;

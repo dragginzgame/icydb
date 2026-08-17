@@ -15,11 +15,6 @@ use crate::{
         integrity::{generate_cursor_authentication_key, generate_database_incarnation_id},
         journal::JournalTailStore,
         registry::{StoreAllocationIdentities, StoreAllocationIdentity, StoreHandle},
-        schema::generated_schema_reconciled,
-        startup::{
-            self,
-            receipt::{AcceptedHeadBinding, StartupFailureBinding, StartupFailureReceipt},
-        },
     },
     error::InternalError,
     traits::CanisterKind,
@@ -49,7 +44,7 @@ pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
     fresh_database_boot: bool,
 ) -> Result<(), InternalError> {
     let proposals = generated_store_proposals::<C>(db)?;
-    if fresh_database_boot {
+    let result = if fresh_database_boot {
         require_fresh_proposal_roots(&proposals)?;
         let incarnation = generate_database_incarnation_id()?;
         let cursor_authentication_key = generate_cursor_authentication_key()?;
@@ -57,129 +52,43 @@ pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
             .iter()
             .map(|proposal| proposal.persisted.clone())
             .collect::<Vec<_>>();
-        return initialize_controls(
+        initialize_controls(
             control_memory,
             incarnation,
             cursor_authentication_key,
             0,
             registry,
             proposals.iter().map(|proposal| proposal.handle),
-            true,
-        );
-    }
-    match inspect_persisted_commit_control(control_memory.clone())? {
-        PersistedCommitControlObservation::Uninitialized => Err(InternalError::commit_corruption()),
-        PersistedCommitControlObservation::Predecessor {
-            incarnation,
-            cursor_authentication_key,
-            control_proof,
-        } => {
-            if let Some(receipt) = startup::receipt::load::<C>()?
-                && predecessor_receipt_matches::<C>(db, incarnation, control_proof, &receipt)?
-            {
-                return Err(InternalError::store_unsupported());
+        )
+    } else {
+        match inspect_persisted_commit_control(control_memory.clone())? {
+            PersistedCommitControlObservation::Uninitialized => {
+                Err(InternalError::commit_corruption())
             }
-            for proposal in &proposals {
-                require_predecessor_empty_tail(proposal.handle)?;
-            }
-            let registry = proposals
-                .iter()
-                .map(|proposal| proposal.persisted.clone())
-                .collect::<Vec<_>>();
-            initialize_controls(
-                control_memory,
-                incarnation,
-                cursor_authentication_key,
-                0,
-                registry,
-                proposals.iter().map(|proposal| proposal.handle),
-                false,
-            )
-        }
-        PersistedCommitControlObservation::Current {
-            incarnation,
-            cursor_authentication_key,
-            database_commit_sequence,
-            registry,
-            marker_present,
-        } => {
-            validate_persisted_allocation_set::<C>(&registry)?;
-            reconcile_current_registry(
-                control_memory,
+            PersistedCommitControlObservation::Current {
                 incarnation,
                 cursor_authentication_key,
                 database_commit_sequence,
                 registry,
                 marker_present,
-                &proposals,
-            )
-        }
-    }
-}
-
-fn predecessor_receipt_matches<C: CanisterKind>(
-    db: &Db<C>,
-    incarnation: crate::db::DatabaseIncarnationId,
-    control_proof: [u8; 32],
-    receipt: &StartupFailureReceipt,
-) -> Result<bool, InternalError> {
-    match receipt.binding() {
-        StartupFailureBinding::DatabaseControl {
-            commit_memory_id,
-            commit_stable_key,
-            control: Some(control),
-        } => Ok(*commit_memory_id == C::COMMIT_MEMORY_ID
-            && commit_stable_key == C::COMMIT_STABLE_KEY
-            && control.incarnation == incarnation
-            && control.proof == control_proof),
-        StartupFailureBinding::DatabaseControl { control: None, .. } => Ok(false),
-        StartupFailureBinding::JournalRecovery {
-            incarnation: bound_incarnation,
-            allocation,
-            proof,
-        } => {
-            if *bound_incarnation != incarnation {
-                return Ok(false);
+            } => {
+                validate_persisted_allocation_set::<C>(&registry)?;
+                reconcile_current_registry(
+                    control_memory,
+                    incarnation,
+                    cursor_authentication_key,
+                    database_commit_sequence,
+                    registry,
+                    marker_present,
+                    &proposals,
+                )
             }
-            db.with_store_registry(|registry| {
-                let journal = registry.iter().find_map(|(_, handle)| {
-                    let identity = handle.journal_allocation()?;
-                    (identity.memory_id() == allocation.memory_id
-                        && identity.stable_key() == allocation.stable_key)
-                        .then(|| handle.journal_tail_store())?
-                });
-                journal.map_or(Ok(false), |journal| {
-                    journal
-                        .with_borrow(|tail| tail.proof_identity().map(|current| current == *proof))
-                })
-            })
         }
-        StartupFailureBinding::SchemaReconciliation {
-            incarnation: bound_incarnation,
-            submission_key,
-            accepted_head,
-        } => {
-            if *bound_incarnation != incarnation {
-                return Ok(false);
-            }
-            let (_, current_head) =
-                generated_schema_reconciled(db.store_registry(), incarnation, submission_key)?;
-            Ok(*accepted_head == accepted_head_binding(&current_head))
-        }
-    }
-}
-
-const fn accepted_head_binding(head: &icydb_schema::ExpectedAcceptedHead) -> AcceptedHeadBinding {
-    match head {
-        icydb_schema::ExpectedAcceptedHead::Empty => AcceptedHeadBinding::Empty,
-        icydb_schema::ExpectedAcceptedHead::Exact {
-            revision,
-            fingerprint,
-        } => AcceptedHeadBinding::Exact {
-            revision: *revision,
-            fingerprint: fingerprint.to_bytes(),
-        },
-    }
+    };
+    result?;
+    #[cfg(test)]
+    crate::db::commit::register_runtime_journal_tails_for_backlog(db)?;
+    Ok(())
 }
 
 fn initialize_controls(
@@ -189,7 +98,6 @@ fn initialize_controls(
     database_commit_sequence: u64,
     mut registry: Vec<PersistedStoreAllocation>,
     handles: impl Iterator<Item = StoreHandle>,
-    publish_boot_record: bool,
 ) -> Result<(), InternalError> {
     canonicalize_store_registry(&mut registry)?;
     let handles = handles.collect::<Vec<_>>();
@@ -211,9 +119,7 @@ fn initialize_controls(
         database_commit_sequence,
         &registry,
     )?;
-    if publish_boot_record {
-        super::publish_preflighted_current_boot_record(control_memory);
-    }
+    super::publish_preflighted_current_boot_record(control_memory);
     for tail in tails {
         tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization);
     }
@@ -400,10 +306,6 @@ fn require_proposal_roots_fresh(proposal: &GeneratedStoreProposal) -> Result<(),
     require_absent_current_tail(proposal.handle)
 }
 
-fn require_predecessor_empty_tail(handle: StoreHandle) -> Result<(), InternalError> {
-    require_absent_current_tail(handle)
-}
-
 fn require_absent_current_tail(handle: StoreHandle) -> Result<(), InternalError> {
     handle
         .journal_tail_store()
@@ -509,23 +411,18 @@ mod tests {
     use crate::{
         db::{
             RequestExecutionRoot,
-            commit::initialize_predecessor_commit_control_for_tests,
             data::DataStore,
             index::IndexStore,
             journal::{DatabaseCommitSequence, FoldWatermark, JournalBatch, JournalSequence},
             registry::{StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::SchemaStore,
-            startup::receipt::DatabaseControlBinding,
         },
         testing::test_memory,
         traits::Path,
     };
-    use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
     use std::cell::RefCell;
 
     const FRESH_PATH: &str = "convergence_tests::Fresh";
-    const UPGRADE_PATH: &str = "convergence_tests::Upgrade";
-    const RACE_PATH: &str = "convergence_tests::Race";
     const LIFE_A_PATH: &str = "convergence_tests::LifeA";
     const LIFE_B_PATH: &str = "convergence_tests::LifeB";
 
@@ -584,60 +481,6 @@ mod tests {
                 "icydb.test.convergence.fresh.index.v1",
                 "icydb.test.convergence.fresh.schema.v1",
                 "icydb.test.convergence.fresh.journal.v1",
-            ),
-        );
-
-        static UPGRADE_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(
-            store_memory_owned(107, "icydb.test.convergence.upgrade.data.v1").unwrap()
-        ));
-        static UPGRADE_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(
-            store_memory_owned(108, "icydb.test.convergence.upgrade.index.v1").unwrap()
-        ));
-        static UPGRADE_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(
-            store_memory_owned(109, "icydb.test.convergence.upgrade.schema.v1").unwrap()
-        ));
-        static UPGRADE_JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(
-            store_memory_owned(110, "icydb.test.convergence.upgrade.journal.v1").unwrap()
-        ));
-        static UPGRADE_REGISTRY: StoreRegistry = registry(
-            UPGRADE_PATH,
-            &UPGRADE_DATA,
-            &UPGRADE_INDEX,
-            &UPGRADE_SCHEMA,
-            &UPGRADE_JOURNAL,
-            allocations(
-                107,
-                "icydb.test.convergence.upgrade.data.v1",
-                "icydb.test.convergence.upgrade.index.v1",
-                "icydb.test.convergence.upgrade.schema.v1",
-                "icydb.test.convergence.upgrade.journal.v1",
-            ),
-        );
-
-        static RACE_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(
-            store_memory_owned(111, "icydb.test.convergence.race.data.v1").unwrap()
-        ));
-        static RACE_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(
-            store_memory_owned(112, "icydb.test.convergence.race.index.v1").unwrap()
-        ));
-        static RACE_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(
-            store_memory_owned(113, "icydb.test.convergence.race.schema.v1").unwrap()
-        ));
-        static RACE_JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(
-            store_memory_owned(114, "icydb.test.convergence.race.journal.v1").unwrap()
-        ));
-        static RACE_REGISTRY: StoreRegistry = registry(
-            RACE_PATH,
-            &RACE_DATA,
-            &RACE_INDEX,
-            &RACE_SCHEMA,
-            &RACE_JOURNAL,
-            allocations(
-                111,
-                "icydb.test.convergence.race.data.v1",
-                "icydb.test.convergence.race.index.v1",
-                "icydb.test.convergence.race.schema.v1",
-                "icydb.test.convergence.race.journal.v1",
             ),
         );
 
@@ -759,21 +602,6 @@ mod tests {
         (root, db)
     }
 
-    fn seed_predecessor_control(
-        memory: &VirtualMemory<DefaultMemoryImpl>,
-        fill: u8,
-    ) -> crate::db::DatabaseIncarnationId {
-        super::super::write_current_boot_record(memory).unwrap();
-        let incarnation = crate::db::DatabaseIncarnationId::for_tests(fill);
-        initialize_predecessor_commit_control_for_tests(
-            memory.clone(),
-            incarnation,
-            [fill.saturating_add(1); 32],
-        )
-        .unwrap();
-        incarnation
-    }
-
     fn maximum_registry() -> Vec<PersistedStoreAllocation> {
         (0..MAX_PERSISTED_STORE_ALLOCATIONS)
             .map(|ordinal| {
@@ -844,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_and_empty_predecessor_initialization_publish_exact_current_controls() {
+    fn fresh_initialization_publishes_exact_current_controls() {
         let fresh_control = test_memory(123);
         let (_root, fresh) = database(&FRESH_REGISTRY);
         ensure_current_convergence_format(&fresh, &fresh_control, true).unwrap();
@@ -862,95 +690,6 @@ mod tests {
         FRESH_JOURNAL.with_borrow(|tail| {
             assert!(tail.validate_current_tail_authority().unwrap().is_empty());
         });
-
-        let upgrade_control = test_memory(124);
-        let predecessor_incarnation = seed_predecessor_control(&upgrade_control, 0x51);
-        let stale_receipt = StartupFailureReceipt::new(
-            startup::StartupFailure::new(
-                startup::StartupFailureKind::DatabaseControl,
-                ErrorCode::RUNTIME_CORRUPTION.diagnostic(DiagnosticOrigin::Recovery),
-                Vec::new(),
-            ),
-            StartupFailureBinding::DatabaseControl {
-                commit_memory_id: ConvergenceCanister::COMMIT_MEMORY_ID,
-                commit_stable_key: ConvergenceCanister::COMMIT_STABLE_KEY.to_string(),
-                control: Some(DatabaseControlBinding::new(
-                    predecessor_incarnation,
-                    [0xFF; 32],
-                )),
-            },
-        )
-        .unwrap();
-        startup::receipt::publish::<ConvergenceCanister>(&stale_receipt).unwrap();
-        let (_root, upgrade) = database(&UPGRADE_REGISTRY);
-        ensure_current_convergence_format(&upgrade, &upgrade_control, false).unwrap();
-        startup::receipt::clear::<ConvergenceCanister>().unwrap();
-        let PersistedCommitControlObservation::Current {
-            incarnation,
-            database_commit_sequence,
-            registry,
-            ..
-        } = inspect_persisted_commit_control(upgrade_control).unwrap()
-        else {
-            panic!("eligible predecessor must become current");
-        };
-        assert_eq!(incarnation, predecessor_incarnation);
-        assert_eq!(database_commit_sequence, 0);
-        assert_eq!(registry.len(), 1);
-        UPGRADE_JOURNAL.with_borrow(|tail| {
-            assert!(tail.validate_current_tail_authority().unwrap().is_empty());
-        });
-    }
-
-    #[test]
-    fn matching_predecessor_receipt_blocks_activation_without_rewriting_authority() {
-        let control = test_memory(128);
-        let incarnation = seed_predecessor_control(&control, 0x81);
-        let PersistedCommitControlObservation::Predecessor { control_proof, .. } =
-            inspect_persisted_commit_control(control.clone()).unwrap()
-        else {
-            panic!("fixture must retain predecessor control");
-        };
-        let receipt = StartupFailureReceipt::new(
-            startup::StartupFailure::new(
-                startup::StartupFailureKind::DatabaseControl,
-                ErrorCode::RUNTIME_CORRUPTION.diagnostic(DiagnosticOrigin::Recovery),
-                Vec::new(),
-            ),
-            StartupFailureBinding::DatabaseControl {
-                commit_memory_id: ConvergenceCanister::COMMIT_MEMORY_ID,
-                commit_stable_key: ConvergenceCanister::COMMIT_STABLE_KEY.to_string(),
-                control: Some(DatabaseControlBinding::new(incarnation, control_proof)),
-            },
-        )
-        .unwrap();
-        startup::receipt::publish::<ConvergenceCanister>(&receipt).unwrap();
-        let (_root, database) = database(&LIFE_EMPTY_REGISTRY);
-
-        assert!(ensure_current_convergence_format(&database, &control, false).is_err());
-        assert!(matches!(
-            inspect_persisted_commit_control(control).unwrap(),
-            PersistedCommitControlObservation::Predecessor { .. }
-        ));
-        startup::receipt::clear::<ConvergenceCanister>().unwrap();
-    }
-
-    #[test]
-    fn predecessor_racing_write_rejects_without_partial_current_publication() {
-        let control = test_memory(125);
-        seed_predecessor_control(&control, 0x61);
-        RACE_JOURNAL.with_borrow_mut(|tail| {
-            tail.insert_raw_batch_for_tests(JournalSequence::new(1), vec![0xAA])
-                .unwrap();
-        });
-        let (_root, database) = database(&RACE_REGISTRY);
-
-        assert!(ensure_current_convergence_format(&database, &control, false).is_err());
-        assert!(matches!(
-            inspect_persisted_commit_control(control).unwrap(),
-            PersistedCommitControlObservation::Predecessor { .. }
-        ));
-        RACE_JOURNAL.with_borrow(|tail| assert!(!tail.has_current_tail_control()));
     }
 
     #[test]

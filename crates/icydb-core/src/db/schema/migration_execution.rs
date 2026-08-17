@@ -18,14 +18,20 @@ use crate::{
             CommitMarker, DatabaseControlOp, begin_commit, finish_commit, generate_commit_id,
             generate_marker_batch_id, next_database_commit_sequence,
         },
-        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit, StructuralSlotReader},
+        data::{
+            DecodedDataStoreKey, PreparedDataPositionPublication, RawDataStoreKey, RawRow,
+            StoreVisit, StructuralSlotReader,
+        },
         direction::Direction,
-        index::{IndexEntryValue, IndexId, IndexKey, RawIndexStoreKey},
+        index::{
+            IndexEntryValue, IndexId, IndexKey, PreparedIndexPositionPublication, RawIndexStoreKey,
+        },
         journal::{
             DatabaseCommitSequence, JournalBatch, JournalRecord, MAX_JOURNAL_BATCH_RECORDS,
             journal_record_payload_len,
         },
         key_taxonomy::RawDataStoreKeyRange,
+        positioned_overlay::JournalOverlayPosition,
         registry::{StoreHandle, StoreRecoveryCapability},
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{
@@ -469,6 +475,7 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
             )?,
         ));
     }
+    let positions = prepare_migration_positions(&batches)?;
     let marker = CommitMarker::from_parts_with_database_control(
         marker_id,
         batches.iter().map(|(_, _, batch)| batch.clone()).collect(),
@@ -479,21 +486,25 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
     if take_migration_rewrite_interruption(MigrationRewriteInterruption::MarkerPersisted) {
         return Err(InternalError::executor_invariant());
     }
-    finish_commit(commit, |_guard| {
-        for (_, store, batch) in &batches {
+    finish_commit(commit, |guard| {
+        for (batch_ordinal, (_, store, batch)) in batches.iter().enumerate() {
             let journal = store
                 .journal_tail_store()
                 .ok_or_else(InternalError::store_invariant)?;
-            journal.with_borrow_mut(|tail| tail.append_batch(batch))?;
+            let marker_bytes = guard.journal_batch_bytes(batch_ordinal)?;
+            journal
+                .with_borrow_mut(|tail| tail.append_marker_encoded_batch(batch, marker_bytes))?;
         }
         #[cfg(test)]
         if take_migration_rewrite_interruption(MigrationRewriteInterruption::JournalPublished) {
             return Err(InternalError::executor_invariant());
         }
-        for (store_path, store, batch) in &batches {
+        for ((store_path, store, batch), positions) in batches.iter().zip(positions) {
             for record in batch.records() {
                 apply_migration_effect(store_path, *store, record)?;
             }
+            store.with_data_mut(|data| data.publish_prepared_positions(positions.data));
+            store.with_index_mut(|index| index.publish_prepared_positions(positions.index));
         }
         #[cfg(test)]
         if take_migration_rewrite_interruption(MigrationRewriteInterruption::PhysicalApplied) {
@@ -501,6 +512,40 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
         }
         apply_schema_migration_record_op(&operation)
     })
+}
+
+struct PreparedMigrationPositions {
+    data: PreparedDataPositionPublication,
+    index: PreparedIndexPositionPublication,
+}
+
+fn prepare_migration_positions(
+    batches: &[(&'static str, StoreHandle, JournalBatch)],
+) -> Result<Vec<PreparedMigrationPositions>, InternalError> {
+    batches
+        .iter()
+        .map(|(_, store, batch)| {
+            let allocation = store
+                .journal_allocation()
+                .ok_or_else(InternalError::store_invariant)?;
+            let position = JournalOverlayPosition::new(allocation, batch.journal_sequence());
+            let row_keys = batch.records().iter().filter_map(|record| match record {
+                JournalRecord::SchemaMigrationRowPut { primary_key, .. } => {
+                    Some(primary_key.clone())
+                }
+                _ => None,
+            });
+            let index_keys = batch.records().iter().filter_map(|record| match record {
+                JournalRecord::SchemaMigrationIndexPut { key, .. } => Some(key.clone()),
+                _ => None,
+            });
+            let data =
+                store.with_data(|data| data.prepare_position_publication(row_keys, position))?;
+            let index = store
+                .with_index(|index| index.prepare_position_publication(index_keys, position))?;
+            Ok(PreparedMigrationPositions { data, index })
+        })
+        .collect()
 }
 
 fn apply_migration_effect(

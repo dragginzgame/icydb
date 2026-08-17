@@ -16,8 +16,9 @@
 //! batches and rebuilds derived projections from current durable authority.
 
 mod apply;
-#[cfg(test)]
 mod backlog_admission;
+#[cfg(test)]
+mod convergence_candidate;
 mod guard;
 mod marker;
 mod memory;
@@ -28,9 +29,13 @@ mod rollback;
 mod schema_publication;
 mod store;
 
+pub(in crate::db) use backlog_admission::{
+    BACKLOG_LIMITS, BacklogAdmission, ExactBacklogMeasurement, admit_backlog,
+    current_database_backlog,
+};
 #[cfg(test)]
 pub(in crate::db) use backlog_admission::{
-    CandidateBacklogLimits, ExactBacklogMeasurement, admit_dormant_backlog,
+    BacklogLimits, register_runtime_journal_tails_for_backlog,
 };
 #[doc(hidden)]
 pub use guard::install_startup_recovery_wakeup;
@@ -49,6 +54,8 @@ pub(in crate::db) use marker::{
     CommitMarker, CommitRowOp, CommitSchemaFingerprint, DatabaseControlOp, MAX_COMMIT_BYTES,
     generate_commit_id, generate_marker_batch_id,
 };
+#[cfg(test)]
+pub(in crate::db) use memory::current_commit_memory_allocation_if_configured;
 pub(in crate::db) use memory::{
     CommitMemoryAllocation, commit_memory_handle, configure_commit_memory_id,
     current_commit_memory_allocation,
@@ -80,6 +87,8 @@ pub(in crate::db) use schema_publication::{
     publish_accepted_schema_candidate_with_constraint_validation_job_removal,
     publish_constraint_validation_job, publish_generated_row_local_abort_with_application_record,
 };
+#[cfg(test)]
+pub(in crate::db) use store::initialize_current_commit_control_for_tests;
 pub(in crate::db) use store::{
     CommitControlObservation, PersistedCommitControlObservation,
     apply_prepared_commit_control_replacement, cursor_authentication_key,
@@ -90,10 +99,6 @@ pub(in crate::db) use store::{
 pub(in crate::db) use store::{
     MAX_PERSISTED_STORE_ALLOCATIONS, PersistedStoreAllocation, PersistedStoreAllocationState,
     canonicalize_store_registry,
-};
-#[cfg(test)]
-pub(in crate::db) use store::{
-    initialize_current_commit_control_for_tests, initialize_predecessor_commit_control_for_tests,
 };
 #[cfg(test)]
 pub(in crate::db) use store::{

@@ -1,3 +1,5 @@
+# shellcheck shell=bash
+
 wasm_report_default_canisters() {
     printf '%s\n' \
         default_empty \

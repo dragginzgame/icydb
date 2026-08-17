@@ -3,7 +3,9 @@
 //! Does not own: candidate construction, schema compatibility, or root codecs.
 //! Boundary: schema reconciliation -> commit marker/journal -> schema live projection.
 
-use crate::db::index::{IndexEntryValue, IndexKey, RawIndexStoreKey};
+use crate::db::index::{
+    IndexEntryValue, IndexKey, PreparedIndexPositionPublication, RawIndexStoreKey,
+};
 #[cfg(feature = "sql")]
 use crate::db::journal::MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD;
 #[cfg(feature = "sql")]
@@ -21,11 +23,13 @@ use crate::{
             generate_commit_id, generate_marker_batch_id, next_database_commit_sequence,
         },
         journal::{DatabaseCommitSequence, JournalBatch, JournalRecord, JournalSequence},
+        positioned_overlay::JournalOverlayPosition,
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
-            SchemaApplicationRecordOp, apply_live_schema_checkpoint,
-            apply_schema_application_record_op, preflight_live_schema_checkpoint,
+            PreparedSchemaPositionPublication, SchemaApplicationRecordOp,
+            apply_live_schema_checkpoint, apply_schema_application_record_op,
+            preflight_live_schema_checkpoint,
         },
     },
     error::InternalError,
@@ -52,6 +56,45 @@ enum ConstraintValidationJobChange<'a> {
         entity_tag: EntityTag,
         constraint_id: ConstraintId,
     },
+}
+
+struct PreparedJournaledSchemaPositions {
+    schema: PreparedSchemaPositionPublication,
+    index: PreparedIndexPositionPublication,
+}
+
+fn prepare_journaled_schema_positions(
+    store: StoreHandle,
+    batch: &JournalBatch,
+) -> Result<PreparedJournaledSchemaPositions, InternalError> {
+    let allocation = store
+        .journal_allocation()
+        .ok_or_else(InternalError::store_invariant)?;
+    let position = JournalOverlayPosition::new(allocation, batch.journal_sequence());
+    let incarnation = database_incarnation_id()?;
+    let schema = store.with_schema(|schema_store| {
+        schema_store.prepare_positioned_journal_batch_publication(incarnation, batch, position)
+    })?;
+    let index_keys = batch.records().iter().flat_map(|record| match record {
+        JournalRecord::AcceptedSchemaIndexDelete { keys, .. }
+        | JournalRecord::AcceptedSchemaIndexPut { keys, .. } => keys.as_slice(),
+        JournalRecord::ConstraintValidationIndexPut { key, .. } => std::slice::from_ref(key),
+        _ => &[],
+    });
+    let index = store.with_index(|index_store| {
+        index_store.prepare_position_publication(index_keys.cloned(), position)
+    })?;
+    Ok(PreparedJournaledSchemaPositions { schema, index })
+}
+
+fn publish_journaled_schema_positions(
+    store: StoreHandle,
+    prepared: PreparedJournaledSchemaPositions,
+) {
+    store.with_index_mut(|index_store| index_store.publish_prepared_positions(prepared.index));
+    store.with_schema_mut(|schema_store| {
+        schema_store.publish_prepared_journal_batch_positions(prepared.schema);
+    });
 }
 
 ///
@@ -477,6 +520,7 @@ fn publish_journaled_candidate(
         database_commit_sequence,
         records,
     )?;
+    let positions = prepare_journaled_schema_positions(store, &batch)?;
     let marker = CommitMarker::from_parts_with_schema_application(
         marker_id,
         vec![batch.clone()],
@@ -500,6 +544,7 @@ fn publish_journaled_candidate(
         if let Some(operation) = application_record.as_ref() {
             apply_schema_application_record_op(operation)?;
         }
+        publish_journaled_schema_positions(store, positions);
         Ok(())
     })
 }
@@ -592,6 +637,15 @@ fn publish_candidates_atomically(
             vec![record],
         )?);
     }
+    let positions = publications
+        .iter()
+        .zip(&batches)
+        .map(|(publication, batch)| {
+            (batch.journal_sequence() != JournalSequence::new(0))
+                .then(|| prepare_journaled_schema_positions(publication.store, batch))
+                .transpose()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let marker = CommitMarker::from_parts_with_database_control(
         marker_id,
         batches.clone(),
@@ -645,6 +699,11 @@ fn publish_candidates_atomically(
             })?;
         }
         apply_database_control_ops(database_control.as_slice())?;
+        for (publication, positions) in publications.iter().zip(positions) {
+            if let Some(positions) = positions {
+                publish_journaled_schema_positions(publication.store, positions);
+            }
+        }
         Ok(())
     })
 }
@@ -706,6 +765,7 @@ fn publish_journaled_constraint_validation_job(
         database_commit_sequence,
         vec![record],
     )?;
+    let positions = prepare_journaled_schema_positions(store, &batch)?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
@@ -713,7 +773,9 @@ fn publish_journaled_constraint_validation_job(
         let marker_bytes = guard.journal_batch_bytes(0)?;
         journal_store
             .with_borrow_mut(|journal| journal.append_marker_encoded_batch(&batch, marker_bytes))?;
-        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
+        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))?;
+        publish_journaled_schema_positions(store, positions);
+        Ok(())
     })
 }
 
@@ -749,6 +811,7 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
         database_commit_sequence,
         records,
     )?;
+    let positions = prepare_journaled_schema_positions(store, &batch)?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
     let commit = begin_commit(marker)?;
 
@@ -761,7 +824,9 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
                 index_store.insert(key, IndexEntryValue::presence());
             }
         });
-        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
+        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))?;
+        publish_journaled_schema_positions(store, positions);
+        Ok(())
     })
 }
 
@@ -1002,7 +1067,7 @@ fn apply_user_index_domain_replacement(
     }
     for entry in final_entries {
         let (key, value) = entry.into_parts();
-        index_store.insert(key, value);
+        index_store.insert_preflighted_absent(key, value);
     }
 }
 

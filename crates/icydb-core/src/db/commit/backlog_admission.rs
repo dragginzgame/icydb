@@ -1,15 +1,47 @@
 //! Module: db::commit::backlog_admission
-//! Responsibility: evaluate the dormant exact database-backlog tuple.
-//! Does not own: frozen limits, production admission, scheduling, or convergence execution.
-//! Boundary: exact tail controls + immutable prepared envelopes -> measurement candidate.
+//! Responsibility: enforce the exact database-backlog tuple before marker publication.
+//! Does not own: individual commit admission, scheduling, or convergence execution.
+//! Boundary: persisted tail controls + marker-owned encoded envelopes -> Gate-2 admission.
 
 use crate::{
     db::{
-        commit::{CommitMarker, MAX_PERSISTED_STORE_ALLOCATIONS},
-        journal::{JournalTailControl, decode_journal_batch, encode_journal_batch},
+        commit::{CommitMarker, MAX_COMMIT_BYTES, MAX_PERSISTED_STORE_ALLOCATIONS},
+        journal::{JournalTailControl, JournalTailStore, MAX_JOURNAL_BATCH_RECORDS},
     },
     error::InternalError,
 };
+
+use super::store::EncodedCommitControlSlot;
+
+#[cfg(not(test))]
+use crate::db::database_format::open_registered_store_memory;
+
+#[cfg(test)]
+use crate::{
+    db::{
+        Db,
+        commit::{
+            PersistedStoreAllocationState, current_commit_memory_allocation,
+            current_commit_memory_allocation_if_configured,
+        },
+        registry::StoreAllocationIdentity,
+    },
+    traits::CanisterKind,
+};
+#[cfg(test)]
+use std::{cell::RefCell, thread::LocalKey};
+
+#[cfg(test)]
+thread_local! {
+    static TEST_RUNTIME_JOURNAL_TAILS: RefCell<Vec<(
+        super::memory::CommitMemoryAllocation,
+        StoreAllocationIdentity,
+        &'static LocalKey<RefCell<JournalTailStore>>,
+    )>> = const { RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+use crate::db::journal::{decode_journal_batch, encode_journal_batch};
 
 /// Exact database-wide retained or proposed journal contribution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,7 +59,7 @@ impl ExactBacklogMeasurement {
         encoded_batch_bytes: 0,
     };
 
-    /// Construct an exact synthetic measurement for dormant harnesses.
+    /// Construct an exact synthetic measurement for focused harnesses.
     #[must_use]
     pub(in crate::db) const fn new(
         batch_count: u64,
@@ -60,17 +92,45 @@ impl ExactBacklogMeasurement {
         })
     }
 
+    /// Measure the exact envelopes already prepared for marker publication.
+    pub(super) fn from_prepared_marker(
+        marker: &CommitMarker,
+        encoded: &EncodedCommitControlSlot,
+    ) -> Result<Self, InternalError> {
+        marker.journal_batches().iter().enumerate().try_fold(
+            Self::EMPTY,
+            |total, (ordinal, batch)| {
+                if batch.journal_sequence().get() == 0 {
+                    return Ok(total);
+                }
+                let bytes = encoded.journal_batch_bytes(ordinal)?;
+                total.checked_add(
+                    Self::new(
+                        1,
+                        u64::try_from(batch.records().len())
+                            .map_err(|_| InternalError::store_unsupported())?,
+                        u64::try_from(bytes.len())
+                            .map_err(|_| InternalError::store_unsupported())?,
+                    ),
+                    InternalError::store_unsupported,
+                )
+            },
+        )
+    }
+
     #[must_use]
     pub(in crate::db) const fn batch_count(self) -> u64 {
         self.batch_count
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn record_count(self) -> u64 {
         self.record_count
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn encoded_batch_bytes(self) -> u64 {
         self.encoded_batch_bytes
     }
@@ -97,11 +157,11 @@ impl ExactBacklogMeasurement {
     }
 }
 
-/// Patch-5 input candidate; no production limit is frozen by Patch 4.
+/// Fixed engine-owned Gate-2 policy input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct CandidateBacklogLimits(ExactBacklogMeasurement);
+pub(in crate::db) struct BacklogLimits(ExactBacklogMeasurement);
 
-impl CandidateBacklogLimits {
+impl BacklogLimits {
     #[must_use]
     pub(in crate::db) const fn new(
         batch_count: u64,
@@ -116,6 +176,7 @@ impl CandidateBacklogLimits {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn from_measurement(measurement: ExactBacklogMeasurement) -> Self {
         Self(measurement)
     }
@@ -129,53 +190,59 @@ pub(in crate::db) enum BacklogPressureDimension {
     EncodedBatchBytes,
 }
 
-/// One typed cumulative-capacity rejection from the dormant evaluator.
+/// One typed cumulative-capacity rejection from Gate 2.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct DormantBacklogPressure {
+pub(in crate::db) struct BacklogPressure {
     dimension: BacklogPressureDimension,
     current: u64,
     proposed: u64,
     limit: u64,
 }
 
-impl DormantBacklogPressure {
+impl BacklogPressure {
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn dimension(self) -> BacklogPressureDimension {
         self.dimension
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn current(self) -> u64 {
         self.current
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn proposed(self) -> u64 {
         self.proposed
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn limit(self) -> u64 {
         self.limit
     }
 }
 
-/// Dormant Gate-2 decision. It is not a production mutation result.
+/// Gate-2 decision returned before marker publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum DormantBacklogAdmission {
+pub(in crate::db) enum BacklogAdmission {
     Admitted { projected: ExactBacklogMeasurement },
-    Pressure(DormantBacklogPressure),
+    Pressure(BacklogPressure),
 }
 
 /// Own exact encoded journal envelopes once for measurement and later reuse.
-struct PreparedBacklogProposal {
+#[cfg(test)]
+pub(super) struct PreparedBacklogProposal {
     marker: CommitMarker,
     encoded_batches: Vec<Vec<u8>>,
     contribution: ExactBacklogMeasurement,
 }
 
+#[cfg(test)]
 impl PreparedBacklogProposal {
-    fn from_marker(marker: CommitMarker) -> Result<Self, InternalError> {
+    pub(super) fn from_marker(marker: CommitMarker) -> Result<Self, InternalError> {
         let mut encoded_batches = Vec::with_capacity(marker.journal_batches().len());
         let mut contribution = ExactBacklogMeasurement::EMPTY;
         for batch in marker.journal_batches() {
@@ -197,11 +264,13 @@ impl PreparedBacklogProposal {
         })
     }
 
-    const fn contribution(&self) -> ExactBacklogMeasurement {
+    pub(super) const fn contribution(&self) -> ExactBacklogMeasurement {
         self.contribution
     }
 
-    fn exact_batches(&self) -> impl Iterator<Item = (&crate::db::journal::JournalBatch, &[u8])> {
+    pub(super) fn exact_batches(
+        &self,
+    ) -> impl Iterator<Item = (&crate::db::journal::JournalBatch, &[u8])> {
         self.marker
             .journal_batches()
             .iter()
@@ -209,12 +278,12 @@ impl PreparedBacklogProposal {
     }
 }
 
-/// Evaluate the candidate tuple after individual admission has already succeeded.
-pub(in crate::db) fn admit_dormant_backlog(
+/// Evaluate the frozen cumulative tuple after individual admission succeeds.
+pub(in crate::db) fn admit_backlog(
     current: ExactBacklogMeasurement,
     proposed: ExactBacklogMeasurement,
-    limits: CandidateBacklogLimits,
-) -> Result<DormantBacklogAdmission, InternalError> {
+    limits: BacklogLimits,
+) -> Result<BacklogAdmission, InternalError> {
     let projected = current.checked_add(proposed, InternalError::store_corruption)?;
     let dimensions = [
         (
@@ -241,7 +310,7 @@ pub(in crate::db) fn admit_dormant_backlog(
     ];
     for (dimension, current, proposed, projected, limit) in dimensions {
         if projected > limit {
-            return Ok(DormantBacklogAdmission::Pressure(DormantBacklogPressure {
+            return Ok(BacklogAdmission::Pressure(BacklogPressure {
                 dimension,
                 current,
                 proposed,
@@ -249,7 +318,110 @@ pub(in crate::db) fn admit_dormant_backlog(
             }));
         }
     }
-    Ok(DormantBacklogAdmission::Admitted { projected })
+    Ok(BacklogAdmission::Admitted { projected })
+}
+
+/// Frozen production tuple proved by the Patch-6 evidence.
+pub(in crate::db) const BACKLOG_LIMITS: BacklogLimits = BacklogLimits::new(
+    MAX_PERSISTED_STORE_ALLOCATIONS as u64,
+    MAX_JOURNAL_BATCH_RECORDS as u64,
+    MAX_COMMIT_BYTES as u64,
+);
+
+/// Sum exact owner-local controls from the bounded persisted registry.
+#[cfg(not(test))]
+pub(in crate::db) fn current_database_backlog() -> Result<ExactBacklogMeasurement, InternalError> {
+    let allocations =
+        super::store::with_commit_store(super::store::CommitStore::persisted_store_allocations)?;
+    let controls = allocations
+        .iter()
+        .map(|allocation| {
+            let journal = allocation.journal();
+            let memory = open_registered_store_memory(journal.memory_id(), journal.stable_key())?;
+            JournalTailStore::init(memory).current_tail_control()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    ExactBacklogMeasurement::from_tail_controls(&controls)
+}
+
+#[cfg(test)]
+pub(in crate::db) fn register_runtime_journal_tails_for_backlog<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), InternalError> {
+    let Some(commit_allocation) = current_commit_memory_allocation_if_configured() else {
+        return Ok(());
+    };
+    let tails = db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .filter_map(|(_, handle)| {
+                Some((handle.journal_allocation()?, handle.journal_tail_store()?))
+            })
+            .collect::<Vec<_>>()
+    });
+    TEST_RUNTIME_JOURNAL_TAILS.with(|registered| {
+        let mut registered = registered.borrow_mut();
+        registered.retain(|(existing, _, _)| *existing != commit_allocation);
+        registered.extend(
+            tails
+                .into_iter()
+                .map(|(identity, tail)| (commit_allocation, identity, tail)),
+        );
+    });
+    Ok(())
+}
+
+#[cfg(test)]
+pub(in crate::db) fn current_database_backlog() -> Result<ExactBacklogMeasurement, InternalError> {
+    let commit_allocation = current_commit_memory_allocation()?;
+    let allocations =
+        super::store::with_commit_store(super::store::CommitStore::persisted_store_allocations)?;
+    let controls = TEST_RUNTIME_JOURNAL_TAILS.with(|registered| {
+        let registered = registered.borrow();
+        allocations
+            .iter()
+            .map(|allocation| match allocation.state() {
+                PersistedStoreAllocationState::Retired => Ok(JournalTailControl::empty()),
+                PersistedStoreAllocationState::Active => {
+                    let identity = allocation.journal();
+                    registered
+                        .iter()
+                        .find(|(owner, candidate, _)| {
+                            *owner == commit_allocation
+                                && candidate.memory_id() == identity.memory_id()
+                                && candidate.stable_key() == identity.stable_key()
+                        })
+                        .ok_or_else(InternalError::store_invariant)?
+                        .2
+                        .with_borrow(JournalTailStore::current_tail_control)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })?;
+    ExactBacklogMeasurement::from_tail_controls(&controls)
+}
+
+impl BacklogPressure {
+    /// Convert exact pressure into the retryable public mutation boundary.
+    pub(in crate::db) fn into_error(self) -> InternalError {
+        let resource = match self.dimension {
+            BacklogPressureDimension::BatchCount => {
+                icydb_diagnostic_code::DiagnosticBacklogResource::Batches
+            }
+            BacklogPressureDimension::RecordCount => {
+                icydb_diagnostic_code::DiagnosticBacklogResource::Records
+            }
+            BacklogPressureDimension::EncodedBatchBytes => {
+                icydb_diagnostic_code::DiagnosticBacklogResource::EncodedBytes
+            }
+        };
+        InternalError::convergence_backlog_pressure(
+            resource,
+            self.current,
+            self.proposed,
+            self.limit,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -339,23 +511,23 @@ mod tests {
         let cases = [
             (
                 ExactBacklogMeasurement::new(1, 0, 0),
-                CandidateBacklogLimits::new(1, u64::MAX, u64::MAX),
+                BacklogLimits::new(1, u64::MAX, u64::MAX),
                 BacklogPressureDimension::BatchCount,
             ),
             (
                 ExactBacklogMeasurement::new(0, 1, 0),
-                CandidateBacklogLimits::new(u64::MAX, 2, u64::MAX),
+                BacklogLimits::new(u64::MAX, 2, u64::MAX),
                 BacklogPressureDimension::RecordCount,
             ),
             (
                 ExactBacklogMeasurement::new(0, 0, 1),
-                CandidateBacklogLimits::new(u64::MAX, u64::MAX, 3),
+                BacklogLimits::new(u64::MAX, u64::MAX, 3),
                 BacklogPressureDimension::EncodedBatchBytes,
             ),
         ];
         for (current, limits, expected_dimension) in cases {
-            let DormantBacklogAdmission::Pressure(pressure) =
-                admit_dormant_backlog(current, proposed, limits).unwrap()
+            let BacklogAdmission::Pressure(pressure) =
+                admit_backlog(current, proposed, limits).unwrap()
             else {
                 panic!("retained debt should exceed the isolated candidate dimension");
             };
@@ -372,10 +544,10 @@ mod tests {
             assert!(pressure.limit() > 0);
         }
 
-        let limits = CandidateBacklogLimits::from_measurement(proposed);
+        let limits = BacklogLimits::from_measurement(proposed);
         assert_eq!(
-            admit_dormant_backlog(ExactBacklogMeasurement::EMPTY, proposed, limits,).unwrap(),
-            DormantBacklogAdmission::Admitted {
+            admit_backlog(ExactBacklogMeasurement::EMPTY, proposed, limits,).unwrap(),
+            BacklogAdmission::Admitted {
                 projected: proposed,
             },
         );
@@ -401,13 +573,13 @@ mod tests {
         assert_eq!(prepared.contribution().batch_count(), 38);
         assert_eq!(prepared.contribution().record_count(), 4_096);
         assert_eq!(
-            admit_dormant_backlog(
+            admit_backlog(
                 ExactBacklogMeasurement::EMPTY,
                 prepared.contribution(),
-                CandidateBacklogLimits::from_measurement(prepared.contribution()),
+                BacklogLimits::from_measurement(prepared.contribution()),
             )
             .unwrap(),
-            DormantBacklogAdmission::Admitted {
+            BacklogAdmission::Admitted {
                 projected: prepared.contribution(),
             },
         );
@@ -417,10 +589,10 @@ mod tests {
     fn current_sum_and_projection_overflow_fail_closed() {
         let malformed = ExactBacklogMeasurement::new(u64::MAX, 0, 0);
         assert!(
-            admit_dormant_backlog(
+            admit_backlog(
                 malformed,
                 ExactBacklogMeasurement::new(1, 0, 0),
-                CandidateBacklogLimits::new(u64::MAX, u64::MAX, u64::MAX),
+                BacklogLimits::new(u64::MAX, u64::MAX, u64::MAX),
             )
             .is_err(),
         );

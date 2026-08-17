@@ -38,7 +38,7 @@ const ACCESS_STATE_REVISION_BYTES: usize = ACCESS_STATE_REVISION_MAGIC.len() + 1
 const TAIL_CONVERGENCE_MAGIC: &[u8] = b"ICYDB-TAIL-CONTROL";
 const TAIL_CONVERGENCE_VERSION: u8 = 1;
 const TAIL_CONVERGENCE_BYTES: usize = TAIL_CONVERGENCE_MAGIC.len() + 1 + 8 + 8 + 8 + 1 + 8;
-pub(in crate::db::journal) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
+pub(in crate::db) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
 const JOURNAL_TAIL_KEY_BYTES: u32 = 12;
 const MAX_JOURNAL_INSPECTION_BATCHES_PER_PAGE: usize = 2;
 const MAX_JOURNAL_INSPECTION_BYTES_PER_PAGE: usize =
@@ -249,7 +249,6 @@ impl JournalTailControl {
     }
 
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn batch_count(self) -> u64 {
         self.batch_count
     }
@@ -450,7 +449,7 @@ impl JournalTailStore {
         }
     }
 
-    /// Initialize the exact current-format tail control on an empty predecessor tail.
+    /// Initialize the exact current-format tail control on an empty tail.
     #[cfg(test)]
     pub(in crate::db) fn initialize_current_tail_control(&mut self) -> Result<(), InternalError> {
         if !self.preflight_current_tail_control_initialization()? {

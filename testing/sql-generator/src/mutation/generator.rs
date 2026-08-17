@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Current hard-cut deterministic mutation generator version.
-pub const MUTATION_GENERATOR_VERSION: u32 = 3;
+pub const MUTATION_GENERATOR_VERSION: u32 = 1;
 
 /// Required pull-request repetitions per frozen mutation witness and root.
 pub const TIER_A_MUTATION_REPETITIONS: u64 = 1;

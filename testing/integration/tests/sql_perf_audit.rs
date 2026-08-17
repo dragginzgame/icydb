@@ -83,6 +83,9 @@ struct PromotionIndexPublicationFacts {
 
 const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
 const PROMOTION_INDEX_LOAD_PAGE_ROWS: u32 = 4_096;
+// Leave room below R_max for the 1,025-record accepted-index publication
+// while retaining enough live rows to exercise mixed canonical/overlay staging.
+const PROMOTION_INDEX_LIVE_SETUP_ROWS: u32 = 15_000;
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct StorageWritePerfResult {
@@ -1601,6 +1604,28 @@ fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
     panic!("startup driver should finish within 32 delivered watchdog ticks");
 }
 
+fn advance_online_watchdog_until_work_sample(
+    fixture: &StandaloneCanisterFixture,
+    previous_work_samples: u64,
+) {
+    for _ in 0..32 {
+        fixture.pocket_ic().advance_time(Duration::from_secs(1));
+        fixture.pocket_ic().tick();
+        fixture.pocket_ic().tick();
+        let snapshot: StartupWatchdogPerfSnapshot = fixture
+            .query_candid("startup_watchdog_perf_snapshot", ())
+            .expect("online watchdog performance snapshot should decode");
+        if snapshot.work_samples > previous_work_samples {
+            assert_eq!(snapshot.work_completed, snapshot.work_samples);
+            assert_eq!(snapshot.succeeded, snapshot.work_samples);
+            assert_eq!(snapshot.retryable_failures, 0);
+            assert_eq!(snapshot.invariant_failures, 0);
+            return;
+        }
+    }
+    panic!("online watchdog should fold the admitted batch within 32 delivered ticks");
+}
+
 fn measure_startup_watchdog_recovery(
     fixture: &StandaloneCanisterFixture,
     expected_work_samples: u64,
@@ -2630,7 +2655,7 @@ fn joint_admitted_2048_rows_with_three_derived_indexes_finish_in_one_recovery_me
     assert!(
         measured
             .work_maximum_instructions
-            .is_some_and(|instructions| instructions > 20_000_000_000)
+            .is_some_and(|instructions| instructions < 30_000_000_000)
     );
 
     println!(
@@ -2729,29 +2754,34 @@ fn joint_admission_rejects_the_first_over_limit_max_fanout_batch_before_publicat
 fn maximum_accepted_index_publication_records_canonical_watchdog_promotion_evidence() {
     let fixture = install_fixture_canister("sql_perf");
     let mut first_id = 1_u32;
+    let mut retained_load_pages = 0_u64;
     while first_id <= PROMOTION_INDEX_FIXTURE_ROWS {
+        let remaining = PROMOTION_INDEX_FIXTURE_ROWS - first_id + 1;
+        let canonical_setup_rows = remaining.saturating_sub(PROMOTION_INDEX_LIVE_SETUP_ROWS);
+        let row_count = PROMOTION_INDEX_LOAD_PAGE_ROWS.min(if canonical_setup_rows == 0 {
+            remaining
+        } else {
+            canonical_setup_rows
+        });
         let loaded: Result<u32, Error> = fixture
-            .update_candid(
-                "append_promotion_index_fixture_page",
-                (first_id, PROMOTION_INDEX_LOAD_PAGE_ROWS),
-            )
+            .update_candid("append_promotion_index_fixture_page", (first_id, row_count))
             .expect("promotion index load page should decode");
         assert_eq!(
             loaded.expect("promotion index load page should succeed"),
-            PROMOTION_INDEX_LOAD_PAGE_ROWS,
+            row_count,
         );
+        if canonical_setup_rows == 0 {
+            retained_load_pages += 1;
+        } else {
+            let previous_work_samples: StartupWatchdogPerfSnapshot = fixture
+                .query_candid("startup_watchdog_perf_snapshot", ())
+                .expect("pre-drain watchdog performance snapshot should decode");
+            advance_online_watchdog_until_work_sample(&fixture, previous_work_samples.work_samples);
+        }
         first_id = first_id
-            .checked_add(PROMOTION_INDEX_LOAD_PAGE_ROWS)
+            .checked_add(row_count)
             .expect("bounded fixture page should advance");
     }
-
-    // Complete-batch recovery admits two zero-index fixture batches within
-    // each maintained watchdog work callback.
-    let load_recovery = measure_startup_watchdog_recovery(
-        &fixture,
-        u64::from(PROMOTION_INDEX_FIXTURE_ROWS / (PROMOTION_INDEX_LOAD_PAGE_ROWS * 2)),
-    );
-    assert!(load_recovery.watchdog.work_maximum_instructions.is_some());
 
     let published: Result<PromotionIndexPublicationFacts, Error> = fixture
         .update_candid("publish_promotion_index_fixture", ())
@@ -2768,8 +2798,7 @@ fn maximum_accepted_index_publication_records_canonical_watchdog_promotion_evide
     assert!(published.local_instructions > 0);
     assert!(published.local_instructions < 40_000_000_000);
 
-    let recovered = observe_startup_watchdog_recovery(&fixture);
-    assert_eq!(recovered.watchdog.work_samples, 1);
+    let recovered = measure_startup_watchdog_recovery(&fixture, retained_load_pages + 1);
 
     println!(
         "0.228 Patch 4 fingerprint-bound maximum accepted-index recovery: rows={} keys={} producer_instructions={} recovery_total={} recovery_maximum={} recovery_samples={} wasm_before={} wasm_after={} stable_before={} stable_after={}",

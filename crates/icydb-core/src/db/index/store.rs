@@ -136,6 +136,17 @@ pub(super) enum IndexStoreBackend {
     },
 }
 
+/// Preflighted provenance publication for explicit journal index records.
+pub(in crate::db) struct PreparedIndexPositionPublication {
+    keys: Vec<RawIndexStoreKey>,
+    position: JournalOverlayPosition,
+}
+
+/// Preflighted exact retirement for one complete journal batch.
+pub(in crate::db) struct PreparedIndexPositionRetirement {
+    entries: Vec<(RawIndexStoreKey, PositionedOverlayRetirement)>,
+}
+
 /// Control-flow result for index-store traversal visitors.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum IndexStoreVisit {
@@ -224,6 +235,14 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
             IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key),
+        }
+    }
+
+    /// Load one index entry from the canonical predecessor view.
+    pub(in crate::db) fn get_canonical(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
+        match &self.backend {
+            IndexStoreBackend::Heap(map) => map.get(key).cloned(),
+            IndexStoreBackend::Journaled { canonical, .. } => canonical.get(key),
         }
     }
 
@@ -366,6 +385,33 @@ impl IndexStore {
         previous
     }
 
+    /// Insert one key whose absence was proved by complete-domain staging.
+    ///
+    /// Accepted-schema replacement first removes its complete current user
+    /// domain. Raw index identity makes every final key owner-local, so no
+    /// canonical point lookup can add information during mechanical Apply.
+    pub(in crate::db) fn insert_preflighted_absent(
+        &mut self,
+        key: RawIndexStoreKey,
+        entry: IndexEntryValue,
+    ) {
+        let cardinality_key = key.clone();
+        match &mut self.backend {
+            IndexStoreBackend::Heap(map) => {
+                map.insert(key, entry.clone());
+            }
+            IndexStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                tombstones.remove(&key);
+                live.insert(key, entry.clone());
+            }
+        }
+        self.prefix_cardinality
+            .apply_insert(&cardinality_key, None, &entry);
+        self.bump_generation();
+    }
+
     pub(crate) fn remove(&mut self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         let previous_journaled = if matches!(self.backend, IndexStoreBackend::Journaled { .. }) {
             self.get(key)
@@ -397,7 +443,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
-            ..
+            positions,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -405,6 +451,7 @@ impl IndexStore {
 
         live.clear();
         tombstones.clear();
+        positions.clear();
         self.prefix_cardinality = if canonical.is_empty() {
             let mut cardinality = IndexPrefixCardinality::synchronized_empty();
             cardinality.mark_synchronized(data_generation);
@@ -419,15 +466,7 @@ impl IndexStore {
 
     /// Publish one positioned derived or explicit index effect.
     ///
-    /// This dormant Patch-2 boundary is not called by the production commit or
-    /// recovery paths until atomic online-convergence activation.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Patch 2 state machine remains dormant until Patch 6"
-        )
-    )]
+    /// Production commits use this after Gate 2 and marker publication.
     pub(in crate::db) fn publish_positioned_journal_entry(
         &mut self,
         key: RawIndexStoreKey,
@@ -468,19 +507,81 @@ impl IndexStore {
         Ok(previous)
     }
 
-    /// Retire this batch's index overlay only when it still owns the target.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Patch 2 state machine remains dormant until Patch 6"
-        )
-    )]
-    pub(in crate::db) fn retire_positioned_journal_effect(
-        &mut self,
+    /// Preflight index provenance before marker publication.
+    pub(in crate::db) fn preflight_positioned_journal_entry(
+        &self,
         key: &RawIndexStoreKey,
         position: JournalOverlayPosition,
-    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
+    ) -> Result<(), crate::error::InternalError> {
+        let IndexStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        positions.preflight_publish(key, position)
+    }
+
+    /// Preflight explicit index provenance before marker publication.
+    pub(in crate::db) fn prepare_position_publication(
+        &self,
+        keys: impl IntoIterator<Item = RawIndexStoreKey>,
+        position: JournalOverlayPosition,
+    ) -> Result<PreparedIndexPositionPublication, crate::error::InternalError> {
+        let IndexStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        let keys = keys.into_iter().collect::<BTreeSet<_>>();
+        for key in &keys {
+            positions.preflight_publish(key, position)?;
+        }
+        Ok(PreparedIndexPositionPublication {
+            keys: keys.into_iter().collect(),
+            position,
+        })
+    }
+
+    /// Publish explicit index provenance after its values have been applied.
+    pub(in crate::db) fn publish_prepared_positions(
+        &mut self,
+        prepared: PreparedIndexPositionPublication,
+    ) {
+        let IndexStoreBackend::Journaled { positions, .. } = &mut self.backend else {
+            debug_assert!(
+                false,
+                "preflighted index positions require a journaled store"
+            );
+            return;
+        };
+        for key in prepared.keys {
+            positions.publish_preflighted(key, prepared.position);
+        }
+    }
+
+    /// Preflight exact index-overlay retirement before canonical mutation.
+    pub(in crate::db) fn prepare_position_retirement(
+        &self,
+        keys: impl IntoIterator<Item = RawIndexStoreKey>,
+        position: JournalOverlayPosition,
+    ) -> Result<PreparedIndexPositionRetirement, crate::error::InternalError> {
+        let IndexStoreBackend::Journaled { positions, .. } = &self.backend else {
+            return Err(crate::error::InternalError::store_invariant());
+        };
+        let entries = keys
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|key| {
+                positions
+                    .preflight_retirement(&key, position)
+                    .map(|retirement| (key, retirement))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(PreparedIndexPositionRetirement { entries })
+    }
+
+    /// Retire only exact index overlays after canonical mutation succeeds.
+    pub(in crate::db) fn apply_prepared_position_retirement(
+        &mut self,
+        prepared: PreparedIndexPositionRetirement,
+    ) {
         let IndexStoreBackend::Journaled {
             live,
             tombstones,
@@ -488,15 +589,35 @@ impl IndexStore {
             ..
         } = &mut self.backend
         else {
+            debug_assert!(
+                false,
+                "preflighted index retirement requires a journaled store"
+            );
+            return;
+        };
+        for (key, retirement) in prepared.entries {
+            if retirement == PositionedOverlayRetirement::Exact {
+                live.remove(&key);
+                tombstones.remove(&key);
+                positions.retire_preflighted(&key, retirement);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn retire_positioned_journal_effect(
+        &mut self,
+        key: &RawIndexStoreKey,
+        position: JournalOverlayPosition,
+    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
+        let IndexStoreBackend::Journaled { positions, .. } = &self.backend else {
             return Err(crate::error::InternalError::store_invariant());
         };
         let retirement = positions.preflight_retirement(key, position)?;
-        if retirement == PositionedOverlayRetirement::Exact {
-            live.remove(key);
-            tombstones.remove(key);
-            positions.retire_preflighted(key, retirement);
-            self.bump_generation();
-        }
+        let prepared = PreparedIndexPositionRetirement {
+            entries: vec![(key.clone(), retirement)],
+        };
+        self.apply_prepared_position_retirement(prepared);
         Ok(retirement)
     }
 

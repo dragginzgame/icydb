@@ -21,6 +21,7 @@ use crate::{
             plan_index_mutation_for_slot_reader_structural,
         },
         key_taxonomy::PrimaryKeyValue,
+        registry::StoreRecoveryCapability,
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
     },
@@ -242,11 +243,7 @@ fn prepare_commit_context<C: CanisterKind>(
     authority: CommitPrepareAuthority,
     mode: CommitPrepareMode,
 ) -> Result<CommitPrepareContext, InternalError> {
-    let constraint_schedule = accepted_storage_constraint_schedule(
-        db,
-        &authority,
-        mode.include_candidate_relation_effects(),
-    )?;
+    let constraint_schedule = accepted_storage_constraint_schedule(db, &authority, mode)?;
 
     Ok(CommitPrepareContext {
         authority,
@@ -484,7 +481,7 @@ fn decode_commit_marker_structural_slots<'a>(
 fn accepted_storage_constraint_schedule<C>(
     db: &Db<C>,
     authority: &CommitPrepareAuthority,
-    include_candidate_relation_effects: bool,
+    mode: CommitPrepareMode,
 ) -> Result<AcceptedStorageConstraintSchedule, InternalError>
 where
     C: CanisterKind,
@@ -492,11 +489,22 @@ where
     let store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
     let selection = store
         .with_schema(|schema_store| {
-            schema_store.current_accepted_catalog_selection(
-                authority.entity_tag,
-                authority.entity_path.as_ref(),
-                authority.data_store_path,
-            )
+            if matches!(mode, CommitPrepareMode::RecoveryReplay)
+                && store.storage_capabilities().recovery()
+                    == StoreRecoveryCapability::StableBasePlusJournalReplay
+            {
+                schema_store.current_canonical_accepted_catalog_selection(
+                    authority.entity_tag,
+                    authority.entity_path.as_ref(),
+                    authority.data_store_path,
+                )
+            } else {
+                schema_store.current_accepted_catalog_selection(
+                    authority.entity_tag,
+                    authority.entity_path.as_ref(),
+                    authority.data_store_path,
+                )
+            }
         })?
         .ok_or_else(InternalError::store_corruption)?;
     let accepted_authority = AcceptedStructuralRowAuthority::from_catalog_selection(
@@ -516,7 +524,7 @@ where
         authority.relation_source.clone(),
         accepted.persisted_snapshot(),
         &row_contract,
-        include_candidate_relation_effects,
+        mode.include_candidate_relation_effects(),
     )?;
     Ok(AcceptedStorageConstraintSchedule {
         row_contract,

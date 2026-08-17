@@ -273,19 +273,16 @@ fn startup_driver_tokens() -> TokenStream {
             _context: ::icydb::__reexports::ic_timers::WatchdogContext,
         ) -> ::icydb::__reexports::ic_timers::WatchdogRunResult {
             match startup_state() {
-                Ok(::icydb::db::DatabaseStartupState::Ready) => {
-                    return ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
-                        ::icydb::__reexports::ic_timers::TimerCompletion::no_work(),
-                        ::icydb::__reexports::ic_timers::WatchdogDecision::Stop,
-                    );
-                }
                 Err(_) => {
                     return ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
                         ::icydb::__reexports::ic_timers::TimerCompletion::invariant_failure(0),
                         ::icydb::__reexports::ic_timers::WatchdogDecision::Stop,
                     );
                 }
-                Ok(::icydb::db::DatabaseStartupState::Recovering) => {}
+                Ok(
+                    ::icydb::db::DatabaseStartupState::Ready
+                    | ::icydb::db::DatabaseStartupState::Recovering,
+                ) => {}
             }
 
             let result = ::icydb::db::with_request_execution(startup_driver_attempt);
@@ -948,6 +945,7 @@ mod tests {
             "#[update]",
             "#[query]",
             "ic_timers::timer_snapshot(",
+            "TimerCompletion::no_work()",
         ] {
             assert!(
                 !rendered.contains(forbidden),
