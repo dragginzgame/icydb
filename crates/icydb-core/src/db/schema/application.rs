@@ -2569,7 +2569,7 @@ fn require_exact_empty_entity(
     store: StoreHandle,
     entity_tag: EntityTag,
 ) -> Result<(), InternalError> {
-    require_exact_empty_entity_count(store.with_data(|data| data.exact_entity_count(entity_tag)))
+    require_exact_empty_entity_count(store.exact_entity_count(entity_tag))
 }
 
 fn require_exact_empty_entity_count(count: Option<u64>) -> Result<(), InternalError> {
@@ -2605,7 +2605,7 @@ fn generated_row_local_constraint_proofs(
             for constraint_id in added_generated_row_local_activations(before, after) {
                 let historical_rows = authority
                     .handle
-                    .with_data(|store| store.exact_entity_count(*entity_tag))
+                    .exact_entity_count(*entity_tag)
                     .ok_or_else(InternalError::store_corruption)?;
                 proofs.push(DirectGeneratedRowLocalProof {
                     candidate_index,

@@ -132,15 +132,13 @@ fn index_prefix_cardinality_sum<'a>(
     component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
     stop_after: Option<u64>,
 ) -> Option<u64> {
-    store.with_index(|store| {
-        store.exact_prefix_cardinality_sum(
-            data_generation,
-            IndexKeyKind::User,
-            index_id,
-            component_prefixes,
-            stop_after,
-        )
-    })
+    store.exact_user_index_prefix_count_sum(
+        data_generation,
+        IndexKeyKind::User,
+        index_id,
+        component_prefixes,
+        stop_after,
+    )
 }
 
 fn count_index_prefix_cardinality_from_sum(

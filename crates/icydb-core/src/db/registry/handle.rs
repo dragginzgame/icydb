@@ -4,11 +4,19 @@
 //! Boundary: exposes registered storage roles without exposing registry internals.
 
 use crate::db::{
+    commit::database_incarnation_id,
     data::DataStore,
-    index::{IndexState, IndexStore},
+    index::{IndexId, IndexKeyKind, IndexState, IndexStore, UserIndexPrefixCardinalityKey},
     journal::JournalTailStore,
-    schema::SchemaStore,
+    schema::{
+        SchemaStore,
+        cardinality_build::CardinalityBuildAuthority,
+        cardinality_generation::{
+            CardinalityCountDigest, CardinalityGenerationState, CardinalityLogicalCountKey,
+        },
+    },
 };
+use crate::{error::InternalError, types::EntityTag};
 use candid::CandidType;
 use serde::Deserialize;
 use std::{cell::RefCell, thread::LocalKey};
@@ -508,6 +516,166 @@ impl StoreHandle {
         self.schema.with_borrow_mut(f)
     }
 
+    /// Return exact visible entity cardinality from volatile evidence or one Ready durable base.
+    #[must_use]
+    pub(in crate::db) fn exact_entity_count(&self, entity: EntityTag) -> Option<u64> {
+        if let Some(count) = self.with_data(|store| store.exact_entity_count(entity)) {
+            return Some(count);
+        }
+        let delta = self.with_data(|store| store.exact_entity_cardinality_delta(entity))?;
+        let digest = CardinalityLogicalCountKey::Entity(entity).digest().ok()?;
+        let base = self
+            .ready_cardinality_counts(&[digest], |authority| authority.accepts_entity(entity))
+            .ok()
+            .flatten()?
+            .into_iter()
+            .next()?;
+        apply_visible_cardinality_delta(base, delta)
+    }
+
+    /// Return exact visible cardinality for one accepted user-index prefix.
+    #[must_use]
+    pub(in crate::db) fn exact_user_index_prefix_count(
+        &self,
+        data_generation: u64,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        components: &[Vec<u8>],
+    ) -> Option<u64> {
+        if let Some(count) = self.with_index(|store| {
+            store.exact_prefix_cardinality(data_generation, key_kind, index_id, components)
+        }) {
+            return Some(count);
+        }
+        if key_kind != IndexKeyKind::User {
+            return None;
+        }
+        let delta = self.with_index(|store| {
+            store.exact_prefix_cardinality_delta(key_kind, index_id, components)
+        })?;
+        let key = UserIndexPrefixCardinalityKey::new(index_id, components.to_vec());
+        let digest = CardinalityLogicalCountKey::UserIndexPrefix(&key)
+            .digest()
+            .ok()?;
+        let base = self
+            .ready_cardinality_counts(&[digest], |authority| {
+                authority.accepted_index_component_count(index_id) == Some(components.len())
+            })
+            .ok()
+            .flatten()?
+            .into_iter()
+            .next()?;
+        apply_visible_cardinality_delta(base, delta)
+    }
+
+    /// Sum exact visible counts for prefixes on one accepted user index.
+    #[must_use]
+    pub(in crate::db) fn exact_user_index_prefix_count_sum<'a>(
+        &self,
+        data_generation: u64,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
+        stop_after: Option<u64>,
+    ) -> Option<u64> {
+        let component_prefixes = component_prefixes.into_iter().collect::<Vec<_>>();
+        if let Some(count) = self.with_index(|store| {
+            store.exact_prefix_cardinality_sum(
+                data_generation,
+                key_kind,
+                index_id,
+                component_prefixes.iter().copied(),
+                stop_after,
+            )
+        }) {
+            return Some(count);
+        }
+        if key_kind != IndexKeyKind::User {
+            return None;
+        }
+        let deltas = self.with_index(|store| {
+            component_prefixes
+                .iter()
+                .map(|components| {
+                    store.exact_prefix_cardinality_delta(key_kind, index_id, components)
+                })
+                .collect::<Option<Vec<_>>>()
+        })?;
+        let keys = component_prefixes
+            .iter()
+            .map(|components| UserIndexPrefixCardinalityKey::new(index_id, components.to_vec()))
+            .collect::<Vec<_>>();
+        let digests = keys
+            .iter()
+            .map(|key| {
+                CardinalityLogicalCountKey::UserIndexPrefix(key)
+                    .digest()
+                    .ok()
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let bases = self
+            .ready_cardinality_counts(&digests, |authority| {
+                authority
+                    .accepted_index_component_count(index_id)
+                    .is_some_and(|count| {
+                        component_prefixes
+                            .iter()
+                            .all(|components| components.len() == count)
+                    })
+            })
+            .ok()
+            .flatten()?;
+        let mut total = 0_u64;
+        for (base, delta) in bases.into_iter().zip(deltas) {
+            total = total.checked_add(apply_visible_cardinality_delta(base, delta)?)?;
+            if stop_after.is_some_and(|required| total >= required) {
+                break;
+            }
+        }
+        Some(total)
+    }
+
+    fn ready_cardinality_counts(
+        &self,
+        digests: &[CardinalityCountDigest],
+        accepts: impl FnOnce(&CardinalityBuildAuthority) -> bool,
+    ) -> Result<Option<Vec<u64>>, InternalError> {
+        let Some(journal) = self.journal else {
+            return Ok(None);
+        };
+        let incarnation = database_incarnation_id()?;
+        let watermark = journal.with_borrow(JournalTailStore::fold_watermark)?;
+        self.with_schema(|schema| {
+            let authority = CardinalityBuildAuthority::derive(
+                schema,
+                incarnation,
+                self.allocations,
+                watermark,
+            )?;
+            if !accepts(&authority) {
+                return Ok(None);
+            }
+            let Some(header) = schema.cardinality_generation_header()? else {
+                return Ok(None);
+            };
+            if header.state() != CardinalityGenerationState::Ready
+                || header.validate_source(authority.source()).is_err()
+                || schema.cardinality_build_cursor()?.is_some()
+            {
+                return Ok(None);
+            }
+            digests
+                .iter()
+                .map(|digest| {
+                    schema
+                        .cardinality_count(header.slot(), header.generation(), *digest)
+                        .map(|count| count.unwrap_or(0))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(Some)
+        })
+    }
+
     /// Return the explicit lifecycle state of the bound index store.
     #[must_use]
     pub(in crate::db) fn index_state(&self) -> IndexState {
@@ -610,5 +778,13 @@ impl StoreHandle {
     #[must_use]
     pub const fn storage_capabilities(&self) -> StoreRuntimeStorageCapabilities {
         self.capabilities
+    }
+}
+
+fn apply_visible_cardinality_delta(base: u64, delta: i64) -> Option<u64> {
+    if delta >= 0 {
+        base.checked_add(u64::try_from(delta).ok()?)
+    } else {
+        base.checked_sub(delta.unsigned_abs())
     }
 }

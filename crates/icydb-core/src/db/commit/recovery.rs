@@ -12,7 +12,9 @@
 //! - Read and write paths perform state-only admission and never replay.
 //! - Reads must not proceed while a persisted partial commit marker is present.
 
-use crate::db::index::{IndexEntryValue, IndexKey, IndexKeyKind, IndexStore};
+use crate::db::index::{
+    IndexEntryExistenceWitness, IndexEntryValue, IndexKey, IndexKeyKind, IndexStore,
+};
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::{apply_schema_migration_record_op, verify_schema_migration_record_op};
 use crate::{
@@ -48,21 +50,30 @@ use crate::{
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedSchemaRevision, CandidateSchemaRevision,
-            ConstraintId, IdentityAdvanceId, PreparedSchemaPositionRetirement, SchemaStore,
-            accepted_commit_schema_fingerprint,
+            ConstraintId, IdentityAdvanceId, PreparedCardinalityMaintenance,
+            PreparedSchemaPositionRetirement, SchemaStore, accepted_commit_schema_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
-            apply_schema_application_record_op, decode_constraint_validation_job,
-            decode_persisted_schema_snapshot, load_accepted_schema_snapshot,
-            load_live_schema_checkpoint, verify_live_identity_range_checkpoint,
-            verify_live_schema_checkpoint, verify_schema_application_record_op,
+            apply_schema_application_record_op,
+            cardinality_build::CardinalityBuildAuthority,
+            cardinality_generation::{
+                CardinalityCountDigest, CardinalityGenerationState, CardinalityLogicalCountKey,
+            },
+            decode_constraint_validation_job, decode_persisted_schema_snapshot,
+            load_accepted_schema_snapshot, load_live_schema_checkpoint,
+            verify_live_identity_range_checkpoint, verify_live_schema_checkpoint,
+            verify_schema_application_record_op,
         },
     },
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    thread::LocalKey,
+};
 
 use crate::db::index::PreparedIndexPositionRetirement;
 
@@ -865,6 +876,39 @@ fn fold_selected_journal_head<C: CanisterKind>(
     let tail_retirement = journal_store
         .with_borrow(|store| store.prepare_batch_retirement(&batch, next_watermark))
         .map_err(journal_failure)?;
+    let cardinality_maintenance = prepare_folded_cardinality_maintenance(
+        handle,
+        watermark,
+        next_watermark,
+        &batch,
+        prepared_rows.as_slice(),
+    )
+    .map_err(journal_failure)?;
+    apply_preflighted_fold(
+        db,
+        store_path,
+        handle,
+        &batch,
+        prepared_rows.as_mut_slice(),
+        cardinality_maintenance,
+    );
+    if let Some(retirement) = overlay_retirement {
+        apply_online_batch_retirement(retirement);
+    }
+    journal_store.with_borrow_mut(|store| {
+        store.apply_prepared_batch_retirement(tail_retirement);
+    });
+    Ok(())
+}
+
+fn apply_preflighted_fold<C: CanisterKind>(
+    db: &Db<C>,
+    store_path: &'static str,
+    handle: StoreHandle,
+    batch: &JournalBatch,
+    prepared_rows: &mut [Option<PreparedRowCommitOp>],
+    cardinality_maintenance: Option<PreparedCardinalityMaintenance>,
+) {
     for (record_ordinal, record) in batch.records().iter().enumerate() {
         let prepared_row = prepared_rows.get_mut(record_ordinal).and_then(Option::take);
         let result = prepared_row.map_or_else(
@@ -873,7 +917,7 @@ fn fold_selected_journal_head<C: CanisterKind>(
                     db,
                     store_path,
                     handle,
-                    &batch,
+                    batch,
                     record_ordinal,
                     record,
                     JournalRecordApplyMode::Fold,
@@ -885,12 +929,191 @@ fn fold_selected_journal_head<C: CanisterKind>(
             trap_validated_journal_apply_contradiction(error);
         }
     }
-    if let Some(retirement) = overlay_retirement {
-        apply_online_batch_retirement(retirement);
+    if let Some(maintenance) = cardinality_maintenance {
+        let result = handle
+            .with_schema_mut(|store| store.apply_prepared_cardinality_maintenance(maintenance));
+        if let Err(error) = result {
+            trap_validated_journal_apply_contradiction(error);
+        }
     }
-    journal_store.with_borrow_mut(|store| {
-        store.apply_prepared_batch_retirement(tail_retirement);
-    });
+}
+
+fn prepare_folded_cardinality_maintenance(
+    handle: StoreHandle,
+    watermark: FoldWatermark,
+    next_watermark: FoldWatermark,
+    batch: &JournalBatch,
+    prepared_rows: &[Option<PreparedRowCommitOp>],
+) -> Result<Option<PreparedCardinalityMaintenance>, InternalError> {
+    if batch
+        .records()
+        .iter()
+        .any(cardinality_batch_invalidates_source)
+    {
+        return Ok(None);
+    }
+    let incarnation = database_incarnation_id()?;
+    let authority = handle.with_schema(|schema| {
+        CardinalityBuildAuthority::derive(
+            schema,
+            incarnation,
+            handle.allocation_identities(),
+            watermark,
+        )
+    })?;
+    let Some(header) = handle.with_schema(SchemaStore::cardinality_generation_header)? else {
+        return Ok(None);
+    };
+    if header.state() != CardinalityGenerationState::Ready
+        || header.validate_source(authority.source()).is_err()
+    {
+        return Ok(None);
+    }
+    let next_authority = handle.with_schema(|schema| {
+        CardinalityBuildAuthority::derive(
+            schema,
+            incarnation,
+            handle.allocation_identities(),
+            next_watermark,
+        )
+    })?;
+    let changes = collect_folded_cardinality_changes(handle, prepared_rows, &authority)?;
+    handle
+        .with_schema(|schema| {
+            schema.prepare_cardinality_maintenance(
+                header,
+                authority.source(),
+                next_authority.source(),
+                changes.as_slice(),
+            )
+        })
+        .map(Some)
+}
+
+const fn cardinality_batch_invalidates_source(record: &JournalRecord) -> bool {
+    match record {
+        JournalRecord::AcceptedSchemaPublish { .. }
+        | JournalRecord::AcceptedSchemaIndexDelete { .. }
+        | JournalRecord::AcceptedSchemaIndexPut { .. } => true,
+        #[cfg(any(test, feature = "migration"))]
+        JournalRecord::SchemaMigrationRowPut { .. }
+        | JournalRecord::SchemaMigrationIndexPut { .. } => true,
+        JournalRecord::RowPut { .. }
+        | JournalRecord::RowDelete { .. }
+        | JournalRecord::SchemaPut { .. }
+        | JournalRecord::ConstraintValidationJobPut { .. }
+        | JournalRecord::ConstraintValidationJobDelete { .. }
+        | JournalRecord::ConstraintValidationIndexPut { .. }
+        | JournalRecord::IdentityRangeAdvance { .. } => false,
+    }
+}
+
+fn collect_folded_cardinality_changes(
+    handle: StoreHandle,
+    prepared_rows: &[Option<PreparedRowCommitOp>],
+    authority: &CardinalityBuildAuthority,
+) -> Result<Vec<(CardinalityCountDigest, i64)>, InternalError> {
+    let mut final_rows = BTreeMap::new();
+    let mut final_indexes = BTreeMap::new();
+    for prepared in prepared_rows.iter().flatten() {
+        if !std::ptr::eq(prepared.data_store, handle.data_store()) {
+            return Err(InternalError::store_corruption());
+        }
+        final_rows.insert(prepared.data_key.clone(), prepared.data_value.is_some());
+        for mutation in &prepared.index_ops {
+            if std::ptr::eq(mutation.index_store, handle.index_store()) {
+                final_indexes.insert(mutation.key.clone(), mutation.value.clone());
+            }
+        }
+    }
+
+    let mut changes = BTreeMap::new();
+    for (key, next_present) in final_rows {
+        let decoded = DecodedDataStoreKey::try_from_raw(&key)
+            .map_err(|_| InternalError::store_corruption())?;
+        if !authority.accepts_entity(decoded.entity_tag()) {
+            return Err(InternalError::store_corruption());
+        }
+        let previous_present = handle.with_data(|store| store.get_canonical(&key).is_some());
+        let delta = match (previous_present, next_present) {
+            (false, true) => 1,
+            (true, false) => -1,
+            _ => 0,
+        };
+        if delta != 0 {
+            let digest = CardinalityLogicalCountKey::Entity(decoded.entity_tag()).digest()?;
+            add_cardinality_change(&mut changes, digest, delta)?;
+        }
+    }
+    for (key, next) in final_indexes {
+        let previous = handle.with_index(|store| store.get_canonical(&key));
+        for digest in accepted_prefix_digests(&key, previous.as_ref(), authority)? {
+            add_cardinality_change(&mut changes, digest, -1)?;
+        }
+        for digest in accepted_prefix_digests(&key, next.as_ref(), authority)? {
+            add_cardinality_change(&mut changes, digest, 1)?;
+        }
+    }
+    Ok(changes
+        .into_iter()
+        .filter(|(_, delta)| *delta != 0)
+        .collect())
+}
+
+fn accepted_prefix_digests(
+    raw_key: &crate::db::index::RawIndexStoreKey,
+    value: Option<&IndexEntryValue>,
+    authority: &CardinalityBuildAuthority,
+) -> Result<Vec<CardinalityCountDigest>, InternalError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let key = IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
+    if key.key_kind() != IndexKeyKind::User {
+        return Ok(Vec::new());
+    }
+    let Some(component_count) = authority.accepted_index_component_count(*key.index_id()) else {
+        return Ok(Vec::new());
+    };
+    if key.component_count() != component_count {
+        return Err(InternalError::store_corruption());
+    }
+    let witness = value
+        .decode_row_witness_from_index_key(&key)
+        .map_err(|_| InternalError::store_corruption())?;
+    if witness.existence_witness() != IndexEntryExistenceWitness::Present {
+        return Ok(Vec::new());
+    }
+    let mut digests = Vec::new();
+    digests
+        .try_reserve_exact(component_count)
+        .map_err(|_| InternalError::store_unsupported())?;
+    let mut components = Vec::new();
+    components
+        .try_reserve_exact(component_count)
+        .map_err(|_| InternalError::store_unsupported())?;
+    for component_index in 0..component_count {
+        let component = key
+            .component(component_index)
+            .ok_or_else(InternalError::store_corruption)?;
+        components.push(component.to_vec());
+        digests.push(CardinalityCountDigest::for_user_index_prefix(
+            *key.index_id(),
+            components.as_slice(),
+        )?);
+    }
+    Ok(digests)
+}
+
+fn add_cardinality_change(
+    changes: &mut BTreeMap<CardinalityCountDigest, i64>,
+    digest: CardinalityCountDigest,
+    delta: i64,
+) -> Result<(), InternalError> {
+    let current = changes.entry(digest).or_insert(0);
+    *current = current
+        .checked_add(delta)
+        .ok_or_else(InternalError::store_unsupported)?;
     Ok(())
 }
 

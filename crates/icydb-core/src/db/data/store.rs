@@ -57,6 +57,7 @@ enum DataStoreBackend {
         live: HeapBTreeMap<RawDataStoreKey, RawRow>,
         tombstones: BTreeSet<RawDataStoreKey>,
         positions: PositionedOverlayMetadata<RawDataStoreKey>,
+        entity_cardinality_delta: EntityCardinalityDelta,
     },
 }
 
@@ -148,6 +149,7 @@ impl DataStore {
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
                 positions: PositionedOverlayMetadata::new(),
+                entity_cardinality_delta: EntityCardinalityDelta::empty(),
             },
             generation: 0,
             // Stable rows remain authoritative after reinitialization. Exact
@@ -182,6 +184,7 @@ impl DataStore {
         };
         self.entity_cardinality
             .apply_insert(&cardinality_key, previous.as_ref());
+        self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
         self.bump_generation();
         previous
     }
@@ -211,6 +214,7 @@ impl DataStore {
         };
         self.entity_cardinality
             .apply_insert(&cardinality_key, previous.as_ref());
+        self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
         self.bump_generation();
         previous
     }
@@ -233,6 +237,7 @@ impl DataStore {
             }
         };
         self.entity_cardinality.apply_remove(key, previous.as_ref());
+        self.apply_entity_overlay_delta(key, previous.is_some(), false);
         self.bump_generation();
         previous
     }
@@ -247,6 +252,7 @@ impl DataStore {
             live,
             tombstones,
             positions,
+            entity_cardinality_delta,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -255,6 +261,7 @@ impl DataStore {
         live.clear();
         tombstones.clear();
         positions.clear();
+        *entity_cardinality_delta = EntityCardinalityDelta::empty();
         self.entity_cardinality = if canonical.is_empty() {
             EntityCardinality::empty()
         } else {
@@ -291,6 +298,7 @@ impl DataStore {
         live.insert(key, row);
         self.entity_cardinality
             .apply_insert(&cardinality_key, previous.as_ref());
+        self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
         self.bump_generation();
 
         Ok(previous)
@@ -319,6 +327,7 @@ impl DataStore {
         live.remove(key);
         tombstones.insert(key.clone());
         self.entity_cardinality.apply_remove(key, previous.as_ref());
+        self.apply_entity_overlay_delta(key, previous.is_some(), false);
         self.bump_generation();
 
         Ok(previous)
@@ -336,6 +345,7 @@ impl DataStore {
             live,
             tombstones,
             positions,
+            entity_cardinality_delta,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -346,6 +356,7 @@ impl DataStore {
             live.get(&key).cloned().or_else(|| canonical.get(&key))
         };
         let cardinality_key = key.clone();
+        let next_present = row.is_some();
         if let Some(row) = row {
             tombstones.remove(&key);
             live.insert(key.clone(), row);
@@ -357,6 +368,11 @@ impl DataStore {
             self.entity_cardinality
                 .apply_remove(&cardinality_key, previous.as_ref());
         }
+        entity_cardinality_delta.apply_presence_transition(
+            &cardinality_key,
+            previous.is_some(),
+            next_present,
+        );
         positions.publish_preflighted(key, position);
         self.bump_generation();
 
@@ -510,6 +526,8 @@ impl DataStore {
         if visible {
             self.entity_cardinality
                 .apply_insert(&cardinality_key, previous.as_ref());
+        } else if previous.is_none() {
+            self.apply_entity_overlay_delta(&cardinality_key, true, false);
         }
         self.bump_generation();
 
@@ -535,6 +553,8 @@ impl DataStore {
         let previous = canonical.remove(key);
         if visible {
             self.entity_cardinality.apply_remove(key, previous.as_ref());
+        } else if previous.is_some() {
+            self.apply_entity_overlay_delta(key, false, true);
         }
         self.bump_generation();
 
@@ -641,6 +661,18 @@ impl DataStore {
         self.entity_cardinality.exact_count(entity)
     }
 
+    /// Return the exact live-overlay delta from the canonical base for one entity.
+    #[must_use]
+    pub(in crate::db) fn exact_entity_cardinality_delta(&self, entity: EntityTag) -> Option<i64> {
+        match &self.backend {
+            DataStoreBackend::Heap(_) => Some(0),
+            DataStoreBackend::Journaled {
+                entity_cardinality_delta,
+                ..
+            } => entity_cardinality_delta.exact_delta(entity),
+        }
+    }
+
     /// Visit raw row entries in canonical storage order.
     pub(in crate::db) fn visit_entries<E>(
         &self,
@@ -662,6 +694,48 @@ impl DataStore {
         }
 
         Ok(())
+    }
+
+    /// Visit canonical predecessor rows after one exclusive physical checkpoint.
+    ///
+    /// Optional derived-evidence builders use this view so newer live overlays
+    /// cannot contaminate a generation bound to the canonical fold watermark.
+    pub(in crate::db) fn visit_canonical_entries_after(
+        &self,
+        checkpoint: Option<&RawDataStoreKey>,
+        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<bool, crate::error::InternalError>,
+    ) -> Result<(), crate::error::InternalError> {
+        let lower = checkpoint
+            .cloned()
+            .map_or(Bound::Unbounded, Bound::Excluded);
+        match &self.backend {
+            DataStoreBackend::Heap(map) => {
+                for (key, row) in map.range((lower, Bound::Unbounded)) {
+                    if visitor(key, row)? {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Journaled { canonical, .. } => {
+                for entry in canonical.range((lower, Bound::Unbounded)) {
+                    if visitor(entry.key(), &entry.value())? {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Return whether the canonical predecessor domain is physically empty.
+    ///
+    /// This bounded root observation never walks live overlays or materializes
+    /// row payloads.
+    pub(in crate::db) fn canonical_is_empty(&self) -> Result<bool, crate::error::InternalError> {
+        match &self.backend {
+            DataStoreBackend::Journaled { canonical, .. } => Ok(canonical.is_empty()),
+            DataStoreBackend::Heap(_) => Err(crate::error::InternalError::store_invariant()),
+        }
     }
 
     /// Visit raw row entries whose keys belong to the provided storage range.
@@ -803,6 +877,22 @@ impl DataStore {
             Ok(StoreVisit::Continue)
         });
         self.entity_cardinality = cardinality;
+    }
+
+    fn apply_entity_overlay_delta(
+        &mut self,
+        key: &RawDataStoreKey,
+        previous_present: bool,
+        next_present: bool,
+    ) {
+        let DataStoreBackend::Journaled {
+            entity_cardinality_delta,
+            ..
+        } = &mut self.backend
+        else {
+            return;
+        };
+        entity_cardinality_delta.apply_presence_transition(key, previous_present, next_present);
     }
 
     /// Return the monotonic perf-only count of stable row fetches seen by this process.
@@ -1020,6 +1110,53 @@ impl DataStore {
 struct EntityCardinality {
     counts: HeapBTreeMap<EntityTag, u64>,
     decodable: bool,
+}
+
+#[derive(Clone, Debug)]
+struct EntityCardinalityDelta {
+    counts: HeapBTreeMap<EntityTag, i64>,
+    decodable: bool,
+}
+
+impl EntityCardinalityDelta {
+    const fn empty() -> Self {
+        Self {
+            counts: HeapBTreeMap::new(),
+            decodable: true,
+        }
+    }
+
+    fn exact_delta(&self, entity: EntityTag) -> Option<i64> {
+        self.decodable
+            .then(|| self.counts.get(&entity).copied().unwrap_or(0))
+    }
+
+    fn apply_presence_transition(
+        &mut self,
+        key: &RawDataStoreKey,
+        previous_present: bool,
+        next_present: bool,
+    ) {
+        if !self.decodable || previous_present == next_present {
+            return;
+        }
+        let Some(entity) = key.entity_tag_prefix() else {
+            self.counts.clear();
+            self.decodable = false;
+            return;
+        };
+        let delta = if next_present { 1_i64 } else { -1_i64 };
+        let count = self.counts.entry(entity).or_insert(0);
+        let Some(next) = count.checked_add(delta) else {
+            self.counts.clear();
+            self.decodable = false;
+            return;
+        };
+        *count = next;
+        if *count == 0 {
+            self.counts.remove(&entity);
+        }
+    }
 }
 
 impl EntityCardinality {

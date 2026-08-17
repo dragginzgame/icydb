@@ -7,13 +7,13 @@ use crate::{
     db::{
         PrimaryKeyValue,
         cursor::{ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput},
-        data::{DataStore, DecodedDataStoreKey, RawDataStoreKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
             ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
             LoweredKey,
             budget::{charge_current_execution_budget, charge_current_execution_budget_pair},
-            lowered_index_prefix_liveness_at_generation,
+            lowered_index_prefix_liveness,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
@@ -173,24 +173,19 @@ pub(in crate::db::executor) fn active_lowered_index_prefix_specs<'a>(
     let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
 
     if let Some(store) = empty_proof_store {
-        let data_generation = store.with_data(DataStore::generation);
-        store.with_index(|index_store| {
-            for spec in index_prefix_specs {
-                if !lowered_index_prefix_liveness_at_generation(index_store, data_generation, spec)
-                    .should_scan()
-                {
-                    continue;
-                }
-                if index_predicate_rejects_prefix_components(
-                    spec.prefix_components(),
-                    predicate_execution,
-                ) {
-                    continue;
-                }
-
-                active_specs.push(spec);
+        for spec in index_prefix_specs {
+            if !lowered_index_prefix_liveness(store, spec).should_scan() {
+                continue;
             }
-        });
+            if index_predicate_rejects_prefix_components(
+                spec.prefix_components(),
+                predicate_execution,
+            ) {
+                continue;
+            }
+
+            active_specs.push(spec);
+        }
     } else {
         for spec in index_prefix_specs {
             if index_predicate_rejects_prefix_components(

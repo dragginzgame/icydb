@@ -2117,16 +2117,16 @@ fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
     result
 }
 
-/// Trap only after one canonical startup-driver attempt reaches `Ready`.
+/// Trap after one canonical startup-driver attempt reaches required `Ready`.
+///
+/// Optional cardinality work may keep the shared watchdog active after that
+/// boundary and is deliberately outside this journal-rollback probe.
 #[cfg(feature = "test-admin-api")]
 #[update]
 fn trap_after_complete_startup_recovery() -> Result<(), icydb::Error> {
-    let complete = icydb::db::with_request_execution(
+    let _optional_work_complete = icydb::db::with_request_execution(
         crate::__icydb_generated::__icydb_startup_driver_attempt_for_tests,
     )?;
-    if !complete {
-        return Err(icydb::db::__startup_recovery_pending());
-    }
     match startup_state() {
         Ok(icydb::db::DatabaseStartupState::Ready) => {
             ic_cdk::trap("intentional complete startup-recovery rollback probe")
@@ -4292,6 +4292,53 @@ struct PromotionIndexPublicationFacts {
     rows_scanned: u64,
     index_keys_written: u64,
     local_instructions: u64,
+}
+
+/// Publish or retire the temporary accepted index used by 0.230 closeout evidence.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn mutate_cardinality_closeout_index(
+    present: bool,
+    expected_version: u64,
+    next_version: u64,
+) -> Result<PromotionIndexPublicationFacts, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        if expected_version.checked_add(1) != Some(next_version) {
+            return Err(query_validate_error());
+        }
+        let sql = if present {
+            format!(
+                "CREATE INDEX perf_cardinality_active_idx ON PerfAuditUser (active) \
+                 EXPECT SCHEMA VERSION {expected_version} SET SCHEMA VERSION {next_version}"
+            )
+        } else {
+            format!(
+                "DROP INDEX perf_cardinality_active_idx ON PerfAuditUser \
+                 EXPECT SCHEMA VERSION {expected_version} SET SCHEMA VERSION {next_version}"
+            )
+        };
+        let start = ic_cdk::api::performance_counter(1);
+        let result = db()?.execute_admin_sql_ddl(sql.as_str())?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let SqlQueryResult::Ddl {
+            rows_scanned,
+            index_keys_written,
+            status,
+            ..
+        } = result
+        else {
+            return Err(query_validate_error());
+        };
+        if status != "published" {
+            return Err(query_validate_error());
+        }
+
+        Ok(PromotionIndexPublicationFacts {
+            rows_scanned,
+            index_keys_written,
+            local_instructions,
+        })
+    })
 }
 
 #[cfg(feature = "test-admin-api")]

@@ -28,7 +28,7 @@ pub enum DatabaseStartupState {
 pub enum GeneratedStartupDriverStep {
     /// Startup is already ready or has one durably observable terminal failure.
     Terminal,
-    /// Recovery remains pending after exactly one bounded page attempt.
+    /// Recovery or optional derived-evidence work remains after one bounded page.
     Recovering,
     /// Recovery is complete and generated schema reconciliation must run now.
     ApplyGeneratedSchema,
@@ -289,6 +289,51 @@ mod tests {
 
     thread_local! {
         static DRIVER_STORES: StoreRegistry = StoreRegistry::new();
+    }
+
+    struct CardinalityDriverCanister;
+
+    impl Path for CardinalityDriverCanister {
+        const PATH: &'static str = "startup_tests::CardinalityDriverCanister";
+    }
+
+    impl CanisterKind for CardinalityDriverCanister {
+        const COMMIT_MEMORY_ID: u8 = 214;
+        const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.commit.v1";
+        const STARTUP_MEMORY_ID: u8 = 215;
+        const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.control.v1";
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 216;
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+            "icydb.test.startup.cardinality.driver.integrity.v1";
+    }
+
+    thread_local! {
+        static CARDINALITY_DRIVER_DATA: RefCell<DataStore> =
+            RefCell::new(DataStore::init_journaled(test_memory(210)));
+        static CARDINALITY_DRIVER_INDEX: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init_journaled(test_memory(211)));
+        static CARDINALITY_DRIVER_SCHEMA: RefCell<SchemaStore> =
+            RefCell::new(SchemaStore::init_journaled(test_memory(212)));
+        static CARDINALITY_DRIVER_TAIL: RefCell<JournalTailStore> =
+            RefCell::new(JournalTailStore::init(test_memory(213)));
+        static CARDINALITY_DRIVER_STORES: StoreRegistry = {
+            let mut registry = StoreRegistry::new();
+            registry.register_journaled_store(
+                "startup_tests::CardinalityDriverStore",
+                &CARDINALITY_DRIVER_DATA,
+                &CARDINALITY_DRIVER_INDEX,
+                &CARDINALITY_DRIVER_SCHEMA,
+                &CARDINALITY_DRIVER_TAIL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(210, "icydb.test.cardinality.driver.data.v1"),
+                    StoreAllocationIdentity::new(211, "icydb.test.cardinality.driver.index.v1"),
+                    StoreAllocationIdentity::new(212, "icydb.test.cardinality.driver.schema.v1"),
+                    StoreAllocationIdentity::new(213, "icydb.test.cardinality.driver.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            ).expect("cardinality driver store should register");
+            registry
+        };
     }
 
     struct HeapRecoveryFailureCanister;
@@ -889,6 +934,92 @@ mod tests {
         assert!(
             clear_generated_startup_failure::<DriverCanister>()
                 .expect("authoritative correction should clear the receipt")
+        );
+    }
+
+    #[test]
+    fn ready_startup_driver_publishes_empty_cardinality_then_quiesces() {
+        const SUBMISSION: &str = "generated/cardinality-driver";
+
+        configure_commit_memory_id(
+            CardinalityDriverCanister::COMMIT_MEMORY_ID,
+            CardinalityDriverCanister::COMMIT_STABLE_KEY,
+        )
+        .expect("commit allocation should configure");
+        let memory = commit_memory_handle(
+            current_commit_memory_allocation().expect("commit allocation should resolve"),
+        )
+        .expect("commit memory should open");
+        initialize_current_database_control_for_tests(&memory);
+        let request_root = RequestExecutionRoot::__new_runtime_root();
+        let database = crate::db::Db::<CardinalityDriverCanister>::new(
+            &CARDINALITY_DRIVER_STORES,
+            request_root.scope(),
+        );
+        ensure_database_format_admitted(&database)
+            .expect("current store registry should initialize");
+        mark_startup_recovery_complete_for_tests(&CARDINALITY_DRIVER_STORES)
+            .expect("recovery witness should publish");
+        let incarnation = database_incarnation_id().expect("incarnation should resolve");
+        let (database_identity, accepted_head) =
+            generated_schema_authority(&CARDINALITY_DRIVER_STORES, incarnation)
+                .expect("empty generated authority should resolve");
+        let submission_key =
+            SchemaSubmissionKey::try_new(SUBMISSION).expect("submission should admit");
+        let receipt = SchemaChangeReceipt::new(
+            database_identity,
+            submission_key,
+            SchemaProposalDigest::from_bytes([2; 32]),
+            accepted_head.clone(),
+            SchemaChangeOutcome::NoOp { accepted_head },
+        )
+        .expect("terminal schema receipt should admit");
+        let record = SchemaApplicationRecord::new(receipt, Vec::new())
+            .expect("terminal schema record should admit");
+        apply_schema_application_record_op(
+            &SchemaApplicationRecordOp::insert(&record)
+                .expect("schema record operation should admit"),
+        )
+        .expect("schema receipt should publish");
+        assert_eq!(
+            observe_generated_startup_state::<CardinalityDriverCanister>(
+                &CARDINALITY_DRIVER_STORES,
+                SUBMISSION,
+            ),
+            Ok(DatabaseStartupState::Ready),
+        );
+
+        let session = crate::db::DbSession::<CardinalityDriverCanister>::new(
+            &CARDINALITY_DRIVER_STORES,
+            &request_root,
+        );
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &session,
+                &CARDINALITY_DRIVER_STORES,
+                SUBMISSION,
+            )
+            .expect("empty cardinality publication should use the existing driver"),
+            GeneratedStartupDriverStep::Recovering,
+        );
+        CARDINALITY_DRIVER_SCHEMA.with_borrow(|schema| {
+            let header = schema
+                .cardinality_generation_header()
+                .expect("cardinality header should decode")
+                .expect("cardinality header should publish");
+            assert_eq!(
+                header.state(),
+                crate::db::schema::cardinality_generation::CardinalityGenerationState::Ready,
+            );
+        });
+        assert_eq!(
+            drive_generated_startup_recovery_page(
+                &session,
+                &CARDINALITY_DRIVER_STORES,
+                SUBMISSION,
+            )
+            .expect("current cardinality evidence should quiesce"),
+            GeneratedStartupDriverStep::Terminal,
         );
     }
 }

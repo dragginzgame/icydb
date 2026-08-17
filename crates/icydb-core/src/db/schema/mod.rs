@@ -11,6 +11,7 @@ mod application_receipt;
 mod application_store;
 #[cfg(any(test, feature = "sql"))]
 mod capabilities;
+pub(in crate::db) mod cardinality_build;
 pub(in crate::db) mod cardinality_generation;
 mod check;
 mod codec;
@@ -394,9 +395,9 @@ pub(in crate::db) use storage::{
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
-    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, PreparedSchemaPositionPublication,
-    PreparedSchemaPositionRetirement, SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
-    load_accepted_schema_snapshot,
+    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, PreparedCardinalityMaintenance,
+    PreparedSchemaPositionPublication, PreparedSchemaPositionRetirement,
+    SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata, load_accepted_schema_snapshot,
 };
 
 #[cfg(test)]

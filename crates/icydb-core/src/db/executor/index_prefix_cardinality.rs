@@ -8,7 +8,7 @@ use crate::{
         access::{AccessPath, IndexShapeDetails, LoweredIndexPrefixSpec},
         data::DataStore,
         executor::route::IndexPrefixChildExpansionHint,
-        index::{IndexId, IndexKey, IndexKeyKind, IndexStore, UserIndexPrefixCardinalityKey},
+        index::{IndexId, IndexKey, IndexKeyKind, UserIndexPrefixCardinalityKey},
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
     },
@@ -107,10 +107,26 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness(
     store: StoreHandle,
     spec: &LoweredIndexPrefixSpec,
 ) -> IndexBranchLiveness {
+    let Some(cardinality_key) =
+        user_index_prefix_cardinality_key_from_lowered_spec(spec, spec.prefix_components().len())
+    else {
+        return IndexBranchLiveness::UnknownConservative(
+            IndexBranchUnknownReason::MissingPrefixCardinalityKey,
+        );
+    };
     let data_generation = store.with_data(DataStore::generation);
-    store.with_index(|index_store| {
-        lowered_index_prefix_liveness_at_generation(index_store, data_generation, spec)
-    })
+    match store.exact_user_index_prefix_count(
+        data_generation,
+        IndexKeyKind::User,
+        cardinality_key.index_id(),
+        cardinality_key.prefix_components(),
+    ) {
+        Some(0) => IndexBranchLiveness::ProvenEmpty,
+        Some(_) => IndexBranchLiveness::PossiblyLive,
+        None => IndexBranchLiveness::UnknownConservative(
+            IndexBranchUnknownReason::MissingGenerationCompatibleCardinality,
+        ),
+    }
 }
 
 /// Return synchronized exact cardinality for one complete lowered index prefix.
@@ -127,14 +143,12 @@ pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinality(
         user_index_prefix_cardinality_key_from_lowered_spec(spec, spec.prefix_components().len())?;
     let data_generation = store.with_data(DataStore::generation);
 
-    store.with_index(|index_store| {
-        index_store.exact_prefix_cardinality(
-            data_generation,
-            IndexKeyKind::User,
-            cardinality_key.index_id(),
-            cardinality_key.prefix_components(),
-        )
-    })
+    store.exact_user_index_prefix_count(
+        data_generation,
+        IndexKeyKind::User,
+        cardinality_key.index_id(),
+        cardinality_key.prefix_components(),
+    )
 }
 
 /// Expand each exact parent prefix by one metadata-proven child slot.
@@ -216,33 +230,6 @@ pub(in crate::db) fn user_index_prefix_cardinality_keys_from_plan(
     }
 
     (!keys.is_empty()).then_some(keys)
-}
-
-pub(in crate::db::executor) fn lowered_index_prefix_liveness_at_generation(
-    index_store: &IndexStore,
-    data_generation: u64,
-    spec: &LoweredIndexPrefixSpec,
-) -> IndexBranchLiveness {
-    let Some(cardinality_key) =
-        user_index_prefix_cardinality_key_from_lowered_spec(spec, spec.prefix_components().len())
-    else {
-        return IndexBranchLiveness::UnknownConservative(
-            IndexBranchUnknownReason::MissingPrefixCardinalityKey,
-        );
-    };
-
-    match index_store.exact_prefix_cardinality(
-        data_generation,
-        IndexKeyKind::User,
-        cardinality_key.index_id(),
-        cardinality_key.prefix_components(),
-    ) {
-        Some(0) => IndexBranchLiveness::ProvenEmpty,
-        Some(_) => IndexBranchLiveness::PossiblyLive,
-        None => IndexBranchLiveness::UnknownConservative(
-            IndexBranchUnknownReason::MissingGenerationCompatibleCardinality,
-        ),
-    }
 }
 
 fn user_index_prefix_cardinality_key_from_lowered_spec(

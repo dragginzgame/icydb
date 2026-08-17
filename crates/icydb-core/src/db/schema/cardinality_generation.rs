@@ -3,14 +3,6 @@
 //! Does not own: populated construction, publication, incremental maintenance, or planning.
 //! Boundary: accepted source identities -> bounded version-1 schema-allocation records.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Patch 2 freezes codecs that the bounded Patch 3 builder activates"
-    )
-)]
-
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -85,6 +77,15 @@ pub(in crate::db) enum CardinalityCountSlot {
 }
 
 impl CardinalityCountSlot {
+    /// Select the other reusable isolated count namespace.
+    #[must_use]
+    pub(in crate::db) const fn alternate(self) -> Self {
+        match self {
+            Self::A => Self::B,
+            Self::B => Self::A,
+        }
+    }
+
     const fn to_tag(self) -> u8 {
         match self {
             Self::A => 1,
@@ -220,6 +221,26 @@ impl CardinalityGenerationHeader {
         }
     }
 
+    #[must_use]
+    pub(in crate::db) const fn generation(self) -> CardinalityGenerationId {
+        self.generation
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn state(self) -> CardinalityGenerationState {
+        self.state
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn slot(self) -> CardinalityCountSlot {
+        self.slot
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn source(self) -> CardinalitySourceIdentity {
+        self.source
+    }
+
     /// Encode the sole current fixed-size header form.
     pub(in crate::db) fn encode(self) -> Vec<u8> {
         let mut out = Vec::with_capacity(CARDINALITY_GENERATION_HEADER_BYTES);
@@ -338,6 +359,54 @@ impl CardinalityBuildTotals {
             distinct_count_keys,
         }
     }
+
+    /// Add one fully validated page and its newly materialized logical keys.
+    pub(in crate::db) fn checked_add_page(
+        self,
+        source_entries: u64,
+        source_bytes: u64,
+        prefix_updates: u64,
+        distinct_count_keys: u64,
+    ) -> Result<Self, InternalError> {
+        Ok(Self::new(
+            self.source_entries
+                .checked_add(source_entries)
+                .ok_or_else(InternalError::store_unsupported)?,
+            self.source_bytes
+                .checked_add(source_bytes)
+                .ok_or_else(InternalError::store_unsupported)?,
+            self.prefix_updates
+                .checked_add(prefix_updates)
+                .ok_or_else(InternalError::store_unsupported)?,
+            self.distinct_count_keys
+                .checked_add(distinct_count_keys)
+                .ok_or_else(InternalError::store_unsupported)?,
+        ))
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn source_entries(self) -> u64 {
+        self.source_entries
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn source_bytes(self) -> u64 {
+        self.source_bytes
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn prefix_updates(self) -> u64 {
+        self.prefix_updates
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn distinct_count_keys(self) -> u64 {
+        self.distinct_count_keys
+    }
 }
 
 /// Checksummed bounded checkpoint for optional populated-store construction.
@@ -372,6 +441,36 @@ impl CardinalityBuildCursor {
             checkpoint,
             totals,
         })
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn phase(&self) -> CardinalityBuildPhase {
+        self.phase
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn checkpoint(&self) -> Option<&CardinalityBuildCheckpoint> {
+        self.checkpoint.as_ref()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn totals(&self) -> CardinalityBuildTotals {
+        self.totals
+    }
+
+    /// Prove that this cursor belongs to the exact current Building header.
+    pub(in crate::db) fn validate_header(
+        &self,
+        header: CardinalityGenerationHeader,
+    ) -> Result<(), InternalError> {
+        if header.state() != CardinalityGenerationState::Building
+            || self.generation != header.generation()
+            || self.slot != header.slot()
+            || self.source != header.source()
+        {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(())
     }
 
     /// Encode one cursor while enforcing the frozen 20-KiB bound.
@@ -451,13 +550,41 @@ impl CardinalityBuildCursor {
 }
 
 /// Full digest identifying one entity or accepted user-index prefix count.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct CardinalityCountDigest([u8; 32]);
 
 impl CardinalityCountDigest {
     #[must_use]
     pub(in crate::db) const fn as_bytes(self) -> [u8; 32] {
         self.0
+    }
+
+    /// Hash one accepted user-index prefix without allocating a second key owner.
+    pub(in crate::db) fn for_user_index_prefix(
+        index_id: IndexId,
+        components: &[Vec<u8>],
+    ) -> Result<Self, InternalError> {
+        if components.is_empty() || components.len() > MAX_INDEX_FIELDS {
+            return Err(InternalError::store_invariant());
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(CARDINALITY_COUNT_KEY_FINGERPRINT_DOMAIN);
+        hasher.update([1]);
+        hasher.update(index_id.entity_tag().value().to_be_bytes());
+        hasher.update(index_id.to_bytes());
+        hasher.update([
+            u8::try_from(components.len()).map_err(|_| InternalError::store_invariant())?
+        ]);
+        for component in components {
+            if component.is_empty() || component.len() > IndexKey::MAX_COMPONENT_SIZE {
+                return Err(InternalError::store_invariant());
+            }
+            let len =
+                u32::try_from(component.len()).map_err(|_| InternalError::store_invariant())?;
+            hasher.update(len.to_be_bytes());
+            hasher.update(component);
+        }
+        Ok(Self(hasher.finalize().into()))
     }
 }
 
@@ -478,25 +605,10 @@ impl CardinalityLogicalCountKey<'_> {
                 hasher.update(entity.value().to_be_bytes());
             }
             Self::UserIndexPrefix(prefix) => {
-                let components = prefix.prefix_components();
-                if components.is_empty() || components.len() > MAX_INDEX_FIELDS {
-                    return Err(InternalError::store_invariant());
-                }
-                hasher.update([1]);
-                hasher.update(prefix.index_id().entity_tag().value().to_be_bytes());
-                hasher.update(prefix.index_id().to_bytes());
-                hasher
-                    .update([u8::try_from(components.len())
-                        .map_err(|_| InternalError::store_invariant())?]);
-                for component in components {
-                    if component.is_empty() || component.len() > IndexKey::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::store_invariant());
-                    }
-                    let len = u32::try_from(component.len())
-                        .map_err(|_| InternalError::store_invariant())?;
-                    hasher.update(len.to_be_bytes());
-                    hasher.update(component);
-                }
+                return CardinalityCountDigest::for_user_index_prefix(
+                    prefix.index_id(),
+                    prefix.prefix_components(),
+                );
             }
         }
         Ok(CardinalityCountDigest(hasher.finalize().into()))

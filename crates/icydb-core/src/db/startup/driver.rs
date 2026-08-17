@@ -17,7 +17,12 @@ use crate::{
         },
         schema::{
             SchemaChangeOutcome, SchemaChangeProgressStatus,
-            accepted_schema_cache_fingerprint_method_version, generated_schema_authority,
+            accepted_schema_cache_fingerprint_method_version,
+            cardinality_build::{
+                CardinalityBuildAuthority, CardinalityGenerationPageOutcome,
+                drive_cardinality_generation_page,
+            },
+            generated_schema_authority,
         },
         startup::{
             DatabaseStartupState, GeneratedStartupDriverStep, StartupFailureKind,
@@ -46,12 +51,52 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
     match session.drive_startup_recovery_page_with_failure_authority() {
         Ok(true) if startup_ready => {
             super::receipt::clear::<C>()?;
-            Ok(GeneratedStartupDriverStep::Terminal)
+            match drive_cardinality_page(stores) {
+                Ok(step) => Ok(step),
+                Err(_) => Ok(GeneratedStartupDriverStep::Terminal),
+            }
         }
         Ok(true) => drive_generated_schema_application::<C>(session, stores, submission_key),
         Ok(false) => Ok(GeneratedStartupDriverStep::Recovering),
         Err(error) => record_recovery_failure::<C>(stores, submission_key, error),
     }
+}
+
+/// Reuse the existing watchdog for one optional store-local cardinality page.
+///
+/// Malformed derived evidence stops optional construction without changing
+/// startup readiness. The maintained integrity and planner fallback paths keep
+/// row, index, and accepted-schema authority usable.
+fn drive_cardinality_page(
+    stores: &'static LocalKey<StoreRegistry>,
+) -> Result<GeneratedStartupDriverStep, InternalError> {
+    let incarnation = database_incarnation_id()?;
+    let mut registered = stores.with(|registry| registry.iter().collect::<Vec<_>>());
+    registered.sort_unstable_by_key(|(path, _)| *path);
+    for (_path, handle) in registered {
+        let Some(journal) = handle.journal_tail_store() else {
+            continue;
+        };
+        let outcome = handle.with_data(|data| {
+            handle.with_index(|index| {
+                handle.with_schema_mut(|schema| {
+                    drive_cardinality_generation_page(data, index, schema, |schema| {
+                        let watermark = journal.with_borrow(JournalTailStore::fold_watermark)?;
+                        CardinalityBuildAuthority::derive(
+                            schema,
+                            incarnation,
+                            handle.allocation_identities(),
+                            watermark,
+                        )
+                    })
+                })
+            })
+        })?;
+        if outcome != CardinalityGenerationPageOutcome::Quiescent {
+            return Ok(GeneratedStartupDriverStep::Recovering);
+        }
+    }
+    Ok(GeneratedStartupDriverStep::Terminal)
 }
 
 fn drive_generated_schema_application<C: CanisterKind>(
@@ -71,7 +116,7 @@ fn drive_generated_schema_application<C: CanisterKind>(
     let job_id = match receipt.outcome() {
         SchemaChangeOutcome::NoOp { .. } | SchemaChangeOutcome::Applied { .. } => {
             super::receipt::clear::<C>()?;
-            return Ok(GeneratedStartupDriverStep::Terminal);
+            return Ok(GeneratedStartupDriverStep::Recovering);
         }
         SchemaChangeOutcome::Pending { job, .. } => job.id(),
         SchemaChangeOutcome::Aborted { .. } => {
@@ -96,7 +141,7 @@ fn drive_generated_schema_application<C: CanisterKind>(
         }
         SchemaChangeProgressStatus::Applied => {
             super::receipt::clear::<C>()?;
-            Ok(GeneratedStartupDriverStep::Terminal)
+            Ok(GeneratedStartupDriverStep::Recovering)
         }
         SchemaChangeProgressStatus::Aborted => record_schema_application_failure::<C>(
             stores,

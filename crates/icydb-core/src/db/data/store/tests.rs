@@ -354,7 +354,7 @@ fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
         .expect("canonical seed should fold");
     drop(store);
 
-    let reopened = DataStore::init_journaled(memory);
+    let mut reopened = DataStore::init_journaled(memory);
 
     assert!(reopened.contains(&raw_key(1, 1)));
     assert!(reopened.contains(&raw_key(1, 2)));
@@ -362,6 +362,25 @@ fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
         reopened.exact_entity_count(EntityTag::new(1)),
         None,
         "startup must leave optional cardinality unavailable without scanning stable rows",
+    );
+    assert_eq!(
+        reopened.exact_entity_cardinality_delta(EntityTag::new(1)),
+        Some(0),
+    );
+    reopened
+        .apply_recovered_journal_put(raw_key(1, 3), raw_row(13))
+        .expect("post-watermark live row should apply");
+    assert_eq!(
+        reopened.exact_entity_cardinality_delta(EntityTag::new(1)),
+        Some(1),
+    );
+    reopened
+        .fold_recovered_journal_put(raw_key(1, 3), raw_row(13))
+        .expect("the matching canonical transition should fold");
+    assert_eq!(
+        reopened.exact_entity_cardinality_delta(EntityTag::new(1)),
+        Some(0),
+        "canonical fold must consume only its exact overlay contribution",
     );
 }
 

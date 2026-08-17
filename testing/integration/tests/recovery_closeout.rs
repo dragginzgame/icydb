@@ -2,7 +2,7 @@ use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
-    db::{DatabaseStartupState, sql::SqlQueryResult},
+    db::{DatabaseStartupState, SqlQueryExecutionAttribution, sql::SqlQueryResult},
     diagnostic::DiagnosticFactTag,
 };
 use icydb_testing_integration::{
@@ -42,6 +42,19 @@ struct ScaleFixtureFacts {
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
     instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlQueryPerfResult {
+    result: SqlQueryResult,
+    attribution: SqlQueryExecutionAttribution,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct CardinalityIndexPublicationFacts {
+    rows_scanned: u64,
+    index_keys_written: u64,
+    local_instructions: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -87,7 +100,7 @@ struct ConvergenceWatchdogObservation {
 
 fn report_convergence_observation(label: &str, observation: ConvergenceWatchdogObservation) {
     println!(
-        "0.229 closeout {label}: samples={}, total_instructions={}, maximum_instructions={}, stable_before={}, stable_after={}, wasm_after={}",
+        "recovery closeout {label}: samples={}, total_instructions={}, maximum_instructions={}, stable_before={}, stable_after={}, wasm_after={}",
         observation.work_samples,
         observation.total_instructions,
         observation.maximum_instructions,
@@ -318,6 +331,42 @@ fn assert_count(result: SqlQueryResult, expected: u32) {
     }
 }
 
+fn user_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQueryPerfResult {
+    let result: Result<SqlQueryPerfResult, Error> = fixture
+        .query_candid("query_user_with_perf", (sql.to_string(),))
+        .expect("attributed user count should decode");
+    result.expect("attributed user count should succeed")
+}
+
+fn assert_metadata_backed_count(sample: SqlQueryPerfResult, expected: u32) {
+    assert_count(sample.result, expected);
+    assert_eq!(sample.attribution.store_get_calls, 0);
+    assert_eq!(sample.attribution.index_store_entry_reads, 0);
+    assert_eq!(
+        sample
+            .attribution
+            .scalar_aggregate
+            .as_ref()
+            .and_then(|aggregate| aggregate.sink_mode.as_deref()),
+        Some("IndexPrefixCardinality"),
+    );
+}
+
+fn mutate_cardinality_index(
+    fixture: &StandaloneCanisterFixture,
+    present: bool,
+    expected_version: u64,
+    next_version: u64,
+) -> CardinalityIndexPublicationFacts {
+    let result: Result<CardinalityIndexPublicationFacts, Error> = fixture
+        .update_candid(
+            "mutate_cardinality_closeout_index",
+            (present, expected_version, next_version),
+        )
+        .expect("cardinality closeout DDL facts should decode");
+    result.expect("cardinality closeout DDL should publish")
+}
+
 fn assert_user_name_id(fixture: &StandaloneCanisterFixture, id: i32, present: bool) {
     let result = query_total_only(
         fixture,
@@ -354,6 +403,125 @@ fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservatio
         .query_candid("measure_startup_observation", ())
         .expect("startup observation should decode");
     observed.expect("current-form startup observation should remain readable")
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one causal real-canister scenario proves mid-build upgrade, fallback, Ready consumption, live maintenance, and two-slot reuse"
+)]
+fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly() {
+    const ACTIVE_COUNT_SQL: &str = "SELECT COUNT(*) FROM PerfAuditUser WHERE active = true";
+    const REBUILD_RETAINED_GROWTH_LIMIT: u64 = 4 * 1_024 * 1_024;
+
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<ScaleFixtureFacts, Error> = fixture
+        .update_candid("load_joint_three_index_boundary_fixture", ())
+        .expect("populated cardinality fixture should decode");
+    assert_eq!(
+        loaded
+            .expect("populated cardinality fixture should load")
+            .fixture_rows,
+        2_048,
+    );
+    report_convergence_observation(
+        "cardinality-base-fold",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+    assert_metadata_backed_count(
+        user_count_with_perf(
+            &fixture,
+            "SELECT COUNT(*) FROM PerfAuditUser WHERE name = 'scale-group-001'",
+        ),
+        21,
+    );
+
+    let created = mutate_cardinality_index(&fixture, true, 1, 2);
+    assert_eq!(created.rows_scanned, 2_048);
+    assert_eq!(created.index_keys_written, 2_048);
+    assert!(created.local_instructions < 40_000_000_000);
+    for _ in 0..4 {
+        deliver_startup_watchdog_message(&fixture);
+        if startup_observation(&fixture).state == DatabaseStartupState::Ready {
+            break;
+        }
+    }
+    assert_eq!(
+        startup_observation(&fixture).state,
+        DatabaseStartupState::Ready,
+        "the canonical journal must drain before the mid-build upgrade",
+    );
+    assert!(startup_watchdog_armed(&fixture));
+
+    upgrade_with_wasm(&fixture, current_sql_perf_wasm());
+    assert_eq!(
+        startup_observation(&fixture).state,
+        DatabaseStartupState::Recovering,
+        "the existing generated-schema handoff should remain the upgrade gate",
+    );
+    advance_startup_watchdog_until_ready(&fixture);
+    assert_eq!(
+        startup_observation(&fixture).state,
+        DatabaseStartupState::Ready,
+        "the incomplete optional cardinality build must not gate ordinary readiness",
+    );
+    assert!(startup_watchdog_armed(&fixture));
+    let conservative = user_count_with_perf(&fixture, ACTIVE_COUNT_SQL);
+    assert_count(conservative.result, 512);
+    assert!(
+        conservative.attribution.index_store_entry_reads > 0,
+        "a reopened Building generation must retain the conservative index scan",
+    );
+
+    report_convergence_observation(
+        "cardinality-mid-build-upgrade",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+    assert_metadata_backed_count(user_count_with_perf(&fixture, ACTIVE_COUNT_SQL), 512);
+    let stable_after_first_ready = canister_memory_bytes(&fixture).1;
+
+    retry_convergence_row(&fixture, 900_001);
+    assert_metadata_backed_count(user_count_with_perf(&fixture, ACTIVE_COUNT_SQL), 513);
+    report_convergence_observation(
+        "cardinality-live-delta-fold",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+    assert_metadata_backed_count(user_count_with_perf(&fixture, ACTIVE_COUNT_SQL), 513);
+
+    let dropped = mutate_cardinality_index(&fixture, false, 2, 3);
+    assert!(dropped.local_instructions < 40_000_000_000);
+    report_convergence_observation(
+        "cardinality-alternate-slot",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+    let stable_after_drop = canister_memory_bytes(&fixture).1;
+
+    let recreated = mutate_cardinality_index(&fixture, true, 3, 4);
+    assert_eq!(recreated.rows_scanned, 2_049);
+    assert_eq!(recreated.index_keys_written, 2_049);
+    assert!(recreated.local_instructions < 40_000_000_000);
+    report_convergence_observation(
+        "cardinality-reused-slot",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+    let stable_after_recreate = canister_memory_bytes(&fixture).1;
+    assert!(stable_after_drop >= stable_after_first_ready);
+    assert!(stable_after_recreate >= stable_after_drop);
+    assert!(
+        stable_after_recreate.saturating_sub(stable_after_drop) <= REBUILD_RETAINED_GROWTH_LIMIT,
+        "reusing a previously filled count slot must retain bounded total stable growth",
+    );
+    assert_metadata_backed_count(user_count_with_perf(&fixture, ACTIVE_COUNT_SQL), 513);
+
+    println!(
+        "0.230 cardinality closeout: create_instructions={} drop_instructions={} recreate_instructions={} stable_first_ready={} stable_after_drop={} stable_after_recreate={}",
+        created.local_instructions,
+        dropped.local_instructions,
+        recreated.local_instructions,
+        stable_after_first_ready,
+        stable_after_drop,
+        stable_after_recreate,
+    );
 }
 
 #[test]

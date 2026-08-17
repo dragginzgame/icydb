@@ -61,6 +61,14 @@ pub(super) struct IndexPrefixCardinality {
     decodable: bool,
 }
 
+/// Exact signed contribution of the bounded live overlay relative to canonical state.
+#[derive(Clone, Debug)]
+pub(super) struct IndexPrefixCardinalityDelta {
+    first_component_counts: HeapBTreeMap<IndexPrefixCardinalityFirstKey, i64>,
+    counts: HeapBTreeMap<IndexPrefixCardinalityKey, i64>,
+    decodable: bool,
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct IndexPrefixCardinalityFirstKey {
     key_kind: IndexKeyKind,
@@ -465,6 +473,104 @@ impl IndexPrefixCardinality {
     }
 }
 
+impl IndexPrefixCardinalityDelta {
+    #[must_use]
+    pub(super) const fn empty() -> Self {
+        Self {
+            first_component_counts: HeapBTreeMap::new(),
+            counts: HeapBTreeMap::new(),
+            decodable: true,
+        }
+    }
+
+    #[must_use]
+    pub(super) fn exact_delta(
+        &self,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        components: &[Vec<u8>],
+    ) -> Option<i64> {
+        if !self.decodable {
+            return None;
+        }
+        if let Some(first_component) = components.first().filter(|_| components.len() == 1) {
+            return Some(
+                self.first_component_counts
+                    .get(&IndexPrefixCardinalityFirstKey::new(
+                        key_kind,
+                        index_id,
+                        first_component,
+                    ))
+                    .copied()
+                    .unwrap_or(0),
+            );
+        }
+        Some(
+            self.counts
+                .get(&IndexPrefixCardinalityKey::new(
+                    key_kind, index_id, components,
+                ))
+                .copied()
+                .unwrap_or(0),
+        )
+    }
+
+    pub(super) fn apply_transition(
+        &mut self,
+        raw_key: &RawIndexStoreKey,
+        previous: Option<&IndexEntryValue>,
+        next: Option<&IndexEntryValue>,
+    ) {
+        if !self.decodable || previous == next {
+            return;
+        }
+        let Some(previous_prefixes) = previous.map_or_else(
+            || Some(Vec::new()),
+            |value| counted_prefixes(raw_key, value),
+        ) else {
+            self.invalidate();
+            return;
+        };
+        let Some(next_prefixes) = next.map_or_else(
+            || Some(Vec::new()),
+            |value| counted_prefixes(raw_key, value),
+        ) else {
+            self.invalidate();
+            return;
+        };
+        if previous_prefixes == next_prefixes {
+            return;
+        }
+        self.apply_prefixes(previous_prefixes, -1);
+        self.apply_prefixes(next_prefixes, 1);
+    }
+
+    fn apply_prefixes(&mut self, prefixes: Vec<IndexPrefixCardinalityKey>, delta: i64) {
+        for prefix in prefixes {
+            let applied =
+                if let Some(first_key) = IndexPrefixCardinalityFirstKey::from_prefix(&prefix) {
+                    apply_signed_count_delta(&mut self.first_component_counts, first_key, delta)
+                } else {
+                    apply_signed_count_delta(&mut self.counts, prefix, delta)
+                };
+            if !applied {
+                self.invalidate();
+                return;
+            }
+        }
+    }
+
+    fn invalidate(&mut self) {
+        self.first_component_counts.clear();
+        self.counts.clear();
+        self.decodable = false;
+    }
+
+    pub(super) fn clear_unavailable(&mut self) {
+        self.invalidate();
+    }
+}
+
 fn first_components<'a>(component_prefixes: &[&'a [Vec<u8>]]) -> Vec<&'a [u8]> {
     component_prefixes
         .iter()
@@ -497,6 +603,22 @@ fn apply_count_delta<K: Ord>(
             }
         }
     }
+}
+
+fn apply_signed_count_delta<K: Clone + Ord>(
+    counts: &mut HeapBTreeMap<K, i64>,
+    key: K,
+    delta: i64,
+) -> bool {
+    let count = counts.entry(key.clone()).or_insert(0);
+    let Some(next) = count.checked_add(delta) else {
+        return false;
+    };
+    *count = next;
+    if *count == 0 {
+        counts.remove(&key);
+    }
+    true
 }
 
 impl IndexPrefixCardinalityFirstKey {

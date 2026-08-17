@@ -1199,6 +1199,15 @@ pub(in crate::db) enum PersistedIndexKeySnapshot {
 }
 
 impl PersistedIndexKeySnapshot {
+    /// Return the accepted physical component arity.
+    #[must_use]
+    pub(in crate::db) const fn component_count(&self) -> usize {
+        match self {
+            Self::FieldPath(paths) => paths.len(),
+            Self::Items(items) => items.len(),
+        }
+    }
+
     /// Return whether this key carries only accepted field-path components.
     #[must_use]
     pub(in crate::db) const fn is_field_path_only(&self) -> bool {

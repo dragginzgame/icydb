@@ -428,6 +428,234 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
 }
 
 #[test]
+fn cardinality_count_page_preflight_rejects_overflow_and_uncoalesced_input() {
+    let mut store = SchemaStore::init_journaled(test_memory(251));
+    let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(42))
+        .digest()
+        .expect("entity count key should hash");
+    let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, u64::MAX)
+        .expect("maximum count should construct");
+    store
+        .insert_canonical_raw_value(
+            RawSchemaKey::from_cardinality_count(CardinalityCountSlot::B, digest),
+            count.encode().to_vec(),
+        )
+        .expect("maximum count should seed");
+    assert!(
+        store
+            .prepare_cardinality_count_increments(
+                CardinalityCountSlot::B,
+                CardinalityGenerationId::INITIAL,
+                &[(digest, 1)],
+            )
+            .is_err(),
+        "exact count overflow must fail during read-only preflight",
+    );
+    let second_digest = CardinalityLogicalCountKey::Entity(EntityTag::new(43))
+        .digest()
+        .expect("second entity count key should hash");
+    assert!(
+        store
+            .prepare_cardinality_count_increments(
+                CardinalityCountSlot::B,
+                CardinalityGenerationId::INITIAL,
+                &[(second_digest, 1), (second_digest, 1)],
+            )
+            .is_err(),
+        "page callers must coalesce repeated logical count keys",
+    );
+}
+
+#[test]
+fn ready_cardinality_maintenance_preflights_checked_deltas_and_watermark_publication() {
+    let source = cardinality_source_identity();
+    let allocations = StoreAllocationIdentities::new_journaled(
+        StoreAllocationIdentity::new(180, "test.cardinality.data.v1"),
+        StoreAllocationIdentity::new(181, "test.cardinality.index.v1"),
+        StoreAllocationIdentity::new(182, "test.cardinality.schema.v1"),
+        StoreAllocationIdentity::new(183, "test.cardinality.journal.v1"),
+    );
+    let next_source = CardinalitySourceIdentity::derive(
+        test_database_incarnation(),
+        allocations,
+        None,
+        [],
+        crate::db::journal::FoldWatermark::new(JournalSequence::new(1), 1),
+    )
+    .expect("next fold source should derive");
+    let final_source = CardinalitySourceIdentity::derive(
+        test_database_incarnation(),
+        allocations,
+        None,
+        [],
+        crate::db::journal::FoldWatermark::new(JournalSequence::new(2), 2),
+    )
+    .expect("final fold source should derive");
+    let header = CardinalityGenerationHeader::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityGenerationState::Ready,
+        CardinalityCountSlot::A,
+        source,
+    );
+    let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(42))
+        .digest()
+        .expect("entity digest should derive");
+    let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, 3)
+        .expect("initial count should encode");
+    let mut store = SchemaStore::init_journaled(test_memory(250));
+    store
+        .write_cardinality_generation_header(header)
+        .expect("Ready header should persist");
+    store
+        .insert_canonical_raw_value(
+            RawSchemaKey::from_cardinality_count(CardinalityCountSlot::A, digest),
+            count.encode().to_vec(),
+        )
+        .expect("initial count should persist");
+
+    let prepared = store
+        .prepare_cardinality_maintenance(header, source, next_source, &[(digest, 2)])
+        .expect("increment and next watermark should preflight");
+    store
+        .apply_prepared_cardinality_maintenance(prepared)
+        .expect("preflighted positive maintenance should apply");
+    let next_header = store
+        .cardinality_generation_header()
+        .expect("next header should decode")
+        .expect("next header should exist");
+    assert_eq!(
+        store
+            .cardinality_count(
+                CardinalityCountSlot::A,
+                CardinalityGenerationId::INITIAL,
+                digest
+            )
+            .expect("incremented count should decode"),
+        Some(5),
+    );
+    assert!(next_header.validate_source(next_source).is_ok());
+
+    let prepared = store
+        .prepare_cardinality_maintenance(next_header, next_source, final_source, &[(digest, -5)])
+        .expect("exact removal should preflight");
+    store
+        .apply_prepared_cardinality_maintenance(prepared)
+        .expect("preflighted zero maintenance should apply");
+    assert_eq!(
+        store
+            .cardinality_count(
+                CardinalityCountSlot::A,
+                CardinalityGenerationId::INITIAL,
+                digest
+            )
+            .expect("removed zero count should decode"),
+        None,
+    );
+    assert!(
+        store
+            .prepare_cardinality_maintenance(
+                store
+                    .cardinality_generation_header()
+                    .expect("final header should decode")
+                    .expect("final header should exist"),
+                final_source,
+                final_source,
+                &[(digest, -1)],
+            )
+            .is_err(),
+        "count underflow must fail before stable mutation",
+    );
+}
+
+#[test]
+fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
+    let memory = test_memory(252);
+    let source = cardinality_source_identity();
+    let header = CardinalityGenerationHeader::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityGenerationState::Building,
+        CardinalityCountSlot::A,
+        source,
+    );
+    let cursor = CardinalityBuildCursor::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityCountSlot::A,
+        source,
+        CardinalityBuildPhase::Rows,
+        None,
+        CardinalityBuildTotals::default(),
+    )
+    .expect("initial row cursor should be valid");
+    let mut store = SchemaStore::init_journaled(memory.clone());
+    store
+        .write_cardinality_generation_header(header)
+        .expect("Building header should persist");
+    for entity in 1..=4_097 {
+        let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(entity))
+            .digest()
+            .expect("entity count key should hash");
+        let record = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, 1)
+            .expect("nonzero count should construct");
+        store
+            .insert_canonical_raw_value(
+                RawSchemaKey::from_cardinality_count(CardinalityCountSlot::A, digest),
+                record.encode().to_vec(),
+            )
+            .expect("stale candidate count should seed");
+    }
+
+    assert!(
+        store
+            .clear_cardinality_count_slot_page(header, &cursor, 4_096)
+            .expect("first clear page should succeed")
+    );
+    assert!(
+        store
+            .cardinality_build_cursor()
+            .expect("cursor lookup should succeed")
+            .is_none(),
+        "a partially cleared slot must not start scanning",
+    );
+    assert!(
+        !store
+            .cardinality_count_slot_is_empty(CardinalityCountSlot::A)
+            .expect("slot probe should succeed")
+    );
+    assert!(
+        !store
+            .clear_cardinality_count_slot_page(header, &cursor, 4_096)
+            .expect("final clear page should succeed")
+    );
+    assert!(
+        store
+            .cardinality_count_slot_is_empty(CardinalityCountSlot::A)
+            .expect("slot should now be empty")
+    );
+    assert_eq!(
+        store
+            .cardinality_build_cursor()
+            .expect("cursor should decode")
+            .expect("cursor should be installed"),
+        cursor,
+    );
+    drop(store);
+
+    let reopened = SchemaStore::init_journaled(memory);
+    assert!(
+        reopened
+            .cardinality_count_slot_is_empty(CardinalityCountSlot::A)
+            .expect("reopened slot should remain empty")
+    );
+    assert_eq!(
+        reopened
+            .cardinality_build_cursor()
+            .expect("reopened cursor should decode")
+            .expect("reopened cursor should exist"),
+        cursor,
+    );
+}
+
+#[test]
 fn raw_schema_snapshot_storable_bound_does_not_amplify_stable_btree_nodes() {
     assert_eq!(RawSchemaSnapshot::BOUND, Bound::Unbounded);
 }

@@ -6,7 +6,11 @@
 use crate::db::index::{IndexId, IndexKeyKind};
 use crate::db::{
     direction::Direction,
-    index::{IndexEntryValue, cardinality::IndexPrefixCardinality, key::RawIndexStoreKey},
+    index::{
+        IndexEntryValue,
+        cardinality::{IndexPrefixCardinality, IndexPrefixCardinalityDelta},
+        key::RawIndexStoreKey,
+    },
     ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
     positioned_overlay::{
         JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
@@ -133,6 +137,7 @@ pub(super) enum IndexStoreBackend {
         live: HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
         tombstones: BTreeSet<RawIndexStoreKey>,
         positions: PositionedOverlayMetadata<RawIndexStoreKey>,
+        prefix_cardinality_delta: Box<IndexPrefixCardinalityDelta>,
     },
 }
 
@@ -191,6 +196,7 @@ impl IndexStore {
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
                 positions: PositionedOverlayMetadata::new(),
+                prefix_cardinality_delta: Box::new(IndexPrefixCardinalityDelta::empty()),
             },
             generation: 0,
             state: IndexState::Ready,
@@ -243,6 +249,17 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
             IndexStoreBackend::Journaled { canonical, .. } => canonical.get(key),
+        }
+    }
+
+    /// Return whether the canonical predecessor domain is physically empty.
+    ///
+    /// This bounded root observation never walks live overlays or materializes
+    /// index entries.
+    pub(in crate::db) fn canonical_is_empty(&self) -> Result<bool, crate::error::InternalError> {
+        match &self.backend {
+            IndexStoreBackend::Journaled { canonical, .. } => Ok(canonical.is_empty()),
+            IndexStoreBackend::Heap(_) => Err(crate::error::InternalError::store_invariant()),
         }
     }
 
@@ -303,6 +320,23 @@ impl IndexStore {
     ) -> Option<u64> {
         self.prefix_cardinality
             .exact_count(data_generation, key_kind, index_id, components)
+    }
+
+    /// Return the exact live-overlay delta from canonical for one user-index prefix.
+    #[must_use]
+    pub(in crate::db) fn exact_prefix_cardinality_delta(
+        &self,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        components: &[Vec<u8>],
+    ) -> Option<i64> {
+        match &self.backend {
+            IndexStoreBackend::Heap(_) => Some(0),
+            IndexStoreBackend::Journaled {
+                prefix_cardinality_delta,
+                ..
+            } => prefix_cardinality_delta.exact_delta(key_kind, index_id, components),
+        }
     }
 
     /// Return the sum of exact prefix counts for prefixes on the same index
@@ -381,6 +415,7 @@ impl IndexStore {
         };
         self.prefix_cardinality
             .apply_insert(&cardinality_key, previous.as_ref(), &entry);
+        self.apply_prefix_overlay_delta(&cardinality_key, previous.as_ref(), Some(&entry));
         self.bump_generation();
         previous
     }
@@ -409,6 +444,7 @@ impl IndexStore {
         }
         self.prefix_cardinality
             .apply_insert(&cardinality_key, None, &entry);
+        self.apply_prefix_overlay_delta(&cardinality_key, None, Some(&entry));
         self.bump_generation();
     }
 
@@ -429,6 +465,7 @@ impl IndexStore {
             }
         };
         self.prefix_cardinality.apply_remove(key, previous.as_ref());
+        self.apply_prefix_overlay_delta(key, previous.as_ref(), None);
         self.bump_generation();
         previous
     }
@@ -444,6 +481,7 @@ impl IndexStore {
             live,
             tombstones,
             positions,
+            prefix_cardinality_delta,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -452,6 +490,7 @@ impl IndexStore {
         live.clear();
         tombstones.clear();
         positions.clear();
+        **prefix_cardinality_delta = IndexPrefixCardinalityDelta::empty();
         self.prefix_cardinality = if canonical.is_empty() {
             let mut cardinality = IndexPrefixCardinality::synchronized_empty();
             cardinality.mark_synchronized(data_generation);
@@ -476,6 +515,7 @@ impl IndexStore {
             live,
             tombstones,
             positions,
+            prefix_cardinality_delta,
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
@@ -486,6 +526,7 @@ impl IndexStore {
             live.get(&key).cloned().or_else(|| canonical.get(&key))
         };
         let cardinality_key = key.clone();
+        let next_value = value.clone();
 
         if let Some(value) = value {
             tombstones.remove(&key);
@@ -498,6 +539,11 @@ impl IndexStore {
             self.prefix_cardinality
                 .apply_remove(&cardinality_key, previous.as_ref());
         }
+        prefix_cardinality_delta.apply_transition(
+            &cardinality_key,
+            previous.as_ref(),
+            next_value.as_ref(),
+        );
         positions.publish_preflighted(key, position);
         self.bump_generation();
 
@@ -661,6 +707,8 @@ impl IndexStore {
                 self.prefix_cardinality
                     .apply_remove(&cardinality_key, previous.as_ref());
             }
+        } else {
+            self.apply_prefix_overlay_delta(&cardinality_key, value.as_ref(), previous.as_ref());
         }
         self.bump_generation();
 
@@ -684,6 +732,7 @@ impl IndexStore {
                 canonical,
                 live,
                 tombstones,
+                prefix_cardinality_delta,
                 ..
             } => {
                 live.clear();
@@ -691,6 +740,7 @@ impl IndexStore {
                 for entry in canonical.iter() {
                     tombstones.insert(entry.key().clone());
                 }
+                prefix_cardinality_delta.clear_unavailable();
             }
         }
         self.prefix_cardinality.clear_unsynchronized();
@@ -708,6 +758,7 @@ impl IndexStore {
             canonical,
             live,
             tombstones,
+            prefix_cardinality_delta,
             ..
         } = &mut self.backend
         else {
@@ -720,6 +771,7 @@ impl IndexStore {
         }
         live.clear();
         tombstones.clear();
+        **prefix_cardinality_delta = IndexPrefixCardinalityDelta::empty();
         let data_generation = self.prefix_cardinality.synchronized_generation();
         self.rebuild_prefix_cardinality_from_entries(data_generation);
         self.bump_generation();
@@ -769,6 +821,22 @@ impl IndexStore {
 
     const fn bump_generation(&mut self) {
         self.generation = self.generation.saturating_add(1);
+    }
+
+    fn apply_prefix_overlay_delta(
+        &mut self,
+        key: &RawIndexStoreKey,
+        previous: Option<&IndexEntryValue>,
+        next: Option<&IndexEntryValue>,
+    ) {
+        let IndexStoreBackend::Journaled {
+            prefix_cardinality_delta,
+            ..
+        } = &mut self.backend
+        else {
+            return;
+        };
+        prefix_cardinality_delta.apply_transition(key, previous, next);
     }
 
     #[cfg(any(test, feature = "migration"))]
@@ -1487,7 +1555,7 @@ mod tests {
             .expect("canonical index seed should fold");
         drop(store);
 
-        let reopened = IndexStore::init_journaled(memory);
+        let mut reopened = IndexStore::init_journaled(memory);
 
         assert_eq!(reopened.get(&key), Some(IndexEntryValue::presence()));
         assert_eq!(
@@ -1499,6 +1567,36 @@ mod tests {
             ),
             None,
             "startup must leave optional prefix cardinality unavailable without scanning stable entries",
+        );
+        assert_eq!(
+            reopened.exact_prefix_cardinality_delta(
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(0),
+        );
+        let second = indexed_raw_key(&index_id, vec![collection.clone()], 2);
+        reopened.insert(second.clone(), IndexEntryValue::presence());
+        assert_eq!(
+            reopened.exact_prefix_cardinality_delta(
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(1),
+        );
+        reopened
+            .fold_recovered_journal_entry(second, Some(IndexEntryValue::presence()))
+            .expect("matching canonical index entry should fold");
+        assert_eq!(
+            reopened.exact_prefix_cardinality_delta(
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(0),
+            "canonical fold must consume only its exact overlay prefix contribution",
         );
     }
 

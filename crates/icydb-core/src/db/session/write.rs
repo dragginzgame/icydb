@@ -3017,7 +3017,7 @@ mod identity_pre_key_tests {
             data::DataStore,
             drive_generated_startup_recovery_page,
             executor::{MutationCommitInterruption, interrupt_next_mutation_commit_for_tests},
-            index::IndexStore,
+            index::{IndexId, IndexKey, IndexKeyKind, IndexStore, IndexStoreVisit},
             integrity::{
                 InsertMutationJobResult, PhysicalUnitCheckpoint, QuickIntegrityStatus,
                 RowInspectionLimits, execute_quick_integrity, execute_row_integrity_page,
@@ -3028,7 +3028,7 @@ mod identity_pre_key_tests {
                 encode_journal_batch,
             },
             registry::{
-                StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+                StoreAllocationIdentities, StoreAllocationIdentity, StoreHandle, StoreRegistry,
                 StoreRuntimeStorageCapabilities,
             },
             schema::{
@@ -3038,6 +3038,11 @@ mod identity_pre_key_tests {
                 PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
                 SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
                 accepted_schema_candidate_with_field_bindings_for_tests,
+                cardinality_build::{
+                    CardinalityBuildAuthority, CardinalityGenerationPageOutcome,
+                    drive_cardinality_generation_page,
+                },
+                cardinality_generation::{CardinalityGenerationHeader, CardinalityGenerationState},
             },
             write_context::MutationMode,
         },
@@ -3324,6 +3329,120 @@ mod identity_pre_key_tests {
             }
         }
         panic!("dedicated driver recovery should quiesce within eight complete batches");
+    }
+
+    fn drive_journaled_cardinality_to_ready(session: &DbSession<JournaledTestCanister>) {
+        let handle = session
+            .db
+            .store_handle(JOURNALED_STORE_PATH)
+            .expect("journaled cardinality store should resolve");
+        for _ in 0..8 {
+            let outcome = handle
+                .with_data(|data| {
+                    handle.with_index(|index| {
+                        handle.with_schema_mut(|schema| {
+                            drive_cardinality_generation_page(data, index, schema, |schema| {
+                                let watermark = JOURNALED_TAIL_STORE
+                                    .with(|tail| tail.borrow().fold_watermark())?;
+                                CardinalityBuildAuthority::derive(
+                                    schema,
+                                    database_incarnation_id()?,
+                                    handle.allocation_identities(),
+                                    watermark,
+                                )
+                            })
+                        })
+                    })
+                })
+                .expect("bounded cardinality generation should advance");
+            if outcome == CardinalityGenerationPageOutcome::Quiescent {
+                return;
+            }
+        }
+        panic!("cardinality generation should become Ready within eight bounded pages");
+    }
+
+    fn journaled_user_index_prefix() -> (IndexId, Vec<Vec<u8>>) {
+        JOURNALED_INDEX_STORE.with(|store| {
+            let mut selected = None;
+            store
+                .borrow()
+                .visit_entries(|raw_key, _value| {
+                    let key = IndexKey::try_from_raw(raw_key)
+                        .expect("accepted user index key should decode");
+                    if key.key_kind() != IndexKeyKind::User {
+                        return Ok::<_, InternalError>(IndexStoreVisit::Continue);
+                    }
+                    let components = (0..key.component_count())
+                        .map(|index| {
+                            key.component(index)
+                                .expect("accepted index component should exist")
+                                .to_vec()
+                        })
+                        .collect::<Vec<_>>();
+                    selected = Some((*key.index_id(), components));
+                    Ok(IndexStoreVisit::Stop)
+                })
+                .expect("accepted user index should be inspectable");
+            selected.expect("the cardinality fixture should contain one user index entry")
+        })
+    }
+
+    fn reset_journaled_cardinality_projections() -> u64 {
+        JOURNALED_DATA_STORE.with(|store| {
+            store
+                .borrow_mut()
+                .reset_journaled_live_projection()
+                .expect("row projection should reset without a count scan");
+        });
+        let data_generation = JOURNALED_DATA_STORE.with(|store| store.borrow().generation());
+        JOURNALED_INDEX_STORE.with(|store| {
+            store
+                .borrow_mut()
+                .reset_journaled_live_projection(data_generation)
+                .expect("index projection should reset without a count scan");
+        });
+        data_generation
+    }
+
+    fn assert_journaled_cardinality(
+        handle: StoreHandle,
+        index_id: IndexId,
+        prefix_components: &[Vec<u8>],
+        expected: u64,
+    ) {
+        assert_eq!(handle.exact_entity_count(ENTITY_TAG), Some(expected));
+        let data_generation = JOURNALED_DATA_STORE.with(|store| store.borrow().generation());
+        assert_eq!(
+            handle.exact_user_index_prefix_count(
+                data_generation,
+                IndexKeyKind::User,
+                index_id,
+                prefix_components,
+            ),
+            Some(expected),
+        );
+    }
+
+    fn mark_journaled_cardinality_building() {
+        let current = JOURNALED_SCHEMA_STORE.with(|store| {
+            store
+                .borrow()
+                .cardinality_generation_header()
+                .expect("Ready header should decode")
+                .expect("Ready header should exist")
+        });
+        JOURNALED_SCHEMA_STORE.with(|store| {
+            store
+                .borrow_mut()
+                .write_cardinality_generation_header(CardinalityGenerationHeader::new(
+                    current.generation(),
+                    CardinalityGenerationState::Building,
+                    current.slot(),
+                    current.source(),
+                ))
+                .expect("Building fallback fixture should persist");
+        });
     }
 
     fn payload_patch(value: u64) -> AcceptedMutationIntentPatch {
@@ -5501,6 +5620,82 @@ mod identity_pre_key_tests {
             "canonical derived state must contain only the newest membership",
         );
         assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    }
+
+    #[test]
+    fn ready_cardinality_combines_durable_base_with_exact_live_delta_and_fold_maintenance() {
+        let session = initialize_journaled();
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(10),
+            })
+            .expect("initial cardinality row should commit");
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("initial cardinality row should fold"),
+        );
+        drive_journaled_cardinality_to_ready(&session);
+        let handle = session
+            .db
+            .store_handle(JOURNALED_STORE_PATH)
+            .expect("journaled cardinality store should resolve");
+        let (index_id, prefix_components) = journaled_user_index_prefix();
+        reset_journaled_cardinality_projections();
+        assert_eq!(
+            JOURNALED_DATA_STORE.with(|store| store.borrow().exact_entity_count(ENTITY_TAG)),
+            None,
+            "the reopened-style volatile full count must remain unavailable",
+        );
+        assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 1);
+
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(10),
+            })
+            .expect("post-Ready row should commit into the live overlay");
+        for payload in [20, 10] {
+            session
+                .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(2),
+                    patch: dynamic_payload_patch(payload),
+                })
+                .expect("same-key post-Ready overlay should commit");
+        }
+        assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 2);
+        for folded in 1..=3 {
+            let complete = session
+                .db
+                .drive_startup_recovery_page()
+                .expect("post-Ready row should fold with exact maintenance");
+            assert_eq!(complete, folded == 3);
+            assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 2);
+        }
+        assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 2);
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Delete {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(2),
+            })
+            .expect("post-Ready delete should commit into the live overlay");
+        assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 1);
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("post-Ready delete should fold with exact maintenance"),
+        );
+        assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 1);
+        mark_journaled_cardinality_building();
+        assert_eq!(
+            handle.exact_entity_count(ENTITY_TAG),
+            None,
+            "non-Ready evidence must select the conservative path",
+        );
     }
 
     #[test]

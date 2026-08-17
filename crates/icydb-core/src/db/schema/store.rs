@@ -3,13 +3,20 @@
 //! Does not own: reconciliation policy, typed snapshot encoding, or generated proposal construction.
 //! Boundary: provides the third per-store stable memory alongside row and index stores.
 
-use crate::db::schema::cardinality_generation::{CardinalityCountDigest, CardinalityCountSlot};
 use crate::db::schema::identity_state::{
     IdentityAdvanceId, IdentityRangeAdvance, IdentityRangeCommitState, IdentityState,
     IdentityStateInventory, IdentityStateLifecycle, IdentityStateTransition,
     IdentityStatementCursor, MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, decode_identity_state,
     encode_identity_state, identity_kind_maximum, prepare_identity_state_transition,
     validate_identity_state_closure,
+};
+use crate::db::schema::{
+    cardinality_build::{CardinalityReadyCandidate, EmptyCardinalityReadyCandidate},
+    cardinality_generation::{
+        CardinalityBuildCursor, CardinalityCountDigest, CardinalityCountRecord,
+        CardinalityCountSlot, CardinalityGenerationHeader, CardinalityGenerationId,
+        CardinalityGenerationState, CardinalitySourceIdentity,
+    },
 };
 use crate::{
     db::{
@@ -268,13 +275,6 @@ impl RawSchemaKey {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Patch 2 reserves cardinality keys that the bounded Patch 3 builder activates"
-    )
-)]
 impl RawSchemaKey {
     const NAMESPACE_CARDINALITY_CONTROL: u8 = 5;
     const NAMESPACE_CARDINALITY_COUNT_A: u8 = 6;
@@ -304,6 +304,23 @@ impl RawSchemaKey {
         };
         out[1..].copy_from_slice(&digest.as_bytes()[..SCHEMA_KEY_BYTES_USIZE - 1]);
         Self(out)
+    }
+
+    const fn cardinality_count_range_bounds(
+        slot: CardinalityCountSlot,
+    ) -> (RangeBound<Self>, RangeBound<Self>) {
+        let namespace = match slot {
+            CardinalityCountSlot::A => Self::NAMESPACE_CARDINALITY_COUNT_A,
+            CardinalityCountSlot::B => Self::NAMESPACE_CARDINALITY_COUNT_B,
+        };
+        let mut start = [0_u8; SCHEMA_KEY_BYTES_USIZE];
+        start[0] = namespace;
+        let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
+        end[0] = namespace;
+        (
+            RangeBound::Included(Self(start)),
+            RangeBound::Included(Self(end)),
+        )
     }
 }
 
@@ -876,6 +893,33 @@ pub(in crate::db) struct PreparedSchemaPositionRetirement {
     entries: Vec<(RawSchemaKey, PositionedOverlayRetirement)>,
 }
 
+/// Preflighted count-record changes for one isolated cardinality build page.
+pub(in crate::db) struct PreparedCardinalityCountWrites {
+    slot: CardinalityCountSlot,
+    generation: CardinalityGenerationId,
+    entries: Vec<(RawSchemaKey, RawSchemaSnapshot)>,
+    new_count_keys: u64,
+}
+
+impl PreparedCardinalityCountWrites {
+    #[must_use]
+    pub(in crate::db) const fn new_count_keys(&self) -> u64 {
+        self.new_count_keys
+    }
+}
+
+/// Fully preflighted atomic count-and-cursor publication for one build page.
+pub(in crate::db) struct PreparedCardinalityBuildPage {
+    count_entries: Vec<(RawSchemaKey, RawSchemaSnapshot)>,
+    cursor: (RawSchemaKey, RawSchemaSnapshot),
+}
+
+/// Fully preflighted exact count and Ready-watermark transition for one fold.
+pub(in crate::db) struct PreparedCardinalityMaintenance {
+    count_entries: Vec<(RawSchemaKey, Option<RawSchemaSnapshot>)>,
+    header: (RawSchemaKey, RawSchemaSnapshot),
+}
+
 #[derive(Clone, Copy)]
 enum IdentityStateWriteTarget {
     Durable,
@@ -910,6 +954,400 @@ impl SchemaStore {
             accepted_bundle_cache: RefCell::new(None),
             accepted_catalog_scope: OnceCell::new(),
         }
+    }
+
+    /// Load the sole current durable cardinality-generation header.
+    pub(in crate::db) fn cardinality_generation_header(
+        &self,
+    ) -> Result<Option<CardinalityGenerationHeader>, InternalError> {
+        let key = RawSchemaKey::from_cardinality_generation_header();
+        self.get_canonical_raw_value(&key)?
+            .map(|raw| CardinalityGenerationHeader::decode(raw.as_bytes()))
+            .transpose()
+    }
+
+    /// Load the sole bounded cardinality build cursor.
+    pub(in crate::db) fn cardinality_build_cursor(
+        &self,
+    ) -> Result<Option<CardinalityBuildCursor>, InternalError> {
+        let key = RawSchemaKey::from_cardinality_build_cursor();
+        self.get_canonical_raw_value(&key)?
+            .map(|raw| CardinalityBuildCursor::decode(raw.as_bytes()))
+            .transpose()
+    }
+
+    /// Prove that no current cardinality authority or orphaned slot data exists.
+    pub(in crate::db) fn cardinality_storage_is_pristine(&self) -> Result<bool, InternalError> {
+        if self.cardinality_generation_header()?.is_some()
+            || self.cardinality_build_cursor()?.is_some()
+        {
+            return Ok(false);
+        }
+        Ok(
+            self.cardinality_count_slot_is_empty(CardinalityCountSlot::A)?
+                && self.cardinality_count_slot_is_empty(CardinalityCountSlot::B)?,
+        )
+    }
+
+    /// Persist one already-validated cardinality header into canonical control storage.
+    pub(in crate::db) fn write_cardinality_generation_header(
+        &mut self,
+        header: CardinalityGenerationHeader,
+    ) -> Result<(), InternalError> {
+        self.insert_canonical_raw_value(
+            RawSchemaKey::from_cardinality_generation_header(),
+            header.encode(),
+        )
+    }
+
+    /// Replace stale cardinality evidence with a fresh isolated Building generation.
+    ///
+    /// Every fallible read, generation increment, and backend check happens
+    /// before the header switch. Removing the obsolete cursor afterward is a
+    /// mechanical stable-map operation in the same replicated message.
+    pub(in crate::db) fn restart_cardinality_generation(
+        &mut self,
+        current: CardinalityGenerationHeader,
+        source: CardinalitySourceIdentity,
+    ) -> Result<CardinalityGenerationHeader, InternalError> {
+        if self.cardinality_generation_header()? != Some(current) {
+            return Err(InternalError::store_corruption());
+        }
+        if current.validate_source(source).is_ok() {
+            return Err(InternalError::store_invariant());
+        }
+        if let Some(cursor) = self.cardinality_build_cursor()? {
+            cursor.validate_header(current)?;
+        }
+        let next = CardinalityGenerationHeader::new(
+            current.generation().checked_next()?,
+            CardinalityGenerationState::Building,
+            current.slot().alternate(),
+            source,
+        );
+        let encoded = RawSchemaSnapshot::from_encoded_control_record(next.encode());
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        canonical.insert(RawSchemaKey::from_cardinality_generation_header(), encoded);
+        canonical.remove(&RawSchemaKey::from_cardinality_build_cursor());
+        Ok(next)
+    }
+
+    /// Publish exact zero for a physically empty canonical row/index domain.
+    pub(in crate::db) fn publish_empty_cardinality_generation(
+        &mut self,
+        candidate: &EmptyCardinalityReadyCandidate,
+    ) -> Result<CardinalityGenerationHeader, InternalError> {
+        if !self.cardinality_storage_is_pristine()? {
+            return Err(InternalError::store_corruption());
+        }
+        let ready = CardinalityGenerationHeader::new(
+            CardinalityGenerationId::INITIAL,
+            CardinalityGenerationState::Ready,
+            CardinalityCountSlot::A,
+            candidate.source(),
+        );
+        let encoded = RawSchemaSnapshot::from_encoded_control_record(ready.encode());
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        canonical.insert(RawSchemaKey::from_cardinality_generation_header(), encoded);
+        Ok(ready)
+    }
+
+    /// Atomically make one completely exhausted candidate planner-visible.
+    pub(in crate::db) fn publish_ready_cardinality_generation(
+        &mut self,
+        candidate: &CardinalityReadyCandidate,
+        source: CardinalitySourceIdentity,
+    ) -> Result<CardinalityGenerationHeader, InternalError> {
+        let building = candidate.header();
+        candidate.cursor().validate_header(building)?;
+        if building.state() != CardinalityGenerationState::Building
+            || building.validate_source(source).is_err()
+            || self.cardinality_generation_header()? != Some(building)
+            || self.cardinality_build_cursor()?.as_ref() != Some(candidate.cursor())
+        {
+            return Err(InternalError::store_corruption());
+        }
+        let ready = CardinalityGenerationHeader::new(
+            building.generation(),
+            CardinalityGenerationState::Ready,
+            building.slot(),
+            building.source(),
+        );
+        let encoded = RawSchemaSnapshot::from_encoded_control_record(ready.encode());
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        canonical.insert(RawSchemaKey::from_cardinality_generation_header(), encoded);
+        canonical.remove(&RawSchemaKey::from_cardinality_build_cursor());
+        Ok(ready)
+    }
+
+    /// Clear at most `limit` records from one inactive count slot.
+    ///
+    /// When the slot becomes empty, the initial Rows cursor is installed in
+    /// the same mutation boundary so a resumed builder never confuses clearing
+    /// with scanning.
+    pub(in crate::db) fn clear_cardinality_count_slot_page(
+        &mut self,
+        header: CardinalityGenerationHeader,
+        initial_cursor: &CardinalityBuildCursor,
+        limit: usize,
+    ) -> Result<bool, InternalError> {
+        if limit == 0 {
+            return Err(InternalError::store_invariant());
+        }
+        initial_cursor.validate_header(header)?;
+        let encoded_cursor = initial_cursor.encode()?;
+        if self.cardinality_generation_header()? != Some(header)
+            || self.cardinality_build_cursor()?.is_some()
+        {
+            return Err(InternalError::store_corruption());
+        }
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let bounds = RawSchemaKey::cardinality_count_range_bounds(header.slot());
+        let collect_limit = limit
+            .checked_add(1)
+            .ok_or_else(InternalError::store_unsupported)?;
+        let mut keys = Vec::new();
+        keys.try_reserve_exact(collect_limit)
+            .map_err(|_| InternalError::store_unsupported())?;
+        for entry in canonical.range(bounds).take(collect_limit) {
+            keys.push(*entry.key());
+        }
+        let has_more = keys.len() > limit;
+        for key in keys.into_iter().take(limit) {
+            canonical.remove(&key);
+        }
+        if !has_more {
+            canonical.insert(
+                RawSchemaKey::from_cardinality_build_cursor(),
+                RawSchemaSnapshot::from_encoded_control_record(encoded_cursor),
+            );
+        }
+        Ok(has_more)
+    }
+
+    /// Preflight coalesced positive count increments for one isolated page.
+    pub(in crate::db) fn prepare_cardinality_count_increments(
+        &self,
+        slot: CardinalityCountSlot,
+        generation: CardinalityGenerationId,
+        increments: &[(CardinalityCountDigest, u64)],
+    ) -> Result<PreparedCardinalityCountWrites, InternalError> {
+        if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
+            return Err(InternalError::store_invariant());
+        }
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(increments.len())
+            .map_err(|_| InternalError::store_unsupported())?;
+        let mut physical_keys = StdBTreeMap::new();
+        let mut new_count_keys = 0_u64;
+        for (digest, increment) in increments {
+            if *increment == 0 {
+                return Err(InternalError::store_invariant());
+            }
+            let key = RawSchemaKey::from_cardinality_count(slot, *digest);
+            if let Some(previous_digest) = physical_keys.insert(key, *digest) {
+                return Err(if previous_digest == *digest {
+                    InternalError::store_invariant()
+                } else {
+                    InternalError::store_corruption()
+                });
+            }
+            let current = self.get_canonical_raw_value(&key)?;
+            let count = if let Some(raw) = current {
+                let record = CardinalityCountRecord::decode(raw.as_bytes())?;
+                record
+                    .validate_identity(generation, *digest)
+                    .map_err(|_| InternalError::store_corruption())?
+                    .checked_add(*increment)
+                    .ok_or_else(InternalError::store_unsupported)?
+            } else {
+                new_count_keys = new_count_keys
+                    .checked_add(1)
+                    .ok_or_else(InternalError::store_unsupported)?;
+                *increment
+            };
+            let record = CardinalityCountRecord::new(generation, *digest, count)?;
+            entries.push((
+                key,
+                RawSchemaSnapshot::from_encoded_control_record(record.encode().to_vec()),
+            ));
+        }
+        Ok(PreparedCardinalityCountWrites {
+            slot,
+            generation,
+            entries,
+            new_count_keys,
+        })
+    }
+
+    /// Bind preflighted count writes to the exact current cursor transition.
+    pub(in crate::db) fn prepare_cardinality_build_page(
+        &self,
+        header: CardinalityGenerationHeader,
+        current_cursor: &CardinalityBuildCursor,
+        counts: PreparedCardinalityCountWrites,
+        next_cursor: &CardinalityBuildCursor,
+    ) -> Result<PreparedCardinalityBuildPage, InternalError> {
+        current_cursor.validate_header(header)?;
+        next_cursor.validate_header(header)?;
+        if counts.slot != header.slot() || counts.generation != header.generation() {
+            return Err(InternalError::store_invariant());
+        }
+        if self.cardinality_generation_header()? != Some(header)
+            || self.cardinality_build_cursor()?.as_ref() != Some(current_cursor)
+        {
+            return Err(InternalError::store_corruption());
+        }
+        let encoded_cursor = next_cursor.encode()?;
+        Ok(PreparedCardinalityBuildPage {
+            count_entries: counts.entries,
+            cursor: (
+                RawSchemaKey::from_cardinality_build_cursor(),
+                RawSchemaSnapshot::from_encoded_control_record(encoded_cursor),
+            ),
+        })
+    }
+
+    /// Mechanically publish one fully preflighted count-and-cursor page.
+    pub(in crate::db) fn apply_prepared_cardinality_build_page(
+        &mut self,
+        prepared: PreparedCardinalityBuildPage,
+    ) -> Result<(), InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        for (key, value) in prepared.count_entries {
+            canonical.insert(key, value);
+        }
+        canonical.insert(prepared.cursor.0, prepared.cursor.1);
+        Ok(())
+    }
+
+    /// Load one exact nonzero count from an isolated generation.
+    pub(in crate::db) fn cardinality_count(
+        &self,
+        slot: CardinalityCountSlot,
+        generation: CardinalityGenerationId,
+        digest: CardinalityCountDigest,
+    ) -> Result<Option<u64>, InternalError> {
+        let key = RawSchemaKey::from_cardinality_count(slot, digest);
+        self.get_canonical_raw_value(&key)?
+            .map(|raw| {
+                CardinalityCountRecord::decode(raw.as_bytes())?
+                    .validate_identity(generation, digest)
+                    .map_err(|_| InternalError::store_corruption())
+            })
+            .transpose()
+    }
+
+    /// Preflight exact coalesced count changes and the next complete fold watermark.
+    pub(in crate::db) fn prepare_cardinality_maintenance(
+        &self,
+        current: CardinalityGenerationHeader,
+        current_source: CardinalitySourceIdentity,
+        next_source: CardinalitySourceIdentity,
+        changes: &[(CardinalityCountDigest, i64)],
+    ) -> Result<PreparedCardinalityMaintenance, InternalError> {
+        if current.state() != CardinalityGenerationState::Ready
+            || current.validate_source(current_source).is_err()
+            || self.cardinality_generation_header()? != Some(current)
+            || self.cardinality_build_cursor()?.is_some()
+        {
+            return Err(InternalError::store_corruption());
+        }
+        let next = CardinalityGenerationHeader::new(
+            current.generation(),
+            CardinalityGenerationState::Ready,
+            current.slot(),
+            next_source,
+        );
+        let mut count_entries = Vec::new();
+        count_entries
+            .try_reserve_exact(changes.len())
+            .map_err(|_| InternalError::store_unsupported())?;
+        let mut physical_keys = StdBTreeMap::new();
+        for (digest, delta) in changes {
+            if *delta == 0 {
+                return Err(InternalError::store_invariant());
+            }
+            let key = RawSchemaKey::from_cardinality_count(current.slot(), *digest);
+            if let Some(previous_digest) = physical_keys.insert(key, *digest) {
+                return Err(if previous_digest == *digest {
+                    InternalError::store_invariant()
+                } else {
+                    InternalError::store_corruption()
+                });
+            }
+            let base = self
+                .cardinality_count(current.slot(), current.generation(), *digest)?
+                .unwrap_or(0);
+            let count = if *delta > 0 {
+                base.checked_add(
+                    u64::try_from(*delta).map_err(|_| InternalError::store_invariant())?,
+                )
+            } else {
+                base.checked_sub(delta.unsigned_abs())
+            }
+            .ok_or_else(InternalError::store_corruption)?;
+            let value = if count == 0 {
+                None
+            } else {
+                Some(RawSchemaSnapshot::from_encoded_control_record(
+                    CardinalityCountRecord::new(current.generation(), *digest, count)?
+                        .encode()
+                        .to_vec(),
+                ))
+            };
+            count_entries.push((key, value));
+        }
+        Ok(PreparedCardinalityMaintenance {
+            count_entries,
+            header: (
+                RawSchemaKey::from_cardinality_generation_header(),
+                RawSchemaSnapshot::from_encoded_control_record(next.encode()),
+            ),
+        })
+    }
+
+    /// Mechanically publish one completely preflighted count/watermark transition.
+    pub(in crate::db) fn apply_prepared_cardinality_maintenance(
+        &mut self,
+        prepared: PreparedCardinalityMaintenance,
+    ) -> Result<(), InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        for (key, value) in prepared.count_entries {
+            if let Some(value) = value {
+                canonical.insert(key, value);
+            } else {
+                canonical.remove(&key);
+            }
+        }
+        canonical.insert(prepared.header.0, prepared.header.1);
+        Ok(())
+    }
+
+    fn cardinality_count_slot_is_empty(
+        &self,
+        slot: CardinalityCountSlot,
+    ) -> Result<bool, InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        Ok(canonical
+            .range(RawSchemaKey::cardinality_count_range_bounds(slot))
+            .next()
+            .is_none())
     }
 
     /// Prove that recovered journal metadata can fold into canonical storage.
@@ -1261,18 +1699,34 @@ impl SchemaStore {
     pub(in crate::db) fn current_canonical_accepted_schema_bundle(
         &self,
     ) -> Result<Option<AcceptedSchemaRevisionBundle>, InternalError> {
-        let first = self.canonical_root_slot_bytes(0)?;
-        let second = self.canonical_root_slot_bytes(1)?;
-        let Some(selection) =
-            select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
-        else {
+        self.current_canonical_accepted_schema_authority()
+            .map(|authority| authority.map(|(_, bundle)| bundle))
+    }
+
+    /// Load one canonical accepted root and its verified immutable bundle.
+    pub(in crate::db) fn current_canonical_accepted_schema_authority(
+        &self,
+    ) -> Result<Option<(AcceptedSchemaRootSelection, AcceptedSchemaRevisionBundle)>, InternalError>
+    {
+        let Some(selection) = self.current_canonical_accepted_schema_root()? else {
             return Ok(None);
         };
         let bundle_key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
         let raw = self
             .get_canonical_raw_value(&bundle_key)?
             .ok_or_else(InternalError::store_corruption)?;
-        decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes()).map(Some)
+        let bundle =
+            decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
+        Ok(Some((selection, bundle)))
+    }
+
+    /// Return the accepted root selected only from canonical predecessor slots.
+    pub(in crate::db) fn current_canonical_accepted_schema_root(
+        &self,
+    ) -> Result<Option<AcceptedSchemaRootSelection>, InternalError> {
+        let first = self.canonical_root_slot_bytes(0)?;
+        let second = self.canonical_root_slot_bytes(1)?;
+        select_current_accepted_schema_root([first.as_deref(), second.as_deref()])
     }
 
     /// Insert or replace one typed persisted schema snapshot.

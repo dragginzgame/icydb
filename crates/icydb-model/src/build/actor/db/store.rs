@@ -161,13 +161,12 @@ fn startup_driver_tokens() -> TokenStream {
         fn reconcile_startup_watchdog_from_durable_state(
         ) -> ::std::result::Result<(), ::icydb::db::StartupFailure> {
             match startup_state() {
-                Ok(::icydb::db::DatabaseStartupState::Ready) => {
-                    reconcile_startup_watchdog(
-                        ::icydb::__reexports::ic_timers::TimerReconcileState::Inactive,
-                    );
-                    Ok(())
-                }
-                Ok(::icydb::db::DatabaseStartupState::Recovering) => {
+                Ok(
+                    ::icydb::db::DatabaseStartupState::Ready
+                    | ::icydb::db::DatabaseStartupState::Recovering,
+                ) => {
+                    // Ready cardinality construction is optional database work,
+                    // but it shares this one lifecycle-owned watchdog.
                     ensure_startup_watchdog_registered();
                     Ok(())
                 }
@@ -339,8 +338,10 @@ fn startup_driver_tokens() -> TokenStream {
         pub(crate) fn __initialize_native_database_for_tests(
         ) -> ::std::result::Result<(), ::icydb::Error> {
             ::icydb::db::with_request_execution(|| {
-                if !startup_driver_attempt()? {
-                    return Err(::icydb::db::__startup_recovery_pending());
+                while !startup_driver_attempt()? {
+                    // Native libtests begin from empty stores, so the same
+                    // production driver publishes one zero generation per
+                    // registered journaled store without scanning.
                 }
                 admit_ordinary_database_work()
             })
@@ -363,7 +364,7 @@ fn startup_driver_tokens() -> TokenStream {
                     let _ = ::icydb::db::__clear_generated_startup_failure::<
                         __IcydbGeneratedCanister,
                     >()?;
-                    Ok(true)
+                    Ok(false)
                 }
                 Ok(::icydb::db::DatabaseStartupState::Recovering) => Ok(false),
                 Err(_) => Ok(true),
@@ -973,6 +974,15 @@ mod tests {
                 .count(),
             1,
             "watchdog reconciliation is the single timer-runtime initialization owner",
+        );
+        assert!(
+            rendered.contains("while!startup_driver_attempt()?{}"),
+            "native initialization should drain the same bounded production driver",
+        );
+        assert!(
+            rendered.contains(
+                "DatabaseStartupState::Ready|::icydb::db::DatabaseStartupState::Recovering"
+            )
         );
     }
 

@@ -314,7 +314,7 @@ pub(super) fn require_exact_empty_sql_ddl_entity(
     entity_tag: EntityTag,
     entity_path: &str,
 ) -> Result<(), InternalError> {
-    if store.with_data(|data_store| data_store.exact_entity_count(entity_tag)) == Some(0) {
+    if store.exact_entity_count(entity_tag) == Some(0) {
         return Ok(());
     }
 
