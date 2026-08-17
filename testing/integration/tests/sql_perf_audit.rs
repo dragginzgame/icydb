@@ -348,19 +348,26 @@ fn startup_watchdog_perf_snapshot(
         .expect("startup watchdog performance snapshot should decode")
 }
 
+fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
+    fixture
+        .query_candid("startup_watchdog_armed", ())
+        .expect("startup watchdog scheduling state should decode")
+}
+
 fn drain_online_watchdog_until_quiescent(fixture: &StandaloneCanisterFixture) {
-    let mut previous = startup_watchdog_perf_snapshot(fixture);
-    for _ in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
-        deliver_startup_watchdog_message(fixture);
-        let current = startup_watchdog_perf_snapshot(fixture);
-        if current.work_samples == previous.work_samples {
+    for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+        if !startup_watchdog_armed(fixture) {
+            let current = startup_watchdog_perf_snapshot(fixture);
             assert_eq!(current.work_started, current.work_completed);
             assert_eq!(current.work_completed, current.succeeded);
             assert_eq!(current.retryable_failures, 0);
             assert_eq!(current.invariant_failures, 0);
             return;
         }
-        previous = current;
+        if delivered == MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+            break;
+        }
+        deliver_startup_watchdog_message(fixture);
     }
     panic!("online watchdog should quiesce within its frozen residual delivery bound");
 }
