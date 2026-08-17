@@ -755,9 +755,17 @@ fn store_wiring_tokens(
                     const { ::std::cell::OnceCell::new() };
         }
 
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        const fn native_test_startup_recovery_wakeup() {}
+
         fn ensure_memory_bootstrap() ->
             ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
         {
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            ::icydb::db::__install_startup_recovery_wakeup(
+                native_test_startup_recovery_wakeup,
+            );
+            #[cfg(not(all(test, not(target_arch = "wasm32"))))]
             ::icydb::db::__install_startup_recovery_wakeup(
                 ensure_startup_watchdog_registered,
             );
@@ -1134,6 +1142,12 @@ mod tests {
         assert!(rendered.contains("__observe_generated_startup_state::<__IcydbGeneratedCanister>"));
         assert!(rendered.contains("::std::cell::OnceCell"));
         assert!(rendered.contains("MEMORY_BOOTSTRAP.with("));
+        assert!(rendered.contains("constfnnative_test_startup_recovery_wakeup(){}"));
+        assert!(
+            rendered.contains(
+                "__install_startup_recovery_wakeup(native_test_startup_recovery_wakeup,)"
+            )
+        );
         assert!(
             rendered
                 .contains("__install_startup_recovery_wakeup(ensure_startup_watchdog_registered,)")
