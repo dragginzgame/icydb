@@ -103,6 +103,9 @@ fi
 if [[ ! -x scripts/ci/run-validation-targets.sh ]] ||
    ! rg -q --fixed-strings 'tee "$log"' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'Failure details (repeated from the full logs)' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'target/validation-failures' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'Full failure log retained at:' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'Latest complete failure log:' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'GITHUB_STEP_SUMMARY' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'ICYDB_VALIDATION_RUNNER_DEPTH' scripts/ci/run-validation-targets.sh ||
    ! rg -q '^validate-fast:$' Makefile ||

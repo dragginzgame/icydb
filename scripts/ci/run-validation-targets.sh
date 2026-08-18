@@ -9,6 +9,8 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/icydb-validation.XXXXXX")"
 trap 'rm -rf "$LOG_DIR"' EXIT
+FAILURE_LOG_ROOT="${ICYDB_VALIDATION_FAILURE_LOG_DIR:-$ROOT/target/validation-failures}"
+FAILURE_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
 RUNNER_DEPTH="${ICYDB_VALIDATION_RUNNER_DEPTH:-0}"
 export ICYDB_VALIDATION_RUNNER_DEPTH="$((RUNNER_DEPTH + 1))"
@@ -20,6 +22,21 @@ targets=()
 results=()
 elapsed_seconds=()
 logs=()
+retained_logs=()
+
+persist_failure_log() {
+  local log="$1"
+  local target="$2"
+  local index="$3"
+  local safe_target="${target//[^[:alnum:]._-]/_}"
+  local retained_log="$FAILURE_LOG_ROOT/$FAILURE_RUN_ID-$index-$safe_target.log"
+
+  if ! mkdir -p "$FAILURE_LOG_ROOT" || ! cp "$log" "$retained_log"; then
+    return 0
+  fi
+  cp "$log" "$FAILURE_LOG_ROOT/latest.log" || true
+  printf '%s\n' "$retained_log"
+}
 
 print_failure_detail() {
   local log="$1"
@@ -100,9 +117,18 @@ for target in "$@"; do
 
   if make --no-print-directory -C "$ROOT" "$target" 2>&1 | tee "$log"; then
     result="PASS"
+    retained_log=""
   else
     failed_targets+=("$target")
     result="FAIL"
+    retained_log="$(persist_failure_log "$log" "$target" "${#targets[@]}")"
+    printf '\nTarget failed: %s\n' "$target"
+    if [[ -n "$retained_log" ]]; then
+      printf 'Full failure log retained at: %s\n' "$retained_log"
+    else
+      printf 'Unable to retain the complete failure log under: %s\n' "$FAILURE_LOG_ROOT"
+    fi
+    print_failure_detail "$log" "$target"
   fi
 
   elapsed="$((SECONDS - start))"
@@ -110,6 +136,7 @@ for target in "$@"; do
   results+=("$result")
   elapsed_seconds+=("$elapsed")
   logs+=("$log")
+  retained_logs+=("$retained_log")
   if [[ "${GITHUB_ACTIONS:-}" == "true" && "$RUNNER_DEPTH" == "0" ]]; then
     printf '::endgroup::\n'
   fi
@@ -130,9 +157,16 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
   for index in "${!targets[@]}"; do
     if [[ "${results[$index]}" == "FAIL" ]]; then
       echo
+      if [[ -n "${retained_logs[$index]}" ]]; then
+        printf 'Full failure log retained at: %s\n' "${retained_logs[$index]}"
+      fi
       print_failure_detail "${logs[$index]}" "${targets[$index]}"
     fi
   done
+
+  if [[ -f "$FAILURE_LOG_ROOT/latest.log" ]]; then
+    printf '\nLatest complete failure log: %s\n' "$FAILURE_LOG_ROOT/latest.log"
+  fi
 
   if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
     printf '::error title=Validation targets failed::%s\n' "${failed_targets[*]}"

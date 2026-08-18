@@ -298,11 +298,13 @@ mod tests {
     }
 
     impl CanisterKind for CardinalityDriverCanister {
-        const COMMIT_MEMORY_ID: u8 = 214;
+        // Keep this test-only control triplet distinct from the migration
+        // fixtures that coexist in the all-feature libtest process.
+        const COMMIT_MEMORY_ID: u8 = 217;
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 215;
+        const STARTUP_MEMORY_ID: u8 = 218;
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 216;
+        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 219;
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup.cardinality.driver.integrity.v1";
     }
