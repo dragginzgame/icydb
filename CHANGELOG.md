@@ -7,18 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Validation failures now repeat actionable compiler, panic, and failed-test
-  context in the final terminal and GitHub step summaries while retaining the
-  complete live log.
-
 ## [0.230.x] 🧮 - 2026-08-17 - Durable Exact Cardinality Generations
 
 Detailed notes: [docs/changelog/0.230.md](docs/changelog/0.230.md)
 
 - `0.230.2` activates bounded durable cardinality construction, source-safe
   publication, exact fold and live-delta maintenance, and proof-bound planner
-  consumption with deterministic populated-upgrade and fixed two-slot reuse
-  evidence.
+  consumption with deterministic lifecycle evidence and retained actionable
+  release-validation failure logs.
 
 - `0.230.1` adds the sole current version-1 durable cardinality-generation
   identity, bounded build-cursor and exact count-record formats in reserved
