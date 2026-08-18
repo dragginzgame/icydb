@@ -11,6 +11,7 @@ use crate::db::{
         cardinality::{IndexPrefixCardinality, IndexPrefixCardinalityDelta},
         key::RawIndexStoreKey,
     },
+    journal::FoldWatermark,
     ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
     positioned_overlay::{
         JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
@@ -196,7 +197,7 @@ impl IndexStore {
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
                 positions: PositionedOverlayMetadata::new(),
-                prefix_cardinality_delta: Box::new(IndexPrefixCardinalityDelta::empty()),
+                prefix_cardinality_delta: Box::new(IndexPrefixCardinalityDelta::unbound_empty()),
             },
             generation: 0,
             state: IndexState::Ready,
@@ -339,6 +340,18 @@ impl IndexStore {
         }
     }
 
+    /// Return the canonical fold boundary owning the exact live-overlay delta.
+    #[must_use]
+    pub(in crate::db) fn exact_prefix_cardinality_delta_watermark(&self) -> Option<FoldWatermark> {
+        match &self.backend {
+            IndexStoreBackend::Heap(_) => None,
+            IndexStoreBackend::Journaled {
+                prefix_cardinality_delta,
+                ..
+            } => prefix_cardinality_delta.base_watermark(),
+        }
+    }
+
     /// Return the sum of exact prefix counts for prefixes on the same index
     /// when synchronized metadata can prove all requested counts.
     #[must_use]
@@ -475,6 +488,7 @@ impl IndexStore {
     pub(in crate::db) fn reset_journaled_live_projection(
         &mut self,
         data_generation: u64,
+        fold_watermark: FoldWatermark,
     ) -> Result<(), crate::error::InternalError> {
         let IndexStoreBackend::Journaled {
             canonical,
@@ -490,7 +504,7 @@ impl IndexStore {
         live.clear();
         tombstones.clear();
         positions.clear();
-        **prefix_cardinality_delta = IndexPrefixCardinalityDelta::empty();
+        prefix_cardinality_delta.reset(fold_watermark);
         self.prefix_cardinality = if canonical.is_empty() {
             let mut cardinality = IndexPrefixCardinality::synchronized_empty();
             cardinality.mark_synchronized(data_generation);
@@ -501,6 +515,31 @@ impl IndexStore {
         self.bump_generation();
 
         Ok(())
+    }
+
+    /// Preflight movement of the exact delta's canonical base boundary.
+    pub(in crate::db) fn preflight_prefix_cardinality_delta_watermark(
+        &self,
+        current: FoldWatermark,
+    ) -> Result<(), crate::error::InternalError> {
+        (self.exact_prefix_cardinality_delta_watermark() == Some(current))
+            .then_some(())
+            .ok_or_else(crate::error::InternalError::store_corruption)
+    }
+
+    /// Publish a preflighted canonical base movement after the complete fold.
+    pub(in crate::db) fn apply_prefix_cardinality_delta_watermark(
+        &mut self,
+        current: FoldWatermark,
+        next: FoldWatermark,
+    ) {
+        if let IndexStoreBackend::Journaled {
+            prefix_cardinality_delta,
+            ..
+        } = &mut self.backend
+        {
+            prefix_cardinality_delta.advance_watermark(current, next);
+        }
     }
 
     /// Publish one preflighted positioned derived or explicit index effect.
@@ -771,7 +810,11 @@ impl IndexStore {
         }
         live.clear();
         tombstones.clear();
-        **prefix_cardinality_delta = IndexPrefixCardinalityDelta::empty();
+        if let Some(watermark) = prefix_cardinality_delta.base_watermark() {
+            prefix_cardinality_delta.reset(watermark);
+        } else {
+            **prefix_cardinality_delta = IndexPrefixCardinalityDelta::unbound_empty();
+        }
         let data_generation = self.prefix_cardinality.synchronized_generation();
         self.rebuild_prefix_cardinality_from_entries(data_generation);
         self.bump_generation();
@@ -1617,7 +1660,7 @@ mod tests {
             Some(0),
         );
         store
-            .reset_journaled_live_projection(7)
+            .reset_journaled_live_projection(7, FoldWatermark::initial())
             .expect("empty projection reset should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
@@ -1640,6 +1683,34 @@ mod tests {
             ),
             Some(0),
         );
+    }
+
+    #[test]
+    fn journaled_prefix_delta_binds_and_advances_its_canonical_watermark() {
+        let mut store = IndexStore::init_journaled(test_memory(99));
+        assert_eq!(store.exact_prefix_cardinality_delta_watermark(), None);
+
+        let current = FoldWatermark::new(JournalSequence::new(7), 3);
+        let next = FoldWatermark::new(JournalSequence::new(8), 4);
+        store
+            .reset_journaled_live_projection(0, current)
+            .expect("delta reset should bind the current canonical watermark");
+        assert_eq!(
+            store.exact_prefix_cardinality_delta_watermark(),
+            Some(current)
+        );
+        store
+            .preflight_prefix_cardinality_delta_watermark(current)
+            .expect("matching watermark should preflight");
+        assert!(
+            store
+                .preflight_prefix_cardinality_delta_watermark(next)
+                .is_err(),
+            "a stale or future base must fail closed",
+        );
+
+        store.apply_prefix_cardinality_delta_watermark(current, next);
+        assert_eq!(store.exact_prefix_cardinality_delta_watermark(), Some(next));
     }
 
     #[test]

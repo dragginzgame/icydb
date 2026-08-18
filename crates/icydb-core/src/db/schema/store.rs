@@ -11,11 +11,13 @@ use crate::db::schema::identity_state::{
     validate_identity_state_closure,
 };
 use crate::db::schema::{
-    cardinality_build::{CardinalityReadyCandidate, EmptyCardinalityReadyCandidate},
+    cardinality_build::{
+        CardinalityAcceptedDomain, CardinalityReadyCandidate, EmptyCardinalityReadyCandidate,
+    },
     cardinality_generation::{
-        CardinalityBuildCursor, CardinalityCountDigest, CardinalityCountRecord,
-        CardinalityCountSlot, CardinalityGenerationHeader, CardinalityGenerationId,
-        CardinalityGenerationState, CardinalitySourceIdentity,
+        CardinalityAcceptedRootIdentity, CardinalityBuildCursor, CardinalityCountDigest,
+        CardinalityCountRecord, CardinalityCountSlot, CardinalityGenerationHeader,
+        CardinalityGenerationId, CardinalityGenerationState, CardinalitySourceIdentity,
     },
 };
 use crate::{
@@ -836,12 +838,14 @@ impl PendingRelationActivationDeleteBarrier {
 pub struct SchemaStore {
     backend: SchemaStoreBackend,
     accepted_bundle_cache: RefCell<Option<AcceptedSchemaBundleCache>>,
+    cardinality_header_cache: RefCell<Option<(Vec<u8>, CardinalityGenerationHeader)>>,
     accepted_catalog_scope: OnceCell<AcceptedStoreCatalogScope>,
 }
 
 struct AcceptedSchemaBundleCache {
     selection: AcceptedSchemaRootSelection,
     bundle: AcceptedSchemaRevisionBundle,
+    cardinality_domain: Rc<CardinalityAcceptedDomain>,
     value_catalog: AcceptedValueCatalogHandle,
     entity_selections: RefCell<StdBTreeMap<EntityTag, AcceptedCatalogSnapshotSelection>>,
 }
@@ -934,6 +938,7 @@ impl SchemaStore {
         Self {
             backend: SchemaStoreBackend::Heap(StdBTreeMap::new()),
             accepted_bundle_cache: RefCell::new(None),
+            cardinality_header_cache: RefCell::new(None),
             accepted_catalog_scope: OnceCell::new(),
         }
     }
@@ -952,6 +957,7 @@ impl SchemaStore {
                 positions: PositionedOverlayMetadata::new(),
             },
             accepted_bundle_cache: RefCell::new(None),
+            cardinality_header_cache: RefCell::new(None),
             accepted_catalog_scope: OnceCell::new(),
         }
     }
@@ -961,9 +967,16 @@ impl SchemaStore {
         &self,
     ) -> Result<Option<CardinalityGenerationHeader>, InternalError> {
         let key = RawSchemaKey::from_cardinality_generation_header();
-        self.get_canonical_raw_value(&key)?
-            .map(|raw| CardinalityGenerationHeader::decode(raw.as_bytes()))
-            .transpose()
+        let raw = self.get_canonical_raw_value(&key)?;
+        if let Some(raw) = raw.as_ref() {
+            self.decode_cardinality_header_cached(raw).map(Some)
+        } else {
+            self.cardinality_header_cache
+                .try_borrow_mut()
+                .map_err(|_| InternalError::store_invariant())?
+                .take();
+            Ok(None)
+        }
     }
 
     /// Load the sole bounded cardinality build cursor.
@@ -974,6 +987,57 @@ impl SchemaStore {
         self.get_canonical_raw_value(&key)?
             .map(|raw| CardinalityBuildCursor::decode(raw.as_bytes()))
             .transpose()
+    }
+
+    /// Load the generation header and build cursor through one bounded control range.
+    pub(in crate::db) fn cardinality_generation_control(
+        &self,
+    ) -> Result<
+        (
+            Option<CardinalityGenerationHeader>,
+            Option<CardinalityBuildCursor>,
+        ),
+        InternalError,
+    > {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let header_key = RawSchemaKey::from_cardinality_generation_header();
+        let cursor_key = RawSchemaKey::from_cardinality_build_cursor();
+        let mut header = None;
+        let mut cursor = None;
+        for entry in canonical.range(header_key..=cursor_key) {
+            if *entry.key() == header_key {
+                header = Some(self.decode_cardinality_header_cached(&entry.value())?);
+            } else if *entry.key() == cursor_key {
+                cursor = Some(CardinalityBuildCursor::decode(entry.value().as_bytes())?);
+            } else {
+                return Err(InternalError::store_corruption());
+            }
+        }
+        Ok((header, cursor))
+    }
+
+    fn decode_cardinality_header_cached(
+        &self,
+        raw: &RawSchemaSnapshot,
+    ) -> Result<CardinalityGenerationHeader, InternalError> {
+        if let Some((_, header)) = self
+            .cardinality_header_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?
+            .as_ref()
+            .filter(|(bytes, _)| bytes.as_slice() == raw.as_bytes())
+        {
+            return Ok(*header);
+        }
+        let header = CardinalityGenerationHeader::decode(raw.as_bytes())?;
+        *self
+            .cardinality_header_cache
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())? =
+            Some((raw.as_bytes().to_vec(), header));
+        Ok(header)
     }
 
     /// Prove that no current cardinality authority or orphaned slot data exists.
@@ -1337,7 +1401,7 @@ impl SchemaStore {
         Ok(())
     }
 
-    fn cardinality_count_slot_is_empty(
+    pub(in crate::db) fn cardinality_count_slot_is_empty(
         &self,
         slot: CardinalityCountSlot,
     ) -> Result<bool, InternalError> {
@@ -1727,6 +1791,68 @@ impl SchemaStore {
         let first = self.canonical_root_slot_bytes(0)?;
         let second = self.canonical_root_slot_bytes(1)?;
         select_current_accepted_schema_root([first.as_deref(), second.as_deref()])
+    }
+
+    /// Select effective and canonical roots from one canonical slot read.
+    pub(in crate::db) fn current_effective_and_canonical_accepted_schema_roots(
+        &self,
+    ) -> Result<
+        (
+            Option<AcceptedSchemaRootSelection>,
+            Option<AcceptedSchemaRootSelection>,
+        ),
+        InternalError,
+    > {
+        let SchemaStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+            ..
+        } = &self.backend
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        let first_key = RawSchemaKey::from_accepted_root_slot(0)?;
+        let second_key = RawSchemaKey::from_accepted_root_slot(1)?;
+        let mut canonical_first = None;
+        let mut canonical_second = None;
+        for entry in canonical.range(first_key..=second_key) {
+            if *entry.key() == first_key {
+                canonical_first = Some(entry.value().clone());
+            } else if *entry.key() == second_key {
+                canonical_second = Some(entry.value().clone());
+            } else {
+                return Err(InternalError::store_corruption());
+            }
+        }
+        let effective_first = if tombstones.contains(&first_key) {
+            None
+        } else {
+            live.get(&first_key)
+                .cloned()
+                .or_else(|| canonical_first.clone())
+        };
+        let effective_second = if tombstones.contains(&second_key) {
+            None
+        } else {
+            live.get(&second_key)
+                .cloned()
+                .or_else(|| canonical_second.clone())
+        };
+        let effective_first = effective_first.map(RawSchemaSnapshot::into_bytes);
+        let effective_second = effective_second.map(RawSchemaSnapshot::into_bytes);
+        let canonical_first = canonical_first.map(RawSchemaSnapshot::into_bytes);
+        let canonical_second = canonical_second.map(RawSchemaSnapshot::into_bytes);
+        Ok((
+            select_current_accepted_schema_root([
+                effective_first.as_deref(),
+                effective_second.as_deref(),
+            ])?,
+            select_current_accepted_schema_root([
+                canonical_first.as_deref(),
+                canonical_second.as_deref(),
+            ])?,
+        ))
     }
 
     /// Insert or replace one typed persisted schema snapshot.
@@ -3700,7 +3826,21 @@ impl SchemaStore {
         )>,
         InternalError,
     > {
-        let Some(selection) = self.current_accepted_schema_root()? else {
+        let selection = self.current_accepted_schema_root()?;
+        self.accepted_schema_authority_ref_for_selection(selection)
+    }
+
+    fn accepted_schema_authority_ref_for_selection(
+        &self,
+        selection: Option<AcceptedSchemaRootSelection>,
+    ) -> Result<
+        Option<(
+            AcceptedSchemaRootSelection,
+            Ref<'_, AcceptedSchemaRevisionBundle>,
+        )>,
+        InternalError,
+    > {
+        let Some(selection) = selection else {
             self.accepted_bundle_cache
                 .try_borrow_mut()
                 .map_err(|_| InternalError::store_invariant())?
@@ -3734,12 +3874,14 @@ impl SchemaStore {
                 bundle.revision(),
                 selection.root().fingerprint(),
             );
+            let cardinality_domain = Rc::new(CardinalityAcceptedDomain::derive(&bundle)?);
             *self
                 .accepted_bundle_cache
                 .try_borrow_mut()
                 .map_err(|_| InternalError::store_invariant())? = Some(AcceptedSchemaBundleCache {
                 selection,
                 bundle,
+                cardinality_domain,
                 value_catalog,
                 entity_selections: RefCell::new(StdBTreeMap::new()),
             });
@@ -3758,6 +3900,58 @@ impl SchemaStore {
         .map_err(|_| InternalError::store_invariant())?;
         self.validate_identity_state_closure(&bundle)?;
         Ok(Some((selection, bundle)))
+    }
+
+    /// Reuse the accepted-domain projection for one already-selected effective root.
+    pub(in crate::db) fn accepted_cardinality_domain_for_selection(
+        &self,
+        selection: Option<AcceptedSchemaRootSelection>,
+    ) -> Result<Option<(AcceptedSchemaRootSelection, Rc<CardinalityAcceptedDomain>)>, InternalError>
+    {
+        let Some(selection) = selection else {
+            self.accepted_bundle_cache
+                .try_borrow_mut()
+                .map_err(|_| InternalError::store_invariant())?
+                .take();
+            return Ok(None);
+        };
+        let cache_matches = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?
+            .as_ref()
+            .is_some_and(|cached| cached.selection == selection);
+        if !cache_matches {
+            let authority = self
+                .accepted_schema_authority_ref_for_selection(Some(selection))?
+                .ok_or_else(InternalError::store_invariant)?;
+            drop(authority);
+        }
+        let cache = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?;
+        let domain = cache
+            .as_ref()
+            .filter(|cached| cached.selection == selection)
+            .map(|cached| Rc::clone(&cached.cardinality_domain))
+            .ok_or_else(InternalError::store_invariant)?;
+        Ok(Some((selection, domain)))
+    }
+
+    /// Borrow the cached accepted-domain projection for an already-admitted root.
+    pub(in crate::db) fn cached_cardinality_domain_for_root(
+        &self,
+        root: CardinalityAcceptedRootIdentity,
+    ) -> Result<Option<Rc<CardinalityAcceptedDomain>>, InternalError> {
+        let cache = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?;
+        Ok(cache
+            .as_ref()
+            .filter(|cached| root.matches(cached.selection.root()))
+            .map(|cached| Rc::clone(&cached.cardinality_domain)))
     }
 
     fn latest_raw_snapshots_by_entity(

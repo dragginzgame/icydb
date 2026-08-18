@@ -14,11 +14,12 @@ use crate::{
         schema::{
             AcceptedSchemaRevisionBundle, SchemaStore,
             cardinality_generation::{
-                CardinalityAcceptedRootIdentity, CardinalityBuildCheckpoint,
-                CardinalityBuildCursor, CardinalityBuildPhase, CardinalityBuildTotals,
-                CardinalityCountDigest, CardinalityCountSlot, CardinalityGenerationHeader,
-                CardinalityGenerationId, CardinalityGenerationState, CardinalityLogicalCountKey,
+                CardinalityAcceptedIndexSetIdentity, CardinalityAcceptedRootIdentity,
+                CardinalityBuildCheckpoint, CardinalityBuildCursor, CardinalityBuildPhase,
+                CardinalityBuildTotals, CardinalityCountDigest, CardinalityCountSlot,
+                CardinalityGenerationHeader, CardinalityGenerationId, CardinalityGenerationState,
                 CardinalitySourceIdentity, CardinalitySourceMismatch,
+                CardinalityStoreAllocationIdentity,
             },
             enum_catalog::AcceptedSchemaRootSelection,
         },
@@ -29,6 +30,7 @@ use crate::{
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Bound,
+    rc::Rc,
 };
 
 pub(in crate::db) const MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE: u64 = 4_096;
@@ -40,8 +42,50 @@ const MAX_CARDINALITY_SLOT_CLEAR_ENTRIES_PER_PAGE: usize = 4_096;
 #[derive(Clone)]
 pub(in crate::db) struct CardinalityBuildAuthority {
     source: CardinalitySourceIdentity,
-    accepted_entities: BTreeSet<EntityTag>,
-    accepted_indexes: BTreeMap<IndexId, usize>,
+    domain: Option<Rc<CardinalityAcceptedDomain>>,
+}
+
+/// Immutable accepted entity/index projection cached with its verified root bundle.
+#[derive(Clone)]
+pub(in crate::db) struct CardinalityAcceptedDomain {
+    entities: BTreeSet<EntityTag>,
+    indexes: BTreeMap<IndexId, usize>,
+    index_set: CardinalityAcceptedIndexSetIdentity,
+}
+
+impl CardinalityAcceptedDomain {
+    pub(in crate::db) fn derive(
+        bundle: &AcceptedSchemaRevisionBundle,
+    ) -> Result<Self, InternalError> {
+        let mut accepted_entities = BTreeSet::new();
+        let mut accepted_indexes = BTreeMap::new();
+        for (entity, snapshot) in bundle.entity_snapshots() {
+            if !accepted_entities.insert(*entity) {
+                return Err(InternalError::store_corruption());
+            }
+            for index in snapshot.indexes() {
+                let component_count = index.key().component_count();
+                if component_count == 0 || component_count > MAX_INDEX_FIELDS {
+                    return Err(InternalError::store_corruption());
+                }
+                let index_id = IndexId::new_with_generation(
+                    *entity,
+                    index.ordinal(),
+                    index.physical_generation(),
+                );
+                if accepted_indexes.insert(index_id, component_count).is_some() {
+                    return Err(InternalError::store_corruption());
+                }
+            }
+        }
+        let accepted_index_set =
+            CardinalityAcceptedIndexSetIdentity::derive(accepted_indexes.keys().copied())?;
+        Ok(Self {
+            entities: accepted_entities,
+            indexes: accepted_indexes,
+            index_set: accepted_index_set,
+        })
+    }
 }
 
 impl CardinalityBuildAuthority {
@@ -67,22 +111,44 @@ impl CardinalityBuildAuthority {
     pub(in crate::db) fn derive_for_current_consumer(
         schema: &SchemaStore,
         database_incarnation: DatabaseIncarnationId,
-        allocations: StoreAllocationIdentities,
+        store_allocation: CardinalityStoreAllocationIdentity,
         fold_watermark: FoldWatermark,
     ) -> Result<Option<Self>, InternalError> {
-        let effective = schema.current_accepted_schema_authority_ref()?;
-        let canonical = schema.current_canonical_accepted_schema_root()?;
-        if effective.as_ref().map(|(selection, _bundle)| selection) != canonical.as_ref() {
+        let (effective_root, canonical_root) =
+            schema.current_effective_and_canonical_accepted_schema_roots()?;
+        if effective_root != canonical_root {
             return Ok(None);
         }
+        let effective = schema.accepted_cardinality_domain_for_selection(effective_root)?;
         // Root equality proves the root-keyed immutable effective bundle is also
-        // canonical, avoiding a second stable read and decode of the same bundle.
-        Self::derive_from_accepted_authority(
+        // canonical. Its accepted-domain projection was derived once from that
+        // verified immutable bundle and is not a cache of cardinality evidence.
+        Self::derive_from_accepted_domain(
             effective
                 .as_ref()
-                .map(|(selection, bundle)| (*selection, &**bundle)),
+                .map(|(selection, domain)| (*selection, Rc::clone(domain))),
             database_incarnation,
-            allocations,
+            store_allocation,
+            fold_watermark,
+        )
+        .map(Some)
+    }
+
+    /// Derive consumer authority from one accepted root admitted earlier in this request.
+    pub(in crate::db) fn derive_for_admitted_consumer_root(
+        schema: &SchemaStore,
+        database_incarnation: DatabaseIncarnationId,
+        store_allocation: CardinalityStoreAllocationIdentity,
+        accepted_root: CardinalityAcceptedRootIdentity,
+        fold_watermark: FoldWatermark,
+    ) -> Result<Option<Self>, InternalError> {
+        let Some(domain) = schema.cached_cardinality_domain_for_root(accepted_root)? else {
+            return Ok(None);
+        };
+        Self::derive_from_root_and_domain(
+            Some((accepted_root, domain)),
+            database_incarnation,
+            store_allocation,
             fold_watermark,
         )
         .map(Some)
@@ -94,50 +160,66 @@ impl CardinalityBuildAuthority {
         allocations: StoreAllocationIdentities,
         fold_watermark: FoldWatermark,
     ) -> Result<Self, InternalError> {
-        let (accepted_root, accepted_entities, accepted_indexes) = match authority {
-            None => (None, BTreeSet::new(), BTreeMap::new()),
-            Some((selection, bundle)) => {
-                let root = selection.root();
-                let accepted_root = Some(CardinalityAcceptedRootIdentity::new(
-                    root.revision(),
-                    root.fingerprint(),
-                )?);
-                let mut accepted_entities = BTreeSet::new();
-                let mut accepted_indexes = BTreeMap::new();
-                for (entity, snapshot) in bundle.entity_snapshots() {
-                    if !accepted_entities.insert(*entity) {
-                        return Err(InternalError::store_corruption());
-                    }
-                    for index in snapshot.indexes() {
-                        let component_count = index.key().component_count();
-                        if component_count == 0 || component_count > MAX_INDEX_FIELDS {
-                            return Err(InternalError::store_corruption());
-                        }
-                        let index_id = IndexId::new_with_generation(
-                            *entity,
-                            index.ordinal(),
-                            index.physical_generation(),
-                        );
-                        if accepted_indexes.insert(index_id, component_count).is_some() {
-                            return Err(InternalError::store_corruption());
-                        }
-                    }
-                }
-                (accepted_root, accepted_entities, accepted_indexes)
+        let authority = authority
+            .map(|(selection, bundle)| {
+                CardinalityAcceptedDomain::derive(bundle).map(|domain| (selection, Rc::new(domain)))
+            })
+            .transpose()?;
+        Self::derive_from_accepted_domain(
+            authority,
+            database_incarnation,
+            CardinalityStoreAllocationIdentity::derive(allocations)?,
+            fold_watermark,
+        )
+    }
+
+    fn derive_from_accepted_domain(
+        authority: Option<(AcceptedSchemaRootSelection, Rc<CardinalityAcceptedDomain>)>,
+        database_incarnation: DatabaseIncarnationId,
+        store_allocation: CardinalityStoreAllocationIdentity,
+        fold_watermark: FoldWatermark,
+    ) -> Result<Self, InternalError> {
+        let authority = authority
+            .map(|(selection, domain)| {
+                CardinalityAcceptedRootIdentity::new(
+                    selection.root().revision(),
+                    selection.root().fingerprint(),
+                )
+                .map(|root| (root, domain))
+            })
+            .transpose()?;
+        Self::derive_from_root_and_domain(
+            authority,
+            database_incarnation,
+            store_allocation,
+            fold_watermark,
+        )
+    }
+
+    fn derive_from_root_and_domain(
+        authority: Option<(
+            CardinalityAcceptedRootIdentity,
+            Rc<CardinalityAcceptedDomain>,
+        )>,
+        database_incarnation: DatabaseIncarnationId,
+        store_allocation: CardinalityStoreAllocationIdentity,
+        fold_watermark: FoldWatermark,
+    ) -> Result<Self, InternalError> {
+        let (accepted_root, domain, accepted_index_set) = match authority {
+            None => (None, None, CardinalityAcceptedIndexSetIdentity::derive([])?),
+            Some((accepted_root, domain)) => {
+                let accepted_index_set = domain.index_set;
+                (Some(accepted_root), Some(domain), accepted_index_set)
             }
         };
-        let source = CardinalitySourceIdentity::derive(
+        let source = CardinalitySourceIdentity::derive_with_bound_identities(
             database_incarnation,
-            allocations,
+            store_allocation,
             accepted_root,
-            accepted_indexes.keys().copied(),
+            accepted_index_set,
             fold_watermark,
         )?;
-        Ok(Self {
-            source,
-            accepted_entities,
-            accepted_indexes,
-        })
+        Ok(Self { source, domain })
     }
 
     #[must_use]
@@ -147,12 +229,16 @@ impl CardinalityBuildAuthority {
 
     #[must_use]
     pub(in crate::db) fn accepts_entity(&self, entity: EntityTag) -> bool {
-        self.accepted_entities.contains(&entity)
+        self.domain
+            .as_ref()
+            .is_some_and(|domain| domain.entities.contains(&entity))
     }
 
     #[must_use]
     pub(in crate::db) fn accepted_index_component_count(&self, index: IndexId) -> Option<usize> {
-        self.accepted_indexes.get(&index).copied()
+        self.domain
+            .as_ref()
+            .and_then(|domain| domain.indexes.get(&index).copied())
     }
 
     #[must_use]
@@ -168,15 +254,21 @@ impl CardinalityBuildAuthority {
     }
 
     #[cfg(test)]
-    const fn from_parts(
+    fn from_parts(
         source: CardinalitySourceIdentity,
         accepted_entities: BTreeSet<EntityTag>,
         accepted_indexes: BTreeMap<IndexId, usize>,
     ) -> Self {
+        let accepted_index_set =
+            CardinalityAcceptedIndexSetIdentity::derive(accepted_indexes.keys().copied())
+                .expect("test accepted index set should derive");
         Self {
             source,
-            accepted_entities,
-            accepted_indexes,
+            domain: Some(Rc::new(CardinalityAcceptedDomain {
+                entities: accepted_entities,
+                indexes: accepted_indexes,
+                index_set: accepted_index_set,
+            })),
         }
     }
 }
@@ -485,7 +577,7 @@ fn collect_row_page(
     data.visit_canonical_entries_after(checkpoint, |key, row| {
         let decoded = DecodedDataStoreKey::try_from_raw(key)
             .map_err(|_| InternalError::store_corruption())?;
-        if !authority.accepted_entities.contains(&decoded.entity_tag()) {
+        if !authority.accepts_entity(decoded.entity_tag()) {
             return Err(InternalError::store_corruption());
         }
         let source_bytes = key
@@ -498,7 +590,7 @@ fn collect_row_page(
             has_more = true;
             return Ok(true);
         }
-        count_digests.push(CardinalityLogicalCountKey::Entity(decoded.entity_tag()).digest()?);
+        count_digests.push(CardinalityCountDigest::for_entity(decoded.entity_tag()));
         last_key = Some(key.clone());
         Ok(false)
     })?;
@@ -558,7 +650,7 @@ fn collect_index_page(
             .decode_row_witness_from_index_key(&key)
             .map_err(|_| InternalError::store_corruption())?;
         let accepted_component_count = if key.key_kind() == IndexKeyKind::User {
-            authority.accepted_indexes.get(key.index_id()).copied()
+            authority.accepted_index_component_count(*key.index_id())
         } else {
             None
         };

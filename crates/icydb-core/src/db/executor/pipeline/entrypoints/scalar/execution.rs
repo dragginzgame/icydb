@@ -4,23 +4,26 @@
 //! Boundary: prepares route hints, continuation checks, traces, and execution inputs.
 
 use crate::{
-    db::executor::{
-        AccessStreamBindings, ExecutionProfileStats, ExecutionRoutePlan, ExecutionTrace,
-        ScalarContinuationContext, TraversalRuntime,
-        diagnostics::execution_trace_for_access,
-        pipeline::timing::{elapsed_execution_micros, start_execution_timer},
-        pipeline::{
-            contracts::{
-                ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-                PreparedExecutionInputContext,
+    db::{
+        executor::{
+            AccessStreamBindings, ExecutionProfileStats, ExecutionRoutePlan, ExecutionTrace,
+            ScalarContinuationContext, TraversalRuntime,
+            diagnostics::execution_trace_for_access,
+            pipeline::timing::{elapsed_execution_micros, start_execution_timer},
+            pipeline::{
+                contracts::{
+                    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
+                    PreparedExecutionInputContext,
+                },
+                entrypoints::scalar::{
+                    hints::{ScalarRouteTerminal, normalize_scalar_route_for_execution},
+                    runtime::PreparedScalarRouteRuntime,
+                },
             },
-            entrypoints::scalar::{
-                hints::{ScalarRouteTerminal, normalize_scalar_route_for_execution},
-                runtime::PreparedScalarRouteRuntime,
-            },
+            plan_metrics::record_plan_metrics,
+            with_execution_stats_capture,
         },
-        plan_metrics::record_plan_metrics,
-        with_execution_stats_capture,
+        schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,
 };
@@ -97,8 +100,20 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         debug,
     } = prepared;
     let entity_path = authority.entity_path_handle();
+    let accepted_schema = authority.accepted_schema_authority()?;
+    let accepted_root = CardinalityAcceptedRootIdentity::new(
+        accepted_schema.revision(),
+        accepted_schema.fingerprint(),
+    )?;
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime(
-        TraversalRuntime::new(store, authority.entity_tag()),
+        TraversalRuntime::new(
+            store,
+            authority.entity_tag(),
+            authority
+                .accepted_runtime_root_identity()
+                .database_incarnation(),
+            accepted_root,
+        ),
         store,
         authority,
     )?;

@@ -10,7 +10,7 @@ use crate::{
             ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload, IndexScan,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             budget::charge_current_execution_budget,
-            lowered_index_prefix_exact_cardinality,
+            lowered_index_prefix_exact_cardinalities_for_admitted_root,
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
             route::IndexPrefixChildExpansionHint,
             stream::{
@@ -29,6 +29,8 @@ use crate::{
             traversal::IndexRangeTraversalContract,
         },
         index::predicate::IndexPredicateExecution,
+        integrity::DatabaseIncarnationId,
+        schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,
     value::Value,
@@ -168,6 +170,8 @@ fn validate_index_range_spec_alignment(
 pub(in crate::db::executor) struct TraversalRuntime {
     pub(in crate::db::executor) store: crate::db::registry::StoreHandle,
     pub(in crate::db::executor) entity_tag: crate::types::EntityTag,
+    database_incarnation: DatabaseIncarnationId,
+    accepted_root: CardinalityAcceptedRootIdentity,
 }
 
 impl TraversalRuntime {
@@ -176,8 +180,15 @@ impl TraversalRuntime {
     pub(in crate::db::executor) const fn new(
         store: crate::db::registry::StoreHandle,
         entity_tag: crate::types::EntityTag,
+        database_incarnation: DatabaseIncarnationId,
+        accepted_root: CardinalityAcceptedRootIdentity,
     ) -> Self {
-        Self { store, entity_tag }
+        Self {
+            store,
+            entity_tag,
+            database_incarnation,
+            accepted_root,
+        }
     }
 
     /// Resolve one executable access binding into an ordered key stream.
@@ -387,9 +398,8 @@ impl AccessPlanStreamResolver {
         }
 
         let mut metadata_cursor = spec_cursor;
-        let mut child_cardinalities = [0; MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN];
-        let mut total_cardinality = 0u64;
-        for (child_index, child) in children.iter().enumerate() {
+        let mut cardinality_specs = Vec::with_capacity(children.len());
+        for child in children {
             let ExecutableAccessNode::Path(path) = child.node() else {
                 return ExactIntersectionAdmission::NotApplicable;
             };
@@ -406,10 +416,19 @@ impl AccessPlanStreamResolver {
             else {
                 return ExactIntersectionAdmission::ConservativeFallback;
             };
-            let Some(cardinality) = lowered_index_prefix_exact_cardinality(runtime.store, spec)
-            else {
-                return ExactIntersectionAdmission::ConservativeFallback;
-            };
+            cardinality_specs.push(spec);
+        }
+        let Some(cardinalities) = lowered_index_prefix_exact_cardinalities_for_admitted_root(
+            runtime.store,
+            runtime.database_incarnation,
+            runtime.accepted_root,
+            cardinality_specs.iter().copied(),
+        ) else {
+            return ExactIntersectionAdmission::ConservativeFallback;
+        };
+        let mut child_cardinalities = [0; MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN];
+        let mut total_cardinality = 0u64;
+        for (child_index, cardinality) in cardinalities.into_iter().enumerate() {
             if cardinality == 0 {
                 return ExactIntersectionAdmission::ProvenEmpty;
             }

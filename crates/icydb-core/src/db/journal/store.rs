@@ -719,15 +719,7 @@ impl JournalTailStore {
 
     /// Return the durable replay boundary encoded in the journal-tail memory.
     pub(in crate::db) fn fold_watermark(&self) -> Result<FoldWatermark, InternalError> {
-        self.validate_current_control_records()?;
-        self.map
-            .get(&JournalTailKey::fold_watermark())
-            .map_or(Ok(FoldWatermark::initial()), |raw| {
-                decode_fold_watermark(raw.as_bytes())
-            })
-    }
-
-    fn validate_current_control_records(&self) -> Result<(), InternalError> {
+        let mut watermark = FoldWatermark::initial();
         for entry in self.map.range((
             Included(JournalTailKey::new(FOLD_WATERMARK_CONTROL_SEQUENCE, 0)),
             Included(JournalTailKey::new(
@@ -737,7 +729,7 @@ impl JournalTailStore {
         )) {
             match entry.key().chunk_index {
                 0 => {
-                    let _watermark = decode_fold_watermark(entry.value().as_bytes())?;
+                    watermark = decode_fold_watermark(entry.value().as_bytes())?;
                 }
                 DATA_MUTATION_REVISION_CONTROL_CHUNK => {
                     let _revision = decode_data_mutation_revision(entry.value().as_bytes())?;
@@ -751,7 +743,7 @@ impl JournalTailStore {
                 _ => return Err(journal_tail_corruption()),
             }
         }
-        Ok(())
+        Ok(watermark)
     }
 
     /// Persist a new durable fold watermark.

@@ -56,9 +56,7 @@ use crate::{
             apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
             apply_schema_application_record_op,
             cardinality_build::CardinalityBuildAuthority,
-            cardinality_generation::{
-                CardinalityCountDigest, CardinalityGenerationState, CardinalityLogicalCountKey,
-            },
+            cardinality_generation::{CardinalityCountDigest, CardinalityGenerationState},
             decode_constraint_validation_job, decode_persisted_schema_snapshot,
             load_accepted_schema_snapshot, load_live_schema_checkpoint,
             verify_live_identity_range_checkpoint, verify_live_schema_checkpoint,
@@ -253,6 +251,7 @@ fn recover_domain<C: CanisterKind>(
         restore_live_schema_checkpoints(db, None).map_err(|error| {
             StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
         })?;
+        reset_journaled_live_projections(db)?;
         db.mark_all_registered_index_stores_ready()
             .map_err(|error| {
                 StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
@@ -530,8 +529,15 @@ fn reset_journaled_live_projections<C: CanisterKind>(
                 Ok::<_, InternalError>(store.generation())
             })
             .map_err(journal_failure)?;
+        let fold_watermark = handle
+            .journal_tail_store()
+            .ok_or_else(InternalError::store_corruption)
+            .and_then(|journal| journal.with_borrow(JournalTailStore::fold_watermark))
+            .map_err(journal_failure)?;
         handle
-            .with_index_mut(|store| store.reset_journaled_live_projection(data_generation))
+            .with_index_mut(|store| {
+                store.reset_journaled_live_projection(data_generation, fold_watermark)
+            })
             .map_err(journal_failure)?;
         handle
             .with_schema_mut(SchemaStore::reset_journaled_live_projection)
@@ -884,6 +890,9 @@ fn fold_selected_journal_head<C: CanisterKind>(
         prepared_rows.as_slice(),
     )
     .map_err(journal_failure)?;
+    handle
+        .with_index(|store| store.preflight_prefix_cardinality_delta_watermark(watermark))
+        .map_err(journal_failure)?;
     apply_preflighted_fold(
         db,
         store_path,
@@ -897,6 +906,9 @@ fn fold_selected_journal_head<C: CanisterKind>(
     }
     journal_store.with_borrow_mut(|store| {
         store.apply_prepared_batch_retirement(tail_retirement);
+    });
+    handle.with_index_mut(|store| {
+        store.apply_prefix_cardinality_delta_watermark(watermark, next_watermark);
     });
     Ok(())
 }
@@ -1041,7 +1053,7 @@ fn collect_folded_cardinality_changes(
             _ => 0,
         };
         if delta != 0 {
-            let digest = CardinalityLogicalCountKey::Entity(decoded.entity_tag()).digest()?;
+            let digest = CardinalityCountDigest::for_entity(decoded.entity_tag());
             add_cardinality_change(&mut changes, digest, delta)?;
         }
     }

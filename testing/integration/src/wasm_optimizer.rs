@@ -71,6 +71,16 @@ pub fn pinned_wasm_optimizer() -> Result<PathBuf, String> {
 
 /// Transform compiler-emitted Wasm into the sole final deployable artifact.
 pub fn optimize_deployable_wasm(input: &Path, output: &Path) -> Result<(), String> {
+    let optimizer = pinned_wasm_optimizer()?;
+    optimize_deployable_wasm_with_optimizer(input, output, &optimizer)
+}
+
+/// Run the canonical transform with an optimizer already validated by the batch owner.
+pub(crate) fn optimize_deployable_wasm_with_optimizer(
+    input: &Path,
+    output: &Path,
+    optimizer: &Path,
+) -> Result<(), String> {
     if !input.is_file() {
         return Err(format!(
             "compiler-emitted wasm is missing: {}",
@@ -90,7 +100,6 @@ pub fn optimize_deployable_wasm(input: &Path, output: &Path) -> Result<(), Strin
         )
     })?;
 
-    let optimizer = pinned_wasm_optimizer()?;
     let temporary = temporary_output_path(output);
     let mut command = Command::new(optimizer);
     command.arg(input);

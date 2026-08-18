@@ -441,16 +441,13 @@ impl IndexScan {
                             error,
                         )
                     })?;
-                let row_witness = entry
-                    .decode_row_witness_from_primary_key_value(&primary_key)
+                let existence_witness = entry
+                    .decode_existence_witness()
                     .map_err(|_| InternalError::index_entry_decode_failed())?;
-                if matches!(
-                    row_witness.existence_witness(),
-                    IndexEntryExistenceWitness::Missing
-                ) {
+                if matches!(existence_witness, IndexEntryExistenceWitness::Missing) {
                     let data_key = DecodedDataStoreKey::new_with_raw_primary_key_value(
                         entity,
-                        row_witness.primary_key_value(),
+                        &primary_key,
                         RawDataStoreKey::from_entity_and_primary_key_bytes(
                             entity,
                             primary_key_bytes,
@@ -487,47 +484,31 @@ impl IndexScan {
     }
 
     fn intersect_exact_primary_keys(
-        overlap: Vec<ExactIntersectionPrimaryKey>,
+        mut overlap: Vec<ExactIntersectionPrimaryKey>,
         keys: &[ExactIntersectionPrimaryKey],
         direction: Direction,
-    ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
-        let capacity = overlap.len().min(keys.len());
-        let mut next = Vec::new();
-        next.try_reserve_exact(capacity)
-            .map_err(|_| InternalError::executor_internal())?;
-        let extra_capacity = next.capacity().saturating_sub(capacity);
-        let extra_capacity_bytes = extra_capacity
-            .checked_mul(size_of::<ExactIntersectionPrimaryKey>())
-            .ok_or_else(InternalError::executor_invariant)?;
-        if extra_capacity_bytes != 0 {
-            charge_current_execution_budget(
-                DiagnosticExecutionBudgetResource::TemporaryBytes,
-                u64::try_from(extra_capacity_bytes).unwrap_or(u64::MAX),
-            )?;
-        }
-        let mut left = overlap.into_iter().peekable();
-        let mut right = keys.iter().peekable();
-        while let (Some(left_key), Some(right_key)) = (left.peek(), right.peek()) {
-            let order = match direction {
-                Direction::Asc => left_key.value.cmp(&right_key.value),
-                Direction::Desc => right_key.value.cmp(&left_key.value),
-            };
-            match order {
-                std::cmp::Ordering::Less => {
-                    let _ = left.next();
-                }
-                std::cmp::Ordering::Greater => {
-                    let _ = right.next();
-                }
-                std::cmp::Ordering::Equal => {
-                    let key = left.next().ok_or_else(InternalError::executor_invariant)?;
-                    let _ = right.next();
-                    next.push(key);
+    ) -> Vec<ExactIntersectionPrimaryKey> {
+        let mut right = 0;
+        overlap.retain(|left_key| {
+            while let Some(right_key) = keys.get(right) {
+                let order = match direction {
+                    Direction::Asc => left_key.value.cmp(&right_key.value),
+                    Direction::Desc => right_key.value.cmp(&left_key.value),
+                };
+                match order {
+                    std::cmp::Ordering::Less => return false,
+                    std::cmp::Ordering::Greater => {
+                        right += 1;
+                    }
+                    std::cmp::Ordering::Equal => {
+                        right += 1;
+                        return true;
+                    }
                 }
             }
-        }
-
-        Ok(next)
+            false
+        });
+        overlap
     }
 
     /// Resolve one cursorless, cardinality-bounded exact-prefix intersection
@@ -563,7 +544,7 @@ impl IndexScan {
             )?;
             overlap = Some(match overlap {
                 None => keys,
-                Some(current) => Self::intersect_exact_primary_keys(current, &keys, direction)?,
+                Some(current) => Self::intersect_exact_primary_keys(current, &keys, direction),
             });
         }
         let overlap = overlap.ok_or_else(InternalError::executor_invariant)?;
@@ -1323,7 +1304,7 @@ mod tests {
             (Direction::Desc, vec![5, 3, 1], vec![5, 3, 2], vec![5, 3]),
         ] {
             let output = with_query_execution_budget_for_tests(budget, context, || {
-                IndexScan::intersect_exact_primary_keys(
+                Ok::<_, QueryError>(IndexScan::intersect_exact_primary_keys(
                     left.into_iter()
                         .map(exact_intersection_primary_key)
                         .collect(),
@@ -1333,8 +1314,7 @@ mod tests {
                         .collect::<Vec<_>>()
                         .as_slice(),
                     direction,
-                )
-                .map_err(QueryError::execute)
+                ))
             })
             .expect("bounded direct intersection should preserve direction");
 

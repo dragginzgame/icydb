@@ -327,7 +327,7 @@ fn install_sql_perf_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'
     // simulator time or topology, so a restored post-install snapshot is the
     // narrowest complete reset boundary between tests.
     SQL_PERF_FIXTURE_POOL
-        .acquire_with_outcome(|| install_fixture_canister("sql_perf"))
+        .acquire(|| install_fixture_canister("sql_perf"))
         .unwrap_or_else(|error| panic!("SQL perf fixture pool should restore cleanly: {error}"))
         .0
 }

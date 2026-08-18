@@ -3396,10 +3396,13 @@ mod identity_pre_key_tests {
                 .expect("row projection should reset without a count scan");
         });
         let data_generation = JOURNALED_DATA_STORE.with(|store| store.borrow().generation());
+        let fold_watermark = JOURNALED_TAIL_STORE
+            .with(|store| store.borrow().fold_watermark())
+            .expect("journal watermark should remain current-form");
         JOURNALED_INDEX_STORE.with(|store| {
             store
                 .borrow_mut()
-                .reset_journaled_live_projection(data_generation)
+                .reset_journaled_live_projection(data_generation, fold_watermark)
                 .expect("index projection should reset without a count scan");
         });
         data_generation

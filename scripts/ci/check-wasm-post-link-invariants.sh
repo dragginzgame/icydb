@@ -20,7 +20,11 @@ require_text \
     'fixture builds must invoke the canonical cached post-link artifact producer.'
 require_text \
     testing/integration/src/canister_build_cache.rs \
-    'optimize_deployable_wasm(request.compiler_emitted, &output)?;' \
+    'build_artifact_caches_batch(&specs' \
+    'whole-fleet post-link validation must use the collect-all artifact cache batch.'
+require_text \
+    testing/integration/src/canister_build_cache.rs \
+    'optimize_deployable_wasm_with_optimizer(entry.compiler_emitted, &output, &optimizer)' \
     'the post-link artifact cache must invoke the canonical optimizer on cache misses.'
 require_text \
     testing/integration/src/lib.rs \

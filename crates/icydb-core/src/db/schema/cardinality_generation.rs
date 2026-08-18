@@ -7,11 +7,13 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         data::RawDataStoreKey,
-        index::{IndexId, IndexKey, RawIndexStoreKey, UserIndexPrefixCardinalityKey},
+        index::{IndexId, IndexKey, RawIndexStoreKey},
         integrity::DatabaseIncarnationId,
         journal::FoldWatermark,
         registry::StoreAllocationIdentities,
-        schema::enum_catalog::{AcceptedSchemaFingerprint, AcceptedSchemaRevision},
+        schema::enum_catalog::{
+            AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaRoot,
+        },
     },
     error::InternalError,
     types::EntityTag,
@@ -147,6 +149,11 @@ impl CardinalityAcceptedRootIdentity {
             fingerprint,
         })
     }
+
+    #[must_use]
+    pub(in crate::db) fn matches(self, root: AcceptedSchemaRoot) -> bool {
+        self.revision == root.revision() && self.fingerprint == root.fingerprint()
+    }
 }
 
 /// Complete canonical source identity described by one generation.
@@ -160,8 +167,37 @@ pub(in crate::db) struct CardinalitySourceIdentity {
     fold_watermark: FoldWatermark,
 }
 
+/// Canonical identity of the complete accepted physical user-index set.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct CardinalityAcceptedIndexSetIdentity {
+    count: u32,
+    fingerprint: [u8; 32],
+}
+
+/// Canonical identity of one journaled store's complete allocation bundle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct CardinalityStoreAllocationIdentity([u8; 32]);
+
+impl CardinalityStoreAllocationIdentity {
+    pub(in crate::db) fn derive(
+        allocations: StoreAllocationIdentities,
+    ) -> Result<Self, InternalError> {
+        store_allocation_fingerprint(allocations).map(Self)
+    }
+}
+
+impl CardinalityAcceptedIndexSetIdentity {
+    pub(in crate::db) fn derive(
+        accepted_indexes: impl IntoIterator<Item = IndexId>,
+    ) -> Result<Self, InternalError> {
+        let (count, fingerprint) = accepted_index_set_fingerprint(accepted_indexes)?;
+        Ok(Self { count, fingerprint })
+    }
+}
+
 impl CardinalitySourceIdentity {
     /// Derive one source identity from current runtime authorities.
+    #[cfg(test)]
     pub(in crate::db) fn derive(
         database_incarnation: DatabaseIncarnationId,
         allocations: StoreAllocationIdentities,
@@ -169,18 +205,34 @@ impl CardinalitySourceIdentity {
         accepted_indexes: impl IntoIterator<Item = IndexId>,
         fold_watermark: FoldWatermark,
     ) -> Result<Self, InternalError> {
-        let store_allocation_fingerprint = store_allocation_fingerprint(allocations)?;
-        let (accepted_index_count, accepted_index_set_fingerprint) =
-            accepted_index_set_fingerprint(accepted_indexes)?;
-        if accepted_root.is_none() && accepted_index_count != 0 {
+        let accepted_index_set = CardinalityAcceptedIndexSetIdentity::derive(accepted_indexes)?;
+        let store_allocation = CardinalityStoreAllocationIdentity::derive(allocations)?;
+        Self::derive_with_bound_identities(
+            database_incarnation,
+            store_allocation,
+            accepted_root,
+            accepted_index_set,
+            fold_watermark,
+        )
+    }
+
+    /// Bind one already-validated immutable accepted-index-set identity.
+    pub(in crate::db) fn derive_with_bound_identities(
+        database_incarnation: DatabaseIncarnationId,
+        store_allocation: CardinalityStoreAllocationIdentity,
+        accepted_root: Option<CardinalityAcceptedRootIdentity>,
+        accepted_index_set: CardinalityAcceptedIndexSetIdentity,
+        fold_watermark: FoldWatermark,
+    ) -> Result<Self, InternalError> {
+        if accepted_root.is_none() && accepted_index_set.count != 0 {
             return Err(InternalError::store_invariant());
         }
         Ok(Self {
             database_incarnation,
-            store_allocation_fingerprint,
+            store_allocation_fingerprint: store_allocation.0,
             accepted_root,
-            accepted_index_count,
-            accepted_index_set_fingerprint,
+            accepted_index_count: accepted_index_set.count,
+            accepted_index_set_fingerprint: accepted_index_set.fingerprint,
             fold_watermark,
         })
     }
@@ -559,6 +611,16 @@ impl CardinalityCountDigest {
         self.0
     }
 
+    /// Hash one entity count key from its frozen logical preimage.
+    #[must_use]
+    pub(in crate::db) fn for_entity(entity: EntityTag) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(CARDINALITY_COUNT_KEY_FINGERPRINT_DOMAIN);
+        hasher.update([0]);
+        hasher.update(entity.value().to_be_bytes());
+        Self(hasher.finalize().into())
+    }
+
     /// Hash one accepted user-index prefix without allocating a second key owner.
     pub(in crate::db) fn for_user_index_prefix(
         index_id: IndexId,
@@ -585,33 +647,6 @@ impl CardinalityCountDigest {
             hasher.update(component);
         }
         Ok(Self(hasher.finalize().into()))
-    }
-}
-
-/// Logical count target from which the durable truncated key is derived.
-pub(in crate::db) enum CardinalityLogicalCountKey<'a> {
-    Entity(EntityTag),
-    UserIndexPrefix(&'a UserIndexPrefixCardinalityKey),
-}
-
-impl CardinalityLogicalCountKey<'_> {
-    /// Hash the exact frozen logical-key preimage.
-    pub(in crate::db) fn digest(&self) -> Result<CardinalityCountDigest, InternalError> {
-        let mut hasher = Sha256::new();
-        hasher.update(CARDINALITY_COUNT_KEY_FINGERPRINT_DOMAIN);
-        match self {
-            Self::Entity(entity) => {
-                hasher.update([0]);
-                hasher.update(entity.value().to_be_bytes());
-            }
-            Self::UserIndexPrefix(prefix) => {
-                return CardinalityCountDigest::for_user_index_prefix(
-                    prefix.index_id(),
-                    prefix.prefix_components(),
-                );
-            }
-        }
-        Ok(CardinalityCountDigest(hasher.finalize().into()))
     }
 }
 
@@ -948,7 +983,7 @@ mod tests {
     use super::*;
     use crate::{
         db::{
-            index::IndexId,
+            index::{IndexId, UserIndexPrefixCardinalityKey},
             registry::StoreAllocationIdentity,
             schema::enum_catalog::{AcceptedSchemaFingerprint, AcceptedSchemaRevision},
         },
@@ -1098,9 +1133,7 @@ mod tests {
 
     #[test]
     fn count_key_and_value_forms_are_exact_and_collision_checked() {
-        let entity_digest = CardinalityLogicalCountKey::Entity(EntityTag::new(42))
-            .digest()
-            .unwrap();
+        let entity_digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
         assert_eq!(
             entity_digest.as_bytes(),
             [
@@ -1114,9 +1147,11 @@ mod tests {
             IndexId::new_with_generation(EntityTag::new(42), 3, 7),
             vec![vec![1, 2], vec![3]],
         );
-        let prefix_digest = CardinalityLogicalCountKey::UserIndexPrefix(&prefix)
-            .digest()
-            .unwrap();
+        let prefix_digest = CardinalityCountDigest::for_user_index_prefix(
+            prefix.index_id(),
+            prefix.prefix_components(),
+        )
+        .unwrap();
         assert_eq!(
             prefix_digest.as_bytes(),
             [
@@ -1173,9 +1208,11 @@ mod tests {
         ] {
             let prefix = UserIndexPrefixCardinalityKey::new(index, components);
             assert!(
-                CardinalityLogicalCountKey::UserIndexPrefix(&prefix)
-                    .digest()
-                    .is_err()
+                CardinalityCountDigest::for_user_index_prefix(
+                    prefix.index_id(),
+                    prefix.prefix_components(),
+                )
+                .is_err()
             );
         }
     }

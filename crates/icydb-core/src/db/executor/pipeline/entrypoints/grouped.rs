@@ -37,6 +37,7 @@ use crate::{
             stream::access::TraversalRuntime,
             with_execution_stats_capture,
         },
+        schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -530,16 +531,28 @@ pub(in crate::db) struct GroupedExecutePhaseAttribution {
 impl GroupedPathRuntimeContext {
     // Build the grouped runtime spine once from one recovered store handle and
     // its resolved structural entity authority.
-    fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
+    fn from_store(store: StoreHandle, authority: EntityAuthority) -> Result<Self, InternalError> {
         let entity_tag = authority.entity_tag();
         let entity_path = authority.entity_path_handle();
+        let accepted_schema = authority.accepted_schema_authority()?;
+        let accepted_root = CardinalityAcceptedRootIdentity::new(
+            accepted_schema.revision(),
+            accepted_schema.fingerprint(),
+        )?;
 
-        Self {
-            traversal_runtime: TraversalRuntime::new(store, entity_tag),
+        Ok(Self {
+            traversal_runtime: TraversalRuntime::new(
+                store,
+                entity_tag,
+                authority
+                    .accepted_runtime_root_identity()
+                    .database_incarnation(),
+                accepted_root,
+            ),
             row_store: store,
             authority,
             output_observer: GroupedOutputRuntimeObserverBindings::for_path(entity_path),
-        }
+        })
     }
 
     /// Build one grouped execution stream for an already resolved route.
@@ -634,7 +647,7 @@ where
 
     PreparedGroupedRouteRuntime::new(
         route,
-        GroupedPathRuntimeContext::from_store(store, authority),
+        GroupedPathRuntimeContext::from_store(store, authority)?,
         prepared_residents,
     )
 }

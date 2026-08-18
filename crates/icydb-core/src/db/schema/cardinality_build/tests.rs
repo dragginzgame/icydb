@@ -217,9 +217,7 @@ fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
         .cardinality_generation_header()
         .expect("header should decode")
         .expect("header should exist");
-    let digest = CardinalityLogicalCountKey::Entity(entity)
-        .digest()
-        .expect("entity key should hash");
+    let digest = CardinalityCountDigest::for_entity(entity);
     assert_eq!(
         schema
             .cardinality_count(header.slot(), header.generation(), digest)
@@ -598,8 +596,11 @@ fn canonical_accepted_root_derives_the_build_source_without_generated_models() {
         FoldWatermark::initial(),
     )
     .expect("canonical accepted source should derive");
-    assert!(authority.accepted_entities.is_empty());
-    assert!(authority.accepted_indexes.is_empty());
+    assert!(
+        authority
+            .domain
+            .is_some_and(|domain| { domain.entities.is_empty() && domain.indexes.is_empty() })
+    );
 }
 
 #[test]
@@ -671,9 +672,7 @@ fn complete_candidate_publishes_once_and_removes_its_build_cursor() {
             .expect("publication cursor state should decode"),
         None,
     );
-    let digest = CardinalityLogicalCountKey::Entity(entity)
-        .digest()
-        .expect("entity count should hash");
+    let digest = CardinalityCountDigest::for_entity(entity);
     assert_eq!(
         schema
             .cardinality_count(header.slot(), header.generation(), digest)

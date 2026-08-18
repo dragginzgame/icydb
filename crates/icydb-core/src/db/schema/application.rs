@@ -3101,14 +3101,17 @@ mod tests {
     use crate::{
         db::{
             DatabaseStartupState, Db, GeneratedStartupDriverStep,
-            commit::{RecoveryProgress, continue_recovery, forget_recovered_domain_for_tests},
+            commit::{
+                RecoveryProgress, continue_recovery, database_incarnation_id,
+                forget_recovered_domain_for_tests,
+            },
             data::DataStore,
             drive_generated_startup_recovery_page,
             index::IndexStore,
             journal::JournalTailStore,
             observe_generated_startup_state,
             registry::{
-                StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+                StoreAllocationIdentities, StoreAllocationIdentity, StoreHandle, StoreRegistry,
                 StoreRuntimeStorageCapabilities,
             },
             schema::{
@@ -3117,6 +3120,10 @@ mod tests {
                 ExistingProposalStore, ProposalStoreTarget, SchemaApplicationRecord,
                 SchemaApplicationRecordOp, SchemaChangeActivation, SchemaChangeJob,
                 SchemaChangeOutcome, SchemaChangeProgressStatus, SchemaStore,
+                cardinality_build::{
+                    CardinalityBuildAuthority, CardinalityGenerationPageOutcome,
+                    drive_cardinality_generation_page,
+                },
             },
         },
         error::{ErrorClass, ErrorOrigin},
@@ -3143,6 +3150,34 @@ mod tests {
             }
         }
         panic!("test startup recovery should complete within 1,024 bounded pages");
+    }
+
+    fn drive_cardinality_to_ready(store: StoreHandle) {
+        let journal = store
+            .journal_tail_store()
+            .expect("cardinality fixture store should be journaled");
+        for _ in 0..8 {
+            let outcome = store
+                .with_data(|data| {
+                    store.with_index(|index| {
+                        store.with_schema_mut(|schema| {
+                            drive_cardinality_generation_page(data, index, schema, |schema| {
+                                CardinalityBuildAuthority::derive(
+                                    schema,
+                                    database_incarnation_id()?,
+                                    store.allocation_identities(),
+                                    journal.with_borrow(JournalTailStore::fold_watermark)?,
+                                )
+                            })
+                        })
+                    })
+                })
+                .expect("bounded cardinality generation should advance");
+            if outcome == CardinalityGenerationPageOutcome::Quiescent {
+                return;
+            }
+        }
+        panic!("cardinality generation should become Ready within eight bounded pages");
     }
 
     #[cfg(feature = "migration")]
@@ -4061,6 +4096,11 @@ mod tests {
                 .outcome(),
             SchemaChangeOutcome::Applied { .. },
         ));
+        drive_startup_recovery_to_completion(&db);
+        drive_cardinality_to_ready(
+            db.store_handle(EVOLUTION_STORE_PATH)
+                .expect("evolution store should resolve"),
+        );
 
         let direct_target =
             schema_application_target(&db).expect("direct evolution target should issue");
@@ -4400,6 +4440,11 @@ mod tests {
         session
             .execute_trusted_dynamic_mutation_batch(rows)
             .expect("historical finding fixture rows should commit as one legal batch");
+        drive_startup_recovery_to_completion(&db);
+        drive_cardinality_to_ready(
+            db.store_handle(ABORT_STORE_PATH)
+                .expect("abort store should resolve"),
+        );
 
         let target =
             schema_application_target(&db).expect("existing application target should issue");

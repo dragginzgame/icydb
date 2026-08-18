@@ -121,7 +121,7 @@ help:
 	@echo "                  Run one exact integration test, then its complete binary"
 	@echo "  test-durability  Run the focused commit, mutation-job, convergence, recovery, and perf matrix"
 	@echo "  test-canister-artifact-contract"
-	@echo "                  Build and inspect all 20 maintained production/local canister artifacts"
+	@echo "                  Build and inspect all 32 independent production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
 	@echo "                  Run the live generated SQL canister endpoint matrix"
 	@echo "  test-sql-tier-c-shard TIER_C_SHARD=0"
@@ -626,6 +626,7 @@ check-versioning: security-check
 
 check-invariants:
 	bash scripts/ci/check-ci-workflow-invariants.sh
+	bash scripts/ci/check-deployment-inventory-invariants.sh
 	bash scripts/ci/check-dependency-graph-invariants.sh
 	bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
@@ -663,7 +664,7 @@ lint-workflows:
 
 shellcheck:
 	shellcheck --exclude=SC2001,SC2016 \
-		scripts/ci/*.sh scripts/dev/*.sh .githooks/pre-commit
+		scripts/app/*.sh scripts/ci/*.sh scripts/dev/*.sh .githooks/pre-commit
 
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job remains the one branch-protection and release gate.

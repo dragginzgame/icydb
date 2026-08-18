@@ -6,6 +6,7 @@
 use crate::db::index::{
     IndexEntryExistenceWitness, IndexEntryValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
 };
+use crate::db::journal::FoldWatermark;
 use std::collections::BTreeMap as HeapBTreeMap;
 
 /// Exact lookup key for one user-index component prefix.
@@ -66,6 +67,7 @@ pub(super) struct IndexPrefixCardinality {
 pub(super) struct IndexPrefixCardinalityDelta {
     first_component_counts: HeapBTreeMap<IndexPrefixCardinalityFirstKey, i64>,
     counts: HeapBTreeMap<IndexPrefixCardinalityKey, i64>,
+    base_watermark: Option<FoldWatermark>,
     decodable: bool,
 }
 
@@ -475,11 +477,38 @@ impl IndexPrefixCardinality {
 
 impl IndexPrefixCardinalityDelta {
     #[must_use]
-    pub(super) const fn empty() -> Self {
+    pub(super) const fn unbound_empty() -> Self {
         Self {
             first_component_counts: HeapBTreeMap::new(),
             counts: HeapBTreeMap::new(),
+            base_watermark: None,
             decodable: true,
+        }
+    }
+
+    pub(super) fn reset(&mut self, base_watermark: FoldWatermark) {
+        self.first_component_counts.clear();
+        self.counts.clear();
+        self.base_watermark = Some(base_watermark);
+        self.decodable = true;
+    }
+
+    #[must_use]
+    pub(super) const fn base_watermark(&self) -> Option<FoldWatermark> {
+        if self.decodable {
+            self.base_watermark
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn advance_watermark(&mut self, current: FoldWatermark, next: FoldWatermark) {
+        if self.decodable && matches!(self.base_watermark, Some(watermark) if watermark == current)
+        {
+            self.base_watermark = Some(next);
+        } else {
+            self.base_watermark = None;
+            self.decodable = false;
         }
     }
 
@@ -563,6 +592,7 @@ impl IndexPrefixCardinalityDelta {
     fn invalidate(&mut self) {
         self.first_component_counts.clear();
         self.counts.clear();
+        self.base_watermark = None;
         self.decodable = false;
     }
 

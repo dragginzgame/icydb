@@ -9,8 +9,10 @@ use crate::{
         data::DataStore,
         executor::route::IndexPrefixChildExpansionHint,
         index::{IndexId, IndexKey, IndexKeyKind, UserIndexPrefixCardinalityKey},
+        integrity::DatabaseIncarnationId,
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
+        schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,
     types::EntityTag,
@@ -129,21 +131,6 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness(
     }
 }
 
-/// Return synchronized exact cardinality for one complete lowered index prefix.
-///
-/// Missing, stale, or undecodable metadata is deliberately reported as
-/// `None`; runtime route selection must then keep the conservative single-index
-/// path rather than attempting a bounded intersection probe.
-#[must_use]
-pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinality(
-    store: StoreHandle,
-    spec: &LoweredIndexPrefixSpec,
-) -> Option<u64> {
-    lowered_index_prefix_exact_cardinalities(store, [spec])?
-        .into_iter()
-        .next()
-}
-
 /// Return exact visible cardinalities for one same-index prefix family.
 #[must_use]
 pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinalities<'a>(
@@ -159,21 +146,71 @@ pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinalities<'a>(
             )
         })
         .collect::<Option<Vec<_>>>()?;
-    let index_id = cardinality_keys.first()?.index_id();
-    if cardinality_keys
-        .iter()
-        .any(|key| key.index_id() != index_id)
-    {
-        return None;
+    let data_generation = store.with_data(DataStore::generation);
+    store.exact_user_index_prefix_key_counts(data_generation, &cardinality_keys)
+}
+
+/// Return exact cardinalities through accepted authority admitted in this request.
+#[must_use]
+pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinalities_for_admitted_root<'a>(
+    store: StoreHandle,
+    database_incarnation: DatabaseIncarnationId,
+    accepted_root: CardinalityAcceptedRootIdentity,
+    specs: impl IntoIterator<Item = &'a LoweredIndexPrefixSpec>,
+) -> Option<Vec<u64>> {
+    let cardinality_keys = specs
+        .into_iter()
+        .map(|spec| {
+            user_index_prefix_cardinality_key_from_lowered_spec(
+                spec,
+                spec.prefix_components().len(),
+            )
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let data_generation = store.with_data(DataStore::generation);
+    store.exact_user_index_prefix_key_counts_for_admitted_root(
+        database_incarnation,
+        accepted_root,
+        data_generation,
+        &cardinality_keys,
+    )
+}
+
+/// Prove only synchronized generation availability for one same-index family.
+///
+/// The caller must retain all branches because this boundary deliberately does
+/// not read or expose their individual counts.
+#[must_use]
+pub(in crate::db::executor) fn lowered_index_prefix_family_has_ready_generation(
+    store: StoreHandle,
+    database_incarnation: DatabaseIncarnationId,
+    accepted_root: CardinalityAcceptedRootIdentity,
+    specs: &[LoweredIndexPrefixSpec],
+) -> bool {
+    let Some(first) = specs.first() else {
+        return false;
+    };
+    let Some(index_id) = exact_cardinality_index_id_from_lowered_spec(first) else {
+        return false;
+    };
+    if first.prefix_components().is_empty() {
+        return false;
+    }
+    for spec in &specs[1..] {
+        if spec.prefix_components().is_empty()
+            || exact_cardinality_index_id_from_lowered_spec(spec) != Some(index_id)
+        {
+            return false;
+        }
     }
     let data_generation = store.with_data(DataStore::generation);
-    store.exact_user_index_prefix_counts(
+    store.user_index_prefix_family_has_ready_generation(
+        database_incarnation,
+        accepted_root,
         data_generation,
         IndexKeyKind::User,
         index_id,
-        cardinality_keys
-            .iter()
-            .map(UserIndexPrefixCardinalityKey::prefix_components),
+        specs.iter().map(LoweredIndexPrefixSpec::prefix_components),
     )
 }
 

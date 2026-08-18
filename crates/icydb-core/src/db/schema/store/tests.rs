@@ -30,8 +30,8 @@ use crate::{
             SchemaVersion, accepted_schema_cache_fingerprint, accepted_schema_candidate_for_tests,
             cardinality_generation::{
                 CardinalityBuildCursor, CardinalityBuildPhase, CardinalityBuildTotals,
-                CardinalityCountRecord, CardinalityCountSlot, CardinalityGenerationHeader,
-                CardinalityGenerationId, CardinalityGenerationState, CardinalityLogicalCountKey,
+                CardinalityCountDigest, CardinalityCountRecord, CardinalityCountSlot,
+                CardinalityGenerationHeader, CardinalityGenerationId, CardinalityGenerationState,
                 CardinalitySourceIdentity,
             },
             composite_catalog::CompositeTypeId,
@@ -357,9 +357,7 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
         CardinalityBuildTotals::default(),
     )
     .expect("initial row cursor should be valid");
-    let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(42))
-        .digest()
-        .expect("entity count key should hash");
+    let digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
     let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, u64::MAX)
         .expect("maximum nonzero count should encode");
 
@@ -428,11 +426,42 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
 }
 
 #[test]
+fn cardinality_header_cache_revalidates_changed_canonical_bytes() {
+    let mut store = SchemaStore::init_journaled(test_memory(242));
+    let header = CardinalityGenerationHeader::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityGenerationState::Ready,
+        CardinalityCountSlot::A,
+        cardinality_source_identity(),
+    );
+    store
+        .write_cardinality_generation_header(header)
+        .expect("valid header should persist");
+    assert_eq!(
+        store
+            .cardinality_generation_header()
+            .expect("valid header should populate the decode cache"),
+        Some(header),
+    );
+
+    let mut malformed = header.encode();
+    malformed[0] ^= 0xff;
+    store
+        .insert_canonical_raw_value(
+            RawSchemaKey::from_cardinality_generation_header(),
+            malformed,
+        )
+        .expect("malformed raw header should seed the corruption fixture");
+    assert!(
+        store.cardinality_generation_header().is_err(),
+        "changed canonical bytes must be decoded rather than served from cache",
+    );
+}
+
+#[test]
 fn cardinality_count_page_preflight_rejects_overflow_and_uncoalesced_input() {
     let mut store = SchemaStore::init_journaled(test_memory(251));
-    let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(42))
-        .digest()
-        .expect("entity count key should hash");
+    let digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
     let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, u64::MAX)
         .expect("maximum count should construct");
     store
@@ -451,9 +480,7 @@ fn cardinality_count_page_preflight_rejects_overflow_and_uncoalesced_input() {
             .is_err(),
         "exact count overflow must fail during read-only preflight",
     );
-    let second_digest = CardinalityLogicalCountKey::Entity(EntityTag::new(43))
-        .digest()
-        .expect("second entity count key should hash");
+    let second_digest = CardinalityCountDigest::for_entity(EntityTag::new(43));
     assert!(
         store
             .prepare_cardinality_count_increments(
@@ -497,9 +524,7 @@ fn ready_cardinality_maintenance_preflights_checked_deltas_and_watermark_publica
         CardinalityCountSlot::A,
         source,
     );
-    let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(42))
-        .digest()
-        .expect("entity digest should derive");
+    let digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
     let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, 3)
         .expect("initial count should encode");
     let mut store = SchemaStore::init_journaled(test_memory(250));
@@ -591,9 +616,7 @@ fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
         .write_cardinality_generation_header(header)
         .expect("Building header should persist");
     for entity in 1..=4_097 {
-        let digest = CardinalityLogicalCountKey::Entity(EntityTag::new(entity))
-            .digest()
-            .expect("entity count key should hash");
+        let digest = CardinalityCountDigest::for_entity(EntityTag::new(entity));
         let record = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, 1)
             .expect("nonzero count should construct");
         store

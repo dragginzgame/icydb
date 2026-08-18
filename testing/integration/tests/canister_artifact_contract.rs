@@ -10,7 +10,7 @@ use icydb_testing_integration::{
 };
 
 #[test]
-#[ignore = "builds and inspects 20 canister artifacts; run `make test-canister-artifact-contract`"]
+#[ignore = "builds and inspects 32 independent canister artifacts; run `make test-canister-artifact-contract`"]
 fn production_and_local_source_declarations_match_the_frozen_endpoint_policy() {
     std::thread::scope(|scope| {
         scope.spawn(|| verify_profile(CanisterBuildProfile::LocalTest));

@@ -1,45 +1,59 @@
 canisters:
-  - name: minimal
+  - name: default_empty
     build:
       steps:
         - type: script
           commands:
-            - scripts/app/build.sh minimal canister_audit_minimal
+            - scripts/app/build.sh default_empty
 
-  - name: one_simple
+  - name: default_empty_metrics
     build:
       steps:
         - type: script
           commands:
-            - scripts/app/build.sh one_simple canister_audit_one_simple
+            - scripts/app/build.sh default_empty_metrics
 
-  - name: one_complex
+  - name: one_entity_dynamic_query
     build:
       steps:
         - type: script
           commands:
-            - scripts/app/build.sh one_complex canister_audit_one_complex
+            - scripts/app/build.sh one_entity_dynamic_query
+
+  - name: one_entity_sql_query
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh one_entity_sql_query
+
+  - name: one_entity_typed_query
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh one_entity_typed_query
+
+  - name: sql_perf
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh sql_perf
+
+  - name: ten_entity_typed_query
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh ten_entity_typed_query
 
   - name: demo_rpg
     build:
       steps:
         - type: script
           commands:
-            - scripts/app/build.sh demo_rpg canister_demo_rpg
-
-  - name: ten_simple
-    build:
-      steps:
-        - type: script
-          commands:
-            - scripts/app/build.sh ten_simple canister_audit_ten_simple
-
-  - name: ten_complex
-    build:
-      steps:
-        - type: script
-          commands:
-            - scripts/app/build.sh ten_complex canister_audit_ten_complex
+            - scripts/app/build.sh demo_rpg
 
 networks:
   - name: local
@@ -55,8 +69,8 @@ environments:
 
   - name: test
     network: local
-    canisters: [demo_rpg, minimal, one_simple, one_complex, ten_simple, ten_complex]
+    canisters: [demo_rpg, default_empty, default_empty_metrics, one_entity_dynamic_query, one_entity_sql_query, one_entity_typed_query, sql_perf, ten_entity_typed_query]
 
   - name: audit
     network: local
-    canisters: [minimal, one_simple, one_complex, ten_simple, ten_complex]
+    canisters: [default_empty, default_empty_metrics, one_entity_dynamic_query, one_entity_sql_query, one_entity_typed_query, sql_perf, ten_entity_typed_query]

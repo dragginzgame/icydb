@@ -202,6 +202,13 @@ impl IndexEntryValue {
         Ok(IndexEntryRowWitness::new(primary_key_value, witness))
     }
 
+    /// Decode only the storage-owned row-presence witness.
+    pub(in crate::db) fn decode_existence_witness(
+        &self,
+    ) -> Result<IndexEntryExistenceWitness, IndexEntryCorruption> {
+        self.validate_witness()
+    }
+
     /// Validate the raw index entry structure without binding to an entity.
     pub(crate) fn validate(&self) -> Result<(), IndexEntryCorruption> {
         self.validate_witness().map(|_| ())

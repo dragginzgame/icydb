@@ -10,7 +10,6 @@ pub mod wasm_measurement;
 pub mod wasm_optimizer;
 
 use std::{
-    collections::VecDeque,
     env,
     ffi::OsString,
     fs,
@@ -25,12 +24,12 @@ use ic_testkit::pic::{InstallSpec, PocketIc, StandaloneCanisterFixture};
 use icydb::Error;
 
 use crate::canister_build_cache::{
-    CargoWasmCacheRequest, PostLinkCacheRequest, build_cached_cargo_wasm, cache_post_link_wasm,
-    trace_post_link, trace_wasm_build,
+    CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
+    build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
+    cache_post_link_wasm_batch, trace_post_link, trace_wasm_build,
 };
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
-const POST_LINK_BUILD_BATCH_SIZE: usize = 2;
 
 /// Maximum watchdog deliveries in the frozen normal convergence residual proof.
 ///
@@ -820,17 +819,17 @@ pub fn upgrade_fixture_canister(fixture: &StandaloneCanisterFixture, canister_na
         .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));
 }
 
-/// Build every maintained canister in one Cargo invocation and return its final Wasm path.
+/// Build every maintained canister independently and return its final Wasm path.
 ///
-/// This is intended for whole-fleet artifact contracts. Ordinary tests should
-/// continue to build only the fixture they exercise. Cargo may unify shared
-/// dependency features across the selected packages, so these outputs must not
-/// be staged or deployed as standalone production artifacts.
+/// This is intended for whole-fleet artifact contracts. The collect-all batch
+/// retains every Cargo failure while sharing input resolution and the caller-owned
+/// incremental target. Ordinary tests should continue to build only the fixture
+/// they exercise.
 ///
 /// # Errors
 ///
-/// Returns an error when a maintained feature policy is invalid, Cargo cannot
-/// build the selected packages, or a final deployable Wasm cannot be produced.
+/// Returns one error containing every independent Cargo or post-link acquisition
+/// failure. Configuration failures retain their maintained contextual error.
 pub fn build_maintained_canisters_with_options(
     options: CanisterBuildOptions,
 ) -> Result<Vec<(&'static str, PathBuf)>, String> {
@@ -843,46 +842,35 @@ pub fn build_maintained_canisters_with_options(
                 .map(|configured| (policy, configured))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let packages = configured
+    let contexts = configured
         .iter()
-        .map(|(policy, _)| policy.package)
-        .collect::<Vec<_>>();
-    let qualified_features = configured
-        .iter()
-        .flat_map(|(policy, _)| {
-            selected_canister_features(policy, options)
-                .into_iter()
-                .map(|feature| format!("{}/{feature}", policy.package))
+        .map(|(policy, _)| {
+            format!(
+                "{} canister build ({}, {:?})",
+                policy.canister,
+                options.profile.as_str(),
+                options.build_profile,
+            )
         })
         .collect::<Vec<_>>();
-    let mut arguments = cargo_profile_arguments(options.profile);
-    if !qualified_features.is_empty() {
-        arguments.extend([
-            OsString::from("--features"),
-            qualified_features.join(",").into(),
-        ]);
-    }
-    let rustflags = configured
-        .first()
-        .and_then(|(_, configured)| configured.rustflags.as_deref());
-    let context_label = format!(
-        "maintained canister batch build ({}, {:?})",
+    let batch_entries = configured
+        .iter()
+        .zip(&contexts)
+        .map(|((policy, configured), context)| CargoWasmBatchEntry {
+            context,
+            package: policy.package,
+            arguments: &configured.arguments,
+            effective_rustflags: configured.rustflags.as_deref(),
+        })
+        .collect::<Vec<_>>();
+    let cargo_report = build_cached_cargo_wasm_batch(
+        &root,
+        &canister_target_dir,
         options.profile.as_str(),
-        options.build_profile,
+        &batch_entries,
     );
-    let outcome = build_cached_cargo_wasm(&CargoWasmCacheRequest {
-        context: &context_label,
-        workspace_root: &root,
-        target_dir: &canister_target_dir,
-        packages: &packages,
-        profile_target_dir: options.profile.as_str(),
-        arguments: &arguments,
-        effective_rustflags: rustflags,
-    })
-    .map_err(|error| format!("{context_label}: {error}"))?;
-    trace_wasm_build(&context_label, &outcome);
 
-    finish_maintained_canister_builds(&root, configured, options)
+    finish_maintained_canister_builds(&root, configured, &contexts, cargo_report, options)
 }
 
 fn finish_maintained_canister_builds(
@@ -891,40 +879,72 @@ fn finish_maintained_canister_builds(
         &'static canister_artifact::MaintainedCanisterPolicy,
         ConfiguredCanisterBuild,
     )>,
+    contexts: &[String],
+    cargo_report: canister_build_cache::CanisterCacheBatchReport,
     options: CanisterBuildOptions,
 ) -> Result<Vec<(&'static str, PathBuf)>, String> {
-    let mut pending = VecDeque::from(configured);
-    let mut artifacts = Vec::with_capacity(pending.len());
-    while !pending.is_empty() {
-        let batch = pending
-            .drain(..pending.len().min(POST_LINK_BUILD_BATCH_SIZE))
-            .collect::<Vec<_>>();
-        let completed = std::thread::scope(|scope| {
-            let mut workers = Vec::with_capacity(batch.len());
-            for (policy, configured) in batch {
-                workers.push(scope.spawn(move || {
-                    let canister_label = format!(
-                        "{} canister build ({}, {:?})",
-                        policy.canister,
-                        options.profile.as_str(),
-                        options.build_profile,
-                    );
-                    finish_canister_build(root, configured, options, &canister_label)
-                        .map(|built| (policy.canister, built.final_deployable))
-                }));
-            }
-            workers
-                .into_iter()
-                .map(|worker| {
-                    worker
-                        .join()
-                        .map_err(|_| "post-link Wasm worker panicked".to_owned())?
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })?;
-        artifacts.extend(completed);
+    let mut failures = cargo_report.failures;
+    let mut post_link_indexes = Vec::with_capacity(cargo_report.successful_indexes.len());
+    for index in cargo_report.successful_indexes {
+        let Some((policy, configured)) = configured.get(index) else {
+            failures.push(format!(
+                "Cargo returned unknown successful entry index {index}"
+            ));
+            continue;
+        };
+        if configured.compiler_emitted.is_file() {
+            post_link_indexes.push(index);
+        } else {
+            failures.push(format!(
+                "Cargo [{index}] {}: build succeeded but wasm was not found at {}",
+                policy.canister,
+                configured.compiler_emitted.display()
+            ));
+        }
     }
-    Ok(artifacts)
+
+    if !post_link_indexes.is_empty()
+        && !matches!(options.profile, CanisterWasmProfile::WasmAttribution)
+    {
+        let cache_root = target_dir(root).join("canister-artifact-cache");
+        let entries = post_link_indexes
+            .iter()
+            .filter_map(|index| {
+                let (_, configured) = configured.get(*index)?;
+                let context = contexts.get(*index)?;
+                Some(PostLinkBatchEntry {
+                    context,
+                    compiler_emitted: &configured.compiler_emitted,
+                    final_deployable: &configured.final_deployable,
+                })
+            })
+            .collect::<Vec<_>>();
+        if entries.len() == post_link_indexes.len() {
+            let post_link_report = cache_post_link_wasm_batch(root, &cache_root, &entries)?;
+            failures.extend(post_link_report.failures);
+        } else {
+            failures.push("post-link batch context mapping was incomplete".to_owned());
+        }
+    }
+
+    if !failures.is_empty() {
+        return Err(format!(
+            "maintained canister build failed:\n  - {}",
+            failures.join("\n  - ")
+        ));
+    }
+
+    Ok(configured
+        .into_iter()
+        .map(|(policy, configured)| {
+            let artifact = if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
+                configured.compiler_emitted
+            } else {
+                configured.final_deployable
+            };
+            (policy.canister, artifact)
+        })
+        .collect())
 }
 
 /// Build one supported SQL canister WASM with explicit options and return the

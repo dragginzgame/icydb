@@ -512,7 +512,7 @@ fn assert_frozen_instruction_gate(fixture_id: &str, attribution: &SqlQueryExecut
 
     assert!(
         attribution.total_local_instructions <= ceiling,
-        "{fixture_id} exceeded its frozen instruction ceiling: {} > {ceiling}",
+        "{fixture_id} exceeded its frozen instruction ceiling: {} > {ceiling}: {attribution:?}",
         attribution.total_local_instructions,
     );
     if fixture_id == "prefix_family_max_fanout" {

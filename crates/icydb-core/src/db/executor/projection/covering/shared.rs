@@ -10,6 +10,7 @@ use crate::{
             budget::charge_current_execution_budget,
             expand_index_prefix_family_with_exact_child_prefixes,
             lowered_index_prefix_exact_cardinalities,
+            lowered_index_prefix_family_has_ready_generation,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
                 CoveringReadField, CoveringReadFieldSource, PageSpec,
@@ -22,6 +23,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         registry::StoreHandle,
+        schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -43,6 +45,12 @@ pub(super) struct CoveringScanWindow {
     pub(super) limit: usize,
     pub(super) page_skip_count: usize,
     pub(super) page_window_applied: bool,
+}
+
+struct CoveringPrefixCardinalityProof {
+    synchronized_generation: bool,
+    exact_non_empty: bool,
+    needs_empty_pruning: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -136,20 +144,13 @@ where
     let index_prefix_specs = expanded_index_prefix_specs
         .as_deref()
         .unwrap_or(request.index_prefix_specs);
-    let mut prefixes_have_exact_cardinality = expanded_index_prefix_specs.is_some();
-    let mut prefixes_have_exact_non_empty_proof = expanded_index_prefix_specs.is_some();
-    if expanded_index_prefix_specs.is_none() && !index_prefix_specs.is_empty() {
-        prefixes_have_exact_cardinality = true;
-        if let Some(cardinalities) =
-            lowered_index_prefix_exact_cardinalities(store, index_prefix_specs)
-        {
-            prefixes_have_exact_non_empty_proof = cardinalities.into_iter().all(|count| count != 0);
-        } else {
-            prefixes_have_exact_cardinality = false;
-            prefixes_have_exact_non_empty_proof = false;
-        }
-    }
-    let existing_row_mode = if prefixes_have_exact_cardinality {
+    let cardinality_proof = covering_prefix_cardinality_proof(
+        authority,
+        store,
+        index_prefix_specs,
+        expanded_index_prefix_specs.is_some(),
+    )?;
+    let existing_row_mode = if cardinality_proof.synchronized_generation {
         CoveringExistingRowMode::ProvenByPlanner
     } else {
         request.existing_row_mode
@@ -190,7 +191,8 @@ where
             } else {
                 PrefixSetMergeSafety::RequiresFallback
             },
-            prefixes_have_exact_non_empty_proof,
+            cardinality_proof.exact_non_empty,
+            cardinality_proof.needs_empty_pruning,
             |store_path| db.recovered_store(store_path),
         )?
         else {
@@ -207,6 +209,61 @@ where
         store,
         existing_row_mode,
     }))
+}
+
+fn covering_prefix_cardinality_proof(
+    authority: &EntityAuthority,
+    store: StoreHandle,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    expanded: bool,
+) -> Result<CoveringPrefixCardinalityProof, InternalError> {
+    if expanded {
+        return Ok(CoveringPrefixCardinalityProof {
+            synchronized_generation: true,
+            exact_non_empty: true,
+            needs_empty_pruning: false,
+        });
+    }
+    if index_prefix_specs.is_empty() {
+        return Ok(CoveringPrefixCardinalityProof {
+            synchronized_generation: false,
+            exact_non_empty: false,
+            needs_empty_pruning: false,
+        });
+    }
+    if index_prefix_specs.len() > 1 {
+        let accepted_schema = authority.accepted_schema_authority()?;
+        let accepted_root = CardinalityAcceptedRootIdentity::new(
+            accepted_schema.revision(),
+            accepted_schema.fingerprint(),
+        )?;
+        return Ok(CoveringPrefixCardinalityProof {
+            synchronized_generation: lowered_index_prefix_family_has_ready_generation(
+                store,
+                authority
+                    .accepted_runtime_root_identity()
+                    .database_incarnation(),
+                accepted_root,
+                index_prefix_specs,
+            ),
+            exact_non_empty: false,
+            needs_empty_pruning: false,
+        });
+    }
+    let Some(cardinalities) = lowered_index_prefix_exact_cardinalities(store, index_prefix_specs)
+    else {
+        return Ok(CoveringPrefixCardinalityProof {
+            synchronized_generation: false,
+            exact_non_empty: false,
+            needs_empty_pruning: false,
+        });
+    };
+    let exact_non_empty = cardinalities.into_iter().all(|count| count != 0);
+    Ok(CoveringPrefixCardinalityProof {
+        synchronized_generation: true,
+        exact_non_empty,
+        needs_empty_pruning: !exact_non_empty,
+    })
 }
 
 fn expanded_covering_index_prefix_specs_if_ordered<C>(

@@ -101,6 +101,7 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     predicate_execution: Option<IndexPredicateExecution<'_>>,
     prefix_set_merge_safety: PrefixSetMergeSafety,
     prefixes_have_exact_non_empty_proof: bool,
+    prefixes_need_exact_empty_pruning: bool,
     mut resolve_store_for_index: F,
 ) -> Result<Option<IndexComponentRows>, InternalError>
 where
@@ -119,6 +120,7 @@ where
                 predicate_execution,
                 merge_safety: prefix_set_merge_safety,
                 prefixes_have_exact_non_empty_proof,
+                prefixes_need_exact_empty_pruning,
             },
             resolve_store_for_index,
         );
@@ -157,6 +159,7 @@ struct CoveringPrefixSetScan<'a> {
     predicate_execution: Option<IndexPredicateExecution<'a>>,
     merge_safety: PrefixSetMergeSafety,
     prefixes_have_exact_non_empty_proof: bool,
+    prefixes_need_exact_empty_pruning: bool,
 }
 
 struct ActiveCoveringPrefixSpec<'a> {
@@ -169,6 +172,7 @@ fn active_covering_prefix_specs<'a, F>(
     index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     predicate_execution: Option<IndexPredicateExecution<'_>>,
     prefixes_have_exact_non_empty_proof: bool,
+    prefixes_need_exact_empty_pruning: bool,
     resolve_store_for_index: &mut F,
 ) -> Result<Vec<ActiveCoveringPrefixSpec<'a>>, InternalError>
 where
@@ -187,13 +191,14 @@ where
     // The caller has already read synchronized, positive cardinality for
     // every prefix in this store. Re-reading it cannot change within this
     // synchronous request.
-    let empty_proof_store = if prefixes_have_exact_non_empty_proof {
-        None
-    } else if same_store {
-        Some(prefix_store)
-    } else {
-        None
-    };
+    let empty_proof_store =
+        if prefixes_have_exact_non_empty_proof || !prefixes_need_exact_empty_pruning {
+            None
+        } else if same_store {
+            Some(prefix_store)
+        } else {
+            None
+        };
     let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
     for spec in active_lowered_index_prefix_specs(
         empty_proof_store,
@@ -237,6 +242,7 @@ where
         index_prefix_specs,
         scan.predicate_execution,
         scan.prefixes_have_exact_non_empty_proof,
+        scan.prefixes_need_exact_empty_pruning,
         &mut resolve_store_for_index,
     )?;
     if matches!(scan.merge_safety, PrefixSetMergeSafety::OrderedConcatSafe) {
