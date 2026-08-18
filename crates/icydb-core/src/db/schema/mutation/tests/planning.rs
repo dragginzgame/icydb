@@ -520,6 +520,129 @@ fn nullability_mutations_add_and_retire_one_stable_constraint() {
 
 #[test]
 #[cfg(feature = "sql")]
+fn nullability_mutation_revalidates_nullable_unique_contract_before_publication() {
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(base_snapshot())
+        .expect("test accepted schema should be internally valid");
+    let unique = PersistedIndexSnapshot::new_sql_ddl(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "unique_name".to_string(),
+        "test::mutation::unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        None,
+    );
+    let indexed = derive_sql_ddl_field_path_index_accepted_after(&accepted, unique)
+        .expect("non-null unique source should admit without a predicate");
+    let before = indexed.accepted_after().persisted_snapshot().clone();
+
+    let error =
+        derive_sql_ddl_field_nullability_accepted_after(indexed.accepted_after(), "name", true)
+            .expect_err("making an unguarded unique source nullable must reject");
+    assert!(matches!(
+        error,
+        SchemaDdlMutationAdmissionError::AcceptedAfter(
+            crate::db::schema::SchemaSnapshotAcceptanceError::NullableUnique(
+                crate::db::schema::NullableUniqueIndexContractError::MissingGuards { .. }
+            )
+        )
+    ));
+    assert_eq!(
+        indexed.accepted_after().persisted_snapshot(),
+        &before,
+        "rejected derivation must not mutate accepted authority",
+    );
+}
+
+#[test]
+#[cfg(feature = "sql")]
+fn nullability_mutation_rejects_while_unique_candidate_is_live() {
+    let candidate = PersistedIndexSnapshot::new_sql_ddl(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "candidate_unique_name".to_string(),
+        "test::mutation::candidate_unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        None,
+    )
+    .clone_with_schema_identity(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        7,
+    );
+    let pending = base_snapshot()
+        .with_added_unique_activation(
+            candidate,
+            crate::db::schema::AcceptedSchemaFingerprint::new([0xA7; 32]),
+            7,
+        )
+        .expect("non-null unique candidate should admit");
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(pending)
+        .expect("candidate snapshot should be valid before nullability drift");
+
+    assert_eq!(
+        derive_sql_ddl_field_nullability_accepted_after(&accepted, "name", true),
+        Err(SchemaDdlMutationAdmissionError::ConstraintCatalog(
+            crate::db::schema::AcceptedConstraintCatalogError::LiveActivation,
+        )),
+        "a live unique candidate must prevent source drift before publication",
+    );
+}
+
+#[test]
+#[cfg(feature = "sql")]
+fn field_rename_rewrites_and_rebinds_nullable_unique_predicates_without_fallback() {
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(base_snapshot())
+        .expect("test accepted schema should be internally valid");
+    let unique = PersistedIndexSnapshot::new_sql_ddl(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "unique_name".to_string(),
+        "test::mutation::unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        Some("name IS NOT NULL".to_string()),
+    );
+    let indexed = derive_sql_ddl_field_path_index_accepted_after(&accepted, unique)
+        .expect("explicit filtered unique index should admit");
+    let nullable =
+        derive_sql_ddl_field_nullability_accepted_after(indexed.accepted_after(), "name", true)
+            .expect("the explicit guard should remain valid after nullability changes");
+    let renamed = derive_sql_ddl_field_rename_accepted_after(
+        nullable.accepted_after(),
+        "name",
+        "display_name",
+    )
+    .expect("valid predicate root should rewrite and rebind");
+    assert_eq!(
+        renamed.accepted_after().persisted_snapshot().indexes()[0].predicate_sql(),
+        Some("display_name IS NOT NULL"),
+    );
+
+    let malformed = PersistedIndexSnapshot::new_sql_ddl(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "malformed_name".to_string(),
+        "test::mutation::malformed_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        Some("name IS NOT".to_string()),
+    );
+    let malformed = crate::db::schema::AcceptedSchemaSnapshot::try_new(snapshot_with_indexes(
+        &base_snapshot(),
+        vec![malformed],
+    ))
+    .expect("unaffected predecessor predicates remain outside the new semantic rule");
+    assert_eq!(
+        derive_sql_ddl_field_rename_accepted_after(&malformed, "name", "display_name"),
+        Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected),
+        "predicate rewrite failure must not preserve stale text",
+    );
+}
+
+#[test]
+#[cfg(feature = "sql")]
 fn sql_ddl_index_identity_exhaustion_is_typed_and_fail_closed() {
     let exhausted_index = PersistedIndexSnapshot::new(
         SchemaIndexId::new(u32::MAX).expect("maximum logical index identity is non-zero"),

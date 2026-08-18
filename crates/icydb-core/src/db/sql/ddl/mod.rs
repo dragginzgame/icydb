@@ -42,8 +42,8 @@ pub use report::{
 
 use crate::db::{
     schema::{
-        AcceptedCheckExprV1Error, AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-        SchemaDdlMutationAdmissionError, SchemaInfo,
+        AcceptedCheckExprV1Error, AcceptedSchemaSnapshot, NullableUniqueIndexContractError,
+        SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError, SchemaInfo,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
@@ -210,6 +210,8 @@ pub(in crate::db) enum SqlDdlBindError {
     },
 
     InvalidFilteredIndexPredicate,
+
+    NullableUniqueIndexContract(NullableUniqueIndexContractError),
 
     DuplicateIndexName {
         index_name: String,

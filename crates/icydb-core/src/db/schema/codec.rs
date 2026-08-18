@@ -11,8 +11,10 @@ mod mapping;
 use crate::{
     db::schema::{
         AcceptedConstraintCatalog, ConstraintIdAllocator, FieldId, PersistedSchemaSnapshot,
-        RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaSnapshotAcceptanceError,
+        SchemaVersion,
         enum_catalog::MAX_SCHEMA_STORE_PATH_BYTES,
+        validate_schema_snapshot_acceptance,
         wire::{SchemaWireReader, SchemaWireWriter},
     },
     error::InternalError,
@@ -56,7 +58,7 @@ pub(in crate::db) fn persisted_schema_snapshot_decode_count_for_tests() -> u64 {
 pub(in crate::db) fn encode_persisted_schema_snapshot(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<Vec<u8>, InternalError> {
-    if !snapshot.has_valid_integrity() {
+    if validate_schema_snapshot_acceptance(snapshot).is_err() {
         return Err(InternalError::store_invariant());
     }
     encode_snapshot(snapshot)
@@ -213,8 +215,16 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
     .with_constraint_catalog(constraint_catalog)
     .with_relations(relations)
     .with_constraint_candidates(candidate_indexes, candidate_relations);
-    if !snapshot.has_valid_integrity() {
-        return Err(InternalError::store_corruption());
+    match validate_schema_snapshot_acceptance(&snapshot) {
+        Ok(()) => {}
+        Err(SchemaSnapshotAcceptanceError::NullableUnique(_)) => {
+            return Err(InternalError::serialize_incompatible_persisted_format());
+        }
+        Err(
+            SchemaSnapshotAcceptanceError::Structural | SchemaSnapshotAcceptanceError::Predicate,
+        ) => {
+            return Err(InternalError::store_corruption());
+        }
     }
     Ok(snapshot)
 }

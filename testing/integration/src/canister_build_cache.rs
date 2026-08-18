@@ -9,11 +9,12 @@ use std::{
 
 use ic_testkit::artifacts::{
     ArtifactCacheBatchOutcomeEntry, ArtifactCacheOutcome, ArtifactCachePreparation,
-    ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec,
+    ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
-    SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchProgressEvent,
-    WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent, WasmBuildSpec,
-    build_artifact_caches_batch, build_wasm_canisters_cached_batch_with_config_and_progress,
+    SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchOutcomeEntry,
+    WasmBuildBatchProgressEvent, WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent,
+    WasmBuildSpec, build_artifact_caches_batch,
+    build_wasm_canisters_cached_batch_with_config_and_progress,
     build_wasm_canisters_cached_with_progress, prepare_artifact_cache,
 };
 
@@ -109,46 +110,57 @@ pub(crate) fn build_cached_cargo_wasm_batch(
     let specs = entries
         .iter()
         .map(|entry| {
-            cargo_wasm_spec(
-                workspace_root,
-                target_dir,
-                &[entry.package],
-                profile_target_dir,
-                entry.arguments,
-                entry.effective_rustflags,
-                false,
+            LabeledWasmBuildSpec::new(
+                entry.context,
+                cargo_wasm_spec(
+                    workspace_root,
+                    target_dir,
+                    &[entry.package],
+                    profile_target_dir,
+                    entry.arguments,
+                    entry.effective_rustflags,
+                    false,
+                ),
             )
         })
         .collect::<Vec<_>>();
     let batch_config = WasmBuildBatchConfig::new()
         .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
-    let report = build_wasm_canisters_cached_batch_with_config_and_progress(
+    let report = match build_wasm_canisters_cached_batch_with_config_and_progress(
         &specs,
         batch_config,
         wasm_build_progress_config(),
-        |event| report_wasm_build_batch_progress(entries, event),
-    );
+        report_wasm_build_batch_progress,
+    ) {
+        Ok(report) => report,
+        Err(error) => {
+            return CanisterCacheBatchReport {
+                successful_indexes: Vec::new(),
+                failures: vec![format!("Cargo Wasm batch contract failed: {error}")],
+            };
+        }
+    };
 
-    for (index, outcome) in report.outcomes() {
-        let context = entries
-            .get(index)
-            .map_or("maintained canister batch", |entry| entry.context);
-        trace_wasm_build(context, outcome);
-        report_shared_target_maintenance_failure(context, outcome);
+    for outcome in report.outcomes() {
+        trace_wasm_build(outcome.label(), outcome.outcome());
+        report_shared_target_maintenance_failure(outcome.label(), outcome.outcome());
     }
     eprintln!("maintained canister cargo_wasm_batch={report}");
 
-    let successful_indexes = report.outcomes().map(|(index, _)| index).collect();
+    let successful_indexes = report
+        .outcomes()
+        .map(WasmBuildBatchOutcomeEntry::index)
+        .collect();
     let failures = report
         .failures()
         .map(|failure| {
             let index = failure.index();
-            let context = entries
-                .get(index)
-                .map_or("maintained canister batch", |entry| entry.context);
             format!(
-                "Cargo [{index}] {context} after {:?}: {}",
+                "Cargo [{index}] {} failed during {:?} after {:?}; timings={:?}: {}",
+                failure.label(),
+                failure.phase(),
                 failure.entry_elapsed(),
+                failure.timings(),
                 failure.error(),
             )
         })
@@ -320,17 +332,11 @@ fn report_wasm_build_progress(context: &str, event: WasmBuildProgressEvent) {
     );
 }
 
-fn report_wasm_build_batch_progress(
-    entries: &[CargoWasmBatchEntry<'_>],
-    event: WasmBuildBatchProgressEvent,
-) {
-    let WasmBuildBatchProgressEvent::BuildProgress { index, event } = event else {
+fn report_wasm_build_batch_progress(event: WasmBuildBatchProgressEvent) {
+    let WasmBuildBatchProgressEvent::BuildProgress { label, event, .. } = event else {
         return;
     };
-    let context = entries
-        .get(index)
-        .map_or("maintained canister batch", |entry| entry.context);
-    report_wasm_build_progress(context, event);
+    report_wasm_build_progress(&label, event);
 }
 
 fn report_shared_target_maintenance_failure(context: &str, outcome: &WasmBuildOutcome) {

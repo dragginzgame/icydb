@@ -10,9 +10,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Local deployment environments now build only maintained audit and demo
   canisters, with static validation rejecting stale inventory before deploy.
 - Canister validation now reports every independent Cargo and post-link failure
-  in one run with stable post-link labels and per-phase failure timings, emits
-  aggregate cache metrics, traces local ICP cache reuse, and avoids unnecessary
-  cache invalidation and eviction through ic-testkit 0.8.5.
+  in one run with stable Cargo and post-link labels and partial phase timings,
+  emits aggregate cache metrics, traces local ICP cache reuse, and avoids
+  host-only workspace invalidation through ic-testkit 0.8.7.
+
+## [0.231.x] 🔐 - 2026-08-18 - Explicit Nullable Unique-Index Contracts
+
+Detailed notes: [docs/changelog/0.231.md](docs/changelog/0.231.md)
+
+- `0.231.0` hard-cuts ambiguous nullable unique indexes, exposes partial
+  constraint predicates, and admits filtered-index plans only after complete
+  non-null proof; noncompliant pre-1.0 state requires recreation, making this
+  potentially breaking.
 
 ## [0.230.x] 🧮 - 2026-08-17 - Durable Exact Cardinality Generations
 

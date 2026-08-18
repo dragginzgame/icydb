@@ -52,6 +52,20 @@ const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
 const IDENTITY_MAX_BATCH_ROWS: u32 = (4 * 1024) - 1;
 const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
 
+#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[query]
+fn measure_sql_query_attribution(
+    sql: String,
+) -> Result<icydb::db::SqlQueryExecutionAttribution, icydb::Error> {
+    icydb::__macro::with_query_metrics_context(|| {
+        icydb::db::with_request_execution(|| {
+            let (_, attribution) =
+                icydb::db!()?.execute_trusted_sql_query_with_attribution(&sql)?;
+            Ok(attribution)
+        })
+    })
+}
+
 #[cfg(feature = "metrics-context-audit")]
 #[query]
 fn audit_query_metrics_context_trap() -> Result<(), icydb::Error> {

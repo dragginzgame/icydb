@@ -13,8 +13,9 @@ use crate::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
             ConstraintOrigin, ConstraintValidationJob, FieldId, FieldInsertGeneration,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaHistoricalFill,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+            SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
             field_type_from_persisted_kind, identity_kind_maximum, output_value_from_runtime,
             render_accepted_check_expr_sql,
@@ -501,6 +502,7 @@ pub struct EntityConstraintDescription {
     pub(crate) relation_id: Option<u32>,
     pub(crate) fields: Vec<String>,
     pub(crate) index: Option<String>,
+    pub(crate) predicate_sql: Option<String>,
     pub(crate) relation: Option<String>,
     pub(crate) target_entity: Option<String>,
     pub(crate) action: Option<String>,
@@ -617,6 +619,13 @@ impl EntityConstraintDescription {
     #[must_use]
     pub fn index(&self) -> Option<&str> {
         self.index.as_deref()
+    }
+
+    /// Borrow the accepted backing-index predicate, when the unique
+    /// constraint describes partial uniqueness.
+    #[must_use]
+    pub fn predicate_sql(&self) -> Option<&str> {
+        self.predicate_sql.as_deref()
     }
 
     /// Borrow the current accepted relation display name, when applicable.
@@ -1188,11 +1197,7 @@ fn describe_accepted_constraint(
                 .iter()
                 .find(|index| index.schema_id() == *index_id)
                 .ok_or_else(InternalError::store_invariant)?;
-            description.kind = "unique".to_string();
-            description.index_id = Some(index_id.get());
-            description.fields = describe_persisted_index_fields(index.key());
-            description.index = Some(index.name().to_string());
-            description.semantics = "unique_index_v1".to_string();
+            apply_unique_index_description(&mut description, index);
         }
         AcceptedConstraintKind::Relation { relation_id } => {
             let relation = snapshot
@@ -1292,11 +1297,7 @@ fn describe_constraint_activation(
                 .iter()
                 .find(|index| index.schema_id() == *index_id)
                 .ok_or_else(InternalError::store_invariant)?;
-            description.kind = "unique".to_string();
-            description.index_id = Some(index_id.get());
-            description.fields = describe_persisted_index_fields(index.key());
-            description.index = Some(index.name().to_string());
-            description.semantics = "unique_index_v1".to_string();
+            apply_unique_index_description(&mut description, index);
         }
         ConstraintActivationKind::Relation { relation_id } => {
             let relation = snapshot
@@ -1374,12 +1375,30 @@ fn accepted_constraint_description(
         relation_id: None,
         fields: Vec::new(),
         index: None,
+        predicate_sql: None,
         relation: None,
         target_entity: None,
         action: None,
         semantics: String::new(),
         check_sql: None,
     }
+}
+
+fn apply_unique_index_description(
+    description: &mut EntityConstraintDescription,
+    index: &PersistedIndexSnapshot,
+) {
+    description.kind = "unique".to_string();
+    description.index_id = Some(index.schema_id().get());
+    description.fields = describe_persisted_index_fields(index.key());
+    description.index = Some(index.name().to_string());
+    description.predicate_sql = index.predicate_sql().map(str::to_string);
+    description.semantics = if index.predicate_sql().is_some() {
+        "partial_unique_index_v1"
+    } else {
+        "unique_index_v1"
+    }
+    .to_string();
 }
 
 const fn accepted_constraint_origin_label(origin: ConstraintOrigin) -> &'static str {
@@ -2264,15 +2283,17 @@ mod tests {
         EntityIdentityDescription, EntityRelationCardinality, EntityRelationDescription,
         MAX_SCHEMA_VALUE_RENDER_CHARS, SqlColumnDefault, SqlColumnExtra, SqlColumnKey,
         SqlColumnSummary, SqlDescribeOutput, SqlShowRelationsOutput, classify_compact_column_key,
-        compact_column_capacity_from_counts, compact_column_extras,
+        compact_column_capacity_from_counts, compact_column_extras, describe_accepted_constraint,
         describe_compact_columns_with_persisted_schema, nested_path_nullable,
     };
     use crate::db::schema::{
-        AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
-        AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, CompositeFieldId, CompositeTypeId,
-        FieldId, FieldStorageDecode, LeafCodec, MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot,
-        PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
-        SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedFieldKind,
+        AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+        CompositeFieldId, CompositeTypeId, FieldId, FieldStorageDecode, LeafCodec,
+        MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+        PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
+        SchemaRowLayout, SchemaVersion,
         composite_catalog::{
             AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
             decode_accepted_composite_catalog, encode_accepted_composite_catalog,
@@ -2286,6 +2307,83 @@ mod tests {
     const REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS: usize = icydb_schema::MAX_FRAGMENT_FIELDS;
     const REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES: usize = 95;
     const IC_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
+
+    #[test]
+    fn filtered_unique_constraint_description_exposes_partial_backing_contract() {
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "tests::Account".to_string(),
+            "Account".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ]),
+            vec![
+                PersistedFieldSnapshot::new_initial(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    AcceptedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaInsertDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_initial(
+                    FieldId::new(2),
+                    "email".to_string(),
+                    SchemaFieldSlot::new(1),
+                    AcceptedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    true,
+                    SchemaInsertDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+                1,
+                "account_email".to_string(),
+                "tests::Account::account_email".to_string(),
+                true,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["email".to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    true,
+                )]),
+                Some("email IS NOT NULL".to_string()),
+            )],
+        );
+        let catalog = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+        )
+        .expect("fixture constraints should build");
+        let snapshot = snapshot.with_constraint_catalog(catalog);
+        let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let constraint = snapshot
+            .constraints()
+            .iter()
+            .find(|constraint| constraint.name() == "account_email")
+            .expect("unique constraint should exist");
+
+        let description = describe_accepted_constraint(&snapshot, &value_catalog, constraint)
+            .expect("accepted unique constraint should describe");
+        assert_eq!(description.index_id(), Some(1));
+        assert_eq!(description.index(), Some("account_email"));
+        assert_eq!(description.predicate_sql(), Some("email IS NOT NULL"));
+        assert_eq!(description.semantics(), "partial_unique_index_v1");
+    }
 
     #[test]
     fn identity_description_reports_exact_remaining_capacity_and_exhaustion() {

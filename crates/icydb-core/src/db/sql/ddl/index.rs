@@ -11,9 +11,9 @@ use crate::db::{
         SchemaDdlSecondaryIndexAdditionCandidateError, SchemaDdlSecondaryIndexExpressionIntent,
         SchemaDdlSecondaryIndexExpressionOpIntent, SchemaDdlSecondaryIndexFieldPathIntent,
         SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent, SchemaInfo,
-        build_sql_ddl_secondary_index_candidate,
+        SchemaSnapshotAcceptanceError, build_sql_ddl_secondary_index_candidate,
         resolve_sql_ddl_secondary_index_addition_candidate,
-        resolve_sql_ddl_secondary_index_drop_candidate,
+        resolve_sql_ddl_secondary_index_drop_candidate, validate_nullable_unique_index_contract,
     },
     sql::{
         identifier::identifiers_tail_match,
@@ -230,6 +230,19 @@ pub(super) fn bind_create_index_statement(
             });
         }
     };
+    validate_nullable_unique_index_contract(
+        accepted_before.persisted_snapshot().row_layout(),
+        accepted_before.persisted_snapshot().fields(),
+        &candidate_index,
+    )
+    .map_err(|error| match error {
+        SchemaSnapshotAcceptanceError::NullableUnique(error) => {
+            SqlDdlBindError::NullableUniqueIndexContract(error)
+        }
+        SchemaSnapshotAcceptanceError::Structural | SchemaSnapshotAcceptanceError::Predicate => {
+            SqlDdlBindError::InvalidFilteredIndexPredicate
+        }
+    })?;
 
     Ok(BoundSqlDdlRequest {
         schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
@@ -574,5 +587,114 @@ fn ddl_key_item_text(key_item: &BoundSqlDdlCreateIndexKey) -> String {
     match key_item {
         BoundSqlDdlCreateIndexKey::FieldPath(field_path) => field_path.accepted_path().join("."),
         BoundSqlDdlCreateIndexKey::Expression(expression) => expression.canonical_sql().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        schema::{
+            AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+            AcceptedValueCatalogHandle, FieldId, FieldStorageDecode, LeafCodec,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+            empty_accepted_enum_catalog_for_tests,
+        },
+        sql::parser::{SqlDdlStatement, SqlStatement, parse_sql},
+    };
+
+    fn nullable_email_schema() -> (AcceptedSchemaSnapshot, SchemaInfo) {
+        let accepted = AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::Account".to_string(),
+            "Account".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ]),
+            vec![
+                PersistedFieldSnapshot::new_initial(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    AcceptedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaInsertDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_initial(
+                    FieldId::new(2),
+                    "email".to_string(),
+                    SchemaFieldSlot::new(1),
+                    AcceptedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    true,
+                    SchemaInsertDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+        ))
+        .expect("fixture accepted schema should validate");
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::new(1),
+        );
+        let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog, true);
+        (accepted, schema)
+    }
+
+    fn create_index_statement(sql: &str) -> SqlCreateIndexStatement {
+        let SqlStatement::Ddl(SqlDdlStatement::CreateIndex(statement)) =
+            parse_sql(sql).expect("fixture SQL should parse")
+        else {
+            panic!("fixture SQL should be CREATE INDEX");
+        };
+        statement
+    }
+
+    #[test]
+    fn sql_unique_index_binding_projects_shared_nullable_contract() {
+        let (accepted, schema) = nullable_email_schema();
+        let invalid = create_index_statement(
+            "CREATE UNIQUE INDEX account_email ON Account (email) WHERE id IS NOT NULL",
+        );
+        let error = bind_create_index_statement(
+            &invalid,
+            &accepted,
+            &schema,
+            "entities::Account::account_email",
+        )
+        .expect_err("unmatched nullable guard must reject during binding");
+        assert!(matches!(
+            error,
+            SqlDdlBindError::NullableUniqueIndexContract(
+                crate::db::schema::NullableUniqueIndexContractError::MissingGuards {
+                    sources,
+                    ..
+                }
+            ) if sources == vec![vec!["email".to_string()]]
+        ));
+
+        let valid = create_index_statement(
+            "CREATE UNIQUE INDEX account_email ON Account (email) WHERE email IS NOT NULL",
+        );
+        let bound = bind_create_index_statement(
+            &valid,
+            &accepted,
+            &schema,
+            "entities::Account::account_email",
+        )
+        .expect("exact nullable guard should bind");
+        assert!(matches!(
+            bound.statement(),
+            BoundSqlDdlStatement::CreateIndex(create)
+                if create.candidate_index().predicate_sql() == Some("email IS NOT NULL")
+        ));
     }
 }

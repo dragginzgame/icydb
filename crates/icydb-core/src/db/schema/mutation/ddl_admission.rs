@@ -6,7 +6,8 @@ use super::{
     SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
 };
 use crate::db::schema::{
-    AcceptedConstraintCatalogError, AcceptedSchemaSnapshot, SchemaVersion,
+    AcceptedConstraintCatalogError, AcceptedSchemaSnapshot, SchemaSnapshotAcceptanceError,
+    SchemaVersion,
     transition::{
         SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
         SchemaAdmissionRejectionReason, schema_admission_rejection,
@@ -219,12 +220,12 @@ impl SchemaDdlAcceptedSnapshotDerivation {
         accepted_before: &AcceptedSchemaSnapshot,
         schema_version: SchemaVersion,
     ) -> Result<Self, SchemaDdlMutationAdmissionError> {
-        let accepted_after = AcceptedSchemaSnapshot::try_new(
+        let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(
             self.accepted_after
                 .persisted_snapshot()
                 .clone_with_version(schema_version),
         )
-        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+        .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
         let comparison = SchemaAdmissionIdentityComparison::from_snapshots(
             accepted_before.persisted_snapshot(),
             accepted_after.persisted_snapshot(),
@@ -256,6 +257,7 @@ impl SchemaDdlAcceptedSnapshotDerivation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlMutationAdmissionError {
     AcceptedIndex(AcceptedSchemaMutationError),
+    AcceptedAfter(SchemaSnapshotAcceptanceError),
     AcceptedAfterRejected,
     ConstraintCatalog(AcceptedConstraintCatalogError),
     RowLayoutVersionExhausted,
@@ -267,7 +269,7 @@ impl SchemaDdlMutationAdmissionError {
     pub(in crate::db) const fn schema_ddl_admission_error(&self) -> SchemaDdlAdmissionError {
         match self {
             Self::AcceptedIndex(_) => SchemaDdlAdmissionError::UnsupportedTransitionClass,
-            Self::AcceptedAfterRejected | Self::ConstraintCatalog(_) => {
+            Self::AcceptedAfter(_) | Self::AcceptedAfterRejected | Self::ConstraintCatalog(_) => {
                 SchemaDdlAdmissionError::ValidationFailed
             }
             Self::RowLayoutVersionExhausted => SchemaDdlAdmissionError::RowLayoutVersionExhausted,

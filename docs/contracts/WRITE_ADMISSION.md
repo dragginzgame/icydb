@@ -64,6 +64,15 @@ complete accepted record, tuple, or newtype definition. Record member names,
 tuple arity, nested kinds, and nested nullability are admission facts. Generated
 Rust codecs may confirm that contract but may not reconstruct it at runtime.
 
+For unique secondary indexes, accepted schema also owns the complete partial
+membership contract. Every top-level nullable key source that can omit a
+physical component must be covered by at least one exact matching `IS NOT
+NULL` conjunct in the accepted index predicate. Duplicate guards are ignored;
+ordinary comparisons or coincidental null rejection are not proof. Nullable
+nested ancestors and omit-capable nested terminals reject until a maintained
+nested predicate binder can prove the same physical/predicate equivalence.
+Non-unique nullable index omission remains unchanged.
+
 Future insertion policy is derived exhaustively from accepted nullability,
 database-default metadata, and database-owned write policy. Historical fill is
 derived once when a physical slot is introduced and does not follow later
@@ -143,6 +152,16 @@ reuse it on every retry or resume. A timestamp earlier than a retained
 
 Schema mutation remains catalog-native. SQL DDL is a frontend, not the source
 of mutation semantics.
+
+Initial generated publication, reconciliation, SQL DDL, candidate creation and
+promotion, nullability and path changes, rename, and current snapshot reopen
+all consume the same accepted-schema validator for nullable unique indexes.
+Field nullability changes update the matching top-level field-path and
+expression-source metadata before final-candidate validation. Rejected
+candidates publish no schema, constraint, physical-generation, or marker
+state. A current pre-1.0 snapshot carrying implicit nullable uniqueness is an
+incompatible current-form installation and requires reinstall or recreation;
+there is no compatibility reader, repair, or automatic predicate injection.
 
 Current additive fields use a stamped row-layout version and a separately
 frozen historical fill rather than a general physical backfill executor.

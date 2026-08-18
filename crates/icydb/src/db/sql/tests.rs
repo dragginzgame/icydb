@@ -31,6 +31,9 @@ use serde::Deserialize;
 const PRE_0_224_VERBOSE_DOSSIER_CANDID_BYTES: usize = 2_063;
 const PRE_0_224_VERBOSE_DOSSIER_CANDID_SHA256: &str =
     "8456e5335bc0456b7d10b2ba8b344c8d8bd09326cba18ab0e4a881dca2f890c8";
+const CURRENT_VERBOSE_DOSSIER_CANDID_BYTES: usize = 2_074;
+const CURRENT_VERBOSE_DOSSIER_CANDID_SHA256: &str =
+    "7e6bca5053e8cba781c2cc49bd7a3d8d7e0c51602906fa89f146b2652459674d";
 const PRE_0_224_RELATION_CONTROL_CANDID_BYTES: usize = 242;
 const PRE_0_224_RELATION_CONTROL_CANDID_SHA256: &str =
     "4a25beaeb6f7fb4f0665e713ecefeb06dea781fb448da21b5c610ae33341b4ea";
@@ -527,14 +530,19 @@ fn pre_0_224_verbose_dossier_golden() {
         actual, expected,
         "the complete typed dossier must remain exact"
     );
+    assert_eq!(expected_bytes.len(), PRE_0_224_VERBOSE_DOSSIER_CANDID_BYTES);
     assert_eq!(
-        actual_bytes, expected_bytes,
-        "Candid encoding must remain canonical"
+        sha256_hex(&expected_bytes),
+        PRE_0_224_VERBOSE_DOSSIER_CANDID_SHA256
     );
-    assert_eq!(actual_bytes.len(), PRE_0_224_VERBOSE_DOSSIER_CANDID_BYTES);
+    assert_ne!(
+        actual_bytes, expected_bytes,
+        "the maintained dossier intentionally adds optional predicate metadata"
+    );
+    assert_eq!(actual_bytes.len(), CURRENT_VERBOSE_DOSSIER_CANDID_BYTES);
     assert_eq!(
         sha256_hex(&actual_bytes),
-        PRE_0_224_VERBOSE_DOSSIER_CANDID_SHA256
+        CURRENT_VERBOSE_DOSSIER_CANDID_SHA256
     );
     assert_eq!(
         relation_bytes.len(),

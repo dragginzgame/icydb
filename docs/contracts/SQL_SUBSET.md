@@ -215,6 +215,12 @@ and their storage modes. `SHOW MEMORY` lists stable-memory tags, memory IDs,
 and their owning stores. The default shell rendering stays compact; `VERBOSE`
 exposes full entity and store paths for debugging.
 
+`SHOW CONSTRAINTS` identifies the backing index ID and accepted index name for
+every unique constraint. It also renders the accepted index predicate. An
+unfiltered unique constraint reports `unique_index_v1`; a filtered unique
+constraint reports `partial_unique_index_v1`, so partial uniqueness is never
+presented as an unconditional table constraint.
+
 Generated `icydb_query` gates `EXPLAIN`, `DESCRIBE`, and `SHOW` by
 the visible source declaration. `icydb_sql_query(introspection = true)`
 uses the `icydb/sql` Cargo capability and admits the frozen introspection
@@ -364,6 +370,28 @@ pending SQL-owned unique activation or removes an already accepted SQL-owned
 index. `CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog or a
 live candidate already has the exact requested index contract. Conflicting
 existing definitions still reject.
+
+A unique index whose accepted key can omit a top-level nullable source must
+carry an explicit matching `field IS NOT NULL` conjunct for every such source.
+Duplicate matching conjuncts are ignored, and additional admitted conjuncts
+are allowed. `OR`, `NOT`, comparisons, function inference, and unrelated
+guards do not substitute for the exact conjunct. Omit-capable nested unique
+sources reject because the maintained predicate binder is top-level only.
+Non-unique nullable index membership is unchanged. The schema-owned accepted
+contract validates SQL candidates, generated candidates, active and pending
+accepted indexes, nullability changes, promotion, and reopen; SQL does not own
+a second interpretation of this rule.
+
+The existing filtered-index implication owner may select such an accepted
+index only when the complete query predicate proves every accepted filter
+conjunct. An exact matching `field IS NOT NULL`, or a supported strict equality
+or ordered comparison of that field with a bound non-null value, proves its
+non-null guard. Every composite guard and every additional filter conjunct
+must be proved. Null or unknown values and unsupported `OR`, `NOT`, cross-field,
+or expression-to-source reasoning stay conservative, so unavailable proof
+keeps the maintained full-scan route rather than treating omitted rows as
+absent.
+
 `ASC` is accepted as IcyDB's default deterministic physical key order. `DESC`
 is not yet supported for SQL DDL indexes and fails with explicit
 unsupported-feature diagnostics.
@@ -395,7 +423,9 @@ schema changes for DDL-owned fields. Field ID, row slot, default/nullability,
 decode contracts, and direct field-path index identity remain stable; accepted
 field names, direct field-path index labels, and expression-index
 source/canonical labels are updated together. Filtered-index predicate SQL
-labels relabel through the reduced predicate AST. Generated fields reject
+labels relabel through the reduced predicate AST and rebind against the full
+final accepted schema. Rewrite or rebind failure rejects before publication;
+stale predicate text is never retained as a fallback. Generated fields reject
 before publication.
 
 `ALTER TABLE ... DROP COLUMN ...` is admitted only when the entity is exactly

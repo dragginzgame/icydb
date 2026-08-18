@@ -1,5 +1,5 @@
 use super::*;
-use crate::db::schema::ScalarCodec;
+use crate::db::schema::{NullableUniqueIndexContractError, ScalarCodec};
 
 // Build a small accepted schema snapshot with deliberately non-generated
 // slot values so accessor tests prove they read persisted schema facts.
@@ -82,6 +82,154 @@ fn identity_schema_fixture(
             leaf_codec,
         )],
     )
+}
+
+fn nullable_unique_schema_fixture(
+    unique: bool,
+    nullable_fields: &[&str],
+    key_fields: &[&str],
+    predicate_sql: Option<&str>,
+) -> PersistedSchemaSnapshot {
+    let mut fields = vec![PersistedFieldSnapshot::new_initial(
+        FieldId::new(1),
+        "id".to_string(),
+        SchemaFieldSlot::new(0),
+        AcceptedFieldKind::Ulid,
+        Vec::new(),
+        false,
+        SchemaInsertDefault::None,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Ulid),
+    )];
+    for (offset, name) in ["email", "tenant"].into_iter().enumerate() {
+        let id = FieldId::new(u32::try_from(offset + 2).expect("fixture field id should fit"));
+        let slot =
+            SchemaFieldSlot::new(u16::try_from(offset + 1).expect("fixture field slot should fit"));
+        fields.push(PersistedFieldSnapshot::new_initial(
+            id,
+            name.to_string(),
+            slot,
+            AcceptedFieldKind::Text { max_len: None },
+            Vec::new(),
+            nullable_fields.contains(&name),
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        ));
+    }
+    let row_layout = SchemaRowLayout::initial(
+        fields
+            .iter()
+            .map(|field| (field.id(), field.slot()))
+            .collect(),
+    );
+    let key = key_fields
+        .iter()
+        .map(|name| {
+            let field = fields
+                .iter()
+                .find(|field| field.name() == *name)
+                .expect("fixture key field should exist");
+            PersistedIndexFieldPathSnapshot::new(
+                field.id(),
+                field.slot(),
+                vec![field.name().to_string()],
+                field.kind().clone(),
+                field.nullable(),
+            )
+        })
+        .collect();
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+        SchemaVersion::initial(),
+        "schema::snapshot::tests::NullableUnique".to_string(),
+        "NullableUnique".to_string(),
+        FieldId::new(1),
+        row_layout,
+        fields,
+        vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+            1,
+            "idx_nullable_unique".to_string(),
+            "nullable_unique::value".to_string(),
+            unique,
+            PersistedIndexKeySnapshot::FieldPath(key),
+            predicate_sql.map(str::to_string),
+        )],
+    );
+    let catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        snapshot.relations(),
+    )
+    .expect("fixture constraint catalog should build");
+    snapshot.with_constraint_catalog(catalog)
+}
+
+fn nested_nullable_unique_schema_fixture(
+    root_nullable: bool,
+    terminal_nullable: bool,
+    predicate_sql: Option<&str>,
+) -> PersistedSchemaSnapshot {
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+        SchemaVersion::initial(),
+        "schema::snapshot::tests::NestedNullableUnique".to_string(),
+        "NestedNullableUnique".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
+        vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "profile".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Blob { max_len: None },
+                vec![PersistedNestedLeafSnapshot::new(
+                    vec!["email".to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    terminal_nullable,
+                )],
+                root_nullable,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Blob),
+            ),
+        ],
+        vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+            1,
+            "idx_nested_nullable_unique".to_string(),
+            "nested_nullable_unique::profile_email".to_string(),
+            true,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["profile".to_string(), "email".to_string()],
+                AcceptedFieldKind::Text { max_len: None },
+                terminal_nullable,
+            )]),
+            predicate_sql.map(str::to_string),
+        )],
+    );
+    let catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        snapshot.relations(),
+    )
+    .expect("fixture constraint catalog should build");
+    snapshot.with_constraint_catalog(catalog)
 }
 
 #[test]
@@ -265,6 +413,171 @@ fn accepted_schema_snapshot_try_new_rejects_zero_schema_version() {
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should hard-cut non-positive schema versions"
     );
+}
+
+#[test]
+fn nullable_unique_acceptance_requires_every_exact_top_level_guard() {
+    AcceptedSchemaSnapshot::try_new_with_acceptance(nullable_unique_schema_fixture(
+        false,
+        &["email"],
+        &["email"],
+        None,
+    ))
+    .expect("non-unique nullable membership remains unchanged");
+
+    AcceptedSchemaSnapshot::try_new_with_acceptance(nullable_unique_schema_fixture(
+        true,
+        &[],
+        &["email"],
+        None,
+    ))
+    .expect("non-null unique source should not require a predicate");
+
+    let missing = AcceptedSchemaSnapshot::try_new_with_acceptance(nullable_unique_schema_fixture(
+        true,
+        &["email"],
+        &["email"],
+        None,
+    ))
+    .expect_err("nullable unique source without a guard must reject");
+    assert!(matches!(
+        missing,
+        SchemaSnapshotAcceptanceError::NullableUnique(
+            NullableUniqueIndexContractError::MissingGuards { sources, .. }
+        ) if sources == vec![vec!["email".to_string()]]
+    ));
+
+    for predicate in [
+        "email IS NOT NULL",
+        "email IS NOT NULL AND email IS NOT NULL",
+        "email IS NOT NULL AND tenant = 'active'",
+    ] {
+        AcceptedSchemaSnapshot::try_new_with_acceptance(nullable_unique_schema_fixture(
+            true,
+            &["email"],
+            &["email"],
+            Some(predicate),
+        ))
+        .expect("an exact matching non-null conjunct should admit");
+    }
+
+    for predicate in [
+        "email IS NULL",
+        "NOT email IS NULL",
+        "email = 'present'",
+        "email IS NOT NULL OR tenant IS NOT NULL",
+    ] {
+        let error = AcceptedSchemaSnapshot::try_new_with_acceptance(
+            nullable_unique_schema_fixture(true, &["email"], &["email"], Some(predicate)),
+        )
+        .expect_err("non-exact nullable guard must reject");
+        assert!(matches!(
+            error,
+            SchemaSnapshotAcceptanceError::NullableUnique(
+                NullableUniqueIndexContractError::MissingGuards { .. }
+            )
+        ));
+    }
+}
+
+#[test]
+fn nullable_unique_acceptance_is_composite_complete_and_bind_fail_closed() {
+    let error = AcceptedSchemaSnapshot::try_new_with_acceptance(nullable_unique_schema_fixture(
+        true,
+        &["email", "tenant"],
+        &["email", "tenant"],
+        Some("email IS NOT NULL"),
+    ))
+    .expect_err("every nullable composite source must be guarded");
+    assert!(matches!(
+        error,
+        SchemaSnapshotAcceptanceError::NullableUnique(
+            NullableUniqueIndexContractError::MissingGuards { sources, .. }
+        ) if sources == vec![vec!["tenant".to_string()]]
+    ));
+
+    AcceptedSchemaSnapshot::try_new_with_acceptance(nullable_unique_schema_fixture(
+        true,
+        &["email", "tenant"],
+        &["email", "tenant"],
+        Some("tenant IS NOT NULL AND email IS NOT NULL"),
+    ))
+    .expect("guard order should not alter composite coverage");
+
+    for predicate in ["missing IS NOT NULL", "email IS NOT"] {
+        let error = AcceptedSchemaSnapshot::try_new_with_acceptance(
+            nullable_unique_schema_fixture(true, &["email"], &["email"], Some(predicate)),
+        )
+        .expect_err("malformed or unbound predicates must fail closed");
+        assert_eq!(error, SchemaSnapshotAcceptanceError::Predicate);
+    }
+}
+
+#[test]
+fn nullable_unique_acceptance_rejects_unguardable_nested_omission() {
+    let terminal = AcceptedSchemaSnapshot::try_new_with_acceptance(
+        nested_nullable_unique_schema_fixture(false, true, Some("profile.email IS NOT NULL")),
+    )
+    .expect_err("dotted predicate text cannot bind as a nested guard");
+    assert_eq!(terminal, SchemaSnapshotAcceptanceError::Predicate);
+
+    let ancestor = AcceptedSchemaSnapshot::try_new_with_acceptance(
+        nested_nullable_unique_schema_fixture(true, false, Some("profile IS NOT NULL")),
+    )
+    .expect_err("nullable nested ancestors are not physical omission proofs");
+    assert!(matches!(
+        ancestor,
+        SchemaSnapshotAcceptanceError::NullableUnique(
+            NullableUniqueIndexContractError::UnsupportedNullableAncestor { source, .. }
+        ) if source == vec!["profile".to_string(), "email".to_string()]
+    ));
+}
+
+#[test]
+fn nullable_unique_acceptance_applies_to_expression_sources() {
+    let base = nullable_unique_schema_fixture(true, &["email"], &["email"], None);
+    let source = PersistedIndexFieldPathSnapshot::new(
+        FieldId::new(2),
+        SchemaFieldSlot::new(1),
+        vec!["email".to_string()],
+        AcceptedFieldKind::Text { max_len: None },
+        true,
+    );
+    let index = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "idx_lower_email".to_string(),
+        "nullable_unique::lower_email".to_string(),
+        true,
+        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+            Box::new(PersistedIndexExpressionSnapshot::new(
+                PersistedIndexExpressionOp::Lower,
+                source,
+                AcceptedFieldKind::Text { max_len: None },
+                AcceptedFieldKind::Text { max_len: None },
+                "expr:v1:LOWER(email)".to_string(),
+            )),
+        )]),
+        Some("email IS NOT NULL".to_string()),
+    );
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+        base.version(),
+        base.entity_path().to_string(),
+        base.entity_name().to_string(),
+        base.primary_key_field_ids().to_vec(),
+        base.row_layout().clone(),
+        base.fields().to_vec(),
+        vec![index],
+    );
+    let catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        snapshot.relations(),
+    )
+    .expect("fixture constraint catalog should build");
+
+    AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.with_constraint_catalog(catalog))
+        .expect("expression source should consume the same exact source guard");
 }
 
 #[test]

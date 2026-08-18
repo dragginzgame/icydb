@@ -22,9 +22,10 @@ use crate::{
             AcceptedSourceBindingCatalog, AcceptedTypedAdapterNames, MAX_ACCEPTED_RECURSIVE_DEPTH,
             MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedSchemaSnapshot,
-            classify_accepted_field_kind, decode_accepted_source_bindings,
-            decode_persisted_schema_snapshot, encode_accepted_source_bindings,
-            encode_persisted_schema_snapshot, validate_accepted_targeted_rules,
+            SchemaSnapshotAcceptanceError, classify_accepted_field_kind,
+            decode_accepted_source_bindings, decode_persisted_schema_snapshot,
+            encode_accepted_source_bindings, encode_persisted_schema_snapshot,
+            validate_accepted_targeted_rules, validate_schema_snapshot_acceptance,
             wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
@@ -237,6 +238,8 @@ impl AcceptedSchemaRevisionBundle {
             return Err(InternalError::store_invariant());
         }
         for snapshot in self.entity_snapshots.values() {
+            validate_schema_snapshot_acceptance(snapshot)
+                .map_err(generated_snapshot_acceptance_error)?;
             if encode_persisted_schema_snapshot(snapshot)?.len()
                 > MAX_SCHEMA_SNAPSHOT_BYTES as usize
             {
@@ -348,6 +351,14 @@ impl AcceptedSchemaRevisionBundle {
             hash_len_prefixed(&mut hasher, &encode_persisted_schema_snapshot(snapshot)?)?;
         }
         Ok(AcceptedSchemaFingerprint::new(finalize_hash_sha256(hasher)))
+    }
+}
+
+fn generated_snapshot_acceptance_error(error: SchemaSnapshotAcceptanceError) -> InternalError {
+    match error {
+        SchemaSnapshotAcceptanceError::NullableUnique(_)
+        | SchemaSnapshotAcceptanceError::Predicate => InternalError::store_unsupported(),
+        SchemaSnapshotAcceptanceError::Structural => InternalError::store_invariant(),
     }
 }
 

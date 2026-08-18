@@ -1219,6 +1219,117 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
 }
 
 #[test]
+fn persisted_schema_snapshot_decode_hard_cuts_ambiguous_nullable_unique_state() {
+    let snapshot = nullable_unique_codec_fixture(None);
+    let encoded = encode_unchecked_schema_fixture(&snapshot);
+
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("well-formed implicit nullable uniqueness must hard-cut");
+    assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(error.origin(), ErrorOrigin::Serialize);
+
+    let encode_error = encode_persisted_schema_snapshot(&snapshot)
+        .expect_err("new code must not emit implicit nullable uniqueness");
+    assert_eq!(encode_error.class(), ErrorClass::InvariantViolation);
+    assert_eq!(encode_error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
+fn persisted_schema_snapshot_decode_hard_cuts_ambiguous_nullable_unique_candidate() {
+    let active = nullable_unique_codec_fixture(None);
+    let candidate = active.indexes()[0].clone().clone_with_schema_identity(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        9,
+    );
+    let base = PersistedSchemaSnapshot::new(
+        active.version(),
+        active.entity_path().to_string(),
+        active.entity_name().to_string(),
+        active.primary_key_field_ids().to_vec(),
+        active.row_layout().clone(),
+        active.fields().to_vec(),
+    );
+    let catalog = base
+        .constraint_catalog()
+        .clone()
+        .with_added_unique_activation(&candidate, AcceptedSchemaFingerprint::new([0xC7; 32]), 9)
+        .expect("raw candidate fixture should close structurally");
+    let snapshot = base
+        .with_constraint_catalog(catalog)
+        .with_constraint_candidates(vec![candidate], Vec::new());
+    let encoded = encode_unchecked_schema_fixture(&snapshot);
+
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("well-formed implicit nullable unique candidate must hard-cut");
+    assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(error.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
+fn persisted_schema_snapshot_decode_keeps_nullable_unique_predicate_corruption_distinct() {
+    let encoded =
+        encode_unchecked_schema_fixture(&nullable_unique_codec_fixture(Some("email IS NOT")));
+
+    let error = decode_persisted_schema_snapshot(&encoded)
+        .expect_err("malformed nullable-unique predicate must remain corruption");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchemaSnapshot {
+    PersistedSchemaSnapshot::new_with_indexes(
+        SchemaVersion::initial(),
+        "entities::NullableUnique".to_string(),
+        "NullableUnique".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
+        vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "email".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Text { max_len: None },
+                Vec::new(),
+                true,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Text),
+            ),
+        ],
+        vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+            1,
+            "idx_nullable_unique__email".to_string(),
+            "nullable_unique::email".to_string(),
+            true,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["email".to_string()],
+                AcceptedFieldKind::Text { max_len: None },
+                true,
+            )]),
+            predicate_sql.map(str::to_string),
+        )],
+    )
+}
+
+#[test]
 fn persisted_schema_snapshot_round_trips_relation_edges() {
     let relation_kind = AcceptedFieldKind::Relation {
         target_path: "entities::Owner".to_string(),

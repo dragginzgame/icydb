@@ -5,6 +5,7 @@
 
 mod constraint;
 mod index;
+mod nullable_unique;
 mod relation;
 
 use crate::db::schema::{
@@ -14,7 +15,79 @@ use crate::db::schema::{
 
 pub(in crate::db::schema) use constraint::schema_snapshot_constraint_integrity_detail;
 pub(in crate::db::schema) use index::schema_snapshot_index_integrity_detail;
+pub(in crate::db) use nullable_unique::NullableUniqueIndexContractError;
+pub(in crate::db) use nullable_unique::validate_nullable_unique_index_contract;
 pub(in crate::db::schema) use relation::schema_snapshot_relation_integrity_detail;
+
+/// The smallest acceptance taxonomy required beyond historical structure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaSnapshotAcceptanceError {
+    Structural,
+    Predicate,
+    NullableUnique(NullableUniqueIndexContractError),
+}
+
+/// Validate one complete persisted snapshot before it becomes authority.
+pub(in crate::db) fn validate_schema_snapshot_acceptance(
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+) -> Result<(), SchemaSnapshotAcceptanceError> {
+    let all_indexes = snapshot
+        .indexes()
+        .iter()
+        .chain(snapshot.candidate_indexes())
+        .cloned()
+        .collect::<Vec<_>>();
+    let all_relations = snapshot
+        .relations()
+        .iter()
+        .chain(snapshot.candidate_relations())
+        .cloned()
+        .collect::<Vec<_>>();
+    if schema_snapshot_integrity_detail(
+        "persisted schema snapshot",
+        snapshot.version(),
+        snapshot.primary_key_field_ids(),
+        snapshot.row_layout(),
+        snapshot.fields(),
+    )
+    .is_some()
+        || schema_snapshot_index_integrity_detail(
+            "persisted schema snapshot",
+            snapshot.row_layout(),
+            snapshot.fields(),
+            all_indexes.as_slice(),
+        )
+        .is_some()
+        || schema_snapshot_relation_integrity_detail(
+            "persisted schema snapshot",
+            snapshot.row_layout(),
+            snapshot.fields(),
+            all_relations.as_slice(),
+        )
+        .is_some()
+        || schema_snapshot_constraint_integrity_detail(
+            snapshot.primary_key_field_ids(),
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+            snapshot.candidate_indexes(),
+            snapshot.candidate_relations(),
+            snapshot.constraint_catalog(),
+        )
+        .is_some()
+    {
+        return Err(SchemaSnapshotAcceptanceError::Structural);
+    }
+
+    for index in snapshot
+        .indexes()
+        .iter()
+        .chain(snapshot.candidate_indexes())
+    {
+        validate_nullable_unique_index_contract(snapshot.row_layout(), snapshot.fields(), index)?;
+    }
+    Ok(())
+}
 
 // Build the first deterministic persisted-schema integrity diagnostic. Callers
 // decide whether the detail represents a typed caller invariant or raw payload

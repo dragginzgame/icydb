@@ -3425,6 +3425,65 @@ mod tests {
         )
     }
 
+    fn nullable_unique_proposal_fixture(
+        predicate: Option<SourceCheckExpr>,
+    ) -> (SchemaProposal, TargetStoreIdentity) {
+        let entity_source =
+            EntitySourceKey::try_new("Account").expect("test entity source should admit");
+        let id_source = FieldSourceKey::try_new("id").expect("test id source should admit");
+        let email_source =
+            FieldSourceKey::try_new("email").expect("test email source should admit");
+        let entity = EntityFragment::try_new(
+            name("Account"),
+            version_one(),
+            vec![
+                FieldFragment::new(
+                    name("id"),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+                FieldFragment::new(
+                    name("email"),
+                    FieldType::Scalar(ScalarType::Text { max_len: None }),
+                    true,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![id_source],
+            vec![
+                IndexFragment::try_new(
+                    name("account_email"),
+                    vec![IndexKeyFragment::Field(email_source)],
+                    true,
+                    predicate,
+                )
+                .expect("test index should admit"),
+            ],
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("test entity should admit");
+        let fragment =
+            SchemaFragment::try_new(vec![entity], Vec::new()).expect("test fragment should admit");
+        let store = TargetStoreIdentity::from_bytes([0x32; 32]);
+        let proposal = SchemaProposal::try_compose(
+            vec![SchemaCapability::SECONDARY_INDEXES],
+            TargetDatabaseIdentity::from_bytes([0x31; 32]),
+            SchemaSubmissionKey::try_new("nullable-unique")
+                .expect("test submission key should admit"),
+            ExpectedAcceptedHead::Empty,
+            vec![fragment],
+            vec![EntityStoreAssignment::new(entity_source, store)],
+            Vec::new(),
+            None,
+        )
+        .expect("test proposal should compose");
+        (proposal, store)
+    }
+
     fn scalar_proposal_fixture_with_names(
         expected_head: ExpectedAcceptedHead,
         submission_key: &str,
@@ -3565,6 +3624,48 @@ mod tests {
                 .constraint_binding_count_for_tests(entity_tag),
             1,
         );
+    }
+
+    #[test]
+    fn initial_generated_nullable_unique_index_uses_canonical_contract() {
+        let (implicit, store) = nullable_unique_proposal_fixture(None);
+        let error = lower_initial_schema_proposal(
+            &implicit,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect_err("generated implicit nullable uniqueness must reject");
+        assert_eq!(error.class(), crate::error::ErrorClass::Unsupported);
+        assert_eq!(error.origin(), crate::error::ErrorOrigin::Store);
+
+        let email_source =
+            FieldSourceKey::try_new("email").expect("test email source should admit");
+        let guard = SourceCheckExpr::try_new(vec![
+            SourceCheckInstruction::Field(email_source),
+            SourceCheckInstruction::IsNotNull,
+        ])
+        .expect("test guard should admit");
+        let (explicit, store) = nullable_unique_proposal_fixture(Some(guard));
+        let candidates = lower_initial_schema_proposal(
+            &explicit,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity: store,
+            }],
+        )
+        .expect("generated explicit nullable uniqueness should lower");
+        let index = candidates[0]
+            .bundle()
+            .entity_snapshots()
+            .values()
+            .next()
+            .expect("generated entity should exist")
+            .indexes()
+            .first()
+            .expect("generated index should exist");
+        assert_eq!(index.predicate_sql(), Some("email IS NOT NULL"));
     }
 
     #[test]

@@ -238,9 +238,13 @@ pub(in crate::db) use info::{
     schema_index_info_from_accepted_index,
 };
 pub(in crate::db) use inspection_plan::{AcceptedIdentityInspection, AcceptedInspectionPlan};
-pub(in crate::db::schema) use integrity::{
-    schema_snapshot_constraint_integrity_detail, schema_snapshot_index_integrity_detail,
-    schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
+pub(in crate::db::schema) use integrity::schema_snapshot_integrity_detail;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use integrity::{
+    NullableUniqueIndexContractError, validate_nullable_unique_index_contract,
+};
+pub(in crate::db) use integrity::{
+    SchemaSnapshotAcceptanceError, validate_schema_snapshot_acceptance,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use live_schema_checkpoint::ensure_schema_migration_ready_for_ordinary_operations;

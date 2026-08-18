@@ -14,9 +14,8 @@ use crate::{
         ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId,
         ConstraintIdAllocator, FieldId, FieldInsertGeneration, FieldStorageDecode,
         FieldWriteManagement, LeafCodec, RelationId, RowLayoutVersion, SchemaFieldSlot,
-        SchemaIndexId, SchemaRowLayout, SchemaVersion, constraint::AcceptedConstraintCatalogError,
-        schema_snapshot_constraint_integrity_detail, schema_snapshot_index_integrity_detail,
-        schema_snapshot_integrity_detail, schema_snapshot_relation_integrity_detail,
+        SchemaIndexId, SchemaRowLayout, SchemaSnapshotAcceptanceError, SchemaVersion,
+        constraint::AcceptedConstraintCatalogError, validate_schema_snapshot_acceptance,
     },
     error::InternalError,
 };
@@ -44,10 +43,14 @@ impl AcceptedSchemaSnapshot {
     /// store and raw schema codec. Owner-local tests may use `new` to build
     /// deliberately inconsistent fixtures that exercise accessor authority.
     pub(in crate::db) fn try_new(snapshot: PersistedSchemaSnapshot) -> Result<Self, InternalError> {
-        if !snapshot.has_valid_integrity() {
-            return Err(InternalError::store_invariant());
-        }
+        Self::try_new_with_acceptance(snapshot).map_err(|_| InternalError::store_invariant())
+    }
 
+    /// Wrap one snapshot while preserving its canonical acceptance category.
+    pub(in crate::db) fn try_new_with_acceptance(
+        snapshot: PersistedSchemaSnapshot,
+    ) -> Result<Self, SchemaSnapshotAcceptanceError> {
+        validate_schema_snapshot_acceptance(&snapshot)?;
         Ok(Self { snapshot })
     }
 
@@ -186,50 +189,7 @@ impl PersistedSchemaSnapshot {
     /// wrapping and current-format codec ingress/egress.
     #[must_use]
     pub(in crate::db) fn has_valid_integrity(&self) -> bool {
-        let all_indexes = self
-            .indexes
-            .iter()
-            .chain(&self.candidate_indexes)
-            .cloned()
-            .collect::<Vec<_>>();
-        let all_relations = self
-            .relations
-            .iter()
-            .chain(&self.candidate_relations)
-            .cloned()
-            .collect::<Vec<_>>();
-        schema_snapshot_integrity_detail(
-            "persisted schema snapshot",
-            self.version(),
-            self.primary_key_field_ids(),
-            self.row_layout(),
-            self.fields(),
-        )
-        .is_none()
-            && schema_snapshot_index_integrity_detail(
-                "persisted schema snapshot",
-                self.row_layout(),
-                self.fields(),
-                all_indexes.as_slice(),
-            )
-            .is_none()
-            && schema_snapshot_relation_integrity_detail(
-                "persisted schema snapshot",
-                self.row_layout(),
-                self.fields(),
-                all_relations.as_slice(),
-            )
-            .is_none()
-            && schema_snapshot_constraint_integrity_detail(
-                self.primary_key_field_ids(),
-                self.fields(),
-                self.indexes(),
-                self.relations(),
-                self.candidate_indexes(),
-                self.candidate_relations(),
-                self.constraint_catalog(),
-            )
-            .is_none()
+        validate_schema_snapshot_acceptance(self).is_ok()
     }
 
     /// Build one persisted schema snapshot from already-validated pieces.
@@ -1129,12 +1089,44 @@ impl PersistedIndexSnapshot {
     /// Clone this accepted index with display metadata updated for a renamed
     /// accepted field. Physical index identity and key shape remain unchanged.
     #[cfg(any(test, feature = "sql", feature = "migration"))]
-    #[must_use]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
         old_name: &str,
         new_name: &str,
+    ) -> Option<Self> {
+        let predicate_sql = match self.predicate_sql.as_deref() {
+            Some(predicate_sql) => Some(relabel_sql_predicate_field_root(
+                predicate_sql,
+                old_name,
+                new_name,
+            )?),
+            None => None,
+        };
+        Some(Self {
+            schema_id: self.schema_id,
+            ordinal: self.ordinal,
+            physical_generation: self.physical_generation,
+            name: self.name.clone(),
+            store: self.store.clone(),
+            unique: self.unique,
+            origin: self.origin,
+            key: self
+                .key
+                .clone_with_renamed_field_path_root(field_id, new_name),
+            predicate_sql,
+        })
+    }
+
+    /// Clone this index after one accepted top-level source changes
+    /// nullability. Nested terminals retain their own leaf contract; a
+    /// top-level change becomes their ancestor contract at snapshot validation.
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
+    #[must_use]
+    pub(in crate::db) fn clone_with_top_level_field_nullability(
+        &self,
+        field_id: FieldId,
+        nullable: bool,
     ) -> Self {
         Self {
             schema_id: self.schema_id,
@@ -1146,11 +1138,8 @@ impl PersistedIndexSnapshot {
             origin: self.origin,
             key: self
                 .key
-                .clone_with_renamed_field_path_root(field_id, new_name),
-            predicate_sql: self.predicate_sql.as_deref().map(|predicate_sql| {
-                relabel_sql_predicate_field_root(predicate_sql, old_name, new_name)
-                    .unwrap_or_else(|| predicate_sql.to_string())
-            }),
+                .clone_with_top_level_field_nullability(field_id, nullable),
+            predicate_sql: self.predicate_sql.clone(),
         }
     }
 
@@ -1257,6 +1246,24 @@ impl PersistedIndexKeySnapshot {
         }
     }
 
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
+    fn clone_with_top_level_field_nullability(&self, field_id: FieldId, nullable: bool) -> Self {
+        match self {
+            Self::FieldPath(paths) => Self::FieldPath(
+                paths
+                    .iter()
+                    .map(|path| path.clone_with_top_level_nullability(field_id, nullable))
+                    .collect(),
+            ),
+            Self::Items(items) => Self::Items(
+                items
+                    .iter()
+                    .map(|item| item.clone_with_top_level_nullability(field_id, nullable))
+                    .collect(),
+            ),
+        }
+    }
+
     fn clone_with_mapped_field_layout(
         &self,
         map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
@@ -1314,6 +1321,18 @@ impl PersistedIndexKeyItemSnapshot {
             }
             Self::Expression(expression) => Self::Expression(Box::new(
                 expression.clone_with_renamed_source_root(field_id, new_name),
+            )),
+        }
+    }
+
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
+    fn clone_with_top_level_nullability(&self, field_id: FieldId, nullable: bool) -> Self {
+        match self {
+            Self::FieldPath(path) => {
+                Self::FieldPath(path.clone_with_top_level_nullability(field_id, nullable))
+            }
+            Self::Expression(expression) => Self::Expression(Box::new(
+                expression.clone_with_top_level_source_nullability(field_id, nullable),
             )),
         }
     }
@@ -1421,6 +1440,21 @@ impl PersistedIndexFieldPathSnapshot {
         }
     }
 
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
+    fn clone_with_top_level_nullability(&self, field_id: FieldId, nullable: bool) -> Self {
+        Self {
+            field_id: self.field_id,
+            slot: self.slot,
+            path: self.path.clone(),
+            kind: self.kind.clone(),
+            nullable: if self.field_id == field_id && self.path.len() == 1 {
+                nullable
+            } else {
+                self.nullable
+            },
+        }
+    }
+
     fn clone_with_mapped_field_layout(
         &self,
         map: impl Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
@@ -1520,6 +1554,19 @@ impl PersistedIndexExpressionSnapshot {
             input_kind: self.input_kind.clone(),
             output_kind: self.output_kind.clone(),
             canonical_text,
+        }
+    }
+
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
+    fn clone_with_top_level_source_nullability(&self, field_id: FieldId, nullable: bool) -> Self {
+        Self {
+            op: self.op,
+            source: self
+                .source
+                .clone_with_top_level_nullability(field_id, nullable),
+            input_kind: self.input_kind.clone(),
+            output_kind: self.output_kind.clone(),
+            canonical_text: self.canonical_text.clone(),
         }
     }
 

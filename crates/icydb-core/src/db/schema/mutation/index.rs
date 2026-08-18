@@ -406,8 +406,8 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
     )
     .with_constraint_catalog(constraint_catalog)
     .with_relations(before.relations().to_vec());
-    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
-        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
+        .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let request = schema_mutation_request_for_snapshots(
         accepted_before.persisted_snapshot(),
         accepted_after.persisted_snapshot(),
@@ -451,8 +451,8 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
     )
     .with_constraint_catalog(constraint_catalog)
     .with_relations(before.relations().to_vec());
-    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
-        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
+        .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_expression_index_candidate(&index)?;
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
@@ -472,8 +472,8 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
     let persisted_after =
         super::index_removal::derive_dense_index_removal_candidate(before, index.schema_id())
             .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
-        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
+        .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_secondary_index_drop_candidate();
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {

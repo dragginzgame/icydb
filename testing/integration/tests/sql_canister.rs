@@ -29,7 +29,7 @@ use icydb::{
     db::{
         EntitySchemaDescription, IntegrityCheckResult, QuickIntegrityStatus, RowProjectionOutput,
         SqlColumnDefault, SqlColumnExtra, SqlColumnKey, SqlDescribeOutput, SqlIntegrityError,
-        SqlShowColumnsOutput, StorageReport,
+        SqlQueryExecutionAttribution, SqlShowColumnsOutput, StorageReport,
         sql::{SqlGroupedRowsOutput, SqlQueryPerfResult, SqlQueryResult},
     },
     diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
@@ -322,12 +322,26 @@ fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {
     result.expect("oversized SQL group-name seed should succeed");
 }
 
-fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    let response: Result<SqlQueryPerfResult, Error> = fixture
+fn query_sql_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> Result<SqlQueryPerfResult, Error> {
+    fixture
         .query_candid("icydb_query", (sql.to_string(),))
-        .expect("sql query canister call should decode");
+        .expect("sql query canister call should decode")
+}
 
-    response.map(|payload| payload.result)
+fn query_sql_attribution(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> Result<SqlQueryExecutionAttribution, Error> {
+    fixture
+        .query_candid("measure_sql_query_attribution", (sql.to_string(),))
+        .expect("SQL attribution canister call should decode")
+}
+
+fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
+    query_sql_with_perf(fixture, sql).map(|payload| payload.result)
 }
 
 fn query_numeric_types(
@@ -1464,6 +1478,163 @@ fn sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index() {
         indexes.iter().any(|index| index
             == "INDEX sql_test_user_filtered_rank_idx (rank) WHERE age > 30 [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose the DDL-published filtered index: {indexes:?}",
+    );
+}
+
+fn assert_nullable_unique_route_evidence(
+    before: &SqlQueryPerfResult,
+    after: &SqlQueryPerfResult,
+    forced_full_scan: &SqlQueryPerfResult,
+    proven_attribution: &SqlQueryExecutionAttribution,
+    full_scan_attribution: &SqlQueryExecutionAttribution,
+) {
+    assert_eq!(
+        after.result, before.result,
+        "the newly eligible filtered-index route must preserve pre-index full-scan output",
+    );
+    assert_eq!(
+        after.result, forced_full_scan.result,
+        "the proven index route and equivalent conservative full scan must agree",
+    );
+    assert_projection_rendered(
+        &expect_projection(after.result.clone()),
+        "SqlTestUser",
+        &["name"],
+        &[&["alice"]],
+        1,
+        "filtered unique access should return exactly the matching present value",
+    );
+    assert!(
+        before.instructions > 0 && after.instructions > 0,
+        "both production-shaped query routes should expose instruction attribution",
+    );
+    assert!(
+        proven_attribution.index_store_entry_reads > 0,
+        "the selected filtered index route should read its physical entry",
+    );
+    println!(
+        "nullable unique query instructions: pre_index_full_scan_total={} pre_index_full_scan_compiler={} pre_index_full_scan_planner={} pre_index_full_scan_store={} pre_index_full_scan_executor={} pre_index_full_scan_decode={} proven_index_total={} proven_index_compiler={} proven_index_planner={} proven_index_store={} proven_index_executor={} proven_index_decode={} equivalent_full_scan_total={} equivalent_full_scan_compiler={} equivalent_full_scan_planner={} equivalent_full_scan_store={} equivalent_full_scan_executor={} equivalent_full_scan_decode={}",
+        before.instructions,
+        before.compiler_instructions,
+        before.planner_instructions,
+        before.store_instructions,
+        before.executor_instructions,
+        before.decode_instructions,
+        after.instructions,
+        after.compiler_instructions,
+        after.planner_instructions,
+        after.store_instructions,
+        after.executor_instructions,
+        after.decode_instructions,
+        forced_full_scan.instructions,
+        forced_full_scan.compiler_instructions,
+        forced_full_scan.planner_instructions,
+        forced_full_scan.store_instructions,
+        forced_full_scan.executor_instructions,
+        forced_full_scan.decode_instructions,
+    );
+    println!(
+        "nullable unique query reads: proven_data_gets={} proven_index_gets={} proven_index_ranges={} proven_index_entries={} equivalent_full_scan_data_gets={} equivalent_full_scan_index_gets={} equivalent_full_scan_index_ranges={} equivalent_full_scan_index_entries={}",
+        proven_attribution.store_get_calls,
+        proven_attribution.index_store_get_calls,
+        proven_attribution.index_store_range_scan_calls,
+        proven_attribution.index_store_entry_reads,
+        full_scan_attribution.store_get_calls,
+        full_scan_attribution.index_store_get_calls,
+        full_scan_attribution.index_store_range_scan_calls,
+        full_scan_attribution.index_store_entry_reads,
+    );
+}
+
+#[test]
+fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
+
+    schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+        .expect("nullable test field should publish through the canister endpoint");
+    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    update_sql(
+        &fixture,
+        format!("UPDATE SqlTestUser SET nickname = 'ally' WHERE id = '{alice_id}'").as_str(),
+    )
+    .expect("primary-key update should populate the nullable test field");
+
+    let select_sql = "SELECT name FROM SqlTestUser WHERE nickname = 'ally'";
+    let before_explain = expect_explain(
+        query_sql(&fixture, format!("EXPLAIN EXECUTION {select_sql}").as_str())
+            .expect("pre-index EXPLAIN should succeed"),
+    );
+    assert!(
+        before_explain.contains("FullScan")
+            && !before_explain.contains("sql_test_user_unique_nickname_idx"),
+        "pre-index EXPLAIN must retain the full scan and not select the future index: {before_explain}",
+    );
+    let before = query_sql_with_perf(&fixture, select_sql)
+        .expect("pre-index full-scan query should succeed");
+
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE UNIQUE INDEX sql_test_user_unique_nickname_idx ON SqlTestUser (nickname) WHERE nickname IS NOT NULL",
+        )
+        .expect("guarded nullable unique index should enter bounded validation");
+    schema_version
+        .validate_constraint_to_completion(
+            &fixture,
+            "SqlTestUser",
+            "sql_test_user_unique_nickname_idx",
+        )
+        .expect("guarded nullable unique index should validate and publish");
+
+    let after_explain = expect_explain(
+        query_sql(&fixture, format!("EXPLAIN EXECUTION {select_sql}").as_str())
+            .expect("post-index EXPLAIN should succeed"),
+    );
+    assert!(
+        after_explain.contains("IndexPrefix(sql_test_user_unique_nickname_idx)"),
+        "a concrete non-null equality should prove filtered-index eligibility: {after_explain}",
+    );
+    let after = query_sql_with_perf(&fixture, select_sql).expect("post-index query should succeed");
+    let missing_proof_explain = expect_explain(
+        query_sql(
+            &fixture,
+            "EXPLAIN EXECUTION SELECT name FROM SqlTestUser WHERE nickname IS NULL",
+        )
+        .expect("nullable query EXPLAIN should succeed"),
+    );
+    assert!(
+        !missing_proof_explain.contains("sql_test_user_unique_nickname_idx"),
+        "a query that can observe omitted rows must not select the filtered index: {missing_proof_explain}",
+    );
+    let forced_full_scan_sql =
+        "SELECT name FROM SqlTestUser WHERE nickname = 'ally' OR nickname = 'never'";
+    let forced_full_scan_explain = expect_explain(
+        query_sql(
+            &fixture,
+            format!("EXPLAIN EXECUTION {forced_full_scan_sql}").as_str(),
+        )
+        .expect("conservative OR query EXPLAIN should succeed"),
+    );
+    assert!(
+        forced_full_scan_explain.contains("FullScan")
+            && !forced_full_scan_explain.contains("sql_test_user_unique_nickname_idx"),
+        "an unsupported OR proof must preserve the full-scan route: {forced_full_scan_explain}",
+    );
+    let forced_full_scan = query_sql_with_perf(&fixture, forced_full_scan_sql)
+        .expect("equivalent conservative query should execute through a full scan");
+    let proven_attribution = query_sql_attribution(&fixture, select_sql)
+        .expect("proven index route should expose detailed attribution");
+    let full_scan_attribution = query_sql_attribution(&fixture, forced_full_scan_sql)
+        .expect("conservative route should expose detailed attribution");
+    assert_nullable_unique_route_evidence(
+        &before,
+        &after,
+        &forced_full_scan,
+        &proven_attribution,
+        &full_scan_attribution,
     );
 }
 

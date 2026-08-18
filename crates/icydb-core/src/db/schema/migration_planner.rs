@@ -1152,7 +1152,7 @@ fn rebuild_indexes(
             &store.bindings,
         )
         .map_err(|_| SchemaMigrationPlanningError::UnexplainedSchemaDifference)?;
-        let expected = relabel_index_for_fields(accepted, before, provisional);
+        let expected = relabel_index_for_fields(accepted, before, provisional)?;
         let semantics_changed = !index_contract_matches_ignoring_name(&expected, &target);
         if semantics_changed && !physical {
             return Err(SchemaMigrationPlanningError::UnexplainedSchemaDifference);
@@ -1199,7 +1199,7 @@ fn infer_and_rekey_index(
             &store.bindings,
         )
         .map_err(|_| SchemaMigrationPlanningError::UnexplainedSchemaDifference)?;
-        let expected = relabel_index_for_fields(accepted, before, provisional);
+        let expected = relabel_index_for_fields(accepted, before, provisional)?;
         if index_contract_matches_ignoring_name(&expected, &target) {
             matches.push((old_source.clone(), id));
         }
@@ -1227,28 +1227,27 @@ fn relabel_index_for_fields(
     index: &PersistedIndexSnapshot,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
-) -> PersistedIndexSnapshot {
-    before
-        .fields()
-        .iter()
-        .fold(index.clone(), |index, old_field| {
-            let Some(new_field) = after
-                .fields()
-                .iter()
-                .find(|field| field.id() == old_field.id())
-            else {
-                return index;
-            };
-            if old_field.name() == new_field.name() {
-                index
-            } else {
-                index.clone_with_renamed_field_path_root(
+) -> Result<PersistedIndexSnapshot, SchemaMigrationPlanningError> {
+    let mut relabeled = index.clone();
+    for old_field in before.fields() {
+        let Some(new_field) = after
+            .fields()
+            .iter()
+            .find(|field| field.id() == old_field.id())
+        else {
+            continue;
+        };
+        if old_field.name() != new_field.name() {
+            relabeled = relabeled
+                .clone_with_renamed_field_path_root(
                     old_field.id(),
                     old_field.name(),
                     new_field.name(),
                 )
-            }
-        })
+                .ok_or(SchemaMigrationPlanningError::UnexplainedSchemaDifference)?;
+        }
+    }
+    Ok(relabeled)
 }
 
 fn index_contract_matches_ignoring_name(

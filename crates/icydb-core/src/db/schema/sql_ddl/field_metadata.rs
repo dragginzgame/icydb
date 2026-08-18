@@ -481,7 +481,8 @@ fn validate_sql_ddl_field_rename_metadata_change(
                 target.new_name(),
             )
         })
-        .collect::<Vec<_>>();
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(InternalError::store_unsupported)?;
     if after.indexes() != expected_indexes {
         return Err(InternalError::store_unsupported());
     }

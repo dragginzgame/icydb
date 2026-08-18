@@ -228,6 +228,11 @@ fn render_describe_constraint_section(
                     constraint.name().to_string(),
                     constraint.kind().to_string(),
                     constraint.fields().join(", "),
+                    constraint
+                        .index_id()
+                        .map_or_else(|| "-".to_string(), |index_id| index_id.to_string()),
+                    constraint.index().unwrap_or("-").to_string(),
+                    constraint.predicate_sql().unwrap_or("-").to_string(),
                     constraint.origin().to_string(),
                     constraint.validation_state().to_string(),
                     constraint
@@ -257,6 +262,9 @@ fn render_describe_constraint_section(
                 "name".to_string(),
                 "kind".to_string(),
                 "fields".to_string(),
+                "index_id".to_string(),
+                "index".to_string(),
+                "predicate_sql".to_string(),
                 "origin".to_string(),
                 "state".to_string(),
                 "phase".to_string(),
@@ -475,6 +483,11 @@ pub fn render_show_constraints_lines(
                 constraint.name().to_string(),
                 constraint.kind().to_string(),
                 constraint.fields().join(", "),
+                constraint
+                    .index_id()
+                    .map_or_else(|| "-".to_string(), |index_id| index_id.to_string()),
+                constraint.index().unwrap_or("-").to_string(),
+                constraint.predicate_sql().unwrap_or("-").to_string(),
                 constraint.origin().to_string(),
                 constraint.validation_state().to_string(),
                 constraint
@@ -511,6 +524,9 @@ pub fn render_show_constraints_lines(
             "name".to_string(),
             "kind".to_string(),
             "fields".to_string(),
+            "index_id".to_string(),
+            "index".to_string(),
+            "predicate_sql".to_string(),
             "origin".to_string(),
             "state".to_string(),
             "phase".to_string(),

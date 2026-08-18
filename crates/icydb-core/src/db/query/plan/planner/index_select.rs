@@ -152,22 +152,30 @@ pub(in crate::db::query::plan) fn predicate_implies_predicate_for_planner(
     implying: &Predicate,
     required: &Predicate,
 ) -> bool {
-    let Some(required) = required_compare_clauses(required) else {
+    let Some(required) = required_implication_clauses(required) else {
         return false;
     };
-    let query = query_compare_clauses(implying);
+    let query = query_implication_clauses(implying);
 
     match query {
-        QueryCompareClauses::Unsatisfiable => true,
-        QueryCompareClauses::Unknown => false,
-        QueryCompareClauses::Clauses(query_clauses) => match required {
-            RequiredCompareClauses::Unsatisfiable => false,
-            RequiredCompareClauses::Clauses(required_clauses) => {
-                required_clauses.iter().all(|required_clause| {
-                    query_clauses.iter().any(|query_clause| {
+        QueryImplicationClauses::Unsatisfiable => true,
+        QueryImplicationClauses::Unknown => false,
+        QueryImplicationClauses::Clauses(query_clauses) => match required {
+            RequiredImplicationClauses::Unsatisfiable => false,
+            RequiredImplicationClauses::Clauses(required_clauses) => {
+                required_clauses.compares.iter().all(|required_clause| {
+                    query_clauses.compares.iter().any(|query_clause| {
                         query_clause_implies_required(query_clause, required_clause)
                     })
-                })
+                }) && required_clauses
+                    .non_null_fields
+                    .iter()
+                    .all(|required_field| {
+                        query_clauses.non_null_fields.contains(required_field)
+                            || query_clauses.compares.iter().any(|query_clause| {
+                                comparison_proves_field_non_null(query_clause, required_field)
+                            })
+                    })
             }
         },
     }
@@ -177,13 +185,24 @@ fn strip_query_clauses_satisfied_by_filtered_guard(
     query_predicate: &Predicate,
     index_predicate: &Predicate,
 ) -> Option<Predicate> {
-    strip_query_clauses(query_predicate, |cmp| {
-        compare_clause_supported(cmp)
-            && predicate_implies_predicate_for_planner(
+    strip_query_clauses(
+        query_predicate,
+        |cmp| {
+            compare_clause_supported(cmp)
+                && predicate_implies_predicate_for_planner(
+                    index_predicate,
+                    &Predicate::Compare(cmp.clone()),
+                )
+        },
+        |field| {
+            predicate_implies_predicate_for_planner(
                 index_predicate,
-                &Predicate::Compare(cmp.clone()),
+                &Predicate::IsNotNull {
+                    field: field.to_string(),
+                },
             )
-    })
+        },
+    )
 }
 
 fn access_bound_equalities(
@@ -299,9 +318,11 @@ fn strip_query_clauses_satisfied_by_access_bounds(
     query_predicate: &Predicate,
     implied_bounds: &AccessBoundClauses,
 ) -> Option<Predicate> {
-    strip_query_clauses(query_predicate, |cmp| {
-        access_bound_clauses_imply_required(implied_bounds, cmp)
-    })
+    strip_query_clauses(
+        query_predicate,
+        |cmp| access_bound_clauses_imply_required(implied_bounds, cmp),
+        |_| false,
+    )
 }
 
 fn access_bound_clauses_imply_required(
@@ -456,16 +477,24 @@ fn values_equal(left: &Value, right: &Value) -> bool {
 }
 
 // Both residual-stripping paths share the same recursive AND-collapse contract;
-// they only differ in how they decide one compare clause is already implied.
-fn strip_query_clauses<F>(query_predicate: &Predicate, compare_is_redundant: F) -> Option<Predicate>
+// they differ only in which comparison and exact non-null clauses are already
+// guaranteed by the selected access contract.
+fn strip_query_clauses<F, N>(
+    query_predicate: &Predicate,
+    compare_is_redundant: F,
+    non_null_is_redundant: N,
+) -> Option<Predicate>
 where
     F: Fn(&ComparePredicate) -> bool + Copy,
+    N: Fn(&str) -> bool + Copy,
 {
     match query_predicate {
         Predicate::And(children) => {
             let mut residual_children = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(residual_child) = strip_query_clauses(child, compare_is_redundant) {
+                if let Some(residual_child) =
+                    strip_query_clauses(child, compare_is_redundant, non_null_is_redundant)
+                {
                     residual_children.push(residual_child);
                 }
             }
@@ -477,6 +506,7 @@ where
             }
         }
         Predicate::Compare(cmp) if compare_is_redundant(cmp) => None,
+        Predicate::IsNotNull { field } if non_null_is_redundant(field) => None,
         Predicate::True => None,
         Predicate::False
         | Predicate::Or(_)
@@ -494,15 +524,21 @@ where
 }
 
 ///
-/// QueryCompareClauses
+/// QueryImplicationClauses
 ///
-/// Compare clauses extracted from one query predicate for implication checks.
+/// Supported clauses extracted from one query predicate for implication checks.
 ///
 
-enum QueryCompareClauses<'a> {
-    Clauses(Vec<&'a ComparePredicate>),
+enum QueryImplicationClauses<'a> {
+    Clauses(ImplicationClauses<'a>),
     Unsatisfiable,
     Unknown,
+}
+
+#[derive(Default)]
+struct ImplicationClauses<'a> {
+    compares: Vec<&'a ComparePredicate>,
+    non_null_fields: Vec<&'a str>,
 }
 
 #[derive(Clone, Copy)]
@@ -518,80 +554,89 @@ enum CompareClauseCollect {
 }
 
 ///
-/// RequiredCompareClauses
+/// RequiredImplicationClauses
 ///
-/// Compare clauses extracted from one index predicate for implication checks.
+/// Supported clauses extracted from one index predicate for implication checks.
 ///
 
-enum RequiredCompareClauses<'a> {
-    Clauses(Vec<&'a ComparePredicate>),
+enum RequiredImplicationClauses<'a> {
+    Clauses(ImplicationClauses<'a>),
     Unsatisfiable,
 }
 
-fn query_compare_clauses(predicate: &Predicate) -> QueryCompareClauses<'_> {
+fn query_implication_clauses(predicate: &Predicate) -> QueryImplicationClauses<'_> {
     match predicate {
-        Predicate::False => QueryCompareClauses::Unsatisfiable,
-        Predicate::True => QueryCompareClauses::Clauses(Vec::new()),
+        Predicate::False => QueryImplicationClauses::Unsatisfiable,
+        Predicate::True => QueryImplicationClauses::Clauses(ImplicationClauses::default()),
         Predicate::Compare(cmp) => {
             if compare_clause_supported(cmp) {
-                QueryCompareClauses::Clauses(vec![cmp])
+                QueryImplicationClauses::Clauses(ImplicationClauses {
+                    compares: vec![cmp],
+                    non_null_fields: Vec::new(),
+                })
             } else {
-                QueryCompareClauses::Unknown
+                QueryImplicationClauses::Unknown
             }
         }
+        Predicate::IsNotNull { field } => QueryImplicationClauses::Clauses(ImplicationClauses {
+            compares: Vec::new(),
+            non_null_fields: vec![field],
+        }),
         Predicate::And(children) => {
-            let mut clauses = Vec::new();
+            let mut clauses = ImplicationClauses::default();
             for child in children {
-                match collect_compare_clauses(child, &mut clauses, CompareClauseMode::Query) {
+                match collect_implication_clauses(child, &mut clauses, CompareClauseMode::Query) {
                     CompareClauseCollect::Unsatisfiable => {
-                        return QueryCompareClauses::Unsatisfiable;
+                        return QueryImplicationClauses::Unsatisfiable;
                     }
                     CompareClauseCollect::Known | CompareClauseCollect::Unknown => {}
                 }
             }
 
-            QueryCompareClauses::Clauses(clauses)
+            QueryImplicationClauses::Clauses(clauses)
         }
         Predicate::Or(_)
         | Predicate::Not(_)
         | Predicate::CompareFields(_)
         | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => QueryCompareClauses::Unknown,
+        | Predicate::TextContainsCi { .. } => QueryImplicationClauses::Unknown,
     }
 }
 
-fn required_compare_clauses(predicate: &Predicate) -> Option<RequiredCompareClauses<'_>> {
+fn required_implication_clauses(predicate: &Predicate) -> Option<RequiredImplicationClauses<'_>> {
     match predicate {
-        Predicate::True => Some(RequiredCompareClauses::Clauses(Vec::new())),
-        Predicate::False => Some(RequiredCompareClauses::Unsatisfiable),
+        Predicate::True => Some(RequiredImplicationClauses::Clauses(
+            ImplicationClauses::default(),
+        )),
+        Predicate::False => Some(RequiredImplicationClauses::Unsatisfiable),
         _ => {
-            let mut clauses = Vec::new();
-            match collect_compare_clauses(predicate, &mut clauses, CompareClauseMode::Required) {
+            let mut clauses = ImplicationClauses::default();
+            match collect_implication_clauses(predicate, &mut clauses, CompareClauseMode::Required)
+            {
                 CompareClauseCollect::Known => {}
                 CompareClauseCollect::Unsatisfiable => {
-                    return Some(RequiredCompareClauses::Unsatisfiable);
+                    return Some(RequiredImplicationClauses::Unsatisfiable);
                 }
                 CompareClauseCollect::Unknown => return None,
             }
-            Some(RequiredCompareClauses::Clauses(clauses))
+            Some(RequiredImplicationClauses::Clauses(clauses))
         }
     }
 }
 
-fn collect_compare_clauses<'a>(
+fn collect_implication_clauses<'a>(
     predicate: &'a Predicate,
-    out: &mut Vec<&'a ComparePredicate>,
+    out: &mut ImplicationClauses<'a>,
     mode: CompareClauseMode,
 ) -> CompareClauseCollect {
     match predicate {
         Predicate::And(children) => {
             for child in children {
-                match collect_compare_clauses(child, out, mode) {
+                match collect_implication_clauses(child, out, mode) {
                     CompareClauseCollect::Known => {}
                     CompareClauseCollect::Unsatisfiable => {
                         return CompareClauseCollect::Unsatisfiable;
@@ -610,7 +655,13 @@ fn collect_compare_clauses<'a>(
             if !compare_clause_supported(cmp) {
                 return CompareClauseCollect::Unknown;
             }
-            out.push(cmp);
+            out.compares.push(cmp);
+            CompareClauseCollect::Known
+        }
+        Predicate::IsNotNull { field } => {
+            if !out.non_null_fields.contains(&field.as_str()) {
+                out.non_null_fields.push(field);
+            }
             CompareClauseCollect::Known
         }
         Predicate::True => CompareClauseCollect::Known,
@@ -622,13 +673,18 @@ fn collect_compare_clauses<'a>(
         | Predicate::Or(_)
         | Predicate::Not(_)
         | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => CompareClauseCollect::Unknown,
     }
+}
+
+fn comparison_proves_field_non_null(compare: &ComparePredicate, field: &str) -> bool {
+    compare.field() == field
+        && compare_clause_supported(compare)
+        && !matches!(compare.value(), Value::Null | Value::Unit)
 }
 
 const fn compare_clause_supported(cmp: &ComparePredicate) -> bool {
@@ -698,4 +754,131 @@ fn query_clause_implies_required(query: &ComparePredicate, required: &ComparePre
 
 fn compare_values(left: &Value, right: &Value) -> Option<Ordering> {
     compare_numeric_or_strict_order(left, right)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        predicate_implies_predicate_for_planner, strip_query_clauses_satisfied_by_filtered_guard,
+    };
+    use crate::{
+        db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, Predicate},
+        value::Value,
+    };
+
+    fn non_null(field: &str) -> Predicate {
+        Predicate::is_not_null(field.to_string())
+    }
+
+    fn compare(field: &str, op: CompareOp, value: Value) -> Predicate {
+        Predicate::Compare(crate::db::predicate::ComparePredicate::with_coercion(
+            field,
+            op,
+            value,
+            CoercionId::Strict,
+        ))
+    }
+
+    #[test]
+    fn nullable_guard_implication_accepts_exact_and_non_null_scalar_comparisons() {
+        let required = non_null("email");
+        assert!(predicate_implies_predicate_for_planner(
+            &required, &required
+        ));
+
+        for op in [
+            CompareOp::Eq,
+            CompareOp::Gt,
+            CompareOp::Gte,
+            CompareOp::Lt,
+            CompareOp::Lte,
+        ] {
+            assert!(predicate_implies_predicate_for_planner(
+                &compare("email", op, Value::Text("a@example.com".to_string())),
+                &required,
+            ));
+        }
+    }
+
+    #[test]
+    fn nullable_guard_implication_requires_every_composite_guard_and_extra_filter() {
+        let required = Predicate::and(vec![
+            non_null("tenant"),
+            non_null("email"),
+            compare("active", CompareOp::Eq, Value::Bool(true)),
+        ]);
+        let complete = Predicate::and(vec![
+            compare(
+                "email",
+                CompareOp::Eq,
+                Value::Text("a@example.com".to_string()),
+            ),
+            non_null("tenant"),
+            compare("active", CompareOp::Eq, Value::Bool(true)),
+            Predicate::IsNotEmpty {
+                field: "display_name".to_string(),
+            },
+        ]);
+        assert!(predicate_implies_predicate_for_planner(
+            &complete, &required
+        ));
+
+        let missing = Predicate::and(vec![
+            non_null("email"),
+            compare("active", CompareOp::Eq, Value::Bool(true)),
+        ]);
+        assert!(!predicate_implies_predicate_for_planner(
+            &missing, &required
+        ));
+    }
+
+    #[test]
+    fn nullable_guard_implication_keeps_unsupported_shapes_conservative() {
+        let required = non_null("email");
+        let cross_field = Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+            "email",
+            CompareOp::Eq,
+            "backup_email",
+            CoercionId::Strict,
+        ));
+        for query in [
+            Predicate::or(vec![required.clone(), non_null("tenant")]),
+            Predicate::not(Predicate::IsNull {
+                field: "email".to_string(),
+            }),
+            cross_field,
+            compare("email", CompareOp::Eq, Value::Null),
+            compare("email", CompareOp::Eq, Value::Unit),
+            compare(
+                "lower_email",
+                CompareOp::Eq,
+                Value::Text("a@example.com".to_string()),
+            ),
+        ] {
+            assert!(!predicate_implies_predicate_for_planner(&query, &required));
+        }
+    }
+
+    #[test]
+    fn nullable_guard_implication_treats_unsatisfiable_query_as_vacuous_proof() {
+        assert!(predicate_implies_predicate_for_planner(
+            &Predicate::False,
+            &non_null("email"),
+        ));
+    }
+
+    #[test]
+    fn filtered_guard_stripping_removes_only_guaranteed_non_null_clause() {
+        let guard = non_null("email");
+        assert_eq!(
+            strip_query_clauses_satisfied_by_filtered_guard(&guard, &guard),
+            None,
+        );
+
+        let query = Predicate::and(vec![guard.clone(), non_null("tenant")]);
+        assert_eq!(
+            strip_query_clauses_satisfied_by_filtered_guard(&query, &guard),
+            Some(non_null("tenant")),
+        );
+    }
 }

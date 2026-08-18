@@ -167,6 +167,7 @@ impl SqlDdlBindError {
                 SchemaDdlAdmissionError::RowLayoutVersionExhausted
             }
             Self::InvalidFilteredIndexPredicate
+            | Self::NullableUniqueIndexContract(_)
             | Self::InvalidConstraintName { .. }
             | Self::DuplicateConstraintName { .. }
             | Self::UnknownConstraint { .. }
