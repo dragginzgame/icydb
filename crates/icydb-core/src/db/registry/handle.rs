@@ -516,11 +516,11 @@ impl StoreHandle {
         self.schema.with_borrow_mut(f)
     }
 
-    /// Return exact visible entity cardinality from volatile evidence or one Ready durable base.
+    /// Return exact visible entity cardinality through the store's canonical proof boundary.
     #[must_use]
     pub(in crate::db) fn exact_entity_count(&self, entity: EntityTag) -> Option<u64> {
-        if let Some(count) = self.with_data(|store| store.exact_entity_count(entity)) {
-            return Some(count);
+        if self.journal.is_none() {
+            return self.with_data(|store| store.exact_entity_count(entity));
         }
         let delta = self.with_data(|store| store.exact_entity_cardinality_delta(entity))?;
         let digest = CardinalityLogicalCountKey::Entity(entity).digest().ok()?;
@@ -542,56 +542,38 @@ impl StoreHandle {
         index_id: IndexId,
         components: &[Vec<u8>],
     ) -> Option<u64> {
-        if let Some(count) = self.with_index(|store| {
-            store.exact_prefix_cardinality(data_generation, key_kind, index_id, components)
-        }) {
-            return Some(count);
-        }
-        if key_kind != IndexKeyKind::User {
-            return None;
-        }
-        let delta = self.with_index(|store| {
-            store.exact_prefix_cardinality_delta(key_kind, index_id, components)
-        })?;
-        let key = UserIndexPrefixCardinalityKey::new(index_id, components.to_vec());
-        let digest = CardinalityLogicalCountKey::UserIndexPrefix(&key)
-            .digest()
-            .ok()?;
-        let base = self
-            .ready_cardinality_counts(&[digest], |authority| {
-                authority.accepted_index_component_count(index_id) == Some(components.len())
-            })
-            .ok()
-            .flatten()?
+        self.exact_user_index_prefix_counts(data_generation, key_kind, index_id, [components])?
             .into_iter()
-            .next()?;
-        apply_visible_cardinality_delta(base, delta)
+            .next()
     }
 
-    /// Sum exact visible counts for prefixes on one accepted user index.
+    /// Return exact visible counts for prefixes on one accepted user index.
     #[must_use]
-    pub(in crate::db) fn exact_user_index_prefix_count_sum<'a>(
+    pub(in crate::db) fn exact_user_index_prefix_counts<'a>(
         &self,
         data_generation: u64,
         key_kind: IndexKeyKind,
         index_id: IndexId,
         component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
-        stop_after: Option<u64>,
-    ) -> Option<u64> {
+    ) -> Option<Vec<u64>> {
         let component_prefixes = component_prefixes.into_iter().collect::<Vec<_>>();
-        if let Some(count) = self.with_index(|store| {
-            store.exact_prefix_cardinality_sum(
-                data_generation,
-                key_kind,
-                index_id,
-                component_prefixes.iter().copied(),
-                stop_after,
-            )
-        }) {
-            return Some(count);
-        }
         if key_kind != IndexKeyKind::User {
             return None;
+        }
+        if self.journal.is_none() {
+            return self.with_index(|store| {
+                component_prefixes
+                    .iter()
+                    .map(|components| {
+                        store.exact_prefix_cardinality(
+                            data_generation,
+                            key_kind,
+                            index_id,
+                            components,
+                        )
+                    })
+                    .collect()
+            });
         }
         let deltas = self.with_index(|store| {
             component_prefixes
@@ -615,24 +597,102 @@ impl StoreHandle {
             .collect::<Option<Vec<_>>>()?;
         let bases = self
             .ready_cardinality_counts(&digests, |authority| {
-                authority
-                    .accepted_index_component_count(index_id)
-                    .is_some_and(|count| {
-                        component_prefixes
-                            .iter()
-                            .all(|components| components.len() == count)
-                    })
+                component_prefixes.iter().all(|components| {
+                    authority.accepts_user_index_prefix(index_id, components.len())
+                })
             })
             .ok()
             .flatten()?;
+        bases
+            .into_iter()
+            .zip(deltas)
+            .map(|(base, delta)| apply_visible_cardinality_delta(base, delta))
+            .collect()
+    }
+
+    /// Sum exact visible counts for prefixes on one accepted user index.
+    #[must_use]
+    pub(in crate::db) fn exact_user_index_prefix_count_sum<'a>(
+        &self,
+        data_generation: u64,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
+        stop_after: Option<u64>,
+    ) -> Option<u64> {
+        let component_prefixes = component_prefixes.into_iter().collect::<Vec<_>>();
+        if self.journal.is_none() {
+            return self.with_index(|store| {
+                store.exact_prefix_cardinality_sum(
+                    data_generation,
+                    key_kind,
+                    index_id,
+                    component_prefixes.iter().copied(),
+                    stop_after,
+                )
+            });
+        }
+        let counts = self.exact_user_index_prefix_counts(
+            data_generation,
+            key_kind,
+            index_id,
+            component_prefixes.iter().copied(),
+        )?;
         let mut total = 0_u64;
-        for (base, delta) in bases.into_iter().zip(deltas) {
-            total = total.checked_add(apply_visible_cardinality_delta(base, delta)?)?;
+        for count in counts {
+            total = total.checked_add(count)?;
             if stop_after.is_some_and(|required| total >= required) {
                 break;
             }
         }
         Some(total)
+    }
+
+    /// Enumerate one bounded child-prefix family proven complete by exact parent/child totals.
+    #[must_use]
+    pub(in crate::db) fn exact_user_index_child_prefixes_for_parent_set<'a>(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        parent_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
+        total_cap: usize,
+    ) -> Option<Vec<Vec<Vec<u8>>>> {
+        let mut parent_prefixes = parent_prefixes
+            .into_iter()
+            .map(<[Vec<u8>]>::to_vec)
+            .collect::<Vec<_>>();
+        if parent_prefixes.iter().any(Vec::is_empty) {
+            return None;
+        }
+        parent_prefixes.sort_unstable();
+        parent_prefixes.dedup();
+        let child_prefixes = self.with_index(|store| {
+            store.exact_child_prefixes_for_parent_set(
+                data_generation,
+                IndexKeyKind::User,
+                index_id,
+                parent_prefixes.iter().map(Vec::as_slice),
+                total_cap,
+            )
+        })?;
+        if self.journal.is_none() {
+            return Some(child_prefixes);
+        }
+        let parent_total = self.exact_user_index_prefix_count_sum(
+            data_generation,
+            IndexKeyKind::User,
+            index_id,
+            parent_prefixes.iter().map(Vec::as_slice),
+            None,
+        )?;
+        let child_total = self.exact_user_index_prefix_count_sum(
+            data_generation,
+            IndexKeyKind::User,
+            index_id,
+            child_prefixes.iter().map(Vec::as_slice),
+            None,
+        )?;
+        (parent_total == child_total).then_some(child_prefixes)
     }
 
     fn ready_cardinality_counts(
@@ -646,12 +706,15 @@ impl StoreHandle {
         let incarnation = database_incarnation_id()?;
         let watermark = journal.with_borrow(JournalTailStore::fold_watermark)?;
         self.with_schema(|schema| {
-            let authority = CardinalityBuildAuthority::derive(
+            let Some(authority) = CardinalityBuildAuthority::derive_for_current_consumer(
                 schema,
                 incarnation,
                 self.allocations,
                 watermark,
-            )?;
+            )?
+            else {
+                return Ok(None);
+            };
             if !accepts(&authority) {
                 return Ok(None);
             }

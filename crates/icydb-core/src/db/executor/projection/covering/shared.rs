@@ -9,7 +9,7 @@ use crate::{
             apply_offset_limit_window,
             budget::charge_current_execution_budget,
             expand_index_prefix_family_with_exact_child_prefixes,
-            lowered_index_prefix_exact_cardinality,
+            lowered_index_prefix_exact_cardinalities,
             projection::covering::contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
                 CoveringReadField, CoveringReadFieldSource, PageSpec,
@@ -140,17 +140,13 @@ where
     let mut prefixes_have_exact_non_empty_proof = expanded_index_prefix_specs.is_some();
     if expanded_index_prefix_specs.is_none() && !index_prefix_specs.is_empty() {
         prefixes_have_exact_cardinality = true;
-        prefixes_have_exact_non_empty_proof = true;
-        for spec in index_prefix_specs {
-            match lowered_index_prefix_exact_cardinality(store, spec) {
-                Some(0) => prefixes_have_exact_non_empty_proof = false,
-                Some(_) => {}
-                None => {
-                    prefixes_have_exact_cardinality = false;
-                    prefixes_have_exact_non_empty_proof = false;
-                    break;
-                }
-            }
+        if let Some(cardinalities) =
+            lowered_index_prefix_exact_cardinalities(store, index_prefix_specs)
+        {
+            prefixes_have_exact_non_empty_proof = cardinalities.into_iter().all(|count| count != 0);
+        } else {
+            prefixes_have_exact_cardinality = false;
+            prefixes_have_exact_non_empty_proof = false;
         }
     }
     let existing_row_mode = if prefixes_have_exact_cardinality {

@@ -12,7 +12,7 @@ use crate::{
         journal::FoldWatermark,
         registry::StoreAllocationIdentities,
         schema::{
-            SchemaStore,
+            AcceptedSchemaRevisionBundle, SchemaStore,
             cardinality_generation::{
                 CardinalityAcceptedRootIdentity, CardinalityBuildCheckpoint,
                 CardinalityBuildCursor, CardinalityBuildPhase, CardinalityBuildTotals,
@@ -20,6 +20,7 @@ use crate::{
                 CardinalityGenerationId, CardinalityGenerationState, CardinalityLogicalCountKey,
                 CardinalitySourceIdentity, CardinalitySourceMismatch,
             },
+            enum_catalog::AcceptedSchemaRootSelection,
         },
     },
     error::InternalError,
@@ -52,6 +53,47 @@ impl CardinalityBuildAuthority {
         fold_watermark: FoldWatermark,
     ) -> Result<Self, InternalError> {
         let authority = schema.current_canonical_accepted_schema_authority()?;
+        Self::derive_from_accepted_authority(
+            authority
+                .as_ref()
+                .map(|(selection, bundle)| (*selection, bundle)),
+            database_incarnation,
+            allocations,
+            fold_watermark,
+        )
+    }
+
+    /// Derive consumer authority only when live and canonical accepted roots agree.
+    pub(in crate::db) fn derive_for_current_consumer(
+        schema: &SchemaStore,
+        database_incarnation: DatabaseIncarnationId,
+        allocations: StoreAllocationIdentities,
+        fold_watermark: FoldWatermark,
+    ) -> Result<Option<Self>, InternalError> {
+        let effective = schema.current_accepted_schema_authority_ref()?;
+        let canonical = schema.current_canonical_accepted_schema_root()?;
+        if effective.as_ref().map(|(selection, _bundle)| selection) != canonical.as_ref() {
+            return Ok(None);
+        }
+        // Root equality proves the root-keyed immutable effective bundle is also
+        // canonical, avoiding a second stable read and decode of the same bundle.
+        Self::derive_from_accepted_authority(
+            effective
+                .as_ref()
+                .map(|(selection, bundle)| (*selection, &**bundle)),
+            database_incarnation,
+            allocations,
+            fold_watermark,
+        )
+        .map(Some)
+    }
+
+    fn derive_from_accepted_authority(
+        authority: Option<(AcceptedSchemaRootSelection, &AcceptedSchemaRevisionBundle)>,
+        database_incarnation: DatabaseIncarnationId,
+        allocations: StoreAllocationIdentities,
+        fold_watermark: FoldWatermark,
+    ) -> Result<Self, InternalError> {
         let (accepted_root, accepted_entities, accepted_indexes) = match authority {
             None => (None, BTreeSet::new(), BTreeMap::new()),
             Some((selection, bundle)) => {
@@ -111,6 +153,18 @@ impl CardinalityBuildAuthority {
     #[must_use]
     pub(in crate::db) fn accepted_index_component_count(&self, index: IndexId) -> Option<usize> {
         self.accepted_indexes.get(&index).copied()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn accepts_user_index_prefix(
+        &self,
+        index: IndexId,
+        prefix_component_count: usize,
+    ) -> bool {
+        prefix_component_count != 0
+            && self
+                .accepted_index_component_count(index)
+                .is_some_and(|component_count| prefix_component_count <= component_count)
     }
 
     #[cfg(test)]

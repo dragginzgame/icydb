@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.230.md](docs/changelog/0.230.md)
 
+- `0.230.3` closes the independent cardinality audit by correcting journaled
+  exact-count authority and bounded prefix consumption, restoring the
+  maintained performance advantage, and refreshing compatible dependencies
+  without changing persisted or public surfaces.
+
 - `0.230.2` activates bounded durable cardinality construction, source-safe
   publication, exact fold and live-delta maintenance, and proof-bound planner
   consumption with deterministic lifecycle evidence and retained actionable

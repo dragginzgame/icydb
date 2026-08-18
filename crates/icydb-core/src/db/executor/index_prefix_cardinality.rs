@@ -139,15 +139,41 @@ pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinality(
     store: StoreHandle,
     spec: &LoweredIndexPrefixSpec,
 ) -> Option<u64> {
-    let cardinality_key =
-        user_index_prefix_cardinality_key_from_lowered_spec(spec, spec.prefix_components().len())?;
-    let data_generation = store.with_data(DataStore::generation);
+    lowered_index_prefix_exact_cardinalities(store, [spec])?
+        .into_iter()
+        .next()
+}
 
-    store.exact_user_index_prefix_count(
+/// Return exact visible cardinalities for one same-index prefix family.
+#[must_use]
+pub(in crate::db::executor) fn lowered_index_prefix_exact_cardinalities<'a>(
+    store: StoreHandle,
+    specs: impl IntoIterator<Item = &'a LoweredIndexPrefixSpec>,
+) -> Option<Vec<u64>> {
+    let cardinality_keys = specs
+        .into_iter()
+        .map(|spec| {
+            user_index_prefix_cardinality_key_from_lowered_spec(
+                spec,
+                spec.prefix_components().len(),
+            )
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let index_id = cardinality_keys.first()?.index_id();
+    if cardinality_keys
+        .iter()
+        .any(|key| key.index_id() != index_id)
+    {
+        return None;
+    }
+    let data_generation = store.with_data(DataStore::generation);
+    store.exact_user_index_prefix_counts(
         data_generation,
         IndexKeyKind::User,
-        cardinality_key.index_id(),
-        cardinality_key.prefix_components(),
+        index_id,
+        cardinality_keys
+            .iter()
+            .map(UserIndexPrefixCardinalityKey::prefix_components),
     )
 }
 
@@ -187,15 +213,12 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
         }
     }
 
-    let Some(child_prefixes) = store.with_index(|index_store| {
-        index_store.exact_child_prefixes_for_parent_set(
-            data_generation,
-            IndexKeyKind::User,
-            index_id,
-            specs.iter().map(LoweredIndexPrefixSpec::prefix_components),
-            total_cap,
-        )
-    }) else {
+    let Some(child_prefixes) = store.exact_user_index_child_prefixes_for_parent_set(
+        data_generation,
+        index_id,
+        specs.iter().map(LoweredIndexPrefixSpec::prefix_components),
+        total_cap,
+    ) else {
         return Ok(None);
     };
 

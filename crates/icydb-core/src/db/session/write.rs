@@ -5699,6 +5699,105 @@ mod identity_pre_key_tests {
     }
 
     #[test]
+    fn journaled_cardinality_rejects_volatile_counts_and_unfolded_accepted_root_drift() {
+        let session = initialize_journaled();
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(10),
+            })
+            .expect("cardinality fixture row should commit");
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("cardinality fixture row should fold"),
+        );
+        drive_journaled_cardinality_to_ready(&session);
+        let handle = session
+            .db
+            .store_handle(JOURNALED_STORE_PATH)
+            .expect("journaled cardinality store should resolve");
+        let (index_id, prefix_components) = journaled_user_index_prefix();
+        let data_generation = JOURNALED_DATA_STORE.with(|store| store.borrow().generation());
+
+        assert_eq!(
+            JOURNALED_DATA_STORE.with(|store| store.borrow().exact_entity_count(ENTITY_TAG)),
+            Some(1),
+            "the live full-count cache should be populated before accepted-root drift",
+        );
+        assert_eq!(
+            JOURNALED_INDEX_STORE.with(|store| {
+                store.borrow().exact_prefix_cardinality(
+                    data_generation,
+                    IndexKeyKind::User,
+                    index_id,
+                    prefix_components.as_slice(),
+                )
+            }),
+            Some(1),
+            "the live prefix-count cache should be populated before accepted-root drift",
+        );
+        assert_eq!(
+            JOURNALED_INDEX_STORE.with(|store| {
+                store.borrow().exact_child_prefixes_for_parent_set(
+                    data_generation,
+                    IndexKeyKind::User,
+                    index_id,
+                    [prefix_components.as_slice()],
+                    8,
+                )
+            }),
+            Some(Vec::new()),
+            "the volatile child-prefix cache should demonstrate the bypass fixture",
+        );
+        assert_eq!(
+            handle.exact_user_index_child_prefixes_for_parent_set(
+                data_generation,
+                index_id,
+                [prefix_components.as_slice()],
+                8,
+            ),
+            None,
+            "journaled child enumeration must use its conservative route instead of volatile authority",
+        );
+        assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 1);
+
+        let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            JOURNALED_STORE_PATH,
+            AcceptedSchemaRevision::new(2),
+            BTreeMap::from([(ENTITY_TAG, identity_snapshot(JOURNALED_STORE_PATH, false))]),
+            BTreeMap::from([
+                ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
+                ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
+            ]),
+        );
+        crate::db::commit::publish_accepted_schema_candidate(
+            JOURNALED_STORE_PATH,
+            handle,
+            AcceptedSchemaRevision::INITIAL,
+            &candidate,
+        )
+        .expect("a successor accepted root should publish into the live overlay");
+
+        assert_eq!(
+            handle.exact_entity_count(ENTITY_TAG),
+            None,
+            "an unfolded accepted root must invalidate durable evidence immediately",
+        );
+        assert_eq!(
+            handle.exact_user_index_prefix_count(
+                data_generation,
+                IndexKeyKind::User,
+                index_id,
+                prefix_components.as_slice(),
+            ),
+            None,
+            "journaled consumers must not fall back to a populated volatile prefix cache",
+        );
+    }
+
+    #[test]
     fn journaled_convergence_uses_final_batch_rows_for_unique_release() {
         let session = initialize_journaled_with_unique_payload();
         let inserted = session

@@ -1485,6 +1485,11 @@ fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
                 .is_none(),
             "empty accepted bundle should not contain the test entity",
         );
+        let (selection, bundle) = store
+            .current_accepted_schema_authority_ref()
+            .expect("accepted authority should decode")
+            .expect("accepted authority should exist");
+        assert_eq!(selection.root().revision(), bundle.revision());
     }
     assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), 1);
 
@@ -1506,6 +1511,11 @@ fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
             .is_none(),
         "new empty accepted bundle should not contain the test entity",
     );
+    let (selection, bundle) = store
+        .current_accepted_schema_authority_ref()
+        .expect("new accepted authority should decode")
+        .expect("new accepted authority should exist");
+    assert_eq!(selection.root().revision(), bundle.revision());
     assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), 2);
 }
 

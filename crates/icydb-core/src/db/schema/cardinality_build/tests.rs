@@ -134,6 +134,19 @@ fn page_budget_stops_before_every_frozen_dimension_and_checks_arithmetic() {
 }
 
 #[test]
+fn accepted_user_index_authority_covers_every_non_empty_component_prefix() {
+    let index = IndexId::new(EntityTag::new(7), 3);
+    let authority = authority([], [(index, 3)], 0);
+
+    assert!(!authority.accepts_user_index_prefix(index, 0));
+    assert!(authority.accepts_user_index_prefix(index, 1));
+    assert!(authority.accepts_user_index_prefix(index, 2));
+    assert!(authority.accepts_user_index_prefix(index, 3));
+    assert!(!authority.accepts_user_index_prefix(index, 4));
+    assert!(!authority.accepts_user_index_prefix(IndexId::new(EntityTag::new(7), 4), 1,));
+}
+
+#[test]
 fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
     let entity = EntityTag::new(7);
     let data_memory = test_memory(190);

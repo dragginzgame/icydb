@@ -13,7 +13,7 @@ use crate::{
             ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
             LoweredKey,
             budget::{charge_current_execution_budget, charge_current_execution_budget_pair},
-            lowered_index_prefix_liveness,
+            lowered_index_prefix_exact_cardinalities,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
@@ -173,8 +173,14 @@ pub(in crate::db::executor) fn active_lowered_index_prefix_specs<'a>(
     let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
 
     if let Some(store) = empty_proof_store {
-        for spec in index_prefix_specs {
-            if !lowered_index_prefix_liveness(store, spec).should_scan() {
+        let exact_cardinalities =
+            lowered_index_prefix_exact_cardinalities(store, index_prefix_specs);
+        for (position, spec) in index_prefix_specs.iter().enumerate() {
+            if exact_cardinalities
+                .as_ref()
+                .and_then(|counts| counts.get(position))
+                == Some(&0)
+            {
                 continue;
             }
             if index_predicate_rejects_prefix_components(

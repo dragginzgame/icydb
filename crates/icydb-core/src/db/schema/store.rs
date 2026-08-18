@@ -3686,6 +3686,20 @@ impl SchemaStore {
     fn current_accepted_schema_bundle_ref(
         &self,
     ) -> Result<Option<Ref<'_, AcceptedSchemaRevisionBundle>>, InternalError> {
+        self.current_accepted_schema_authority_ref()
+            .map(|authority| authority.map(|(_selection, bundle)| bundle))
+    }
+
+    /// Borrow the effective accepted root and its cached, verified immutable bundle together.
+    pub(in crate::db) fn current_accepted_schema_authority_ref(
+        &self,
+    ) -> Result<
+        Option<(
+            AcceptedSchemaRootSelection,
+            Ref<'_, AcceptedSchemaRevisionBundle>,
+        )>,
+        InternalError,
+    > {
         let Some(selection) = self.current_accepted_schema_root()? else {
             self.accepted_bundle_cache
                 .try_borrow_mut()
@@ -3743,7 +3757,7 @@ impl SchemaStore {
         })
         .map_err(|_| InternalError::store_invariant())?;
         self.validate_identity_state_closure(&bundle)?;
-        Ok(Some(bundle))
+        Ok(Some((selection, bundle)))
     }
 
     fn latest_raw_snapshots_by_entity(
