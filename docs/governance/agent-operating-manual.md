@@ -180,9 +180,9 @@ struct TypeName;
 ## Changelog And Release
 
 - Follow `docs/governance/changelog.md`.
-- Keep the root `CHANGELOG.md` `Unreleased` section current for every unpushed
-  code slice. Treat that as handoff discipline, not a release blocker when a
-  note is missing.
+- Keep the latest active root version and its shared minor-line notes current
+  for every code slice. Do not create an `Unreleased` section. Treat this as
+  handoff discipline, not a release blocker when a note is missing.
 - Governance-only edits do not need release notes unless explicitly requested.
 - In `docs/changelog/0.*.md`, separate every `## 0.x.y` entry with `---`.
 - Root changelog summaries should be plain-language, user-impact first, and concise.
@@ -193,6 +193,10 @@ struct TypeName;
   changelog entries, but do not pre-bump package versions or `Cargo.lock`.
   Missing changelog notes should be reported and reconstructed when practical;
   their absence alone is not a mechanical release blocker.
+- Once a version has a matching release tag or is reported pushed/published,
+  never rewrite it. Continued work opens the next patch automatically within
+  the same explicitly authorized minor; an explicitly started new minor opens
+  at `.0`.
 - Never modify pushed release tags.
 
 ## Design Docs

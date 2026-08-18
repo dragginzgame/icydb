@@ -53,28 +53,29 @@ Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to [docs/changelog/0.33.md](..
 
 The root changelog must link to the detailed file when present.
 
-## 2.3 Unreleased Work
+## 2.3 Active Version Work
 
-Canonical rule: the repository has exactly one `Unreleased` section, and it
-lives in root `CHANGELOG.md` as the first release section, immediately above
-the latest version entry. Do not add `Unreleased` sections to minor-line
-detailed notes files, design docs, status docs, or any other changelog-adjacent
-file.
+Canonical rule: the repository has no `Unreleased` section. Every code slice
+is recorded directly under the latest active root version and its shared
+`docs/changelog/<major>.<minor>.md` entry.
 
-Every unpushed code slice must keep the root `Unreleased` section current. Use
-that section for small slices, exploratory cleanup, and follow-up work that is
-not yet being published. Do not invent patch numbers just to record each
-slice. Governance-only edits do not require a note unless explicitly requested.
+The newest root version is active while it has no matching `v<version>` release
+tag and the user has not reported it pushed, published, or live. Revise its one
+concise root patch bullet and detailed notes as coherent work accumulates; do
+not create one patch entry per landing slice. Governance-only edits do not
+require a note unless explicitly requested.
 
-This is an authoring and handoff discipline, not a mechanical push or release
-gate. If a note is missing, report it and reconstruct it when practical, but do
+Once the latest version has a matching release tag or is reported published,
+never rewrite it. If work continues in the same explicitly authorized minor
+line, automatically open the next patch number. When the user explicitly
+starts a different minor line, automatically open its `.0` entry. This
+changelog-only version selection does not authorize crossing a minor boundary,
+mutating Cargo versions, committing, tagging, or publishing.
+
+This is authoring and handoff discipline, not a mechanical push or release
+gate. If a note is missing, report and reconstruct it when practical, but do
 not stop an otherwise ready push or release solely because the changelog was
 not updated.
-
-When a release is prepared, collapse the current root `Unreleased` notes into
-the target patch entry and add exactly one concise root changelog bullet for
-that patch. Move implementation detail into `docs/changelog/<major>.<minor>.md`
-only as part of release prep.
 
 ---
 
@@ -111,8 +112,9 @@ Rules:
 13. For a root minor-line entry (`<major>.<minor>.x`), use exactly one bullet per patch version listed in that minor line.
 14. Each root minor-line patch bullet must be a high-level summary sentence, not an exhaustive implementation list.
 15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `docs/changelog/<major>.<minor>.md`.
-16. Do not add a new root patch bullet for every code slice. Batch coherent
-    work and create the patch bullet only when release preparation starts.
+16. Do not add a new root patch bullet for every code slice. Update the one
+    active patch bullet until that version is reported published; then open the
+    next patch only as defined by the active-version rule above.
 
 ## 3.1 Section Header Emoji Mapping
 
@@ -151,13 +153,13 @@ Do not use plain backticked path text for detailed-breakdown links.
 During ordinary development:
 
 1. Prefer focused code slices and focused validation.
-2. For every unpushed code slice, update the root `CHANGELOG.md` `Unreleased`
-   section before handoff. Governance-only edits remain exempt unless the user
-   requests a note.
-3. Do not assign patch numbers.
-4. Do not add `Unreleased` sections anywhere except the top of root
-   `CHANGELOG.md`; detailed minor notes are finalized when preparing a patch
-   release.
+2. For every code slice, update the latest active root patch bullet and its
+   shared minor-line notes before handoff. Governance-only edits remain exempt
+   unless the user requests a note.
+3. If the latest version has a matching release tag or was reported published,
+   select the next patch within the same explicitly authorized minor
+   automatically. An explicitly started new minor begins at `.0`.
+4. Never add an `Unreleased` section or rewrite a published version.
 
 When preparing a release:
 
@@ -177,10 +179,9 @@ When preparing a release:
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
 10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `docs/changelog/<major>.<minor>.md`.
-11. Convert accumulated root `Unreleased` notes for the current minor into the
-    target patch entry during release preparation. Reconstruct missing notes
-    when practical, but do not make their absence alone a mechanical release
-    blocker.
+11. Reconcile the complete candidate into the already active root and detailed
+    entries. Reconstruct missing notes when practical, but do not make their
+    absence alone a mechanical release blocker.
 
 In agent sessions, version bump commands, release commits, tags, and pushes are
 user-owned. Agents may prepare release notes and report readiness, but they do
@@ -284,7 +285,7 @@ Testing section rules:
 
 For each release:
 
-1. Convert any relevant root `Unreleased` notes into the target patch entry.
+1. Confirm the active target patch entry includes every relevant candidate change.
 2. Update CHANGELOG.md with one concise bullet for the target patch.
 3. Create or update docs/changelog/<major>.<minor>.md.
 4. Commit the code and changelog changes.

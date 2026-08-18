@@ -67,8 +67,9 @@ outcomes merely to reduce the patch count.
 One planned landing patch is the default maximum for one agent implementation
 turn.
 After completing its code, focused validation, status update, and root
-`Unreleased` note, the agent stops and hands the landing patch back for review.
-It does not start the next planned patch in the same turn.
+latest-active-version changelog update, the agent stops and hands the landing
+patch back for review. It does not start the next planned patch in the same
+turn.
 
 Continuation language is deliberately bounded:
 

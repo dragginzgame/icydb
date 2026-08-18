@@ -26,6 +26,6 @@ Attach outputs that help reviewers verify behavior.
 - [ ] Ran `make fmt-check` (or `cargo fmt --all -- --check`)
 - [ ] Ran `make clippy` (no warnings)
 - [ ] Ran `make test` (all green)
-- [ ] Updated `CHANGELOG.md` (under `[Unreleased]`) when user-visible
+- [ ] Updated the latest active `CHANGELOG.md` version when user-visible
 - [ ] Updated docs/examples where relevant
 - [ ] Linked related issues (e.g., `Closes #123`)

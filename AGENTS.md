@@ -77,16 +77,16 @@ Keep this file small. Open detailed governance docs only when the task needs the
   combine independent planned outcomes into a multi-hour mega-slice.
 - One planned landing patch is one reviewable worktree handoff and the default
   implementation-turn boundary. Complete that patch, validate it, update its
-  status and `Unreleased` note, then stop and hand it back; do not begin the
-  next planned patch in the same turn.
+  status and latest active-version changelog notes, then stop and hand it back;
+  do not begin the next planned patch in the same turn.
 - Generic continuation such as "continue", "keep going", or "next" authorizes
   exactly the next planned landing patch within the current minor-version
   line. It never authorizes starting a different minor. Implement multiple
   patches in one turn only when the user explicitly names them and asks to
   combine them.
 - Batch coherent routine work within the current landing patch, never across
-  planned patch boundaries. A landing patch receives a version number only
-  when the user names the release target.
+  planned patch boundaries. Record it under the latest active changelog version;
+  changelog governance owns automatic next-patch selection after publication.
 - Treat file and delivery-domain counts as reporting signals, not execution
   limits. Include direct tests, documentation, fixtures, exhaustive matches,
   and mechanical propagation required by the current planned outcome. If work
@@ -122,14 +122,22 @@ Keep this file small. Open detailed governance docs only when the task needs the
 ## Changelog / Release Notes
 
 - Before any changelog edit, open and follow `docs/governance/changelog.md`; it is the changelog source of truth.
-- Root `CHANGELOG.md` is the only `Unreleased` location; do not add `Unreleased` sections to detailed minor files.
-- Keep root `CHANGELOG.md` `Unreleased` current as part of every unpushed code slice; update it before reporting the slice complete instead of waiting for a separate changelog request.
+- Do not create or retain an `Unreleased` section. Record every code slice
+  directly in the latest active root version and its shared minor-line notes.
+- Keep the latest active root and detailed entries current before reporting a
+  slice complete; do not wait for a separate changelog request.
 - This is agent authoring discipline, not a mechanical push or release gate;
   a missing note must be reported and repaired when practical, but its absence
   alone does not make an otherwise ready slice unpushable.
 - When the user names a target version or asks whether it is ready to push, automatically prepare its root and detailed changelog entries as part of readiness; do not wait for another changelog request.
-- Create or update patch-numbered root/detailed changelog entries only during release prep for a user-named target version.
-- Do not invent patch numbers, do not infer patch numbers for design/status docs, and keep release prep details governed by `docs/governance/changelog.md`.
+- Treat the newest root patch without a matching release tag and not reported
+  pushed/published as active. Once its tag exists or the user reports it
+  published, automatically open the next patch in the same explicitly
+  authorized minor line; an explicitly started new minor opens at `.0`. Never
+  cross a minor boundary without the existing user authorization.
+- Automatic patch selection applies only to changelog release entries. Do not
+  infer patch numbers for design/status docs, and keep release-prep details
+  governed by `docs/governance/changelog.md`.
 - Governance-only edits do not need release notes unless requested.
 
 ## Push / Commit Boundaries
