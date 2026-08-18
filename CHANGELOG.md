@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Local deployment environments now build only maintained audit and demo
   canisters, with static validation rejecting stale inventory before deploy.
 - Canister validation now reports every independent Cargo and post-link failure
-  in one run, emits aggregate cache metrics, and avoids unnecessary cache
-  invalidation and eviction through ic-testkit 0.8.2.
+  in one run with stable post-link labels and per-phase failure timings, emits
+  aggregate cache metrics, traces local ICP cache reuse, and avoids unnecessary
+  cache invalidation and eviction through ic-testkit 0.8.5.
 
 ## [0.230.x] 🧮 - 2026-08-17 - Durable Exact Cardinality Generations
 

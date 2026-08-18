@@ -5431,6 +5431,8 @@ mod identity_pre_key_tests {
 
         let data_generation = JOURNALED_DATA_STORE.with(|store| store.borrow().generation());
         let index_generation = JOURNALED_INDEX_STORE.with(|store| store.borrow().generation());
+        let data_len = JOURNALED_DATA_STORE.with(|store| store.borrow().len());
+        let index_len = JOURNALED_INDEX_STORE.with(|store| store.borrow().len());
         forget_recovered_domain_for_tests(&session.db)
             .expect("an empty-tail upgrade should reset recovery ownership");
         session
@@ -5439,13 +5441,27 @@ mod identity_pre_key_tests {
             .expect("an empty-tail upgrade should admit without rebuilding stored rows or indexes");
         assert_eq!(
             JOURNALED_DATA_STORE.with(|store| store.borrow().generation()),
-            data_generation,
-            "empty-tail recovery must not traverse or rewrite authoritative rows",
+            data_generation
+                .checked_add(1)
+                .expect("test generation should advance once"),
+            "empty-tail recovery must reset the disposable row projection exactly once",
         );
         assert_eq!(
             JOURNALED_INDEX_STORE.with(|store| store.borrow().generation()),
-            index_generation,
-            "empty-tail recovery must not clear or rebuild secondary indexes",
+            index_generation
+                .checked_add(1)
+                .expect("test generation should advance once"),
+            "empty-tail recovery must reset the disposable index projection exactly once",
+        );
+        assert_eq!(
+            JOURNALED_DATA_STORE.with(|store| store.borrow().len()),
+            data_len,
+            "empty-tail recovery must not rebuild or remove authoritative rows",
+        );
+        assert_eq!(
+            JOURNALED_INDEX_STORE.with(|store| store.borrow().len()),
+            index_len,
+            "empty-tail recovery must not clear or rebuild canonical secondary indexes",
         );
 
         let quick = execute_quick_integrity(

@@ -433,7 +433,7 @@ fn finish_canister_build(
     }
 
     let cache_root = target_dir(root).join("canister-artifact-cache");
-    let record = cache_post_link_wasm(&PostLinkCacheRequest {
+    let outcome = cache_post_link_wasm(&PostLinkCacheRequest {
         workspace_root: root,
         cache_root: &cache_root,
         coordination_scope: context_label,
@@ -441,7 +441,7 @@ fn finish_canister_build(
         final_deployable: &configured.final_deployable,
     })
     .map_err(|error| format!("{context_label}: {error}"))?;
-    trace_post_link(context_label, &record);
+    trace_post_link(context_label, &outcome);
 
     Ok(BuiltCanisterArtifacts {
         compiler_emitted: configured.compiler_emitted,

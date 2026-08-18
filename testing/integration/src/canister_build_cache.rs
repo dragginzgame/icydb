@@ -8,7 +8,8 @@ use std::{
 };
 
 use ic_testkit::artifacts::{
-    ArtifactCachePreparation, ArtifactCachePrunePolicy, ArtifactCacheRecord, ArtifactCacheSpec,
+    ArtifactCacheBatchOutcomeEntry, ArtifactCacheOutcome, ArtifactCachePreparation,
+    ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
     SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchProgressEvent,
     WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent, WasmBuildSpec,
@@ -140,11 +141,16 @@ pub(crate) fn build_cached_cargo_wasm_batch(
     let successful_indexes = report.outcomes().map(|(index, _)| index).collect();
     let failures = report
         .failures()
-        .map(|(index, error)| {
+        .map(|failure| {
+            let index = failure.index();
             let context = entries
                 .get(index)
                 .map_or("maintained canister batch", |entry| entry.context);
-            format!("Cargo [{index}] {context}: {error}")
+            format!(
+                "Cargo [{index}] {context} after {:?}: {}",
+                failure.entry_elapsed(),
+                failure.error(),
+            )
         })
         .collect::<Vec<_>>();
     CanisterCacheBatchReport {
@@ -180,14 +186,14 @@ fn cargo_wasm_spec(
 
 pub(crate) fn cache_post_link_wasm(
     request: &PostLinkCacheRequest<'_>,
-) -> Result<ArtifactCacheRecord, String> {
+) -> Result<ArtifactCacheOutcome, String> {
     let optimizer = pinned_wasm_optimizer()?;
     let spec = post_link_cache_spec(request, &optimizer);
 
     match prepare_artifact_cache(&spec)
         .map_err(|error| format!("post-link artifact cache failed: {error}"))?
     {
-        ArtifactCachePreparation::Reused(record) => Ok(record),
+        ArtifactCachePreparation::Reused(record) => Ok(ArtifactCacheOutcome::Reused(record)),
         ArtifactCachePreparation::Build(transaction) => {
             let output = transaction
                 .output_path("final-deployable")
@@ -195,7 +201,6 @@ pub(crate) fn cache_post_link_wasm(
             optimize_deployable_wasm_with_optimizer(request.compiler_emitted, &output, &optimizer)?;
             transaction
                 .commit()
-                .map(|outcome| outcome.record().clone())
                 .map_err(|error| format!("post-link artifact cache failed: {error}"))
         }
     }
@@ -219,34 +224,45 @@ pub(crate) fn cache_post_link_wasm_batch(
         .collect::<Vec<_>>();
     let specs = requests
         .iter()
-        .map(|request| post_link_cache_spec(request, &optimizer))
+        .map(|request| {
+            LabeledArtifactCacheSpec::new(
+                request.coordination_scope,
+                post_link_cache_spec(request, &optimizer),
+            )
+        })
         .collect::<Vec<_>>();
-    let report = build_artifact_caches_batch(&specs, |index, transaction| {
+    let report = build_artifact_caches_batch(&specs, |label, transaction| {
         let entry = entries
-            .get(index)
-            .ok_or_else(|| format!("post-link batch returned unknown entry index {index}"))?;
+            .iter()
+            .find(|entry| entry.context == label)
+            .ok_or_else(|| format!("post-link batch returned unknown entry label {label:?}"))?;
         let output = transaction
             .output_path("final-deployable")
             .map_err(|error| format!("post-link artifact cache failed: {error}"))?;
         optimize_deployable_wasm_with_optimizer(entry.compiler_emitted, &output, &optimizer)
-    });
+    })
+    .map_err(|error| format!("post-link artifact batch contract failed: {error}"))?;
 
-    for (index, outcome) in report.outcomes() {
-        let context = entries
-            .get(index)
-            .map_or("maintained canister post-link batch", |entry| entry.context);
-        trace_post_link(context, outcome.record());
+    for outcome in report.outcomes() {
+        trace_post_link(outcome.label(), outcome.outcome());
     }
     eprintln!("maintained canister post_link_batch={report}");
 
-    let successful_indexes = report.outcomes().map(|(index, _)| index).collect();
+    let successful_indexes = report
+        .outcomes()
+        .map(ArtifactCacheBatchOutcomeEntry::index)
+        .collect();
     let failures = report
         .failures()
-        .map(|(index, error)| {
-            let context = entries
-                .get(index)
-                .map_or("maintained canister post-link batch", |entry| entry.context);
-            format!("post-link [{index}] {context}: {error}")
+        .map(|failure| {
+            let index = failure.index();
+            format!(
+                "post-link [{index}] {} failed during {} after {:?}: {}",
+                failure.label(),
+                failure.failure().phase(),
+                failure.entry_elapsed(),
+                failure.failure(),
+            )
         })
         .collect::<Vec<_>>();
     Ok(CanisterCacheBatchReport {
@@ -288,13 +304,9 @@ pub(crate) fn trace_wasm_build(context: &str, outcome: &WasmBuildOutcome) {
     }
 }
 
-pub(crate) fn trace_post_link(context: &str, record: &ArtifactCacheRecord) {
+pub(crate) fn trace_post_link(context: &str, outcome: &ArtifactCacheOutcome) {
     if env::var_os(CACHE_TRACE_ENV).is_some() {
-        eprintln!(
-            "{context}: post_link_cache key={} {}",
-            record.key(),
-            record.timings(),
-        );
+        eprintln!("{context}: post_link_cache={outcome}");
     }
 }
 
@@ -489,6 +501,9 @@ mod tests {
         assert_eq!(report.successful_indexes, [1]);
         assert_eq!(report.failures.len(), 1);
         assert!(report.failures[0].contains("invalid post-link fixture"));
+        assert!(report.failures[0].contains("failed during callback"));
+        assert!(report.failures[0].contains(" after "));
+        assert!(report.failures[0].contains("timings=("));
         assert!(!invalid_output.exists());
         assert!(valid_output.is_file());
         fs::remove_dir_all(root).expect("remove post-link batch fixture");

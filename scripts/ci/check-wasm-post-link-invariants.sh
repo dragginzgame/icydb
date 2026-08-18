@@ -24,6 +24,10 @@ require_text \
     'whole-fleet post-link validation must use the collect-all artifact cache batch.'
 require_text \
     testing/integration/src/canister_build_cache.rs \
+    'LabeledArtifactCacheSpec::new(' \
+    'whole-fleet post-link validation must retain stable caller labels across batch reports.'
+require_text \
+    testing/integration/src/canister_build_cache.rs \
     'optimize_deployable_wasm_with_optimizer(entry.compiler_emitted, &output, &optimizer)' \
     'the post-link artifact cache must invoke the canonical optimizer on cache misses.'
 require_text \

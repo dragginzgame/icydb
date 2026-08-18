@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
+# Local ICP builds should explain whether each exact Cargo and post-link artifact
+# was built or reused. Other integration-test entry points remain quiet.
+export ICYDB_CANISTER_CACHE_TRACE="${ICYDB_CANISTER_CACHE_TRACE:-1}"
 
 if [ "$#" -ne 1 ]; then
     echo "usage: build.sh [canister_name]"
