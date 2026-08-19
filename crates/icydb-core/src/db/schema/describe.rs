@@ -2519,7 +2519,7 @@ mod tests {
         let first = Encode!(&maximum).expect("accepted maximum should encode to bounded Candid");
         let second = Encode!(&maximum).expect("accepted maximum should encode deterministically");
         assert_eq!(first, second);
-        assert_eq!(first.len(), 9_737_847);
+        assert_eq!(first.len(), 9_737_853);
 
         let relation = EntityRelationDescription::new(
             "owner_id".to_string(),
@@ -2562,7 +2562,7 @@ mod tests {
         };
         let encoded_output =
             Encode!(&output).expect("reachable accepted compact output should encode");
-        assert_eq!(encoded_output.len(), 3_693_110);
+        assert_eq!(encoded_output.len(), 3_693_116);
         assert!(
             encoded_output.len() > IC_QUERY_REPLY_BYTES,
             "a valid accepted schema must exercise the generated endpoint reply guard",

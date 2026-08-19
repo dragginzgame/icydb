@@ -3,18 +3,23 @@ use super::*;
 use crate::{
     db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
-        data::{CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StructuralRowContract},
+        data::{
+            CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, SlotReader,
+            StructuralRowContract,
+        },
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
-            AcceptedFieldKind, FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
-            SchemaMutationRequest, SchemaRowLayout, SchemaVersion,
+            AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
+            AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId,
+            PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault, SchemaMutationRequest,
+            SchemaRowLayout, SchemaVersion, empty_accepted_enum_catalog_for_tests,
         },
     },
     error::InternalError,
@@ -32,8 +37,15 @@ impl SlotReader for RebuildSlotReader {
         panic!("rebuild key test reader should not decode raw bytes")
     }
 
-    fn get_scalar(&self, _slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        panic!("rebuild key test reader should not route through scalar fast paths")
+    fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        match self.values.get(slot).and_then(Option::as_ref) {
+            None => Ok(None),
+            Some(Value::Null) => Ok(Some(ScalarSlotValueRef::Null)),
+            Some(Value::Text(value)) => Ok(Some(ScalarSlotValueRef::Value(ScalarValueRef::Text(
+                value.as_str(),
+            )))),
+            Some(_) => Err(InternalError::store_invariant()),
+        }
     }
 
     fn get_value(&mut self, _slot: usize) -> Result<Option<Value>, InternalError> {
@@ -47,7 +59,7 @@ impl CanonicalSlotReader for RebuildSlotReader {
     }
 
     fn field_leaf_codec(&self, _slot: usize) -> Result<LeafCodec, InternalError> {
-        panic!("rebuild key test reader should not decode through field contracts")
+        Ok(LeafCodec::Scalar(ScalarCodec::Text))
     }
 
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
@@ -235,6 +247,22 @@ fn snapshot_with_indexes(
     )
     .with_constraint_catalog(constraint_catalog)
     .with_relations(snapshot.relations().to_vec())
+}
+
+fn accepted_row_contract(snapshot: &PersistedSchemaSnapshot) -> StructuralRowContract {
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot.clone())
+        .expect("test row contract requires a valid accepted snapshot");
+    let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+        empty_accepted_enum_catalog_for_tests(),
+        AcceptedCompositeCatalog::empty(),
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let runtime = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("test accepted row layout should compile");
+    StructuralRowContract::from_accepted_decode_contract(
+        snapshot.entity_path(),
+        runtime.row_decode_contract(value_catalog),
+    )
 }
 
 mod planning;

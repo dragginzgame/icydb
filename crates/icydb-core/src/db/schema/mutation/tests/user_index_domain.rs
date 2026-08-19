@@ -260,9 +260,10 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
             AcceptedFieldKind::Text { max_len: None },
             true,
         )]),
-        None,
+        Some("nickname IS NOT NULL".to_string()),
     );
     let after = snapshot_with_indexes(&added, vec![unique_nickname]);
+    let row_contract = accepted_row_contract(&after);
     let first_before = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Ada".to_string()))],
     };
@@ -301,7 +302,7 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
         accepted_identity(&before),
         &before,
         &after,
-        None,
+        Some(&row_contract),
         [first, second],
         &store,
     );

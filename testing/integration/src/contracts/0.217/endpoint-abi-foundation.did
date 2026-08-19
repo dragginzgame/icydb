@@ -85,6 +85,7 @@ type EntityConstraintDescription = record {
   index : opt text;
   index_id : opt nat32;
   target_entity : opt text;
+  predicate_sql : opt text;
   relation_id : opt nat32;
 };
 type EntityFieldDescription = record {
