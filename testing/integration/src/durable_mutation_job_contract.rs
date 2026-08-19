@@ -43,6 +43,12 @@ pub const DURABLE_MUTATION_JOB_RECORD_BYTES: u32 = 64 * 1_024;
 /// Shared current progress-store job capacity across all retained job families.
 pub const DURABLE_MUTATION_JOB_GLOBAL_CAPACITY: u32 = 64;
 
+/// Maximum shared occupancy admitted for non-integrity job families.
+pub const DURABLE_PROGRESS_NON_INTEGRITY_CAPACITY: u32 = 56;
+
+/// Exact shared slots reserved for Deep integrity work.
+pub const DURABLE_PROGRESS_INTEGRITY_RESERVATION: u32 = 8;
+
 /// Existing idempotency-key byte limit retained by the new job family.
 pub const DURABLE_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES: u32 = 256;
 
@@ -70,15 +76,20 @@ pub const CURRENT_MUTATION_PROGRESS_MARKER_VERSION: u8 = 1;
 /// Exact maximum current mutation-progress contribution to one marker payload.
 pub const CURRENT_MUTATION_PROGRESS_MAX_MARKER_PAYLOAD_BYTES: u32 = 37_797;
 
-/// Excluded-allocation bytes at one, eight, and 64 retained small records.
-pub const CURRENT_MUTATION_JOB_STABLE_BYTES: [u64; 3] = [4_390_912, 4_390_912, 38_993_920];
+/// Excluded-allocation bytes at retained counts 55, 56, 63, and 64.
+pub const CURRENT_PROGRESS_STABLE_BYTES_AT_RESERVATION_BOUNDARIES: [u64; 4] =
+    [38_993_920, 38_993_920, 43_319_296, 43_319_296];
 
 const _: () = {
     assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > 10_000);
     assert!(DURABLE_MUTATION_JOB_FIXTURE_ROWS > DURABLE_MUTATION_JOB_EAGER_UPDATE_ROW_LIMIT);
     assert!(CURRENT_MUTATION_JOB_MAX_ACTIVE_RECORD_BYTES < DURABLE_MUTATION_JOB_RECORD_BYTES);
     assert!(CURRENT_MUTATION_JOB_MAX_REPLAY_RECEIPT_BYTES < DURABLE_MUTATION_JOB_RECEIPT_BYTES);
-    assert!(CURRENT_MUTATION_JOB_STABLE_BYTES.len() == 3);
+    assert!(
+        DURABLE_PROGRESS_NON_INTEGRITY_CAPACITY + DURABLE_PROGRESS_INTEGRITY_RESERVATION
+            == DURABLE_MUTATION_JOB_GLOBAL_CAPACITY
+    );
+    assert!(CURRENT_PROGRESS_STABLE_BYTES_AT_RESERVATION_BOUNDARIES.len() == 4);
     assert!(CURRENT_DURABLE_START_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS < DURABLE_START_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[0] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
@@ -107,6 +118,17 @@ const _: () = {
     );
     assert!(
         CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
+    assert!(CURRENT_DURABLE_CANCELLATION_INSTRUCTIONS < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert!(
+        CURRENT_DURABLE_ABSENT_CANCELLATION_INSTRUCTIONS
+            < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
+    assert!(
+        CURRENT_DURABLE_INVENTORY_ONE_INSTRUCTIONS < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
+    );
+    assert!(
+        CURRENT_DURABLE_INVENTORY_FULL_INSTRUCTIONS < DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING
     );
 };
 
@@ -157,6 +179,18 @@ pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_114;
 /// Current sequence-checked terminal acknowledgement sample.
 pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 117_843;
 
+/// Current exact sequence-zero cancellation sample.
+pub const CURRENT_DURABLE_CANCELLATION_INSTRUCTIONS: u64 = 144_089;
+
+/// Current absent-record cancellation retry sample.
+pub const CURRENT_DURABLE_ABSENT_CANCELLATION_INSTRUCTIONS: u64 = 37_249;
+
+/// Current complete inventory sample with one retained mutation job.
+pub const CURRENT_DURABLE_INVENTORY_ONE_INSTRUCTIONS: u64 = 116_690;
+
+/// Current complete inventory sample at all 64 retained slots.
+pub const CURRENT_DURABLE_INVENTORY_FULL_INSTRUCTIONS: u64 = 5_869_961;
+
 /// Maximum reviewed instruction cost for one byte- and count-packed 56-update Forward step.
 pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 34_000_000;
 
@@ -165,6 +199,9 @@ pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 8_000_000;
 
 /// Maximum reviewed instruction cost for state, replay, or acknowledgement.
 pub const DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING: u64 = 2_000_000;
+
+/// Maximum reviewed instruction cost for a complete 64-record inventory.
+pub const DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING: u64 = 7_000_000;
 
 /// Per-patch raw-Wasm movement that requires explicit attribution.
 pub const DURABLE_MUTATION_JOB_PATCH_WASM_REVIEW_BYTES: u64 = 64 * 1_024;
@@ -490,6 +527,12 @@ mod tests {
         .expect("progress-store authority should be readable");
         assert!(progress_store.contains("const MAX_PROGRESS_RECORD_BYTES: u32 = 512 * 1024;"));
         assert!(progress_store.contains("const MAX_PROGRESS_JOBS_GLOBAL: u64 = 64;"));
+        assert!(progress_store.contains("const MAX_PROGRESS_JOBS_NON_INTEGRITY: u64 = 56;"));
+        assert!(
+            progress_store.contains("MAX_PROGRESS_JOBS_GLOBAL - MAX_PROGRESS_JOBS_NON_INTEGRITY")
+        );
+        assert!(progress_store.contains("pub(in crate::db) fn cancel_unadvanced_mutation("));
+        assert!(progress_store.contains("pub(in crate::db) fn inventory(&self)"));
 
         let canonical_intent =
             fs::read_to_string(workspace.join("crates/icydb-core/src/db/mutation_job/intent.rs"))
@@ -503,6 +546,8 @@ mod tests {
                 .expect("mutation-job session authority should be readable");
         assert!(mutation_session.contains("pub fn start_trusted_sql_mutation_job("));
         assert!(mutation_session.contains("InsertMutationJobResult::Occupied(retained)"));
+        assert!(mutation_session.contains("pub fn cancel_unadvanced_mutation_job("));
+        assert!(mutation_session.contains("pub fn progress_job_inventory("));
 
         let commit_marker =
             fs::read_to_string(workspace.join("crates/icydb-core/src/db/commit/marker.rs"))

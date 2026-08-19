@@ -29,7 +29,11 @@ pub const MAX_MUTATION_JOB_STEP_KEYS_SCANNED: u64 = 208;
 /// Maximum target rows changed by one mutation-job advance.
 pub const MAX_MUTATION_JOB_STEP_ROWS_UPDATED: u64 = 56;
 
-/// Nonzero application-owned identity for one durable mutation job.
+/// Nonzero application-owned identity for one durable mutation job incarnation.
+///
+/// An application must allocate a fresh identity for every logical job. An
+/// identity is never reusable after cancellation, acknowledgement, failure,
+/// or an absent-record response.
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MutationJobId([u8; 32]);
 
@@ -322,6 +326,36 @@ impl MutationJobRecord {
 
     pub(in crate::db) const fn engine_continuation(&self) -> &[u8] {
         self.engine_continuation.as_slice()
+    }
+
+    /// Prove that cancellation can remove only the exact initial record.
+    pub(in crate::db) fn ensure_cancelable_at_sequence(
+        &self,
+        expected_sequence: u64,
+    ) -> Result<&[u8], MutationJobError> {
+        self.validate()?;
+        if self.state.sequence != expected_sequence {
+            return Err(MutationJobError::StaleSequence {
+                expected: expected_sequence,
+                actual: self.state.sequence,
+            });
+        }
+        if self.state.sequence != 0 {
+            return Err(MutationJobError::StaleSequence {
+                expected: 0,
+                actual: self.state.sequence,
+            });
+        }
+        if self.state.status != MutationJobStatus::Active
+            || self.state.phase != MutationJobPhase::Forward
+            || self.state.keys_scanned_total != 0
+            || self.state.rows_updated_total != 0
+            || self.state.verify_restarts_total != 0
+            || self.last_receipt.is_some()
+        {
+            return Err(MutationJobError::CorruptProgressStore);
+        }
+        Ok(self.engine_continuation())
     }
 
     pub(in crate::db) fn exact_replay(

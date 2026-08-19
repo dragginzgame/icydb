@@ -11,11 +11,11 @@ use ic_testkit::pic::{
 use icydb::{
     Error,
     db::{
-        DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, IntegrityPhase,
-        IntegrityTerminalOutcome, MutationJobAdvanceReceipt, MutationJobError, MutationJobPhase,
-        MutationJobState, MutationJobStatus, SqlDescribeOutput, SqlIntegrityError,
-        SqlQueryExecutionAttribution, SqlShowColumnsOutput, SqlStructuralWorkAttribution,
-        sql::SqlQueryResult,
+        DeepIntegrityPageStatus, IntegrityCheckError, IntegrityCheckResult, IntegrityJobError,
+        IntegrityJobReceipt, IntegrityPhase, IntegrityTerminalOutcome, MutationJobAdvanceReceipt,
+        MutationJobError, MutationJobPhase, MutationJobState, MutationJobStatus, ProgressJobFamily,
+        ProgressJobInventory, SqlDescribeOutput, SqlIntegrityError, SqlQueryExecutionAttribution,
+        SqlShowColumnsOutput, SqlStructuralWorkAttribution, sql::SqlQueryResult,
     },
     diagnostic::{
         DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
@@ -26,8 +26,8 @@ use icydb_testing_integration::{
     MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
-        DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT, DURABLE_START_INSTRUCTION_REVIEW_CEILING,
-        DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
+        DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING, DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT,
+        DURABLE_START_INSTRUCTION_REVIEW_CEILING, DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
     },
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
@@ -166,6 +166,17 @@ struct MutationJobStartPerfResult {
     state: MutationJobState,
     local_instructions: u64,
     target_rows_changed: u32,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct ProgressJobInventoryPerfResult {
+    inventory: ProgressJobInventory,
+    local_instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct MutationJobCancellationPerfResult {
+    local_instructions: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -1925,6 +1936,26 @@ fn advance_mutation_job(
         .expect("mutation-job advance result should decode")
 }
 
+fn cancel_mutation_job(
+    fixture: &StandaloneCanisterFixture,
+    job_discriminator: u8,
+    expected_sequence: u64,
+) -> Result<MutationJobCancellationPerfResult, MutationJobError> {
+    fixture
+        .update_candid(
+            "cancel_journaled_user_mutation_job",
+            (job_discriminator, expected_sequence),
+        )
+        .expect("mutation-job cancellation result should decode")
+}
+
+fn progress_job_inventory(fixture: &StandaloneCanisterFixture) -> ProgressJobInventoryPerfResult {
+    let result: Result<ProgressJobInventoryPerfResult, MutationJobError> = fixture
+        .update_candid("progress_job_inventory_perf", ())
+        .expect("progress-job inventory result should decode");
+    result.expect("progress-job inventory should succeed")
+}
+
 fn update_later_matching_mutation_row(fixture: &StandaloneCanisterFixture) -> u32 {
     let result: Result<u32, Error> = fixture
         .update_candid("update_journaled_user_after_mutation_job_start", ())
@@ -2410,6 +2441,129 @@ fn sql_perf_mutation_job_start_is_durable_replayable_and_non_mutating() {
         replay.local_instructions < DURABLE_START_INSTRUCTION_REVIEW_CEILING,
         "same-intent replay should remain below the frozen review ceiling"
     );
+}
+
+#[test]
+fn sql_mutation_job_sequence_zero_cancellation_is_idempotent_and_incarnation_safe() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    start_mutation_job(&fixture, 90, 0).expect("initial cancellable job should start");
+    assert_eq!(
+        cancel_mutation_job(&fixture, 90, 1),
+        Err(MutationJobError::StaleSequence {
+            expected: 1,
+            actual: 0,
+        }),
+    );
+    assert_eq!(progress_job_inventory(&fixture).inventory.retained_count, 1);
+
+    let cancelled = cancel_mutation_job(&fixture, 90, 0)
+        .expect("exact sequence-zero cancellation should succeed");
+    let lost_response_retry =
+        cancel_mutation_job(&fixture, 90, 0).expect("absent cancellation retry should succeed");
+    assert_eq!(progress_job_inventory(&fixture).inventory.retained_count, 0);
+
+    start_mutation_job(&fixture, 91, 0).expect("fresh logical job identity should start");
+    cancel_mutation_job(&fixture, 90, 0)
+        .expect("delayed retry for the retired identity should remain harmless");
+    let retained = progress_job_inventory(&fixture);
+    assert_eq!(retained.inventory.retained_count, 1);
+    assert_eq!(retained.inventory.mutation_count, 1);
+    assert_eq!(retained.inventory.records[0].job_id[31], 91);
+
+    start_mutation_job(&fixture, 92, 0).expect("nonzero-sequence proof job should start");
+    let forward = advance_mutation_job(&fixture, 92, 0, "cancel-nonzero-forward")
+        .expect("empty Forward page should commit");
+    assert_eq!(
+        cancel_mutation_job(&fixture, 92, forward.committed_sequence),
+        Err(MutationJobError::StaleSequence {
+            expected: 0,
+            actual: forward.committed_sequence,
+        }),
+    );
+
+    println!(
+        "mutation recovery operations: cancel={} absent_retry={} inventory={}",
+        cancelled.local_instructions,
+        lost_response_retry.local_instructions,
+        retained.local_instructions,
+    );
+    assert!(cancelled.local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert!(lost_response_retry.local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert!(retained.local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+}
+
+#[test]
+fn sql_progress_capacity_reserves_exact_integrity_headroom() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    for job_discriminator in 100..=154 {
+        start_mutation_job(&fixture, job_discriminator, 0)
+            .expect("the first 55 non-integrity jobs should start");
+    }
+    let at_fifty_five = progress_job_inventory(&fixture);
+    assert_eq!(at_fifty_five.inventory.retained_count, 55);
+
+    start_mutation_job(&fixture, 155, 0).expect("the 56th non-integrity job should start");
+    let at_fifty_six = progress_job_inventory(&fixture);
+    assert_eq!(at_fifty_six.inventory.retained_count, 56);
+    assert_eq!(at_fifty_six.inventory.reserved_integrity_headroom, 8);
+    assert_eq!(
+        start_mutation_job(&fixture, 156, 0),
+        Err(MutationJobError::CapacityExceeded),
+    );
+    start_mutation_job(&fixture, 100, 3)
+        .expect("a retained exact start replay should survive reserved capacity");
+
+    for ordinal in 0..7 {
+        measure_integrity_sql(
+            &fixture,
+            &format!("CHECK INTEGRITY PerfAuditJournaledUser DEEP START 'capacity-{ordinal}'"),
+        );
+    }
+    let at_sixty_three = progress_job_inventory(&fixture);
+    assert_eq!(at_sixty_three.inventory.retained_count, 63);
+    assert_eq!(at_sixty_three.inventory.integrity_count, 7);
+
+    measure_integrity_sql(
+        &fixture,
+        "CHECK INTEGRITY PerfAuditJournaledUser DEEP START 'capacity-7'",
+    );
+    let at_sixty_four = progress_job_inventory(&fixture);
+    assert_eq!(at_sixty_four.inventory.retained_count, 64);
+    assert_eq!(at_sixty_four.inventory.integrity_count, 8);
+    assert_eq!(at_sixty_four.inventory.mutation_count, 56);
+    assert_eq!(at_sixty_four.inventory.records.len(), 64);
+    assert!(
+        at_sixty_four
+            .inventory
+            .records
+            .iter()
+            .any(|record| record.family == ProgressJobFamily::Integrity)
+    );
+
+    let overflow: Result<IntegritySqlPerfResult, SqlIntegrityError> = fixture
+        .update_candid(
+            "measure_integrity_sql_perf",
+            ("CHECK INTEGRITY PerfAuditJournaledUser DEEP START 'capacity-8'".to_string(),),
+        )
+        .expect("integrity capacity result should decode");
+    assert_eq!(
+        overflow,
+        Err(SqlIntegrityError::Integrity(IntegrityCheckError::Job(
+            IntegrityJobError::CapacityExceeded,
+        ))),
+    );
+    println!(
+        "progress inventory instructions: at_55={} at_56={} at_63={} at_64={}",
+        at_fifty_five.local_instructions,
+        at_fifty_six.local_instructions,
+        at_sixty_three.local_instructions,
+        at_sixty_four.local_instructions,
+    );
+    assert!(at_sixty_four.local_instructions < DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING);
 }
 
 #[test]

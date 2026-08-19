@@ -105,7 +105,8 @@ pub use integrity::{
     IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind, IntegrityJobError,
     IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal,
     IntegrityPhase, IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
-    IntegrityTerminalOutcome, IntegrityVerifierFamily, QuickIntegrityResult, QuickIntegrityStatus,
+    IntegrityTerminalOutcome, IntegrityVerifierFamily, ProgressJobFamily, ProgressJobInventory,
+    ProgressJobInventoryRecord, ProgressJobLifecycle, QuickIntegrityResult, QuickIntegrityStatus,
 };
 #[doc(hidden)]
 pub use journal::JournalTailStore;

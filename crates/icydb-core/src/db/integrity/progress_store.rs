@@ -8,7 +8,7 @@ use crate::{
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         database_format::crc32c,
         integrity::{
-            IntegrityJob, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
+            IntegrityJob, IntegrityJobError, IntegrityJobId, IntegrityJobOwner, IntegrityJobState,
             progress_codec::{
                 MAX_INTEGRITY_JOB_PAYLOAD_BYTES, decode_integrity_job_payload,
                 encode_integrity_job_payload,
@@ -16,22 +16,24 @@ use crate::{
         },
         mutation_job::{
             MAX_MUTATION_JOB_RECORD_BYTES, MutationJobError, MutationJobId, MutationJobRecord,
-            decode_mutation_job_payload, encode_mutation_job_payload,
+            MutationJobStatus, decode_mutation_job_payload, encode_mutation_job_payload,
         },
         resumable_job::{
-            ResumableJobError, ResumableJobId, ResumableJobRecord, decode_resumable_job_payload,
-            encode_resumable_job_payload,
+            ResumableJobError, ResumableJobId, ResumableJobRecord, ResumableJobStatus,
+            decode_resumable_job_payload, encode_resumable_job_payload,
         },
     },
     error::InternalError,
     traits::CanisterKind,
 };
+use candid::CandidType;
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
 use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound,
 };
+use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
 #[cfg(test)]
@@ -56,7 +58,70 @@ const MUTATION_JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const MUTATION_PROGRESS_BEFORE_DIGEST_DOMAIN: &[u8] = b"icydb.mutation-job.progress-before.v1";
 const MAX_PROGRESS_RECORD_BYTES: u32 = 512 * 1024;
 const MAX_PROGRESS_JOBS_GLOBAL: u64 = 64;
+const MAX_PROGRESS_JOBS_NON_INTEGRITY: u64 = 56;
+const PROGRESS_JOBS_INTEGRITY_RESERVATION: u64 =
+    MAX_PROGRESS_JOBS_GLOBAL - MAX_PROGRESS_JOBS_NON_INTEGRITY;
 const MAX_PROGRESS_JOBS_PER_OWNER: u64 = 8;
+
+/// Stable family of one retained record in the shared progress allocation.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum ProgressJobFamily {
+    /// Engine-owned Deep integrity inspection.
+    Integrity,
+    /// Application-owned generic resumable job.
+    Resumable,
+    /// Engine-owned fixed SQL mutation job.
+    Mutation,
+}
+
+/// Bounded normalized lifecycle of one retained progress record.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum ProgressJobLifecycle {
+    /// More work may advance.
+    Active,
+    /// Integrity advancement is frozen before its terminal receipt is published.
+    TerminalPending,
+    /// Successful exhaustion is retained.
+    Completed,
+    /// Protected source authority changed.
+    Invalidated,
+    /// Mutation authority or policy requires a fresh job.
+    RestartRequired,
+    /// Another integrity terminal outcome is retained.
+    Terminal,
+}
+
+/// One privacy-bounded retained-record inventory entry.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ProgressJobInventoryRecord {
+    /// Durable progress family.
+    pub family: ProgressJobFamily,
+    /// Family-owned job identity bytes.
+    pub job_id: [u8; 32],
+    /// Normalized retained lifecycle.
+    pub lifecycle: ProgressJobLifecycle,
+    /// Family sequence when its current record carries one.
+    pub sequence: Option<u64>,
+}
+
+/// Complete bounded inventory of the shared excluded progress allocation.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ProgressJobInventory {
+    /// Total retained records across all families.
+    pub retained_count: u64,
+    /// Hard retained-record capacity.
+    pub hard_limit: u64,
+    /// Slots protected for integrity work from non-integrity starts.
+    pub reserved_integrity_headroom: u64,
+    /// Retained Deep integrity records.
+    pub integrity_count: u64,
+    /// Retained generic resumable records.
+    pub resumable_count: u64,
+    /// Retained fixed SQL mutation records.
+    pub mutation_count: u64,
+    /// Every validated retained record in stable key order.
+    pub records: Vec<ProgressJobInventoryRecord>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct ProgressRecordKey([u8; 32]);
@@ -342,7 +407,7 @@ impl InspectionProgressStore {
         if self.map.contains_key(&key) {
             return Err(ResumableJobError::AlreadyExists);
         }
-        if self.job_count().map_err(map_integrity_store_error)? >= MAX_PROGRESS_JOBS_GLOBAL {
+        if self.job_count().map_err(map_integrity_store_error)? >= MAX_PROGRESS_JOBS_NON_INTEGRITY {
             return Err(ResumableJobError::CapacityExceeded);
         }
         self.map.insert(
@@ -401,7 +466,7 @@ impl InspectionProgressStore {
                 .map(Box::new)
                 .map(InsertMutationJobResult::Occupied);
         }
-        if self.job_count().map_err(map_mutation_store_error)? >= MAX_PROGRESS_JOBS_GLOBAL {
+        if self.job_count().map_err(map_mutation_store_error)? >= MAX_PROGRESS_JOBS_NON_INTEGRITY {
             return Err(MutationJobError::CapacityExceeded);
         }
         self.map.insert(
@@ -517,6 +582,122 @@ impl InspectionProgressStore {
         }
         let _ = self.map.remove(&key);
         Ok(())
+    }
+
+    /// Remove exactly one current initial mutation record.
+    ///
+    /// The caller supplies the engine-format validator so the shared store
+    /// remains independent of SQL continuation semantics while still making
+    /// validation and removal one indivisible store borrow.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn cancel_unadvanced_mutation(
+        &mut self,
+        job_id: MutationJobId,
+        expected_sequence: u64,
+        validate_initial_continuation: impl FnOnce(&[u8]) -> Result<(), MutationJobError>,
+    ) -> Result<(), MutationJobError> {
+        let key = ProgressRecordKey::from_mutation_job_id(job_id)?;
+        let Some(raw) = self.map.get(&key) else {
+            return Ok(());
+        };
+        let record = decode_mutation_job_record(&raw.0, job_id)?;
+        let continuation = record.ensure_cancelable_at_sequence(expected_sequence)?;
+        validate_initial_continuation(continuation)?;
+        let _ = self.map.remove(&key);
+        Ok(())
+    }
+
+    /// Decode every retained slot before returning one complete bounded inventory.
+    pub(in crate::db) fn inventory(&self) -> Result<ProgressJobInventory, MutationJobError> {
+        let retained_count = self.job_count().map_err(map_mutation_store_error)?;
+        let record_capacity =
+            usize::try_from(retained_count).map_err(|_| MutationJobError::CorruptProgressStore)?;
+        let mut records = Vec::with_capacity(record_capacity);
+        let mut integrity_count = 0_u64;
+        let mut resumable_count = 0_u64;
+        let mut mutation_count = 0_u64;
+
+        for entry in self.map.iter() {
+            let key = *entry.key();
+            if key == PROGRESS_HEADER_KEY {
+                continue;
+            }
+            let bytes = &entry.value().0;
+            let record = if bytes.starts_with(JOB_RECORD_MAGIC) {
+                let job_id = IntegrityJobId::try_from_bytes(key.to_bytes())
+                    .map_err(|_| MutationJobError::CorruptProgressStore)?;
+                let job = decode_job_record(bytes, job_id)
+                    .map_err(|_| MutationJobError::CorruptProgressStore)?;
+                integrity_count = integrity_count
+                    .checked_add(1)
+                    .ok_or(MutationJobError::CorruptProgressStore)?;
+                ProgressJobInventoryRecord {
+                    family: ProgressJobFamily::Integrity,
+                    job_id: job.id.to_bytes(),
+                    lifecycle: match job.state {
+                        IntegrityJobState::InProgress => ProgressJobLifecycle::Active,
+                        IntegrityJobState::TerminalPending(_) => {
+                            ProgressJobLifecycle::TerminalPending
+                        }
+                        IntegrityJobState::Terminal { .. } => ProgressJobLifecycle::Terminal,
+                    },
+                    sequence: Some(job.pages_completed),
+                }
+            } else if bytes.starts_with(RESUMABLE_JOB_RECORD_MAGIC) {
+                let job = decode_resumable_job_record_for_inventory(bytes, key)?;
+                resumable_count = resumable_count
+                    .checked_add(1)
+                    .ok_or(MutationJobError::CorruptProgressStore)?;
+                ProgressJobInventoryRecord {
+                    family: ProgressJobFamily::Resumable,
+                    job_id: job.state().job_id.to_bytes(),
+                    lifecycle: match job.state().status {
+                        ResumableJobStatus::Active => ProgressJobLifecycle::Active,
+                        ResumableJobStatus::Completed => ProgressJobLifecycle::Completed,
+                        ResumableJobStatus::Invalidated => ProgressJobLifecycle::Invalidated,
+                    },
+                    sequence: Some(job.state().sequence),
+                }
+            } else if bytes.starts_with(MUTATION_JOB_RECORD_MAGIC) {
+                let job = decode_mutation_job_record_for_inventory(bytes, key)?;
+                mutation_count = mutation_count
+                    .checked_add(1)
+                    .ok_or(MutationJobError::CorruptProgressStore)?;
+                ProgressJobInventoryRecord {
+                    family: ProgressJobFamily::Mutation,
+                    job_id: job.state().job_id.to_bytes(),
+                    lifecycle: match job.state().status {
+                        MutationJobStatus::Active => ProgressJobLifecycle::Active,
+                        MutationJobStatus::Completed => ProgressJobLifecycle::Completed,
+                        MutationJobStatus::RestartRequired(_) => {
+                            ProgressJobLifecycle::RestartRequired
+                        }
+                    },
+                    sequence: Some(job.state().sequence),
+                }
+            } else {
+                return Err(MutationJobError::CorruptProgressStore);
+            };
+            records.push(record);
+        }
+
+        let decoded_count = integrity_count
+            .checked_add(resumable_count)
+            .and_then(|count| count.checked_add(mutation_count))
+            .ok_or(MutationJobError::CorruptProgressStore)?;
+        if decoded_count != retained_count || u64::try_from(records.len()) != Ok(retained_count) {
+            return Err(MutationJobError::CorruptProgressStore);
+        }
+
+        Ok(ProgressJobInventory {
+            retained_count,
+            hard_limit: MAX_PROGRESS_JOBS_GLOBAL,
+            reserved_integrity_headroom: PROGRESS_JOBS_INTEGRITY_RESERVATION,
+            integrity_count,
+            resumable_count,
+            mutation_count,
+            records,
+        })
     }
 
     pub(super) fn remove(&mut self, job_id: IntegrityJobId) -> Result<(), IntegrityJobError> {
@@ -711,6 +892,16 @@ fn decode_resumable_job_record(
     bytes: &[u8],
     expected_id: ResumableJobId,
 ) -> Result<ResumableJobRecord, ResumableJobError> {
+    let record = decode_resumable_job_record_unbound(bytes)?;
+    if record.state().job_id != expected_id {
+        return Err(ResumableJobError::CorruptProgressStore);
+    }
+    Ok(record)
+}
+
+fn decode_resumable_job_record_unbound(
+    bytes: &[u8],
+) -> Result<ResumableJobRecord, ResumableJobError> {
     if bytes.len() < RESUMABLE_JOB_RECORD_HEADER_BYTES
         || !bytes.starts_with(RESUMABLE_JOB_RECORD_MAGIC)
         || bytes[RESUMABLE_JOB_RECORD_MAGIC.len()] != RESUMABLE_JOB_RECORD_VERSION
@@ -734,9 +925,19 @@ fn decode_resumable_job_record(
     if u32::from_be_bytes(checksum) != crc32c(payload) {
         return Err(ResumableJobError::CorruptProgressStore);
     }
-    let record = decode_resumable_job_payload(payload)?;
-    if record.state().job_id != expected_id {
-        return Err(ResumableJobError::CorruptProgressStore);
+    decode_resumable_job_payload(payload)
+}
+
+fn decode_resumable_job_record_for_inventory(
+    bytes: &[u8],
+    key: ProgressRecordKey,
+) -> Result<ResumableJobRecord, MutationJobError> {
+    let record = decode_resumable_job_record_unbound(bytes)
+        .map_err(|_| MutationJobError::CorruptProgressStore)?;
+    let expected_key = ProgressRecordKey::from_resumable_job_id(record.state().job_id)
+        .map_err(|_| MutationJobError::CorruptProgressStore)?;
+    if key != expected_key {
+        return Err(MutationJobError::CorruptProgressStore);
     }
     Ok(record)
 }
@@ -764,6 +965,14 @@ fn decode_mutation_job_record(
     bytes: &[u8],
     expected_id: MutationJobId,
 ) -> Result<MutationJobRecord, MutationJobError> {
+    let record = decode_mutation_job_record_unbound(bytes)?;
+    if record.state().job_id != expected_id {
+        return Err(MutationJobError::CorruptProgressStore);
+    }
+    Ok(record)
+}
+
+fn decode_mutation_job_record_unbound(bytes: &[u8]) -> Result<MutationJobRecord, MutationJobError> {
     if bytes.len() < MUTATION_JOB_RECORD_HEADER_BYTES
         || !bytes.starts_with(MUTATION_JOB_RECORD_MAGIC)
         || bytes[MUTATION_JOB_RECORD_MAGIC.len()] != MUTATION_JOB_RECORD_VERSION
@@ -787,8 +996,18 @@ fn decode_mutation_job_record(
     if u32::from_be_bytes(checksum) != crc32c(payload) {
         return Err(MutationJobError::CorruptProgressStore);
     }
-    let record = decode_mutation_job_payload(payload)?;
-    if record.state().job_id != expected_id {
+    decode_mutation_job_payload(payload)
+}
+
+fn decode_mutation_job_record_for_inventory(
+    bytes: &[u8],
+    key: ProgressRecordKey,
+) -> Result<MutationJobRecord, MutationJobError> {
+    let record = decode_mutation_job_record_unbound(bytes)
+        .map_err(|_| MutationJobError::CorruptProgressStore)?;
+    let expected_key = ProgressRecordKey::from_mutation_job_id(record.state().job_id)
+        .map_err(|_| MutationJobError::CorruptProgressStore)?;
+    if key != expected_key {
         return Err(MutationJobError::CorruptProgressStore);
     }
     Ok(record)
@@ -970,6 +1189,29 @@ mod tests {
     fn current_mutation_record(byte: u8) -> MutationJobRecord {
         MutationJobRecord::new(mutation_job_id(byte), vec![1, 2, 3], vec![4, 5])
             .expect("current mutation record should admit")
+    }
+
+    fn current_integrity_record(byte: u8) -> IntegrityJob {
+        let mut job = current_job_codec_fixture();
+        let job_id = IntegrityJobId::try_from_bytes([byte; 32])
+            .expect("nonzero integrity job id should admit");
+        job.id = job_id;
+        match &mut job.last_receipt.receipt {
+            crate::db::IntegrityJobReceipt::Page(page) => page.job_id = job_id,
+            crate::db::IntegrityJobReceipt::Abort(receipt) => receipt.job_id = job_id,
+        }
+        job.validate()
+            .expect("rewritten integrity job should admit");
+        job
+    }
+
+    fn insert_mutation_record(store: &mut InspectionProgressStore, record: &MutationJobRecord) {
+        assert!(matches!(
+            store
+                .insert_mutation(record)
+                .expect("mutation record should insert"),
+            InsertMutationJobResult::Inserted,
+        ));
     }
 
     fn mutation_request(byte: u8, sequence: u64, key: &str) -> MutationJobAdvanceRequest {
@@ -1272,7 +1514,7 @@ mod tests {
     }
 
     #[test]
-    fn mutation_key_domain_and_shared_capacity_are_enforced() {
+    fn mutation_key_domain_and_shared_capacity_reservation_are_enforced() {
         let shared_bytes = [11; 32];
         let mutation_key = ProgressRecordKey::from_mutation_job_id(
             MutationJobId::try_from_bytes(shared_bytes).expect("mutation id should admit"),
@@ -1293,7 +1535,7 @@ mod tests {
         store
             .insert_resumable(&current_resumable_record())
             .expect("generic job should consume one shared slot");
-        for byte in 1..=63 {
+        for byte in 1..=54 {
             assert!(matches!(
                 store
                     .insert_mutation(&current_mutation_record(byte))
@@ -1301,39 +1543,109 @@ mod tests {
                 InsertMutationJobResult::Inserted,
             ));
         }
+        assert_eq!(
+            store
+                .inventory()
+                .expect("55 current records should inventory")
+                .retained_count,
+            55,
+        );
         assert!(matches!(
-            store.insert_mutation(&current_mutation_record(64)),
+            store
+                .insert_mutation(&current_mutation_record(55))
+                .expect("the 56th non-integrity record should insert"),
+            InsertMutationJobResult::Inserted,
+        ));
+        assert_eq!(
+            store
+                .inventory()
+                .expect("56 current records should inventory")
+                .retained_count,
+            56,
+        );
+        assert!(matches!(
+            store.insert_mutation(&current_mutation_record(56)),
             Err(MutationJobError::CapacityExceeded),
+        ));
+
+        for byte in 200..=206 {
+            assert!(matches!(
+                store
+                    .insert_new(&current_integrity_record(byte))
+                    .expect("reserved integrity record should insert"),
+                InsertJobResult::Inserted,
+            ));
+        }
+        assert_eq!(
+            store
+                .inventory()
+                .expect("63 current records should inventory")
+                .retained_count,
+            63,
+        );
+        assert!(matches!(
+            store
+                .insert_new(&current_integrity_record(207))
+                .expect("the 64th integrity record should insert"),
+            InsertJobResult::Inserted,
+        ));
+        let full = store.inventory().expect("full store should inventory");
+        assert_eq!(full.retained_count, 64);
+        assert_eq!(full.hard_limit, 64);
+        assert_eq!(full.reserved_integrity_headroom, 8);
+        assert_eq!(full.integrity_count, 8);
+        assert_eq!(full.resumable_count, 1);
+        assert_eq!(full.mutation_count, 55);
+        assert!(matches!(
+            store.insert_new(&current_integrity_record(208)),
+            Err(IntegrityJobError::CapacityExceeded),
         ));
     }
 
     #[test]
-    fn mutation_progress_stable_growth_is_measured_at_one_eight_and_sixty_four_jobs() {
+    fn progress_stable_growth_is_measured_at_reservation_boundaries() {
         const STABLE_PAGE_BYTES: u64 = 65_536;
 
         let memory = test_memory(249);
         let mut store = InspectionProgressStore::open(memory.clone())
             .expect("isolated progress store should open");
-        let mut bytes_at_one = 0;
-        let mut bytes_at_eight = 0;
-        for byte in 1..=64 {
+        let mut bytes_at_fifty_five = 0;
+        let mut bytes_at_fifty_six = 0;
+        for byte in 1..=56 {
             assert!(matches!(
                 store
                     .insert_mutation(&current_mutation_record(byte))
                     .expect("record inside shared capacity should insert"),
                 InsertMutationJobResult::Inserted,
             ));
-            if byte == 1 {
-                bytes_at_one = memory.size() * STABLE_PAGE_BYTES;
-            } else if byte == 8 {
-                bytes_at_eight = memory.size() * STABLE_PAGE_BYTES;
+            if byte == 55 {
+                bytes_at_fifty_five = memory.size() * STABLE_PAGE_BYTES;
+            } else if byte == 56 {
+                bytes_at_fifty_six = memory.size() * STABLE_PAGE_BYTES;
+            }
+        }
+        let mut bytes_at_sixty_three = 0;
+        for byte in 200..=207 {
+            assert!(matches!(
+                store
+                    .insert_new(&current_integrity_record(byte))
+                    .expect("record inside integrity reservation should insert"),
+                InsertJobResult::Inserted,
+            ));
+            if byte == 206 {
+                bytes_at_sixty_three = memory.size() * STABLE_PAGE_BYTES;
             }
         }
         let bytes_at_sixty_four = memory.size() * STABLE_PAGE_BYTES;
 
         assert_eq!(
-            (bytes_at_one, bytes_at_eight, bytes_at_sixty_four),
-            (4_390_912, 4_390_912, 38_993_920),
+            (
+                bytes_at_fifty_five,
+                bytes_at_fifty_six,
+                bytes_at_sixty_three,
+                bytes_at_sixty_four,
+            ),
+            (38_993_920, 38_993_920, 43_319_296, 43_319_296),
         );
     }
 
@@ -1401,6 +1713,159 @@ mod tests {
         assert_eq!(
             store.load_mutation(mutation_job_id(10)),
             Err(MutationJobError::NotFound),
+        );
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn mutation_cancellation_is_exact_zero_state_and_absent_idempotent() {
+        let mut store = InspectionProgressStore::open(test_memory(248))
+            .expect("isolated progress store should open");
+        let initial = current_mutation_record(31);
+        insert_mutation_record(&mut store, &initial);
+        assert_eq!(
+            store.cancel_unadvanced_mutation(mutation_job_id(31), 1, |_| Ok(())),
+            Err(MutationJobError::StaleSequence {
+                expected: 1,
+                actual: 0,
+            }),
+        );
+        assert_eq!(
+            store.cancel_unadvanced_mutation(mutation_job_id(31), 0, |_| Ok(())),
+            Ok(()),
+        );
+        assert_eq!(
+            store.cancel_unadvanced_mutation(mutation_job_id(31), 0, |_| {
+                Err(MutationJobError::CorruptProgressStore)
+            }),
+            Ok(()),
+            "an absent retry must not invoke continuation validation",
+        );
+
+        let advanced_initial = current_mutation_record(32);
+        let (advanced, _) = advanced_initial
+            .apply_transition(
+                &mutation_request(32, 0, "advanced"),
+                MutationJobTransition::new(
+                    MutationJobStatus::Active,
+                    MutationJobPhase::Forward,
+                    vec![6],
+                    1,
+                    0,
+                    0,
+                ),
+            )
+            .expect("advanced state should admit");
+        insert_mutation_record(&mut store, &advanced);
+        for expected_sequence in [0, 1] {
+            assert_eq!(
+                store.cancel_unadvanced_mutation(
+                    mutation_job_id(32),
+                    expected_sequence,
+                    |_| Ok(()),
+                ),
+                Err(MutationJobError::StaleSequence {
+                    expected: 0,
+                    actual: 1,
+                }),
+            );
+        }
+
+        let terminal_initial = current_mutation_record(33);
+        let (terminal, _) = terminal_initial
+            .apply_transition(
+                &mutation_request(33, 0, "terminal"),
+                MutationJobTransition::new(
+                    MutationJobStatus::RestartRequired(
+                        MutationJobRestartReason::BatchPolicyChanged,
+                    ),
+                    MutationJobPhase::Forward,
+                    Vec::new(),
+                    0,
+                    0,
+                    0,
+                ),
+            )
+            .expect("terminal state should admit");
+        insert_mutation_record(&mut store, &terminal);
+        assert_eq!(
+            store.cancel_unadvanced_mutation(mutation_job_id(33), 1, |_| Ok(())),
+            Err(MutationJobError::StaleSequence {
+                expected: 0,
+                actual: 1,
+            }),
+        );
+
+        let malformed_continuation = current_mutation_record(34);
+        insert_mutation_record(&mut store, &malformed_continuation);
+        assert_eq!(
+            store.cancel_unadvanced_mutation(mutation_job_id(34), 0, |_| {
+                Err(MutationJobError::CorruptProgressStore)
+            }),
+            Err(MutationJobError::CorruptProgressStore),
+        );
+        assert_eq!(
+            store.load_mutation(mutation_job_id(34)),
+            Ok(malformed_continuation),
+            "failed validation must retain the record",
+        );
+    }
+
+    #[test]
+    fn progress_inventory_is_complete_family_bounded_and_fail_closed() {
+        let mut store = InspectionProgressStore::open(test_memory(247))
+            .expect("isolated progress store should open");
+        let integrity = current_integrity_record(201);
+        let resumable = current_resumable_record();
+        let mutation = current_mutation_record(35);
+        assert!(matches!(
+            store
+                .insert_new(&integrity)
+                .expect("integrity record should insert"),
+            InsertJobResult::Inserted,
+        ));
+        store
+            .insert_resumable(&resumable)
+            .expect("resumable record should insert");
+        assert!(matches!(
+            store
+                .insert_mutation(&mutation)
+                .expect("mutation record should insert"),
+            InsertMutationJobResult::Inserted,
+        ));
+
+        let inventory = store.inventory().expect("valid records should inventory");
+        assert_eq!(inventory.retained_count, 3);
+        assert_eq!(inventory.hard_limit, 64);
+        assert_eq!(inventory.reserved_integrity_headroom, 8);
+        assert_eq!(inventory.integrity_count, 1);
+        assert_eq!(inventory.resumable_count, 1);
+        assert_eq!(inventory.mutation_count, 1);
+        assert_eq!(inventory.records.len(), 3);
+        assert!(inventory.records.iter().all(|record| {
+            record.lifecycle == ProgressJobLifecycle::Active && record.sequence == Some(0)
+        }));
+        assert!(inventory.records.iter().any(|record| {
+            record.family == ProgressJobFamily::Integrity
+                && record.job_id == integrity.id.to_bytes()
+        }));
+        assert!(inventory.records.iter().any(|record| {
+            record.family == ProgressJobFamily::Resumable
+                && record.job_id == resumable.state().job_id.to_bytes()
+        }));
+        assert!(inventory.records.iter().any(|record| {
+            record.family == ProgressJobFamily::Mutation
+                && record.job_id == mutation.state().job_id.to_bytes()
+        }));
+
+        store.map.insert(
+            ProgressRecordKey([202; 32]),
+            ProgressRecordBytes(b"undecodable-retained-slot".to_vec()),
+        );
+        assert_eq!(
+            store.inventory(),
+            Err(MutationJobError::CorruptProgressStore),
+            "one undecodable slot must fail the whole inventory",
         );
     }
 

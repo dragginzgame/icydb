@@ -1393,6 +1393,25 @@ fn mutation_job_catalog_authority_matches(
         && catalog.fingerprint() == intent.accepted_schema_fingerprint()
 }
 
+/// Validate the current-format initial continuation used by sequence-zero cancellation.
+///
+/// The retained policy identity is deliberately not compared with today's
+/// identity: cancellation executes no target work and remains available to an
+/// otherwise exact zero-effect predecessor policy.
+pub(in crate::db::session) fn validate_current_initial_mutation_job_continuation(
+    bytes: &[u8],
+) -> Result<(), MutationJobError> {
+    let continuation = DecodedMutationJobEngineContinuation::decode(bytes)
+        .map_err(|_| MutationJobError::CorruptProgressStore)?;
+    if continuation.phase != MutationJobEnginePhase::Forward
+        || continuation.checkpoint.is_some()
+        || continuation.verify_revision.is_some()
+    {
+        return Err(MutationJobError::CorruptProgressStore);
+    }
+    Ok(())
+}
+
 fn decode_retained_mutation_job_continuation(
     bytes: &[u8],
 ) -> Result<DecodedMutationJobEngineContinuation, MutationJobExecutionPreparationError> {
@@ -1673,6 +1692,55 @@ fn hash_store_allocation_identity(hasher: &mut sha2::Sha256, identity: StoreAllo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellation_accepts_only_current_initial_continuation_shape() {
+        let initial = MutationJobEngineContinuation::initial(
+            Ulid::from_bytes([1; 16]),
+            7,
+            [2; 32],
+            1,
+            [3; 16],
+            [4; 32],
+            [5; 32],
+            Timestamp::from_millis(6),
+        )
+        .expect("current initial continuation should encode");
+        assert_eq!(
+            validate_current_initial_mutation_job_continuation(&initial.bytes),
+            Ok(()),
+        );
+
+        let mut predecessor_policy = DecodedMutationJobEngineContinuation::decode(&initial.bytes)
+            .expect("current initial continuation should decode");
+        predecessor_policy.batch_policy_identity =
+            predecessor_policy.batch_policy_identity.wrapping_sub(1);
+        let predecessor_policy = predecessor_policy
+            .encode()
+            .expect("prior policy remains current-format");
+        assert_eq!(
+            validate_current_initial_mutation_job_continuation(&predecessor_policy.bytes),
+            Ok(()),
+            "a zero-effect cancellation must not execute retained page policy",
+        );
+
+        let mut verify = DecodedMutationJobEngineContinuation::decode(&initial.bytes)
+            .expect("current initial continuation should decode");
+        verify.phase = MutationJobEnginePhase::Verify;
+        verify.verify_revision = Some(9);
+        let verify = verify.encode().expect("Verify continuation should encode");
+        assert_eq!(
+            validate_current_initial_mutation_job_continuation(&verify.bytes),
+            Err(MutationJobError::CorruptProgressStore),
+        );
+
+        let mut corrupt = initial.bytes;
+        corrupt[0] ^= 0xff;
+        assert_eq!(
+            validate_current_initial_mutation_job_continuation(&corrupt),
+            Err(MutationJobError::CorruptProgressStore),
+        );
+    }
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_compatibility_input() {

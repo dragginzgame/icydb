@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession, MutationJobError, MutationJobId, MutationJobState,
+        DbSession, MutationJobError, MutationJobId, MutationJobState, ProgressJobInventory,
         executor::budget::{ExecutionBudgetExceeded, HardExecutionContext},
         integrity::with_mutation_progress_store,
     },
@@ -20,6 +20,7 @@ use crate::db::{
     MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobPhase,
     integrity::InsertMutationJobResult,
     mutation_job::{CanonicalMutationIntent, MutationJobRecord},
+    session::sql::validate_current_initial_mutation_job_continuation,
 };
 
 #[cfg(feature = "sql")]
@@ -28,6 +29,9 @@ const MUTATION_JOB_LOAD_SHAPE: u64 = 0x6d75_7461_7465_0101;
 const MUTATION_JOB_ACKNOWLEDGE_SHAPE: u64 = 0x6d75_7461_7465_0102;
 #[cfg(feature = "sql")]
 const MUTATION_JOB_ADVANCE_SHAPE: u64 = 0x6d75_7461_7465_0103;
+#[cfg(feature = "sql")]
+const MUTATION_JOB_CANCEL_UNADVANCED_SHAPE: u64 = 0x6d75_7461_7465_0104;
+const PROGRESS_JOB_INVENTORY_SHAPE: u64 = 0x6d75_7461_7465_0105;
 
 impl<C: CanisterKind> DbSession<C> {
     /// Start one durable trusted fixed SQL mutation job.
@@ -117,6 +121,43 @@ impl<C: CanisterKind> DbSession<C> {
         with_mutation_progress_store::<C, _>(|store| {
             store.acknowledge_mutation(job_id, expected_terminal_sequence)
         })
+    }
+
+    /// Idempotently remove one exact initial mutation-job record.
+    ///
+    /// Cancellation is available only before any page or receipt exists. A
+    /// logical restart must use a fresh [`MutationJobId`]; absent-record
+    /// success never makes an old identity reusable.
+    #[cfg(feature = "sql")]
+    pub fn cancel_unadvanced_mutation_job(
+        &self,
+        job_id: MutationJobId,
+        expected_sequence: u64,
+    ) -> Result<(), MutationJobError> {
+        job_id.validate()?;
+        self.charge_mutation_job_operation(
+            DiagnosticExecutionLane::Mutation,
+            MUTATION_JOB_CANCEL_UNADVANCED_SHAPE,
+        )?;
+        with_mutation_progress_store::<C, _>(|store| {
+            store.cancel_unadvanced_mutation(
+                job_id,
+                expected_sequence,
+                validate_current_initial_mutation_job_continuation,
+            )
+        })
+    }
+
+    /// Return one complete fail-closed inventory of shared retained progress.
+    ///
+    /// Callers remain responsible for authorization. The result exposes only
+    /// family, job identity, bounded lifecycle, sequence, and capacity facts.
+    pub fn progress_job_inventory(&self) -> Result<ProgressJobInventory, MutationJobError> {
+        self.charge_mutation_job_operation(
+            DiagnosticExecutionLane::TrustedRead,
+            PROGRESS_JOB_INVENTORY_SHAPE,
+        )?;
+        with_mutation_progress_store::<C, _>(|store| store.inventory())
     }
 
     fn charge_mutation_job_operation(

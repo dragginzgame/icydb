@@ -21,10 +21,11 @@ use icydb::{
         GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
         IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobAdvanceReceipt,
         MutationJobAdvanceRequest, MutationJobError, MutationJobId, MutationJobIdempotencyKey,
-        MutationJobPhase, MutationJobState, MutationJobStatus, ReadSetRevisionError,
-        ReadSetRevisionProof, SqlCompileAttribution, SqlExecutionAttribution, SqlIntegrityError,
-        SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
-        SqlStructuralWorkAttribution, StructuralMutation, StructuralPatch, WriteCell,
+        MutationJobPhase, MutationJobState, MutationJobStatus, ProgressJobInventory,
+        ReadSetRevisionError, ReadSetRevisionProof, SqlCompileAttribution, SqlExecutionAttribution,
+        SqlIntegrityError, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
+        SqlQueryExecutionAttribution, SqlStructuralWorkAttribution, StructuralMutation,
+        StructuralPatch, WriteCell,
         query::{FieldRef, asc},
         sql::SqlQueryResult,
     },
@@ -572,6 +573,21 @@ struct MutationJobStartPerfResult {
     state: MutationJobState,
     local_instructions: u64,
     target_rows_changed: u32,
+}
+
+/// One complete shared-progress inventory plus its local operation cost.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "test-admin-api")]
+struct ProgressJobInventoryPerfResult {
+    inventory: ProgressJobInventory,
+    local_instructions: u64,
+}
+
+/// One sequence-zero cancellation plus its local operation cost.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "test-admin-api")]
+struct MutationJobCancellationPerfResult {
+    local_instructions: u64,
 }
 
 /// Fixed application phase in the collection-scale durable fixture.
@@ -2780,6 +2796,13 @@ fn mutation_scale_job_id(job: MutationScaleJob) -> Result<MutationJobId, Mutatio
 }
 
 #[cfg(feature = "sql")]
+fn audit_mutation_job_id(discriminator: u8) -> Result<MutationJobId, MutationJobError> {
+    let mut bytes = [0; 32];
+    bytes[31] = discriminator;
+    MutationJobId::try_from_bytes(bytes)
+}
+
+#[cfg(feature = "sql")]
 fn mutation_scale_count(sql: &str) -> Result<u32, icydb::Error> {
     let SqlQueryResult::Projection(projection) = db()?.execute_trusted_sql_query(sql)? else {
         return Err(query_validate_error());
@@ -2954,6 +2977,41 @@ fn acknowledge_collection_mutation_scale_job(
     icydb::db::with_request_execution(|| {
         db().map_err(|_| MutationJobError::Internal)?
             .acknowledge_mutation_job(mutation_scale_job_id(job)?, expected_sequence)
+    })
+}
+
+/// Cancel one exact unadvanced audit mutation job.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn cancel_journaled_user_mutation_job(
+    job_discriminator: u8,
+    expected_sequence: u64,
+) -> Result<MutationJobCancellationPerfResult, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        let session = db().map_err(|_| MutationJobError::Internal)?;
+        let start = ic_cdk::api::performance_counter(1);
+        session.cancel_unadvanced_mutation_job(
+            audit_mutation_job_id(job_discriminator)?,
+            expected_sequence,
+        )?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        Ok(MutationJobCancellationPerfResult { local_instructions })
+    })
+}
+
+/// Return the complete bounded shared-progress inventory.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn progress_job_inventory_perf() -> Result<ProgressJobInventoryPerfResult, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        let session = db().map_err(|_| MutationJobError::Internal)?;
+        let start = ic_cdk::api::performance_counter(1);
+        let inventory = session.progress_job_inventory()?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        Ok(ProgressJobInventoryPerfResult {
+            inventory,
+            local_instructions,
+        })
     })
 }
 
@@ -3256,9 +3314,7 @@ fn start_journaled_user_mutation_job(
 ) -> Result<MutationJobStartPerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let mut job_bytes = [0; 32];
-        job_bytes[31] = job_discriminator;
-        let job_id = MutationJobId::try_from_bytes(job_bytes)?;
+        let job_id = audit_mutation_job_id(job_discriminator)?;
         let sql = match intent_discriminator {
             0 => "UPDATE PerfAuditJournaledUser SET name = 'durable-start' WHERE age >= 0",
             1 => "UPDATE PerfAuditJournaledUser SET name = 'different-start' WHERE age >= 0",
@@ -3308,10 +3364,8 @@ fn advance_journaled_user_mutation_job(
     idempotency_key: String,
 ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
     icydb::db::with_request_execution(|| {
-        let mut job_bytes = [0; 32];
-        job_bytes[31] = job_discriminator;
         let request = MutationJobAdvanceRequest::new(
-            MutationJobId::try_from_bytes(job_bytes)?,
+            audit_mutation_job_id(job_discriminator)?,
             expected_sequence,
             MutationJobIdempotencyKey::new(idempotency_key)?,
         );

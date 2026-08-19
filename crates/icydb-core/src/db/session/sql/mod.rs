@@ -68,6 +68,7 @@ pub(in crate::db) use delete_policy::{
 };
 pub use integrity::SqlIntegrityError;
 pub use result::SqlStatementResult;
+pub(in crate::db::session) use resumable_update::validate_current_initial_mutation_job_continuation;
 pub use surface::{
     SqlStatementDispatch, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,

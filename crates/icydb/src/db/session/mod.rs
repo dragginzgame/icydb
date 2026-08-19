@@ -222,6 +222,30 @@ impl<C: CanisterKind> DbSession<C> {
             .acknowledge_mutation_job(job_id, expected_terminal_sequence)
     }
 
+    /// Idempotently remove one exact sequence-zero mutation job.
+    ///
+    /// Applications must authorize this trusted operation and allocate a fresh
+    /// job identity for every later logical mutation.
+    #[cfg(feature = "sql")]
+    pub fn cancel_unadvanced_mutation_job(
+        &self,
+        job_id: crate::db::MutationJobId,
+        expected_sequence: u64,
+    ) -> Result<(), crate::db::MutationJobError> {
+        self.inner
+            .cancel_unadvanced_mutation_job(job_id, expected_sequence)
+    }
+
+    /// Return one complete bounded inventory of shared retained progress.
+    ///
+    /// Applications must authorize any public wrapper around this trusted
+    /// operation; job identities are not bearer authority.
+    pub fn progress_job_inventory(
+        &self,
+    ) -> Result<crate::db::ProgressJobInventory, crate::db::MutationJobError> {
+        self.inner.progress_job_inventory()
+    }
+
     /// Create one durable application-owned progress job.
     pub fn start_resumable_job(
         &self,

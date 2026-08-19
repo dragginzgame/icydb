@@ -58,6 +58,9 @@ pub(in crate::db) use progress_store::{
     verify_mutation_progress_record_op, with_mutation_progress_store,
     with_resumable_progress_store,
 };
+pub use progress_store::{
+    ProgressJobFamily, ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle,
+};
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
 pub(in crate::db) use row::{
     PhysicalUnitCheckpoint, RowInspectionLimits, execute_row_integrity_page,

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.233.md](docs/changelog/0.233.md)
 
+- `0.233.1` adds exact sequence-zero mutation-job cancellation, fail-closed
+  shared progress inventory, and eight-slot integrity capacity reservation
+  without adding persisted state or production endpoints.
+
 - `0.233.0` makes durable mutation pages converge under current managed time
   and fixed scan/staging byte budgets, with terminal policy failures and
   checkpoint-safe wide-row replay.
