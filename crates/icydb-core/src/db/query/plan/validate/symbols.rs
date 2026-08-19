@@ -14,14 +14,17 @@ use crate::{
     },
     db::schema::{FieldType, SchemaInfo},
 };
+use icydb_diagnostic_code::QueryFieldRole;
 
 /// Resolve one grouped field through schema slot authority.
 pub(in crate::db) fn resolve_group_field_slot_with_schema(
     schema: &SchemaInfo,
     field: &str,
 ) -> Result<FieldSlot, PlanError> {
-    FieldSlot::resolve_with_schema(schema, field)
-        .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))
+    FieldSlot::resolve_with_schema(schema, field).ok_or_else(|| {
+        PlanError::from(GroupPlanError::unknown_group_field(field))
+            .attach_query_field(QueryFieldRole::GroupBy)
+    })
 }
 
 /// Resolve one aggregate target field through schema slot authority.

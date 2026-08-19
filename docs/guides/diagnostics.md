@@ -2,7 +2,9 @@
 
 IcyDB errors carry a stable numeric E-code and a bounded list of numeric facts.
 They deliberately omit schema names, SQL text, keys, rows, and values so normal
-canisters do not retain a large diagnostic prose catalog.
+canisters do not retain a large diagnostic prose catalog. One narrow exception
+lets a failed query return the caller's own rejected field reference as bounded,
+typed `query_field` context; the E-code and numeric facts remain authoritative.
 
 The CLI can always explain a code:
 
@@ -115,3 +117,38 @@ are not interchangeable, and any identity mismatch withholds names.
 The JSON artifact is a tooling format, not database state. It cannot authorize
 a write, apply a schema, recover data, or replace accepted schema authority.
 Only the current pre-1.0 artifact shape is accepted.
+
+## Rejected query fields
+
+An E3 planning failure may include this optional public record:
+
+```text
+query_field : opt record {
+  field : text;
+  role : nat8;
+}
+```
+
+The role identifies predicate, projection, group-by, HAVING, order-by, or
+aggregate-target use. The field is the exact nonempty reference presented to
+the accepted-schema resolver after parsing and existing qualifier or alias
+normalization. It is present only when its UTF-8 representation is at most 256
+bytes; longer references are omitted rather than truncated.
+
+Structured Rust consumers should call `Error::validated_query_field()` before
+using decoded context. The shared CLI does the same and renders, for example:
+
+```text
+E_QUERY_PLAN: query planning failed; order_by field `id`; facts term_index=1
+```
+
+Terminal controls, newlines, quotes, backslashes, and backticks are escaped in
+host output while the structured field remains exact. An unknown role,
+disallowed E-code/role pair, invalid bound, or mismatched numeric fact schema
+keeps the base diagnostic available but withholds the untrusted field and
+reports a context mismatch. No schema lookup or spelling suggestion is used.
+
+SQL endpoints and dynamic, fluent, or generated query APIs share this context
+only when they reach the same canonical planner failure. SQL parse failures and
+frontend-only lowering failures that have no singular resolver field do not
+invent one.

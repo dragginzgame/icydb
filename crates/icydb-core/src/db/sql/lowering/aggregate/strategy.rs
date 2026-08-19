@@ -12,6 +12,7 @@ use crate::db::{
         },
     },
 };
+use icydb_diagnostic_code::QueryFieldRole;
 
 ///
 /// PreparedSqlScalarAggregatePlanFragment
@@ -91,6 +92,7 @@ impl PreparedSqlScalarAggregateStrategy {
                 validate_analyzed_schema_bound_scalar_expr(
                     schema,
                     &input_expr,
+                    QueryFieldRole::AggregateTarget,
                     SqlLoweringError::unsupported_aggregate_input_expressions,
                 )?;
                 PreparedAggregateTarget::Expr(input_expr.into_expr())
@@ -120,9 +122,10 @@ impl PreparedSqlScalarAggregateStrategy {
         match validate_analyzed_schema_bound_scalar_expr(
             schema,
             filter_expr,
+            QueryFieldRole::Predicate,
             SqlLoweringError::unsupported_where_expression,
         ) {
-            Err(SqlLoweringError::UnknownField { field }) => {
+            Err(SqlLoweringError::UnknownField { field, .. }) => {
                 let _ = field;
                 Err(crate::db::QueryError::invariant().into())
             }

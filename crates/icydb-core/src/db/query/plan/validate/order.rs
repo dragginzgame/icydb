@@ -12,6 +12,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::QueryFieldRole;
 
 /// Validate ORDER BY fields against the schema.
 pub(in crate::db::query::plan::validate) fn validate_order(
@@ -34,7 +35,10 @@ fn validate_order_term(
 ) -> Result<(), PlanError> {
     if let Some(field) = term.direct_field() {
         let Some(field_type) = schema.field(field) else {
-            return Err(PlanError::from(OrderPlanError::unknown_field(term_index)));
+            return Err(
+                PlanError::from(OrderPlanError::unknown_field(term_index, field))
+                    .attach_query_field(QueryFieldRole::OrderBy),
+            );
         };
 
         return field_type
@@ -58,7 +62,8 @@ fn validate_field_path_order_term(
     term_index: usize,
     term: &OrderTerm,
 ) -> Result<(), PlanError> {
-    let inferred = infer_expr_type(term.expr(), schema)?;
+    let inferred = infer_expr_type(term.expr(), schema)
+        .map_err(|error| error.attach_query_field(QueryFieldRole::OrderBy))?;
 
     if matches!(
         inferred,
@@ -77,7 +82,8 @@ fn validate_expression_order_term(
     term_index: usize,
     term: &OrderTerm,
 ) -> Result<(), PlanError> {
-    let inferred = infer_expr_type(term.expr(), schema)?;
+    let inferred = infer_expr_type(term.expr(), schema)
+        .map_err(|error| error.attach_query_field(QueryFieldRole::OrderBy))?;
 
     if !matches!(
         inferred,

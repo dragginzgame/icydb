@@ -10,9 +10,10 @@ use icydb::diagnostic::{
     DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDetail,
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
     DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode, ErrorOrigin,
-    QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode, QueryResultShapeCode,
-    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode,
-    SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+    QueryErrorKind, QueryFieldRole, QueryFieldSchemaMismatch, QueryProjectionCode,
+    QueryReadAdmissionCode, QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind,
+    SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
+    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 use std::fmt::Write as _;
 
@@ -541,10 +542,7 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         .detail()
         .copied()
         .map_or_else(|| code_text(code).to_string(), diagnostic_detail_text);
-    let summary = format!("{}: {detail}", code_label(code));
-    if err.facts().is_empty() {
-        return summary;
-    }
+    let mut rendered_error = format!("{}: {detail}", code_label(code));
 
     let raw_facts = err
         .facts()
@@ -559,16 +557,85 @@ pub(crate) fn render_error(err: &icydb::Error) -> String {
         .iter()
         .map(|fact| (fact.tag, fact.value))
         .collect::<Vec<_>>();
-    if let Err(mismatch) =
+    let fact_mismatch = if raw_facts.is_empty() {
+        None
+    } else {
         icydb::diagnostic::validate_raw_diagnostic_fact_schema(err.code(), raw_pairs.as_slice())
-    {
-        return format!(
-            "{summary}; facts {rendered}; fact context mismatch: {}",
-            fact_schema_mismatch_text(mismatch)
-        );
+            .err()
+    };
+
+    match (fact_mismatch, err.validated_query_field()) {
+        (None, Ok(Some((role, field)))) => {
+            rendered_error.push_str("; ");
+            rendered_error.push_str(query_field_role_text(role));
+            rendered_error.push_str(" field `");
+            rendered_error.push_str(escape_query_field(field).as_str());
+            rendered_error.push('`');
+        }
+        (_, Ok(None)) => {}
+        (Some(_), Ok(Some(_))) => {
+            rendered_error.push_str(
+                "; query field context mismatch: diagnostic facts do not match the E-code",
+            );
+        }
+        (_, Err(mismatch)) => {
+            rendered_error.push_str("; query field context mismatch: ");
+            rendered_error.push_str(query_field_schema_mismatch_text(mismatch));
+        }
     }
 
-    format!("{summary}; facts {rendered}")
+    if !raw_facts.is_empty() {
+        rendered_error.push_str("; facts ");
+        rendered_error.push_str(rendered.as_str());
+        if let Some(mismatch) = fact_mismatch {
+            rendered_error.push_str("; fact context mismatch: ");
+            rendered_error.push_str(fact_schema_mismatch_text(mismatch));
+        }
+    }
+
+    rendered_error
+}
+
+const fn query_field_role_text(role: QueryFieldRole) -> &'static str {
+    match role {
+        QueryFieldRole::Predicate => "predicate",
+        QueryFieldRole::Projection => "projection",
+        QueryFieldRole::GroupBy => "group_by",
+        QueryFieldRole::Having => "having",
+        QueryFieldRole::OrderBy => "order_by",
+        QueryFieldRole::AggregateTarget => "aggregate_target",
+    }
+}
+
+const fn query_field_schema_mismatch_text(mismatch: QueryFieldSchemaMismatch) -> &'static str {
+    match mismatch {
+        QueryFieldSchemaMismatch::UnknownRole => "unknown role",
+        QueryFieldSchemaMismatch::DisallowedCodeRole => "role is not allowed for this E-code",
+        QueryFieldSchemaMismatch::EmptyField => "field is empty",
+        QueryFieldSchemaMismatch::FieldTooLong => "field exceeds the 256-byte bound",
+    }
+}
+
+fn escape_query_field(field: &str) -> String {
+    let mut escaped = String::with_capacity(field.len());
+    for character in field.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '`' => escaped.push_str("\\`"),
+            '\'' => escaped.push_str("\\'"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                for escaped_character in character.escape_unicode() {
+                    escaped.push(escaped_character);
+                }
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static str {
@@ -1582,6 +1649,165 @@ mod tests {
         RawDiagnosticFact, artifact::DiagnosticSchemaArtifact, parse_error_code, render_error,
         render_error_code_report, render_error_code_report_with_facts,
     };
+
+    fn decoded_query_field_error(
+        code: icydb::ErrorCode,
+        role: u8,
+        field: &str,
+        facts: serde_json::Value,
+    ) -> icydb::Error {
+        serde_json::from_value(serde_json::json!({
+            "code": code.raw(),
+            "class": code.class().wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Query.wire_code(),
+            "facts": facts,
+            "query_field": {
+                "role": role,
+                "field": field,
+            },
+        }))
+        .expect("query-field error should decode")
+    }
+
+    #[test]
+    fn renders_every_valid_query_field_role_from_shared_typed_context() {
+        let cases = [
+            (icydb::diagnostic::QueryFieldRole::Predicate, "predicate"),
+            (icydb::diagnostic::QueryFieldRole::Projection, "projection"),
+            (icydb::diagnostic::QueryFieldRole::GroupBy, "group_by"),
+            (icydb::diagnostic::QueryFieldRole::Having, "having"),
+            (icydb::diagnostic::QueryFieldRole::OrderBy, "order_by"),
+            (
+                icydb::diagnostic::QueryFieldRole::AggregateTarget,
+                "aggregate_target",
+            ),
+        ];
+
+        for (role, label) in cases {
+            let error = decoded_query_field_error(
+                icydb::ErrorCode::QUERY_PLAN,
+                role.raw(),
+                "missing",
+                serde_json::json!([]),
+            );
+
+            assert_eq!(
+                render_error(&error),
+                format!("E_QUERY_PLAN: query planning failed; {label} field `missing`")
+            );
+        }
+    }
+
+    #[test]
+    fn renders_reference_order_field_with_its_numeric_term_position() {
+        let error = decoded_query_field_error(
+            icydb::ErrorCode::QUERY_PLAN,
+            icydb::diagnostic::QueryFieldRole::OrderBy.raw(),
+            "id",
+            serde_json::json!([{
+                "tag": icydb::diagnostic::DiagnosticFactTag::TermIndex.raw(),
+                "value": 1,
+            }]),
+        );
+
+        assert_eq!(
+            render_error(&error),
+            "E_QUERY_PLAN: query planning failed; order_by field `id`; facts term_index=1"
+        );
+    }
+
+    #[test]
+    fn query_field_rendering_escapes_terminal_control_and_delimiter_characters() {
+        let error = decoded_query_field_error(
+            icydb::ErrorCode::QUERY_PLAN,
+            icydb::diagnostic::QueryFieldRole::Projection.raw(),
+            "line\n\0`\"'\u{1b}\\",
+            serde_json::json!([]),
+        );
+        let rendered = render_error(&error);
+
+        assert_eq!(
+            rendered,
+            "E_QUERY_PLAN: query planning failed; projection field `line\\n\\u{0}\\`\\\"\\'\\u{1b}\\\\`"
+        );
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\0'));
+        assert!(!rendered.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn malformed_decoded_query_field_context_is_withheld_and_reported() {
+        let overbound = "x".repeat(icydb::diagnostic::MAX_PUBLIC_QUERY_FIELD_BYTES + 1);
+        let cases = [
+            (
+                decoded_query_field_error(
+                    icydb::ErrorCode::QUERY_PLAN,
+                    0,
+                    "unknown-role-secret",
+                    serde_json::json!([]),
+                ),
+                "unknown role",
+                "unknown-role-secret",
+            ),
+            (
+                decoded_query_field_error(
+                    icydb::ErrorCode::QUERY_VALIDATE,
+                    icydb::diagnostic::QueryFieldRole::Predicate.raw(),
+                    "wrong-code-secret",
+                    serde_json::json!([]),
+                ),
+                "role is not allowed for this E-code",
+                "wrong-code-secret",
+            ),
+            (
+                decoded_query_field_error(
+                    icydb::ErrorCode::QUERY_PLAN,
+                    icydb::diagnostic::QueryFieldRole::OrderBy.raw(),
+                    overbound.as_str(),
+                    serde_json::json!([]),
+                ),
+                "field exceeds the 256-byte bound",
+                overbound.as_str(),
+            ),
+        ];
+
+        for (error, mismatch, untrusted_field) in cases {
+            let rendered = render_error(&error);
+            assert!(
+                rendered.contains(format!("query field context mismatch: {mismatch}").as_str()),
+                "{rendered}"
+            );
+            assert!(!rendered.contains(untrusted_field), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn invalid_numeric_facts_withhold_otherwise_valid_query_field_context() {
+        let error = decoded_query_field_error(
+            icydb::ErrorCode::QUERY_PLAN,
+            icydb::diagnostic::QueryFieldRole::OrderBy.raw(),
+            "fact-mismatch-secret",
+            serde_json::json!([
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::TermIndex.raw(),
+                    "value": 1,
+                },
+                {
+                    "tag": icydb::diagnostic::DiagnosticFactTag::TermIndex.raw(),
+                    "value": 2,
+                },
+            ]),
+        );
+        let rendered = render_error(&error);
+
+        assert!(!rendered.contains("fact-mismatch-secret"), "{rendered}");
+        assert!(
+            rendered.contains("query field context mismatch"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("fact context mismatch"), "{rendered}");
+        assert!(rendered.contains("term_index=1 term_index=2"), "{rendered}");
+    }
 
     #[test]
     fn renders_compact_query_not_found_code_report() {

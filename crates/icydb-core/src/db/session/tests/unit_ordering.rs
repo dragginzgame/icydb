@@ -32,6 +32,7 @@ use crate::{
     types::EntityTag,
     value::{InputValue, OutputValue, Value},
 };
+use icydb_diagnostic_code::{DiagnosticFactTag, QueryFieldRole};
 use icydb_schema::{FieldSourceKey, ScalarType};
 use std::{cell::RefCell, collections::BTreeMap};
 
@@ -74,6 +75,121 @@ thread_local! {
         ).expect("Unit ordering test store should register");
         registry
     };
+}
+
+#[test]
+fn rejected_fields_keep_exact_role_across_sql_and_dynamic_planning() {
+    let session = initialize();
+
+    let sql_cases = [
+        (
+            "SELECT missing FROM Singleton ORDER BY id LIMIT 1",
+            QueryFieldRole::Projection,
+            "missing",
+        ),
+        (
+            "SELECT Singleton.missing FROM Singleton ORDER BY id LIMIT 1",
+            QueryFieldRole::Projection,
+            "missing",
+        ),
+        (
+            "SELECT Other.missing FROM Singleton ORDER BY id LIMIT 1",
+            QueryFieldRole::Projection,
+            "Other.missing",
+        ),
+        (
+            "SELECT label.missing FROM Singleton ORDER BY id LIMIT 1",
+            QueryFieldRole::Projection,
+            "label.missing",
+        ),
+        (
+            "SELECT missing AS selected FROM Singleton ORDER BY selected LIMIT 1",
+            QueryFieldRole::Projection,
+            "missing",
+        ),
+        (
+            "SELECT id FROM Singleton WHERE missing = 'x' ORDER BY id LIMIT 1",
+            QueryFieldRole::Predicate,
+            "missing",
+        ),
+        (
+            "SELECT id FROM Singleton ORDER BY missing LIMIT 1",
+            QueryFieldRole::OrderBy,
+            "missing",
+        ),
+        (
+            "SELECT label AS shown FROM Singleton ORDER BY missing LIMIT 1",
+            QueryFieldRole::OrderBy,
+            "missing",
+        ),
+        (
+            "SELECT COUNT(*) FROM Singleton GROUP BY missing",
+            QueryFieldRole::GroupBy,
+            "missing",
+        ),
+        (
+            "SELECT SUM(ABS(missing)) FROM Singleton",
+            QueryFieldRole::AggregateTarget,
+            "missing",
+        ),
+    ];
+    for (sql, role, field) in sql_cases {
+        let error = session
+            .execute_trusted_sql_query(sql)
+            .expect_err("unknown SQL field should fail before execution");
+        assert_eq!(
+            error.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::QueryPlan,
+            "unexpected diagnostic code for {sql}",
+        );
+        assert_query_field(&error, role, field);
+    }
+
+    for sql in [
+        "SELECT label AS missing FROM Singleton ORDER BY missing LIMIT 1",
+        "SELECT label AS id FROM Singleton ORDER BY id LIMIT 1",
+        "SELECT id AS duplicate, label AS duplicate FROM Singleton ORDER BY duplicate LIMIT 1",
+    ] {
+        session
+            .execute_trusted_sql_query(sql)
+            .expect("resolved aliases should not become rejected-field context");
+    }
+
+    let quoted_error = session
+        .execute_trusted_sql_query("SELECT \"missing\" FROM Singleton ORDER BY id LIMIT 1")
+        .expect_err("quoted identifiers are outside the maintained resolver context");
+    assert_eq!(quoted_error.query_field_context(), None);
+
+    let dynamic_predicate = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("missing").eq(InputValue::Text("x".to_string())))
+        .select(["id"])
+        .order_by(asc("id"))
+        .limit(1);
+    let predicate_error = session
+        .execute_trusted_live_page(&dynamic_predicate, None)
+        .expect_err("dynamic unknown predicate field should fail planning");
+    assert_query_field(&predicate_error, QueryFieldRole::Predicate, "missing");
+
+    let dynamic_order = DynamicQuery::new(ENTITY_NAME)
+        .select(["id"])
+        .order_by(asc("missing"))
+        .limit(1);
+    let order_error = session
+        .execute_trusted_live_page(&dynamic_order, None)
+        .expect_err("dynamic unknown order field should fail planning");
+    assert_query_field(&order_error, QueryFieldRole::OrderBy, "missing");
+    assert_eq!(
+        order_error.diagnostic_facts(),
+        vec![(DiagnosticFactTag::TermIndex, 0)]
+    );
+}
+
+fn assert_query_field(error: &QueryError, role: QueryFieldRole, field: &str) {
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryPlan
+    );
+    assert_eq!(error.query_field_context(), Some((role, field)));
 }
 
 #[test]

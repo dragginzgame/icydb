@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.232.x] 🧭 - 2026-08-19 - Typed Public SQL Diagnostics
+
+Detailed notes: [docs/changelog/0.232.md](docs/changelog/0.232.md)
+
+- `0.232.0` carries one bounded, typed rejected-field context from canonical
+  query planning through validated CLI rendering, while preserving numeric
+  authority, persisted state, production endpoints, and successful behavior.
+
 ## [0.231.x] 🔐 - 2026-08-18 - Explicit Nullable Unique-Index Contracts
 
 Detailed notes: [docs/changelog/0.231.md](docs/changelog/0.231.md)

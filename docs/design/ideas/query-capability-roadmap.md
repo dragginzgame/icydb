@@ -2,7 +2,7 @@
 
 Status: provisional roadmap; not design or implementation authority
 
-Roadmap cut: 2026-08-14
+Roadmap cut: 2026-08-19
 
 Evidence intake:
 [production-ledger query capability intake](production-ledger-query-capability-intake.md)
@@ -10,12 +10,14 @@ Evidence intake:
 Immediate programme predecessor:
 [post-0.224 design programme](post-0.224-design-programme.md)
 
-This roadmap disposes every numbered intake candidate exactly once. Version
-labels from 0.231 onward are provisional ordering slots, not accepted minor
-scope, landing trackers, release targets, or permission to implement. Promotion
-requires a current-surface audit, one focused design/status line, 1-12
-substantive landing patches, a completed predecessor closeout, and
-explicit user authorization.
+This roadmap disposes every numbered intake candidate exactly once. The 0.231
+line is a completed maintained outcome. The 0.232 line is a proposed
+documentation-only design awaiting review and implementation authorization.
+Version labels from 0.233 onward remain provisional ordering slots, not
+accepted minor scope, landing trackers, release targets, or permission to
+implement. Promotion requires a current-surface audit, one focused
+design/status line, 1-12 substantive landing patches, a completed predecessor
+closeout, and explicit user authorization.
 
 ## Current-Surface Audit Decisions Required By The Intake
 
@@ -80,8 +82,8 @@ numeric operations or using lossy conversion.
 | 10. Incremental Rollups Or Maintained Materializations | Provisional future slice | 0.241 incrementally maintained rollups |
 | 11. Durable Resumable Aggregate Jobs | Provisional future slice | 0.240 durable resumable aggregate jobs |
 | 12. Range Partitioning And Archive-Aware History | Provisional future slice | 0.242 partitioned/archive-aware history |
-| 13. Explicit Nullable Unique-Index Semantics | Documentation-only proposed design; implementation remains gated | [0.231 explicit nullable unique-index contracts](../0.231-explicit-nullable-unique-index-contracts/0.231-design.md) |
-| 14. Specific Bounded Public SQL Diagnostics | Provisional future slice | 0.232 typed public SQL diagnostics plus direct bounded CLI/documentation fallout |
+| 13. Explicit Nullable Unique-Index Semantics | Completed maintained outcome | [0.231 explicit nullable unique-index contracts](../0.231-explicit-nullable-unique-index-contracts/0.231-design.md); implementation, independent closeout, and measurement closure are complete |
+| 14. Specific Bounded Public SQL Diagnostics | Proposed review-gated design; implementation not authorized | [0.232 typed public SQL diagnostics](../0.232-typed-public-sql-diagnostics/0.232-design.md): one bounded query-field context through core, facade, Candid, and CLI |
 | 15. Bounded Indexed Relation Traversal | Provisional future slice | 0.234 bounded indexed relation semi-joins |
 
 No numbered candidate appears in another disposition category.
@@ -115,15 +117,17 @@ other's facts.
 | Included fields, entry shape, predicate detail, physical DDL estimates | 0.235 only. |
 | Estimate/actual comparison, rejected routes, stale evidence, warnings | 0.236 only. |
 | Generated/stored owner, subaccount, or bucket projections | A 0.237 promotion question; they are not automatically added if canonical expressions suffice. |
-| Unknown-field detail, symbolic runtime-boundary documentation, concise human enum rendering | 0.232 only when direct bounded propagation/rendering fallout from Candidate 14; structured values remain canonical. |
+| Unknown-field detail | [0.232](../0.232-typed-public-sql-diagnostics/0.232-design.md); the field context is bounded, typed, and shared by equivalent SQL and structural planner failures. |
+| Symbolic runtime-boundary documentation | Separate documentation-only follow-up; it has no dependency on rejected-field propagation and is not part of 0.232. |
+| Concise human enum rendering | Deferred outside 0.232 because it changes successful result presentation rather than failed-query diagnostics; structured values remain canonical. |
 | reference application no-op/upsert observations | 0.239 evidence only after application-side replay and lookup costs are removed and benchmarks are repeated. |
 
-## Provisional Lines And Promotion Questions
+## Maintained, Proposed, And Provisional Lines
 
-| Order | Provisional line | Candidate input | Concise promotion question |
+| Order | Line | Candidate input | Maintained outcome or concise promotion question |
 | --- | --- | --- | --- |
-| 0.231 | [Explicit Nullable Unique-Index Contracts](../0.231-explicit-nullable-unique-index-contracts/0.231-design.md) | 13 | Can current partial-index semantics make nullable membership and uniqueness explicit before acceptance without adding encoded-null keys? |
-| 0.232 | Typed Public SQL Diagnostics | 14 | What smallest bounded typed detail preserves rejected field and clause identity through core, facade, Candid, CLI, and docs without a second error model? |
+| 0.231 | [Explicit Nullable Unique-Index Contracts](../0.231-explicit-nullable-unique-index-contracts/0.231-design.md) | 13 | Complete: accepted unique indexes with omit-capable top-level sources require exact non-null guards, while physical null omission and present-entry uniqueness remain unchanged. |
+| 0.232 | [Typed Public SQL Diagnostics](../0.232-typed-public-sql-diagnostics/0.232-design.md) | 14 | Reconciled for review: one optional post-normalization resolver field of at most 256 UTF-8 bytes plus a closed semantic role, carried through the shared query error flow without string facts, schema suggestions, producer identity, or a second error model. |
 | 0.233 | Bound SQL Invocation And Authenticated Continuation | 1 and 2, narrowed to current facade/generated gaps | What typed request and continuation envelope is externally missing, and how does it bind values to the existing cache, policy, 0.226 read-authority boundary, and authenticated live cursor without a second authorization owner, cursor, or snapshot model? |
 | 0.234 | Bounded Indexed Relation Semi-Joins | 15 | Can one indexed `IN`/`EXISTS` semi-join, or one evidenced fixed second bridge, solve the reference application relation hop under existing intermediate/result budgets? |
 | 0.235 | Covering Index Payloads And Physical Index Evidence | 3 and Candidate 5 physical fields | Which admitted projections still load base rows, and do included payloads justify their exact entry bytes, write amplification, rebuild cost, and schema-transition surface? |
@@ -140,9 +144,11 @@ contracted before implementation begins. Candidate 2 is already contracted to
 public SQL integration over the maintained cursor engine; snapshot isolation
 is not promoted. The 0.238 gap is currently confirmed, so that line remains.
 
-The user authorized an early documentation-only 0.231 design on 2026-08-17.
-That document does not satisfy predecessor closeout, promote implementation,
-or alter the numeric dependency order below.
+0.231 has completed implementation, independent closeout, and its user-owned
+release handoff. On 2026-08-19 the user authorized documentation-only 0.232
+promotion. The resulting [design and tracker](../0.232-typed-public-sql-diagnostics/0.232-design.md)
+do not authorize implementation. The intended `v0.231.1` predecessor identity
+must be captured from its exact tag before Patch 1 begins.
 
 ## Final Dependency Order
 
@@ -178,8 +184,9 @@ Semantic dependency constraints within that order are:
 
 ## Roadmap Promotion Gate
 
-No line from 0.231 onward is implementation-ready from this file. Promotion of
-one line requires:
+No line is implementation-ready from this file. The proposed 0.232 design
+still requires review and explicit implementation authorization. Promotion of
+one provisional line from 0.233 onward requires:
 
 1. all earlier numeric lines have a reported ready/complete closeout, or the
    roadmap is explicitly renumbered after a removed line;

@@ -1,5 +1,6 @@
 type DiagnosticFact = record { tag : nat8; value : nat64 };
 type Error = record {
+  query_field : opt QueryFieldDiagnostic;
   code : nat16;
   class : nat8;
   origin : nat8;
@@ -9,6 +10,7 @@ type ExpectedAcceptedHead = variant {
   Empty;
   Exact : record { fingerprint : blob; revision : nat64 };
 };
+type QueryFieldDiagnostic = record { field : text; role : nat8 };
 type Result = variant { Ok : SchemaMigrationStatusPage; Err : Error };
 type SchemaMigrationCommand = variant {
   Abort : record {

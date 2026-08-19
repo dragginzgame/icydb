@@ -4,8 +4,6 @@
 //! Boundary: unifies intent/planner/cursor/resource errors into query API error classes.
 
 #[cfg(feature = "sql")]
-use crate::db::query::plan::validate::ExprPlanError;
-#[cfg(feature = "sql")]
 use crate::db::sql::{ddl::SqlDdlPrepareError, lowering::SqlLoweringError, parser::SqlParseError};
 #[cfg(feature = "sql")]
 use crate::error::{ErrorDetail, SchemaDdlAdmissionError, StoreError};
@@ -68,6 +66,15 @@ impl QueryError {
             Self::Plan(error) => error.diagnostic_facts(),
             Self::Execute(error) => error.as_internal().diagnostic_facts(),
             Self::Validate(_) | Self::Intent(_) => Vec::new(),
+        }
+    }
+
+    /// Borrow the planner-owned rejected-field context, when available.
+    #[must_use]
+    pub fn query_field_context(&self) -> Option<(diagnostic_code::QueryFieldRole, &str)> {
+        match self {
+            Self::Plan(error) => error.query_field_context(),
+            Self::Validate(_) | Self::Intent(_) | Self::Execute(_) => None,
         }
     }
 
@@ -246,8 +253,9 @@ impl QueryError {
             SqlLoweringError::UnexpectedQueryLaneStatement => {
                 Self::unsupported_query_lane_sql_statement()
             }
-            SqlLoweringError::UnknownField { field } => {
-                Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
+            SqlLoweringError::UnknownField { role, field } => {
+                PlanError::from_sql_unknown_field(role, field)
+                    .map_or_else(Self::invariant, Self::from)
             }
             err => {
                 if let Some(reason) = err.compact_diagnostic_code() {

@@ -32,7 +32,7 @@ use crate::db::{
         SqlSelectStatement, SqlUpdateStatement,
     },
 };
-use icydb_diagnostic_code::{SqlFeatureCode, SqlWriteBoundaryCode};
+use icydb_diagnostic_code::{QueryFieldRole, SqlFeatureCode, SqlWriteBoundaryCode};
 
 use crate::db::sql::lowering::select::{
     aggregate::lower_having_clauses,
@@ -472,7 +472,10 @@ fn ensure_sql_selectable_field_path(
 ) -> Result<(), SqlLoweringError> {
     let Some(capabilities) = schema.nested_sql_capabilities(path.root().as_str(), path.segments())
     else {
-        return Err(SqlLoweringError::unknown_field(render_field_path(path)));
+        return Err(SqlLoweringError::unknown_field(
+            QueryFieldRole::Projection,
+            render_field_path(path),
+        ));
     };
     if !capabilities.selectable() {
         return Err(SqlLoweringError::unsupported_select_projection());
@@ -489,7 +492,10 @@ fn validate_group_by_sql_capabilities(
 ) -> Result<(), SqlLoweringError> {
     for field in fields {
         let Some(capabilities) = schema.sql_capabilities(field) else {
-            return Err(SqlLoweringError::unknown_field(field.as_str()));
+            return Err(SqlLoweringError::unknown_field(
+                QueryFieldRole::GroupBy,
+                field.as_str(),
+            ));
         };
         // Keep enum grouping closed until the canonical-ID runtime/key route
         // consumes the catalog capability recorded on accepted SchemaInfo.
@@ -533,7 +539,10 @@ fn ensure_sql_selectable_field(
     field_name: &str,
 ) -> Result<(), SqlLoweringError> {
     let Some(capabilities) = schema.sql_capabilities(field_name) else {
-        return Err(SqlLoweringError::unknown_field(field_name));
+        return Err(SqlLoweringError::unknown_field(
+            QueryFieldRole::Projection,
+            field_name,
+        ));
     };
     if !capabilities.selectable() {
         return Err(SqlLoweringError::unsupported_select_projection());

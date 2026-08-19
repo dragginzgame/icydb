@@ -23,7 +23,7 @@ use crate::db::{
     query::intent::QueryError,
     sql::parser::{SqlParseError, SqlStatement},
 };
-use icydb_diagnostic_code::{DiagnosticFactTag, SqlLoweringCode};
+use icydb_diagnostic_code::{DiagnosticFactTag, QueryFieldRole, SqlLoweringCode};
 
 ///
 /// SqlParameterPlacementReason
@@ -185,6 +185,7 @@ pub(crate) enum SqlLoweringError {
     UnsupportedWhereExpression,
 
     UnknownField {
+        role: QueryFieldRole,
         field: String,
     },
 
@@ -318,8 +319,9 @@ impl SqlLoweringError {
     }
 
     /// Construct one unknown-field SQL lowering error.
-    pub(crate) fn unknown_field(field: impl Into<String>) -> Self {
+    pub(crate) fn unknown_field(role: QueryFieldRole, field: impl Into<String>) -> Self {
         Self::UnknownField {
+            role,
             field: field.into(),
         }
     }

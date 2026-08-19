@@ -22,11 +22,18 @@ struct DiagnosticFactWire {
 }
 
 #[derive(CandidType, Serialize)]
+struct QueryFieldDiagnosticWire {
+    role: u8,
+    field: String,
+}
+
+#[derive(CandidType, Serialize)]
 struct ErrorWire {
     code: u16,
     class: u8,
     origin: u8,
     facts: Vec<DiagnosticFactWire>,
+    query_field: Option<QueryFieldDiagnosticWire>,
 }
 
 fn expect_record_fields(ty: Type) -> Vec<String> {
@@ -401,7 +408,7 @@ fn error_struct_candid_shape_is_stable() {
     let mut fields = expect_record_fields(Error::ty());
     fields.sort();
 
-    assert_eq!(fields, ["class", "code", "facts", "origin"]);
+    assert_eq!(fields, ["class", "code", "facts", "origin", "query_field"]);
 }
 
 #[test]
@@ -410,6 +417,14 @@ fn diagnostic_fact_candid_shape_is_stable() {
     fields.sort();
 
     assert_eq!(fields, ["tag", "value"]);
+}
+
+#[test]
+fn query_field_diagnostic_candid_shape_is_stable() {
+    let mut fields = expect_record_fields(QueryFieldDiagnostic::ty());
+    fields.sort();
+
+    assert_eq!(fields, ["field", "role"]);
 }
 
 #[test]
@@ -429,6 +444,7 @@ fn public_error_candid_preserves_bounded_numeric_facts() {
                 value: 4_096,
             },
         ],
+        query_field: None,
     })
     .expect("numeric public error facts should encode");
     let error = Decode!(bytes.as_slice(), Error).expect("numeric public error should decode");
@@ -449,6 +465,84 @@ fn public_error_candid_preserves_bounded_numeric_facts() {
                 value: 4_096,
             },
         ],
+    );
+}
+
+#[test]
+fn public_query_field_context_is_typed_bounded_and_validated() {
+    let diagnostic = icydb_diagnostic_code::Diagnostic::new(
+        icydb_diagnostic_code::DiagnosticCode::QueryPlan,
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        Some(icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+            kind: icydb_diagnostic_code::QueryErrorKind::Plan,
+        }),
+    );
+    let error = Error::from_diagnostic_facts_and_query_field(
+        diagnostic,
+        Vec::new(),
+        Some((icydb_diagnostic_code::QueryFieldRole::OrderBy, "missing")),
+    );
+    let context = error
+        .query_field()
+        .expect("valid planning context should be retained");
+
+    assert_eq!(context.role(), 5);
+    assert_eq!(
+        context.known_role(),
+        Some(icydb_diagnostic_code::QueryFieldRole::OrderBy)
+    );
+    assert_eq!(context.field(), "missing");
+    assert_eq!(
+        error.validated_query_field(),
+        Ok(Some((
+            icydb_diagnostic_code::QueryFieldRole::OrderBy,
+            "missing"
+        )))
+    );
+}
+
+#[test]
+fn server_side_disallowed_query_field_context_becomes_invariant() {
+    let diagnostic = icydb_diagnostic_code::Diagnostic::new(
+        icydb_diagnostic_code::DiagnosticCode::QueryValidate,
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        Some(icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+            kind: icydb_diagnostic_code::QueryErrorKind::Validate,
+        }),
+    );
+    let error = Error::from_diagnostic_facts_and_query_field(
+        diagnostic,
+        Vec::new(),
+        Some((icydb_diagnostic_code::QueryFieldRole::Predicate, "missing")),
+    );
+
+    assert_eq!(
+        error.code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION
+    );
+    assert!(error.query_field().is_none());
+}
+
+#[test]
+fn malformed_decoded_query_field_context_preserves_base_error() {
+    let bytes = Encode!(&ErrorWire {
+        code: icydb_diagnostic_code::ErrorCode::QUERY_PLAN.raw(),
+        class: icydb_diagnostic_code::ErrorClass::Query.wire_code(),
+        origin: icydb_diagnostic_code::ErrorOrigin::Query.wire_code(),
+        facts: Vec::new(),
+        query_field: Some(QueryFieldDiagnosticWire {
+            role: u8::MAX,
+            field: "missing".to_string(),
+        }),
+    })
+    .expect("malformed client context should encode as raw Candid");
+    let error = Decode!(bytes.as_slice(), Error).expect("base error should remain decodable");
+
+    assert_eq!(error.code(), icydb_diagnostic_code::ErrorCode::QUERY_PLAN);
+    assert_eq!(error.facts(), &[]);
+    assert_eq!(
+        error.validated_query_field(),
+        Err(icydb_diagnostic_code::QueryFieldSchemaMismatch::UnknownRole)
     );
 }
 

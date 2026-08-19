@@ -16,7 +16,7 @@ use crate::db::{
 };
 use icydb_diagnostic_code::{
     DiagnosticAggregateKind, DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticOperatorKind,
-    DiagnosticTypeFamily,
+    DiagnosticTypeFamily, MAX_PUBLIC_QUERY_FIELD_BYTES, QueryFieldRole,
 };
 
 type DiagnosticFacts = Vec<(DiagnosticFactTag, u64)>;
@@ -66,7 +66,13 @@ const fn diagnostic_compare_op(op: CompareOp) -> DiagnosticOperatorKind {
 ///
 
 #[derive(Debug)]
-pub enum PlanError {
+pub struct PlanError {
+    kind: PlanErrorKind,
+    query_field: Option<QueryFieldContext>,
+}
+
+#[derive(Debug)]
+pub(crate) enum PlanErrorKind {
     User(Box<PlanUserError>),
 
     Policy(Box<PlanPolicyError>),
@@ -74,22 +80,141 @@ pub enum PlanError {
     Cursor(Box<CursorPlanError>),
 }
 
+#[derive(Debug)]
+struct QueryFieldContext {
+    role: QueryFieldRole,
+    field: String,
+}
+
+impl QueryFieldContext {
+    fn new(role: QueryFieldRole, field: &str) -> Option<Self> {
+        (!field.is_empty() && field.len() <= MAX_PUBLIC_QUERY_FIELD_BYTES).then(|| Self {
+            role,
+            field: field.to_owned(),
+        })
+    }
+}
+
 impl PlanError {
     /// Project retained planner context into production-safe numeric facts.
     pub(crate) fn diagnostic_facts(&self) -> DiagnosticFacts {
-        match self {
-            Self::User(error) => error.diagnostic_facts(),
-            Self::Policy(error) => error.diagnostic_facts(),
-            Self::Cursor(error) => error.diagnostic_facts(),
+        match &self.kind {
+            PlanErrorKind::User(error) => error.diagnostic_facts(),
+            PlanErrorKind::Policy(error) => error.diagnostic_facts(),
+            PlanErrorKind::Cursor(error) => error.diagnostic_facts(),
         }
+    }
+
+    /// Borrow the bounded rejected-field role and identity, when one was attached.
+    #[must_use]
+    pub(crate) fn query_field_context(&self) -> Option<(QueryFieldRole, &str)> {
+        self.query_field
+            .as_ref()
+            .map(|context| (context.role, context.field.as_str()))
+    }
+
+    pub(in crate::db::query) fn attach_query_field(mut self, role: QueryFieldRole) -> Self {
+        if self.query_field.is_some() {
+            return self;
+        }
+
+        self.query_field = self
+            .query_field_source(role)
+            .and_then(|field| QueryFieldContext::new(role, field));
+        self
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn from_sql_unknown_field(
+        role: QueryFieldRole,
+        field: String,
+    ) -> Option<Self> {
+        if !matches!(
+            role,
+            QueryFieldRole::Predicate
+                | QueryFieldRole::Projection
+                | QueryFieldRole::GroupBy
+                | QueryFieldRole::AggregateTarget
+        ) {
+            return None;
+        }
+
+        Some(Self::from(ExprPlanError::unknown_field(field)).attach_query_field(role))
+    }
+
+    fn query_field_source(&self, role: QueryFieldRole) -> Option<&str> {
+        match (&self.kind, role) {
+            (PlanErrorKind::User(error), QueryFieldRole::Predicate) => match error.as_ref() {
+                PlanUserError::PredicateInvalid(error) => match error.as_ref() {
+                    ValidateError::UnknownField { field } => Some(field),
+                    _ => None,
+                },
+                PlanUserError::Expr(error) => match error.as_ref() {
+                    ExprPlanError::UnknownField { field } => Some(field),
+                    _ => None,
+                },
+                _ => None,
+            },
+            (PlanErrorKind::User(error), QueryFieldRole::Projection | QueryFieldRole::OrderBy) => {
+                match error.as_ref() {
+                    PlanUserError::Expr(error) => match error.as_ref() {
+                        ExprPlanError::UnknownExprField { field } => Some(field),
+                        ExprPlanError::UnknownField { field }
+                            if role == QueryFieldRole::Projection =>
+                        {
+                            Some(field)
+                        }
+                        _ => None,
+                    },
+                    PlanUserError::Order(error) if role == QueryFieldRole::OrderBy => {
+                        match error.as_ref() {
+                            OrderPlanError::UnknownField { field, .. } => Some(field),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            (
+                PlanErrorKind::User(error),
+                QueryFieldRole::GroupBy | QueryFieldRole::Having | QueryFieldRole::AggregateTarget,
+            ) => match error.as_ref() {
+                PlanUserError::Group(error) => match (error.as_ref(), role) {
+                    (GroupPlanError::UnknownGroupField { field, .. }, QueryFieldRole::GroupBy)
+                    | (
+                        GroupPlanError::HavingNonGroupFieldReference { field, .. },
+                        QueryFieldRole::Having,
+                    )
+                    | (
+                        GroupPlanError::UnknownAggregateTargetField { field, .. },
+                        QueryFieldRole::AggregateTarget,
+                    ) => Some(field),
+                    _ => None,
+                },
+                PlanUserError::Expr(error) => match (error.as_ref(), role) {
+                    (
+                        ExprPlanError::UnknownField { field },
+                        QueryFieldRole::GroupBy | QueryFieldRole::AggregateTarget,
+                    ) => Some(field),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn into_kind(self) -> PlanErrorKind {
+        self.kind
     }
 
     /// Return whether this plan error carries invalid external continuation state.
     #[must_use]
     pub(crate) fn is_invalid_continuation_cursor(&self) -> bool {
         matches!(
-            self,
-            Self::Cursor(error) if error.is_invalid_continuation_cursor()
+            &self.kind,
+            PlanErrorKind::Cursor(error) if error.is_invalid_continuation_cursor()
         )
     }
 
@@ -97,8 +222,8 @@ impl PlanError {
     #[must_use]
     pub fn is_unordered_pagination(&self) -> bool {
         matches!(
-            self,
-            Self::Policy(inner)
+            &self.kind,
+            PlanErrorKind::Policy(inner)
                 if matches!(
                     inner.as_ref(),
                     PlanPolicyError::Policy(policy)
@@ -173,7 +298,7 @@ impl PlanPolicyError {
 #[derive(Debug)]
 pub enum OrderPlanError {
     /// ORDER BY references an unknown field.
-    UnknownField { term_index: usize },
+    UnknownField { term_index: usize, field: String },
 
     /// ORDER BY references a field that cannot be ordered.
     UnorderableField { term_index: usize },
@@ -191,7 +316,7 @@ pub enum OrderPlanError {
 impl OrderPlanError {
     fn diagnostic_facts(&self) -> DiagnosticFacts {
         match self {
-            Self::UnknownField { term_index } | Self::UnorderableField { term_index } => {
+            Self::UnknownField { term_index, .. } | Self::UnorderableField { term_index } => {
                 vec![(DiagnosticFactTag::TermIndex, diagnostic_index(*term_index))]
             }
             Self::DuplicateOrderField {
@@ -215,8 +340,11 @@ impl OrderPlanError {
     }
 
     /// Construct one unknown-field validation error.
-    pub(in crate::db::query) const fn unknown_field(term_index: usize) -> Self {
-        Self::UnknownField { term_index }
+    pub(in crate::db::query) fn unknown_field(term_index: usize, field: impl Into<String>) -> Self {
+        Self::UnknownField {
+            term_index,
+            field: field.into(),
+        }
     }
 
     /// Construct one unorderable-field validation error.
@@ -1188,7 +1316,10 @@ impl From<PolicyPlanError> for PlanError {
 
 impl From<CursorPlanError> for PlanError {
     fn from(err: CursorPlanError) -> Self {
-        Self::Cursor(Box::new(err))
+        Self {
+            kind: PlanErrorKind::Cursor(Box::new(err)),
+            query_field: None,
+        }
     }
 }
 
@@ -1210,13 +1341,19 @@ impl From<ExprPlanError> for PlanError {
 
 impl From<PlanUserError> for PlanError {
     fn from(err: PlanUserError) -> Self {
-        Self::User(Box::new(err))
+        Self {
+            kind: PlanErrorKind::User(Box::new(err)),
+            query_field: None,
+        }
     }
 }
 
 impl From<PlanPolicyError> for PlanError {
     fn from(err: PlanPolicyError) -> Self {
-        Self::Policy(Box::new(err))
+        Self {
+            kind: PlanErrorKind::Policy(Box::new(err)),
+            query_field: None,
+        }
     }
 }
 
@@ -1290,7 +1427,7 @@ mod tests {
         diagnostic_index,
     };
     use crate::db::{
-        QueryError,
+        QueryError, ValidateError,
         predicate::CompareOp,
         query::plan::{
             AggregateKind,
@@ -1299,8 +1436,148 @@ mod tests {
     };
     use icydb_diagnostic_code::{
         DiagnosticAggregateKind, DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticOperatorKind,
-        DiagnosticTypeFamily,
+        DiagnosticTypeFamily, MAX_PUBLIC_QUERY_FIELD_BYTES, QueryFieldRole,
     };
+
+    fn attached_context(
+        error: PlanError,
+        role: QueryFieldRole,
+    ) -> Option<(QueryFieldRole, String)> {
+        error
+            .attach_query_field(role)
+            .query_field_context()
+            .map(|(role, field)| (role, field.to_string()))
+    }
+
+    fn assert_attachment_roles(
+        make_error: impl Fn() -> PlanError,
+        field: &str,
+        admitted_roles: &[QueryFieldRole],
+    ) {
+        for role in [
+            QueryFieldRole::Predicate,
+            QueryFieldRole::Projection,
+            QueryFieldRole::GroupBy,
+            QueryFieldRole::Having,
+            QueryFieldRole::OrderBy,
+            QueryFieldRole::AggregateTarget,
+        ] {
+            let expected = admitted_roles
+                .contains(&role)
+                .then(|| (role, field.to_string()));
+            assert_eq!(attached_context(make_error(), role), expected);
+        }
+    }
+
+    #[test]
+    fn planner_attachment_matrix_is_closed_and_exact() {
+        assert_attachment_roles(
+            || {
+                PlanError::from(ValidateError::UnknownField {
+                    field: "predicate_field".to_string(),
+                })
+            },
+            "predicate_field",
+            &[QueryFieldRole::Predicate],
+        );
+        assert_attachment_roles(
+            || PlanError::from(ExprPlanError::unknown_expr_field("expression_field")),
+            "expression_field",
+            &[QueryFieldRole::Projection, QueryFieldRole::OrderBy],
+        );
+        assert_attachment_roles(
+            || PlanError::from(ExprPlanError::unknown_field("sql_field")),
+            "sql_field",
+            &[
+                QueryFieldRole::Predicate,
+                QueryFieldRole::Projection,
+                QueryFieldRole::GroupBy,
+                QueryFieldRole::AggregateTarget,
+            ],
+        );
+        assert_attachment_roles(
+            || PlanError::from(OrderPlanError::unknown_field(2, "order_field")),
+            "order_field",
+            &[QueryFieldRole::OrderBy],
+        );
+        assert_attachment_roles(
+            || PlanError::from(GroupPlanError::unknown_group_field_at(1, "group_field")),
+            "group_field",
+            &[QueryFieldRole::GroupBy],
+        );
+        assert_attachment_roles(
+            || {
+                PlanError::from(GroupPlanError::having_non_group_field_reference(
+                    3,
+                    "having_field",
+                ))
+            },
+            "having_field",
+            &[QueryFieldRole::Having],
+        );
+        assert_attachment_roles(
+            || {
+                PlanError::from(GroupPlanError::unknown_aggregate_target_field(
+                    4,
+                    "aggregate_field",
+                ))
+            },
+            "aggregate_field",
+            &[QueryFieldRole::AggregateTarget],
+        );
+        assert_eq!(
+            attached_context(
+                PlanError::from(OrderPlanError::unorderable_field(0)),
+                QueryFieldRole::OrderBy,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn planner_context_bound_preserves_exact_utf8_or_omits_it() {
+        let exact = "é".repeat(MAX_PUBLIC_QUERY_FIELD_BYTES / 2);
+        let over = format!("{exact}a");
+        let empty = String::new();
+
+        assert_eq!(
+            attached_context(
+                PlanError::from(OrderPlanError::unknown_field(0, exact.clone())),
+                QueryFieldRole::OrderBy,
+            ),
+            Some((QueryFieldRole::OrderBy, exact))
+        );
+        for field in [over, empty] {
+            assert_eq!(
+                attached_context(
+                    PlanError::from(OrderPlanError::unknown_field(0, field)),
+                    QueryFieldRole::OrderBy,
+                ),
+                None
+            );
+        }
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn sql_unknown_field_attachment_accepts_only_lowering_roles() {
+        for role in [
+            QueryFieldRole::Predicate,
+            QueryFieldRole::Projection,
+            QueryFieldRole::GroupBy,
+            QueryFieldRole::AggregateTarget,
+        ] {
+            let error = PlanError::from_sql_unknown_field(role, "missing".to_string())
+                .expect("lowering role should be admitted");
+            assert_eq!(error.query_field_context(), Some((role, "missing")));
+        }
+        for role in [QueryFieldRole::Having, QueryFieldRole::OrderBy] {
+            assert!(
+                PlanError::from_sql_unknown_field(role, "missing".to_string()).is_none(),
+                "non-lowering role {role:?} must fail closed"
+            );
+        }
+    }
 
     #[test]
     fn order_diagnostics_retain_exact_term_and_component_positions() {
@@ -1317,7 +1594,8 @@ mod tests {
         );
         assert_eq!(diagnostic_index(usize::MAX), usize::MAX as u64);
 
-        let query_error = QueryError::from(PlanError::from(OrderPlanError::unknown_field(7)));
+        let query_error =
+            QueryError::from(PlanError::from(OrderPlanError::unknown_field(7, "missing")));
         assert_eq!(
             query_error.diagnostic_facts(),
             vec![(DiagnosticFactTag::TermIndex, 7)],

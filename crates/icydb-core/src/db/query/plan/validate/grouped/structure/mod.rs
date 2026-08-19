@@ -12,6 +12,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::QueryFieldRole;
 
 // Validate grouped structural invariants before policy/cursor gates.
 pub(in crate::db::query) fn validate_group_structure(
@@ -56,6 +57,7 @@ fn validate_having_group_field_reference(
                 index,
                 field_slot.field(),
             ))
+            .attach_query_field(QueryFieldRole::Having)
         })
 }
 
@@ -87,8 +89,9 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
             let Some(target_field) = aggregate.target_field() else {
                 continue;
             };
-            resolve_group_aggregate_target_field_type(schema, target_field, index)
-                .map_err(PlanError::from)?;
+            resolve_group_aggregate_target_field_type(schema, target_field, index).map_err(
+                |error| PlanError::from(error).attach_query_field(QueryFieldRole::AggregateTarget),
+            )?;
         }
 
         return Ok(());
@@ -103,13 +106,15 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
             return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
                 group_index,
                 field_slot.field(),
-            )));
+            ))
+            .attach_query_field(QueryFieldRole::GroupBy));
         };
         if accepted_slot != field_slot.index() {
             return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
                 group_index,
                 field_slot.field(),
-            )));
+            ))
+            .attach_query_field(QueryFieldRole::GroupBy));
         }
 
         seen_accepted_group_slots
@@ -133,8 +138,9 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
         let Some(target_field) = aggregate.target_field() else {
             continue;
         };
-        resolve_group_aggregate_target_field_type(schema, target_field, index)
-            .map_err(PlanError::from)?;
+        resolve_group_aggregate_target_field_type(schema, target_field, index).map_err(
+            |error| PlanError::from(error).attach_query_field(QueryFieldRole::AggregateTarget),
+        )?;
     }
 
     Ok(())
@@ -154,9 +160,13 @@ fn validate_grouped_having_expr_structure(
                     .iter()
                     .find(|group_field| group_field.field() == field_name)
                 else {
-                    return Err(PlanError::from(
-                        GroupPlanError::having_non_group_field_reference(compare_index, field_name),
-                    ));
+                    return Err(
+                        PlanError::from(GroupPlanError::having_non_group_field_reference(
+                            compare_index,
+                            field_name,
+                        ))
+                        .attach_query_field(QueryFieldRole::Having),
+                    );
                 };
 
                 validate_having_group_field_reference(group, field_slot, compare_index)

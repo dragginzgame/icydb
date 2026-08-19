@@ -126,18 +126,21 @@ pub mod diagnostic {
         DiagnosticExecutionBudgetScope, DiagnosticExecutionLane, DiagnosticFactSchemaMismatch,
         DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation,
         DiagnosticOperatorKind, DiagnosticTypeFamily, ErrorClass, ErrorCode, ErrorOrigin,
-        MAX_PUBLIC_DIAGNOSTIC_FACTS, QueryErrorKind, QueryProjectionCode, QueryReadAdmissionCode,
+        MAX_PUBLIC_DIAGNOSTIC_FACTS, MAX_PUBLIC_QUERY_FIELD_BYTES, QueryErrorKind, QueryFieldRole,
+        QueryFieldSchemaMismatch, QueryProjectionCode, QueryReadAdmissionCode,
         QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
         SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
         SqlWriteBoundaryCode, pack_u32_pair, unpack_u32_pair,
-        validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
+        validate_known_diagnostic_fact_schema, validate_query_field_schema,
+        validate_raw_diagnostic_fact_schema,
     };
 }
 mod error;
 pub mod traits;
 pub use error::{
     ConstraintValidationFindingOutput, ConstraintValuePath, ConstraintValuePathComponent,
-    DiagnosticFact, Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind,
+    DiagnosticFact, Error, ErrorKind, ErrorOrigin, QueryErrorKind, QueryFieldDiagnostic,
+    RuntimeErrorKind,
 };
 pub use guards::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationGuard,

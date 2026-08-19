@@ -12,6 +12,7 @@
 use std::fmt;
 
 mod fact;
+mod query_field;
 
 pub use fact::{
     DiagnosticAggregateKind, DiagnosticBacklogResource, DiagnosticComponentKind,
@@ -21,6 +22,10 @@ pub use fact::{
     DiagnosticMutationOperation, DiagnosticOperatorKind, DiagnosticTypeFamily,
     MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
     validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
+};
+pub use query_field::{
+    MAX_PUBLIC_QUERY_FIELD_BYTES, QueryFieldRole, QueryFieldSchemaMismatch,
+    validate_query_field_schema,
 };
 
 ///

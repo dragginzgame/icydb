@@ -179,3 +179,16 @@ pub struct SqlTestIdentityNat128 {}
     )
 )]
 pub struct SqlTestIdentityBatch {}
+
+/// Reference-shaped accepted schema for typed rejected-field diagnostics.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "pokemon_card_id"),
+    index(fields = ["hp", "pokemon_card_id"]),
+    fields(
+        field(name = "pokemon_card_id", value(item(prim = "Ulid"))),
+        field(name = "hp", value(item(prim = "Int32")))
+    )
+)]
+pub struct PokemonCardMetadata {}

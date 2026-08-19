@@ -160,9 +160,10 @@ that line only if a current-surface audit narrows the reported workload to the
 same catalog-native ingestion semantics.
 
 General application validation followed by typed mutation must not broaden
-0.239 incidentally. If the maintained gap remains broader, this note requires
-a separate future roadmap disposition after the immediate programme through
-0.230 closes. No minor number is assigned here.
+0.239 incidentally. The immediate programme through 0.230 is now closed, so
+that predecessor condition is satisfied. If the maintained gap remains
+broader, this note still requires a separate future roadmap disposition. No
+minor number is assigned and no implementation is authorized here.
 
 ## Promotion Questions
 
@@ -185,14 +186,12 @@ Before promotion, answer:
 
 ## Promotion Gate
 
-This note remains non-authoritative until:
+The predecessor condition is satisfied by the completed 0.230 closeout. This
+note remains non-authoritative until the remaining gates are satisfied:
 
-1. the immediate programme through 0.230 has a reported ready/complete
-   closeout;
-2. a current-surface audit reproduces the gap and identifies the exhausted
+1. a current-surface audit reproduces the gap and identifies the exhausted
    E273 resource from typed facts;
-3. the no-build alternatives above are measured against the real workload;
-4. one focused numbered design and status tracker define 1-12 substantive
+2. the no-build alternatives above are measured against the real workload;
+3. one focused numbered design and status tracker define 1-12 substantive
    landing patches; and
-5. the user explicitly authorizes that minor-version line.
-
+4. the user explicitly authorizes that minor-version line.

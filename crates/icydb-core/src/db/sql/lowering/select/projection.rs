@@ -12,6 +12,7 @@ use crate::db::{
         parser::{SqlAggregateCall, SqlProjection, SqlSelectItem},
     },
 };
+use icydb_diagnostic_code::QueryFieldRole;
 
 ///
 /// LoweredSqlProjectionSelection
@@ -218,7 +219,10 @@ fn validate_grouped_projection_expr(
     analysis: &LoweredExprAnalysis,
 ) -> Result<(), SqlLoweringError> {
     if let Some(field) = analysis.first_unknown_field_for_schema(schema) {
-        return Err(SqlLoweringError::unknown_field(field));
+        return Err(SqlLoweringError::unknown_field(
+            QueryFieldRole::Projection,
+            field,
+        ));
     }
     if !analysis.references_only_direct_fields(grouped_field_names) {
         return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));

@@ -80,6 +80,24 @@ struct AcceptedSchemaReadInstructionResult {
     local_instructions: u64,
 }
 
+/// Measure one trusted SQL query while retaining either success or failure.
+#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[query]
+fn measure_sql_query_instructions(sql: String) -> SqlExecutionInstructionResult {
+    icydb::__macro::with_query_metrics_context(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let result = icydb::db::with_request_execution(|| {
+            icydb::db!()?.execute_trusted_sql_query(sql.as_str())
+        });
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        SqlExecutionInstructionResult {
+            result,
+            local_instructions,
+        }
+    })
+}
+
 /// Measure administrative DDL admission through the existing catalog owner.
 #[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
 #[update]

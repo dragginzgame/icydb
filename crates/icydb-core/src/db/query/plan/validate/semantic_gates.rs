@@ -23,6 +23,7 @@ use crate::db::{
     query::predicate::validate_predicate,
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::QueryFieldRole;
 
 fn validate_accepted_access_structure_for_plan(
     schema: &SchemaInfo,
@@ -101,7 +102,9 @@ where
     FAccess: Fn(&SchemaInfo, &AccessPlannedQuery) -> Result<(), PlanError>,
 {
     if let Some(predicate) = &logical.predicate {
-        validate_predicate(schema, predicate)?;
+        validate_predicate(schema, predicate).map_err(|error| {
+            PlanError::from(error).attach_query_field(QueryFieldRole::Predicate)
+        })?;
     }
 
     if let Some(order) = &logical.order {

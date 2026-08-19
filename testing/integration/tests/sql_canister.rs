@@ -352,6 +352,15 @@ fn query_sql_attribution(
         .expect("SQL attribution canister call should decode")
 }
 
+fn measure_query_sql(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> SqlExecutionInstructionResult {
+    fixture
+        .query_candid("measure_sql_query_instructions", (sql.to_string(),))
+        .expect("measured SQL query canister call should decode")
+}
+
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     query_sql_with_perf(fixture, sql).map(|payload| payload.result)
 }
@@ -406,6 +415,52 @@ fn measure_accepted_schema_read(
 fn stable_memory_fingerprint(fixture: &StandaloneCanisterFixture) -> ([u8; 32], usize) {
     let stable = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
     (*blake3::hash(&stable).as_bytes(), stable.len())
+}
+
+#[test]
+fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_unchanged() {
+    const FAILURE_SQL: &str = "SELECT pokemon_card_id FROM PokemonCardMetadata \
+        ORDER BY hp DESC, id DESC";
+    const SUCCESS_SQL: &str = "SELECT pokemon_card_id FROM PokemonCardMetadata \
+        ORDER BY hp DESC, pokemon_card_id DESC LIMIT 1";
+
+    let fixture = install_sql_canister_fixture();
+    let stable_before = stable_memory_fingerprint(&fixture);
+
+    let direct_error = query_sql(&fixture, FAILURE_SQL)
+        .expect_err("reference unknown ORDER BY field should fail through generated dispatch");
+    assert_eq!(direct_error.code(), ErrorCode::QUERY_PLAN);
+    assert_eq!(direct_error.facts().len(), 1);
+    assert_eq!(
+        direct_error.facts()[0].tag(),
+        icydb::diagnostic::DiagnosticFactTag::TermIndex.raw()
+    );
+    assert_eq!(direct_error.facts()[0].value(), 1);
+    assert_eq!(
+        direct_error.validated_query_field(),
+        Ok(Some((icydb::diagnostic::QueryFieldRole::OrderBy, "id")))
+    );
+
+    let measured_failure = measure_query_sql(&fixture, FAILURE_SQL);
+    assert_eq!(measured_failure.result, Err(direct_error));
+    assert!(measured_failure.local_instructions > 0);
+    assert!(measured_failure.local_instructions < 40_000_000_000);
+
+    let success = query_sql_with_perf(&fixture, SUCCESS_SQL)
+        .expect("reference corrected query should succeed through generated dispatch");
+    assert!(success.instructions > 0);
+    assert!(success.instructions < 40_000_000_000);
+
+    let stable_after = stable_memory_fingerprint(&fixture);
+    assert_eq!(stable_after, stable_before);
+
+    println!(
+        "0.232 real-canister instructions: unknown_order_field={} corrected_query={} stable_bytes={} stable_blake3={}",
+        measured_failure.local_instructions,
+        success.instructions,
+        stable_after.1,
+        blake3::Hash::from_bytes(stable_after.0),
+    );
 }
 
 fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {

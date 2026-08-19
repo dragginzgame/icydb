@@ -10,7 +10,7 @@ use crate::db::{
     cursor::{CursorPlanError, CursorSignaturePrefix},
     query::plan::{
         PlanError, PolicyPlanError,
-        validate::{GroupPlanError, OrderPlanError, PlanPolicyError, PlanUserError},
+        validate::{GroupPlanError, OrderPlanError, PlanErrorKind, PlanPolicyError, PlanUserError},
     },
 };
 
@@ -23,16 +23,16 @@ fn internal_error_taxonomy_axes_remain_one_byte() {
 }
 
 fn from_group_plan_error(err: PlanError) -> InternalError {
-    match err {
-        PlanError::User(inner) => match *inner {
+    match err.into_kind() {
+        PlanErrorKind::User(inner) => match *inner {
             PlanUserError::Group(_) => InternalError::query_invalid_logical_plan(),
             _ => InternalError::planner_executor_invariant(),
         },
-        PlanError::Policy(inner) => match *inner {
+        PlanErrorKind::Policy(inner) => match *inner {
             PlanPolicyError::Group(_) => InternalError::query_invalid_logical_plan(),
             PlanPolicyError::Policy(_) => InternalError::planner_executor_invariant(),
         },
-        PlanError::Cursor(_) => InternalError::planner_executor_invariant(),
+        PlanErrorKind::Cursor(_) => InternalError::planner_executor_invariant(),
     }
 }
 
@@ -628,7 +628,10 @@ fn group_plan_error_mapping_uses_runtime_invariant_code() {
 #[test]
 fn group_plan_error_mapping_rejects_non_group_user_variant() {
     let err = from_group_plan_error(PlanError::from(PlanUserError::Order(Box::new(
-        OrderPlanError::UnknownField { term_index: 0 },
+        OrderPlanError::UnknownField {
+            term_index: 0,
+            field: "tenant".to_string(),
+        },
     ))));
 
     assert_runtime_invariant(&err, ErrorOrigin::Planner);

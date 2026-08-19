@@ -288,6 +288,7 @@ type EntitySummary = record {
   plan_choice_empty_child_access_preferred : nat64;
 };
 type Error = record {
+  query_field : opt QueryFieldDiagnostic;
   code : nat16;
   class : nat8;
   origin : nat8;
@@ -650,6 +651,7 @@ type OutputValueEnum = record {
   "variant" : text;
   payload : opt OutputValue;
 };
+type QueryFieldDiagnostic = record { field : text; role : nat8 };
 type QuickIntegrityResult = record {
   entity : IntegrityEntityIdentity;
   status : QuickIntegrityStatus;

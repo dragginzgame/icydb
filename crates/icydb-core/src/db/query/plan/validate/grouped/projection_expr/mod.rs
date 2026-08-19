@@ -11,6 +11,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::QueryFieldRole;
 
 // Validate GROUP BY expression compatibility over canonical projection semantics.
 pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
@@ -49,7 +50,8 @@ pub(in crate::db::query) fn validate_projection_expr_types(
     projection: &ProjectionSpec,
 ) -> Result<(), PlanError> {
     for field in projection.fields() {
-        infer_expr_type(field.expr(), schema)?;
+        infer_expr_type(field.expr(), schema)
+            .map_err(|error| error.attach_query_field(QueryFieldRole::Projection))?;
     }
 
     Ok(())

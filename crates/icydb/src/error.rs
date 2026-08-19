@@ -56,6 +56,44 @@ impl DiagnosticFact {
 }
 
 //
+// QueryFieldDiagnostic
+//
+
+/// One bounded rejected query-field reference attached to a planning error.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct QueryFieldDiagnostic {
+    role: u8,
+    field: String,
+}
+
+impl QueryFieldDiagnostic {
+    fn from_core(role: icydb_diagnostic_code::QueryFieldRole, field: &str) -> Self {
+        Self {
+            role: role.raw(),
+            field: field.to_owned(),
+        }
+    }
+
+    /// Return the raw compact role identity.
+    #[must_use]
+    pub const fn role(&self) -> u8 {
+        self.role
+    }
+
+    /// Return the known typed role, or `None` for malformed decoded context.
+    #[must_use]
+    pub const fn known_role(&self) -> Option<icydb_diagnostic_code::QueryFieldRole> {
+        icydb_diagnostic_code::QueryFieldRole::known(self.role)
+    }
+
+    /// Borrow the exact post-normalization rejected field reference.
+    #[must_use]
+    pub const fn field(&self) -> &str {
+        self.field.as_str()
+    }
+}
+
+//
 // Error
 //
 
@@ -66,6 +104,7 @@ pub struct Error {
     class: u8,
     origin: u8,
     facts: Vec<DiagnosticFact>,
+    query_field: Option<QueryFieldDiagnostic>,
 }
 
 impl Error {
@@ -89,6 +128,7 @@ impl Error {
             class: code.class().wire_code(),
             origin: origin.wire_code(),
             facts: Vec::new(),
+            query_field: None,
         }
     }
 
@@ -132,6 +172,14 @@ impl Error {
         diagnostic: icydb_diagnostic_code::Diagnostic,
         facts: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
     ) -> Self {
+        Self::from_diagnostic_facts_and_query_field(diagnostic, facts, None)
+    }
+
+    fn from_diagnostic_facts_and_query_field(
+        diagnostic: icydb_diagnostic_code::Diagnostic,
+        facts: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
+        query_field: Option<(icydb_diagnostic_code::QueryFieldRole, &str)>,
+    ) -> Self {
         if icydb_diagnostic_code::validate_known_diagnostic_fact_schema(
             diagnostic.error_code(),
             facts.as_slice(),
@@ -144,11 +192,27 @@ impl Error {
             );
         }
 
+        if let Some((role, field)) = query_field
+            && icydb_diagnostic_code::validate_query_field_schema(
+                diagnostic.error_code(),
+                role.raw(),
+                field,
+            )
+            .is_err()
+        {
+            return Self::from_kind(
+                ErrorKind::Runtime(RuntimeErrorKind::InvariantViolation),
+                diagnostic.origin().into(),
+            );
+        }
+
         let mut error = Self::from_diagnostic(diagnostic);
         error.facts = facts
             .into_iter()
             .map(|(tag, value)| DiagnosticFact::from_numeric(tag, value))
             .collect();
+        error.query_field =
+            query_field.map(|(role, field)| QueryFieldDiagnostic::from_core(role, field));
         error
     }
 
@@ -191,6 +255,33 @@ impl Error {
         self.facts.as_slice()
     }
 
+    /// Borrow the raw optional query-field context.
+    #[must_use]
+    pub const fn query_field(&self) -> Option<&QueryFieldDiagnostic> {
+        self.query_field.as_ref()
+    }
+
+    /// Validate and borrow the optional query-field context.
+    ///
+    /// Decoded client data remains untrusted until this check succeeds.
+    pub fn validated_query_field(
+        &self,
+    ) -> Result<
+        Option<(icydb_diagnostic_code::QueryFieldRole, &str)>,
+        icydb_diagnostic_code::QueryFieldSchemaMismatch,
+    > {
+        let Some(context) = self.query_field.as_ref() else {
+            return Ok(None);
+        };
+        let role = icydb_diagnostic_code::validate_query_field_schema(
+            self.code(),
+            context.role,
+            context.field.as_str(),
+        )?;
+
+        Ok(Some((role, context.field.as_str())))
+    }
+
     pub(crate) fn core_facts(
         &self,
     ) -> Option<Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>> {
@@ -212,7 +303,11 @@ impl From<InternalError> for Error {
 
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
-        Self::from_diagnostic_and_facts(err.diagnostic(), err.diagnostic_facts())
+        Self::from_diagnostic_facts_and_query_field(
+            err.diagnostic(),
+            err.diagnostic_facts(),
+            err.query_field_context(),
+        )
     }
 }
 

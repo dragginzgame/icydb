@@ -14,6 +14,7 @@ use crate::{
     },
     value::{Value, hash_value},
 };
+use icydb_diagnostic_code::QueryFieldRole;
 use std::{
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
@@ -125,6 +126,7 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar
         validate_analyzed_schema_bound_scalar_expr(
             schema,
             input_expr,
+            QueryFieldRole::AggregateTarget,
             SqlLoweringError::unsupported_aggregate_input_expressions,
         )?;
     }
@@ -132,6 +134,7 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar
         validate_analyzed_schema_bound_scalar_expr(
             schema,
             filter_expr,
+            QueryFieldRole::Predicate,
             SqlLoweringError::unsupported_where_expression,
         )?;
     }
