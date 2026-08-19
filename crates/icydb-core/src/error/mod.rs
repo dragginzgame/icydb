@@ -1869,17 +1869,6 @@ impl InternalError {
         }
     }
 
-    /// Construct a query-origin unsupported aggregate target-field error.
-    pub(crate) fn query_unknown_aggregate_target_field() -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Query,
-            detail: Some(ErrorDetail::Query(
-                QueryErrorDetail::UnknownAggregateTargetField,
-            )),
-        }
-    }
-
     /// Construct a query-origin unsupported error preserving one SQL endpoint
     /// surface mismatch in structured error detail.
     #[cfg(feature = "sql")]

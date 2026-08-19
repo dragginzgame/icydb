@@ -324,11 +324,6 @@ impl QueryError {
     pub(in crate::db) fn unsupported_query_lane_sql_statement() -> Self {
         Self::unsupported_query()
     }
-
-    /// Construct one unsupported aggregate target-field query error.
-    pub(in crate::db) fn unknown_aggregate_target_field(_field: &str) -> Self {
-        Self::execute(InternalError::query_unknown_aggregate_target_field())
-    }
 }
 
 impl From<IntentError> for QueryError {

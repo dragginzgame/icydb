@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.232.md](docs/changelog/0.232.md)
 
+- `0.232.1` closes aggregate and HAVING diagnostic gaps by routing direct
+  unknown aggregate fields through E3 with typed role context, without changing
+  public or persisted formats.
+
 - `0.232.0` carries one bounded, typed rejected-field context from canonical
   query planning through validated CLI rendering, while preserving numeric
   authority, persisted state, production endpoints, and successful behavior.

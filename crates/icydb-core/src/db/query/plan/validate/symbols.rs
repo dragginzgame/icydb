@@ -9,7 +9,7 @@ use crate::{
         intent::QueryError,
         plan::{
             FieldSlot,
-            validate::{GroupPlanError, PlanError},
+            validate::{ExprPlanError, GroupPlanError, PlanError},
         },
     },
     db::schema::{FieldType, SchemaInfo},
@@ -35,8 +35,12 @@ pub(in crate::db) fn resolve_aggregate_target_field_slot_with_schema(
     schema: &SchemaInfo,
     field: &str,
 ) -> Result<FieldSlot, QueryError> {
-    FieldSlot::resolve_with_schema(schema, field)
-        .ok_or_else(|| QueryError::unknown_aggregate_target_field(field))
+    FieldSlot::resolve_with_schema(schema, field).ok_or_else(|| {
+        QueryError::from(
+            PlanError::from(ExprPlanError::unknown_field(field))
+                .attach_query_field(QueryFieldRole::AggregateTarget),
+        )
+    })
 }
 
 /// Resolve one grouped aggregate target field into one schema field type.

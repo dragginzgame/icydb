@@ -132,6 +132,36 @@ fn rejected_fields_keep_exact_role_across_sql_and_dynamic_planning() {
             QueryFieldRole::AggregateTarget,
             "missing",
         ),
+        (
+            "SELECT COUNT(missing) FROM Singleton",
+            QueryFieldRole::AggregateTarget,
+            "missing",
+        ),
+        (
+            "SELECT SUM(missing) FROM Singleton",
+            QueryFieldRole::AggregateTarget,
+            "missing",
+        ),
+        (
+            "SELECT AVG(missing) FROM Singleton",
+            QueryFieldRole::AggregateTarget,
+            "missing",
+        ),
+        (
+            "SELECT MIN(missing) FROM Singleton",
+            QueryFieldRole::AggregateTarget,
+            "missing",
+        ),
+        (
+            "SELECT MAX(missing) FROM Singleton",
+            QueryFieldRole::AggregateTarget,
+            "missing",
+        ),
+        (
+            "SELECT COUNT(*) FROM Singleton GROUP BY label HAVING missing = 'x'",
+            QueryFieldRole::Having,
+            "missing",
+        ),
     ];
     for (sql, role, field) in sql_cases {
         let error = session
