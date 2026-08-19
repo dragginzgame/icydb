@@ -17,8 +17,6 @@ pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
 pub(in crate::db) use key::primary_key_value_from_structural_value;
 pub(in crate::db) use key::{DecodedDataStoreKey, DecodedDataStoreKeyDecodeError};
-#[cfg(feature = "sql")]
-pub(in crate::db) use persisted_row::AcceptedFixedUpdatePatch;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use persisted_row::canonical_row_from_runtime_value_source_with_accepted_contract;
 #[cfg(test)]
@@ -37,6 +35,10 @@ pub(in crate::db) use persisted_row::{
     resolve_existing_replace_structural_patch_with_accepted_contract,
     resolve_insert_structural_patch_with_accepted_contract,
     resolve_update_structural_patch_with_accepted_contract,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use persisted_row::{
+    AcceptedFixedUpdatePatch, managed_timestamp_progression_regresses,
 };
 pub(in crate::db) use persisted_row::{ScalarSlotValueRef, ScalarValueRef, SlotReader};
 pub(in crate::db) use persisted_row::{

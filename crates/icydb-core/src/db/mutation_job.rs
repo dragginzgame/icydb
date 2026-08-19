@@ -97,6 +97,10 @@ pub enum MutationJobRestartReason {
     BatchPolicyChanged,
     /// The retained current record names an unsupported internal continuation.
     UnsupportedContinuation,
+    /// The current managed-write time would move a target row backward.
+    ManagedTimestampRegression,
+    /// One valid mutation candidate cannot fit the current fixed page policy.
+    CandidateExceedsBatchPolicy,
 }
 
 /// Durable lifecycle of one mutation job.
@@ -720,6 +724,8 @@ fn write_status(bytes: &mut Vec<u8>, status: MutationJobStatus) {
                 MutationJobRestartReason::IntentIneligible => 2,
                 MutationJobRestartReason::BatchPolicyChanged => 3,
                 MutationJobRestartReason::UnsupportedContinuation => 4,
+                MutationJobRestartReason::ManagedTimestampRegression => 5,
+                MutationJobRestartReason::CandidateExceedsBatchPolicy => 6,
             });
         }
     }
@@ -735,6 +741,8 @@ fn read_status(reader: &mut Reader<'_>) -> Result<MutationJobStatus, MutationJob
             2 => MutationJobRestartReason::IntentIneligible,
             3 => MutationJobRestartReason::BatchPolicyChanged,
             4 => MutationJobRestartReason::UnsupportedContinuation,
+            5 => MutationJobRestartReason::ManagedTimestampRegression,
+            6 => MutationJobRestartReason::CandidateExceedsBatchPolicy,
             _ => return Err(MutationJobError::CorruptProgressStore),
         })),
         _ => Err(MutationJobError::CorruptProgressStore),
@@ -972,7 +980,7 @@ mod tests {
                 &request(0, "restart"),
                 MutationJobTransition::new(
                     MutationJobStatus::RestartRequired(
-                        MutationJobRestartReason::AcceptedSchemaChanged,
+                        MutationJobRestartReason::ManagedTimestampRegression,
                     ),
                     MutationJobPhase::Forward,
                     Vec::new(),
@@ -982,8 +990,23 @@ mod tests {
                 ),
             )
             .expect("typed restart transition should admit");
+        let (oversized_candidate, _) = initial
+            .apply_transition(
+                &request(0, "candidate-exceeds-policy"),
+                MutationJobTransition::new(
+                    MutationJobStatus::RestartRequired(
+                        MutationJobRestartReason::CandidateExceedsBatchPolicy,
+                    ),
+                    MutationJobPhase::Forward,
+                    Vec::new(),
+                    0,
+                    0,
+                    0,
+                ),
+            )
+            .expect("candidate policy restart should admit");
 
-        for record in [initial, active, completed, restart] {
+        for record in [initial, active, completed, restart, oversized_candidate] {
             let bytes = encode_mutation_job_payload(&record)
                 .expect("current mutation payload should encode");
             assert!(!bytes.starts_with(b"DIDL"));

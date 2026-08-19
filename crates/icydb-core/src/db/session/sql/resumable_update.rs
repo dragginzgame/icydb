@@ -15,7 +15,7 @@ use crate::{
         commit::database_incarnation_id,
         data::{
             AcceptedFixedUpdatePatch, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
-            StructuralRowContract, StructuralSlotReader,
+            StructuralRowContract, StructuralSlotReader, managed_timestamp_progression_regresses,
         },
         database_format::crc32c,
         executor::eval_compiled_filter_expr_with_required_slot_reader,
@@ -40,7 +40,12 @@ use crate::{
         },
         session::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
-            AcceptedStructuralMutationTarget, write::AcceptedLoadedStructuralRow,
+            AcceptedStructuralMutationTarget,
+            write::{
+                AcceptedLoadedStructuralRow, AcceptedStructuralMutationCommitDirective,
+                AcceptedStructuralMutationPackingReport,
+                STRUCTURAL_MUTATION_BATCH_STAGED_BYTES_POLICY,
+            },
         },
         write_context::MutationMode,
     },
@@ -51,7 +56,7 @@ use crate::{
 };
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
 use sha2::Digest;
-use std::{collections::BTreeSet, ops::Bound};
+use std::{cell::RefCell, collections::BTreeSet, ops::Bound};
 
 const RESUMABLE_UPDATE_CONTINUATION_MAGIC: &[u8; 4] = b"ICYU";
 const RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION: u8 = 1;
@@ -81,6 +86,23 @@ resumable_policy_bound!(
     RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,
     56
 );
+resumable_policy_bound!(
+    MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES,
+    RESUMABLE_UPDATE_FORWARD_SCAN_BYTES_POLICY,
+    16 * 1024 * 1024
+);
+resumable_policy_bound!(
+    MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED,
+    RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED_POLICY,
+    208
+);
+resumable_policy_bound!(
+    MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
+    RESUMABLE_UPDATE_VERIFY_SCAN_BYTES_POLICY,
+    16 * 1024 * 1024
+);
+const RESUMABLE_UPDATE_FORWARD_STAGED_BYTES_POLICY: u32 =
+    STRUCTURAL_MUTATION_BATCH_STAGED_BYTES_POLICY;
 // Bump the owning component whenever its semantics change. Numeric bounds and
 // the continuation format participate directly, so their drift changes the
 // identity without a separate manual edit.
@@ -89,24 +111,28 @@ const RESUMABLE_UPDATE_CHECKPOINT_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_REVISION_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION: u32 = 1;
-const RESUMABLE_UPDATE_OPERATION_TIMESTAMP_POLICY_VERSION: u32 = 1;
-const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 11] = [
+const RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION: u32 = 2;
+const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 15] = [
     u32::from_be_bytes(*RESUMABLE_UPDATE_CONTINUATION_MAGIC),
     RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION as u32,
     RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,
     RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,
     RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,
+    RESUMABLE_UPDATE_FORWARD_SCAN_BYTES_POLICY,
+    RESUMABLE_UPDATE_FORWARD_STAGED_BYTES_POLICY,
+    RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED_POLICY,
+    RESUMABLE_UPDATE_VERIFY_SCAN_BYTES_POLICY,
     RESUMABLE_UPDATE_PACKING_POLICY_VERSION,
     RESUMABLE_UPDATE_CHECKPOINT_POLICY_VERSION,
     RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION,
     RESUMABLE_UPDATE_REVISION_POLICY_VERSION,
     RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION,
-    RESUMABLE_UPDATE_OPERATION_TIMESTAMP_POLICY_VERSION,
+    RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION,
 ];
 const RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY: u32 =
     resumable_update_batch_policy_identity(RESUMABLE_UPDATE_BATCH_POLICY_INPUTS);
 
-const fn resumable_update_batch_policy_identity(inputs: [u32; 11]) -> u32 {
+const fn resumable_update_batch_policy_identity<const N: usize>(inputs: [u32; N]) -> u32 {
     let mut identity = 0x811c_9dc5_u32;
     let mut index = 0;
     while index < inputs.len() {
@@ -403,7 +429,6 @@ struct PreparedResumableUpdateStart {
 }
 
 struct PreparedMutationJobExecution {
-    intent: CanonicalMutationIntent,
     catalog: AcceptedSchemaCatalogContext,
     store: StoreHandle,
     continuation: DecodedMutationJobEngineContinuation,
@@ -595,7 +620,6 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
 
         Ok(PreparedMutationJobExecution {
-            intent,
             catalog,
             store,
             continuation,
@@ -605,10 +629,6 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Advance one authority-bound durable mutation job through one Forward page.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one coordinator keeps authority validation, bounded scan, next-record construction, and atomic target/progress publication in review order"
-    )]
     pub(in crate::db::session) fn advance_mutation_job_forward(
         &self,
         before: &MutationJobRecord,
@@ -618,7 +638,6 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(MutationJobError::Internal);
         }
         let PreparedMutationJobExecution {
-            intent,
             catalog,
             store,
             mut continuation,
@@ -647,81 +666,55 @@ impl<C: CanisterKind> DbSession<C> {
             }
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
-        let scan = scan_resumable_update_forward(
+        let advance_timestamp = Timestamp::now();
+        let patch = fixed_patch.to_update_intent();
+        let scanner = RefCell::new(ResumableForwardScanner::new(
             &store,
             continuation.checkpoint.as_ref(),
             identity.entity_tag(),
             &compiled_scope,
             &row_contract,
             &fixed_patch,
-        )
-        .map_err(|_| MutationJobError::TargetQueryFailed)?;
-        record_resumable_rows_scanned(identity.entity_path(), scan.physical_keys_scanned);
+            advance_timestamp,
+        ));
+        let outcome = self
+            .execute_accepted_structural_update_bounded_prefix(
+                &catalog,
+                &descriptor,
+                MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
+                || Ok(scanner.borrow_mut().next_mutation(&patch)),
+                advance_timestamp,
+                |packing| {
+                    let scan = scanner.borrow().finish(packing);
+                    Ok(prepare_packed_forward_outcome(
+                        before,
+                        request,
+                        &mut continuation,
+                        &store,
+                        scan,
+                        packing,
+                    ))
+                },
+            )
+            .map_err(|_| MutationJobError::TargetMutationFailed)?;
 
-        let patch = fixed_patch.to_update_intent();
-        let candidate_rows = scan
-            .candidates
-            .into_iter()
-            .map(|row| {
-                AcceptedStructuralMutation::save(
-                    MutationMode::Update,
-                    AcceptedStructuralMutationTarget::expected_loaded(row),
-                    patch.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        continuation.checkpoint = scan.final_checkpoint;
-        if scan.exhausted {
-            continuation.phase = MutationJobEnginePhase::Verify;
-            continuation.checkpoint = None;
-            continuation.verify_revision = Some(if candidate_rows.is_empty() {
-                durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?
-            } else {
-                durable_store_revision_after_next_mutation(&store)?
-            });
-        }
-        let next_continuation = continuation
-            .encode()
-            .map_err(|_| MutationJobError::CorruptProgressStore)?
-            .into_bytes();
-        let keys_scanned = u64::try_from(scan.physical_keys_scanned)
-            .map_err(|_| MutationJobError::CounterOverflow)?;
-        let rows_updated =
-            u64::try_from(candidate_rows.len()).map_err(|_| MutationJobError::CounterOverflow)?;
-        let phase = if scan.exhausted {
-            MutationJobPhase::Verify
-        } else {
-            MutationJobPhase::Forward
-        };
-        let (after, receipt) = before.apply_transition(
-            request,
-            MutationJobTransition::new(
-                MutationJobStatus::Active,
-                phase,
-                next_continuation,
-                keys_scanned,
-                rows_updated,
-                0,
-            ),
-        )?;
-        let progress_operation = MutationProgressRecordOp::replace(before, &after)?;
-        if candidate_rows.is_empty() {
-            replace_mutation_progress_record_op::<C>(&progress_operation)?;
-        } else {
-            let committed_rows = self
-                .execute_accepted_structural_update_with_mutation_progress(
-                    &catalog,
-                    &descriptor,
-                    candidate_rows,
-                    intent.operation_timestamp(),
-                    progress_operation,
-                )
-                .map_err(|_| MutationJobError::TargetMutationFailed)?;
-            if u64::try_from(committed_rows).ok() != Some(rows_updated) {
-                return Err(MutationJobError::TargetMutationFailed);
+        match outcome {
+            PackedForwardOutcome::Ready {
+                receipt,
+                progress_only,
+                physical_keys_scanned,
+            } => {
+                record_resumable_rows_scanned(identity.entity_path(), physical_keys_scanned);
+                if let Some(operation) = progress_only {
+                    replace_mutation_progress_record_op::<C>(&operation)?;
+                }
+                Ok(receipt)
             }
+            PackedForwardOutcome::Restart(reason) => {
+                persist_terminal_mutation_job_restart::<C>(before, request, reason)
+            }
+            PackedForwardOutcome::Failure(error) => Err(error),
         }
-        Ok(receipt)
     }
 
     /// Advance one authority-bound durable mutation job through one stable Verify page.
@@ -734,7 +727,6 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(MutationJobError::Internal);
         }
         let PreparedMutationJobExecution {
-            intent: _,
             catalog,
             store,
             mut continuation,
@@ -910,75 +902,316 @@ impl<C: CanisterKind> DbSession<C> {
     }
 }
 
-struct ResumableForwardScan<K> {
-    candidates: Vec<K>,
+struct ResumableForwardScan {
     final_checkpoint: Option<RawDataStoreKey>,
     physical_keys_scanned: usize,
     exhausted: bool,
+    failure: Option<ResumableForwardScanError>,
 }
 
-fn scan_resumable_update_forward(
-    store: &StoreHandle,
-    checkpoint: Option<&RawDataStoreKey>,
-    entity_tag: EntityTag,
-    compiled_scope: &CompiledExpr,
-    row_contract: &StructuralRowContract,
-    fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<ResumableForwardScan<AcceptedLoadedStructuralRow>, QueryError> {
-    let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
-    let lower = checkpoint.cloned().map_or_else(
-        || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-        Bound::Excluded,
-    );
-    let upper = range
-        .upper_exclusive()
-        .map(RawDataStoreKey::from_store_range_bound)
-        .map_or(Bound::Unbounded, Bound::Excluded);
-    let mut candidates = Vec::with_capacity(MAX_RESUMABLE_UPDATE_FORWARD_ROWS);
-    let mut final_checkpoint = checkpoint.cloned();
-    let mut physical_keys_scanned = 0usize;
-    let mut has_more = false;
+#[derive(Clone, Copy)]
+enum ResumableForwardScanError {
+    ManagedTimestampRegression,
+    Query,
+}
 
-    store
-        .with_data(|data| {
+struct ResumableForwardScanner<'a> {
+    store: &'a StoreHandle,
+    checkpoint: Option<RawDataStoreKey>,
+    pending_candidate_checkpoint: Option<RawDataStoreKey>,
+    entity_tag: EntityTag,
+    compiled_scope: &'a CompiledExpr,
+    row_contract: &'a StructuralRowContract,
+    fixed_patch: &'a AcceptedFixedUpdatePatch,
+    advance_timestamp: Timestamp,
+    physical_keys_scanned: usize,
+    scan_bytes: usize,
+    candidates_yielded: usize,
+    exhausted: bool,
+    boundary_reached: bool,
+    failure: Option<ResumableForwardScanError>,
+}
+
+impl<'a> ResumableForwardScanner<'a> {
+    fn new(
+        store: &'a StoreHandle,
+        checkpoint: Option<&RawDataStoreKey>,
+        entity_tag: EntityTag,
+        compiled_scope: &'a CompiledExpr,
+        row_contract: &'a StructuralRowContract,
+        fixed_patch: &'a AcceptedFixedUpdatePatch,
+        advance_timestamp: Timestamp,
+    ) -> Self {
+        Self {
+            store,
+            checkpoint: checkpoint.cloned(),
+            pending_candidate_checkpoint: None,
+            entity_tag,
+            compiled_scope,
+            row_contract,
+            fixed_patch,
+            advance_timestamp,
+            physical_keys_scanned: 0,
+            scan_bytes: 0,
+            candidates_yielded: 0,
+            exhausted: false,
+            boundary_reached: false,
+            failure: None,
+        }
+    }
+
+    fn next_mutation(
+        &mut self,
+        patch: &crate::db::data::AcceptedMutationIntentPatch,
+    ) -> Option<AcceptedStructuralMutation> {
+        if self.failure.is_some() || self.exhausted || self.boundary_reached {
+            return None;
+        }
+        if let Some(checkpoint) = self.pending_candidate_checkpoint.take() {
+            self.checkpoint = Some(checkpoint);
+        }
+        if self.candidates_yielded == MAX_RESUMABLE_UPDATE_FORWARD_ROWS {
+            self.boundary_reached = true;
+            return None;
+        }
+
+        let range = RawDataStoreKeyRange::entity_prefix(self.entity_tag);
+        let lower = self.checkpoint.clone().map_or_else(
+            || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
+            Bound::Excluded,
+        );
+        let upper = range
+            .upper_exclusive()
+            .map(RawDataStoreKey::from_store_range_bound)
+            .map_or(Bound::Unbounded, Bound::Excluded);
+        let mut candidate = None;
+        let mut stopped = false;
+        let visit = self.store.with_data(|data| {
             data.visit_range((lower, upper), |raw_key, raw_row| {
-                if physical_keys_scanned == MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED
-                    || candidates.len() == MAX_RESUMABLE_UPDATE_FORWARD_ROWS
-                {
-                    has_more = true;
+                if self.physical_keys_scanned == MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED {
+                    self.boundary_reached = true;
+                    stopped = true;
                     return Ok(StoreVisit::Stop);
                 }
+                let Some(next_scan_bytes) = resumable_scan_bytes_after_row(
+                    self.scan_bytes,
+                    raw_key.as_bytes().len(),
+                    raw_row.len(),
+                    MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES,
+                ) else {
+                    self.boundary_reached = true;
+                    stopped = true;
+                    return Ok(StoreVisit::Stop);
+                };
+                self.scan_bytes = next_scan_bytes;
+                self.physical_keys_scanned = self.physical_keys_scanned.saturating_add(1);
 
                 let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
-                if decoded_key.entity_tag() != entity_tag {
+                if decoded_key.entity_tag() != self.entity_tag {
                     return Err(InternalError::identity_corruption());
                 }
                 let row = StructuralSlotReader::from_raw_row_with_validated_contract(
                     raw_row,
-                    row_contract.clone(),
+                    self.row_contract.clone(),
                 )?;
                 row.validate_primary_key(&decoded_key)?;
-                if resumable_row_needs_patch(compiled_scope, fixed_patch, &row)? {
-                    candidates.push(AcceptedLoadedStructuralRow::from_validated_parts(
+                if resumable_row_needs_patch(self.compiled_scope, self.fixed_patch, &row)? {
+                    if managed_timestamp_progression_regresses(
+                        self.row_contract,
+                        &row,
+                        self.advance_timestamp,
+                    )? {
+                        self.failure = Some(ResumableForwardScanError::ManagedTimestampRegression);
+                        stopped = true;
+                        return Ok(StoreVisit::Stop);
+                    }
+                    candidate = Some(AcceptedLoadedStructuralRow::from_validated_parts(
                         decoded_key,
                         raw_row.clone(),
                     ));
+                    self.pending_candidate_checkpoint = Some(raw_key.clone());
+                    self.candidates_yielded = self.candidates_yielded.saturating_add(1);
+                    stopped = true;
+                    return Ok(StoreVisit::Stop);
                 }
-                physical_keys_scanned = physical_keys_scanned.saturating_add(1);
-                final_checkpoint = Some(raw_key.clone());
-
+                self.checkpoint = Some(raw_key.clone());
                 Ok(StoreVisit::Continue)
             })
-        })
-        .map_err(QueryError::execute)?;
+        });
+        if visit.is_err() {
+            self.failure = Some(ResumableForwardScanError::Query);
+            return None;
+        }
+        if !stopped {
+            self.exhausted = true;
+        }
 
-    Ok(ResumableForwardScan {
-        candidates,
-        final_checkpoint,
-        physical_keys_scanned,
-        exhausted: !has_more,
-    })
+        candidate.map(|row| {
+            AcceptedStructuralMutation::save(
+                MutationMode::Update,
+                AcceptedStructuralMutationTarget::expected_loaded(row),
+                patch.clone(),
+            )
+        })
+    }
+
+    fn finish(&self, packing: AcceptedStructuralMutationPackingReport) -> ResumableForwardScan {
+        ResumableForwardScan {
+            final_checkpoint: self.checkpoint.clone(),
+            physical_keys_scanned: self.physical_keys_scanned,
+            exhausted: self.exhausted && !packing.stopped_before_candidate(),
+            failure: self.failure,
+        }
+    }
+}
+
+enum PackedForwardOutcome {
+    Ready {
+        receipt: MutationJobAdvanceReceipt,
+        progress_only: Option<MutationProgressRecordOp>,
+        physical_keys_scanned: usize,
+    },
+    Restart(MutationJobRestartReason),
+    Failure(MutationJobError),
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one read-only preparation orders scan failure, policy stop, continuation, counters, and exact progress replacement before the writer commit decision"
+)]
+fn prepare_packed_forward_outcome(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    continuation: &mut DecodedMutationJobEngineContinuation,
+    store: &StoreHandle,
+    scan: ResumableForwardScan,
+    packing: AcceptedStructuralMutationPackingReport,
+) -> (
+    PackedForwardOutcome,
+    AcceptedStructuralMutationCommitDirective,
+) {
+    if let Some(failure) = scan.failure {
+        let outcome = match failure {
+            ResumableForwardScanError::ManagedTimestampRegression => {
+                PackedForwardOutcome::Restart(MutationJobRestartReason::ManagedTimestampRegression)
+            }
+            ResumableForwardScanError::Query => {
+                PackedForwardOutcome::Failure(MutationJobError::TargetQueryFailed)
+            }
+        };
+        return (outcome, AcceptedStructuralMutationCommitDirective::Skip);
+    }
+    if packing.candidate_exceeds_batch_policy() {
+        return (
+            PackedForwardOutcome::Restart(MutationJobRestartReason::CandidateExceedsBatchPolicy),
+            AcceptedStructuralMutationCommitDirective::Skip,
+        );
+    }
+
+    continuation.checkpoint = scan.final_checkpoint;
+    if scan.exhausted {
+        continuation.phase = MutationJobEnginePhase::Verify;
+        continuation.checkpoint = None;
+        let revision = if packing.admitted_mutations() == 0 {
+            durable_store_revision(store).map_err(|_| MutationJobError::TargetQueryFailed)
+        } else {
+            durable_store_revision_after_next_mutation(store)
+        };
+        let revision = match revision {
+            Ok(revision) => revision,
+            Err(error) => {
+                return (
+                    PackedForwardOutcome::Failure(error),
+                    AcceptedStructuralMutationCommitDirective::Skip,
+                );
+            }
+        };
+        continuation.verify_revision = Some(revision);
+    }
+    let Ok(next_continuation) = continuation.encode() else {
+        return (
+            PackedForwardOutcome::Failure(MutationJobError::CorruptProgressStore),
+            AcceptedStructuralMutationCommitDirective::Skip,
+        );
+    };
+    let Ok(keys_scanned) = u64::try_from(scan.physical_keys_scanned) else {
+        return (
+            PackedForwardOutcome::Failure(MutationJobError::CounterOverflow),
+            AcceptedStructuralMutationCommitDirective::Skip,
+        );
+    };
+    let Ok(rows_updated) = u64::try_from(packing.admitted_mutations()) else {
+        return (
+            PackedForwardOutcome::Failure(MutationJobError::CounterOverflow),
+            AcceptedStructuralMutationCommitDirective::Skip,
+        );
+    };
+    let phase = if scan.exhausted {
+        MutationJobPhase::Verify
+    } else {
+        MutationJobPhase::Forward
+    };
+    let (after, receipt) = match before.apply_transition(
+        request,
+        MutationJobTransition::new(
+            MutationJobStatus::Active,
+            phase,
+            next_continuation.into_bytes(),
+            keys_scanned,
+            rows_updated,
+            0,
+        ),
+    ) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            return (
+                PackedForwardOutcome::Failure(error),
+                AcceptedStructuralMutationCommitDirective::Skip,
+            );
+        }
+    };
+    let operation = match MutationProgressRecordOp::replace(before, &after) {
+        Ok(operation) => operation,
+        Err(error) => {
+            return (
+                PackedForwardOutcome::Failure(error),
+                AcceptedStructuralMutationCommitDirective::Skip,
+            );
+        }
+    };
+    let physical_keys_scanned = scan.physical_keys_scanned;
+    if packing.admitted_mutations() == 0 {
+        (
+            PackedForwardOutcome::Ready {
+                receipt,
+                progress_only: Some(operation),
+                physical_keys_scanned,
+            },
+            AcceptedStructuralMutationCommitDirective::Skip,
+        )
+    } else {
+        (
+            PackedForwardOutcome::Ready {
+                receipt,
+                progress_only: None,
+                physical_keys_scanned,
+            },
+            AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation),
+        )
+    }
+}
+
+fn resumable_scan_bytes_after_row(
+    current: usize,
+    raw_key_bytes: usize,
+    raw_row_bytes: usize,
+    limit: usize,
+) -> Option<usize> {
+    current
+        .checked_add(raw_key_bytes)?
+        .checked_add(raw_row_bytes)
+        .filter(|total| *total <= limit)
 }
 
 struct ResumableVerifyScan {
@@ -1007,16 +1240,28 @@ fn scan_mutation_job_verify(
         .map_or(Bound::Unbounded, Bound::Excluded);
     let mut final_checkpoint = checkpoint.cloned();
     let mut keys_scanned = 0usize;
+    let mut scan_bytes = 0usize;
     let mut has_more = false;
     let mut residual_work = false;
 
     store
         .with_data(|data| {
             data.visit_range((lower, upper), |raw_key, raw_row| {
-                if keys_scanned == MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED {
+                if keys_scanned == MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED {
                     has_more = true;
                     return Ok(StoreVisit::Stop);
                 }
+                let Some(next_scan_bytes) = resumable_scan_bytes_after_row(
+                    scan_bytes,
+                    raw_key.as_bytes().len(),
+                    raw_row.len(),
+                    MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
+                ) else {
+                    has_more = true;
+                    return Ok(StoreVisit::Stop);
+                };
+                scan_bytes = next_scan_bytes;
+                keys_scanned = keys_scanned.saturating_add(1);
 
                 let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
@@ -1027,7 +1272,6 @@ fn scan_mutation_job_verify(
                     raw_row,
                     row_contract.clone(),
                 )?;
-                keys_scanned = keys_scanned.saturating_add(1);
                 if resumable_row_needs_patch(compiled_scope, fixed_patch, &row)? {
                     residual_work = true;
                     return Ok(StoreVisit::Stop);
@@ -1432,8 +1676,20 @@ mod tests {
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_compatibility_input() {
-        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x1f2e_0c0f);
+        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0xda80_2fe2);
         assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
+
+        let mut predecessor = RESUMABLE_UPDATE_BATCH_POLICY_INPUTS;
+        let timestamp_policy_index = predecessor.len() - 1;
+        predecessor[timestamp_policy_index] = 1;
+        assert_eq!(
+            resumable_update_batch_policy_identity(predecessor),
+            0xd980_2e4f
+        );
+        assert_ne!(
+            resumable_update_batch_policy_identity(predecessor),
+            RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY,
+        );
 
         for index in 0..RESUMABLE_UPDATE_BATCH_POLICY_INPUTS.len() {
             let mut changed = RESUMABLE_UPDATE_BATCH_POLICY_INPUTS;
@@ -1444,6 +1700,58 @@ mod tests {
                 "compatibility input {index} must participate in the batch-policy identity",
             );
         }
+    }
+
+    #[test]
+    fn scan_and_staging_limits_admit_one_maximum_valid_row() {
+        let maximum_scan_charge =
+            RawDataStoreKey::MAX_STORED_SIZE_USIZE + crate::db::codec::MAX_ROW_BYTES as usize;
+        assert!(maximum_scan_charge <= MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES);
+        assert!(maximum_scan_charge <= MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES);
+
+        let maximum_staged_charge =
+            RawDataStoreKey::MAX_STORED_SIZE_USIZE + (2 * crate::db::codec::MAX_ROW_BYTES as usize);
+        assert!(
+            maximum_staged_charge
+                <= crate::db::session::write::MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES
+        );
+
+        let maximum_row_buffer_peak =
+            crate::db::session::write::MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES
+                + maximum_scan_charge
+                + crate::db::codec::MAX_ROW_BYTES as usize;
+        assert!(maximum_row_buffer_peak < 32 * 1024 * 1024);
+    }
+
+    #[test]
+    fn scan_byte_formula_accepts_exact_limit_and_stops_before_max_plus_one() {
+        assert_eq!(
+            resumable_scan_bytes_after_row(
+                0,
+                RawDataStoreKey::MAX_STORED_SIZE_USIZE,
+                MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES - RawDataStoreKey::MAX_STORED_SIZE_USIZE,
+                MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES,
+            ),
+            Some(MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES),
+        );
+        assert_eq!(
+            resumable_scan_bytes_after_row(
+                MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
+                0,
+                0,
+                MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
+            ),
+            Some(MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES),
+        );
+        assert_eq!(
+            resumable_scan_bytes_after_row(
+                MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
+                0,
+                1,
+                MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
+            ),
+            None,
+        );
     }
 
     #[test]

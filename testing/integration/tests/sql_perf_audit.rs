@@ -12,9 +12,10 @@ use icydb::{
     Error,
     db::{
         DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, IntegrityPhase,
-        IntegrityTerminalOutcome, MutationJobError, MutationJobState, MutationJobStatus,
-        SqlDescribeOutput, SqlIntegrityError, SqlQueryExecutionAttribution, SqlShowColumnsOutput,
-        SqlStructuralWorkAttribution, sql::SqlQueryResult,
+        IntegrityTerminalOutcome, MutationJobAdvanceReceipt, MutationJobError, MutationJobPhase,
+        MutationJobState, MutationJobStatus, SqlDescribeOutput, SqlIntegrityError,
+        SqlQueryExecutionAttribution, SqlShowColumnsOutput, SqlStructuralWorkAttribution,
+        sql::SqlQueryResult,
     },
     diagnostic::{
         DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
@@ -31,6 +32,7 @@ use icydb_testing_integration::{
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
 };
 use serde::Deserialize;
+use std::time::Duration;
 
 // Mirror the dedicated perf-audit query envelope so the testkit can decode the
 // query result plus the compile/execute instruction split from the canister.
@@ -1905,6 +1907,43 @@ fn start_mutation_job(
         .expect("mutation-job start result should decode")
 }
 
+fn advance_mutation_job(
+    fixture: &StandaloneCanisterFixture,
+    job_discriminator: u8,
+    expected_sequence: u64,
+    idempotency_key: &str,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    fixture
+        .update_candid(
+            "advance_journaled_user_mutation_job",
+            (
+                job_discriminator,
+                expected_sequence,
+                idempotency_key.to_string(),
+            ),
+        )
+        .expect("mutation-job advance result should decode")
+}
+
+fn update_later_matching_mutation_row(fixture: &StandaloneCanisterFixture) -> u32 {
+    let result: Result<u32, Error> = fixture
+        .update_candid("update_journaled_user_after_mutation_job_start", ())
+        .expect("later managed write result should decode");
+    result.expect("later managed write should succeed")
+}
+
+fn load_mutation_byte_fixture(fixture: &StandaloneCanisterFixture) -> u32 {
+    let mut loaded = 0;
+    for row_id in 1..=20_u32 {
+        let result: Result<u32, Error> = fixture
+            .update_candid("load_journaled_user_mutation_byte_fixture", (row_id,))
+            .expect("wide mutation fixture result should decode");
+        loaded = result.expect("wide mutation fixture row should load");
+        drain_online_watchdog_until_quiescent(fixture);
+    }
+    loaded
+}
+
 fn assert_mutation_forward_perf_stays_bounded(result: &MutationJobForwardPerfResult) {
     assert!(
         result.start_local_instructions > 0
@@ -2282,6 +2321,62 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
 }
 
 #[test]
+fn sql_mutation_job_converges_a_row_written_after_start_and_replays_exactly() {
+    const JOB_DISCRIMINATOR: u8 = 76;
+    const MAX_ADVANCES: usize = 24;
+
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+    let started = start_mutation_job(&fixture, JOB_DISCRIMINATOR, 0)
+        .expect("managed-time mutation job should start");
+
+    fixture.pocket_ic().advance_time(Duration::from_secs(1));
+    assert_eq!(update_later_matching_mutation_row(&fixture), 1);
+    fixture.pocket_ic().advance_time(Duration::from_secs(1));
+
+    let first = advance_mutation_job(&fixture, JOB_DISCRIMINATOR, 0, "managed-time-first")
+        .expect("later matching row should admit with the advance-message timestamp");
+    assert_eq!(first.request_sequence, started.state.sequence);
+    assert_eq!(first.status, MutationJobStatus::Active);
+    assert_eq!(first.phase, MutationJobPhase::Forward);
+    assert!(first.rows_updated > 0);
+    let replay = advance_mutation_job(&fixture, JOB_DISCRIMINATOR, 0, "managed-time-first")
+        .expect("committed managed-time advance should replay");
+    assert_eq!(replay, first);
+
+    let mut receipt = first;
+    for _ in 0..MAX_ADVANCES {
+        if receipt.status == MutationJobStatus::Completed {
+            break;
+        }
+        fixture.pocket_ic().advance_time(Duration::from_secs(1));
+        let sequence = receipt.committed_sequence;
+        receipt = advance_mutation_job(
+            &fixture,
+            JOB_DISCRIMINATOR,
+            sequence,
+            format!("managed-time-{sequence}").as_str(),
+        )
+        .expect("managed-time job should converge across messages");
+    }
+
+    assert_eq!(receipt.status, MutationJobStatus::Completed);
+    assert_eq!(receipt.rows_updated_total, 512);
+    let managed_time_groups = query_sql_limit_one_with_perf(
+        &fixture,
+        "query_journaled_user_with_perf",
+        "SELECT updated_at, COUNT(*) FROM PerfAuditJournaledUser \
+         WHERE name = 'durable-start' GROUP BY updated_at ORDER BY updated_at ASC LIMIT 16",
+        "managed-time group query should decode",
+        "managed-time group query should succeed",
+    );
+    let SqlQueryResult::Grouped(groups) = managed_time_groups.result else {
+        panic!("managed-time proof should return grouped rows");
+    };
+    assert_eq!(groups.row_count, 10);
+}
+
+#[test]
 fn sql_perf_mutation_job_start_is_durable_replayable_and_non_mutating() {
     let fixture = install_sql_perf_canister_fixture();
     reset_sql_perf_fixtures(&fixture);
@@ -2315,6 +2410,104 @@ fn sql_perf_mutation_job_start_is_durable_replayable_and_non_mutating() {
         replay.local_instructions < DURABLE_START_INSTRUCTION_REVIEW_CEILING,
         "same-intent replay should remain below the frozen review ceiling"
     );
+}
+
+#[test]
+fn sql_mutation_job_byte_packing_revisits_boundaries_and_converges() {
+    const ROWS: u64 = 20;
+
+    let fixture = install_sql_perf_canister_fixture();
+    assert_eq!(u64::from(load_mutation_byte_fixture(&fixture)), ROWS);
+
+    let nonmatching =
+        start_mutation_job(&fixture, 81, 4).expect("the nonmatching wide-row job should start");
+    assert_eq!(nonmatching.state.sequence, 0);
+    let first_nonmatching = advance_mutation_job(&fixture, 81, 0, "wide-nonmatching-0")
+        .expect("the first nonmatching byte-bounded page should commit");
+    let nonmatching_replay = advance_mutation_job(&fixture, 81, 0, "wide-nonmatching-0")
+        .expect("the first nonmatching page should replay exactly");
+    assert_eq!(first_nonmatching, nonmatching_replay);
+    assert_eq!(first_nonmatching.rows_updated, 0);
+    assert_eq!(first_nonmatching.keys_scanned, 18);
+
+    let mut receipt = first_nonmatching;
+    for step in 1..16_u64 {
+        if receipt.status == MutationJobStatus::Completed {
+            break;
+        }
+        receipt = advance_mutation_job(
+            &fixture,
+            81,
+            receipt.committed_sequence,
+            &format!("wide-nonmatching-{step}"),
+        )
+        .expect("the nonmatching job should converge across scan-byte pages");
+        drain_online_watchdog_until_quiescent(&fixture);
+    }
+    assert_eq!(receipt.status, MutationJobStatus::Completed);
+    assert_eq!(receipt.rows_updated_total, 0);
+
+    let matching =
+        start_mutation_job(&fixture, 82, 5).expect("the matching wide-row job should start");
+    let first_matching =
+        advance_mutation_job(&fixture, 82, matching.state.sequence, "wide-match-0")
+            .expect("the first exact-staging page should commit");
+    assert_eq!(first_matching.status, MutationJobStatus::Active);
+    assert_eq!(first_matching.phase, MutationJobPhase::Forward);
+    assert_eq!(first_matching.rows_updated, 9);
+    assert_eq!(first_matching.keys_scanned, 10);
+    drain_online_watchdog_until_quiescent(&fixture);
+
+    let mut receipt = first_matching;
+    for step in 1..20_u64 {
+        if receipt.status == MutationJobStatus::Completed {
+            break;
+        }
+        receipt = advance_mutation_job(
+            &fixture,
+            82,
+            receipt.committed_sequence,
+            &format!("wide-match-{step}"),
+        )
+        .expect("the matching job should revisit every excluded candidate and converge");
+        drain_online_watchdog_until_quiescent(&fixture);
+    }
+    assert_eq!(receipt.status, MutationJobStatus::Completed);
+    assert_eq!(receipt.rows_updated_total, ROWS);
+}
+
+#[test]
+fn sql_mutation_job_admits_the_maximum_index_fanout_row() {
+    let fixture = install_sql_perf_canister_fixture();
+    let loaded: Result<JointFanoutFixtureFacts, Error> = fixture
+        .update_candid("load_joint_fanout_boundary_fixture", ())
+        .expect("maximum-fanout fixture result should decode");
+    assert_eq!(
+        loaded
+            .expect("maximum-fanout fixture should load")
+            .secondary_indexes_per_row,
+        64
+    );
+
+    let started = start_mutation_job(&fixture, 83, 6)
+        .expect("the maximum-index-fanout mutation job should start");
+    let mut receipt = advance_mutation_job(&fixture, 83, started.state.sequence, "max-fanout-0")
+        .expect("the maximum-index-fanout target row should fit one Forward page");
+    for step in 1..12_u64 {
+        if receipt.status == MutationJobStatus::Completed {
+            break;
+        }
+        receipt = advance_mutation_job(
+            &fixture,
+            83,
+            receipt.committed_sequence,
+            &format!("max-fanout-{step}"),
+        )
+        .expect("the maximum-index-fanout mutation job should converge");
+        drain_online_watchdog_until_quiescent(&fixture);
+    }
+    assert_eq!(receipt.status, MutationJobStatus::Completed);
+    assert_eq!(receipt.rows_updated_total, 1);
 }
 
 #[test]

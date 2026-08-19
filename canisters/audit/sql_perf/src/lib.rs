@@ -1773,6 +1773,29 @@ fn load_blob_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
     })
 }
 
+/// Load a journaled wide-row surface that crosses both resumable scan and
+/// exact writer-staging page boundaries without approaching the row limit.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn load_journaled_user_mutation_byte_fixture(row_id: u32) -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        const ROWS: i32 = 20;
+        const NAME_BYTES: usize = 900 * 1024;
+
+        let id = i32::try_from(row_id).map_err(|_| query_validate_error())?;
+        if !(1..=ROWS).contains(&id) {
+            return Err(query_validate_error());
+        }
+        if id == 1 {
+            reset_perf_fixtures()?;
+        }
+        let mut name = format!("wide-{id:02}-");
+        name.push_str(&"x".repeat(NAME_BYTES.saturating_sub(name.len())));
+        insert_fixture_rows(vec![build_perf_audit_journaled_user(id, &name, 1)])?;
+        Ok(row_id)
+    })
+}
+
 /// Load only the deterministic heap-user scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
@@ -3241,6 +3264,9 @@ fn start_journaled_user_mutation_job(
             1 => "UPDATE PerfAuditJournaledUser SET name = 'different-start' WHERE age >= 0",
             2 => "UPDATE PerfAuditHeapUser SET name = 'heap-start' WHERE age >= 0",
             3 => "  update PerfAuditJournaledUser set name='durable-start' where age >= 0  ",
+            4 => "UPDATE PerfAuditJournaledUser SET age = 2 WHERE id < 0",
+            5 => "UPDATE PerfAuditJournaledUser SET age = 2 WHERE id > 0",
+            6 => "UPDATE PerfAuditMaxFanout SET a = 1001 WHERE id = 1",
             _ => return Err(MutationJobError::IneligibleIntent),
         };
         let start = ic_cdk::api::performance_counter(1);
@@ -3257,6 +3283,40 @@ fn start_journaled_user_mutation_job(
             local_instructions,
             target_rows_changed,
         })
+    })
+}
+
+/// Apply one later ordinary write used by the managed-time mutation-job proof.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn update_journaled_user_after_mutation_job_start() -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let result = db()?.execute_trusted_sql_exact_update(
+            "UPDATE PerfAuditJournaledUser SET name = 'later-managed-write' WHERE id = 1",
+            1,
+        )?;
+        sql_write_result_row_count(&result).ok_or_else(query_validate_error)
+    })
+}
+
+/// Advance one managed-time proof job in exactly one canister message.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn advance_journaled_user_mutation_job(
+    job_discriminator: u8,
+    expected_sequence: u64,
+    idempotency_key: String,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    icydb::db::with_request_execution(|| {
+        let mut job_bytes = [0; 32];
+        job_bytes[31] = job_discriminator;
+        let request = MutationJobAdvanceRequest::new(
+            MutationJobId::try_from_bytes(job_bytes)?,
+            expected_sequence,
+            MutationJobIdempotencyKey::new(idempotency_key)?,
+        );
+        db().map_err(|_| MutationJobError::Internal)?
+            .advance_trusted_mutation_job(&request)
     })
 }
 

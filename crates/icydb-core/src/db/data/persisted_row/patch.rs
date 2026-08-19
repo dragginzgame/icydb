@@ -909,16 +909,40 @@ fn validate_managed_timestamp_progression(
     operation_timestamp: crate::types::Timestamp,
     mutation_context: MutationDiagnosticContext,
 ) -> Result<(), InternalError> {
-    let (created_at, updated_at) = managed_timestamp_values(contract, baseline)?;
-    if created_at.is_some_and(|created_at| operation_timestamp < created_at)
-        || updated_at.is_some_and(|updated_at| operation_timestamp < updated_at)
-    {
+    if managed_timestamp_progression_regresses(contract, baseline, operation_timestamp)? {
         return Err(InternalError::mutation_managed_timestamp_regression(
             mutation_context,
         ));
     }
 
     Ok(())
+}
+
+/// Report whether one accepted managed-write timestamp would move an existing
+/// row's database-owned time backward.
+///
+/// Durable mutation-job preparation shares this writer-owned comparison so a
+/// deterministic regression can become terminal before any row is staged.
+pub(in crate::db) fn managed_timestamp_progression_regresses(
+    contract: &StructuralRowContract,
+    baseline: &StructuralSlotReader<'_>,
+    operation_timestamp: crate::types::Timestamp,
+) -> Result<bool, InternalError> {
+    let (created_at, updated_at) = managed_timestamp_values(contract, baseline)?;
+    Ok(managed_timestamp_values_regress(
+        created_at,
+        updated_at,
+        operation_timestamp,
+    ))
+}
+
+const fn managed_timestamp_values_regress(
+    created_at: Option<crate::types::Timestamp>,
+    updated_at: Option<crate::types::Timestamp>,
+    operation_timestamp: crate::types::Timestamp,
+) -> bool {
+    matches!(created_at, Some(created_at) if operation_timestamp.as_millis() < created_at.as_millis())
+        || matches!(updated_at, Some(updated_at) if operation_timestamp.as_millis() < updated_at.as_millis())
 }
 
 fn validate_existing_managed_timestamp_order(
@@ -1054,6 +1078,28 @@ mod tests {
         empty_accepted_enum_catalog_for_tests,
     };
     use crate::error::MutationDiagnosticContext;
+
+    #[test]
+    fn managed_timestamp_progression_uses_the_current_managed_write_time() {
+        let existing_created_at = crate::types::Timestamp::from_millis(10);
+        let existing_updated_at = crate::types::Timestamp::from_millis(20);
+
+        assert!(managed_timestamp_values_regress(
+            Some(existing_created_at),
+            Some(existing_updated_at),
+            crate::types::Timestamp::from_millis(19),
+        ));
+        assert!(!managed_timestamp_values_regress(
+            Some(existing_created_at),
+            Some(existing_updated_at),
+            crate::types::Timestamp::from_millis(20),
+        ));
+        assert!(!managed_timestamp_values_regress(
+            Some(existing_created_at),
+            Some(existing_updated_at),
+            crate::types::Timestamp::from_millis(30),
+        ));
+    }
 
     #[test]
     fn accepted_not_null_pre_encoding_failure_preserves_constraint_identity() {

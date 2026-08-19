@@ -36,7 +36,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// catalog-native intent and initial engine checkpoint are durably retained
     /// before this method returns, and no target row is read or mutated.
     /// Repeating the same canonical request returns the retained state without
-    /// replacing its operation timestamp or resetting progress.
+    /// replacing its statement timestamp or resetting progress.
     #[cfg(feature = "sql")]
     pub fn start_trusted_sql_mutation_job(
         &self,
@@ -249,7 +249,7 @@ mod tests {
                 &request,
                 MutationJobTransition::new(
                     MutationJobStatus::RestartRequired(
-                        MutationJobRestartReason::AcceptedSchemaChanged,
+                        MutationJobRestartReason::ManagedTimestampRegression,
                     ),
                     MutationJobPhase::Forward,
                     Vec::new(),

@@ -33,8 +33,6 @@ pub(in crate::db) use contract::canonical_row_from_runtime_value_source_with_acc
 pub(in crate::db) use contract::{
     decode_runtime_value_from_accepted_field_contract, decode_runtime_value_from_row_contract,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use patch::AcceptedFixedUpdatePatch;
 #[cfg(test)]
 pub(in crate::db) use patch::canonical_row_from_stored_raw_row;
 pub(in crate::db) use patch::{
@@ -44,6 +42,8 @@ pub(in crate::db) use patch::{
     resolve_insert_structural_patch_with_accepted_contract,
     resolve_update_structural_patch_with_accepted_contract,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use patch::{AcceptedFixedUpdatePatch, managed_timestamp_progression_regresses};
 pub(in crate::db) use reader::StructuralSlotReader;
 pub(in crate::db) use reader::{
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,

@@ -125,40 +125,40 @@ pub const BASELINE_VERIFY_INSTRUCTIONS: &[u64] = &[6_431_179, 6_440_484];
 pub const DURABLE_START_INSTRUCTION_REVIEW_CEILING: u64 = 5_000_000;
 
 /// Current first sequence-zero durable-start instruction sample.
-pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_289_113;
+pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_325_957;
 
 /// Current canonically equivalent retained-start replay instruction sample.
 pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_400_734;
 
 /// Current durable 56-update Forward samples over the fixed 512-row fixture.
 pub const CURRENT_DURABLE_FORWARD_INSTRUCTIONS: &[u64] = &[
-    24_030_464, 24_229_369, 24_442_946, 24_652_856, 24_850_432, 25_065_241, 25_234_624, 25_237_006,
-    25_053_790, 7_706_084,
+    28_871_689, 30_445_826, 30_627_431, 31_024_879, 31_585_100, 31_730_329, 31_653_775, 31_905_351,
+    31_831_218, 8_474_453,
 ];
 
 /// Current exact replay sample for the final retained Forward receipt.
-pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_766;
+pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_903;
 
 /// Current durable 208-key Verify samples over the fixed 512-row fixture.
-pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[6_312_686, 6_335_489, 3_672_197];
+pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[7_431_771, 7_462_037, 4_215_248];
 
 /// Current exact replay sample for one retained nonterminal Verify receipt.
-pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 125_020;
+pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 125_035;
 
 /// Current pre-scan revision-drift restart sample.
-pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_433_011;
+pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_464_836;
 
 /// Current terminal mutation-job state-load sample.
-pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 104_970;
+pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 104_981;
 
 /// Current exact replay sample for the retained completion receipt.
-pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_100;
+pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_114;
 
 /// Current sequence-checked terminal acknowledgement sample.
-pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 117_731;
+pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 117_843;
 
-/// Maximum reviewed instruction cost for one fingerprint-bound 56-update Forward step.
-pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 31_000_000;
+/// Maximum reviewed instruction cost for one byte- and count-packed 56-update Forward step.
+pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 34_000_000;
 
 /// Maximum reviewed instruction cost for one 208-key Verify step.
 pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 8_000_000;

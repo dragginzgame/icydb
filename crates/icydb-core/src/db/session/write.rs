@@ -48,24 +48,44 @@ struct AcceptedIdentityInsertField {
 }
 
 struct AcceptedStructuralMutationCommitOptions {
-    mutation_progress: Option<MutationProgressRecordOp>,
     capture_output_values: bool,
+    packing: AcceptedStructuralMutationPacking,
 }
 
 impl AcceptedStructuralMutationCommitOptions {
     const fn standard() -> Self {
         Self {
-            mutation_progress: None,
             capture_output_values: true,
+            packing: AcceptedStructuralMutationPacking::Complete,
         }
     }
 
-    const fn with_mutation_progress(mutation_progress: MutationProgressRecordOp) -> Self {
+    #[cfg(test)]
+    const fn with_mutation_progress() -> Self {
         Self {
-            mutation_progress: Some(mutation_progress),
             capture_output_values: false,
+            packing: AcceptedStructuralMutationPacking::Complete,
         }
     }
+
+    const fn bounded_prefix() -> Self {
+        Self {
+            capture_output_values: false,
+            packing: AcceptedStructuralMutationPacking::BoundedPrefix,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AcceptedStructuralMutationPacking {
+    Complete,
+    BoundedPrefix,
+}
+
+pub(in crate::db::session) enum AcceptedStructuralMutationCommitDirective {
+    Standard,
+    WithMutationProgress(MutationProgressRecordOp),
+    Skip,
 }
 
 /// Accepted row identity carried by a structural mutation after frontend
@@ -143,28 +163,98 @@ impl AcceptedStructuralMutation {
 }
 
 const MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS: usize = 4_096;
-const MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES: usize = 16 * 1024 * 1024;
+pub(in crate::db::session) const STRUCTURAL_MUTATION_BATCH_STAGED_BYTES_POLICY: u32 =
+    16 * 1024 * 1024;
+pub(in crate::db::session) const MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES: usize =
+    STRUCTURAL_MUTATION_BATCH_STAGED_BYTES_POLICY as usize;
 const MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES: usize = 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::session) struct AcceptedStructuralMutationPackingReport {
+    admitted_mutations: usize,
+    stopped_before_candidate: bool,
+    candidate_exceeds_batch_policy: bool,
+}
+
+impl AcceptedStructuralMutationPackingReport {
+    #[must_use]
+    pub(in crate::db::session) const fn admitted_mutations(self) -> usize {
+        self.admitted_mutations
+    }
+
+    #[must_use]
+    pub(in crate::db::session) const fn stopped_before_candidate(self) -> bool {
+        self.stopped_before_candidate
+    }
+
+    #[must_use]
+    pub(in crate::db::session) const fn candidate_exceeds_batch_policy(self) -> bool {
+        self.candidate_exceeds_batch_policy
+    }
+}
+
+fn structural_mutation_staged_charge(
+    lengths: impl IntoIterator<Item = usize>,
+) -> Result<usize, InternalError> {
+    lengths.into_iter().try_fold(0_usize, |total, length| {
+        total.checked_add(length).ok_or_else(|| {
+            InternalError::mutation_batch_staged_bytes_exceeded(
+                None,
+                MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
+            )
+        })
+    })
+}
 
 fn add_structural_mutation_staged_bytes(
     total: &mut usize,
     lengths: impl IntoIterator<Item = usize>,
 ) -> Result<(), InternalError> {
-    for length in lengths {
-        *total = total.checked_add(length).ok_or_else(|| {
-            InternalError::mutation_batch_staged_bytes_exceeded(
-                None,
-                MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
-            )
-        })?;
-        if *total > MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES {
-            return Err(InternalError::mutation_batch_staged_bytes_exceeded(
-                Some(*total),
-                MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
-            ));
-        }
+    let charge = structural_mutation_staged_charge(lengths)?;
+    *total = total.checked_add(charge).ok_or_else(|| {
+        InternalError::mutation_batch_staged_bytes_exceeded(
+            None,
+            MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
+        )
+    })?;
+    if *total > MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES {
+        return Err(InternalError::mutation_batch_staged_bytes_exceeded(
+            Some(*total),
+            MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
+        ));
     }
     Ok(())
+}
+
+fn admit_structural_mutation_staged_charge(
+    total: &mut usize,
+    lengths: impl IntoIterator<Item = usize>,
+    packing: AcceptedStructuralMutationPacking,
+) -> Result<AcceptedStructuralMutationStagedAdmission, InternalError> {
+    if matches!(packing, AcceptedStructuralMutationPacking::Complete) {
+        add_structural_mutation_staged_bytes(total, lengths)?;
+        return Ok(AcceptedStructuralMutationStagedAdmission::Admitted);
+    }
+
+    let charge = structural_mutation_staged_charge(lengths)?;
+    if charge > MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES {
+        return Ok(AcceptedStructuralMutationStagedAdmission::CandidateExceedsPolicy);
+    }
+    let Some(next_total) = total.checked_add(charge) else {
+        return Ok(AcceptedStructuralMutationStagedAdmission::PageFull);
+    };
+    if next_total > MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES {
+        return Ok(AcceptedStructuralMutationStagedAdmission::PageFull);
+    }
+    *total = next_total;
+    Ok(AcceptedStructuralMutationStagedAdmission::Admitted)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AcceptedStructuralMutationStagedAdmission {
+    Admitted,
+    PageFull,
+    CandidateExceedsPolicy,
 }
 
 fn validate_structural_mutation_result_bytes(encoded_bytes: usize) -> Result<(), InternalError> {
@@ -777,20 +867,24 @@ impl<C: CanisterKind> DbSession<C> {
         let mutations = keys
             .into_iter()
             .map(AcceptedStructuralMutation::delete)
-            .collect();
+            .collect::<Vec<_>>();
+        let mutation_capacity = mutations.len();
+        let mut mutations = mutations.into_iter();
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
             descriptor,
-            mutations,
+            mutation_capacity,
+            0,
+            || Ok(mutations.next()),
             Timestamp::now(),
             AcceptedStructuralMutationCommitOptions::standard(),
-            |rows| {
+            |rows, _report| {
                 let rows = rows
                     .into_iter()
                     .map(AcceptedStructuralMutationRow::into_values)
                     .collect::<Vec<_>>();
                 precommit_validation(rows.as_slice())?;
-                Ok(rows)
+                Ok((rows, AcceptedStructuralMutationCommitDirective::Standard))
             },
         )
     }
@@ -812,18 +906,42 @@ impl<C: CanisterKind> DbSession<C> {
             Vec<AcceptedStructuralMutationRow>,
         ) -> Result<T, InternalError>,
     ) -> Result<T, InternalError> {
+        let mutation_capacity = mutations.len();
+        let identity_candidate_count = mutations
+            .iter()
+            .filter(|mutation| {
+                matches!(
+                    mutation,
+                    AcceptedStructuralMutation::Save {
+                        mode: MutationMode::Insert,
+                        target: AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                        ..
+                    }
+                )
+            })
+            .count();
+        let mut mutations = mutations.into_iter();
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
             descriptor,
-            mutations,
+            mutation_capacity,
+            identity_candidate_count,
+            || Ok(mutations.next()),
             operation_timestamp,
             AcceptedStructuralMutationCommitOptions::standard(),
-            precommit_preparation,
+            |rows, _report| {
+                precommit_preparation(rows).map(|prepared| {
+                    (
+                        prepared,
+                        AcceptedStructuralMutationCommitDirective::Standard,
+                    )
+                })
+            },
         )
     }
 
     /// Commit one complete accepted update page and its exact durable progress successor.
-    #[cfg(any(feature = "sql", test))]
+    #[cfg(test)]
     pub(in crate::db::session) fn execute_accepted_structural_update_with_mutation_progress(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
@@ -832,17 +950,63 @@ impl<C: CanisterKind> DbSession<C> {
         operation_timestamp: Timestamp,
         mutation_progress: MutationProgressRecordOp,
     ) -> Result<usize, InternalError> {
+        let mutation_capacity = mutations.len();
+        let mut mutations = mutations.into_iter();
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
             descriptor,
-            mutations,
+            mutation_capacity,
+            0,
+            || Ok(mutations.next()),
             operation_timestamp,
-            AcceptedStructuralMutationCommitOptions::with_mutation_progress(mutation_progress),
-            |rows| Ok(rows.len()),
+            AcceptedStructuralMutationCommitOptions::with_mutation_progress(),
+            |rows, _report| {
+                Ok((
+                    rows.len(),
+                    AcceptedStructuralMutationCommitDirective::WithMutationProgress(
+                        mutation_progress,
+                    ),
+                ))
+            },
+        )
+    }
+
+    /// Pack a checkpoint-aware update prefix using the writer's exact staging
+    /// charge, then apply the caller's atomic commit decision.
+    #[cfg(any(feature = "sql", test))]
+    pub(in crate::db::session) fn execute_accepted_structural_update_bounded_prefix<T>(
+        &self,
+        catalog: &AcceptedSchemaCatalogContext,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        mutation_capacity: usize,
+        mut next_mutation: impl FnMut() -> Result<Option<AcceptedStructuralMutation>, InternalError>,
+        operation_timestamp: Timestamp,
+        precommit_preparation: impl FnOnce(
+            AcceptedStructuralMutationPackingReport,
+        ) -> Result<
+            (T, AcceptedStructuralMutationCommitDirective),
+            InternalError,
+        >,
+    ) -> Result<T, InternalError> {
+        self.execute_accepted_structural_mutation_batch_inner(
+            catalog,
+            descriptor,
+            mutation_capacity,
+            0,
+            &mut next_mutation,
+            operation_timestamp,
+            AcceptedStructuralMutationCommitOptions::bounded_prefix(),
+            |rows, report| {
+                if rows.len() != report.admitted_mutations() {
+                    return Err(InternalError::executor_invariant());
+                }
+                precommit_preparation(report)
+            },
         )
     }
 
     #[expect(
+        clippy::too_many_arguments,
         clippy::too_many_lines,
         reason = "one phased owner keeps accepted authority, mutation context, precommit preparation, output capture, and commit staging inseparable"
     )]
@@ -850,17 +1014,23 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        mutations: Vec<AcceptedStructuralMutation>,
+        mutation_capacity: usize,
+        identity_candidate_count: usize,
+        mut next_mutation: impl FnMut() -> Result<Option<AcceptedStructuralMutation>, InternalError>,
         operation_timestamp: Timestamp,
         options: AcceptedStructuralMutationCommitOptions,
         precommit_preparation: impl FnOnce(
             Vec<AcceptedStructuralMutationRow>,
-        ) -> Result<T, InternalError>,
+            AcceptedStructuralMutationPackingReport,
+        ) -> Result<
+            (T, AcceptedStructuralMutationCommitDirective),
+            InternalError,
+        >,
     ) -> Result<T, InternalError> {
         let identity = catalog.identity();
         let AcceptedStructuralMutationCommitOptions {
-            mutation_progress,
             capture_output_values,
+            packing,
         } = options;
         let entity_path = identity.entity_path();
         let store_path = identity.store_path();
@@ -877,26 +1047,12 @@ impl<C: CanisterKind> DbSession<C> {
             .as_ref()
             .map(|_| database_incarnation_id())
             .transpose()?;
-        let mutation_count = mutations.len();
-        if mutation_count > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+        if mutation_capacity > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
             return Err(InternalError::mutation_batch_too_many_items(
-                mutation_count,
+                mutation_capacity,
                 MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
             ));
         }
-        let identity_candidate_count = mutations
-            .iter()
-            .filter(|mutation| {
-                matches!(
-                    mutation,
-                    AcceptedStructuralMutation::Save {
-                        mode: MutationMode::Insert,
-                        target: AcceptedStructuralMutationTarget::ResolveFromAfterImage,
-                        ..
-                    }
-                )
-            })
-            .count();
         let _ = checked_pre_key_candidate_count(identity_candidate_count)?;
         let mut identity_cursor: Option<IdentityStatementCursor> = None;
         let mut identity_insert_ordinal = 0_u32;
@@ -907,18 +1063,28 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.fingerprint(),
             catalog.fingerprint_method_version(),
             catalog.accepted_row_constraints(),
-            mutation_count,
+            mutation_capacity,
         );
-        let mut output = Vec::with_capacity(mutation_count);
+        let mut output = Vec::with_capacity(mutation_capacity);
         let mut staged_bytes = 0_usize;
+        let mut stopped_before_candidate = false;
+        let mut candidate_exceeds_batch_policy = false;
+        let mut input_index = 0_usize;
 
-        for (input_index, mutation) in mutations.into_iter().enumerate() {
+        while let Some(mutation) = next_mutation()? {
+            if input_index >= mutation_capacity {
+                return Err(InternalError::mutation_batch_too_many_items(
+                    input_index.saturating_add(1),
+                    mutation_capacity,
+                ));
+            }
             let batch_input_ordinal = u32::try_from(input_index).map_err(|_| {
                 InternalError::mutation_batch_too_many_items(
-                    mutation_count,
+                    mutation_capacity,
                     MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
                 )
             })?;
+            input_index = input_index.saturating_add(1);
             let AcceptedStructuralMutation::Save {
                 mode,
                 target,
@@ -936,13 +1102,26 @@ impl<C: CanisterKind> DbSession<C> {
                     row_decode_contract.clone(),
                     &before,
                 )?;
-                add_structural_mutation_staged_bytes(
+                let admission = admit_structural_mutation_staged_charge(
                     &mut staged_bytes,
                     [
                         raw_key.as_bytes().len(),
                         canonical_before.as_raw_row().as_bytes().len(),
                     ],
+                    packing,
                 )?;
+                match admission {
+                    AcceptedStructuralMutationStagedAdmission::Admitted => {}
+                    AcceptedStructuralMutationStagedAdmission::PageFull => {
+                        stopped_before_candidate = true;
+                        break;
+                    }
+                    AcceptedStructuralMutationStagedAdmission::CandidateExceedsPolicy => {
+                        stopped_before_candidate = true;
+                        candidate_exceeds_batch_policy = true;
+                        break;
+                    }
+                }
                 scheduler.schedule_delete(
                     CommitRowOp::new(
                         entity_path,
@@ -1174,7 +1353,7 @@ impl<C: CanisterKind> DbSession<C> {
             let physical_changed = before
                 .as_ref()
                 .is_none_or(|before| before.as_bytes() != after.as_raw_row().as_bytes());
-            add_structural_mutation_staged_bytes(
+            let admission = admit_structural_mutation_staged_charge(
                 &mut staged_bytes,
                 [
                     raw_key.as_bytes().len(),
@@ -1183,7 +1362,20 @@ impl<C: CanisterKind> DbSession<C> {
                         .map_or(0, |before| before.as_raw_row().as_bytes().len()),
                     after.as_raw_row().as_bytes().len(),
                 ],
+                packing,
             )?;
+            match admission {
+                AcceptedStructuralMutationStagedAdmission::Admitted => {}
+                AcceptedStructuralMutationStagedAdmission::PageFull => {
+                    stopped_before_candidate = true;
+                    break;
+                }
+                AcceptedStructuralMutationStagedAdmission::CandidateExceedsPolicy => {
+                    stopped_before_candidate = true;
+                    candidate_exceeds_batch_policy = true;
+                    break;
+                }
+            }
             let row_op = physical_changed.then(|| {
                 CommitRowOp::new(
                     entity_path,
@@ -1222,38 +1414,55 @@ impl<C: CanisterKind> DbSession<C> {
             });
         }
 
+        let report = AcceptedStructuralMutationPackingReport {
+            admitted_mutations: output.len(),
+            stopped_before_candidate,
+            candidate_exceeds_batch_policy,
+        };
         let batch = scheduler.finish();
-        let prepared = precommit_preparation(output)?;
+        let (prepared, commit_directive) = precommit_preparation(output, report)?;
         let identity_ranges = identity_cursor
             .map(IdentityStatementCursor::into_range_advance)
             .transpose()?
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
-        if batch.is_empty() && !identity_ranges.is_empty() {
+        if !matches!(
+            commit_directive,
+            AcceptedStructuralMutationCommitDirective::Skip
+        ) && batch.is_empty()
+            && !identity_ranges.is_empty()
+        {
             return Err(InternalError::identity_corruption());
         }
-        if batch.is_empty() {
-            if mutation_progress.is_some() {
+        match commit_directive {
+            AcceptedStructuralMutationCommitDirective::Skip => {}
+            AcceptedStructuralMutationCommitDirective::Standard if batch.is_empty() => {}
+            AcceptedStructuralMutationCommitDirective::Standard => {
+                commit_structural_row_ops_with_window_for_path(
+                    &self.db,
+                    entity_path,
+                    batch,
+                    identity_ranges,
+                    "accepted_structural_batch_apply",
+                )?;
+            }
+            AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation)
+                if batch.is_empty() =>
+            {
+                let _ = operation;
                 return Err(InternalError::executor_invariant());
             }
-        } else if let Some(mutation_progress) = mutation_progress {
-            commit_structural_row_ops_with_mutation_progress_for_path(
-                &self.db,
-                entity_path,
-                batch,
-                identity_ranges,
-                mutation_progress,
-                "accepted_structural_batch_apply",
-            )?;
-        } else {
-            commit_structural_row_ops_with_window_for_path(
-                &self.db,
-                entity_path,
-                batch,
-                identity_ranges,
-                "accepted_structural_batch_apply",
-            )?;
+            AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation) => {
+                commit_structural_row_ops_with_mutation_progress_for_path(
+                    &self.db,
+                    entity_path,
+                    batch,
+                    identity_ranges,
+                    operation,
+                    "accepted_structural_batch_apply",
+                )?;
+            }
         }
         Ok(prepared)
     }
@@ -1370,12 +1579,11 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let entity_path = accepted_identity.entity_path_handle();
-        let (result, metrics) = self.execute_accepted_structural_mutation_batch_inner(
+        let (result, metrics) = self.execute_accepted_structural_save_batch(
             &catalog,
             &descriptor,
             mutations,
             Timestamp::now(),
-            AcceptedStructuralMutationCommitOptions::standard(),
             |rows| {
                 if rows.len() != save_kinds.len() {
                     return Err(InternalError::executor_invariant());
@@ -2983,12 +3191,14 @@ mod identity_pre_key_tests {
     use super::DynamicTypedEntityBinding;
     use super::{
         AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
+        AcceptedStructuralMutationPacking, AcceptedStructuralMutationStagedAdmission,
         AcceptedStructuralMutationTarget, DbSession, DynamicMutation, DynamicStructuralPatch,
         DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicTypedMutation,
         DynamicWriteCell, FieldSlot, MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
         MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES, MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
         MutationProgressRecordOp, add_structural_mutation_staged_bytes,
-        checked_pre_key_candidate_count, insert_key_exists_after_generation,
+        admit_structural_mutation_staged_charge, checked_pre_key_candidate_count,
+        insert_key_exists_after_generation, structural_mutation_staged_charge,
         validate_structural_mutation_result_bytes,
     };
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -4691,6 +4901,11 @@ mod identity_pre_key_tests {
 
     #[test]
     fn mixed_structural_batch_staged_byte_bound_uses_checked_exact_boundary() {
+        assert_eq!(
+            structural_mutation_staged_charge([11, 13, 17])
+                .expect("the writer-owned formula should sum all three row-image components"),
+            41,
+        );
         let mut exact = 0;
         add_structural_mutation_staged_bytes(
             &mut exact,
@@ -4721,6 +4936,40 @@ mod identity_pre_key_tests {
                 ),
             ],
         );
+
+        let mut prefix = 0;
+        assert_eq!(
+            admit_structural_mutation_staged_charge(
+                &mut prefix,
+                [MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES],
+                AcceptedStructuralMutationPacking::BoundedPrefix,
+            )
+            .expect("the exact prefix boundary should calculate"),
+            AcceptedStructuralMutationStagedAdmission::Admitted,
+        );
+        assert_eq!(prefix, MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES);
+        assert_eq!(
+            admit_structural_mutation_staged_charge(
+                &mut prefix,
+                [1],
+                AcceptedStructuralMutationPacking::BoundedPrefix,
+            )
+            .expect("the next prefix candidate should calculate"),
+            AcceptedStructuralMutationStagedAdmission::PageFull,
+        );
+        assert_eq!(prefix, MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES);
+
+        let mut empty_prefix = 0;
+        assert_eq!(
+            admit_structural_mutation_staged_charge(
+                &mut empty_prefix,
+                [MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES + 1],
+                AcceptedStructuralMutationPacking::BoundedPrefix,
+            )
+            .expect("one oversized candidate should classify without mutating the prefix"),
+            AcceptedStructuralMutationStagedAdmission::CandidateExceedsPolicy,
+        );
+        assert_eq!(empty_prefix, 0);
 
         validate_structural_mutation_result_bytes(MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES)
             .expect("the exact result-byte boundary should admit");

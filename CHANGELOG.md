@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.233.x] ⏱️ - 2026-08-19 - Durable Mutation-Job Liveness And Recovery
+
+Detailed notes: [docs/changelog/0.233.md](docs/changelog/0.233.md)
+
+- `0.233.0` makes durable mutation pages converge under current managed time
+  and fixed scan/staging byte budgets, with terminal policy failures and
+  checkpoint-safe wide-row replay.
+
 ## [0.232.x] 🧭 - 2026-08-19 - Typed Public SQL Diagnostics
 
 Detailed notes: [docs/changelog/0.232.md](docs/changelog/0.232.md)
