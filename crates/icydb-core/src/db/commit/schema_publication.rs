@@ -605,6 +605,31 @@ fn append_staged_schema_domain_journal_records(
     Ok(())
 }
 
+fn publish_candidate_journal_authority(
+    publication: &AcceptedSchemaPublication<'_>,
+    batch: &JournalBatch,
+    marker_bytes: Option<&[u8]>,
+) -> Result<(), InternalError> {
+    let Some(journal_store) = publication.store.journal_tail_store() else {
+        return Ok(());
+    };
+    if batch.journal_sequence() == JournalSequence::new(0) {
+        let accepted_entity_tags = publication
+            .candidate
+            .bundle()
+            .entity_snapshots()
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        return journal_store.with_borrow_mut(|journal| {
+            journal.publish_accepted_entity_mutation_revisions(accepted_entity_tags.as_slice())
+        });
+    }
+    let marker_bytes = marker_bytes.ok_or_else(InternalError::store_invariant)?;
+    journal_store
+        .with_borrow_mut(|journal| journal.append_marker_encoded_batch(batch, marker_bytes))
+}
+
 fn publish_candidates_atomically(
     publications: &[AcceptedSchemaPublication<'_>],
     database_control: Vec<DatabaseControlOp>,
@@ -655,14 +680,10 @@ fn publish_candidates_atomically(
 
     finish_commit(commit, |guard| {
         for (batch_ordinal, (publication, batch)) in publications.iter().zip(&batches).enumerate() {
-            if batch.journal_sequence() != JournalSequence::new(0)
-                && let Some(journal_store) = publication.store.journal_tail_store()
-            {
-                let marker_bytes = guard.journal_batch_bytes(batch_ordinal)?;
-                journal_store.with_borrow_mut(|journal| {
-                    journal.append_marker_encoded_batch(batch, marker_bytes)
-                })?;
-            }
+            let marker_bytes = (batch.journal_sequence() != JournalSequence::new(0))
+                .then(|| guard.journal_batch_bytes(batch_ordinal))
+                .transpose()?;
+            publish_candidate_journal_authority(publication, batch, marker_bytes)?;
         }
         for publication in publications {
             if publication.store.storage_capabilities().schema_metadata()

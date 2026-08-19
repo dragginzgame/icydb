@@ -136,6 +136,9 @@ struct MutationJobVerifyResult {
     first_verify_keys_scanned: u64,
     first_verify_local_instructions: u64,
     verify_replay_local_instructions: u64,
+    unrelated_verify_keys_scanned: u64,
+    unrelated_verify_local_instructions: u64,
+    unrelated_preserved_verify: bool,
     drift_restart_keys_scanned: u64,
     drift_restart_local_instructions: u64,
     stable_verify_local_instructions: Vec<u64>,
@@ -2314,9 +2317,10 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
     let result = verify_mutation_job_lifecycle(&fixture);
 
     println!(
-        "durable mutation Verify: first={} replay={} drift={} stable={:?} state={} terminal_replay={} ack={}",
+        "durable mutation Verify: first={} replay={} unrelated={} drift={} stable={:?} state={} terminal_replay={} ack={}",
         result.first_verify_local_instructions,
         result.verify_replay_local_instructions,
+        result.unrelated_verify_local_instructions,
         result.drift_restart_local_instructions,
         result.stable_verify_local_instructions,
         result.state_local_instructions,
@@ -2331,6 +2335,12 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
     assert!(result.first_verify_local_instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(result.replay.verify_matches);
     assert!(result.verify_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
+    assert_eq!(
+        result.unrelated_verify_keys_scanned,
+        u64::from(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT),
+    );
+    assert!(result.unrelated_preserved_verify);
+    assert!(result.unrelated_verify_local_instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert_eq!(result.drift_restart_keys_scanned, 0);
     assert!(result.drift_restart_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert_eq!(result.stable_verify_local_instructions.len(), 3);
@@ -2342,7 +2352,7 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
     );
     assert_eq!(result.verify_restarts_total, 1);
     assert_eq!(result.restarted_forward_rows_updated, 1);
-    assert_eq!(result.completed_sequence, 18);
+    assert_eq!(result.completed_sequence, 19);
     assert!(result.state_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert!(result.terminal_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert!(result.replay.terminal_matches);

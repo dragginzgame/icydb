@@ -41,8 +41,12 @@ use std::{borrow::Cow, mem::size_of};
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
 
 fn raw_data_store_key(fill: u64) -> RawDataStoreKey {
+    raw_data_store_key_for(EntityTag::new(1), fill)
+}
+
+fn raw_data_store_key_for(entity_tag: EntityTag, fill: u64) -> RawDataStoreKey {
     DecodedDataStoreKey::new_primary_key_value(
-        EntityTag::new(1),
+        entity_tag,
         &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(fill)),
     )
     .to_raw()
@@ -50,10 +54,14 @@ fn raw_data_store_key(fill: u64) -> RawDataStoreKey {
 }
 
 fn row_put_record(fill: u64) -> JournalRecord {
+    row_put_record_for(EntityTag::new(1), fill)
+}
+
+fn row_put_record_for(entity_tag: EntityTag, fill: u64) -> JournalRecord {
     let fill_byte = u8::try_from(fill).expect("test fill should fit u8");
     JournalRecord::row_put(
         "test::Entity",
-        raw_data_store_key(fill),
+        raw_data_store_key_for(entity_tag, fill),
         vec![fill_byte; 3],
         [0x11; 16],
     )
@@ -63,6 +71,15 @@ fn row_put_record(fill: u64) -> JournalRecord {
 fn row_delete_record(fill: u64) -> JournalRecord {
     JournalRecord::row_delete("test::Entity", raw_data_store_key(fill), [0x22; 16])
         .expect("row delete record should build")
+}
+
+fn assert_entity_revision(store: &JournalTailStore, entity_tag: EntityTag, expected: u64) {
+    assert_eq!(
+        store
+            .entity_mutation_revision(entity_tag)
+            .expect("entity revision should load"),
+        expected,
+    );
 }
 
 fn schema_put_record(fill: u8) -> JournalRecord {
@@ -938,6 +955,12 @@ fn validation_job_appends_do_not_change_the_durable_data_revision() {
             .expect("initial data revision should load"),
         1,
     );
+    store
+        .initialize_current_tail_control()
+        .expect("current tail control should initialize");
+    store
+        .initialize_missing_entity_mutation_revisions(&[EntityTag::new(1)])
+        .expect("accepted entity revision should initialize");
 
     let job = validation_job();
     let job_batch = JournalBatch::new(
@@ -1025,6 +1048,132 @@ fn validation_job_appends_do_not_change_the_durable_data_revision() {
             .data_mutation_revision()
             .expect("migration row data revision should load"),
         5,
+    );
+}
+
+#[test]
+fn predecessor_entity_revisions_initialize_conservatively_and_reenter_exactly() {
+    let mut store = JournalTailStore::init(test_memory(229));
+    store
+        .append_batch(
+            &JournalBatch::new(
+                [0x31; 16],
+                [0x41; 16],
+                JournalSequence::new(1),
+                vec![row_put_record(1)],
+            )
+            .expect("predecessor row batch should build"),
+        )
+        .expect("predecessor row batch should append");
+    store.clear_entity_mutation_revisions_for_tests();
+
+    let tags = [EntityTag::new(1), EntityTag::new(2)];
+    store
+        .initialize_missing_entity_mutation_revisions(&tags)
+        .expect("missing predecessor metadata should initialize");
+    assert_entity_revision(&store, tags[0], 2);
+    assert_entity_revision(&store, tags[1], 2);
+    store
+        .validate_current_entity_mutation_revisions(&tags)
+        .expect("initialized authority should match accepted tags");
+
+    store
+        .initialize_missing_entity_mutation_revisions(&tags)
+        .expect("current authority should admit exact reentry");
+    assert_entity_revision(&store, tags[0], 2);
+    assert_entity_revision(&store, tags[1], 2);
+}
+
+#[test]
+fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
+    let mut store = JournalTailStore::init(test_memory(230));
+    store
+        .initialize_current_tail_control()
+        .expect("current tail control should initialize");
+    let first_tag = EntityTag::new(1);
+    let second_tag = EntityTag::new(2);
+    store
+        .initialize_missing_entity_mutation_revisions(&[first_tag, second_tag])
+        .expect("current entity authority should initialize");
+
+    let first = JournalBatch::new(
+        [0x32; 16],
+        [0x42; 16],
+        JournalSequence::new(1),
+        vec![row_put_record_for(first_tag, 1)],
+    )
+    .expect("single-entity batch should build");
+    store
+        .append_batch(&first)
+        .expect("first batch should append");
+    assert_entity_revision(&store, first_tag, 2);
+    assert_entity_revision(&store, second_tag, 1);
+
+    let prepared = store
+        .prepare_entity_mutation_revision(second_tag)
+        .expect("journal owner should prepare the exact next target revision");
+    assert_eq!(prepared.entity_tag(), second_tag);
+    assert_eq!(prepared.journal_sequence(), JournalSequence::new(2));
+    assert_eq!(prepared.resulting_revision(), 3);
+
+    let both = JournalBatch::new(
+        [0x33; 16],
+        [0x43; 16],
+        JournalSequence::new(2),
+        vec![
+            row_put_record_for(first_tag, 2),
+            row_put_record_for(second_tag, 3),
+        ],
+    )
+    .expect("multi-entity batch should build");
+    store
+        .append_batch(&both)
+        .expect("multi-entity batch should append");
+    assert_entity_revision(&store, first_tag, 3);
+    assert_entity_revision(&store, second_tag, 3);
+    store
+        .append_batch(&both)
+        .expect("identical row-batch replay should be idempotent");
+    assert_entity_revision(&store, first_tag, 3);
+    assert_entity_revision(&store, second_tag, 3);
+
+    let first_retirement = store
+        .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
+        .expect("first fold should preflight");
+    store.apply_prepared_batch_retirement(first_retirement);
+    let second_retirement = store
+        .prepare_batch_retirement(&both, FoldWatermark::new(JournalSequence::new(2), 2))
+        .expect("second fold should preflight");
+    store.apply_prepared_batch_retirement(second_retirement);
+    assert_entity_revision(&store, first_tag, 3);
+    assert_entity_revision(&store, second_tag, 3);
+}
+
+#[test]
+fn completed_entity_revision_authority_fails_closed_on_missing_or_drifted_tags() {
+    let mut store = JournalTailStore::init(test_memory(231));
+    store
+        .initialize_current_tail_control()
+        .expect("current tail control should initialize");
+    let tags = [EntityTag::new(1), EntityTag::new(2)];
+    store
+        .initialize_missing_entity_mutation_revisions(&tags)
+        .expect("current entity authority should initialize");
+    assert!(
+        store
+            .validate_current_entity_mutation_revisions(&[EntityTag::new(1)])
+            .is_err(),
+        "accepted tag-set drift must fail closed",
+    );
+
+    store
+        .remove_entity_mutation_revision_for_tests(EntityTag::new(2))
+        .expect("focused corruption should remove one retained entry");
+    assert!(store.entity_mutation_revision(EntityTag::new(2)).is_err());
+    assert!(
+        store
+            .validate_current_entity_mutation_revisions(&tags)
+            .is_err()
     );
 }
 
@@ -1814,6 +1963,62 @@ fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
         "tiny journal append should not allocate extra MemoryManager buckets; pages={}",
         memory.size()
     );
+}
+
+#[test]
+fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
+    fn revision_pages(entity_count: usize, memory_id: u8) -> (u64, u64) {
+        let memory = VectorMemory::default();
+        let manager = MemoryManager::init(memory);
+        let journal_memory = manager.get(MemoryId::new(memory_id));
+        let observation = journal_memory.clone();
+        let mut store = JournalTailStore::init(journal_memory);
+        store
+            .initialize_current_tail_control()
+            .expect("current tail control should initialize");
+        store
+            .initialize_missing_entity_mutation_revisions(&[])
+            .expect("empty accepted entity authority should initialize");
+        let baseline_pages = observation.size();
+        let tags = (1..=entity_count)
+            .map(|value| {
+                EntityTag::new(u64::try_from(value).expect("accepted entity count should fit"))
+            })
+            .collect::<Vec<_>>();
+        store
+            .publish_accepted_entity_mutation_revisions(tags.as_slice())
+            .expect("accepted entity revisions should publish");
+        store
+            .validate_current_entity_mutation_revisions(tags.as_slice())
+            .expect("published entity revisions should reenter exactly");
+        let published_pages = observation.size();
+        let target = tags
+            .last()
+            .copied()
+            .expect("measurement uses at least one accepted entity");
+        let batch = JournalBatch::new(
+            [memory_id; 16],
+            [0x5A; 16],
+            JournalSequence::new(1),
+            vec![row_put_record_for(target, 1)],
+        )
+        .expect("last-entity mutation batch should build");
+        store
+            .append_batch(&batch)
+            .expect("last packed entity revision should advance");
+        assert_entity_revision(&store, tags[0], 1);
+        assert_entity_revision(&store, target, 2);
+        (baseline_pages, published_pages)
+    }
+
+    let representative = revision_pages(3, 24);
+    let accepted_limit = revision_pages(icydb_schema::MAX_SCHEMA_ASSIGNMENTS, 25);
+    println!(
+        "entity revision stable pages: representative={representative:?} accepted_limit={accepted_limit:?}",
+    );
+
+    assert!(representative.1.saturating_sub(representative.0) <= 1);
+    assert!(accepted_limit.1.saturating_sub(accepted_limit.0) <= 1);
 }
 
 #[test]

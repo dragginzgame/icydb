@@ -20,7 +20,6 @@ use crate::{
         database_format::crc32c,
         executor::eval_compiled_filter_expr_with_required_slot_reader,
         integrity::{MutationProgressRecordOp, replace_mutation_progress_record_op},
-        journal::JournalTailStore,
         key_taxonomy::RawDataStoreKeyRange,
         mutation_job::{CanonicalMutationIntent, MutationJobRecord, MutationJobTransition},
         query::{
@@ -109,7 +108,7 @@ const RESUMABLE_UPDATE_FORWARD_STAGED_BYTES_POLICY: u32 =
 const RESUMABLE_UPDATE_PACKING_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_CHECKPOINT_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION: u32 = 1;
-const RESUMABLE_UPDATE_REVISION_POLICY_VERSION: u32 = 1;
+const RESUMABLE_UPDATE_REVISION_POLICY_VERSION: u32 = 2;
 const RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION: u32 = 2;
 const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 15] = [
@@ -203,7 +202,7 @@ impl MutationJobEngineContinuation {
             operation_timestamp,
             phase: MutationJobEnginePhase::Forward,
             checkpoint: None,
-            verify_revision: None,
+            retained_verify_revision: None,
             batch_policy_identity: RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY,
         }
         .encode()
@@ -222,7 +221,7 @@ struct DecodedMutationJobEngineContinuation {
     operation_timestamp: Timestamp,
     phase: MutationJobEnginePhase,
     checkpoint: Option<RawDataStoreKey>,
-    verify_revision: Option<u64>,
+    retained_verify_revision: Option<u64>,
     batch_policy_identity: u32,
 }
 
@@ -248,7 +247,7 @@ impl DecodedMutationJobEngineContinuation {
         bytes.push(self.phase.wire());
         bytes.extend_from_slice(&checkpoint_len.to_be_bytes());
         bytes.extend_from_slice(checkpoint);
-        match self.verify_revision {
+        match self.retained_verify_revision {
             Some(revision) => {
                 bytes.push(1);
                 bytes.extend_from_slice(&revision.to_be_bytes());
@@ -309,15 +308,15 @@ impl DecodedMutationJobEngineContinuation {
             }
             Some(raw)
         };
-        let verify_revision = match reader.read_u8()? {
+        let retained_verify_revision = match reader.read_u8()? {
             0 => None,
             1 => Some(reader.read_u64()?),
             _ => return Err(malformed_continuation()),
         };
         let batch_policy_identity = reader.read_u32()?;
         if !reader.is_exhausted()
-            || (phase == MutationJobEnginePhase::Forward && verify_revision.is_some())
-            || (phase == MutationJobEnginePhase::Verify && verify_revision.is_none())
+            || (phase == MutationJobEnginePhase::Forward && retained_verify_revision.is_some())
+            || (phase == MutationJobEnginePhase::Verify && retained_verify_revision.is_none())
         {
             return Err(malformed_continuation());
         }
@@ -333,7 +332,7 @@ impl DecodedMutationJobEngineContinuation {
             operation_timestamp,
             phase,
             checkpoint,
-            verify_revision,
+            retained_verify_revision,
             batch_policy_identity,
         })
     }
@@ -341,7 +340,7 @@ impl DecodedMutationJobEngineContinuation {
     fn restart_forward(&mut self) {
         self.phase = MutationJobEnginePhase::Forward;
         self.checkpoint = None;
-        self.verify_revision = None;
+        self.retained_verify_revision = None;
     }
 }
 
@@ -691,6 +690,7 @@ impl<C: CanisterKind> DbSession<C> {
                         request,
                         &mut continuation,
                         &store,
+                        identity.entity_tag(),
                         scan,
                         packing,
                     ))
@@ -744,11 +744,11 @@ impl<C: CanisterKind> DbSession<C> {
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
         let captured_revision = continuation
-            .verify_revision
+            .retained_verify_revision
             .ok_or(MutationJobError::CorruptProgressStore)?;
-        if durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?
-            != captured_revision
-        {
+        let revision_before_scan = durable_entity_revision(&store, catalog.identity().entity_tag())
+            .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        if mutation_verify_revision_changed(captured_revision, revision_before_scan) {
             continuation.restart_forward();
             return persist_verify_restart::<C>(before, request, &continuation, 0);
         }
@@ -776,9 +776,11 @@ impl<C: CanisterKind> DbSession<C> {
         record_resumable_rows_scanned(identity.entity_path(), scan.keys_scanned);
         let keys_scanned =
             u64::try_from(scan.keys_scanned).map_err(|_| MutationJobError::CounterOverflow)?;
-        let revision_after_scan =
-            durable_store_revision(&store).map_err(|_| MutationJobError::TargetQueryFailed)?;
-        if scan.residual_work || revision_after_scan != captured_revision {
+        let revision_after_scan = durable_entity_revision(&store, identity.entity_tag())
+            .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        if scan.residual_work
+            || mutation_verify_revision_changed(captured_revision, revision_after_scan)
+        {
             continuation.restart_forward();
             return persist_verify_restart::<C>(before, request, &continuation, keys_scanned);
         }
@@ -1085,6 +1087,7 @@ fn prepare_packed_forward_outcome(
     request: &MutationJobAdvanceRequest,
     continuation: &mut DecodedMutationJobEngineContinuation,
     store: &StoreHandle,
+    entity_tag: EntityTag,
     scan: ResumableForwardScan,
     packing: AcceptedStructuralMutationPackingReport,
 ) -> (
@@ -1114,9 +1117,10 @@ fn prepare_packed_forward_outcome(
         continuation.phase = MutationJobEnginePhase::Verify;
         continuation.checkpoint = None;
         let revision = if packing.admitted_mutations() == 0 {
-            durable_store_revision(store).map_err(|_| MutationJobError::TargetQueryFailed)
+            durable_entity_revision(store, entity_tag)
+                .map_err(|_| MutationJobError::TargetQueryFailed)
         } else {
-            durable_store_revision_after_next_mutation(store)
+            durable_entity_revision_after_next_mutation(store, entity_tag)
         };
         let revision = match revision {
             Ok(revision) => revision,
@@ -1127,7 +1131,7 @@ fn prepare_packed_forward_outcome(
                 );
             }
         };
-        continuation.verify_revision = Some(revision);
+        continuation.retained_verify_revision = Some(revision);
     }
     let Ok(next_continuation) = continuation.encode() else {
         return (
@@ -1309,29 +1313,30 @@ fn record_resumable_rows_scanned(entity_path: &str, keys_scanned: usize) {
     });
 }
 
-fn durable_store_revision(store: &StoreHandle) -> Result<u64, QueryError> {
+fn durable_entity_revision(store: &StoreHandle, entity_tag: EntityTag) -> Result<u64, QueryError> {
     let journal = store
         .journal_tail_store()
         .ok_or_else(QueryError::invariant)?;
     journal
-        .with_borrow(JournalTailStore::data_mutation_revision)
+        .with_borrow(|tail| tail.entity_mutation_revision(entity_tag))
         .map_err(QueryError::execute)
 }
 
-fn durable_store_revision_after_next_mutation(
+fn durable_entity_revision_after_next_mutation(
     store: &StoreHandle,
+    entity_tag: EntityTag,
 ) -> Result<u64, MutationJobError> {
     let journal = store
         .journal_tail_store()
         .ok_or(MutationJobError::TargetMutationFailed)?;
     journal
-        .with_borrow(|tail| {
-            tail.next_mutation_append_sequence()?
-                .next()
-                .map(crate::db::journal::JournalSequence::get)
-                .ok_or_else(InternalError::journal_mutation_revision_exhausted)
-        })
+        .with_borrow(|tail| tail.prepare_entity_mutation_revision(entity_tag))
+        .map(crate::db::journal::PreparedEntityMutationRevision::resulting_revision)
         .map_err(|_| MutationJobError::TargetMutationFailed)
+}
+
+const fn mutation_verify_revision_changed(retained: u64, current: u64) -> bool {
+    current != retained
 }
 
 fn prepare_mutation_job_forward_runtime<'a>(
@@ -1405,7 +1410,7 @@ pub(in crate::db::session) fn validate_current_initial_mutation_job_continuation
         .map_err(|_| MutationJobError::CorruptProgressStore)?;
     if continuation.phase != MutationJobEnginePhase::Forward
         || continuation.checkpoint.is_some()
-        || continuation.verify_revision.is_some()
+        || continuation.retained_verify_revision.is_some()
     {
         return Err(MutationJobError::CorruptProgressStore);
     }
@@ -1727,7 +1732,7 @@ mod tests {
         let mut verify = DecodedMutationJobEngineContinuation::decode(&initial.bytes)
             .expect("current initial continuation should decode");
         verify.phase = MutationJobEnginePhase::Verify;
-        verify.verify_revision = Some(9);
+        verify.retained_verify_revision = Some(9);
         let verify = verify.encode().expect("Verify continuation should encode");
         assert_eq!(
             validate_current_initial_mutation_job_continuation(&verify.bytes),
@@ -1744,7 +1749,7 @@ mod tests {
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_compatibility_input() {
-        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0xda80_2fe2);
+        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x65d1_0487);
         assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
 
         let mut predecessor = RESUMABLE_UPDATE_BATCH_POLICY_INPUTS;
@@ -1752,7 +1757,7 @@ mod tests {
         predecessor[timestamp_policy_index] = 1;
         assert_eq!(
             resumable_update_batch_policy_identity(predecessor),
-            0xd980_2e4f
+            0x66d1_061a
         );
         assert_ne!(
             resumable_update_batch_policy_identity(predecessor),
@@ -1768,6 +1773,52 @@ mod tests {
                 "compatibility input {index} must participate in the batch-policy identity",
             );
         }
+    }
+
+    #[test]
+    fn intermediate_verify_checkpoint_retains_the_original_revision_baseline() {
+        use crate::db::key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue};
+
+        let initial = MutationJobEngineContinuation::initial(
+            Ulid::from_bytes([1; 16]),
+            7,
+            [2; 32],
+            1,
+            [3; 16],
+            [4; 32],
+            [5; 32],
+            Timestamp::from_millis(6),
+        )
+        .expect("current initial continuation should encode");
+        let mut verify = DecodedMutationJobEngineContinuation::decode(&initial.bytes)
+            .expect("current initial continuation should decode");
+        verify.phase = MutationJobEnginePhase::Verify;
+        verify.retained_verify_revision = Some(91);
+        verify.checkpoint = Some(
+            DecodedDataStoreKey::new_primary_key_value(
+                EntityTag::new(7),
+                &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(208)),
+            )
+            .to_raw()
+            .expect("Verify checkpoint should encode"),
+        );
+
+        let retained = DecodedMutationJobEngineContinuation::decode(
+            &verify
+                .encode()
+                .expect("intermediate Verify continuation should encode")
+                .bytes,
+        )
+        .expect("intermediate Verify continuation should decode");
+        assert_eq!(retained.retained_verify_revision, Some(91));
+        assert!(retained.checkpoint.is_some());
+    }
+
+    #[test]
+    fn verify_revision_comparison_detects_drift_before_or_during_a_scan() {
+        assert!(!mutation_verify_revision_changed(91, 91));
+        assert!(mutation_verify_revision_changed(91, 92));
+        assert!(mutation_verify_revision_changed(91, 90));
     }
 
     #[test]

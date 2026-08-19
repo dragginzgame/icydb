@@ -23,5 +23,5 @@ pub(in crate::db) use store::JOURNAL_TAIL_CHUNK_BYTES;
 pub use store::JournalTailStore;
 pub(in crate::db) use store::{
     FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue,
-    JournalTailControl, JournalTailProofIdentity,
+    JournalTailControl, JournalTailProofIdentity, PreparedEntityMutationRevision,
 };

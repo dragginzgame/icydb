@@ -3,22 +3,24 @@
 //! Does not own: journal codec semantics, recovery replay, or fold publication.
 //! Boundary: future journaled store wrappers -> committed journal tail.
 
+#[cfg(test)]
+use crate::db::journal::JournalRecord;
 use crate::{
     db::journal::{
-        DatabaseCommitSequence, JournalBatch, JournalRecord, JournalSequence,
+        DatabaseCommitSequence, JournalBatch, JournalSequence,
         codec::{
             JOURNAL_BATCH_FIXED_HEADER_BYTES, MAX_JOURNAL_BATCH_BYTES, MAX_JOURNAL_BATCH_RECORDS,
             RawJournalBatch, RawJournalBatchFixedHeader, inspect_raw_journal_batch_fixed_header,
         },
     },
     error::{ErrorClass, InternalError},
+    types::EntityTag,
 };
 use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
     storable::Bound as StorableBound,
 };
 use std::borrow::Cow;
-#[cfg(test)]
 use std::collections::BTreeSet;
 use std::ops::Bound::{Included, Unbounded};
 
@@ -26,6 +28,8 @@ const FOLD_WATERMARK_CONTROL_SEQUENCE: JournalSequence = JournalSequence::new(0)
 const DATA_MUTATION_REVISION_CONTROL_CHUNK: u32 = 1;
 const ACCESS_STATE_REVISION_CONTROL_CHUNK: u32 = 2;
 const TAIL_CONVERGENCE_CONTROL_CHUNK: u32 = 3;
+const ENTITY_MUTATION_REVISION_CONTROL_CHUNK: u32 = 4;
+const ENTITY_MUTATION_REVISION_DATA_CHUNK_START: u32 = 5;
 const FOLD_WATERMARK_MAGIC: &[u8] = b"ICYDB-FOLD-WATERMARK";
 const FOLD_WATERMARK_VERSION: u8 = 1;
 const FOLD_WATERMARK_BYTES: usize = FOLD_WATERMARK_MAGIC.len() + 1 + 8 + 8;
@@ -38,6 +42,20 @@ const ACCESS_STATE_REVISION_BYTES: usize = ACCESS_STATE_REVISION_MAGIC.len() + 1
 const TAIL_CONVERGENCE_MAGIC: &[u8] = b"ICYDB-TAIL-CONTROL";
 const TAIL_CONVERGENCE_VERSION: u8 = 1;
 const TAIL_CONVERGENCE_BYTES: usize = TAIL_CONVERGENCE_MAGIC.len() + 1 + 8 + 8 + 8 + 1 + 8;
+const ENTITY_MUTATION_REVISION_CONTROL_MAGIC: &[u8] = b"ICYDB-ENTITY-REVISIONS";
+const ENTITY_MUTATION_REVISION_CHUNK_MAGIC: &[u8] = b"ICYDB-ENTITY-REV-CHUNK";
+const ENTITY_MUTATION_REVISION_VERSION: u8 = 1;
+const ENTITY_MUTATION_REVISION_CONTROL_BYTES: usize =
+    ENTITY_MUTATION_REVISION_CONTROL_MAGIC.len() + 1 + 4;
+const ENTITY_MUTATION_REVISION_CHUNK_HEADER_BYTES: usize =
+    ENTITY_MUTATION_REVISION_CHUNK_MAGIC.len() + 1 + 4;
+const ENTITY_MUTATION_REVISION_ENTRY_BYTES: usize = 8 + 8;
+const MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK: usize = (JOURNAL_TAIL_CHUNK_BYTES as usize
+    - ENTITY_MUTATION_REVISION_CHUNK_HEADER_BYTES)
+    / ENTITY_MUTATION_REVISION_ENTRY_BYTES;
+// Accepted-schema assignment admission is the canonical entity-count bound;
+// revision decoding must never create a second, wider work domain.
+const MAX_ENTITY_MUTATION_REVISIONS: usize = icydb_schema::MAX_SCHEMA_ASSIGNMENTS;
 pub(in crate::db) const JOURNAL_TAIL_CHUNK_BYTES: u32 = 64 * 1024;
 const JOURNAL_TAIL_KEY_BYTES: u32 = 12;
 const MAX_JOURNAL_INSPECTION_BATCHES_PER_PAGE: usize = 2;
@@ -286,6 +304,51 @@ pub(in crate::db) struct PreparedJournalBatchRetirement {
     batch_keys: Vec<JournalTailKey>,
 }
 
+/// Journal-owned proof of the exact target revision produced by the next row batch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PreparedEntityMutationRevision {
+    entity_tag: crate::types::EntityTag,
+    journal_sequence: JournalSequence,
+    resulting_revision: u64,
+}
+
+impl PreparedEntityMutationRevision {
+    /// Return the target entity bound into this preparation.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn entity_tag(self) -> crate::types::EntityTag {
+        self.entity_tag
+    }
+
+    /// Return the exact journal sequence reserved for the prepared row batch.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn journal_sequence(self) -> JournalSequence {
+        self.journal_sequence
+    }
+
+    /// Return the exact target-entity revision after that batch is appended.
+    #[must_use]
+    pub(in crate::db) const fn resulting_revision(self) -> u64 {
+        self.resulting_revision
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct EntityMutationRevisionEntry {
+    entity_tag: crate::types::EntityTag,
+    revision: u64,
+}
+
+struct EntityMutationRevisionAuthority {
+    entries: Vec<EntityMutationRevisionEntry>,
+}
+
+struct PreparedEntityMutationRevisionUpdate {
+    replacement: Option<Vec<EntityMutationRevisionEntry>>,
+    updates: Vec<(u32, EntityMutationRevisionEntry)>,
+}
+
 impl FoldWatermark {
     #[must_use]
     pub(in crate::db) const fn initial() -> Self {
@@ -366,6 +429,20 @@ impl JournalTailKey {
             FOLD_WATERMARK_CONTROL_SEQUENCE,
             TAIL_CONVERGENCE_CONTROL_CHUNK,
         )
+    }
+
+    const fn entity_mutation_revision_control() -> Self {
+        Self::new(
+            FOLD_WATERMARK_CONTROL_SEQUENCE,
+            ENTITY_MUTATION_REVISION_CONTROL_CHUNK,
+        )
+    }
+
+    fn entity_mutation_revision_data_chunk(ordinal: u32) -> Result<Self, InternalError> {
+        let chunk_index = ENTITY_MUTATION_REVISION_DATA_CHUNK_START
+            .checked_add(ordinal)
+            .ok_or_else(journal_tail_corruption)?;
+        Ok(Self::new(FOLD_WATERMARK_CONTROL_SEQUENCE, chunk_index))
     }
 }
 
@@ -502,6 +579,105 @@ impl JournalTailStore {
             .and_then(|raw| decode_tail_control(raw.as_bytes()))
     }
 
+    /// Return whether the current entity-revision authority has been published.
+    #[must_use]
+    pub(in crate::db) fn has_current_entity_mutation_revisions(&self) -> bool {
+        self.map
+            .contains_key(&JournalTailKey::entity_mutation_revision_control())
+    }
+
+    /// Initialize missing current-form entity revisions from one accepted tag set.
+    ///
+    /// A present authority is validated structurally but is not compared with
+    /// `accepted_entity_tags` here: marker recovery may already have appended a
+    /// newer accepted-schema publication whose canonical schema fold is still
+    /// pending. The recovery completion gate performs the exact set comparison.
+    pub(in crate::db) fn initialize_missing_entity_mutation_revisions(
+        &mut self,
+        accepted_entity_tags: &[EntityTag],
+    ) -> Result<(), InternalError> {
+        validate_entity_mutation_revision_tags(accepted_entity_tags)?;
+        if self.has_current_entity_mutation_revisions() {
+            self.entity_mutation_revision_authority().map(drop)
+        } else {
+            let baseline = self.data_mutation_revision()?;
+            let entries = accepted_entity_tags
+                .iter()
+                .copied()
+                .map(|entity_tag| EntityMutationRevisionEntry {
+                    entity_tag,
+                    revision: baseline,
+                })
+                .collect();
+            self.apply_entity_mutation_revision_replacement(entries)
+        }
+    }
+
+    /// Publish the entity-revision shape of one accepted schema.
+    ///
+    /// Existing entities retain their exact revision and newly accepted
+    /// entities begin at the conservative current store-wide revision.
+    pub(in crate::db) fn publish_accepted_entity_mutation_revisions(
+        &mut self,
+        accepted_entity_tags: &[EntityTag],
+    ) -> Result<(), InternalError> {
+        let entries =
+            self.prepare_accepted_entity_mutation_revision_replacement(accepted_entity_tags)?;
+        self.apply_entity_mutation_revision_replacement(entries)
+    }
+
+    /// Require the complete revision authority to match the accepted entity set.
+    pub(in crate::db) fn validate_current_entity_mutation_revisions(
+        &self,
+        accepted_entity_tags: &[EntityTag],
+    ) -> Result<(), InternalError> {
+        validate_entity_mutation_revision_tags(accepted_entity_tags)?;
+        let authority = self.entity_mutation_revision_authority()?;
+        if authority.entries.len() != accepted_entity_tags.len()
+            || authority
+                .entries
+                .iter()
+                .zip(accepted_entity_tags)
+                .any(|(entry, accepted)| entry.entity_tag != *accepted)
+        {
+            return Err(journal_tail_corruption());
+        }
+        Ok(())
+    }
+
+    /// Return the exact durable row-mutation revision for one accepted entity.
+    pub(in crate::db) fn entity_mutation_revision(
+        &self,
+        entity_tag: EntityTag,
+    ) -> Result<u64, InternalError> {
+        let authority = self.entity_mutation_revision_authority()?;
+        authority
+            .entries
+            .binary_search_by_key(&entity_tag, |entry| entry.entity_tag)
+            .ok()
+            .and_then(|index| authority.entries.get(index))
+            .map(|entry| entry.revision)
+            .ok_or_else(journal_tail_corruption)
+    }
+
+    /// Prepare the exact target revision owned by the next row-mutation batch.
+    pub(in crate::db) fn prepare_entity_mutation_revision(
+        &self,
+        entity_tag: EntityTag,
+    ) -> Result<PreparedEntityMutationRevision, InternalError> {
+        let _current = self.entity_mutation_revision(entity_tag)?;
+        let journal_sequence = self.next_mutation_append_sequence()?;
+        let resulting_revision = journal_sequence
+            .next()
+            .map(JournalSequence::get)
+            .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
+        Ok(PreparedEntityMutationRevision {
+            entity_tag,
+            journal_sequence,
+            resulting_revision,
+        })
+    }
+
     /// Validate current fixed control authority against the physical tail head.
     ///
     /// Routine startup intentionally does not recompute aggregate equality;
@@ -575,11 +751,9 @@ impl JournalTailStore {
         }
         let header = validate_encoded_batch_header(batch, bytes)?;
         let existing_prefix = self.raw_batch_prefix_bytes_for_sequence(key)?;
+        let identical_replay = existing_prefix.as_deref() == Some(bytes);
         let repairing_prefix = match existing_prefix.as_deref() {
-            Some(existing) if existing == bytes => {
-                self.validate_replayed_batch_against_control(header)?;
-                return Ok(());
-            }
+            Some(existing) if existing == bytes => false,
             Some(existing) if existing.len() < bytes.len() && bytes.starts_with(existing) => true,
             Some(_) => return Err(journal_tail_corruption()),
             None => false,
@@ -591,6 +765,19 @@ impl JournalTailStore {
             } else {
                 self.initialize_current_tail_control()?;
             }
+        }
+        #[cfg(test)]
+        if !self.has_current_entity_mutation_revisions() {
+            let tags = current_entity_tags_for_test_batch(batch)?;
+            self.initialize_missing_entity_mutation_revisions(tags.as_slice())?;
+        }
+        let affected_entity_tags = batch_row_mutation_entity_tags(batch)?;
+        let entity_revision_update =
+            self.prepare_entity_mutation_revision_update(batch, &affected_entity_tags)?;
+        if identical_replay {
+            self.validate_replayed_batch_against_control(header)?;
+            self.apply_prepared_entity_mutation_revision_update(entity_revision_update)?;
+            return Ok(());
         }
         let current_control = self.current_tail_control()?;
         let expected_sequence = if repairing_prefix {
@@ -615,16 +802,10 @@ impl JournalTailStore {
         }
         let next_control = prepare_appended_tail_control(current_control, header)?;
         let chunks = prepare_raw_batch_chunks(key, bytes)?;
-        let row_mutation = batch.records().iter().any(|record| match record {
-            JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => true,
-            #[cfg(any(test, feature = "migration"))]
-            JournalRecord::SchemaMigrationRowPut { .. } => true,
-            _ => false,
-        });
-        let next_data_mutation_revision = if row_mutation {
-            self.prepare_data_mutation_revision(key)?
-        } else {
+        let next_data_mutation_revision = if affected_entity_tags.is_empty() {
             None
+        } else {
+            self.prepare_data_mutation_revision(key)?
         };
 
         for (chunk_key, chunk) in chunks {
@@ -637,6 +818,7 @@ impl JournalTailStore {
                 RawJournalChunk::from_bytes(encode_data_mutation_revision(revision)),
             );
         }
+        self.apply_prepared_entity_mutation_revision_update(entity_revision_update)?;
         self.map.insert(
             JournalTailKey::tail_convergence_control(),
             RawJournalChunk::from_bytes(encode_tail_control(next_control)),
@@ -740,7 +922,12 @@ impl JournalTailStore {
                 TAIL_CONVERGENCE_CONTROL_CHUNK => {
                     let _control = decode_tail_control(entry.value().as_bytes())?;
                 }
-                _ => return Err(journal_tail_corruption()),
+                ENTITY_MUTATION_REVISION_CONTROL_CHUNK => {
+                    let _count = decode_entity_mutation_revision_control(entry.value().as_bytes())?;
+                }
+                ENTITY_MUTATION_REVISION_DATA_CHUNK_START.. => {
+                    let _entries = decode_entity_mutation_revision_chunk(entry.value().as_bytes())?;
+                }
             }
         }
         Ok(watermark)
@@ -1024,6 +1211,53 @@ impl JournalTailStore {
         self.len() == 0
     }
 
+    /// Remove only entity-revision controls to model a valid predecessor tail.
+    #[cfg(test)]
+    pub(in crate::db) fn clear_entity_mutation_revisions_for_tests(&mut self) {
+        let keys = self
+            .map
+            .range((
+                Included(JournalTailKey::entity_mutation_revision_control()),
+                Included(JournalTailKey::new(
+                    FOLD_WATERMARK_CONTROL_SEQUENCE,
+                    u32::MAX,
+                )),
+            ))
+            .map(|entry| *entry.key())
+            .collect::<Vec<_>>();
+        for key in keys {
+            let _removed = self.map.remove(&key);
+        }
+    }
+
+    /// Remove one retained entity entry while leaving its completion marker.
+    #[cfg(test)]
+    pub(in crate::db) fn remove_entity_mutation_revision_for_tests(
+        &mut self,
+        entity_tag: EntityTag,
+    ) -> Result<(), InternalError> {
+        let authority = self.entity_mutation_revision_authority()?;
+        let ordinal = authority
+            .entries
+            .binary_search_by_key(&entity_tag, |entry| entry.entity_tag)
+            .map_err(|_| journal_tail_corruption())?;
+        let chunk_ordinal = ordinal / MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK;
+        let chunk_offset = ordinal % MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK;
+        let chunk_ordinal = u32::try_from(chunk_ordinal).map_err(|_| journal_tail_corruption())?;
+        let key = JournalTailKey::entity_mutation_revision_data_chunk(chunk_ordinal)?;
+        let mut entries = self
+            .map
+            .get(&key)
+            .ok_or_else(journal_tail_corruption)
+            .and_then(|raw| decode_entity_mutation_revision_chunk(raw.as_bytes()))?;
+        entries.remove(chunk_offset);
+        self.map.insert(
+            key,
+            RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(entries.as_slice())?),
+        );
+        Ok(())
+    }
+
     /// Insert raw journal-tail bytes for persisted-corruption tests.
     #[cfg(test)]
     pub(in crate::db) fn insert_raw_batch_for_tests(
@@ -1066,6 +1300,262 @@ impl JournalTailStore {
                 .insert(key, RawJournalChunk::from_bytes(chunk.to_vec()));
         }
 
+        Ok(())
+    }
+
+    fn entity_mutation_revision_authority(
+        &self,
+    ) -> Result<EntityMutationRevisionAuthority, InternalError> {
+        let count = self.entity_mutation_revision_count()?;
+        let data_revision = self.data_mutation_revision()?;
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(count)
+            .map_err(|_| journal_tail_corruption())?;
+        let chunk_count = count.div_ceil(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK);
+        for chunk_ordinal in 0..chunk_count {
+            let first_entry = chunk_ordinal
+                .checked_mul(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK)
+                .ok_or_else(journal_tail_corruption)?;
+            let expected_entries = count
+                .saturating_sub(first_entry)
+                .min(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK);
+            let chunk_ordinal =
+                u32::try_from(chunk_ordinal).map_err(|_| journal_tail_corruption())?;
+            let chunk = self
+                .map
+                .get(&JournalTailKey::entity_mutation_revision_data_chunk(
+                    chunk_ordinal,
+                )?)
+                .ok_or_else(journal_tail_corruption)
+                .and_then(|raw| decode_entity_mutation_revision_chunk(raw.as_bytes()))?;
+            if chunk.len() != expected_entries {
+                return Err(journal_tail_corruption());
+            }
+            entries.extend(chunk);
+        }
+        validate_entity_mutation_revision_entries(entries.as_slice())?;
+        if entries.iter().any(|entry| entry.revision > data_revision) {
+            return Err(journal_tail_corruption());
+        }
+        let next_chunk = u32::try_from(chunk_count).map_err(|_| journal_tail_corruption())?;
+        let first_extra = JournalTailKey::entity_mutation_revision_data_chunk(next_chunk)?;
+        if self
+            .map
+            .range((
+                Included(first_extra),
+                Included(JournalTailKey::new(
+                    FOLD_WATERMARK_CONTROL_SEQUENCE,
+                    u32::MAX,
+                )),
+            ))
+            .next()
+            .is_some()
+        {
+            return Err(journal_tail_corruption());
+        }
+        Ok(EntityMutationRevisionAuthority { entries })
+    }
+
+    fn entity_mutation_revision_count(&self) -> Result<usize, InternalError> {
+        self.map
+            .get(&JournalTailKey::entity_mutation_revision_control())
+            .ok_or_else(journal_tail_corruption)
+            .and_then(|raw| decode_entity_mutation_revision_control(raw.as_bytes()))
+    }
+
+    fn prepare_entity_mutation_revision_update(
+        &self,
+        batch: &JournalBatch,
+        affected_entity_tags: &BTreeSet<EntityTag>,
+    ) -> Result<PreparedEntityMutationRevisionUpdate, InternalError> {
+        let current = self.entity_mutation_revision_authority()?;
+        let mut published_tags = None;
+        for record in batch.records() {
+            let Some(tags) = record.published_entity_tags()? else {
+                continue;
+            };
+            if published_tags.replace(tags).is_some() {
+                return Err(journal_tail_corruption());
+            }
+        }
+
+        let resulting_revision = batch
+            .journal_sequence()
+            .next()
+            .map(JournalSequence::get)
+            .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
+        let replacement = if let Some(tags) = published_tags {
+            let mut entries =
+                self.prepare_accepted_entity_mutation_revision_replacement(tags.as_slice())?;
+            for entity_tag in affected_entity_tags {
+                let index = entries
+                    .binary_search_by_key(entity_tag, |entry| entry.entity_tag)
+                    .map_err(|_| journal_tail_corruption())?;
+                if resulting_revision > entries[index].revision {
+                    entries[index].revision = resulting_revision;
+                }
+            }
+            Some(entries)
+        } else {
+            None
+        };
+
+        let mut updates = Vec::new();
+        if replacement.is_none() {
+            updates
+                .try_reserve_exact(affected_entity_tags.len())
+                .map_err(|_| journal_tail_corruption())?;
+            for entity_tag in affected_entity_tags {
+                let index = current
+                    .entries
+                    .binary_search_by_key(entity_tag, |entry| entry.entity_tag)
+                    .map_err(|_| journal_tail_corruption())?;
+                let current_entry = current.entries[index];
+                if resulting_revision > current_entry.revision {
+                    updates.push((
+                        u32::try_from(index).map_err(|_| journal_tail_corruption())?,
+                        EntityMutationRevisionEntry {
+                            entity_tag: *entity_tag,
+                            revision: resulting_revision,
+                        },
+                    ));
+                }
+            }
+        }
+
+        Ok(PreparedEntityMutationRevisionUpdate {
+            replacement,
+            updates,
+        })
+    }
+
+    fn prepare_accepted_entity_mutation_revision_replacement(
+        &self,
+        accepted_entity_tags: &[EntityTag],
+    ) -> Result<Vec<EntityMutationRevisionEntry>, InternalError> {
+        validate_entity_mutation_revision_tags(accepted_entity_tags)?;
+        let current = self.entity_mutation_revision_authority()?;
+        let baseline = self.data_mutation_revision()?;
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(accepted_entity_tags.len())
+            .map_err(|_| journal_tail_corruption())?;
+        for entity_tag in accepted_entity_tags {
+            let revision = current
+                .entries
+                .binary_search_by_key(entity_tag, |entry| entry.entity_tag)
+                .ok()
+                .and_then(|index| current.entries.get(index))
+                .map_or(baseline, |entry| entry.revision);
+            entries.push(EntityMutationRevisionEntry {
+                entity_tag: *entity_tag,
+                revision,
+            });
+        }
+        Ok(entries)
+    }
+
+    fn apply_prepared_entity_mutation_revision_update(
+        &mut self,
+        update: PreparedEntityMutationRevisionUpdate,
+    ) -> Result<(), InternalError> {
+        if let Some(entries) = update.replacement {
+            return self.apply_entity_mutation_revision_replacement(entries);
+        }
+        let mut updates = update.updates.into_iter().peekable();
+        while let Some((ordinal, entry)) = updates.next() {
+            let ordinal = usize::try_from(ordinal).map_err(|_| journal_tail_corruption())?;
+            let chunk_ordinal = ordinal / MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK;
+            let chunk_start = chunk_ordinal
+                .checked_mul(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK)
+                .ok_or_else(journal_tail_corruption)?;
+            let chunk_ordinal =
+                u32::try_from(chunk_ordinal).map_err(|_| journal_tail_corruption())?;
+            let key = JournalTailKey::entity_mutation_revision_data_chunk(chunk_ordinal)?;
+            let mut entries = self
+                .map
+                .get(&key)
+                .ok_or_else(journal_tail_corruption)
+                .and_then(|raw| decode_entity_mutation_revision_chunk(raw.as_bytes()))?;
+            let mut apply = |global_ordinal: usize,
+                             replacement: EntityMutationRevisionEntry|
+             -> Result<(), InternalError> {
+                let offset = global_ordinal
+                    .checked_sub(chunk_start)
+                    .ok_or_else(journal_tail_corruption)?;
+                let current = entries
+                    .get_mut(offset)
+                    .ok_or_else(journal_tail_corruption)?;
+                if current.entity_tag != replacement.entity_tag {
+                    return Err(journal_tail_corruption());
+                }
+                *current = replacement;
+                Ok(())
+            };
+            apply(ordinal, entry)?;
+            while let Some((next_ordinal, _)) = updates.peek() {
+                let next_ordinal =
+                    usize::try_from(*next_ordinal).map_err(|_| journal_tail_corruption())?;
+                if next_ordinal / MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK
+                    != usize::try_from(chunk_ordinal).map_err(|_| journal_tail_corruption())?
+                {
+                    break;
+                }
+                let (next_ordinal, next_entry) =
+                    updates.next().ok_or_else(journal_tail_corruption)?;
+                apply(
+                    usize::try_from(next_ordinal).map_err(|_| journal_tail_corruption())?,
+                    next_entry,
+                )?;
+            }
+            self.map.insert(
+                key,
+                RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(
+                    entries.as_slice(),
+                )?),
+            );
+        }
+        Ok(())
+    }
+
+    fn apply_entity_mutation_revision_replacement(
+        &mut self,
+        entries: Vec<EntityMutationRevisionEntry>,
+    ) -> Result<(), InternalError> {
+        validate_entity_mutation_revision_entries(entries.as_slice())?;
+        let existing_keys = self
+            .map
+            .range((
+                Included(JournalTailKey::new(
+                    FOLD_WATERMARK_CONTROL_SEQUENCE,
+                    ENTITY_MUTATION_REVISION_DATA_CHUNK_START,
+                )),
+                Included(JournalTailKey::new(
+                    FOLD_WATERMARK_CONTROL_SEQUENCE,
+                    u32::MAX,
+                )),
+            ))
+            .map(|entry| *entry.key())
+            .collect::<Vec<_>>();
+        for key in existing_keys {
+            let _removed = self.map.remove(&key);
+        }
+        for (chunk_ordinal, chunk) in entries
+            .chunks(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK)
+            .enumerate()
+        {
+            let chunk_ordinal =
+                u32::try_from(chunk_ordinal).map_err(|_| journal_tail_corruption())?;
+            self.map.insert(
+                JournalTailKey::entity_mutation_revision_data_chunk(chunk_ordinal)?,
+                RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(chunk)?),
+            );
+        }
+        self.map.insert(
+            JournalTailKey::entity_mutation_revision_control(),
+            RawJournalChunk::from_bytes(encode_entity_mutation_revision_control(entries.len())?),
+        );
         Ok(())
     }
 
@@ -1600,6 +2090,168 @@ fn decode_data_mutation_revision(bytes: &[u8]) -> Result<JournalSequence, Intern
         return Err(journal_tail_corruption());
     }
     Ok(sequence)
+}
+
+fn encode_entity_mutation_revision_control(count: usize) -> Result<Vec<u8>, InternalError> {
+    if count > MAX_ENTITY_MUTATION_REVISIONS {
+        return Err(journal_tail_corruption());
+    }
+    let count = u32::try_from(count).map_err(|_| journal_tail_corruption())?;
+    let mut bytes = Vec::with_capacity(ENTITY_MUTATION_REVISION_CONTROL_BYTES);
+    bytes.extend_from_slice(ENTITY_MUTATION_REVISION_CONTROL_MAGIC);
+    bytes.push(ENTITY_MUTATION_REVISION_VERSION);
+    bytes.extend_from_slice(&count.to_be_bytes());
+    Ok(bytes)
+}
+
+fn decode_entity_mutation_revision_control(bytes: &[u8]) -> Result<usize, InternalError> {
+    if bytes.len() != ENTITY_MUTATION_REVISION_CONTROL_BYTES
+        || !bytes.starts_with(ENTITY_MUTATION_REVISION_CONTROL_MAGIC)
+        || bytes[ENTITY_MUTATION_REVISION_CONTROL_MAGIC.len()] != ENTITY_MUTATION_REVISION_VERSION
+    {
+        return Err(journal_tail_corruption());
+    }
+    let count_start = ENTITY_MUTATION_REVISION_CONTROL_MAGIC.len() + 1;
+    let mut count = [0; size_of::<u32>()];
+    count.copy_from_slice(&bytes[count_start..]);
+    let count =
+        usize::try_from(u32::from_be_bytes(count)).map_err(|_| journal_tail_corruption())?;
+    if count > MAX_ENTITY_MUTATION_REVISIONS {
+        return Err(journal_tail_corruption());
+    }
+    Ok(count)
+}
+
+fn encode_entity_mutation_revision_chunk(
+    entries: &[EntityMutationRevisionEntry],
+) -> Result<Vec<u8>, InternalError> {
+    if entries.is_empty() || entries.len() > MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK {
+        return Err(journal_tail_corruption());
+    }
+    validate_entity_mutation_revision_entries(entries)?;
+    let count = u32::try_from(entries.len()).map_err(|_| journal_tail_corruption())?;
+    let capacity = ENTITY_MUTATION_REVISION_CHUNK_HEADER_BYTES
+        .checked_add(
+            entries
+                .len()
+                .checked_mul(ENTITY_MUTATION_REVISION_ENTRY_BYTES)
+                .ok_or_else(journal_tail_corruption)?,
+        )
+        .ok_or_else(journal_tail_corruption)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(ENTITY_MUTATION_REVISION_CHUNK_MAGIC);
+    bytes.push(ENTITY_MUTATION_REVISION_VERSION);
+    bytes.extend_from_slice(&count.to_be_bytes());
+    for entry in entries {
+        bytes.extend_from_slice(&entry.entity_tag.value().to_be_bytes());
+        bytes.extend_from_slice(&entry.revision.to_be_bytes());
+    }
+    Ok(bytes)
+}
+
+fn decode_entity_mutation_revision_chunk(
+    bytes: &[u8],
+) -> Result<Vec<EntityMutationRevisionEntry>, InternalError> {
+    if bytes.len() < ENTITY_MUTATION_REVISION_CHUNK_HEADER_BYTES
+        || bytes.len() > JOURNAL_TAIL_CHUNK_BYTES as usize
+        || !bytes.starts_with(ENTITY_MUTATION_REVISION_CHUNK_MAGIC)
+        || bytes[ENTITY_MUTATION_REVISION_CHUNK_MAGIC.len()] != ENTITY_MUTATION_REVISION_VERSION
+    {
+        return Err(journal_tail_corruption());
+    }
+    let count_start = ENTITY_MUTATION_REVISION_CHUNK_MAGIC.len() + 1;
+    let entries_start = count_start + size_of::<u32>();
+    let mut count = [0; size_of::<u32>()];
+    count.copy_from_slice(&bytes[count_start..entries_start]);
+    let count =
+        usize::try_from(u32::from_be_bytes(count)).map_err(|_| journal_tail_corruption())?;
+    let expected_len = ENTITY_MUTATION_REVISION_CHUNK_HEADER_BYTES
+        .checked_add(
+            count
+                .checked_mul(ENTITY_MUTATION_REVISION_ENTRY_BYTES)
+                .ok_or_else(journal_tail_corruption)?,
+        )
+        .ok_or_else(journal_tail_corruption)?;
+    if count == 0 || count > MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK || bytes.len() != expected_len
+    {
+        return Err(journal_tail_corruption());
+    }
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(count)
+        .map_err(|_| journal_tail_corruption())?;
+    for raw in bytes[entries_start..].chunks_exact(ENTITY_MUTATION_REVISION_ENTRY_BYTES) {
+        let mut tag = [0; size_of::<u64>()];
+        let mut revision = [0; size_of::<u64>()];
+        tag.copy_from_slice(&raw[..size_of::<u64>()]);
+        revision.copy_from_slice(&raw[size_of::<u64>()..]);
+        entries.push(EntityMutationRevisionEntry {
+            entity_tag: EntityTag::new(u64::from_be_bytes(tag)),
+            revision: u64::from_be_bytes(revision),
+        });
+    }
+    validate_entity_mutation_revision_entries(entries.as_slice())?;
+    Ok(entries)
+}
+
+fn validate_entity_mutation_revision_tags(tags: &[EntityTag]) -> Result<(), InternalError> {
+    if tags.len() > MAX_ENTITY_MUTATION_REVISIONS
+        || tags.iter().any(|tag| tag.value() == 0)
+        || tags.windows(2).any(|window| window[0] >= window[1])
+    {
+        return Err(journal_tail_corruption());
+    }
+    let chunk_count = tags.len().div_ceil(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK);
+    let final_chunk = u32::try_from(chunk_count).map_err(|_| journal_tail_corruption())?;
+    let _final_key = JournalTailKey::entity_mutation_revision_data_chunk(final_chunk)?;
+    Ok(())
+}
+
+fn validate_entity_mutation_revision_entries(
+    entries: &[EntityMutationRevisionEntry],
+) -> Result<(), InternalError> {
+    if entries.len() > MAX_ENTITY_MUTATION_REVISIONS
+        || entries
+            .iter()
+            .any(|entry| entry.entity_tag.value() == 0 || entry.revision == 0)
+        || entries
+            .windows(2)
+            .any(|window| window[0].entity_tag >= window[1].entity_tag)
+    {
+        return Err(journal_tail_corruption());
+    }
+    Ok(())
+}
+
+fn batch_row_mutation_entity_tags(
+    batch: &JournalBatch,
+) -> Result<BTreeSet<EntityTag>, InternalError> {
+    let mut tags = BTreeSet::new();
+    for record in batch.records() {
+        if let Some(entity_tag) = record.row_mutation_entity_tag()? {
+            tags.insert(entity_tag);
+        }
+    }
+    Ok(tags)
+}
+
+#[cfg(test)]
+fn current_entity_tags_for_test_batch(
+    batch: &JournalBatch,
+) -> Result<Vec<EntityTag>, InternalError> {
+    let mut published = None;
+    for record in batch.records() {
+        let Some(tags) = record.published_entity_tags()? else {
+            continue;
+        };
+        if published.replace(tags).is_some() {
+            return Err(journal_tail_corruption());
+        }
+    }
+    if let Some(tags) = published {
+        return Ok(tags);
+    }
+    Ok(batch_row_mutation_entity_tags(batch)?.into_iter().collect())
 }
 
 fn encode_access_state_revision(revision: u64) -> Vec<u8> {

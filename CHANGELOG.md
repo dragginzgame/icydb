@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.233.md](docs/changelog/0.233.md)
 
+- `0.233.2` narrows durable Verify invalidation to journal-owned target-entity
+  revisions with bounded predecessor initialization and one retained cross-page
+  baseline, so unrelated same-store writes no longer force restarts.
+
 - `0.233.1` adds exact sequence-zero mutation-job cancellation, fail-closed
   shared progress inventory, and eight-slot integrity capacity reservation
   without adding persisted state or production endpoints.

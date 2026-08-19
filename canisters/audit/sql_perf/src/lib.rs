@@ -532,6 +532,9 @@ struct MutationJobVerifyResult {
     first_verify_keys_scanned: u64,
     first_verify_local_instructions: u64,
     verify_replay_local_instructions: u64,
+    unrelated_verify_keys_scanned: u64,
+    unrelated_verify_local_instructions: u64,
+    unrelated_preserved_verify: bool,
     drift_restart_keys_scanned: u64,
     drift_restart_local_instructions: u64,
     stable_verify_local_instructions: Vec<u64>,
@@ -3195,7 +3198,67 @@ fn inject_audit_mutation_revision_drift(
         .map_err(|_| MutationJobError::TargetMutationFailed)
 }
 
-/// Exercise stable Verify, an intervening target write, replay, and terminal acknowledgement.
+#[cfg(feature = "sql")]
+fn inject_audit_unrelated_entity_write() -> Result<(), MutationJobError> {
+    insert_fixture_rows(vec![PerfAuditMutationToken {
+        id: 30_001,
+        collection_id: 9,
+        tier: "VerifyUnrelated".to_string(),
+        created_at: Timestamp::default(),
+        updated_at: Timestamp::default(),
+    }])
+    .map_err(|_| MutationJobError::TargetMutationFailed)
+}
+
+#[cfg(feature = "sql")]
+fn advance_audit_verify_after_unrelated_write(
+    session: &icydb::db::DbSession<crate::__icydb_generated::__IcydbGeneratedCanister>,
+    job_id: MutationJobId,
+    sequence: u64,
+) -> Result<(MutationJobAdvanceReceipt, u64), MutationJobError> {
+    inject_audit_unrelated_entity_write()?;
+    let request = MutationJobAdvanceRequest::new(
+        job_id,
+        sequence,
+        MutationJobIdempotencyKey::new(format!("verify-unrelated-{sequence}"))?,
+    );
+    let start = ic_cdk::api::performance_counter(1);
+    let receipt = session.advance_trusted_mutation_job(&request)?;
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if receipt.phase != MutationJobPhase::Verify
+        || receipt.status != MutationJobStatus::Active
+        || receipt.verify_restarts_total != 0
+    {
+        return Err(MutationJobError::Internal);
+    }
+    Ok((receipt, local_instructions))
+}
+
+#[cfg(feature = "sql")]
+fn advance_audit_verify_after_target_write(
+    session: &icydb::db::DbSession<crate::__icydb_generated::__IcydbGeneratedCanister>,
+    job_id: MutationJobId,
+    sequence: u64,
+) -> Result<(MutationJobAdvanceReceipt, u64), MutationJobError> {
+    inject_audit_mutation_revision_drift(session)?;
+    let request = MutationJobAdvanceRequest::new(
+        job_id,
+        sequence,
+        MutationJobIdempotencyKey::new(format!("verify-drift-{sequence}"))?,
+    );
+    let start = ic_cdk::api::performance_counter(1);
+    let receipt = session.advance_trusted_mutation_job(&request)?;
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if receipt.phase != MutationJobPhase::Forward
+        || receipt.status != MutationJobStatus::Active
+        || receipt.verify_restarts_total != 1
+    {
+        return Err(MutationJobError::Internal);
+    }
+    Ok((receipt, local_instructions))
+}
+
+/// Exercise stable Verify, unrelated and target writes, replay, and terminal acknowledgement.
 #[cfg(feature = "sql")]
 #[update]
 fn verify_journaled_user_mutation_job_lifecycle()
@@ -3231,23 +3294,12 @@ fn verify_journaled_user_mutation_job_lifecycle()
             ic_cdk::api::performance_counter(1).saturating_sub(start);
         sequence = first_verify.committed_sequence;
 
-        inject_audit_mutation_revision_drift(&session)?;
+        let (unrelated_verify, unrelated_verify_local_instructions) =
+            advance_audit_verify_after_unrelated_write(&session, job_id, sequence)?;
+        sequence = unrelated_verify.committed_sequence;
 
-        let drift_request = MutationJobAdvanceRequest::new(
-            job_id,
-            sequence,
-            MutationJobIdempotencyKey::new(format!("verify-drift-{sequence}"))?,
-        );
-        let start = ic_cdk::api::performance_counter(1);
-        let drift_restart = session.advance_trusted_mutation_job(&drift_request)?;
-        let drift_restart_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
-        if drift_restart.phase != MutationJobPhase::Forward
-            || drift_restart.status != MutationJobStatus::Active
-            || drift_restart.verify_restarts_total != 1
-        {
-            return Err(MutationJobError::Internal);
-        }
+        let (drift_restart, drift_restart_local_instructions) =
+            advance_audit_verify_after_target_write(&session, job_id, sequence)?;
         sequence = drift_restart.committed_sequence;
         let MutationJobCompletionEvidence {
             stable_verify_local_instructions,
@@ -3284,6 +3336,9 @@ fn verify_journaled_user_mutation_job_lifecycle()
             first_verify_keys_scanned: first_verify.keys_scanned,
             first_verify_local_instructions,
             verify_replay_local_instructions,
+            unrelated_verify_keys_scanned: unrelated_verify.keys_scanned,
+            unrelated_verify_local_instructions,
+            unrelated_preserved_verify: true,
             drift_restart_keys_scanned: drift_restart.keys_scanned,
             drift_restart_local_instructions,
             stable_verify_local_instructions,

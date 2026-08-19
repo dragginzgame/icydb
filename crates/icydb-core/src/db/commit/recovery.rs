@@ -251,6 +251,8 @@ fn recover_domain<C: CanisterKind>(
         restore_live_schema_checkpoints(db, None).map_err(|error| {
             StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
         })?;
+        initialize_missing_entity_mutation_revisions(db)?;
+        validate_entity_mutation_revisions_against_accepted_schema(db)?;
         reset_journaled_live_projections(db)?;
         db.mark_all_registered_index_stores_ready()
             .map_err(|error| {
@@ -298,6 +300,7 @@ fn perform_recovery_page<C: CanisterKind>(
         apply_marker_live_schema_checkpoints(db, marker).map_err(|error| {
             StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
         })?;
+        initialize_missing_entity_mutation_revisions(db)?;
         publish_marker_bound_journal_batches(db, marker)?;
         for operation in marker.database_control() {
             match operation {
@@ -335,6 +338,8 @@ fn perform_recovery_page<C: CanisterKind>(
                 }
             }
         }
+    } else {
+        initialize_missing_entity_mutation_revisions(db)?;
     }
 
     // Disposable overlays may contain effects from the predecessor Wasm or a
@@ -354,6 +359,7 @@ fn perform_recovery_page<C: CanisterKind>(
     verify_recovered_effects(db, marker.as_ref()).map_err(|error| {
         StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
     })?;
+    validate_entity_mutation_revisions_against_accepted_schema(db)?;
 
     // Clear marker only after replay + fold + effect validation succeed.
     if had_marker {
@@ -367,6 +373,64 @@ fn perform_recovery_page<C: CanisterKind>(
     mark_commit_marker_verified_absent();
 
     Ok(RecoveryProgress::Complete)
+}
+
+fn initialize_missing_entity_mutation_revisions<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), StartupRecoveryFailure> {
+    for (store_path, handle) in sorted_journaled_store_handles(db) {
+        let journal_failure = |error| StartupRecoveryFailure::journal_store(store_path, error);
+        let accepted_tags = handle
+            .with_schema(|schema| {
+                schema
+                    .current_accepted_runtime_entities(store_path)
+                    .map(|entities| {
+                        entities
+                            .into_iter()
+                            .map(|entity| entity.entity_tag())
+                            .collect::<Vec<_>>()
+                    })
+            })
+            .map_err(journal_failure)?;
+        handle
+            .journal_tail_store()
+            .ok_or_else(InternalError::store_corruption)
+            .map_err(journal_failure)?
+            .with_borrow_mut(|tail| {
+                tail.initialize_missing_entity_mutation_revisions(accepted_tags.as_slice())
+            })
+            .map_err(journal_failure)?;
+    }
+    Ok(())
+}
+
+fn validate_entity_mutation_revisions_against_accepted_schema<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), StartupRecoveryFailure> {
+    for (store_path, handle) in sorted_journaled_store_handles(db) {
+        let journal_failure = |error| StartupRecoveryFailure::journal_store(store_path, error);
+        let accepted_tags = handle
+            .with_schema(|schema| {
+                schema
+                    .current_accepted_runtime_entities(store_path)
+                    .map(|entities| {
+                        entities
+                            .into_iter()
+                            .map(|entity| entity.entity_tag())
+                            .collect::<Vec<_>>()
+                    })
+            })
+            .map_err(journal_failure)?;
+        handle
+            .journal_tail_store()
+            .ok_or_else(InternalError::store_corruption)
+            .map_err(journal_failure)?
+            .with_borrow(|tail| {
+                tail.validate_current_entity_mutation_revisions(accepted_tags.as_slice())
+            })
+            .map_err(journal_failure)?;
+    }
+    Ok(())
 }
 
 fn restore_live_schema_checkpoints<C: CanisterKind>(
@@ -495,6 +559,26 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
     // impossible Apply contradiction therefore traps for message rollback.
     for (store_path, _, batch, journal_store, direct) in &prepared {
         if *direct {
+            if let Some(journal_store) = journal_store {
+                let candidate = journal_batch_schema_candidate(store_path, batch)
+                    .map_err(StartupRecoveryFailure::database_control)?
+                    .ok_or_else(|| {
+                        StartupRecoveryFailure::database_control(InternalError::store_corruption())
+                    })?;
+                let accepted_entity_tags = candidate
+                    .bundle()
+                    .entity_snapshots()
+                    .keys()
+                    .copied()
+                    .collect::<Vec<_>>();
+                journal_store
+                    .with_borrow_mut(|store| {
+                        store.publish_accepted_entity_mutation_revisions(
+                            accepted_entity_tags.as_slice(),
+                        )
+                    })
+                    .map_err(|error| StartupRecoveryFailure::journal_store(store_path, error))?;
+            }
             continue;
         }
         let journal_store = journal_store.ok_or_else(|| {

@@ -223,6 +223,55 @@ pub(in crate::db) enum JournalRecord {
 }
 
 impl JournalRecord {
+    /// Return the entity whose canonical row bytes this record mutates.
+    pub(in crate::db::journal) fn row_mutation_entity_tag(
+        &self,
+    ) -> Result<Option<EntityTag>, InternalError> {
+        let primary_key = match self {
+            Self::RowPut { primary_key, .. } | Self::RowDelete { primary_key, .. } => {
+                Some(primary_key)
+            }
+            #[cfg(any(test, feature = "migration"))]
+            Self::SchemaMigrationRowPut { primary_key, .. } => Some(primary_key),
+            _ => None,
+        };
+
+        primary_key.map_or(Ok(None), |primary_key| {
+            primary_key
+                .entity_tag_prefix()
+                .map(Some)
+                .ok_or_else(journal_batch_corruption)
+        })
+    }
+
+    /// Return the exact accepted entity set published by this record.
+    pub(in crate::db::journal) fn published_entity_tags(
+        &self,
+    ) -> Result<Option<Vec<EntityTag>>, InternalError> {
+        let Self::AcceptedSchemaPublish {
+            schema_bundle_bytes,
+            schema_root_bytes,
+            ..
+        } = self
+        else {
+            return Ok(None);
+        };
+        let candidate = CandidateSchemaRevision::from_encoded(
+            schema_bundle_bytes.clone(),
+            schema_root_bytes.clone(),
+        )
+        .map_err(|_| journal_batch_corruption())?;
+
+        Ok(Some(
+            candidate
+                .bundle()
+                .entity_snapshots()
+                .keys()
+                .copied()
+                .collect(),
+        ))
+    }
+
     pub(in crate::db) fn row_put(
         entity_path: impl Into<String>,
         primary_key: RawDataStoreKey,
