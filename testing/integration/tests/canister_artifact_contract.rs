@@ -1,8 +1,7 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, path::PathBuf, sync::Mutex};
 
 use icydb_testing_integration::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode,
-    build_maintained_canisters_with_options,
+    CanisterBuildProfile, build_maintained_canister_contract_profiles_assuming_sources_immutable,
     canister_artifact::{
         CanisterMethod, ExpectedCanisterMethod, MAINTAINED_CANISTER_POLICIES,
         inspect_canister_artifacts,
@@ -12,20 +11,23 @@ use icydb_testing_integration::{
 #[test]
 #[ignore = "builds and inspects 32 independent canister artifacts; run `make test-canister-artifact-contract`"]
 fn production_and_local_source_declarations_match_the_frozen_endpoint_policy() {
+    let source_write_exclusion = Mutex::new(());
+    let source_guard = source_write_exclusion
+        .lock()
+        .expect("lock immutable maintained-canister sources");
+    let profile_artifacts =
+        build_maintained_canister_contract_profiles_assuming_sources_immutable(&source_guard)
+            .unwrap_or_else(|error| panic!("maintained canisters should build: {error}"));
+    drop(source_guard);
+
     std::thread::scope(|scope| {
-        scope.spawn(|| verify_profile(CanisterBuildProfile::LocalTest));
-        scope.spawn(|| verify_profile(CanisterBuildProfile::Production));
+        for (build_profile, artifacts) in profile_artifacts {
+            scope.spawn(move || verify_profile(build_profile, artifacts));
+        }
     });
 }
 
-fn verify_profile(build_profile: CanisterBuildProfile) {
-    let artifacts = build_maintained_canisters_with_options(CanisterBuildOptions {
-        candid_export: CanisterCandidExportMode::Enabled,
-        build_profile,
-        ..CanisterBuildOptions::default()
-    })
-    .unwrap_or_else(|error| panic!("maintained canisters should build: {error}"));
-
+fn verify_profile(build_profile: CanisterBuildProfile, artifacts: Vec<(&'static str, PathBuf)>) {
     for (canister, wasm) in artifacts {
         let policy = MAINTAINED_CANISTER_POLICIES
             .iter()

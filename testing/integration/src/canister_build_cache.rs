@@ -11,8 +11,9 @@ use ic_testkit::artifacts::{
     ArtifactCacheBatchOutcomeEntry, ArtifactCacheOutcome, ArtifactCachePreparation,
     ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
-    SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchOutcomeEntry,
-    WasmBuildBatchProgressEvent, WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent,
+    SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchContractError,
+    WasmBuildBatchOutcomeEntry, WasmBuildBatchProgressEvent, WasmBuildBatchReport,
+    WasmBuildInputSnapshot, WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent,
     WasmBuildSpec, build_artifact_caches_batch,
     build_wasm_canisters_cached_batch_with_config_and_progress,
     build_wasm_canisters_cached_with_progress, prepare_artifact_cache,
@@ -101,13 +102,13 @@ pub(crate) fn build_cached_cargo_wasm(
     Ok(outcome)
 }
 
-pub(crate) fn build_cached_cargo_wasm_batch(
+pub(crate) fn cargo_wasm_batch_specs(
     workspace_root: &Path,
     target_dir: &Path,
     profile_target_dir: &str,
     entries: &[CargoWasmBatchEntry<'_>],
-) -> CanisterCacheBatchReport {
-    let specs = entries
+) -> Vec<LabeledWasmBuildSpec> {
+    entries
         .iter()
         .map(|entry| {
             LabeledWasmBuildSpec::new(
@@ -123,15 +124,40 @@ pub(crate) fn build_cached_cargo_wasm_batch(
                 ),
             )
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+pub(crate) fn build_cached_cargo_wasm_batch(
+    specs: &[LabeledWasmBuildSpec],
+) -> CanisterCacheBatchReport {
     let batch_config = WasmBuildBatchConfig::new()
         .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
-    let report = match build_wasm_canisters_cached_batch_with_config_and_progress(
-        &specs,
+    summarize_wasm_build_batch(build_wasm_canisters_cached_batch_with_config_and_progress(
+        specs,
         batch_config,
         wasm_build_progress_config(),
         report_wasm_build_batch_progress,
-    ) {
+    ))
+}
+
+pub(crate) fn build_cached_cargo_wasm_batch_from_snapshot(
+    snapshot: &WasmBuildInputSnapshot<'_>,
+    specs: &[LabeledWasmBuildSpec],
+) -> CanisterCacheBatchReport {
+    let batch_config = WasmBuildBatchConfig::new()
+        .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
+    summarize_wasm_build_batch(snapshot.build_batch_with_progress(
+        specs,
+        batch_config,
+        wasm_build_progress_config(),
+        report_wasm_build_batch_progress,
+    ))
+}
+
+fn summarize_wasm_build_batch(
+    report: Result<WasmBuildBatchReport, WasmBuildBatchContractError>,
+) -> CanisterCacheBatchReport {
+    let report = match report {
         Ok(report) => report,
         Err(error) => {
             return CanisterCacheBatchReport {

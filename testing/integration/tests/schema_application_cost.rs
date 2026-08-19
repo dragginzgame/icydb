@@ -1,7 +1,8 @@
 use candid::{CandidType, Deserialize, Principal};
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_integration::{
-    install_fixture_canister_without_startup_delivery, upgrade_fixture_canister,
+    install_fixture_canister, install_fixture_canister_without_startup_delivery,
+    upgrade_fixture_canister,
 };
 use std::time::Duration;
 
@@ -18,6 +19,12 @@ struct SchemaApplicationPerfResult {
 #[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
 struct StartupObservationPerfResult {
     state: icydb::db::DatabaseStartupState,
+    local_instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct AcceptedSchemaReadInstructionResult {
+    description: icydb::db::EntitySchemaDescription,
     local_instructions: u64,
 }
 
@@ -69,6 +76,19 @@ fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservatio
         .query_candid("measure_startup_observation", ())
         .expect("startup observation should decode");
     result.expect("startup observation should not fail")
+}
+
+fn accepted_schema_read(
+    fixture: &StandaloneCanisterFixture,
+    entity: &str,
+) -> AcceptedSchemaReadInstructionResult {
+    let result: Result<AcceptedSchemaReadInstructionResult, icydb::Error> = fixture
+        .query_candid(
+            "measure_accepted_schema_read_instructions",
+            (entity.to_string(),),
+        )
+        .expect("accepted schema read should decode");
+    result.expect("accepted schema read should succeed")
 }
 
 fn application_startup_contract(fixture: &StandaloneCanisterFixture) -> ApplicationStartupSnapshot {
@@ -247,6 +267,20 @@ fn startup_observation_is_bounded_before_after_readiness_and_upgrade() {
         ready.local_instructions,
         upgraded.local_instructions,
         OBSERVATION_INSTRUCTION_CEILING,
+    );
+}
+
+#[test]
+fn maximum_accepted_schema_reopen_read_is_bounded_at_sixty_four_indexes() {
+    let fixture = install_fixture_canister("sql_perf");
+    let measured = accepted_schema_read(&fixture, "PerfAuditMaxFanout");
+    assert_eq!(measured.description.indexes().len(), 64);
+    assert!(measured.local_instructions > 0);
+    assert!(measured.local_instructions < 40_000_000_000);
+
+    println!(
+        "0.231 accepted-schema reopen: maximum_indexes=64 instructions={}",
+        measured.local_instructions,
     );
 }
 

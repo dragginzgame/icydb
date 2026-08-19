@@ -18,7 +18,7 @@ use crate::{
             PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault, SchemaMutationRequest,
+            SchemaFieldSlot, SchemaIndexId, SchemaInfo, SchemaInsertDefault, SchemaMutationRequest,
             SchemaRowLayout, SchemaVersion, empty_accepted_enum_catalog_for_tests,
         },
     },

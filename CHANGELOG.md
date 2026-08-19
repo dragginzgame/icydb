@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.231.md](docs/changelog/0.231.md)
 
+- `0.231.1` closes the independent nullable-unique audit with paired cost and
+  stable-state evidence, while sharing one guarded input snapshot across
+  concurrent canister validation without changing production behavior.
+
 - `0.231.0` hard-cuts ambiguous nullable unique indexes with proof-bound
   filtered planning and tightens deployment, validation, and changelog
   workflows; noncompliant pre-1.0 state requires recreation, making this

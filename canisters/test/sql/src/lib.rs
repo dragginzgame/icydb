@@ -66,6 +66,69 @@ fn measure_sql_query_attribution(
     })
 }
 
+#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[derive(CandidType, Clone, Debug)]
+struct SqlExecutionInstructionResult {
+    result: Result<icydb::db::sql::SqlQueryResult, icydb::Error>,
+    local_instructions: u64,
+}
+
+#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[derive(CandidType, Clone, Debug)]
+struct AcceptedSchemaReadInstructionResult {
+    description: icydb::db::EntitySchemaDescription,
+    local_instructions: u64,
+}
+
+/// Measure administrative DDL admission through the existing catalog owner.
+#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[update]
+fn measure_sql_ddl_admission_instructions(sql: String) -> SqlExecutionInstructionResult {
+    let start = ic_cdk::api::performance_counter(1);
+    let result =
+        icydb::db::with_request_execution(|| icydb::db!()?.execute_admin_sql_ddl(sql.as_str()));
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    SqlExecutionInstructionResult {
+        result,
+        local_instructions,
+    }
+}
+
+/// Measure one trusted exact update through the existing complete write path.
+#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[update]
+fn measure_trusted_sql_exact_update_instructions(sql: String) -> SqlExecutionInstructionResult {
+    let start = ic_cdk::api::performance_counter(1);
+    let result = icydb::db::with_request_execution(|| {
+        icydb::db!()?.execute_trusted_sql_exact_update(sql.as_str(), 1)
+    });
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    SqlExecutionInstructionResult {
+        result,
+        local_instructions,
+    }
+}
+
+/// Measure an accepted schema read after startup has reopened catalog authority.
+#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[query]
+fn measure_accepted_schema_read_instructions(
+    entity: String,
+) -> Result<AcceptedSchemaReadInstructionResult, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let description = icydb::db!()?.try_describe_entity_by_name(entity.as_str())?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(AcceptedSchemaReadInstructionResult {
+            description,
+            local_instructions,
+        })
+    })
+}
+
 #[cfg(feature = "metrics-context-audit")]
 #[query]
 fn audit_query_metrics_context_trap() -> Result<(), icydb::Error> {

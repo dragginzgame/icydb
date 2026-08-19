@@ -35,6 +35,14 @@ require_text \
     'failure.timings(),' \
     'whole-fleet Cargo failures must retain partial phase timings.'
 require_text \
+    testing/integration/src/lib.rs \
+    'WasmBuildInputSnapshot::prepare_assuming_sources_immutable(' \
+    'the two-profile artifact contract must prepare one guarded immutable input snapshot.'
+require_text \
+    testing/integration/src/canister_build_cache.rs \
+    'snapshot.build_batch_with_progress(' \
+    'whole-fleet profile readers must consume the prepared input snapshot.'
+require_text \
     testing/integration/src/canister_build_cache.rs \
     'optimize_deployable_wasm_with_optimizer(entry.compiler_emitted, &output, &optimizer)' \
     'the post-link artifact cache must invoke the canonical optimizer on cache misses.'

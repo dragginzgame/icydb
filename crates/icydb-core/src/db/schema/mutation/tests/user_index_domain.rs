@@ -315,6 +315,136 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
 }
 
 #[test]
+fn filtered_unique_domain_omits_guard_false_rows_and_matches_incremental_keys() {
+    let before = base_snapshot();
+    let added_field = nullable_text_field("nickname", 3, 2);
+    let added = append_fields_snapshot(&before, std::slice::from_ref(&added_field));
+    let unique_nickname = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        "unique_nickname".to_string(),
+        STORE_PATH.to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(3),
+            SchemaFieldSlot::new(2),
+            vec!["nickname".to_string()],
+            AcceptedFieldKind::Text { max_len: None },
+            true,
+        )]),
+        Some("nickname IS NOT NULL".to_string()),
+    );
+    let after = snapshot_with_indexes(&added, vec![unique_nickname]);
+    let row_contract = accepted_row_contract(&after);
+    let first_before = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let second_before = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Grace".to_string()))],
+    };
+    let third_before = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Lin".to_string()))],
+    };
+    let first_after = RebuildSlotReader {
+        values: vec![
+            None,
+            Some(Value::Text("Ada".to_string())),
+            Some(Value::Null),
+        ],
+    };
+    let second_after = RebuildSlotReader {
+        values: vec![
+            None,
+            Some(Value::Text("Grace".to_string())),
+            Some(Value::Null),
+        ],
+    };
+    let third_after = RebuildSlotReader {
+        values: vec![
+            None,
+            Some(Value::Text("Lin".to_string())),
+            Some(Value::Text("visible".to_string())),
+        ],
+    };
+    let rows = [
+        super::SchemaUserIndexDomainRow::new(
+            PrimaryKeyComponent::Nat64(1),
+            &first_before,
+            &first_after,
+            32,
+        ),
+        super::SchemaUserIndexDomainRow::new(
+            PrimaryKeyComponent::Nat64(2),
+            &second_before,
+            &second_after,
+            32,
+        ),
+        super::SchemaUserIndexDomainRow::new(
+            PrimaryKeyComponent::Nat64(3),
+            &third_before,
+            &third_after,
+            32,
+        ),
+    ];
+    let store = IndexStore::init_heap();
+
+    let staged = stage_domain(
+        accepted_identity(&before),
+        &before,
+        &after,
+        Some(&row_contract),
+        rows,
+        &store,
+    )
+    .unwrap_or_else(|_| panic!("guard-false rows must not collide in a filtered unique index"));
+
+    assert_eq!(staged.usage().accepted_after_entries(), 1);
+    assert_eq!(staged.final_entries().len(), 1);
+    assert!(store.is_empty(), "domain staging must remain zero-write");
+
+    assert_filtered_unique_incremental_key_parity(after, &staged, &first_after, &third_after);
+}
+
+fn assert_filtered_unique_incremental_key_parity(
+    after: PersistedSchemaSnapshot,
+    staged: &super::StagedUserIndexDomainReplacement,
+    omitted: &RebuildSlotReader,
+    present: &RebuildSlotReader,
+) {
+    let accepted =
+        AcceptedSchemaSnapshot::try_new(after).expect("filtered unique fixture should be accepted");
+    let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+        empty_accepted_enum_catalog_for_tests(),
+        AcceptedCompositeCatalog::empty(),
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, value_catalog, true);
+    let accepted_index = &schema.field_path_indexes()[0];
+    let present_key = IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
+        EntityTag::new(7),
+        &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(3)),
+        accepted_index,
+        present,
+    )
+    .expect("incremental accepted key should derive")
+    .expect("guard-true row should have a physical key")
+    .to_raw()
+    .expect("incremental accepted key should encode");
+    assert_eq!(staged.final_entries()[0].key(), &present_key);
+    assert!(
+        IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
+            EntityTag::new(7),
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(1)),
+            accepted_index,
+            omitted,
+        )
+        .expect("incremental nullable key should derive")
+        .is_none(),
+        "physical omission must match the false exact non-null guard",
+    );
+}
+
+#[test]
 fn complete_domain_stage_rejects_index_owned_by_another_store() {
     let before = base_snapshot();
     let foreign_index = PersistedIndexSnapshot::new(

@@ -595,17 +595,17 @@ mod tests {
     use super::*;
     use crate::db::{
         schema::{
-            AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
-            AcceptedValueCatalogHandle, FieldId, FieldStorageDecode, LeafCodec,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
-            SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+            AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedFieldKind,
+            AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedValueCatalogHandle, FieldId,
+            FieldStorageDecode, LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            ScalarCodec, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
             empty_accepted_enum_catalog_for_tests,
         },
         sql::parser::{SqlDdlStatement, SqlStatement, parse_sql},
     };
 
-    fn nullable_email_schema() -> (AcceptedSchemaSnapshot, SchemaInfo) {
-        let accepted = AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
+    fn nullable_email_snapshot() -> PersistedSchemaSnapshot {
+        PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             "entities::Account".to_string(),
             "Account".to_string(),
@@ -638,8 +638,12 @@ mod tests {
                     LeafCodec::Scalar(ScalarCodec::Text),
                 ),
             ],
-        ))
-        .expect("fixture accepted schema should validate");
+        )
+    }
+
+    fn schema_view(snapshot: PersistedSchemaSnapshot) -> (AcceptedSchemaSnapshot, SchemaInfo) {
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect("fixture accepted schema should validate");
         let catalog = AcceptedValueCatalogHandle::new_for_tests(
             empty_accepted_enum_catalog_for_tests(),
             AcceptedCompositeCatalog::empty(),
@@ -649,6 +653,10 @@ mod tests {
         (accepted, schema)
     }
 
+    fn nullable_email_schema() -> (AcceptedSchemaSnapshot, SchemaInfo) {
+        schema_view(nullable_email_snapshot())
+    }
+
     fn create_index_statement(sql: &str) -> SqlCreateIndexStatement {
         let SqlStatement::Ddl(SqlDdlStatement::CreateIndex(statement)) =
             parse_sql(sql).expect("fixture SQL should parse")
@@ -656,6 +664,58 @@ mod tests {
             panic!("fixture SQL should be CREATE INDEX");
         };
         statement
+    }
+
+    fn nullable_unique_index_states() -> (
+        (AcceptedSchemaSnapshot, SchemaInfo),
+        (AcceptedSchemaSnapshot, SchemaInfo),
+    ) {
+        let (accepted, schema) = nullable_email_schema();
+        let create = create_index_statement(
+            "CREATE UNIQUE INDEX account_email ON Account (email) WHERE email IS NOT NULL",
+        );
+        let candidate = match bind_create_index_statement(
+            &create,
+            &accepted,
+            &schema,
+            "entities::Account::account_email",
+        )
+        .expect("guarded nullable unique index should bind")
+        .statement()
+        {
+            BoundSqlDdlStatement::CreateIndex(create) => create.candidate_index().clone(),
+            other => panic!("expected CREATE INDEX candidate, got {other:?}"),
+        };
+        let active_snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            accepted.persisted_snapshot().version(),
+            accepted.persisted_snapshot().entity_path().to_string(),
+            accepted.persisted_snapshot().entity_name().to_string(),
+            accepted
+                .persisted_snapshot()
+                .primary_key_field_ids()
+                .to_vec(),
+            accepted.persisted_snapshot().row_layout().clone(),
+            accepted.persisted_snapshot().fields().to_vec(),
+            vec![candidate.clone()],
+        );
+        let active_catalog = AcceptedConstraintCatalog::initial(
+            active_snapshot.fields(),
+            active_snapshot.indexes(),
+            active_snapshot.relations(),
+        )
+        .expect("active constraint catalog should build");
+        let active = schema_view(active_snapshot.with_constraint_catalog(active_catalog));
+        let pending_candidate =
+            candidate.clone_with_schema_identity(candidate.schema_id(), candidate.ordinal(), 9);
+        let pending_snapshot = nullable_email_snapshot()
+            .with_added_unique_activation(
+                pending_candidate,
+                AcceptedSchemaFingerprint::new([9; 32]),
+                9,
+            )
+            .expect("exact guarded candidate should admit");
+
+        (active, schema_view(pending_snapshot))
     }
 
     #[test]
@@ -695,6 +755,85 @@ mod tests {
             bound.statement(),
             BoundSqlDdlStatement::CreateIndex(create)
                 if create.candidate_index().predicate_sql() == Some("email IS NOT NULL")
+        ));
+    }
+
+    #[test]
+    fn sql_unique_index_if_not_exists_classifies_active_candidate_and_conflicts() {
+        let ((active, active_schema), (pending, pending_schema)) = nullable_unique_index_states();
+        let exact = create_index_statement(
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_email ON Account (email) WHERE email IS NOT NULL",
+        );
+        assert!(matches!(
+            bind_create_index_statement(
+                &exact,
+                &active,
+                &active_schema,
+                "entities::Account::account_email",
+            )
+            .expect("exact active IF NOT EXISTS should bind")
+            .statement(),
+            BoundSqlDdlStatement::NoOp(_)
+        ));
+
+        assert!(matches!(
+            bind_create_index_statement(
+                &exact,
+                &pending,
+                &pending_schema,
+                "entities::Account::account_email",
+            )
+            .expect("exact candidate IF NOT EXISTS should bind")
+            .statement(),
+            BoundSqlDdlStatement::NoOp(_)
+        ));
+
+        let same_name_conflict = create_index_statement(
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_email ON Account (email) WHERE email IS NOT NULL AND id IS NOT NULL",
+        );
+        assert!(matches!(
+            bind_create_index_statement(
+                &same_name_conflict,
+                &active,
+                &active_schema,
+                "entities::Account::account_email",
+            ),
+            Err(SqlDdlBindError::DuplicateIndexName { index_name })
+                if index_name == "account_email"
+        ));
+        assert!(matches!(
+            bind_create_index_statement(
+                &same_name_conflict,
+                &pending,
+                &pending_schema,
+                "entities::Account::account_email",
+            ),
+            Err(SqlDdlBindError::DuplicateIndexName { index_name })
+                if index_name == "account_email"
+        ));
+
+        let new_name_same_contract = create_index_statement(
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_email_copy ON Account (email) WHERE email IS NOT NULL",
+        );
+        assert!(matches!(
+            bind_create_index_statement(
+                &new_name_same_contract,
+                &active,
+                &active_schema,
+                "entities::Account::account_email_copy",
+            ),
+            Err(SqlDdlBindError::DuplicateFieldPathIndex { existing_index, .. })
+                if existing_index == "account_email"
+        ));
+        assert!(matches!(
+            bind_create_index_statement(
+                &new_name_same_contract,
+                &pending,
+                &pending_schema,
+                "entities::Account::account_email_copy",
+            ),
+            Err(SqlDdlBindError::DuplicateFieldPathIndex { existing_index, .. })
+                if existing_index == "account_email"
         ));
     }
 }

@@ -1220,9 +1220,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bfe7852c8adb3cb18d78c1cf509b7e079e2d332159df64cb2e8d665af71ada9"
+checksum = "d8d46cb0f12b2599e471af534826d8d5721fec07987bdfe24f860418f64d4aa1"
 dependencies = [
  "candid",
  "fs2",
@@ -2933,7 +2933,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

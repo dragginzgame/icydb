@@ -19,14 +19,15 @@ use std::{
     time::Duration,
 };
 
-use ic_testkit::artifacts::wasm_path;
+use ic_testkit::artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path};
 use ic_testkit::pic::{InstallSpec, PocketIc, StandaloneCanisterFixture};
 use icydb::Error;
 
 use crate::canister_build_cache::{
     CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
-    build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
-    cache_post_link_wasm_batch, trace_post_link, trace_wasm_build,
+    build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
+    build_cached_cargo_wasm_batch_from_snapshot, cache_post_link_wasm, cache_post_link_wasm_batch,
+    cargo_wasm_batch_specs, trace_post_link, trace_wasm_build,
 };
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
@@ -59,6 +60,16 @@ struct ConfiguredCanisterBuild {
     rustflags: Option<String>,
     compiler_emitted: PathBuf,
     final_deployable: PathBuf,
+}
+
+struct MaintainedCanisterBuildPlan {
+    options: CanisterBuildOptions,
+    configured: Vec<(
+        &'static canister_artifact::MaintainedCanisterPolicy,
+        ConfiguredCanisterBuild,
+    )>,
+    contexts: Vec<String>,
+    specs: Vec<LabeledWasmBuildSpec>,
 }
 
 static FIXTURE_CANISTERS: [FixtureCanister; 16] = [
@@ -273,6 +284,10 @@ impl CanisterBuildProfile {
         }
     }
 }
+
+/// Final artifacts for both maintained canister profiles in contract order.
+pub type MaintainedCanisterContractProfileArtifacts =
+    Vec<(CanisterBuildProfile, Vec<(&'static str, PathBuf)>)>;
 
 /// Explicit build options for fixture canisters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -834,11 +849,115 @@ pub fn build_maintained_canisters_with_options(
     options: CanisterBuildOptions,
 ) -> Result<Vec<(&'static str, PathBuf)>, String> {
     let root = workspace_root();
-    let canister_target_dir = target_dir(&root).join(options.build_profile.target_dir_name());
+    let plan = plan_maintained_canister_builds(&root, options)?;
+    let cargo_report = build_cached_cargo_wasm_batch(&plan.specs);
+
+    finish_maintained_canister_build_plan(&root, plan, cargo_report)
+}
+
+/// Build both maintained whole-fleet contract profiles from one immutable input snapshot.
+///
+/// This is the narrow artifact-contract path for concurrent LocalTest and
+/// Production readers. Ordinary callers should continue using
+/// [`build_maintained_canisters_with_options`].
+///
+/// The supplied guard must exclude mutation of every source, Cargo/rustc
+/// executable, manifest, Cargo configuration file, declared build input, and
+/// relevant environment value until this function returns. The guard's
+/// provenance cannot be verified; passing an unrelated token violates the
+/// snapshot contract.
+///
+/// # Errors
+///
+/// Returns an error if snapshot preparation, either Cargo or post-link batch,
+/// or a scoped profile reader fails.
+pub fn build_maintained_canister_contract_profiles_assuming_sources_immutable<Guard: ?Sized>(
+    source_write_guard: &Guard,
+) -> Result<MaintainedCanisterContractProfileArtifacts, String> {
+    let root = workspace_root();
+    let plans = [
+        CanisterBuildProfile::LocalTest,
+        CanisterBuildProfile::Production,
+    ]
+    .into_iter()
+    .map(|build_profile| {
+        plan_maintained_canister_builds(
+            &root,
+            CanisterBuildOptions {
+                candid_export: CanisterCandidExportMode::Enabled,
+                build_profile,
+                ..CanisterBuildOptions::default()
+            },
+        )
+    })
+    .collect::<Result<Vec<_>, _>>()?;
+    let prepared_specs = plans
+        .iter()
+        .flat_map(|plan| plan.specs.iter().map(|spec| spec.spec().clone()))
+        .collect::<Vec<_>>();
+    let snapshot = WasmBuildInputSnapshot::prepare_assuming_sources_immutable(
+        source_write_guard,
+        &prepared_specs,
+    )
+    .map_err(|error| format!("maintained canister input snapshot failed: {error}"))?;
+
+    let builds = std::thread::scope(|scope| {
+        let handles = plans
+            .into_iter()
+            .map(|plan| {
+                let build_profile = plan.options.build_profile;
+                let snapshot = &snapshot;
+                let root = &root;
+                let handle = scope.spawn(move || {
+                    let cargo_report =
+                        build_cached_cargo_wasm_batch_from_snapshot(snapshot, &plan.specs);
+                    finish_maintained_canister_build_plan(root, plan, cargo_report)
+                });
+                (build_profile, handle)
+            })
+            .collect::<Vec<_>>();
+        let mut profile_artifacts = Vec::with_capacity(handles.len());
+        let mut failures = Vec::new();
+        for (build_profile, handle) in handles {
+            match handle.join() {
+                Ok(Ok(artifacts)) => profile_artifacts.push((build_profile, artifacts)),
+                Ok(Err(error)) => failures.push(format!("{build_profile:?}: {error}")),
+                Err(_) => failures.push(format!(
+                    "maintained {build_profile:?} canister reader panicked"
+                )),
+            }
+        }
+        if failures.is_empty() {
+            Ok(profile_artifacts)
+        } else {
+            Err(format!(
+                "maintained canister profile builds failed:\n  - {}",
+                failures.join("\n  - ")
+            ))
+        }
+    });
+    let metrics = snapshot.metrics();
+    eprintln!(
+        "maintained canister input_snapshot=specifications={} input_resolution_runs={} input_resolution_reuses={} reader_reuses={} invalidated={} timings={:?}",
+        metrics.specifications(),
+        metrics.input_resolution_runs(),
+        metrics.input_resolution_reuses(),
+        metrics.reader_reuses(),
+        metrics.is_invalidated(),
+        metrics.input_resolution_timings(),
+    );
+    builds
+}
+
+fn plan_maintained_canister_builds(
+    root: &Path,
+    options: CanisterBuildOptions,
+) -> Result<MaintainedCanisterBuildPlan, String> {
+    let canister_target_dir = target_dir(root).join(options.build_profile.target_dir_name());
     let configured = canister_artifact::MAINTAINED_CANISTER_POLICIES
         .iter()
         .map(|policy| {
-            configure_canister_build(&root, &canister_target_dir, policy.package, options)
+            configure_canister_build(root, &canister_target_dir, policy.package, options)
                 .map(|configured| (policy, configured))
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -863,14 +982,32 @@ pub fn build_maintained_canisters_with_options(
             effective_rustflags: configured.rustflags.as_deref(),
         })
         .collect::<Vec<_>>();
-    let cargo_report = build_cached_cargo_wasm_batch(
-        &root,
+    let specs = cargo_wasm_batch_specs(
+        root,
         &canister_target_dir,
         options.profile.as_str(),
         &batch_entries,
     );
+    Ok(MaintainedCanisterBuildPlan {
+        options,
+        configured,
+        contexts,
+        specs,
+    })
+}
 
-    finish_maintained_canister_builds(&root, configured, &contexts, cargo_report, options)
+fn finish_maintained_canister_build_plan(
+    root: &Path,
+    plan: MaintainedCanisterBuildPlan,
+    cargo_report: canister_build_cache::CanisterCacheBatchReport,
+) -> Result<Vec<(&'static str, PathBuf)>, String> {
+    finish_maintained_canister_builds(
+        root,
+        plan.configured,
+        &plan.contexts,
+        cargo_report,
+        plan.options,
+    )
 }
 
 fn finish_maintained_canister_builds(

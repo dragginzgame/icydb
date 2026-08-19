@@ -1,5 +1,5 @@
 use super::*;
-use crate::db::schema::{NullableUniqueIndexContractError, ScalarCodec};
+use crate::db::schema::{AcceptedSchemaFingerprint, NullableUniqueIndexContractError, ScalarCodec};
 
 // Build a small accepted schema snapshot with deliberately non-generated
 // slot values so accessor tests prove they read persisted schema facts.
@@ -578,6 +578,190 @@ fn nullable_unique_acceptance_applies_to_expression_sources() {
 
     AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.with_constraint_catalog(catalog))
         .expect("expression source should consume the same exact source guard");
+}
+
+#[test]
+fn nullable_unique_acceptance_deduplicates_repeated_and_mixed_sources_at_the_key_bound() {
+    let base = nullable_unique_schema_fixture(
+        true,
+        &["email", "tenant"],
+        &["email", "tenant"],
+        Some("email IS NOT NULL AND tenant IS NOT NULL"),
+    );
+    let email = base.indexes()[0].key().field_paths()[0].clone();
+    let tenant = base.indexes()[0].key().field_paths()[1].clone();
+    let lower_email = || {
+        PersistedIndexKeyItemSnapshot::Expression(Box::new(PersistedIndexExpressionSnapshot::new(
+            PersistedIndexExpressionOp::Lower,
+            email.clone(),
+            AcceptedFieldKind::Text { max_len: None },
+            AcceptedFieldKind::Text { max_len: None },
+            "expr:v1:LOWER(email)".to_string(),
+        )))
+    };
+    let key_items = vec![
+        PersistedIndexKeyItemSnapshot::FieldPath(email.clone()),
+        lower_email(),
+        PersistedIndexKeyItemSnapshot::FieldPath(tenant),
+        lower_email(),
+    ];
+    assert_eq!(key_items.len(), crate::MAX_INDEX_FIELDS);
+    let key = PersistedIndexKeySnapshot::Items(key_items);
+
+    let snapshot_with_predicate = |predicate_sql: &str| {
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            base.version(),
+            base.entity_path().to_string(),
+            base.entity_name().to_string(),
+            base.primary_key_field_ids().to_vec(),
+            base.row_layout().clone(),
+            base.fields().to_vec(),
+            vec![PersistedIndexSnapshot::new(
+                SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+                1,
+                "idx_nullable_unique_mixed".to_string(),
+                "nullable_unique::mixed".to_string(),
+                true,
+                key.clone(),
+                Some(predicate_sql.to_string()),
+            )],
+        );
+        let catalog = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+        )
+        .expect("fixture constraint catalog should build");
+        snapshot.with_constraint_catalog(catalog)
+    };
+
+    let missing = AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot_with_predicate(
+        "tenant IS NOT NULL",
+    ))
+    .expect_err("one repeated nullable source still requires exactly one guard identity");
+    assert!(matches!(
+        missing,
+        SchemaSnapshotAcceptanceError::NullableUnique(
+            NullableUniqueIndexContractError::MissingGuards { sources, .. }
+        ) if sources == vec![vec!["email".to_string()]]
+    ));
+
+    AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot_with_predicate(
+        "tenant IS NOT NULL AND email IS NOT NULL",
+    ))
+    .expect("mixed repeated sources should admit once every distinct source is guarded");
+}
+
+#[test]
+fn nullable_unique_acceptance_preserves_structural_precedence_for_invalid_sources() {
+    let base = nullable_unique_schema_fixture(true, &["email"], &["email"], None);
+    let invalid_source = PersistedIndexFieldPathSnapshot::new(
+        FieldId::new(2),
+        SchemaFieldSlot::new(2),
+        vec!["email".to_string()],
+        AcceptedFieldKind::Text { max_len: None },
+        true,
+    );
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+        base.version(),
+        base.entity_path().to_string(),
+        base.entity_name().to_string(),
+        base.primary_key_field_ids().to_vec(),
+        base.row_layout().clone(),
+        base.fields().to_vec(),
+        vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+            1,
+            "idx_invalid_nullable_unique".to_string(),
+            "nullable_unique::invalid".to_string(),
+            true,
+            PersistedIndexKeySnapshot::FieldPath(vec![invalid_source]),
+            Some("email IS NOT".to_string()),
+        )],
+    );
+    let catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        snapshot.relations(),
+    )
+    .expect("fixture constraint catalog should build");
+
+    assert_eq!(
+        AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.with_constraint_catalog(catalog),),
+        Err(SchemaSnapshotAcceptanceError::Structural),
+        "invalid key identity must fail before malformed predicate classification",
+    );
+}
+
+#[test]
+fn unique_promotion_revalidates_the_current_candidate_without_residue() {
+    let template =
+        nullable_unique_schema_fixture(true, &["email"], &["email"], Some("email IS NOT NULL"));
+    let base = PersistedSchemaSnapshot::new_with_indexes(
+        template.version(),
+        template.entity_path().to_string(),
+        template.entity_name().to_string(),
+        template.primary_key_field_ids().to_vec(),
+        template.row_layout().clone(),
+        template.fields().to_vec(),
+        Vec::new(),
+    );
+    let base_catalog =
+        AcceptedConstraintCatalog::initial(base.fields(), base.indexes(), base.relations())
+            .expect("base constraint catalog should build");
+    let candidate = template.indexes()[0].clone().clone_with_schema_identity(
+        SchemaIndexId::new(1).expect("test index identity should be non-zero"),
+        1,
+        7,
+    );
+    let pending = base
+        .with_constraint_catalog(base_catalog)
+        .with_added_unique_activation(
+            candidate.clone(),
+            AcceptedSchemaFingerprint::new([7; 32]),
+            7,
+        )
+        .expect("guarded nullable unique candidate should admit");
+    let constraint_id = pending.constraint_catalog().activations()[0].id();
+    let unguarded = PersistedIndexSnapshot::new_sql_ddl(
+        candidate.schema_id(),
+        candidate.ordinal(),
+        candidate.name().to_string(),
+        candidate.store().to_string(),
+        true,
+        candidate.key().clone(),
+        None,
+    )
+    .clone_with_schema_identity(
+        candidate.schema_id(),
+        candidate.ordinal(),
+        candidate.physical_generation(),
+    );
+    let drifted = PersistedSchemaSnapshot::new_with_indexes(
+        pending.version(),
+        pending.entity_path().to_string(),
+        pending.entity_name().to_string(),
+        pending.primary_key_field_ids().to_vec(),
+        pending.row_layout().clone(),
+        pending.fields().to_vec(),
+        Vec::new(),
+    )
+    .with_constraint_catalog(pending.constraint_catalog().clone())
+    .with_constraint_candidates(vec![unguarded], Vec::new());
+    let before = drifted.clone();
+
+    assert_eq!(
+        drifted.with_promoted_unique_activation(
+            constraint_id,
+            SchemaVersion::new(drifted.version().get() + 1),
+        ),
+        Err(AcceptedConstraintCatalogError::OwnerMismatch),
+        "promotion must validate the current candidate instead of trusting its creation proof",
+    );
+    assert_eq!(
+        drifted, before,
+        "failed promotion must preserve candidate, catalog, allocator and generation state",
+    );
 }
 
 #[test]

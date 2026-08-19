@@ -69,6 +69,18 @@ struct ApplicationBehaviorPerfResult {
     iterations: u32,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlExecutionInstructionResult {
+    result: Result<SqlQueryResult, Error>,
+    local_instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct AcceptedSchemaReadInstructionResult {
+    description: EntitySchemaDescription,
+    local_instructions: u64,
+}
+
 const SQL_FIXTURE_POOL_CAPACITY: usize = 8;
 const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: usize = 4;
 
@@ -357,6 +369,45 @@ fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryRes
         .expect("sql DDL canister call should decode")
 }
 
+fn measure_ddl_sql(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> SqlExecutionInstructionResult {
+    fixture
+        .update_candid("measure_sql_ddl_admission_instructions", (sql.to_string(),))
+        .expect("measured SQL DDL canister call should decode")
+}
+
+fn measure_mutation_sql(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> SqlExecutionInstructionResult {
+    fixture
+        .update_candid(
+            "measure_trusted_sql_exact_update_instructions",
+            (sql.to_string(),),
+        )
+        .expect("measured SQL mutation canister call should decode")
+}
+
+fn measure_accepted_schema_read(
+    fixture: &StandaloneCanisterFixture,
+    entity: &str,
+) -> AcceptedSchemaReadInstructionResult {
+    let result: Result<AcceptedSchemaReadInstructionResult, Error> = fixture
+        .query_candid(
+            "measure_accepted_schema_read_instructions",
+            (entity.to_string(),),
+        )
+        .expect("measured accepted-schema read should decode");
+    result.expect("measured accepted-schema read should succeed")
+}
+
+fn stable_memory_fingerprint(fixture: &StandaloneCanisterFixture) -> ([u8; 32], usize) {
+    let stable = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
+    (*blake3::hash(&stable).as_bytes(), stable.len())
+}
+
 fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
         .update_candid("icydb_update", (sql.to_string(),))
@@ -402,6 +453,37 @@ impl DdlSchemaVersion {
         sql: &str,
     ) -> Result<SqlQueryResult, Error> {
         ddl_sql(fixture, &ddl_transition_sql(sql, self.current))
+    }
+
+    fn measure_publish(
+        &mut self,
+        fixture: &StandaloneCanisterFixture,
+        sql: &str,
+    ) -> SqlExecutionInstructionResult {
+        let measured = measure_ddl_sql(fixture, &ddl_transition_sql(sql, self.current));
+        if measured.result.is_ok() {
+            self.current = self
+                .current
+                .checked_add(1)
+                .expect("test schema version should fit u32");
+        }
+        measured
+    }
+
+    fn measure_reject(
+        self,
+        fixture: &StandaloneCanisterFixture,
+        sql: &str,
+    ) -> SqlExecutionInstructionResult {
+        measure_ddl_sql(fixture, &ddl_transition_sql(sql, self.current))
+    }
+
+    fn measure_no_op(
+        self,
+        fixture: &StandaloneCanisterFixture,
+        sql: &str,
+    ) -> SqlExecutionInstructionResult {
+        measure_ddl_sql(fixture, &ddl_expected_sql(sql, self.current))
     }
 
     fn no_op(
@@ -1546,6 +1628,89 @@ fn assert_nullable_unique_route_evidence(
     );
 }
 
+fn populate_nullable_unique_nicknames(fixture: &StandaloneCanisterFixture) {
+    for (name, nickname) in [("alice", "ally"), ("bob", "bravo"), ("charlie", "zulu")] {
+        let id = sql_test_user_id_by_name(fixture, name);
+        update_sql(
+            fixture,
+            format!("UPDATE SqlTestUser SET nickname = '{nickname}' WHERE id = '{id}'").as_str(),
+        )
+        .unwrap_or_else(|error| panic!("primary-key nickname update should succeed: {error:?}"));
+    }
+}
+
+fn publish_and_assert_nullable_unique_constraints(
+    fixture: &StandaloneCanisterFixture,
+    schema_version: &mut DdlSchemaVersion,
+) {
+    for (ddl, index) in [
+        (
+            "CREATE UNIQUE INDEX sql_test_user_unique_nickname_idx ON SqlTestUser (nickname) WHERE nickname IS NOT NULL",
+            "sql_test_user_unique_nickname_idx",
+        ),
+        (
+            "CREATE UNIQUE INDEX sql_test_user_unique_rank_contract_idx ON SqlTestUser (rank)",
+            "sql_test_user_unique_rank_contract_idx",
+        ),
+    ] {
+        schema_version
+            .publish(fixture, ddl)
+            .unwrap_or_else(|error| panic!("unique index should enter validation: {error:?}"));
+        schema_version
+            .validate_constraint_to_completion(fixture, "SqlTestUser", index)
+            .unwrap_or_else(|error| panic!("unique index should validate: {error:?}"));
+    }
+
+    let constraints = match query_sql(fixture, "SHOW CONSTRAINTS FROM SqlTestUser")
+        .expect("SHOW CONSTRAINTS should expose accepted unique contracts")
+    {
+        SqlQueryResult::ShowConstraints { constraints, .. } => constraints,
+        other => panic!("expected SHOW CONSTRAINTS payload, got {other:?}"),
+    };
+    let filtered = constraints
+        .iter()
+        .find(|constraint| constraint.index() == Some("sql_test_user_unique_nickname_idx"))
+        .expect("filtered accepted unique constraint should expose its backing index");
+    assert!(filtered.index_id().is_some());
+    assert_eq!(filtered.predicate_sql(), Some("nickname IS NOT NULL"));
+    assert_eq!(filtered.semantics(), "partial_unique_index_v1");
+    let unfiltered = constraints
+        .iter()
+        .find(|constraint| constraint.index() == Some("sql_test_user_unique_rank_contract_idx"))
+        .expect("unfiltered accepted unique constraint should expose its backing index");
+    assert!(unfiltered.index_id().is_some());
+    assert_eq!(unfiltered.predicate_sql(), None);
+    assert_eq!(unfiltered.semantics(), "unique_index_v1");
+}
+
+fn assert_nullable_unique_range_route_parity(fixture: &StandaloneCanisterFixture) {
+    let range_sql = "SELECT name FROM SqlTestUser WHERE nickname > 'b' ORDER BY age ASC";
+    let range_explain = expect_explain(
+        query_sql(fixture, format!("EXPLAIN EXECUTION {range_sql}").as_str())
+            .expect("proven range EXPLAIN should succeed"),
+    );
+    assert!(
+        range_explain.contains("IndexRange(sql_test_user_unique_nickname_idx)"),
+        "a concrete non-null range should prove filtered-index eligibility: {range_explain}",
+    );
+    let indexed = query_sql(fixture, range_sql).expect("proven range query should succeed");
+    let forced_sql = "SELECT name FROM SqlTestUser WHERE nickname > 'b' OR name = '__no_such_user__' ORDER BY age ASC";
+    let forced_explain = expect_explain(
+        query_sql(fixture, format!("EXPLAIN EXECUTION {forced_sql}").as_str())
+            .expect("conservative range EXPLAIN should succeed"),
+    );
+    assert!(
+        forced_explain.contains("FullScan")
+            && !forced_explain.contains("sql_test_user_unique_nickname_idx"),
+        "unsupported OR range proof must preserve a full scan: {forced_explain}",
+    );
+    assert_eq!(
+        indexed,
+        query_sql(fixture, forced_sql).expect("equivalent conservative range query should succeed"),
+        "newly eligible range output must match an independently forced full scan",
+    );
+}
+
 #[test]
 fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     let fixture = install_sql_canister_fixture();
@@ -1555,12 +1720,7 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     schema_version
         .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
         .expect("nullable test field should publish through the canister endpoint");
-    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
-    update_sql(
-        &fixture,
-        format!("UPDATE SqlTestUser SET nickname = 'ally' WHERE id = '{alice_id}'").as_str(),
-    )
-    .expect("primary-key update should populate the nullable test field");
+    populate_nullable_unique_nicknames(&fixture);
 
     let select_sql = "SELECT name FROM SqlTestUser WHERE nickname = 'ally'";
     let before_explain = expect_explain(
@@ -1575,19 +1735,7 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     let before = query_sql_with_perf(&fixture, select_sql)
         .expect("pre-index full-scan query should succeed");
 
-    schema_version
-        .publish(
-            &fixture,
-            "CREATE UNIQUE INDEX sql_test_user_unique_nickname_idx ON SqlTestUser (nickname) WHERE nickname IS NOT NULL",
-        )
-        .expect("guarded nullable unique index should enter bounded validation");
-    schema_version
-        .validate_constraint_to_completion(
-            &fixture,
-            "SqlTestUser",
-            "sql_test_user_unique_nickname_idx",
-        )
-        .expect("guarded nullable unique index should validate and publish");
+    publish_and_assert_nullable_unique_constraints(&fixture, &mut schema_version);
 
     let after_explain = expect_explain(
         query_sql(&fixture, format!("EXPLAIN EXECUTION {select_sql}").as_str())
@@ -1625,6 +1773,7 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     );
     let forced_full_scan = query_sql_with_perf(&fixture, forced_full_scan_sql)
         .expect("equivalent conservative query should execute through a full scan");
+    assert_nullable_unique_range_route_parity(&fixture);
     let proven_attribution = query_sql_attribution(&fixture, select_sql)
         .expect("proven index route should expose detailed attribution");
     let full_scan_attribution = query_sql_attribution(&fixture, forced_full_scan_sql)
@@ -1635,6 +1784,181 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
         &forced_full_scan,
         &proven_attribution,
         &full_scan_attribution,
+    );
+}
+
+fn require_measured_ddl_success(measured: SqlExecutionInstructionResult, context: &str) -> u64 {
+    measured
+        .result
+        .unwrap_or_else(|error| panic!("{context} should succeed: {error:?}"));
+    assert!(
+        measured.local_instructions > 0,
+        "{context} should report local instructions",
+    );
+    measured.local_instructions
+}
+
+fn prepare_nullable_unique_measurement_fields(
+    fixture: &StandaloneCanisterFixture,
+    schema_version: &mut DdlSchemaVersion,
+) {
+    for field in ["closeout_nullable_valid", "closeout_nullable_rejected"] {
+        schema_version
+            .publish(
+                fixture,
+                format!("ALTER TABLE SqlTestUser ADD COLUMN {field} text").as_str(),
+            )
+            .unwrap_or_else(|error| panic!("closeout nullable field should publish: {error:?}"));
+    }
+}
+
+fn measure_nullable_unique_ddl_matrix(
+    fixture: &StandaloneCanisterFixture,
+    schema_version: &mut DdlSchemaVersion,
+) -> [u64; 4] {
+    let non_unique = require_measured_ddl_success(
+        schema_version.measure_publish(
+            fixture,
+            "CREATE INDEX closeout_age_name_idx ON SqlTestUser (age, name)",
+        ),
+        "non-unique DDL admission",
+    );
+    let non_null_unique = require_measured_ddl_success(
+        schema_version.measure_publish(
+            fixture,
+            "CREATE UNIQUE INDEX closeout_rank_unique_idx ON SqlTestUser (rank)",
+        ),
+        "non-null unique DDL admission",
+    );
+    schema_version
+        .validate_constraint_to_completion(fixture, "SqlTestUser", "closeout_rank_unique_idx")
+        .expect("non-null unique closeout index should validate");
+
+    let nullable_unique = require_measured_ddl_success(
+        schema_version.measure_publish(
+            fixture,
+            "CREATE UNIQUE INDEX closeout_nullable_valid_idx ON SqlTestUser \
+             (closeout_nullable_valid) WHERE closeout_nullable_valid IS NOT NULL",
+        ),
+        "guarded nullable unique DDL admission",
+    );
+    schema_version
+        .validate_constraint_to_completion(fixture, "SqlTestUser", "closeout_nullable_valid_idx")
+        .expect("guarded nullable unique closeout index should validate");
+
+    let rejected = schema_version.measure_reject(
+        fixture,
+        "CREATE UNIQUE INDEX closeout_nullable_rejected_idx ON SqlTestUser \
+         (closeout_nullable_rejected)",
+    );
+    assert!(
+        rejected.result.is_err(),
+        "unguarded nullable unique admission must reject",
+    );
+    assert!(rejected.local_instructions > 0);
+
+    [
+        non_unique,
+        non_null_unique,
+        nullable_unique,
+        rejected.local_instructions,
+    ]
+}
+
+#[test]
+fn nullable_unique_closeout_measures_admission_stable_bytes_and_unchanged_write_path() {
+    let fixture = install_fixture_canister("sql");
+    reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
+    prepare_nullable_unique_measurement_fields(&fixture, &mut schema_version);
+    let ddl_instructions = measure_nullable_unique_ddl_matrix(&fixture, &mut schema_version);
+
+    let stable_before = stable_memory_fingerprint(&fixture);
+    let no_op = schema_version.measure_no_op(
+        &fixture,
+        "CREATE UNIQUE INDEX IF NOT EXISTS closeout_nullable_valid_idx ON SqlTestUser \
+         (closeout_nullable_valid) WHERE closeout_nullable_valid IS NOT NULL",
+    );
+    require_measured_ddl_success(no_op, "identical accepted nullable unique DDL");
+    let stable_after = stable_memory_fingerprint(&fixture);
+    assert_eq!(
+        stable_after, stable_before,
+        "identical accepted schema and physical index authority must not change stable bytes",
+    );
+
+    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let write = measure_mutation_sql(
+        &fixture,
+        format!("UPDATE SqlTestUser SET rank = 101 WHERE id = '{alice_id}'").as_str(),
+    );
+    write
+        .result
+        .unwrap_or_else(|error| panic!("accepted unique write should succeed: {error:?}"));
+    assert!(write.local_instructions > 0);
+
+    println!(
+        "0.231 nullable-unique closeout: non_unique_ddl={} non_null_unique_ddl={} \
+         guarded_nullable_unique_ddl={} rejected_nullable_unique_ddl={} \
+         stable_bytes_before={} stable_bytes_after={} unique_write={}",
+        ddl_instructions[0],
+        ddl_instructions[1],
+        ddl_instructions[2],
+        ddl_instructions[3],
+        stable_before.1,
+        stable_after.1,
+        write.local_instructions,
+    );
+}
+
+fn add_closeout_indexes_to_eight(
+    fixture: &StandaloneCanisterFixture,
+    schema_version: &mut DdlSchemaVersion,
+) {
+    for ordinal in 1..=7 {
+        let field = format!("closeout_reopen_{ordinal}");
+        schema_version
+            .publish(
+                fixture,
+                format!("ALTER TABLE SqlTestUser ADD COLUMN {field} text").as_str(),
+            )
+            .unwrap_or_else(|error| panic!("reopen measurement field should publish: {error:?}"));
+        schema_version
+            .publish(
+                fixture,
+                format!("CREATE INDEX closeout_reopen_{ordinal}_idx ON SqlTestUser ({field})")
+                    .as_str(),
+            )
+            .unwrap_or_else(|error| panic!("reopen measurement index should publish: {error:?}"));
+    }
+}
+
+#[test]
+fn accepted_schema_reopen_reads_are_measured_at_one_and_eight_indexes() {
+    let fixture = install_fixture_canister("sql");
+    deliver_fixture_startup_watchdog(&fixture);
+    let one = measure_accepted_schema_read(&fixture, "SqlTestUser");
+    assert_eq!(one.description.indexes().len(), 1);
+    assert!(one.local_instructions > 0);
+
+    let mut schema_version = DdlSchemaVersion::initial();
+    add_closeout_indexes_to_eight(&fixture, &mut schema_version);
+    assert_eq!(
+        measure_accepted_schema_read(&fixture, "SqlTestUser")
+            .description
+            .indexes()
+            .len(),
+        8,
+    );
+    upgrade_fixture_canister(&fixture, "sql");
+    deliver_fixture_startup_watchdog(&fixture);
+    deliver_fixture_startup_watchdog(&fixture);
+    let eight = measure_accepted_schema_read(&fixture, "SqlTestUser");
+    assert_eq!(eight.description.indexes().len(), 8);
+    assert!(eight.local_instructions > 0);
+
+    println!(
+        "0.231 accepted-schema reopen: one_index_instructions={} eight_index_instructions={}",
+        one.local_instructions, eight.local_instructions,
     );
 }
 

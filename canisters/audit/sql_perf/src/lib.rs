@@ -100,6 +100,14 @@ struct StartupObservationPerfResult {
     local_instructions: u64,
 }
 
+/// Accepted catalog read observed after startup has reopened schema authority.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "test-admin-api")]
+struct AcceptedSchemaReadInstructionResult {
+    description: EntitySchemaDescription,
+    local_instructions: u64,
+}
+
 /// Canonical instruction evidence recorded by the generated startup watchdog.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "test-admin-api")]
@@ -2062,6 +2070,24 @@ fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::
     Ok(StartupObservationPerfResult {
         state,
         local_instructions,
+    })
+}
+
+/// Measure one accepted entity-schema read through reopened catalog authority.
+#[cfg(feature = "test-admin-api")]
+#[query]
+fn measure_accepted_schema_read_instructions(
+    entity: String,
+) -> Result<AcceptedSchemaReadInstructionResult, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let description = db()?.try_describe_entity_by_name(entity.as_str())?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(AcceptedSchemaReadInstructionResult {
+            description,
+            local_instructions,
+        })
     })
 }
 
