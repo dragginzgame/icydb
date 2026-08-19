@@ -78,7 +78,7 @@ thread_local! {
 }
 
 #[test]
-fn rejected_fields_keep_exact_role_across_sql_and_dynamic_planning() {
+fn rejected_sql_fields_keep_exact_role() {
     let session = initialize();
 
     let sql_cases = [
@@ -132,36 +132,6 @@ fn rejected_fields_keep_exact_role_across_sql_and_dynamic_planning() {
             QueryFieldRole::AggregateTarget,
             "missing",
         ),
-        (
-            "SELECT COUNT(missing) FROM Singleton",
-            QueryFieldRole::AggregateTarget,
-            "missing",
-        ),
-        (
-            "SELECT SUM(missing) FROM Singleton",
-            QueryFieldRole::AggregateTarget,
-            "missing",
-        ),
-        (
-            "SELECT AVG(missing) FROM Singleton",
-            QueryFieldRole::AggregateTarget,
-            "missing",
-        ),
-        (
-            "SELECT MIN(missing) FROM Singleton",
-            QueryFieldRole::AggregateTarget,
-            "missing",
-        ),
-        (
-            "SELECT MAX(missing) FROM Singleton",
-            QueryFieldRole::AggregateTarget,
-            "missing",
-        ),
-        (
-            "SELECT COUNT(*) FROM Singleton GROUP BY label HAVING missing = 'x'",
-            QueryFieldRole::Having,
-            "missing",
-        ),
     ];
     for (sql, role, field) in sql_cases {
         let error = session
@@ -189,6 +159,37 @@ fn rejected_fields_keep_exact_role_across_sql_and_dynamic_planning() {
         .execute_trusted_sql_query("SELECT \"missing\" FROM Singleton ORDER BY id LIMIT 1")
         .expect_err("quoted identifiers are outside the maintained resolver context");
     assert_eq!(quoted_error.query_field_context(), None);
+}
+
+#[test]
+fn direct_aggregate_and_having_fields_keep_exact_role() {
+    let session = initialize();
+
+    let cases = [
+        "SELECT COUNT(missing) FROM Singleton",
+        "SELECT SUM(missing) FROM Singleton",
+        "SELECT AVG(missing) FROM Singleton",
+        "SELECT MIN(missing) FROM Singleton",
+        "SELECT MAX(missing) FROM Singleton",
+    ];
+    for sql in cases {
+        let error = session
+            .execute_trusted_sql_query(sql)
+            .expect_err("unknown direct aggregate field should fail before execution");
+        assert_query_field(&error, QueryFieldRole::AggregateTarget, "missing");
+    }
+
+    let error = session
+        .execute_trusted_sql_query(
+            "SELECT COUNT(*) FROM Singleton GROUP BY label HAVING missing = 'x'",
+        )
+        .expect_err("unknown HAVING field should fail before execution");
+    assert_query_field(&error, QueryFieldRole::Having, "missing");
+}
+
+#[test]
+fn rejected_dynamic_fields_keep_exact_role() {
+    let session = initialize();
 
     let dynamic_predicate = DynamicQuery::new(ENTITY_NAME)
         .filter(FieldRef::new("missing").eq(InputValue::Text("x".to_string())))
