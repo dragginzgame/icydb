@@ -25,6 +25,7 @@ candid = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-model = { path = "../../../crates/icydb-model" }
+icydb-testing-test-sql-fixtures = { workspace = true }
 
 [build-dependencies]
 icydb = { path = "../../../crates/icydb", default-features = false }
