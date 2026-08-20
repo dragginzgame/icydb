@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Detailed notes: [docs/changelog/0.234.md](docs/changelog/0.234.md)
 
 - `0.234.0` adds fail-closed exact cardinality to Rust query facades and
-  publishes schema-authoring guidance tied to canonical key and name rules.
+  publishes schema-authoring guidance tied to canonical key and name rules,
+  with deterministic PocketIC watchdog completion in release validation.
 
 ## [0.233.x] ⏱️ - 2026-08-20 - Durable Mutation-Job Liveness And Recovery
 

@@ -407,7 +407,19 @@ fn drain_online_watchdog_until_quiescent(fixture: &StandaloneCanisterFixture) {
         }
         deliver_startup_watchdog_message(fixture);
     }
-    panic!("online watchdog should quiesce within its frozen residual delivery bound");
+    let current = startup_watchdog_perf_snapshot(fixture);
+    panic!(
+        "online watchdog should quiesce within its frozen residual delivery bound: \
+         scheduler_samples={} work_samples={} work_started={} work_completed={} \
+         succeeded={} retryable_failures={} invariant_failures={}",
+        current.scheduler_samples,
+        current.work_samples,
+        current.work_started,
+        current.work_completed,
+        current.succeeded,
+        current.retryable_failures,
+        current.invariant_failures,
+    );
 }
 
 fn measure_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> IntegritySqlPerfResult {

@@ -31,6 +31,7 @@ use crate::canister_build_cache::{
 };
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
+const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 4;
 
 /// Maximum watchdog deliveries in the frozen normal convergence residual proof.
 ///
@@ -40,8 +41,12 @@ pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 42;
 /// Deliver one scheduled startup-watchdog message in PocketIC.
 pub fn deliver_startup_watchdog_message(fixture: &StandaloneCanisterFixture) {
     fixture.pocket_ic().advance_time(Duration::from_secs(1));
-    fixture.pocket_ic().tick();
-    fixture.pocket_ic().tick();
+    // Advancing time once admits at most one cadence wake-up. Additional
+    // zero-time ticks let PocketIC finish that message under deterministic
+    // time slicing without weakening the delivery-count bound.
+    for _ in 0..WATCHDOG_MESSAGE_COMPLETION_TICKS {
+        fixture.pocket_ic().tick();
+    }
 }
 
 struct FixtureCanister {
@@ -742,7 +747,7 @@ pub fn deliver_fixture_startup_watchdog(fixture: &StandaloneCanisterFixture) {
     // every maintained fresh-install schema to reach `Ready`.
     for _ in 0..8 {
         fixture.pocket_ic().advance_time(Duration::from_secs(1));
-        for _ in 0..4 {
+        for _ in 0..WATCHDOG_MESSAGE_COMPLETION_TICKS {
             fixture.pocket_ic().tick();
         }
     }
