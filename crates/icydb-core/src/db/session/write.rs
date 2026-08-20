@@ -21,6 +21,7 @@ use crate::{
         },
         executor::{
             AcceptedMutationConstraintScheduler,
+            budget::finish_current_execution_instruction_watermark,
             commit_structural_row_ops_with_mutation_progress_for_path,
             commit_structural_row_ops_with_window_for_path, mutation_key_exists_error,
         },
@@ -172,6 +173,7 @@ const MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES: usize = 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session) struct AcceptedStructuralMutationPackingReport {
     admitted_mutations: usize,
+    staged_bytes: usize,
     stopped_before_candidate: bool,
     candidate_exceeds_batch_policy: bool,
 }
@@ -180,6 +182,11 @@ impl AcceptedStructuralMutationPackingReport {
     #[must_use]
     pub(in crate::db::session) const fn admitted_mutations(self) -> usize {
         self.admitted_mutations
+    }
+
+    #[must_use]
+    pub(in crate::db::session) const fn staged_bytes(self) -> usize {
+        self.staged_bytes
     }
 
     #[must_use]
@@ -1416,11 +1423,13 @@ impl<C: CanisterKind> DbSession<C> {
 
         let report = AcceptedStructuralMutationPackingReport {
             admitted_mutations: output.len(),
+            staged_bytes,
             stopped_before_candidate,
             candidate_exceeds_batch_policy,
         };
         let batch = scheduler.finish();
         let (prepared, commit_directive) = precommit_preparation(output, report)?;
+        finish_current_execution_instruction_watermark()?;
         let identity_ranges = identity_cursor
             .map(IdentityStatementCursor::into_range_advance)
             .transpose()?
@@ -3206,15 +3215,15 @@ mod identity_pre_key_tests {
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::executor::budget::{
         HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-        with_query_execution_budget_for_tests,
+        with_execution_budget_for_tests, with_query_execution_budget_for_tests,
     };
     use crate::db::mutation_job::{MutationJobRecord, MutationJobTransition};
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::{
-        CompareProofAndAdvanceError, DynamicQuery, ExhaustiveReadError, RawDataStoreKey,
-        ReadSetRevisionError, ResumableJobAdvance, ResumableJobAdvanceRequest,
-        ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey,
-        ResumableJobStatus, asc,
+        CompareProofAndAdvanceError, DynamicQuery, ExhaustiveReadError, MutationJobError,
+        MutationJobRestartReason, RawDataStoreKey, ReadSetRevisionError, ResumableJobAdvance,
+        ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
+        ResumableJobIdempotencyKey, ResumableJobStatus, asc,
     };
     use crate::{
         db::{
@@ -3761,6 +3770,32 @@ mod identity_pre_key_tests {
         );
 
         with_query_execution_budget_for_tests(budget, context, operation)
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn advance_with_exhausted_mutation_predicate_budget(
+        session: &DbSession<JournaledTestCanister>,
+        request: &MutationJobAdvanceRequest,
+    ) -> Result<crate::db::MutationJobAdvanceReceipt, MutationJobError> {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(1_000_000_000, 64 * 1_024),
+        )
+        .with_limit_for_tests(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+            0,
+        );
+        let context = HardExecutionContext::new(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+            0x6d75_7461_7465_7465,
+        );
+        with_execution_budget_for_tests(
+            budget,
+            context,
+            || session.advance_trusted_mutation_job(request),
+            |_| MutationJobError::Internal,
+        )
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -4514,6 +4549,73 @@ mod identity_pre_key_tests {
              GROUP BY payload ORDER BY row_count DESC, payload ASC LIMIT 1",
             icydb_diagnostic_code::DiagnosticExecutionBudgetResource::SortEntries,
         );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[test]
+    fn mutation_execution_budget_exhaustion_terminalizes_forward_and_verify() {
+        let (session, _root) = initialize_journaled_with_root();
+        assert_eq!(insert_exact_key_fixture(&session, 41), 1);
+
+        for (identity, sql, expected_phase) in [
+            (
+                91_u8,
+                "UPDATE IdentityRow SET payload = 42 WHERE id = 1",
+                MutationJobPhase::Forward,
+            ),
+            (
+                92_u8,
+                "UPDATE IdentityRow SET payload = 42 WHERE id = 999",
+                MutationJobPhase::Verify,
+            ),
+        ] {
+            let job_id = MutationJobId::try_from_bytes([identity; 32])
+                .expect("budget fixture identity should admit");
+            let mut state = session
+                .start_trusted_sql_mutation_job(job_id, sql)
+                .expect("budget fixture job should start");
+            if expected_phase == MutationJobPhase::Verify {
+                let forward = MutationJobAdvanceRequest::new(
+                    job_id,
+                    state.sequence,
+                    MutationJobIdempotencyKey::new(format!("budget-forward-{identity}"))
+                        .expect("bounded Forward replay identity should admit"),
+                );
+                let receipt = session
+                    .advance_trusted_mutation_job(&forward)
+                    .expect("nonmatching Forward page should enter Verify");
+                assert_eq!(receipt.phase, MutationJobPhase::Verify);
+                state = session
+                    .mutation_job_state(job_id)
+                    .expect("Verify predecessor should remain readable");
+            }
+            assert_eq!(state.phase, expected_phase);
+
+            let request = MutationJobAdvanceRequest::new(
+                job_id,
+                state.sequence,
+                MutationJobIdempotencyKey::new(format!("budget-exhaust-{identity}"))
+                    .expect("bounded exhaustion replay identity should admit"),
+            );
+            let terminal = advance_with_exhausted_mutation_predicate_budget(&session, &request)
+                .expect("admitted execution-budget failure should commit terminal progress");
+            assert_eq!(
+                terminal.status,
+                MutationJobStatus::RestartRequired(
+                    MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
+                ),
+            );
+            assert_eq!(terminal.rows_updated, 0);
+            assert_eq!(
+                session.advance_trusted_mutation_job(&request),
+                Ok(terminal.clone()),
+                "exact terminal replay must not execute the exhausted page again",
+            );
+            assert_dynamic_payload(&session, 1, 41);
+            session
+                .acknowledge_mutation_job(job_id, terminal.committed_sequence)
+                .expect("terminal budget fixture should acknowledge");
+        }
     }
 
     fn assert_dynamic_payload<C: CanisterKind>(
@@ -5381,6 +5483,14 @@ mod identity_pre_key_tests {
                 JOURNALED_DATA_STORE.with(|store| store.borrow().len()),
                 u64::try_from(ordinal + 1).expect("small row count should fit"),
             );
+            assert_eq!(
+                JOURNALED_TAIL_STORE
+                    .with(|tail| tail.borrow().entity_mutation_revision(ENTITY_TAG))
+                    .expect("recovery must publish the target entity revision"),
+                initial_entity_revision
+                    + u64::try_from(ordinal + 1).expect("small revision delta should fit"),
+                "target rows, entity revision, and progress must recover as one transition",
+            );
         }
 
         let (before, after, operation) = atomic_progress_fixture(39);
@@ -5428,6 +5538,12 @@ mod identity_pre_key_tests {
                 .db
                 .drive_startup_recovery_page()
                 .expect("post-clear driver recovery should fold the retained batch"),
+        );
+        assert_eq!(
+            JOURNALED_TAIL_STORE
+                .with(|tail| tail.borrow().entity_mutation_revision(ENTITY_TAG))
+                .expect("uninterrupted transition must retain its entity revision"),
+            initial_entity_revision + 5,
         );
     }
 

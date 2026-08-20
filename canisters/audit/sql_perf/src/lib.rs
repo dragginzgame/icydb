@@ -50,6 +50,8 @@ icydb::start! {
 
 icydb::endpoints! {
     icydb_metrics(authorization = public);
+    #[cfg(feature = "test-admin-api")]
+    icydb_metrics_extended(authorization = public);
     icydb_metrics_reset;
     #[cfg(feature = "test-admin-api")]
     icydb_fixtures_reset;
@@ -721,6 +723,8 @@ const MUTATION_SCALE_FIXTURE_ROWS: i32 = 10_001;
 const MUTATION_SCALE_UNRELATED_ROWS: i32 = 17;
 #[cfg(feature = "sql")]
 const MUTATION_SCALE_LOAD_PAGE_ROWS: i32 = 1_024;
+#[cfg(feature = "sql")]
+const MUTATION_VERIFY_LIFECYCLE_ROWS: i32 = 8_193;
 #[cfg(feature = "sql")]
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
 #[cfg(feature = "sql")]
@@ -3127,7 +3131,7 @@ fn advance_audit_mutation_job_to_verify(
     job_id: MutationJobId,
     mut sequence: u64,
 ) -> Result<u64, MutationJobError> {
-    const MAX_FORWARD_STEPS: usize = 16;
+    const MAX_FORWARD_STEPS: usize = 40;
 
     for _ in 0..MAX_FORWARD_STEPS {
         let request = MutationJobAdvanceRequest::new(
@@ -3195,7 +3199,9 @@ fn inject_audit_mutation_revision_drift(
             1,
         )
         .map(|_| ())
-        .map_err(|_| MutationJobError::TargetMutationFailed)
+        .map_err(|_| {
+            MutationJobError::TargetMutationFailed(icydb::db::MutationJobTargetFailureReason::Other)
+        })
 }
 
 #[cfg(feature = "sql")]
@@ -3207,7 +3213,34 @@ fn inject_audit_unrelated_entity_write() -> Result<(), MutationJobError> {
         created_at: Timestamp::default(),
         updated_at: Timestamp::default(),
     }])
-    .map_err(|_| MutationJobError::TargetMutationFailed)
+    .map_err(|_| {
+        MutationJobError::TargetMutationFailed(icydb::db::MutationJobTargetFailureReason::Other)
+    })
+}
+
+#[cfg(feature = "sql")]
+fn load_mutation_verify_lifecycle_rows() -> Result<(), MutationJobError> {
+    let mut first_id = 513;
+    while first_id <= MUTATION_VERIFY_LIFECYCLE_ROWS {
+        let last_id = first_id
+            .saturating_add(MUTATION_SCALE_LOAD_PAGE_ROWS - 1)
+            .min(MUTATION_VERIFY_LIFECYCLE_ROWS);
+        let rows = (first_id..=last_id)
+            .map(|id| {
+                build_perf_audit_journaled_user(
+                    id,
+                    &format!("verify-lifecycle-{id:04}"),
+                    18 + (id % 47),
+                )
+            })
+            .collect();
+        insert_fixture_rows(rows).map_err(|_| {
+            MutationJobError::TargetMutationFailed(icydb::db::MutationJobTargetFailureReason::Other)
+        })?;
+        first_id = last_id.saturating_add(1);
+    }
+
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
@@ -3264,8 +3297,9 @@ fn advance_audit_verify_after_target_write(
 fn verify_journaled_user_mutation_job_lifecycle()
 -> Result<MutationJobVerifyResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
+        load_mutation_verify_lifecycle_rows()?;
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let sql = "UPDATE PerfAuditJournaledUser SET name = 'verify-measured' WHERE age >= 0";
+        let sql = "UPDATE PerfAuditJournaledUser SET name = 'verify-measured' WHERE id = 1";
         let mut job_bytes = [0; 32];
         job_bytes[31] = 75;
         let job_id = MutationJobId::try_from_bytes(job_bytes)?;
@@ -3377,7 +3411,7 @@ fn start_journaled_user_mutation_job(
             3 => "  update PerfAuditJournaledUser set name='durable-start' where age >= 0  ",
             4 => "UPDATE PerfAuditJournaledUser SET age = 2 WHERE id < 0",
             5 => "UPDATE PerfAuditJournaledUser SET age = 2 WHERE id > 0",
-            6 => "UPDATE PerfAuditMaxFanout SET a = 1001 WHERE id = 1",
+            6 => "UPDATE PerfAuditMaxFanout SET a = 1001 WHERE id >= 0",
             _ => return Err(MutationJobError::IneligibleIntent),
         };
         let start = ic_cdk::api::performance_counter(1);
@@ -3417,15 +3451,21 @@ fn advance_journaled_user_mutation_job(
     job_discriminator: u8,
     expected_sequence: u64,
     idempotency_key: String,
-) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+) -> Result<MutationScaleAdvancePerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
         let request = MutationJobAdvanceRequest::new(
             audit_mutation_job_id(job_discriminator)?,
             expected_sequence,
             MutationJobIdempotencyKey::new(idempotency_key)?,
         );
-        db().map_err(|_| MutationJobError::Internal)?
-            .advance_trusted_mutation_job(&request)
+        let session = db().map_err(|_| MutationJobError::Internal)?;
+        let start = ic_cdk::api::performance_counter(1);
+        let receipt = session.advance_trusted_mutation_job(&request)?;
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        Ok(MutationScaleAdvancePerfResult {
+            receipt,
+            local_instructions,
+        })
     })
 }
 

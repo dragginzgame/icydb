@@ -3,7 +3,10 @@
 //! Does not own: global metrics state mutation or report rendering.
 //! Boundary: exposes event enums consumed by metrics sinks and runtime instrumentation.
 
-use crate::error::ErrorClass;
+use crate::{
+    db::{MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason},
+    error::ErrorClass,
+};
 use std::rc::Rc;
 
 ///
@@ -104,6 +107,23 @@ pub enum MutationCommitClass {
     DurableOnly,
     LiveOnly,
     MixedDurableAndLive,
+}
+
+/// Stable low-cardinality mutation-job lifecycle facts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum MutationJobLifecycleEvent {
+    AdvanceExactReplay,
+    CancelUnadvanced,
+    Complete,
+    ForwardToVerify,
+    InventoryLoaded,
+    StartExactReplay,
+    StartInserted,
+    StateLoaded,
+    TerminalAcknowledged,
+    VerifyRestartResidualWork,
+    VerifyRestartRevisionDrift,
 }
 
 ///
@@ -298,6 +318,34 @@ pub enum MetricsEvent {
     MutationCommitPlan {
         entity_path: Rc<str>,
         class: MutationCommitClass,
+    },
+    MutationJobCapacity {
+        retained_count: u64,
+        hard_limit: u64,
+        reserved_integrity_headroom: u64,
+        integrity_count: u64,
+        resumable_count: u64,
+        mutation_count: u64,
+        retained_record_bytes: u64,
+    },
+    MutationJobLifecycle {
+        event: MutationJobLifecycleEvent,
+    },
+    MutationJobRestart {
+        reason: MutationJobRestartReason,
+    },
+    MutationJobStep {
+        phase: MutationJobPhase,
+        keys_scanned: u64,
+        rows_updated: u64,
+        scan_bytes: u64,
+        staged_bytes: u64,
+        keys_scanned_total: u64,
+        rows_updated_total: u64,
+        verify_restarts_total: u64,
+    },
+    MutationJobTargetFailure {
+        reason: MutationJobTargetFailureReason,
     },
     NonAtomicPartialCommit {
         entity_path: Rc<str>,

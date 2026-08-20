@@ -28,11 +28,12 @@ pub use icydb_core::db::{
     MAX_RESUMABLE_JOB_STATE_BYTES, MutationJobAdvanceReceipt, MutationJobAdvanceRequest,
     MutationJobError, MutationJobId, MutationJobIdempotencyKey, MutationJobPayloadKind,
     MutationJobPhase, MutationJobRestartReason, MutationJobState, MutationJobStatus,
-    ProgressJobFamily, ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle,
-    ReadSetRevisionError, ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision,
-    ResumableJobAdvance, ResumableJobAdvanceReceipt, ResumableJobAdvanceRequest,
-    ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey,
-    ResumableJobState, ResumableJobStatus, RowProjectionOutput, ScalarPageWork,
+    MutationJobTargetFailureReason, ProgressJobFamily, ProgressJobInventory,
+    ProgressJobInventoryRecord, ProgressJobLifecycle, ReadSetRevisionError, ReadSetRevisionProof,
+    ReadSetStoreIdentity, ReadSetStoreRevision, ResumableJobAdvance, ResumableJobAdvanceReceipt,
+    ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
+    ResumableJobIdempotencyKey, ResumableJobState, ResumableJobStatus, RowProjectionOutput,
+    ScalarPageWork,
 };
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{

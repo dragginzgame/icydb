@@ -8,7 +8,8 @@
 use crate::{
     db::{
         DbSession, MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError,
-        MutationJobId, MutationJobPhase, MutationJobRestartReason, MutationJobStatus, QueryError,
+        MutationJobId, MutationJobPhase, MutationJobRestartReason, MutationJobStatus,
+        MutationJobTargetFailureReason, QueryError,
         codec::{
             finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u64,
         },
@@ -18,7 +19,14 @@ use crate::{
             StructuralRowContract, StructuralSlotReader, managed_timestamp_progression_regresses,
         },
         database_format::crc32c,
-        executor::eval_compiled_filter_expr_with_required_slot_reader,
+        executor::{
+            MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT,
+            budget::{
+                MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY, charge_current_execution_budget,
+                finish_current_execution_instruction_watermark,
+            },
+            eval_compiled_filter_expr_with_required_slot_reader,
+        },
         integrity::{MutationProgressRecordOp, replace_mutation_progress_record_op},
         key_taxonomy::RawDataStoreKeyRange,
         mutation_job::{CanonicalMutationIntent, MutationJobRecord, MutationJobTransition},
@@ -49,11 +57,13 @@ use crate::{
         write_context::MutationMode,
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, record},
+    metrics::sink::{MetricsEvent, MutationJobLifecycleEvent, record},
     traits::CanisterKind,
     types::{CurrentTimestamp, EntityTag, Timestamp, Ulid},
 };
-use icydb_diagnostic_code::SqlWriteBoundaryCode;
+use icydb_diagnostic_code::{
+    DiagnosticDetail, DiagnosticExecutionBudgetResource, RuntimeBoundaryCode, SqlWriteBoundaryCode,
+};
 use sha2::Digest;
 use std::{cell::RefCell, collections::BTreeSet, ops::Bound};
 
@@ -66,8 +76,14 @@ const MUTATION_JOB_OPERATION_ID_DOMAIN: &[u8] = b"icydb.mutation-job.operation-i
 macro_rules! resumable_policy_bound {
     ($runtime:ident, $identity:ident, $value:expr) => {
         const $runtime: usize = $value;
-        const $identity: u32 = $value;
+        const $identity: u32 = bounded_usize_policy_identity($runtime);
     };
+}
+
+const fn bounded_usize_policy_identity(value: usize) -> u32 {
+    assert!(value <= 0xffff_ffff_usize);
+    let bytes = value.to_le_bytes();
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 resumable_policy_bound!(
@@ -78,12 +94,12 @@ resumable_policy_bound!(
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,
     RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,
-    208
+    4_096
 );
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
     RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,
-    56
+    MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT
 );
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES,
@@ -93,7 +109,7 @@ resumable_policy_bound!(
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED,
     RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED_POLICY,
-    208
+    4_096
 );
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
@@ -111,7 +127,8 @@ const RESUMABLE_UPDATE_NEEDS_PATCH_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_ENTITY_REVISION_POLICY_REVISION: u32 = 2;
 const RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION: u32 = 1;
 const RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION: u32 = 2;
-const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 15] = [
+const RESUMABLE_UPDATE_EXECUTION_FAILURE_POLICY_REVISION: u32 = 2;
+const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 17] = [
     u32::from_be_bytes(*RESUMABLE_UPDATE_CONTINUATION_MAGIC),
     RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION as u32,
     RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,
@@ -127,6 +144,8 @@ const RESUMABLE_UPDATE_BATCH_POLICY_INPUTS: [u32; 15] = [
     RESUMABLE_UPDATE_ENTITY_REVISION_POLICY_REVISION,
     RESUMABLE_UPDATE_MARKER_ACCOUNTING_POLICY_VERSION,
     RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION,
+    RESUMABLE_UPDATE_EXECUTION_FAILURE_POLICY_REVISION,
+    MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY,
 ];
 const RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY: u32 =
     resumable_update_batch_policy_identity(RESUMABLE_UPDATE_BATCH_POLICY_INPUTS);
@@ -515,10 +534,13 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(Some(intent.target_entity_path()))
-            .map_err(|_| {
-                MutationJobExecutionPreparationError::Restart(
-                    MutationJobRestartReason::AcceptedSchemaChanged,
+            .accepted_schema_catalog_context_for_entity_source_key(intent.target_entity_path())
+            .map_err(|error| {
+                mutation_job_execution_budget_restart_reason(&error).map_or(
+                    MutationJobExecutionPreparationError::Restart(
+                        MutationJobRestartReason::AcceptedSchemaChanged,
+                    ),
+                    MutationJobExecutionPreparationError::Restart,
                 )
             })?;
         if !mutation_job_catalog_authority_matches(&intent, &catalog) {
@@ -665,6 +687,9 @@ impl<C: CanisterKind> DbSession<C> {
             }
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
+        if let Err(error) = finish_current_execution_instruction_watermark() {
+            return persist_classified_mutation_job_execution_failure::<C>(before, request, &error);
+        }
         let advance_timestamp = Timestamp::now();
         let patch = fixed_patch.to_update_intent();
         let scanner = RefCell::new(ResumableForwardScanner::new(
@@ -676,44 +701,55 @@ impl<C: CanisterKind> DbSession<C> {
             &fixed_patch,
             advance_timestamp,
         ));
-        let outcome = self
-            .execute_accepted_structural_update_bounded_prefix(
-                &catalog,
-                &descriptor,
-                MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
-                || Ok(scanner.borrow_mut().next_mutation(&patch)),
-                advance_timestamp,
-                |packing| {
-                    let scan = scanner.borrow().finish(packing);
-                    Ok(prepare_packed_forward_outcome(
-                        before,
-                        request,
-                        &mut continuation,
-                        &store,
-                        identity.entity_tag(),
-                        scan,
-                        packing,
-                    ))
-                },
-            )
-            .map_err(|_| MutationJobError::TargetMutationFailed)?;
+        let outcome = match self.execute_accepted_structural_update_bounded_prefix(
+            &catalog,
+            &descriptor,
+            MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
+            || Ok(scanner.borrow_mut().next_mutation(&patch)),
+            advance_timestamp,
+            |packing| {
+                let scan = scanner.borrow().finish(packing);
+                Ok(prepare_packed_forward_outcome(
+                    before,
+                    request,
+                    &mut continuation,
+                    &store,
+                    identity.entity_tag(),
+                    scan,
+                    packing,
+                ))
+            },
+        ) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return persist_classified_mutation_job_execution_failure::<C>(
+                    before, request, &error,
+                );
+            }
+        };
 
         match outcome {
             PackedForwardOutcome::Ready {
                 receipt,
                 progress_only,
                 physical_keys_scanned,
-            } => {
-                record_resumable_rows_scanned(identity.entity_path(), physical_keys_scanned);
-                if let Some(operation) = progress_only {
-                    replace_mutation_progress_record_op::<C>(&operation)?;
-                }
-                Ok(receipt)
-            }
+                scan_bytes,
+                staged_bytes,
+            } => finish_committed_mutation_job_forward::<C>(
+                identity.entity_path(),
+                receipt,
+                progress_only,
+                physical_keys_scanned,
+                scan_bytes,
+                staged_bytes,
+            ),
             PackedForwardOutcome::Restart(reason) => {
                 persist_terminal_mutation_job_restart::<C>(before, request, reason)
             }
-            PackedForwardOutcome::Failure(error) => Err(error),
+            PackedForwardOutcome::Failure(error) => {
+                record_mutation_job_target_failure(&error);
+                Err(error)
+            }
         }
     }
 
@@ -726,13 +762,7 @@ impl<C: CanisterKind> DbSession<C> {
         if before.state().phase != MutationJobPhase::Verify {
             return Err(MutationJobError::Internal);
         }
-        let PreparedMutationJobExecution {
-            catalog,
-            store,
-            mut continuation,
-            scope,
-            fixed_patch,
-        } = match self.prepare_mutation_job_execution(
+        let prepared = match self.prepare_mutation_job_execution(
             before,
             request,
             MutationJobEnginePhase::Verify,
@@ -743,6 +773,25 @@ impl<C: CanisterKind> DbSession<C> {
             }
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
+        Self::advance_prepared_mutation_job_verify(before, request, prepared)
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one Verify transition keeps retained-baseline checks, bounded scan, and the exact terminal progress decision inseparable"
+    )]
+    fn advance_prepared_mutation_job_verify(
+        before: &MutationJobRecord,
+        request: &MutationJobAdvanceRequest,
+        prepared: PreparedMutationJobExecution,
+    ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+        let PreparedMutationJobExecution {
+            catalog,
+            store,
+            mut continuation,
+            scope,
+            fixed_patch,
+        } = prepared;
         let captured_revision = continuation
             .retained_verify_revision
             .ok_or(MutationJobError::CorruptProgressStore)?;
@@ -750,7 +799,14 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(|_| MutationJobError::TargetQueryFailed)?;
         if mutation_verify_revision_changed(captured_revision, revision_before_scan) {
             continuation.restart_forward();
-            return persist_verify_restart::<C>(before, request, &continuation, 0);
+            return persist_observed_verify_restart::<C>(
+                before,
+                request,
+                &continuation,
+                0,
+                0,
+                MutationJobLifecycleEvent::VerifyRestartRevisionDrift,
+            );
         }
 
         let identity = catalog.identity();
@@ -764,15 +820,25 @@ impl<C: CanisterKind> DbSession<C> {
             }
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
-        let scan = scan_mutation_job_verify(
+        if let Err(error) = finish_current_execution_instruction_watermark() {
+            return persist_classified_mutation_job_execution_failure::<C>(before, request, &error);
+        }
+        let scan = match scan_mutation_job_verify(
             &store,
             continuation.checkpoint.as_ref(),
             identity.entity_tag(),
             &compiled_scope,
             &row_contract,
             &fixed_patch,
-        )
-        .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        ) {
+            Ok(scan) => scan,
+            Err(error) => {
+                return persist_classified_mutation_job_query_failure::<C>(before, request, &error);
+            }
+        };
+        if let Err(error) = finish_current_execution_instruction_watermark() {
+            return persist_classified_mutation_job_execution_failure::<C>(before, request, &error);
+        }
         record_resumable_rows_scanned(identity.entity_path(), scan.keys_scanned);
         let keys_scanned =
             u64::try_from(scan.keys_scanned).map_err(|_| MutationJobError::CounterOverflow)?;
@@ -781,12 +847,20 @@ impl<C: CanisterKind> DbSession<C> {
         if scan.residual_work
             || mutation_verify_revision_changed(captured_revision, revision_after_scan)
         {
+            let restart_event = mutation_verify_restart_lifecycle(scan.residual_work);
             continuation.restart_forward();
-            return persist_verify_restart::<C>(before, request, &continuation, keys_scanned);
+            return persist_observed_verify_restart::<C>(
+                before,
+                request,
+                &continuation,
+                keys_scanned,
+                scan.scan_bytes,
+                restart_event,
+            );
         }
 
         if scan.exhausted {
-            return persist_mutation_job_progress_transition::<C>(
+            return persist_observed_verify_transition::<C>(
                 before,
                 request,
                 MutationJobTransition::new(
@@ -797,6 +871,8 @@ impl<C: CanisterKind> DbSession<C> {
                     0,
                     0,
                 ),
+                scan.scan_bytes,
+                Some(MutationJobLifecycleEvent::Complete),
             );
         }
 
@@ -805,7 +881,7 @@ impl<C: CanisterKind> DbSession<C> {
             .encode()
             .map_err(|_| MutationJobError::CorruptProgressStore)?
             .into_bytes();
-        persist_mutation_job_progress_transition::<C>(
+        persist_observed_verify_transition::<C>(
             before,
             request,
             MutationJobTransition::new(
@@ -816,6 +892,8 @@ impl<C: CanisterKind> DbSession<C> {
                 0,
                 0,
             ),
+            scan.scan_bytes,
+            None,
         )
     }
 
@@ -907,13 +985,14 @@ impl<C: CanisterKind> DbSession<C> {
 struct ResumableForwardScan {
     final_checkpoint: Option<RawDataStoreKey>,
     physical_keys_scanned: usize,
+    scan_bytes: usize,
     exhausted: bool,
     failure: Option<ResumableForwardScanError>,
 }
 
 #[derive(Clone, Copy)]
 enum ResumableForwardScanError {
-    ManagedTimestampRegression,
+    Restart(MutationJobRestartReason),
     Query,
 }
 
@@ -1007,6 +1086,7 @@ impl<'a> ResumableForwardScanner<'a> {
                 };
                 self.scan_bytes = next_scan_bytes;
                 self.physical_keys_scanned = self.physical_keys_scanned.saturating_add(1);
+                charge_resumable_scan_row(raw_key.as_bytes().len(), raw_row.len())?;
 
                 let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
@@ -1024,7 +1104,9 @@ impl<'a> ResumableForwardScanner<'a> {
                         &row,
                         self.advance_timestamp,
                     )? {
-                        self.failure = Some(ResumableForwardScanError::ManagedTimestampRegression);
+                        self.failure = Some(ResumableForwardScanError::Restart(
+                            MutationJobRestartReason::ManagedTimestampRegression,
+                        ));
                         stopped = true;
                         return Ok(StoreVisit::Stop);
                     }
@@ -1041,8 +1123,17 @@ impl<'a> ResumableForwardScanner<'a> {
                 Ok(StoreVisit::Continue)
             })
         });
-        if visit.is_err() {
-            self.failure = Some(ResumableForwardScanError::Query);
+        if let Err(error) = visit {
+            self.failure = Some(
+                match classify_mutation_job_target_execution_failure(&error) {
+                    MutationJobTargetExecutionFailure::Restart(reason) => {
+                        ResumableForwardScanError::Restart(reason)
+                    }
+                    MutationJobTargetExecutionFailure::Target(_) => {
+                        ResumableForwardScanError::Query
+                    }
+                },
+            );
             return None;
         }
         if !stopped {
@@ -1062,6 +1153,7 @@ impl<'a> ResumableForwardScanner<'a> {
         ResumableForwardScan {
             final_checkpoint: self.checkpoint.clone(),
             physical_keys_scanned: self.physical_keys_scanned,
+            scan_bytes: self.scan_bytes,
             exhausted: self.exhausted && !packing.stopped_before_candidate(),
             failure: self.failure,
         }
@@ -1073,6 +1165,8 @@ enum PackedForwardOutcome {
         receipt: MutationJobAdvanceReceipt,
         progress_only: Option<MutationProgressRecordOp>,
         physical_keys_scanned: usize,
+        scan_bytes: usize,
+        staged_bytes: usize,
     },
     Restart(MutationJobRestartReason),
     Failure(MutationJobError),
@@ -1096,9 +1190,7 @@ fn prepare_packed_forward_outcome(
 ) {
     if let Some(failure) = scan.failure {
         let outcome = match failure {
-            ResumableForwardScanError::ManagedTimestampRegression => {
-                PackedForwardOutcome::Restart(MutationJobRestartReason::ManagedTimestampRegression)
-            }
+            ResumableForwardScanError::Restart(reason) => PackedForwardOutcome::Restart(reason),
             ResumableForwardScanError::Query => {
                 PackedForwardOutcome::Failure(MutationJobError::TargetQueryFailed)
             }
@@ -1185,12 +1277,16 @@ fn prepare_packed_forward_outcome(
         }
     };
     let physical_keys_scanned = scan.physical_keys_scanned;
+    let scan_bytes = scan.scan_bytes;
+    let staged_bytes = packing.staged_bytes();
     if packing.admitted_mutations() == 0 {
         (
             PackedForwardOutcome::Ready {
                 receipt,
                 progress_only: Some(operation),
                 physical_keys_scanned,
+                scan_bytes,
+                staged_bytes,
             },
             AcceptedStructuralMutationCommitDirective::Skip,
         )
@@ -1200,6 +1296,8 @@ fn prepare_packed_forward_outcome(
                 receipt,
                 progress_only: None,
                 physical_keys_scanned,
+                scan_bytes,
+                staged_bytes,
             },
             AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation),
         )
@@ -1221,6 +1319,7 @@ fn resumable_scan_bytes_after_row(
 struct ResumableVerifyScan {
     final_checkpoint: Option<RawDataStoreKey>,
     keys_scanned: usize,
+    scan_bytes: usize,
     exhausted: bool,
     residual_work: bool,
 }
@@ -1232,7 +1331,7 @@ fn scan_mutation_job_verify(
     compiled_scope: &CompiledExpr,
     row_contract: &StructuralRowContract,
     fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<ResumableVerifyScan, QueryError> {
+) -> Result<ResumableVerifyScan, InternalError> {
     let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
     let lower = checkpoint.cloned().map_or_else(
         || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
@@ -1248,48 +1347,48 @@ fn scan_mutation_job_verify(
     let mut has_more = false;
     let mut residual_work = false;
 
-    store
-        .with_data(|data| {
-            data.visit_range((lower, upper), |raw_key, raw_row| {
-                if keys_scanned == MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED {
-                    has_more = true;
-                    return Ok(StoreVisit::Stop);
-                }
-                let Some(next_scan_bytes) = resumable_scan_bytes_after_row(
-                    scan_bytes,
-                    raw_key.as_bytes().len(),
-                    raw_row.len(),
-                    MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
-                ) else {
-                    has_more = true;
-                    return Ok(StoreVisit::Stop);
-                };
-                scan_bytes = next_scan_bytes;
-                keys_scanned = keys_scanned.saturating_add(1);
+    store.with_data(|data| {
+        data.visit_range((lower, upper), |raw_key, raw_row| {
+            if keys_scanned == MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED {
+                has_more = true;
+                return Ok(StoreVisit::Stop);
+            }
+            let Some(next_scan_bytes) = resumable_scan_bytes_after_row(
+                scan_bytes,
+                raw_key.as_bytes().len(),
+                raw_row.len(),
+                MAX_RESUMABLE_UPDATE_VERIFY_SCAN_BYTES,
+            ) else {
+                has_more = true;
+                return Ok(StoreVisit::Stop);
+            };
+            scan_bytes = next_scan_bytes;
+            keys_scanned = keys_scanned.saturating_add(1);
+            charge_resumable_scan_row(raw_key.as_bytes().len(), raw_row.len())?;
 
-                let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
-                    .map_err(|_| InternalError::identity_corruption())?;
-                if decoded_key.entity_tag() != entity_tag {
-                    return Err(InternalError::identity_corruption());
-                }
-                let row = StructuralSlotReader::from_raw_row_with_validated_contract(
-                    raw_row,
-                    row_contract.clone(),
-                )?;
-                if resumable_row_needs_patch(compiled_scope, fixed_patch, &row)? {
-                    residual_work = true;
-                    return Ok(StoreVisit::Stop);
-                }
-                final_checkpoint = Some(raw_key.clone());
+            let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
+                .map_err(|_| InternalError::identity_corruption())?;
+            if decoded_key.entity_tag() != entity_tag {
+                return Err(InternalError::identity_corruption());
+            }
+            let row = StructuralSlotReader::from_raw_row_with_validated_contract(
+                raw_row,
+                row_contract.clone(),
+            )?;
+            if resumable_row_needs_patch(compiled_scope, fixed_patch, &row)? {
+                residual_work = true;
+                return Ok(StoreVisit::Stop);
+            }
+            final_checkpoint = Some(raw_key.clone());
 
-                Ok(StoreVisit::Continue)
-            })
+            Ok(StoreVisit::Continue)
         })
-        .map_err(QueryError::execute)?;
+    })?;
 
     Ok(ResumableVerifyScan {
         final_checkpoint,
         keys_scanned,
+        scan_bytes,
         exhausted: !has_more,
         residual_work,
     })
@@ -1300,9 +1399,30 @@ fn resumable_row_needs_patch(
     fixed_patch: &AcceptedFixedUpdatePatch,
     row: &StructuralSlotReader,
 ) -> Result<bool, InternalError> {
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        1,
+    )?;
     Ok(
         eval_compiled_filter_expr_with_required_slot_reader(compiled_scope, row)?
             && !fixed_patch.is_satisfied_by(row)?,
+    )
+}
+
+fn charge_resumable_scan_row(
+    raw_key_bytes: usize,
+    raw_row_bytes: usize,
+) -> Result<(), InternalError> {
+    let stored_bytes = raw_key_bytes.saturating_add(raw_row_bytes);
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1)?;
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::StoredBytesRead,
+        u64::try_from(stored_bytes).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::DecodedBytes,
+        u64::try_from(raw_row_bytes).unwrap_or(u64::MAX),
     )
 }
 
@@ -1311,6 +1431,58 @@ fn record_resumable_rows_scanned(entity_path: &str, keys_scanned: usize) {
         entity_path: entity_path.into(),
         rows_scanned: u64::try_from(keys_scanned).unwrap_or(u64::MAX),
     });
+}
+
+fn finish_committed_mutation_job_forward<C: CanisterKind>(
+    entity_path: &str,
+    receipt: MutationJobAdvanceReceipt,
+    progress_only: Option<MutationProgressRecordOp>,
+    physical_keys_scanned: usize,
+    scan_bytes: usize,
+    staged_bytes: usize,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    record_resumable_rows_scanned(entity_path, physical_keys_scanned);
+    if let Some(operation) = progress_only {
+        replace_mutation_progress_record_op::<C>(&operation)?;
+    }
+    record_mutation_job_step(
+        MutationJobPhase::Forward,
+        &receipt,
+        scan_bytes,
+        staged_bytes,
+    );
+    if receipt.phase == MutationJobPhase::Verify {
+        record_mutation_job_lifecycle(MutationJobLifecycleEvent::ForwardToVerify);
+    }
+    Ok(receipt)
+}
+
+fn record_mutation_job_lifecycle(event: MutationJobLifecycleEvent) {
+    record(MetricsEvent::MutationJobLifecycle { event });
+}
+
+fn record_mutation_job_step(
+    phase: MutationJobPhase,
+    receipt: &MutationJobAdvanceReceipt,
+    scan_bytes: usize,
+    staged_bytes: usize,
+) {
+    record(MetricsEvent::MutationJobStep {
+        phase,
+        keys_scanned: receipt.keys_scanned,
+        rows_updated: receipt.rows_updated,
+        scan_bytes: u64::try_from(scan_bytes).unwrap_or(u64::MAX),
+        staged_bytes: u64::try_from(staged_bytes).unwrap_or(u64::MAX),
+        keys_scanned_total: receipt.keys_scanned_total,
+        rows_updated_total: receipt.rows_updated_total,
+        verify_restarts_total: receipt.verify_restarts_total,
+    });
+}
+
+fn record_mutation_job_target_failure(error: &MutationJobError) {
+    if let MutationJobError::TargetMutationFailed(reason) = error {
+        record(MetricsEvent::MutationJobTargetFailure { reason: *reason });
+    }
 }
 
 fn durable_entity_revision(store: &StoreHandle, entity_tag: EntityTag) -> Result<u64, QueryError> {
@@ -1328,15 +1500,88 @@ fn durable_entity_revision_after_next_mutation(
 ) -> Result<u64, MutationJobError> {
     let journal = store
         .journal_tail_store()
-        .ok_or(MutationJobError::TargetMutationFailed)?;
+        .ok_or(MutationJobError::TargetMutationFailed(
+            MutationJobTargetFailureReason::Other,
+        ))?;
     journal
         .with_borrow(|tail| tail.prepare_entity_mutation_revision(entity_tag))
         .map(crate::db::journal::PreparedEntityMutationRevision::resulting_revision)
-        .map_err(|_| MutationJobError::TargetMutationFailed)
+        .map_err(|_| MutationJobError::TargetMutationFailed(MutationJobTargetFailureReason::Other))
+}
+
+enum MutationJobTargetExecutionFailure {
+    Restart(MutationJobRestartReason),
+    Target(MutationJobTargetFailureReason),
+}
+
+fn persist_classified_mutation_job_execution_failure<C: CanisterKind>(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    error: &InternalError,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    match classify_mutation_job_target_execution_failure(error) {
+        MutationJobTargetExecutionFailure::Restart(reason) => {
+            persist_terminal_mutation_job_restart::<C>(before, request, reason)
+        }
+        MutationJobTargetExecutionFailure::Target(reason) => {
+            record(MetricsEvent::MutationJobTargetFailure { reason });
+            Err(MutationJobError::TargetMutationFailed(reason))
+        }
+    }
+}
+
+fn persist_classified_mutation_job_query_failure<C: CanisterKind>(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    error: &InternalError,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    match classify_mutation_job_target_execution_failure(error) {
+        MutationJobTargetExecutionFailure::Restart(reason) => {
+            persist_terminal_mutation_job_restart::<C>(before, request, reason)
+        }
+        MutationJobTargetExecutionFailure::Target(_) => Err(MutationJobError::TargetQueryFailed),
+    }
+}
+
+fn classify_mutation_job_target_execution_failure(
+    error: &InternalError,
+) -> MutationJobTargetExecutionFailure {
+    if let Some(reason) = mutation_job_execution_budget_restart_reason(error) {
+        return MutationJobTargetExecutionFailure::Restart(reason);
+    }
+    let diagnostic = error.diagnostic();
+    match diagnostic.detail() {
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::MutationBatchStagedBytesExceeded,
+        }) => MutationJobTargetExecutionFailure::Target(
+            MutationJobTargetFailureReason::StagingByteBudgetExceeded,
+        ),
+        _ => MutationJobTargetExecutionFailure::Target(MutationJobTargetFailureReason::Other),
+    }
+}
+
+fn mutation_job_execution_budget_restart_reason(
+    error: &InternalError,
+) -> Option<MutationJobRestartReason> {
+    matches!(
+        error.diagnostic().detail(),
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+        })
+    )
+    .then_some(MutationJobRestartReason::ExecutionBudgetPolicyExceeded)
 }
 
 const fn mutation_verify_revision_changed(retained: u64, current: u64) -> bool {
     current != retained
+}
+
+const fn mutation_verify_restart_lifecycle(residual_work: bool) -> MutationJobLifecycleEvent {
+    if residual_work {
+        MutationJobLifecycleEvent::VerifyRestartResidualWork
+    } else {
+        MutationJobLifecycleEvent::VerifyRestartRevisionDrift
+    }
 }
 
 fn prepare_mutation_job_forward_runtime<'a>(
@@ -1456,7 +1701,7 @@ fn persist_terminal_mutation_job_restart<C: CanisterKind>(
     request: &MutationJobAdvanceRequest,
     reason: MutationJobRestartReason,
 ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
-    persist_mutation_job_progress_transition::<C>(
+    let receipt = persist_mutation_job_progress_transition::<C>(
         before,
         request,
         MutationJobTransition::new(
@@ -1467,7 +1712,9 @@ fn persist_terminal_mutation_job_restart<C: CanisterKind>(
             0,
             0,
         ),
-    )
+    )?;
+    record(MetricsEvent::MutationJobRestart { reason });
+    Ok(receipt)
 }
 
 fn persist_verify_restart<C: CanisterKind>(
@@ -1492,6 +1739,35 @@ fn persist_verify_restart<C: CanisterKind>(
             1,
         ),
     )
+}
+
+fn persist_observed_verify_restart<C: CanisterKind>(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    continuation: &DecodedMutationJobEngineContinuation,
+    keys_scanned: u64,
+    scan_bytes: usize,
+    event: MutationJobLifecycleEvent,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    let receipt = persist_verify_restart::<C>(before, request, continuation, keys_scanned)?;
+    record_mutation_job_step(MutationJobPhase::Verify, &receipt, scan_bytes, 0);
+    record_mutation_job_lifecycle(event);
+    Ok(receipt)
+}
+
+fn persist_observed_verify_transition<C: CanisterKind>(
+    before: &MutationJobRecord,
+    request: &MutationJobAdvanceRequest,
+    transition: MutationJobTransition,
+    scan_bytes: usize,
+    event: Option<MutationJobLifecycleEvent>,
+) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    let receipt = persist_mutation_job_progress_transition::<C>(before, request, transition)?;
+    record_mutation_job_step(MutationJobPhase::Verify, &receipt, scan_bytes, 0);
+    if let Some(event) = event {
+        record_mutation_job_lifecycle(event);
+    }
+    Ok(receipt)
 }
 
 fn validate_resumable_update_bindings(
@@ -1749,15 +2025,15 @@ mod tests {
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_compatibility_input() {
-        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x65d1_0487);
+        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x195d_c27a);
         assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
 
         let mut predecessor = RESUMABLE_UPDATE_BATCH_POLICY_INPUTS;
-        let timestamp_policy_index = predecessor.len() - 1;
+        let timestamp_policy_index = predecessor.len() - 3;
         predecessor[timestamp_policy_index] = 1;
         assert_eq!(
             resumable_update_batch_policy_identity(predecessor),
-            0x66d1_061a
+            0x55d6_794b
         );
         assert_ne!(
             resumable_update_batch_policy_identity(predecessor),
@@ -1773,6 +2049,38 @@ mod tests {
                 "compatibility input {index} must participate in the batch-policy identity",
             );
         }
+    }
+
+    #[test]
+    fn target_execution_failures_use_only_bounded_public_reasons() {
+        let staging = InternalError::mutation_batch_staged_bytes_exceeded(Some(101), 100);
+        assert!(matches!(
+            classify_mutation_job_target_execution_failure(&staging),
+            MutationJobTargetExecutionFailure::Target(
+                MutationJobTargetFailureReason::StagingByteBudgetExceeded
+            )
+        ));
+
+        let budget = InternalError::execution_budget_exceeded(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::RowsVisited,
+            100,
+            101,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+            7,
+        );
+        assert!(matches!(
+            classify_mutation_job_target_execution_failure(&budget),
+            MutationJobTargetExecutionFailure::Restart(
+                MutationJobRestartReason::ExecutionBudgetPolicyExceeded
+            )
+        ));
+
+        let other = InternalError::executor_invariant();
+        assert!(matches!(
+            classify_mutation_job_target_execution_failure(&other),
+            MutationJobTargetExecutionFailure::Target(MutationJobTargetFailureReason::Other)
+        ));
     }
 
     #[test]

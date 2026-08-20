@@ -123,7 +123,7 @@ pub use mutation_job::{
     MAX_MUTATION_JOB_STEP_KEYS_SCANNED, MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
     MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError, MutationJobId,
     MutationJobIdempotencyKey, MutationJobPayloadKind, MutationJobPhase, MutationJobRestartReason,
-    MutationJobState, MutationJobStatus,
+    MutationJobState, MutationJobStatus, MutationJobTargetFailureReason,
 };
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,

@@ -54,7 +54,9 @@ The remaining public SQL surfaces are:
 - `start_trusted_sql_mutation_job(job_id, ...)`
 - `mutation_job_state(job_id)`
 - `advance_trusted_mutation_job(...)`
+- `cancel_unadvanced_mutation_job(job_id, expected_sequence)`
 - `acknowledge_mutation_job(job_id, expected_terminal_sequence)`
+- `progress_job_inventory()`
 - `execute_admin_sql_ddl(...)`
 - `execute_admin_integrity_sql(...)`
 
@@ -508,20 +510,32 @@ Public SQL ownership is split deliberately:
 - `execute_trusted_sql_prefix_update(...)` owns intentional ordered-prefix
   SQL `UPDATE`
 - `start_trusted_sql_mutation_job(...)`, `mutation_job_state(...)`,
-  `advance_trusted_mutation_job(...)`, and `acknowledge_mutation_job(...)` own
-  durable trusted convergence without exposing SQL or continuation custody
+  `advance_trusted_mutation_job(...)`, `cancel_unadvanced_mutation_job(...)`,
+  `acknowledge_mutation_job(...)`, and `progress_job_inventory()` own durable
+  trusted convergence and capacity recovery without exposing SQL or
+  continuation custody
 - `execute_admin_sql_ddl(...)` owns accepted-catalog schema DDL SQL
 
 The current durable advance dispatches one engine-owned Forward or Verify page.
-Forward examines at most 224 authoritative keys, stages at most 56 updates,
-commits target rows with the next sequence/replay receipt atomically, advances
-zero-update pages through an exact progress replacement, and reuses the
-operation timestamp frozen at start. Forward exhaustion captures the durable
-target revision and enters Verify. Verify examines at most 224 keys, persists
-its physical checkpoint only while that revision remains unchanged, and
-reports `Completed` only after clean exhaustion. Revision drift or a residual
-row restarts Forward from the beginning; accepted-authority or internal-policy
+Forward examines at most 4,096 authoritative keys, stages at most 240 updates,
+stops before either its 16 MiB raw key-plus-row scan limit or the structural
+writer's exact 16 MiB key/before/after staging limit, commits target rows with
+the next sequence/replay receipt atomically, and advances zero-update pages
+through an exact progress replacement. The frozen operation timestamp remains
+the logical statement identity; writer-managed physical time is captured from
+the current advance message. Forward exhaustion captures the exact
+target-entity journal revision produced by its prepared commit and enters
+Verify. Verify examines at most 4,096 keys within its independent 16 MiB raw scan
+limit, retains one revision baseline across all Verify messages, and reports
+`Completed` only after clean exhaustion at that baseline. Target revision drift
+or a residual row restarts Forward from the beginning; accepted-authority,
+internal-policy, candidate-size, managed-time, or admitted execution-policy
 drift persists a typed `RestartRequired` terminal receipt.
+
+Each non-replay advance uses one fixed engine-owned execution allocation of 30
+billion instructions with a 5-billion failure reserve and further IC
+update-message margin. Exact replay returns before page execution. Applications
+cannot select or increase count, byte, or instruction budgets.
 
 ### SQL `UPDATE` Availability By Surface
 
@@ -540,16 +554,17 @@ Current boundary:
   assertion and the engine response-byte bound.
 - `execute_trusted_sql_mutation(...)` rejects `UPDATE`; it cannot infer
   exact versus prefix intent.
-- trusted resumable `UPDATE` first prepares a read-only current-format
-  continuation, which the application must custody durably outside the target
-  store. Each resume scans in authoritative primary-key order, commits at most
-  one independently atomic fixed-patch batch, and reports completion only after
-  a clean full verification sweep at one unchanged durable store revision.
+- trusted resumable `UPDATE` starts one IcyDB-custodied durable mutation job.
+  The application retains only its single-incarnation job ID, expected
+  sequence, and bounded idempotency key. Each advance scans in authoritative
+  primary-key order, commits at most one independently atomic fixed-patch page,
+  and reports completion only after a clean full verification sweep at one
+  unchanged target-entity journal revision.
 - resumable execution is restricted to journaled stores, fixed authored
   assignments, stable scopes, batch-independent accepted constraints, and
   entity graphs without application write callbacks. It has no row `RETURNING`
-  or cumulative affected-row claim, and raw continuations must not cross a
-  generated or caller-controlled endpoint.
+  or cumulative affected-row claim, and raw mutation continuations never leave
+  IcyDB custody.
 - generated `icydb_query` rejects row mutation SQL, including `UPDATE`.
 - generated `icydb_ddl` rejects row mutation SQL, including `UPDATE`.
 - generated `icydb_update` is not part of the default generated canister

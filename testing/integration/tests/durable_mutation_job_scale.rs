@@ -14,8 +14,9 @@ use icydb_testing_integration::{
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
         DURABLE_MUTATION_JOB_FIXTURE_ROWS, DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT,
-        DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT, DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
-        minimum_forward_advances, minimum_verify_advances,
+        DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT, DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT,
+        DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING, minimum_forward_advances,
+        minimum_verify_advances,
     },
     install_fixture_canister, upgrade_fixture_canister,
 };
@@ -213,6 +214,9 @@ impl MutationScaleRunEvidence {
                 }
             }
             MutationJobPhase::Verify => {
+                assert!(
+                    result.receipt.keys_scanned <= u64::from(DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT)
+                );
                 self.verify_calls = self.verify_calls.saturating_add(1);
                 self.verify_keys_scanned = self
                     .verify_keys_scanned
@@ -641,7 +645,8 @@ fn run_warm_scale_jobs(
 
 fn advance_startup_timers(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
     fixture.pocket_ic().advance_time(Duration::from_secs(1));
-    fixture.pocket_ic().tick();
+    // Observe every replicated recovery delivery independently so a second
+    // same-time callback cannot hide the required resumable checkpoint.
     fixture.pocket_ic().tick();
 }
 

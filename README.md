@@ -344,8 +344,8 @@ fn admin_work() -> Result<(), icydb::Error> {
         1,
     )?;
 
-    // Large fixed convergence work uses the separate trusted resumable
-    // prepare/resume contract with application-owned durable continuation custody.
+    // Large fixed convergence work uses IcyDB-custodied durable mutation jobs;
+    // the application retains only a fresh job ID, sequence, and replay key.
 
     let ddl = session.execute_admin_sql_ddl(
         "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",

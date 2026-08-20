@@ -76,7 +76,8 @@ pub mod metrics {
     pub use icydb_core::metrics::{
         CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
         EntitySummary, EventCounters, EventOps, EventReport, MetricRatio, MetricsSink,
-        compact_metric_code, compact_metrics_report, metrics_report, metrics_reset_all,
+        MutationJobMetrics, compact_metric_code, compact_metrics_report, metrics_report,
+        metrics_reset_all,
     };
 }
 

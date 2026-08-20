@@ -1,5 +1,8 @@
 use super::*;
-use crate::error::ErrorClass;
+use crate::{
+    db::{MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason},
+    error::ErrorClass,
+};
 use std::cell::Cell;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -9,6 +12,121 @@ use std::task::{Context, Poll, Waker};
 
 struct CountingSink {
     calls: Rc<AtomicUsize>,
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one closed matrix proves every mutation-job lifecycle and reason bucket"
+)]
+fn mutation_job_events_preserve_bounded_lifecycle_reason_and_resource_facts() {
+    metrics::reset_all();
+    for event in [
+        MutationJobLifecycleEvent::AdvanceExactReplay,
+        MutationJobLifecycleEvent::CancelUnadvanced,
+        MutationJobLifecycleEvent::Complete,
+        MutationJobLifecycleEvent::ForwardToVerify,
+        MutationJobLifecycleEvent::InventoryLoaded,
+        MutationJobLifecycleEvent::StartExactReplay,
+        MutationJobLifecycleEvent::StartInserted,
+        MutationJobLifecycleEvent::StateLoaded,
+        MutationJobLifecycleEvent::TerminalAcknowledged,
+        MutationJobLifecycleEvent::VerifyRestartResidualWork,
+        MutationJobLifecycleEvent::VerifyRestartRevisionDrift,
+    ] {
+        record(MetricsEvent::MutationJobLifecycle { event });
+    }
+    for reason in [
+        MutationJobRestartReason::AcceptedSchemaChanged,
+        MutationJobRestartReason::BatchPolicyChanged,
+        MutationJobRestartReason::CandidateExceedsBatchPolicy,
+        MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
+        MutationJobRestartReason::IntentIneligible,
+        MutationJobRestartReason::ManagedTimestampRegression,
+        MutationJobRestartReason::TargetAllocationChanged,
+        MutationJobRestartReason::UnsupportedContinuation,
+    ] {
+        record(MetricsEvent::MutationJobRestart { reason });
+    }
+    for reason in [
+        MutationJobTargetFailureReason::StagingByteBudgetExceeded,
+        MutationJobTargetFailureReason::Other,
+    ] {
+        record(MetricsEvent::MutationJobTargetFailure { reason });
+    }
+    record(MetricsEvent::MutationJobStep {
+        phase: MutationJobPhase::Forward,
+        keys_scanned: 11,
+        rows_updated: 3,
+        scan_bytes: 101,
+        staged_bytes: 202,
+        keys_scanned_total: 11,
+        rows_updated_total: 3,
+        verify_restarts_total: 0,
+    });
+    record(MetricsEvent::MutationJobStep {
+        phase: MutationJobPhase::Verify,
+        keys_scanned: 7,
+        rows_updated: 0,
+        scan_bytes: 55,
+        staged_bytes: 0,
+        keys_scanned_total: 18,
+        rows_updated_total: 3,
+        verify_restarts_total: 1,
+    });
+    record(MetricsEvent::MutationJobCapacity {
+        retained_count: 9,
+        hard_limit: 64,
+        reserved_integrity_headroom: 8,
+        integrity_count: 2,
+        resumable_count: 3,
+        mutation_count: 4,
+        retained_record_bytes: 5_000,
+    });
+
+    let report = metrics_report(None);
+    let jobs = report
+        .counters()
+        .expect("current metrics window should exist")
+        .ops()
+        .mutation_jobs();
+    assert_eq!(jobs.starts_inserted(), 1);
+    assert_eq!(jobs.starts_exact_replayed(), 1);
+    assert_eq!(jobs.states_loaded(), 1);
+    assert_eq!(jobs.advances_exact_replayed(), 1);
+    assert_eq!(jobs.cancellations(), 1);
+    assert_eq!(jobs.terminal_acknowledgements(), 1);
+    assert_eq!(jobs.inventories_loaded(), 1);
+    assert_eq!(jobs.forward_to_verify_transitions(), 1);
+    assert_eq!(jobs.verify_restarts_revision_drift(), 1);
+    assert_eq!(jobs.verify_restarts_residual_work(), 1);
+    assert_eq!(jobs.completions(), 1);
+    assert_eq!(jobs.forward_steps_committed(), 1);
+    assert_eq!(jobs.verify_steps_committed(), 1);
+    assert_eq!(jobs.keys_scanned(), 18);
+    assert_eq!(jobs.rows_updated(), 3);
+    assert_eq!(jobs.scan_bytes(), 156);
+    assert_eq!(jobs.staged_bytes(), 202);
+    assert_eq!(jobs.keys_scanned_cumulative_max(), 18);
+    assert_eq!(jobs.rows_updated_cumulative_max(), 3);
+    assert_eq!(jobs.verify_restarts_cumulative_max(), 1);
+    assert_eq!(jobs.terminal_restarts(), 8);
+    assert_eq!(
+        jobs.restart_count(MutationJobRestartReason::ExecutionBudgetPolicyExceeded),
+        1
+    );
+    assert_eq!(
+        jobs.target_failure_count(MutationJobTargetFailureReason::StagingByteBudgetExceeded),
+        1
+    );
+    assert_eq!(jobs.retained_count(), 9);
+    assert_eq!(jobs.hard_limit(), 64);
+    assert_eq!(jobs.reserved_integrity_headroom(), 8);
+    assert_eq!(jobs.integrity_count(), 2);
+    assert_eq!(jobs.resumable_count(), 3);
+    assert_eq!(jobs.mutation_count(), 4);
+    assert_eq!(jobs.retained_record_bytes(), 5_000);
+    metrics::reset_all();
 }
 
 impl MetricsSink for CountingSink {

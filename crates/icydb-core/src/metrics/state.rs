@@ -13,6 +13,7 @@ use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
 
 mod compact;
+mod mutation_job;
 mod ops;
 mod report;
 mod summary;
@@ -22,6 +23,7 @@ pub use compact::{
     CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
     compact_metric_code,
 };
+pub use mutation_job::MutationJobMetrics;
 pub use ops::EventOps;
 pub use ops::MetricRatio;
 pub(in crate::metrics) use ops::ratio;

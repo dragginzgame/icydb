@@ -245,7 +245,9 @@ SQL entry points are explicit trusted/admin lanes:
 - `start_trusted_sql_mutation_job`
 - `mutation_job_state`
 - `advance_trusted_mutation_job`
+- `cancel_unadvanced_mutation_job`
 - `acknowledge_mutation_job`
+- `progress_job_inventory`
 - `execute_admin_sql_ddl`
 - `execute_admin_integrity_sql`
 
@@ -261,15 +263,36 @@ explicit `public`, `controller`, or `guard(path)` choice. Its guard sees the
 
 Durable mutation jobs retain the canonical fixed-update intent and private
 engine continuation inside IcyDB. Callers keep only the job id, expected
-sequence, and a bounded idempotency key. Each advance performs at most one
-224-key/56-update Forward step or one 224-key Verify step, and exact request
-replay returns the retained receipt without scanning or mutating again. Verify
-completes only after a clean exhaustive pass at one unchanged durable target
-revision. A target revision change or residual row restarts Forward; accepted
-authority or internal batch-policy drift yields a typed terminal
-`RestartRequired` state. Callers acknowledge a consumed terminal sequence to
-remove its retained record; repeating acknowledgement after response loss is
-safe.
+sequence, and a bounded idempotency key. Forward examines at most 4,096
+authoritative keys and changes at most 240 rows, while Verify examines at most
+4,096 keys. Forward independently limits
+raw key-plus-row scan bytes and exact writer-owned key/before/after staging
+bytes to 16 MiB each; Verify has its own 16 MiB raw scan-byte limit. Exact
+request replay returns the retained receipt without scanning or mutating again.
+
+Non-replay page execution has a fixed 30-billion-instruction allocation and a
+5-billion failure reserve below the IC update-message ceiling. These limits are
+engine policy, not caller parameters.
+
+The retained operation timestamp identifies the logical statement. Every
+Forward message separately captures current time for writer-managed physical
+metadata, so a later matching row can converge without changing statement
+identity. Verify completes only after a clean exhaustive pass against one
+unchanged target-entity journal revision retained across every Verify message.
+A target revision change or residual row restarts Forward; accepted authority,
+batch policy, an impossible candidate, managed-time regression, or admitted
+execution-policy divergence yields a bounded typed terminal
+`RestartRequired` state.
+
+An application may cancel only the exact unadvanced sequence-zero state. Job
+IDs are single-incarnation and must never be reused; a logical retry allocates
+a fresh ID. `progress_job_inventory` validates every retained shared-progress
+record before returning capacity, family, lifecycle, sequence, and encoded-byte
+facts. The shared hard limit is 64 records: non-integrity insertion rejects at
+a pre-insert count of 56 or greater, reserving eight slots for integrity work.
+Callers acknowledge a consumed terminal sequence to remove its retained record;
+repeating cancellation or acknowledgement after response loss is safe under
+the fresh-ID contract.
 
 ## Schema And Integrity
 

@@ -119,6 +119,8 @@ pub struct ProgressJobInventory {
     pub resumable_count: u64,
     /// Retained fixed SQL mutation records.
     pub mutation_count: u64,
+    /// Complete encoded bytes across every retained record.
+    pub retained_record_bytes: u64,
     /// Every validated retained record in stable key order.
     pub records: Vec<ProgressJobInventoryRecord>,
 }
@@ -616,6 +618,7 @@ impl InspectionProgressStore {
         let mut integrity_count = 0_u64;
         let mut resumable_count = 0_u64;
         let mut mutation_count = 0_u64;
+        let mut retained_record_bytes = 0_u64;
 
         for entry in self.map.iter() {
             let key = *entry.key();
@@ -623,6 +626,12 @@ impl InspectionProgressStore {
                 continue;
             }
             let bytes = &entry.value().0;
+            retained_record_bytes = retained_record_bytes
+                .checked_add(
+                    u64::try_from(bytes.len())
+                        .map_err(|_| MutationJobError::CorruptProgressStore)?,
+                )
+                .ok_or(MutationJobError::CorruptProgressStore)?;
             let record = if bytes.starts_with(JOB_RECORD_MAGIC) {
                 let job_id = IntegrityJobId::try_from_bytes(key.to_bytes())
                     .map_err(|_| MutationJobError::CorruptProgressStore)?;
@@ -696,6 +705,7 @@ impl InspectionProgressStore {
             integrity_count,
             resumable_count,
             mutation_count,
+            retained_record_bytes,
             records,
         })
     }
@@ -1841,6 +1851,23 @@ mod tests {
         assert_eq!(inventory.integrity_count, 1);
         assert_eq!(inventory.resumable_count, 1);
         assert_eq!(inventory.mutation_count, 1);
+        let expected_record_bytes = encode_job_record(&integrity)
+            .expect("integrity record should encode")
+            .len()
+            .saturating_add(
+                encode_resumable_job_record(&resumable)
+                    .expect("resumable record should encode")
+                    .len(),
+            )
+            .saturating_add(
+                encode_mutation_job_record(&mutation)
+                    .expect("mutation record should encode")
+                    .len(),
+            );
+        assert_eq!(
+            inventory.retained_record_bytes,
+            u64::try_from(expected_record_bytes).expect("bounded records fit u64")
+        );
         assert_eq!(inventory.records.len(), 3);
         assert!(inventory.records.iter().all(|record| {
             record.lifecycle == ProgressJobLifecycle::Active && record.sequence == Some(0)

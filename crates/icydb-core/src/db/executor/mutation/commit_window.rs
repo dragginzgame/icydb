@@ -15,6 +15,7 @@ use crate::{
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
+        executor::budget::finish_current_execution_instruction_watermark,
         index::{
             IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
@@ -54,6 +55,9 @@ const MUTATION_COMMIT_WORK_UNITS_PER_ROW: usize = 4;
 const MUTATION_COMMIT_WORK_UNITS_PER_IDENTITY_RANGE: usize = 4;
 const MUTATION_COMMIT_WORK_UNITS_PER_PROGRESS_SUCCESSOR: usize = 4;
 const MAX_MUTATION_COMMIT_WORK_UNITS: usize = 16_384;
+pub(in crate::db) const MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT: usize =
+    (MAX_MUTATION_COMMIT_WORK_UNITS - MUTATION_COMMIT_WORK_UNITS_PER_PROGRESS_SUCCESSOR)
+        / (MUTATION_COMMIT_WORK_UNITS_PER_ROW + icydb_schema::MAX_FRAGMENT_INDEXES);
 
 /// Test-only durable interruption boundaries around mutation publication.
 #[cfg(test)]
@@ -652,6 +656,7 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     )?;
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
+    finish_current_execution_instruction_watermark()?;
     let commit = begin_commit_window_payload::<C>(marker, effects.mutation_progress.is_some())?;
 
     Ok(OpenCommitWindow {
@@ -1364,6 +1369,7 @@ mod tests {
 
     #[test]
     fn canonical_commit_work_bound_tracks_exact_prepared_fanout() {
+        assert_eq!(MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT, 240,);
         let final_zero_index_units =
             next_mutation_commit_work_units((4_096 - 1) * MUTATION_COMMIT_WORK_UNITS_PER_ROW, 0)
                 .expect("the final zero-index row should be admitted");
@@ -1382,7 +1388,7 @@ mod tests {
         );
 
         let mut max_fanout_units = 0;
-        for _ in 0..240 {
+        for _ in 0..MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT {
             max_fanout_units = next_mutation_commit_work_units(max_fanout_units, 64)
                 .expect("240 maximum-fanout inserts should be admitted");
         }

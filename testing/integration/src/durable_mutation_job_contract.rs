@@ -20,10 +20,13 @@ pub const DURABLE_MUTATION_JOB_BASELINE_TREE: &str = "09dc2a58d260932adac03c40c4
 pub const DURABLE_MUTATION_JOB_FIXTURE_ROWS: u32 = 10_001;
 
 /// Current engine-owned maximum authoritative keys examined by one step.
-pub const DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT: u32 = 208;
+pub const DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT: u32 = 4_096;
 
 /// Current engine-owned maximum fixed updates staged by one Forward step.
-pub const DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT: u32 = 56;
+pub const DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT: u32 = 240;
+
+/// Current engine-owned maximum authoritative keys examined by one Verify step.
+pub const DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT: u32 = 4_096;
 
 /// Existing exact one-shot update admission ceiling used by the incident control.
 pub const DURABLE_MUTATION_JOB_EAGER_UPDATE_ROW_LIMIT: u32 = 4_096;
@@ -95,13 +98,10 @@ const _: () = {
     assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[0] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[1] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[2] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
-    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[3] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
-    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[4] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
-    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[5] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
-    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[6] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
-    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[7] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
-    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[8] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
-    assert!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS[9] < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    assert!(
+        CURRENT_DURABLE_MAX_FANOUT_FORWARD_INSTRUCTIONS
+            < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING
+    );
     assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[0] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[1] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS[2] < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
@@ -147,37 +147,37 @@ pub const BASELINE_VERIFY_INSTRUCTIONS: &[u64] = &[6_431_179, 6_440_484];
 pub const DURABLE_START_INSTRUCTION_REVIEW_CEILING: u64 = 5_000_000;
 
 /// Current first sequence-zero durable-start instruction sample.
-pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_325_957;
+pub const CURRENT_DURABLE_START_INSTRUCTIONS: u64 = 1_326_868;
 
 /// Current canonically equivalent retained-start replay instruction sample.
-pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_400_734;
+pub const CURRENT_DURABLE_START_REPLAY_INSTRUCTIONS: u64 = 1_436_652;
 
-/// Current durable 56-update Forward samples over the fixed 512-row fixture.
-pub const CURRENT_DURABLE_FORWARD_INSTRUCTIONS: &[u64] = &[
-    28_871_689, 30_445_826, 30_627_431, 31_024_879, 31_585_100, 31_730_329, 31_653_775, 31_905_351,
-    31_831_218, 8_474_453,
-];
+/// Current durable 240-update Forward samples over the fixed 512-row fixture.
+pub const CURRENT_DURABLE_FORWARD_INSTRUCTIONS: &[u64] = &[115_056_676, 122_858_524, 21_252_080];
+
+/// Current 240-row Forward page with all 64 accepted secondary indexes.
+pub const CURRENT_DURABLE_MAX_FANOUT_FORWARD_INSTRUCTIONS: u64 = 4_948_825_024;
 
 /// Current exact replay sample for the final retained Forward receipt.
-pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 122_903;
+pub const CURRENT_DURABLE_FORWARD_REPLAY_INSTRUCTIONS: u64 = 123_012;
 
-/// Current durable 208-key Verify samples over the fixed 512-row fixture.
-pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[7_431_771, 7_462_037, 4_215_248];
+/// Current durable Verify samples over the fixed lifecycle fixture.
+pub const CURRENT_DURABLE_VERIFY_INSTRUCTIONS: &[u64] = &[110_338_161, 107_492_238, 1_666_377];
 
 /// Current exact replay sample for one retained nonterminal Verify receipt.
-pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 125_035;
+pub const CURRENT_DURABLE_VERIFY_REPLAY_INSTRUCTIONS: u64 = 124_872;
 
 /// Current pre-scan revision-drift restart sample.
-pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_464_836;
+pub const CURRENT_DURABLE_VERIFY_DRIFT_RESTART_INSTRUCTIONS: u64 = 1_523_295;
 
 /// Current terminal mutation-job state-load sample.
-pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 104_981;
+pub const CURRENT_DURABLE_STATE_INSTRUCTIONS: u64 = 104_993;
 
 /// Current exact replay sample for the retained completion receipt.
-pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_114;
+pub const CURRENT_DURABLE_COMPLETION_REPLAY_INSTRUCTIONS: u64 = 106_131;
 
 /// Current sequence-checked terminal acknowledgement sample.
-pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 117_843;
+pub const CURRENT_DURABLE_ACKNOWLEDGEMENT_INSTRUCTIONS: u64 = 117_863;
 
 /// Current exact sequence-zero cancellation sample.
 pub const CURRENT_DURABLE_CANCELLATION_INSTRUCTIONS: u64 = 144_089;
@@ -189,13 +189,13 @@ pub const CURRENT_DURABLE_ABSENT_CANCELLATION_INSTRUCTIONS: u64 = 37_249;
 pub const CURRENT_DURABLE_INVENTORY_ONE_INSTRUCTIONS: u64 = 116_690;
 
 /// Current complete inventory sample at all 64 retained slots.
-pub const CURRENT_DURABLE_INVENTORY_FULL_INSTRUCTIONS: u64 = 5_869_961;
+pub const CURRENT_DURABLE_INVENTORY_FULL_INSTRUCTIONS: u64 = 5_880_547;
 
-/// Maximum reviewed instruction cost for one byte- and count-packed 56-update Forward step.
-pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 34_000_000;
+/// Maximum reviewed instruction cost for one byte- and count-packed 240-update Forward step.
+pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 7_500_000_000;
 
-/// Maximum reviewed instruction cost for one 208-key Verify step.
-pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 8_000_000;
+/// Maximum reviewed instruction cost for one 4,096-key Verify step.
+pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 500_000_000;
 
 /// Maximum reviewed instruction cost for state, replay, or acknowledgement.
 pub const DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING: u64 = 2_000_000;
@@ -429,7 +429,7 @@ pub const fn minimum_forward_advances(rows: u32) -> u32 {
 /// Minimum clean Verify calls needed to prove exhaustion.
 #[must_use]
 pub const fn minimum_verify_advances(rows: u32) -> u32 {
-    rows.div_ceil(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT)
+    rows.div_ceil(DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT)
 }
 
 #[cfg(test)]
@@ -444,11 +444,11 @@ mod tests {
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_TAG, "v0.222.4");
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_COMMIT.len(), 40);
         assert_eq!(DURABLE_MUTATION_JOB_BASELINE_TREE.len(), 40);
-        assert_eq!(minimum_forward_advances(10_001), 179);
-        assert_eq!(minimum_verify_advances(10_001), 49);
+        assert_eq!(minimum_forward_advances(10_001), 42);
+        assert_eq!(minimum_verify_advances(10_001), 3);
         assert_eq!(BASELINE_FORWARD_INSTRUCTIONS.len(), 8);
         assert_eq!(BASELINE_VERIFY_INSTRUCTIONS.len(), 2);
-        assert_eq!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS.len(), 10);
+        assert_eq!(CURRENT_DURABLE_FORWARD_INSTRUCTIONS.len(), 3);
         assert_eq!(CURRENT_DURABLE_VERIFY_INSTRUCTIONS.len(), 3);
         assert_eq!(BASELINE_DYNAMIC_QUERY_RAW_WASM_BYTES, 2_607_381);
         assert_eq!(BASELINE_TYPED_QUERY_RAW_WASM_BYTES, 1_792_657);
@@ -509,10 +509,25 @@ mod tests {
             "MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES,\n    RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,\n    2 * 1024"
         ));
         assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,\n    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,\n    208"
+            "MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,\n    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,\n    4_096"
         ));
         assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_FORWARD_ROWS,\n    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,\n    56"
+            "MAX_RESUMABLE_UPDATE_FORWARD_ROWS,\n    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,\n    MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT"
+        ));
+        assert!(resumable_update.contains(
+            "MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED,\n    RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED_POLICY,\n    4_096"
+        ));
+        assert!(resumable_update.contains("MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY"));
+
+        let execution_budget =
+            fs::read_to_string(workspace.join("crates/icydb-core/src/db/executor/budget.rs"))
+                .expect("mutation execution-budget authority should be readable");
+        assert!(
+            execution_budget
+                .contains("const MUTATION_EXECUTION_INSTRUCTION_LIMIT: u64 = 30_000_000_000;")
+        );
+        assert!(execution_budget.contains(
+            "const MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE: u64 = 5_000_000_000;"
         ));
 
         let exact_update = fs::read_to_string(

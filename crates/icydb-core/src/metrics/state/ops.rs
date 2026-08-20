@@ -6,6 +6,8 @@
 use candid::CandidType;
 use serde::Deserialize;
 
+use super::MutationJobMetrics;
+
 ///
 /// MetricRatio
 ///
@@ -198,9 +200,16 @@ pub struct EventOps {
     pub(crate) unique_violations: u64,
     pub(crate) non_atomic_partial_commits: u64,
     pub(crate) non_atomic_partial_rows_committed: u64,
+    pub(crate) mutation_jobs: MutationJobMetrics,
 }
 
 impl EventOps {
+    /// Return bounded durable mutation-job lifecycle and resource metrics.
+    #[must_use]
+    pub const fn mutation_jobs(&self) -> &MutationJobMetrics {
+        &self.mutation_jobs
+    }
+
     #[must_use]
     pub const fn load_calls(&self) -> u64 {
         self.load_calls

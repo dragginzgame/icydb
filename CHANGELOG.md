@@ -5,9 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.233.x] ⏱️ - 2026-08-19 - Durable Mutation-Job Liveness And Recovery
+## [0.233.x] ⏱️ - 2026-08-20 - Durable Mutation-Job Liveness And Recovery
 
 Detailed notes: [docs/changelog/0.233.md](docs/changelog/0.233.md)
+
+- `0.233.3` closes the durable mutation-job line with bounded failure reasons,
+  enforced terminal execution budgets, a 4,096-key/240-row Forward envelope,
+  privacy-safe lifecycle/resource metrics, exact retained-byte capacity
+  reporting, and current operational documentation.
 
 - `0.233.2` narrows durable Verify invalidation to journal-owned target-entity
   revisions with bounded predecessor initialization and one retained cross-page

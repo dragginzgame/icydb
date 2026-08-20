@@ -22,6 +22,10 @@ const INSTRUCTION_WATERMARK_LARGE_CHARGE: u64 = 1_024 * 1_024;
 
 const READ_FAILURE_HEADROOM: HardExecutionFailureHeadroom =
     HardExecutionFailureHeadroom::new(500_000_000, 64 * 1_024);
+pub(in crate::db) const MUTATION_EXECUTION_INSTRUCTION_LIMIT: u64 = 30_000_000_000;
+pub(in crate::db) const MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE: u64 = 5_000_000_000;
+const MUTATION_FAILURE_HEADROOM: HardExecutionFailureHeadroom =
+    HardExecutionFailureHeadroom::new(MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE, 64 * 1_024);
 static READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
     [
         1,                   // query executions
@@ -48,6 +52,56 @@ static READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
     ],
     READ_FAILURE_HEADROOM,
 );
+static MUTATION_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
+    [
+        1,                                    // query executions
+        2_000_000,                            // planning steps
+        64,                                   // plan compilations
+        250_000,                              // key/index entries visited
+        250_000,                              // rows visited
+        128 * 1_024 * 1_024,                  // stored bytes read
+        16_000_000,                           // predicate/expression steps
+        16_000_000,                           // nested value steps
+        128 * 1_024 * 1_024,                  // decoded bytes
+        128 * 1_024 * 1_024,                  // materialized bytes
+        250_000,                              // sort entries
+        32_000_000,                           // sort comparisons
+        128 * 1_024 * 1_024,                  // sort temporary bytes
+        100_000,                              // group/distinct entries
+        128 * 1_024 * 1_024,                  // group/distinct state bytes
+        1_000_000,                            // cursor steps
+        128 * 1_024 * 1_024,                  // temporary bytes
+        1_000_000,                            // diagnostic steps
+        100_000,                              // result rows
+        64 * 1_024 * 1_024,                   // result bytes
+        MUTATION_EXECUTION_INSTRUCTION_LIMIT, // instruction units
+    ],
+    MUTATION_FAILURE_HEADROOM,
+);
+pub(in crate::db) const MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY: u32 =
+    hard_execution_budget_policy_identity(&MUTATION_HARD_BUDGET);
+
+const fn hard_execution_budget_policy_identity(budget: &HardExecutionBudget) -> u32 {
+    let mut identity = 0x811c_9dc5_u32;
+    let mut index = 0;
+    while index < RESOURCE_COUNT {
+        identity = fold_execution_budget_policy_u64(identity, budget.limits[index]);
+        index += 1;
+    }
+    identity =
+        fold_execution_budget_policy_u64(identity, budget.failure_headroom.instruction_units);
+    fold_execution_budget_policy_u64(identity, budget.failure_headroom.response_bytes)
+}
+
+const fn fold_execution_budget_policy_u64(mut identity: u32, value: u64) -> u32 {
+    let bytes = value.to_le_bytes();
+    identity ^= u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    identity = identity.wrapping_mul(0x0100_0193);
+    identity ^= u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    identity = identity.wrapping_mul(0x0100_0193);
+
+    identity
+}
 
 #[cfg(test)]
 pub(in crate::db::executor) const fn read_hard_budget_limit_for_tests(
@@ -568,11 +622,30 @@ pub(in crate::db::executor) fn with_read_execution_budget<T>(
         ),
         run,
         std::convert::identity,
+        ExecutionBudgetFinish::Automatic,
     )
 }
 
+/// Run one durable mutation advance under its fixed engine-owned allocation.
+///
+/// Mutation execution samples explicitly before every publication boundary so
+/// deterministic exhaustion can leave the budget scope and persist one
+/// progress-only terminal transition from the reserved failure headroom.
+pub(in crate::db) fn with_mutation_execution_budget<T, E>(
+    context: HardExecutionContext,
+    run: impl FnOnce() -> Result<T, E>,
+    map_internal: fn(InternalError) -> E,
+) -> Result<T, E> {
+    let mut tracker = HardExecutionBudgetTracker::new(&MUTATION_HARD_BUDGET, context);
+    tracker
+        .check_instruction_watermark()
+        .map_err(InternalError::from)
+        .map_err(map_internal)?;
+    with_execution_budget(tracker, run, map_internal, ExecutionBudgetFinish::Explicit)
+}
+
 /// Charge one maintained physical resource in the innermost active execution.
-pub(in crate::db::executor) fn charge_current_execution_budget(
+pub(in crate::db) fn charge_current_execution_budget(
     resource: DiagnosticExecutionBudgetResource,
     amount: u64,
 ) -> Result<(), InternalError> {
@@ -715,8 +788,7 @@ pub(in crate::db::executor) fn charge_sort_work<R>(entries: usize) -> Result<(),
 }
 
 /// Sample only the instruction watermark for the innermost active execution.
-pub(in crate::db::executor) fn finish_current_execution_instruction_watermark()
--> Result<(), InternalError> {
+pub(in crate::db) fn finish_current_execution_instruction_watermark() -> Result<(), InternalError> {
     ACTIVE_EXECUTION_BUDGET.with(|budget| {
         let mut budget = budget
             .try_borrow_mut()
@@ -867,10 +939,17 @@ pub(in crate::db::executor) fn runtime_value_work(value: &Value) -> (u64, u64) {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ExecutionBudgetFinish {
+    Automatic,
+    Explicit,
+}
+
 fn with_execution_budget<T, E>(
     mut tracker: HardExecutionBudgetTracker,
     run: impl FnOnce() -> Result<T, E>,
     map_internal: fn(InternalError) -> E,
+    finish: ExecutionBudgetFinish,
 ) -> Result<T, E> {
     tracker
         .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1)
@@ -893,7 +972,10 @@ fn with_execution_budget<T, E>(
     }
 
     let result = run();
-    let final_budget_result = finish_current_execution_instruction_watermark();
+    let final_budget_result = match finish {
+        ExecutionBudgetFinish::Automatic => finish_current_execution_instruction_watermark(),
+        ExecutionBudgetFinish::Explicit => Ok(()),
+    };
     let removed = ACTIVE_EXECUTION_BUDGET.with(|budget| {
         budget
             .try_borrow_mut()
@@ -935,6 +1017,22 @@ pub(in crate::db) fn with_query_execution_budget_for_tests<T>(
         HardExecutionBudgetTracker::new_for_tests(budget, context),
         run,
         QueryError::execute,
+        ExecutionBudgetFinish::Automatic,
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db) fn with_execution_budget_for_tests<T, E>(
+    budget: HardExecutionBudget,
+    context: HardExecutionContext,
+    run: impl FnOnce() -> Result<T, E>,
+    map_internal: fn(InternalError) -> E,
+) -> Result<T, E> {
+    with_execution_budget(
+        HardExecutionBudgetTracker::new_for_tests(budget, context),
+        run,
+        map_internal,
+        ExecutionBudgetFinish::Automatic,
     )
 }
 
@@ -1000,6 +1098,48 @@ mod tests {
     }
 
     #[test]
+    fn mutation_execution_policy_identity_covers_limits_and_failure_reserves() {
+        assert_eq!(MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY, 0xb691_2779);
+        assert_eq!(
+            MUTATION_HARD_BUDGET.limit(DiagnosticExecutionBudgetResource::InstructionUnits),
+            MUTATION_EXECUTION_INSTRUCTION_LIMIT,
+        );
+        assert_eq!(
+            MUTATION_HARD_BUDGET.failure_headroom().instruction_units(),
+            MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE,
+        );
+
+        for resource in DiagnosticExecutionBudgetResource::ALL {
+            let changed = MUTATION_HARD_BUDGET.with_limit_for_tests(
+                resource,
+                MUTATION_HARD_BUDGET.limit(resource).wrapping_add(1),
+            );
+            assert_ne!(
+                hard_execution_budget_policy_identity(&changed),
+                MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY,
+                "resource {resource:?} must participate in mutation execution policy identity",
+            );
+        }
+
+        for headroom in [
+            HardExecutionFailureHeadroom::new(
+                MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE + 1,
+                MUTATION_FAILURE_HEADROOM.response_bytes,
+            ),
+            HardExecutionFailureHeadroom::new(
+                MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE,
+                MUTATION_FAILURE_HEADROOM.response_bytes + 1,
+            ),
+        ] {
+            let changed = HardExecutionBudget::new(MUTATION_HARD_BUDGET.limits, headroom);
+            assert_ne!(
+                hard_execution_budget_policy_identity(&changed),
+                MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY,
+            );
+        }
+    }
+
+    #[test]
     fn arithmetic_overflow_is_exhaustion_and_never_refunds_usage() {
         let budget = HardExecutionBudget::new([u64::MAX; RESOURCE_COUNT], TEST_HEADROOM);
         let resource = DiagnosticExecutionBudgetResource::PlanningSteps;
@@ -1061,6 +1201,7 @@ mod tests {
                 Ok::<_, InternalError>(())
             },
             std::convert::identity,
+            ExecutionBudgetFinish::Automatic,
         );
 
         assert!(result.is_ok());
@@ -1085,6 +1226,7 @@ mod tests {
                 )
             },
             std::convert::identity,
+            ExecutionBudgetFinish::Automatic,
         )
         .expect_err("the first paired charge should retain its ordinary hard limit");
 
@@ -1150,6 +1292,7 @@ mod tests {
             ),
             || Err::<(), _>(InternalError::query_executor_invariant()),
             std::convert::identity,
+            ExecutionBudgetFinish::Automatic,
         );
         assert!(failed.is_err());
 
@@ -1168,9 +1311,11 @@ mod tests {
                     ),
                     || Ok::<_, InternalError>(()),
                     std::convert::identity,
+                    ExecutionBudgetFinish::Automatic,
                 )
             },
             std::convert::identity,
+            ExecutionBudgetFinish::Automatic,
         );
         assert!(retried.is_ok());
         assert_eq!(

@@ -13,15 +13,17 @@ pub use sink::metrics_report;
 pub use sink::with_query_metrics_context;
 pub use sink::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
-    MetricsEvent, MetricsSink, MutationCommitClass, PlanChoiceReason, PlanKind, SaveMutationKind,
-    SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
-    compact_metrics_report, metrics_reset_all,
+    MetricsEvent, MetricsSink, MutationCommitClass, MutationJobLifecycleEvent, PlanChoiceReason,
+    PlanKind, SaveMutationKind, SchemaReconcileOutcome, SchemaTransitionOutcome,
+    SqlCompileRejectPhase, SqlWriteKind, compact_metrics_report, metrics_reset_all,
 };
 pub use state::{
     CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
     compact_metric_code,
 };
-pub use state::{EntitySummary, EventCounters, EventOps, EventReport, MetricRatio};
+pub use state::{
+    EntitySummary, EventCounters, EventOps, EventReport, MetricRatio, MutationJobMetrics,
+};
 
 ///
 /// TESTS

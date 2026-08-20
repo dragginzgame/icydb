@@ -84,7 +84,8 @@ pub(in crate::db::executor) use index_prefix_cardinality::{
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(in crate::db) use mutation::{
-    AcceptedMutationConstraintScheduler, commit_structural_row_ops_with_mutation_progress_for_path,
+    AcceptedMutationConstraintScheduler, MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT,
+    commit_structural_row_ops_with_mutation_progress_for_path,
     commit_structural_row_ops_with_window_for_path,
 };
 #[cfg(test)]

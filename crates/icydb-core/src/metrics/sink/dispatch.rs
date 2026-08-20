@@ -3,10 +3,13 @@
 //! Does not own: sink override routing, span lifetimes, or report/reset APIs.
 //! Boundary: concrete global sink implementation behind the sink facade.
 
-use crate::metrics::state as metrics;
+use crate::{
+    db::{MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason},
+    metrics::state as metrics,
+};
 
 use super::counters::*;
-use super::{ExecKind, MetricsEvent, MetricsSink, SaveMutationKind};
+use super::{ExecKind, MetricsEvent, MetricsSink, MutationJobLifecycleEvent, SaveMutationKind};
 
 /// GlobalMetricsSink
 /// Default process-local sink that writes into global metrics state.
@@ -211,6 +214,137 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
             MetricsEvent::MutationCommitPlan { .. } => {}
+            MetricsEvent::MutationJobCapacity {
+                retained_count,
+                hard_limit,
+                reserved_integrity_headroom,
+                integrity_count,
+                resumable_count,
+                mutation_count,
+                retained_record_bytes,
+            } => {
+                metrics::with_state_mut(|m| {
+                    let jobs = &mut m.ops.mutation_jobs;
+                    jobs.retained_count = retained_count;
+                    jobs.hard_limit = hard_limit;
+                    jobs.reserved_integrity_headroom = reserved_integrity_headroom;
+                    jobs.integrity_count = integrity_count;
+                    jobs.resumable_count = resumable_count;
+                    jobs.mutation_count = mutation_count;
+                    jobs.retained_record_bytes = retained_record_bytes;
+                });
+            }
+            MetricsEvent::MutationJobLifecycle { event } => {
+                metrics::with_state_mut(|m| {
+                    let jobs = &mut m.ops.mutation_jobs;
+                    #[remain::sorted]
+                    let counter = match event {
+                        MutationJobLifecycleEvent::AdvanceExactReplay => {
+                            &mut jobs.advances_exact_replayed
+                        }
+                        MutationJobLifecycleEvent::CancelUnadvanced => &mut jobs.cancellations,
+                        MutationJobLifecycleEvent::Complete => &mut jobs.completions,
+                        MutationJobLifecycleEvent::ForwardToVerify => {
+                            &mut jobs.forward_to_verify_transitions
+                        }
+                        MutationJobLifecycleEvent::InventoryLoaded => &mut jobs.inventories_loaded,
+                        MutationJobLifecycleEvent::StartExactReplay => {
+                            &mut jobs.starts_exact_replayed
+                        }
+                        MutationJobLifecycleEvent::StartInserted => &mut jobs.starts_inserted,
+                        MutationJobLifecycleEvent::StateLoaded => &mut jobs.states_loaded,
+                        MutationJobLifecycleEvent::TerminalAcknowledged => {
+                            &mut jobs.terminal_acknowledgements
+                        }
+                        MutationJobLifecycleEvent::VerifyRestartResidualWork => {
+                            &mut jobs.verify_restarts_residual_work
+                        }
+                        MutationJobLifecycleEvent::VerifyRestartRevisionDrift => {
+                            &mut jobs.verify_restarts_revision_drift
+                        }
+                    };
+                    *counter = counter.saturating_add(1);
+                });
+            }
+            MetricsEvent::MutationJobRestart { reason } => {
+                metrics::with_state_mut(|m| {
+                    let jobs = &mut m.ops.mutation_jobs;
+                    let counter = match reason {
+                        MutationJobRestartReason::AcceptedSchemaChanged => {
+                            &mut jobs.restart_accepted_schema_changed
+                        }
+                        MutationJobRestartReason::BatchPolicyChanged => {
+                            &mut jobs.restart_batch_policy_changed
+                        }
+                        MutationJobRestartReason::CandidateExceedsBatchPolicy => {
+                            &mut jobs.restart_candidate_exceeds_batch_policy
+                        }
+                        MutationJobRestartReason::ExecutionBudgetPolicyExceeded => {
+                            &mut jobs.restart_execution_budget_policy_exceeded
+                        }
+                        MutationJobRestartReason::IntentIneligible => {
+                            &mut jobs.restart_intent_ineligible
+                        }
+                        MutationJobRestartReason::ManagedTimestampRegression => {
+                            &mut jobs.restart_managed_timestamp_regression
+                        }
+                        MutationJobRestartReason::TargetAllocationChanged => {
+                            &mut jobs.restart_target_allocation_changed
+                        }
+                        MutationJobRestartReason::UnsupportedContinuation => {
+                            &mut jobs.restart_unsupported_continuation
+                        }
+                    };
+                    *counter = counter.saturating_add(1);
+                });
+            }
+            MetricsEvent::MutationJobStep {
+                phase,
+                keys_scanned,
+                rows_updated,
+                scan_bytes,
+                staged_bytes,
+                keys_scanned_total,
+                rows_updated_total,
+                verify_restarts_total,
+            } => {
+                metrics::with_state_mut(|m| {
+                    let jobs = &mut m.ops.mutation_jobs;
+                    match phase {
+                        MutationJobPhase::Forward => {
+                            jobs.forward_steps_committed =
+                                jobs.forward_steps_committed.saturating_add(1);
+                        }
+                        MutationJobPhase::Verify => {
+                            jobs.verify_steps_committed =
+                                jobs.verify_steps_committed.saturating_add(1);
+                        }
+                    }
+                    jobs.keys_scanned = jobs.keys_scanned.saturating_add(keys_scanned);
+                    jobs.rows_updated = jobs.rows_updated.saturating_add(rows_updated);
+                    jobs.scan_bytes = jobs.scan_bytes.saturating_add(scan_bytes);
+                    jobs.staged_bytes = jobs.staged_bytes.saturating_add(staged_bytes);
+                    jobs.keys_scanned_cumulative_max =
+                        jobs.keys_scanned_cumulative_max.max(keys_scanned_total);
+                    jobs.rows_updated_cumulative_max =
+                        jobs.rows_updated_cumulative_max.max(rows_updated_total);
+                    jobs.verify_restarts_cumulative_max = jobs
+                        .verify_restarts_cumulative_max
+                        .max(verify_restarts_total);
+                });
+            }
+            MetricsEvent::MutationJobTargetFailure { reason } => {
+                metrics::with_state_mut(|m| {
+                    let jobs = &mut m.ops.mutation_jobs;
+                    let counter = match reason {
+                        MutationJobTargetFailureReason::StagingByteBudgetExceeded => {
+                            &mut jobs.target_failure_staging_byte_budget_exceeded
+                        }
+                        MutationJobTargetFailureReason::Other => &mut jobs.target_failure_other,
+                    };
+                    *counter = counter.saturating_add(1);
+                });
+            }
             MetricsEvent::NonAtomicPartialCommit {
                 entity_path,
                 committed_rows,

@@ -25,9 +25,10 @@ pub const MAX_MUTATION_JOB_RECEIPT_BYTES: usize = 8 * 1024;
 pub const MAX_MUTATION_JOB_RECORD_BYTES: usize = 64 * 1024;
 
 /// Maximum authoritative keys examined by one mutation-job advance.
-pub const MAX_MUTATION_JOB_STEP_KEYS_SCANNED: u64 = 208;
+pub const MAX_MUTATION_JOB_STEP_KEYS_SCANNED: u64 = 4_096;
 /// Maximum target rows changed by one mutation-job advance.
-pub const MAX_MUTATION_JOB_STEP_ROWS_UPDATED: u64 = 56;
+pub const MAX_MUTATION_JOB_STEP_ROWS_UPDATED: u64 =
+    crate::db::executor::MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT as u64;
 
 /// Nonzero application-owned identity for one durable mutation job incarnation.
 ///
@@ -105,6 +106,17 @@ pub enum MutationJobRestartReason {
     ManagedTimestampRegression,
     /// One valid mutation candidate cannot fit the current fixed page policy.
     CandidateExceedsBatchPolicy,
+    /// Admitted page work exceeded the execution policy calibrated for it.
+    ExecutionBudgetPolicyExceeded,
+}
+
+/// Bounded reason why target mutation execution failed before commit.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum MutationJobTargetFailureReason {
+    /// Writer and page-packer staged-byte authorities diverged.
+    StagingByteBudgetExceeded,
+    /// Another target mutation failure occurred without safe semantic detail.
+    Other,
 }
 
 /// Durable lifecycle of one mutation job.
@@ -254,7 +266,7 @@ pub enum MutationJobError {
     /// Commit or recovery evidence cannot prove one exact transition.
     CommitCorruption,
     /// Target mutation execution failed before progress committed.
-    TargetMutationFailed,
+    TargetMutationFailed(MutationJobTargetFailureReason),
     /// Target traversal failed before progress committed.
     TargetQueryFailed,
     /// An internal database invariant prevented the operation.
@@ -760,6 +772,7 @@ fn write_status(bytes: &mut Vec<u8>, status: MutationJobStatus) {
                 MutationJobRestartReason::UnsupportedContinuation => 4,
                 MutationJobRestartReason::ManagedTimestampRegression => 5,
                 MutationJobRestartReason::CandidateExceedsBatchPolicy => 6,
+                MutationJobRestartReason::ExecutionBudgetPolicyExceeded => 7,
             });
         }
     }
@@ -777,6 +790,7 @@ fn read_status(reader: &mut Reader<'_>) -> Result<MutationJobStatus, MutationJob
             4 => MutationJobRestartReason::UnsupportedContinuation,
             5 => MutationJobRestartReason::ManagedTimestampRegression,
             6 => MutationJobRestartReason::CandidateExceedsBatchPolicy,
+            7 => MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
             _ => return Err(MutationJobError::CorruptProgressStore),
         })),
         _ => Err(MutationJobError::CorruptProgressStore),
@@ -1039,8 +1053,30 @@ mod tests {
                 ),
             )
             .expect("candidate policy restart should admit");
+        let (execution_budget, _) = initial
+            .apply_transition(
+                &request(0, "execution-budget-policy"),
+                MutationJobTransition::new(
+                    MutationJobStatus::RestartRequired(
+                        MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
+                    ),
+                    MutationJobPhase::Forward,
+                    Vec::new(),
+                    0,
+                    0,
+                    0,
+                ),
+            )
+            .expect("execution budget policy restart should admit");
 
-        for record in [initial, active, completed, restart, oversized_candidate] {
+        for record in [
+            initial,
+            active,
+            completed,
+            restart,
+            oversized_candidate,
+            execution_budget,
+        ] {
             let bytes = encode_mutation_job_payload(&record)
                 .expect("current mutation payload should encode");
             assert!(!bytes.starts_with(b"DIDL"));
@@ -1067,10 +1103,9 @@ mod tests {
             rows_updated_total: 3,
             verify_restarts_total: 0,
         };
-        let error = MutationJobError::StaleSequence {
-            expected: 0,
-            actual: 1,
-        };
+        let error = MutationJobError::TargetMutationFailed(
+            MutationJobTargetFailureReason::StagingByteBudgetExceeded,
+        );
 
         let state_bytes = candid::encode_one(&state).expect("mutation state should encode");
         let request_bytes = candid::encode_one(&request).expect("mutation request should encode");

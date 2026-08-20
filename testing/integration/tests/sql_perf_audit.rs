@@ -13,20 +13,22 @@ use icydb::{
     db::{
         DeepIntegrityPageStatus, IntegrityCheckError, IntegrityCheckResult, IntegrityJobError,
         IntegrityJobReceipt, IntegrityPhase, IntegrityTerminalOutcome, MutationJobAdvanceReceipt,
-        MutationJobError, MutationJobPhase, MutationJobState, MutationJobStatus, ProgressJobFamily,
-        ProgressJobInventory, SqlDescribeOutput, SqlIntegrityError, SqlQueryExecutionAttribution,
-        SqlShowColumnsOutput, SqlStructuralWorkAttribution, sql::SqlQueryResult,
+        MutationJobError, MutationJobPhase, MutationJobState, MutationJobStatus,
+        MutationJobTargetFailureReason, ProgressJobFamily, ProgressJobInventory, SqlDescribeOutput,
+        SqlIntegrityError, SqlQueryExecutionAttribution, SqlShowColumnsOutput,
+        SqlStructuralWorkAttribution, sql::SqlQueryResult,
     },
     diagnostic::{
         DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
         DiagnosticFactTag, RuntimeBoundaryCode,
     },
+    metrics::EventReport,
 };
 use icydb_testing_integration::{
     MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
-        DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING, DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT,
+        DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING, DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT,
         DURABLE_START_INSTRUCTION_REVIEW_CEILING, DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
     },
     install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
@@ -169,6 +171,12 @@ struct MutationJobStartPerfResult {
     state: MutationJobState,
     local_instructions: u64,
     target_rows_changed: u32,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct MutationJobAdvancePerfResult {
+    receipt: MutationJobAdvanceReceipt,
+    local_instructions: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -354,6 +362,20 @@ fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
     drain_online_watchdog_until_quiescent(fixture);
     reset_icydb_fixtures(fixture);
     drain_online_watchdog_until_quiescent(fixture);
+}
+
+fn reset_sql_perf_metrics(fixture: &StandaloneCanisterFixture) {
+    let result: Result<(), Error> = fixture
+        .update_candid("icydb_metrics_reset", ())
+        .expect("metrics reset response should decode");
+    result.expect("controller metrics reset should succeed");
+}
+
+fn extended_sql_perf_metrics(fixture: &StandaloneCanisterFixture) -> EventReport {
+    let result: Result<EventReport, Error> = fixture
+        .query_candid("icydb_metrics_extended", (None::<u64>,))
+        .expect("extended metrics response should decode");
+    result.expect("public extended metrics endpoint should succeed")
 }
 
 fn startup_watchdog_perf_snapshot(
@@ -1927,6 +1949,21 @@ fn advance_mutation_job(
     expected_sequence: u64,
     idempotency_key: &str,
 ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
+    advance_mutation_job_with_perf(
+        fixture,
+        job_discriminator,
+        expected_sequence,
+        idempotency_key,
+    )
+    .map(|result| result.receipt)
+}
+
+fn advance_mutation_job_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    job_discriminator: u8,
+    expected_sequence: u64,
+    idempotency_key: &str,
+) -> Result<MutationJobAdvancePerfResult, MutationJobError> {
     fixture
         .update_candid(
             "advance_journaled_user_mutation_job",
@@ -1983,27 +2020,18 @@ fn assert_mutation_forward_perf_stays_bounded(result: &MutationJobForwardPerfRes
         result.start_local_instructions > 0
             && result.start_local_instructions < DURABLE_START_INSTRUCTION_REVIEW_CEILING
     );
-    assert_eq!(result.forward_local_instructions.len(), 10);
+    assert_eq!(result.forward_local_instructions.len(), 3);
     assert_eq!(result.forward_keys_scanned, 512);
     assert_eq!(result.rows_updated, 512);
-    assert_eq!(
-        result.forward_keys_scanned_per_step,
-        [vec![56; 9], vec![8]].concat(),
-    );
-    assert_eq!(
-        result.rows_updated_per_step,
-        [vec![56; 9], vec![8]].concat(),
-    );
-    assert_eq!(result.committed_sequence, 10);
+    assert_eq!(result.forward_keys_scanned_per_step, vec![240, 240, 32],);
+    assert_eq!(result.rows_updated_per_step, vec![240, 240, 32],);
+    assert_eq!(result.committed_sequence, 3);
     assert!(result.replay_matches);
     assert!(
         result.replay_local_instructions > 0
             && result.replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING
     );
-    assert_eq!(
-        result.zero_candidate_keys_scanned,
-        u64::from(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT),
-    );
+    assert_eq!(result.zero_candidate_keys_scanned, 512,);
     assert_eq!(result.zero_candidate_rows_updated, 0);
     assert_eq!(result.zero_candidate_sequence, 1);
     assert!(result.stale_request_preserved_sequence);
@@ -2313,6 +2341,7 @@ fn sql_perf_mutation_forward_steps_stay_bounded() {
 fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
     let fixture = install_sql_perf_canister_fixture();
     reset_sql_perf_fixtures(&fixture);
+    reset_sql_perf_metrics(&fixture);
 
     let result = verify_mutation_job_lifecycle(&fixture);
 
@@ -2330,14 +2359,14 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
 
     assert_eq!(
         result.first_verify_keys_scanned,
-        u64::from(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT),
+        u64::from(DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT),
     );
     assert!(result.first_verify_local_instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
     assert!(result.replay.verify_matches);
     assert!(result.verify_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert_eq!(
         result.unrelated_verify_keys_scanned,
-        u64::from(DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT),
+        u64::from(DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT),
     );
     assert!(result.unrelated_preserved_verify);
     assert!(result.unrelated_verify_local_instructions < DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING);
@@ -2352,13 +2381,43 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
     );
     assert_eq!(result.verify_restarts_total, 1);
     assert_eq!(result.restarted_forward_rows_updated, 1);
-    assert_eq!(result.completed_sequence, 19);
+    assert_eq!(result.completed_sequence, 12);
     assert!(result.state_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert!(result.terminal_replay_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert!(result.replay.terminal_matches);
     assert!(result.acknowledgement.stale_rejected);
     assert!(result.acknowledgement_local_instructions < DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING);
     assert!(result.acknowledgement.terminal_acknowledged);
+
+    let inventory = progress_job_inventory(&fixture);
+    assert_eq!(inventory.inventory.retained_count, 0);
+    let metrics = extended_sql_perf_metrics(&fixture);
+    let jobs = metrics
+        .counters()
+        .expect("current metrics window should include counters")
+        .ops()
+        .mutation_jobs();
+    assert_eq!(jobs.starts_inserted(), 1);
+    assert!(jobs.states_loaded() >= 1);
+    assert!(jobs.advances_exact_replayed() >= 2);
+    assert!(jobs.forward_steps_committed() >= 1);
+    assert!(jobs.verify_steps_committed() >= 1);
+    assert!(jobs.forward_to_verify_transitions() >= 2);
+    assert_eq!(jobs.verify_restarts_revision_drift(), 1);
+    assert_eq!(jobs.verify_restarts_residual_work(), 0);
+    assert_eq!(jobs.completions(), 1);
+    assert!(jobs.keys_scanned() > 0);
+    assert!(jobs.scan_bytes() > 0);
+    assert!(jobs.staged_bytes() > 0);
+    assert_eq!(
+        jobs.target_failure_count(MutationJobTargetFailureReason::Other),
+        0
+    );
+    assert_eq!(jobs.inventories_loaded(), 1);
+    assert_eq!(jobs.retained_count(), 0);
+    assert_eq!(jobs.hard_limit(), 64);
+    assert_eq!(jobs.reserved_integrity_headroom(), 8);
+    assert_eq!(jobs.retained_record_bytes(), 0);
 }
 
 #[test]
@@ -2515,6 +2574,7 @@ fn sql_progress_capacity_reserves_exact_integrity_headroom() {
     }
     let at_fifty_five = progress_job_inventory(&fixture);
     assert_eq!(at_fifty_five.inventory.retained_count, 55);
+    assert!(at_fifty_five.inventory.retained_record_bytes > 0);
 
     start_mutation_job(&fixture, 155, 0).expect("the 56th non-integrity job should start");
     let at_fifty_six = progress_job_inventory(&fixture);
@@ -2547,6 +2607,10 @@ fn sql_progress_capacity_reserves_exact_integrity_headroom() {
     assert_eq!(at_sixty_four.inventory.mutation_count, 56);
     assert_eq!(at_sixty_four.inventory.records.len(), 64);
     assert!(
+        at_sixty_four.inventory.retained_record_bytes
+            > at_fifty_six.inventory.retained_record_bytes
+    );
+    assert!(
         at_sixty_four
             .inventory
             .records
@@ -2567,11 +2631,12 @@ fn sql_progress_capacity_reserves_exact_integrity_headroom() {
         ))),
     );
     println!(
-        "progress inventory instructions: at_55={} at_56={} at_63={} at_64={}",
+        "progress inventory instructions: at_55={} at_56={} at_63={} at_64={} bytes_64={}",
         at_fifty_five.local_instructions,
         at_fifty_six.local_instructions,
         at_sixty_three.local_instructions,
         at_sixty_four.local_instructions,
+        at_sixty_four.inventory.retained_record_bytes,
     );
     assert!(at_sixty_four.local_instructions < DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING);
 }
@@ -2641,7 +2706,7 @@ fn sql_mutation_job_byte_packing_revisits_boundaries_and_converges() {
 }
 
 #[test]
-fn sql_mutation_job_admits_the_maximum_index_fanout_row() {
+fn sql_mutation_job_admits_the_maximum_index_fanout_page() {
     let fixture = install_sql_perf_canister_fixture();
     let loaded: Result<JointFanoutFixtureFacts, Error> = fixture
         .update_candid("load_joint_fanout_boundary_fixture", ())
@@ -2655,8 +2720,15 @@ fn sql_mutation_job_admits_the_maximum_index_fanout_row() {
 
     let started = start_mutation_job(&fixture, 83, 6)
         .expect("the maximum-index-fanout mutation job should start");
-    let mut receipt = advance_mutation_job(&fixture, 83, started.state.sequence, "max-fanout-0")
-        .expect("the maximum-index-fanout target row should fit one Forward page");
+    let first =
+        advance_mutation_job_with_perf(&fixture, 83, started.state.sequence, "max-fanout-0")
+            .expect("the maximum-index-fanout page should fit one Forward advance");
+    println!(
+        "durable maximum-fanout Forward: instructions={} keys={} rows={}",
+        first.local_instructions, first.receipt.keys_scanned, first.receipt.rows_updated,
+    );
+    assert!(first.local_instructions < DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING);
+    let mut receipt = first.receipt;
     for step in 1..12_u64 {
         if receipt.status == MutationJobStatus::Completed {
             break;
@@ -2671,7 +2743,7 @@ fn sql_mutation_job_admits_the_maximum_index_fanout_row() {
         drain_online_watchdog_until_quiescent(&fixture);
     }
     assert_eq!(receipt.status, MutationJobStatus::Completed);
-    assert_eq!(receipt.rows_updated_total, 1);
+    assert_eq!(receipt.rows_updated_total, 240);
 }
 
 #[test]

@@ -9,6 +9,7 @@ use crate::{
         executor::budget::{ExecutionBudgetExceeded, HardExecutionContext},
         integrity::with_mutation_progress_store,
     },
+    metrics::sink::{MetricsEvent, MutationJobLifecycleEvent, record},
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::{
@@ -18,6 +19,7 @@ use icydb_diagnostic_code::{
 #[cfg(feature = "sql")]
 use crate::db::{
     MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobPhase,
+    executor::budget::with_mutation_execution_budget,
     integrity::InsertMutationJobResult,
     mutation_job::{CanonicalMutationIntent, MutationJobRecord},
     session::sql::validate_current_initial_mutation_job_continuation,
@@ -47,23 +49,36 @@ impl<C: CanisterKind> DbSession<C> {
         job_id: MutationJobId,
         sql: &str,
     ) -> Result<MutationJobState, MutationJobError> {
-        job_id.validate()?;
-        self.charge_mutation_job_operation(
-            DiagnosticExecutionLane::Mutation,
-            MUTATION_JOB_START_SHAPE,
-        )?;
-        let prepared = self.prepare_mutation_job_start(job_id, sql)?;
-        let submitted_intent = CanonicalMutationIntent::decode(&prepared.canonical_intent)?;
-        let submitted = MutationJobRecord::new(
-            job_id,
-            prepared.canonical_intent,
-            prepared.engine_continuation,
-        )?;
-        with_mutation_progress_store::<C, _>(|store| match store.insert_mutation(&submitted)? {
-            InsertMutationJobResult::Inserted => Ok(submitted.state().clone()),
-            InsertMutationJobResult::Occupied(retained) => {
-                resolve_occupied_mutation_job_start(&retained, &submitted_intent)
-            }
+        self.with_metrics(|| {
+            job_id.validate()?;
+            self.charge_mutation_job_operation(
+                DiagnosticExecutionLane::Mutation,
+                MUTATION_JOB_START_SHAPE,
+            )?;
+            let prepared = self.prepare_mutation_job_start(job_id, sql)?;
+            let submitted_intent = CanonicalMutationIntent::decode(&prepared.canonical_intent)?;
+            let submitted = MutationJobRecord::new(
+                job_id,
+                prepared.canonical_intent,
+                prepared.engine_continuation,
+            )?;
+            with_mutation_progress_store::<C, _>(|store| {
+                match store.insert_mutation(&submitted)? {
+                    InsertMutationJobResult::Inserted => {
+                        record_mutation_job_lifecycle(MutationJobLifecycleEvent::StartInserted);
+                        Ok(submitted.state().clone())
+                    }
+                    InsertMutationJobResult::Occupied(retained) => {
+                        resolve_occupied_mutation_job_start(&retained, &submitted_intent).inspect(
+                            |_| {
+                                record_mutation_job_lifecycle(
+                                    MutationJobLifecycleEvent::StartExactReplay,
+                                );
+                            },
+                        )
+                    }
+                }
+            })
         })
     }
 
@@ -72,12 +87,18 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         job_id: MutationJobId,
     ) -> Result<MutationJobState, MutationJobError> {
-        self.charge_mutation_job_operation(
-            DiagnosticExecutionLane::TrustedRead,
-            MUTATION_JOB_LOAD_SHAPE,
-        )?;
-        with_mutation_progress_store::<C, _>(|store| store.load_mutation(job_id))
-            .map(|record| record.state().clone())
+        self.with_metrics(|| {
+            self.charge_mutation_job_operation(
+                DiagnosticExecutionLane::TrustedRead,
+                MUTATION_JOB_LOAD_SHAPE,
+            )?;
+            with_mutation_progress_store::<C, _>(|store| store.load_mutation(job_id)).map(
+                |record| {
+                    record_mutation_job_lifecycle(MutationJobLifecycleEvent::StateLoaded);
+                    record.state().clone()
+                },
+            )
+        })
     }
 
     /// Advance one durable mutation job through one bounded engine-owned step.
@@ -89,20 +110,36 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &MutationJobAdvanceRequest,
     ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
-        let retained =
-            with_mutation_progress_store::<C, _>(|store| store.load_mutation(request.job_id))?;
-        if let Some(receipt) = retained.exact_replay(request)? {
-            return Ok(receipt.clone());
-        }
-        self.charge_mutation_job_operation(
-            DiagnosticExecutionLane::Mutation,
-            MUTATION_JOB_ADVANCE_SHAPE,
-        )?;
-        retained.ensure_can_advance(request)?;
-        match retained.state().phase {
-            MutationJobPhase::Forward => self.advance_mutation_job_forward(&retained, request),
-            MutationJobPhase::Verify => self.advance_mutation_job_verify(&retained, request),
-        }
+        self.with_metrics(|| {
+            let retained =
+                with_mutation_progress_store::<C, _>(|store| store.load_mutation(request.job_id))?;
+            if let Some(receipt) = retained.exact_replay(request)? {
+                record_mutation_job_lifecycle(MutationJobLifecycleEvent::AdvanceExactReplay);
+                return Ok(receipt.clone());
+            }
+            self.charge_mutation_job_operation(
+                DiagnosticExecutionLane::Mutation,
+                MUTATION_JOB_ADVANCE_SHAPE,
+            )?;
+            retained.ensure_can_advance(request)?;
+            let context = HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::Mutation,
+                MUTATION_JOB_ADVANCE_SHAPE,
+            );
+            with_mutation_execution_budget(
+                context,
+                || match retained.state().phase {
+                    MutationJobPhase::Forward => {
+                        self.advance_mutation_job_forward(&retained, request)
+                    }
+                    MutationJobPhase::Verify => {
+                        self.advance_mutation_job_verify(&retained, request)
+                    }
+                },
+                mutation_job_execution_internal_error,
+            )
+        })
     }
 
     /// Remove one terminal mutation job after its result has been consumed.
@@ -114,12 +151,17 @@ impl<C: CanisterKind> DbSession<C> {
         job_id: MutationJobId,
         expected_terminal_sequence: u64,
     ) -> Result<(), MutationJobError> {
-        self.charge_mutation_job_operation(
-            DiagnosticExecutionLane::Mutation,
-            MUTATION_JOB_ACKNOWLEDGE_SHAPE,
-        )?;
-        with_mutation_progress_store::<C, _>(|store| {
-            store.acknowledge_mutation(job_id, expected_terminal_sequence)
+        self.with_metrics(|| {
+            self.charge_mutation_job_operation(
+                DiagnosticExecutionLane::Mutation,
+                MUTATION_JOB_ACKNOWLEDGE_SHAPE,
+            )?;
+            with_mutation_progress_store::<C, _>(|store| {
+                store.acknowledge_mutation(job_id, expected_terminal_sequence)
+            })
+            .inspect(|()| {
+                record_mutation_job_lifecycle(MutationJobLifecycleEvent::TerminalAcknowledged);
+            })
         })
     }
 
@@ -134,17 +176,22 @@ impl<C: CanisterKind> DbSession<C> {
         job_id: MutationJobId,
         expected_sequence: u64,
     ) -> Result<(), MutationJobError> {
-        job_id.validate()?;
-        self.charge_mutation_job_operation(
-            DiagnosticExecutionLane::Mutation,
-            MUTATION_JOB_CANCEL_UNADVANCED_SHAPE,
-        )?;
-        with_mutation_progress_store::<C, _>(|store| {
-            store.cancel_unadvanced_mutation(
-                job_id,
-                expected_sequence,
-                validate_current_initial_mutation_job_continuation,
-            )
+        self.with_metrics(|| {
+            job_id.validate()?;
+            self.charge_mutation_job_operation(
+                DiagnosticExecutionLane::Mutation,
+                MUTATION_JOB_CANCEL_UNADVANCED_SHAPE,
+            )?;
+            with_mutation_progress_store::<C, _>(|store| {
+                store.cancel_unadvanced_mutation(
+                    job_id,
+                    expected_sequence,
+                    validate_current_initial_mutation_job_continuation,
+                )
+            })
+            .inspect(|()| {
+                record_mutation_job_lifecycle(MutationJobLifecycleEvent::CancelUnadvanced);
+            })
         })
     }
 
@@ -153,11 +200,24 @@ impl<C: CanisterKind> DbSession<C> {
     /// Callers remain responsible for authorization. The result exposes only
     /// family, job identity, bounded lifecycle, sequence, and capacity facts.
     pub fn progress_job_inventory(&self) -> Result<ProgressJobInventory, MutationJobError> {
-        self.charge_mutation_job_operation(
-            DiagnosticExecutionLane::TrustedRead,
-            PROGRESS_JOB_INVENTORY_SHAPE,
-        )?;
-        with_mutation_progress_store::<C, _>(|store| store.inventory())
+        self.with_metrics(|| {
+            self.charge_mutation_job_operation(
+                DiagnosticExecutionLane::TrustedRead,
+                PROGRESS_JOB_INVENTORY_SHAPE,
+            )?;
+            with_mutation_progress_store::<C, _>(|store| store.inventory()).inspect(|inventory| {
+                record_mutation_job_lifecycle(MutationJobLifecycleEvent::InventoryLoaded);
+                record(MetricsEvent::MutationJobCapacity {
+                    retained_count: inventory.retained_count,
+                    hard_limit: inventory.hard_limit,
+                    reserved_integrity_headroom: inventory.reserved_integrity_headroom,
+                    integrity_count: inventory.integrity_count,
+                    resumable_count: inventory.resumable_count,
+                    mutation_count: inventory.mutation_count,
+                    retained_record_bytes: inventory.retained_record_bytes,
+                });
+            })
+        })
     }
 
     fn charge_mutation_job_operation(
@@ -174,6 +234,10 @@ impl<C: CanisterKind> DbSession<C> {
             )
             .map_err(mutation_job_execution_budget_error)
     }
+}
+
+fn record_mutation_job_lifecycle(event: MutationJobLifecycleEvent) {
+    record(MetricsEvent::MutationJobLifecycle { event });
 }
 
 #[cfg(feature = "sql")]
@@ -200,6 +264,11 @@ const fn mutation_job_execution_budget_error(error: ExecutionBudgetExceeded) -> 
         lane: error.lane().raw(),
         normalized_shape_fingerprint_prefix: error.normalized_shape_fingerprint_prefix(),
     }
+}
+
+#[cfg(feature = "sql")]
+fn mutation_job_execution_internal_error(_error: crate::error::InternalError) -> MutationJobError {
+    MutationJobError::Internal
 }
 
 #[cfg(test)]
