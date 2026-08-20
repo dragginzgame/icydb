@@ -12,6 +12,7 @@ use crate::db::schema::{
     PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
     PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
     enum_catalog::AcceptedValueContract, field_type_from_persisted_kind,
+    query_field_kind_from_persisted_kind,
 };
 #[cfg(feature = "sql")]
 use crate::db::schema::{SqlCapabilities, sql_capabilities_with_enum_catalog};
@@ -95,7 +96,7 @@ struct SchemaFieldInfo {
     leaf_codec: LeafCodec,
     #[cfg(feature = "sql")]
     sql_capabilities: SqlCapabilities,
-    persisted_kind: AcceptedFieldKind,
+    query_kind: AcceptedFieldKind,
     accepted_value_contract: Option<AcceptedValueContract>,
     indexed: bool,
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
@@ -417,6 +418,15 @@ impl SchemaInfo {
         ))
     }
 
+    /// Borrow the accepted field kind projected to its admitted query-value shape.
+    #[must_use]
+    pub(in crate::db) fn accepted_query_field_kind(
+        &self,
+        name: &str,
+    ) -> Option<&AcceptedFieldKind> {
+        schema_field_info(self.fields.as_slice(), name).map(|field| &field.query_kind)
+    }
+
     /// Return the top-level physical row slot for one field.
     ///
     /// The accepted row layout is the only slot source.
@@ -537,7 +547,13 @@ impl SchemaInfo {
             .nested_leaves
             .iter()
             .find(|leaf| leaf.path() == segments)
-            .map(|leaf| accepted_sql_capabilities(leaf.kind(), &self.value_catalog))
+            .map(|leaf| {
+                let query_kind = query_field_kind_from_persisted_kind(
+                    leaf.kind(),
+                    self.value_catalog.composite_catalog(),
+                );
+                accepted_sql_capabilities(&query_kind, &self.value_catalog)
+            })
     }
 
     /// Return the type for one nested field path rooted at a top-level field.
@@ -551,7 +567,13 @@ impl SchemaInfo {
             .nested_leaves
             .iter()
             .find(|leaf| leaf.path() == segments)
-            .map(|leaf| field_type_from_persisted_kind(leaf.kind()))
+            .map(|leaf| {
+                let query_kind = query_field_kind_from_persisted_kind(
+                    leaf.kind(),
+                    self.value_catalog.composite_catalog(),
+                );
+                field_type_from_persisted_kind(&query_kind)
+            })
     }
 
     /// Return whether one top-level field exposes any nested path metadata.
@@ -573,7 +595,7 @@ impl SchemaInfo {
     ) -> Option<Value> {
         let field = schema_field_info(self.fields.as_slice(), field_name)?;
 
-        let kind = &field.persisted_kind;
+        let kind = &field.query_kind;
         if matches!(kind, AcceptedFieldKind::Enum { .. }) {
             let Value::Text(variant) = value else {
                 return None;
@@ -599,7 +621,7 @@ impl SchemaInfo {
     ) -> Option<Value> {
         let field = schema_field_info(self.fields.as_slice(), field_name)?;
 
-        let kind = &field.persisted_kind;
+        let kind = &field.query_kind;
         if matches!(kind, AcceptedFieldKind::Enum { .. }) {
             let Value::Text(variant) = value else {
                 return None;
@@ -624,7 +646,7 @@ impl SchemaInfo {
         value: &Value,
     ) -> Option<Value> {
         let field = schema_field_info(self.fields.as_slice(), field_name)?;
-        let element_kind = match &field.persisted_kind {
+        let element_kind = match &field.query_kind {
             AcceptedFieldKind::List(element_kind) | AcceptedFieldKind::Set(element_kind) => {
                 element_kind.as_ref()
             }
@@ -641,7 +663,7 @@ impl SchemaInfo {
                 .ok();
         }
 
-        canonicalize_filter_collection_element_for_persisted_kind(&field.persisted_kind, value)
+        canonicalize_filter_collection_element_for_persisted_kind(&field.query_kind, value)
     }
 
     /// Build one accepted-only schema view retaining its immutable value catalog.
@@ -679,17 +701,21 @@ impl SchemaInfo {
                 )
                 .ok();
                 debug_assert!(accepted_value_contract.is_some());
+                let query_kind = query_field_kind_from_persisted_kind(
+                    field.kind(),
+                    value_catalog.composite_catalog(),
+                );
 
                 (
                     field.name().to_string(),
                     SchemaFieldInfo {
                         slot,
-                        ty: field_type_from_persisted_kind(field.kind()),
+                        ty: field_type_from_persisted_kind(&query_kind),
                         nullable: field.nullable(),
                         leaf_codec: field.leaf_codec(),
                         #[cfg(feature = "sql")]
-                        sql_capabilities: accepted_sql_capabilities(field.kind(), &value_catalog),
-                        persisted_kind: field.kind().clone(),
+                        sql_capabilities: accepted_sql_capabilities(&query_kind, &value_catalog),
+                        query_kind,
                         accepted_value_contract,
                         indexed: indexed_field_ids.contains(&field.id()),
                         nested_leaves: field.nested_leaves().to_vec(),
@@ -871,5 +897,291 @@ fn schema_index_field_path_info_from_accepted(
         persisted_kind: path.kind().clone(),
         accepted_value_contract,
         nullable: path.nullable(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use icydb_schema::ScalarKind;
+
+    use crate::{
+        db::{
+            predicate::normalize_enum_literals,
+            predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+            query::{plan::FieldSlot, predicate::validate_predicate},
+            schema::{
+                AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+                AcceptedValueCatalogHandle, FieldId, FieldStorageDecode, FieldType, LeafCodec,
+                PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+                ScalarCodec, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+                TestEnumDefinition, TestEnumVariant, ValidateError,
+                build_accepted_enum_catalog_for_tests,
+                build_record_newtype_composite_catalog_for_tests,
+                empty_accepted_enum_catalog_for_tests,
+            },
+        },
+        value::Value,
+    };
+
+    use super::SchemaInfo;
+
+    fn newtype_query_schema() -> SchemaInfo {
+        let enums = empty_accepted_enum_catalog_for_tests();
+        let (composites, record_type, name_type, _) =
+            build_record_newtype_composite_catalog_for_tests(
+                "tests::Profile".to_string(),
+                "name".to_string(),
+                "tests::Name".to_string(),
+                AcceptedFieldKind::Text { max_len: Some(64) },
+                &enums,
+            )
+            .expect("newtype query fixture catalog should build");
+        let name_kind = AcceptedFieldKind::Composite { type_id: name_type };
+        let fields = vec![
+            scalar_field(1, 0, "id", AcceptedFieldKind::Nat64, ScalarCodec::Nat64),
+            composite_field(2, 1, "name", name_kind.clone(), Vec::new()),
+            composite_field(
+                3,
+                2,
+                "profile",
+                AcceptedFieldKind::Composite {
+                    type_id: record_type,
+                },
+                vec![PersistedNestedLeafSnapshot::new(
+                    vec!["name".to_string()],
+                    name_kind.clone(),
+                    false,
+                )],
+            ),
+            composite_field(
+                4,
+                3,
+                "aliases",
+                AcceptedFieldKind::Set(Box::new(name_kind)),
+                Vec::new(),
+            ),
+        ];
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "tests::Token".to_string(),
+            "Token".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+        );
+        let accepted = AcceptedSchemaSnapshot::new(snapshot);
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
+            enums,
+            composites,
+            AcceptedSchemaRevision::INITIAL,
+        );
+
+        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog, true)
+    }
+
+    fn enum_newtype_query_schema(collection: bool) -> SchemaInfo {
+        let enums = build_accepted_enum_catalog_for_tests(&[TestEnumDefinition::new(
+            "tests::Stage",
+            vec![TestEnumVariant::unit("Active")],
+        )])
+        .expect("newtype enum fixture catalog should build");
+        let enum_type = enums
+            .type_id("tests::Stage")
+            .expect("newtype enum fixture type should exist");
+        let enum_kind = AcceptedFieldKind::Enum { type_id: enum_type };
+        let newtype_kind = if collection {
+            AcceptedFieldKind::Set(Box::new(enum_kind))
+        } else {
+            enum_kind
+        };
+        let (composites, _, stage_type, _) = build_record_newtype_composite_catalog_for_tests(
+            "tests::StageRecord".to_string(),
+            "stage".to_string(),
+            "tests::StageNewtype".to_string(),
+            newtype_kind,
+            &enums,
+        )
+        .expect("newtype enum composite catalog should build");
+        let fields = vec![
+            scalar_field(1, 0, "id", AcceptedFieldKind::Nat64, ScalarCodec::Nat64),
+            composite_field(
+                2,
+                1,
+                "stage",
+                AcceptedFieldKind::Composite {
+                    type_id: stage_type,
+                },
+                Vec::new(),
+            ),
+        ];
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "tests::EnumToken".to_string(),
+            "EnumToken".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+        );
+        let accepted = AcceptedSchemaSnapshot::new(snapshot);
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
+            enums,
+            composites,
+            AcceptedSchemaRevision::INITIAL,
+        );
+
+        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog, true)
+    }
+
+    fn scalar_field(
+        id: u32,
+        slot: u16,
+        name: &str,
+        kind: AcceptedFieldKind,
+        codec: ScalarCodec,
+    ) -> PersistedFieldSnapshot {
+        PersistedFieldSnapshot::new_initial(
+            FieldId::new(id),
+            name.to_string(),
+            SchemaFieldSlot::new(slot),
+            kind,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(codec),
+        )
+    }
+
+    fn composite_field(
+        id: u32,
+        slot: u16,
+        name: &str,
+        kind: AcceptedFieldKind,
+        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+    ) -> PersistedFieldSnapshot {
+        PersistedFieldSnapshot::new_initial(
+            FieldId::new(id),
+            name.to_string(),
+            SchemaFieldSlot::new(slot),
+            kind,
+            nested_leaves,
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        )
+    }
+
+    #[test]
+    fn accepted_newtype_fields_use_their_admitted_value_shape_for_query_planning() {
+        let schema = newtype_query_schema();
+        let text = Value::Text("Copper".to_string());
+        let predicates = [
+            Predicate::eq("name".to_string(), text.clone()),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("Cop".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::TextContainsCi {
+                field: "name".to_string(),
+                value: Value::Text("opp".to_string()),
+            },
+        ];
+
+        assert_eq!(
+            schema.field("name"),
+            Some(&FieldType::Scalar(ScalarKind::Text))
+        );
+        for predicate in predicates {
+            validate_predicate(&schema, &predicate)
+                .expect("text newtype should retain underlying predicate support");
+        }
+        assert_eq!(
+            schema.canonicalize_filter_literal("name", &text),
+            Some(text)
+        );
+        #[cfg(feature = "sql")]
+        assert!(schema.sql_capabilities("name").is_some_and(|capabilities| {
+            capabilities.orderable()
+                && capabilities.groupable()
+                && capabilities.aggregate_input().count()
+                && capabilities.aggregate_input().extrema()
+        }));
+        assert!(matches!(
+            FieldSlot::resolve_with_schema(&schema, "name")
+                .and_then(|slot| slot.accepted_kind().cloned()),
+            Some(AcceptedFieldKind::Text { max_len: Some(64) })
+        ));
+    }
+
+    #[test]
+    fn query_projection_recurses_but_keeps_structural_composites_closed() {
+        let schema = newtype_query_schema();
+
+        assert_eq!(
+            schema.field("aliases"),
+            Some(&FieldType::Set(Box::new(FieldType::Scalar(
+                ScalarKind::Text
+            ))))
+        );
+        assert_eq!(
+            schema.nested_field_type("profile", &["name".to_string()]),
+            Some(FieldType::Scalar(ScalarKind::Text))
+        );
+        assert!(matches!(
+            schema.field("profile"),
+            Some(FieldType::Composite)
+        ));
+        assert!(matches!(
+            validate_predicate(
+                &schema,
+                &Predicate::eq("profile".to_string(), Value::Text("Copper".to_string())),
+            ),
+            Err(ValidateError::NonQueryableFieldType { field }) if field == "profile"
+        ));
+    }
+
+    #[test]
+    fn enum_newtype_literals_normalize_through_the_nominal_admission_contract() {
+        let schema = enum_newtype_query_schema(false);
+        let predicate = Predicate::eq("stage".to_string(), Value::Text("Active".to_string()));
+
+        let normalized = normalize_enum_literals(&schema, &predicate)
+            .expect("loose enum literal should normalize through its newtype contract");
+
+        assert!(matches!(
+            &normalized,
+            Predicate::Compare(compare) if matches!(compare.value(), Value::Enum(_))
+        ));
+        validate_predicate(&schema, &normalized)
+            .expect("normalized enum newtype predicate should validate");
+
+        let collection_schema = enum_newtype_query_schema(true);
+        let contains = Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::Contains,
+            Value::Text("Active".to_string()),
+            CoercionId::CollectionElement,
+        ));
+        let normalized_contains = normalize_enum_literals(&collection_schema, &contains)
+            .expect("collection newtype enum literal should normalize");
+        assert!(matches!(
+            &normalized_contains,
+            Predicate::Compare(compare) if matches!(compare.value(), Value::Enum(_))
+        ));
+        validate_predicate(&collection_schema, &normalized_contains)
+            .expect("normalized collection newtype predicate should validate");
     }
 }

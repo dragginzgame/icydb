@@ -3,11 +3,11 @@
 //! Does not own: row codecs, field lookup, recursive value semantics, or schema publication.
 //! Boundary: accepted catalog/value/nullability facts -> admitted canonical value proof.
 
-use crate::db::schema::{AcceptedFieldKind, enum_catalog::normalize_and_admit_nullable_value};
+use crate::db::schema::enum_catalog::normalize_and_admit_nullable_value;
 use crate::value::Value;
 use crate::{
     db::schema::{
-        AcceptedValueCatalogHandle,
+        AcceptedFieldKind, AcceptedValueCatalogHandle, FieldStorageDecode,
         enum_catalog::{
             AcceptedValueContract, AcceptedValueRef, AdmittedOwnedValue, CanonicalValue,
             ValueAdmissionBudget, ValueAdmissionError, admit_canonical_value,
@@ -59,20 +59,30 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
         self.value_contract.as_ref()
     }
 
-    /// Borrow the accepted top-level value kind.
-    #[must_use]
-    pub(in crate::db) fn kind(&self) -> &AcceptedFieldKind {
-        self.value_contract().kind()
-    }
-
     /// Derive a non-null collection-element admission contract under the same catalog.
     #[must_use]
     pub(in crate::db) fn collection_element_contract(&self) -> Option<Self> {
-        Some(Self::owned(
-            self.catalogs,
-            self.value_contract().collection_element_contract()?,
-            false,
-        ))
+        let value_contract = self
+            .value_contract()
+            .collection_element_contract()
+            .or_else(|| {
+                let collection_kind = self
+                    .catalogs
+                    .composite_catalog()
+                    .resolve_newtype_value_kind(self.value_contract().kind())?;
+                let element_kind = match collection_kind {
+                    AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => *inner,
+                    _ => return None,
+                };
+                AcceptedValueContract::from_candidate_catalogs(
+                    self.catalogs.enum_catalog(),
+                    self.catalogs.composite_catalog(),
+                    &element_kind,
+                    FieldStorageDecode::ByKind,
+                )
+                .ok()
+            })?;
+        Some(Self::owned(self.catalogs, value_contract, false))
     }
 
     /// Normalize authored input into an owned value pinned to this accepted authority.

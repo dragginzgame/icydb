@@ -102,10 +102,8 @@ impl<'a> AggregateRouteShape<'a> {
             target_field.is_none_or(|target_field| schema.field_slot_index(target_field).is_some());
         let target_field_orderable = target_field.is_some_and(|target_field| {
             schema
-                .accepted_field_contract(target_field)
-                .is_some_and(|contract| {
-                    accepted_field_kind_supports_aggregate_ordering(contract.kind())
-                })
+                .accepted_query_field_kind(target_field)
+                .is_some_and(accepted_field_kind_supports_aggregate_ordering)
         });
         let primary_key_names = schema.primary_key_names();
         let target_field_is_primary_key = target_field.is_some_and(|target_field| {

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.235.md](docs/changelog/0.235.md)
 
+- `0.235.1` restores SQL and dynamic predicates for accepted `#[newtype]`
+  fields by planning against their admitted scalar or collection value shape
+  while retaining nominal write admission and fail-closed structural composites.
+
 - `0.235.0` adds bounded same-store multi-entity atomic writes plus entity-safe
   generated inputs and a mixed typed builder over the existing executor and
   recovery protocol, with closeout proof for reverse-relation recovery and the

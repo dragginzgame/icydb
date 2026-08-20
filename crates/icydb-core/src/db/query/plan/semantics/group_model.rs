@@ -200,7 +200,7 @@ impl FieldSlot {
     #[must_use]
     pub(in crate::db) fn resolve_with_schema(schema: &SchemaInfo, field: &str) -> Option<Self> {
         let index = schema.field_slot_index(field)?;
-        let kind = schema.accepted_field_contract(field)?.kind().clone();
+        let kind = schema.accepted_query_field_kind(field)?.clone();
         Some(Self::from_accepted_kind(index, field, kind))
     }
 

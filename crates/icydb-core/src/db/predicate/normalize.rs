@@ -179,16 +179,19 @@ fn normalize_compare_with_schema(
     cmp: &ComparePredicate,
 ) -> Result<ComparePredicate, ValidateError> {
     if let Some(contract) = schema.accepted_field_contract(&cmp.field) {
-        let value = if contract.kind().contains_enum() {
+        let Some(query_kind) = schema.accepted_query_field_kind(&cmp.field) else {
+            return Ok(cmp.clone());
+        };
+        let value = if query_kind.contains_enum() {
             normalize_compare_value_for_accepted_contract(
-                &cmp.field, cmp.op, &cmp.value, &contract,
+                &cmp.field, cmp.op, &cmp.value, &contract, query_kind,
             )?
         } else {
             normalize_compare_value_for_accepted_kind(
                 &cmp.field,
                 cmp.op,
                 &cmp.value,
-                contract.kind(),
+                query_kind,
                 cmp.coercion(),
             )?
         };
@@ -208,6 +211,7 @@ fn normalize_compare_value_for_accepted_contract(
     op: CompareOp,
     value: &Value,
     contract: &AcceptedValueAdmissionContract<'_>,
+    query_kind: &AcceptedFieldKind,
 ) -> Result<Value, ValidateError> {
     let mut budget = ValueAdmissionBudget::standard();
     match op {
@@ -221,6 +225,7 @@ fn normalize_compare_value_for_accepted_contract(
                     field,
                     value,
                     contract,
+                    query_kind,
                     &mut budget,
                 )?);
             }
@@ -235,9 +240,19 @@ fn normalize_compare_value_for_accepted_contract(
             let Some(element_contract) = contract.collection_element_contract() else {
                 return Ok(value.clone());
             };
-            normalize_accepted_predicate_value(field, value, &element_contract, &mut budget)
+            let element_kind = match query_kind {
+                AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => inner.as_ref(),
+                _ => return Ok(value.clone()),
+            };
+            normalize_accepted_predicate_value(
+                field,
+                value,
+                &element_contract,
+                element_kind,
+                &mut budget,
+            )
         }
-        _ => normalize_accepted_predicate_value(field, value, contract, &mut budget),
+        _ => normalize_accepted_predicate_value(field, value, contract, query_kind, &mut budget),
     }
 }
 
@@ -245,6 +260,7 @@ fn normalize_accepted_predicate_value(
     field: &str,
     value: &Value,
     contract: &AcceptedValueAdmissionContract<'_>,
+    query_kind: &AcceptedFieldKind,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<Value, ValidateError> {
     if value.contains_enum() {
@@ -253,7 +269,7 @@ fn normalize_accepted_predicate_value(
             .map_err(|error| predicate_admission_error(field, error))?;
         return Ok(value.clone());
     }
-    let input = match (contract.kind(), value) {
+    let input = match (query_kind, value) {
         (AcceptedFieldKind::Enum { .. }, Value::Text(variant)) => {
             InputValue::Enum(InputValueEnum::loose(variant.clone()))
         }
@@ -300,19 +316,14 @@ fn normalize_compare_fields_with_schema(
     cmp: &crate::db::predicate::CompareFieldsPredicate,
 ) -> crate::db::predicate::CompareFieldsPredicate {
     if let (Some(left), Some(right)) = (
-        schema.accepted_field_contract(&cmp.left_field),
-        schema.accepted_field_contract(&cmp.right_field),
+        schema.accepted_query_field_kind(&cmp.left_field),
+        schema.accepted_query_field_kind(&cmp.right_field),
     ) {
         return crate::db::predicate::CompareFieldsPredicate::with_coercion(
             cmp.left_field.clone(),
             cmp.op,
             cmp.right_field.clone(),
-            normalize_accepted_compare_fields_coercion(
-                cmp.op,
-                left.kind(),
-                right.kind(),
-                cmp.coercion.id,
-            ),
+            normalize_accepted_compare_fields_coercion(cmp.op, left, right, cmp.coercion.id),
         );
     }
 

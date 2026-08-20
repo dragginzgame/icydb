@@ -18,7 +18,7 @@ use crate::{
             SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
             field_type_from_persisted_kind, identity_kind_maximum, output_value_from_runtime,
-            render_accepted_check_expr_sql,
+            query_field_kind_from_persisted_kind, render_accepted_check_expr_sql,
             runtime::AcceptedRowLayoutRuntimeField,
         },
     },
@@ -1715,7 +1715,11 @@ fn describe_entity_fields_with_runtime_contract(
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(field.kind(), value_catalog)?,
             field.nullable(),
-            field_type_from_persisted_kind(field.kind()).is_queryable(),
+            field_type_from_persisted_kind(&query_field_kind_from_persisted_kind(
+                field.kind(),
+                value_catalog.composite_catalog(),
+            ))
+            .is_queryable(),
             field_origin_label(field.generated()),
         );
         let temporal = accepted_field_temporal_facts(runtime_field, value_catalog)?;
@@ -1814,7 +1818,11 @@ fn describe_persisted_nested_leaves(
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(leaf.kind(), value_catalog)?,
             leaf.nullable(),
-            field_type_from_persisted_kind(leaf.kind()).is_queryable(),
+            field_type_from_persisted_kind(&query_field_kind_from_persisted_kind(
+                leaf.kind(),
+                value_catalog.composite_catalog(),
+            ))
+            .is_queryable(),
             origin.clone(),
         );
 
