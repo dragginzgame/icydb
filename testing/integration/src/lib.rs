@@ -31,7 +31,11 @@ use crate::canister_build_cache::{
 };
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
-const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 4;
+const FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS: usize = 4;
+// A production watchdog callback may consume its full 30-billion-instruction
+// allocation under deterministic time slicing. The maintained timer-
+// exhaustion proof uses this same zero-time completion envelope.
+const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 24;
 
 /// Maximum watchdog deliveries in the frozen normal convergence residual proof.
 ///
@@ -747,7 +751,7 @@ pub fn deliver_fixture_startup_watchdog(fixture: &StandaloneCanisterFixture) {
     // every maintained fresh-install schema to reach `Ready`.
     for _ in 0..8 {
         fixture.pocket_ic().advance_time(Duration::from_secs(1));
-        for _ in 0..WATCHDOG_MESSAGE_COMPLETION_TICKS {
+        for _ in 0..FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS {
             fixture.pocket_ic().tick();
         }
     }

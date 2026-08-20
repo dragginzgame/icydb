@@ -13,7 +13,9 @@ Detailed notes: [docs/changelog/0.235.md](docs/changelog/0.235.md)
   generated inputs and a mixed typed builder over the existing executor and
   recovery protocol, with closeout proof for reverse-relation recovery and the
   exact 64-entity IC boundary. The shared bounded-SQL harness now declares the
-  runtime fixture dependency required by its reused canister source.
+  runtime fixture dependency required by its reused canister source, and
+  watchdog delivery allows full-limit callbacks to finish deterministic time
+  slicing before advancing simulated time again.
 
 ## [0.234.x] 🧩 - 2026-08-20 - Downstream Schema And Facade Completion
 
