@@ -21,7 +21,9 @@ pub(in crate::db) use codec::{
 #[cfg(test)]
 pub(in crate::db) use store::JOURNAL_TAIL_CHUNK_BYTES;
 pub use store::JournalTailStore;
+#[cfg(feature = "sql")]
+pub(in crate::db) use store::PreparedEntityMutationRevision;
 pub(in crate::db) use store::{
     FoldWatermark, JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue,
-    JournalTailControl, JournalTailProofIdentity, PreparedEntityMutationRevision,
+    JournalTailControl, JournalTailProofIdentity,
 };
