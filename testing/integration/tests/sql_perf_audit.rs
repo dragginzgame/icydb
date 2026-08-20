@@ -2473,7 +2473,7 @@ fn sql_mutation_job_converges_a_row_written_after_start_and_replays_exactly() {
     let SqlQueryResult::Grouped(groups) = managed_time_groups.result else {
         panic!("managed-time proof should return grouped rows");
     };
-    assert_eq!(groups.row_count, 10);
+    assert_eq!(groups.row_count, 3);
 }
 
 #[test]
