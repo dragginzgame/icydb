@@ -79,6 +79,7 @@ const SQL_PERF_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_fixtures_load", CanisterMethodMode::Update),
     ("icydb_fixtures_reset", CanisterMethodMode::Update),
     ("icydb_metrics", CanisterMethodMode::Query),
+    ("icydb_metrics_extended", CanisterMethodMode::Query),
     ("icydb_metrics_reset", CanisterMethodMode::Update),
 ];
 const TEST_SQL_METHODS: &[ExpectedCanisterMethod] = &[

@@ -107,7 +107,8 @@ This supports patterns such as:
 
 IcyDB keeps identity and key semantics split across explicit layers.
 
-- Schema/domain layer: fields express relations semantically (`customer`, `owner`, `invoice`), not storage syntax.
+- Schema/domain layer: relation fields use a semantic stem plus the canonical
+  identity suffix (`customer_id`, `owner_id`, `invoice_ids`).
 - Identity layer: `Id<E>` (and `self.id()`) expresses entity identity at the type level.
 - Storage layer: primitive keys (`Ulid`, `Principal`, `u64`, etc.) are raw key material.
 - Query layer: predicates compare explicit key values; relation meaning is schema metadata, not inferred at runtime.
@@ -117,19 +118,23 @@ IcyDB keeps identity and key semantics split across explicit layers.
 
 Use names that match the layer and call site purpose.
 
-Schema fields use relation semantics:
-
-```rust
-struct Order {
-    customer: Ulid,
-}
-```
-
-Not:
+Schema relation fields use semantic stems and canonical identity suffixes.
+Required and optional single relations end in `*_id`; collection relations end
+in `*_ids`:
 
 ```rust
 struct Order {
     customer_id: Ulid,
+    watcher_ids: Vec<Ulid>,
+}
+```
+
+Suffix-free relation names are not valid schema authoring syntax:
+
+```rust
+struct Order {
+    customer: Ulid,
+    watchers: Vec<Ulid>,
 }
 ```
 
@@ -198,7 +203,8 @@ This separation improves correctness, prevents accidental cross-entity key mixin
 
 - Do not treat `Id<E>` as a capability, session token, or proof object.
 - Do not assume authorization, ownership, or existence from possession of an ID.
-- Do not rename schema relation fields to `*_id` as a style default.
+- Do not omit the canonical `*_id` or `*_ids` suffix from a schema relation
+  field or treat that suffix as authorization evidence.
 - Do not collapse identity (`Id<E>`) and storage key (`Ulid`/`Principal`/etc.) into one naming convention.
 - Do not infer authorization, secrecy, global uniqueness, or density from a
   generated numeric Identity value.

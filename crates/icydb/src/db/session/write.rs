@@ -1034,6 +1034,24 @@ impl<C: CanisterKind> DbSession<C> {
             .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
     }
 
+    /// Execute one non-empty same-binding generated write batch atomically.
+    ///
+    /// The canonical structural batch owner enforces the shared operation,
+    /// staged-byte, and result-byte limits before publishing any durable effect.
+    pub fn execute_trusted_typed_write_batch(
+        &self,
+        writes: Vec<TypedWrite>,
+    ) -> Result<DynamicMutationResult, TypedWriteError> {
+        let requests = writes
+            .into_iter()
+            .map(|write| (write.binding.inner, write.mutation))
+            .collect();
+        self.inner
+            .execute_trusted_typed_mutation_batch(requests)
+            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
+            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
+    }
+
     /// Build one field-name-driven structural patch.
     #[must_use]
     pub fn structural_patch<I, S>(&self, fields: I) -> StructuralPatch

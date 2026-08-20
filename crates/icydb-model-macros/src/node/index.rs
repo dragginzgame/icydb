@@ -706,7 +706,7 @@ fn source_literal_instruction(
         };
         quote! {
             _schema.enum_unit_literal(
-                <#enum_path as ::icydb_model::node::Path>::PATH,
+                <#enum_path as ::icydb_model::Path>::PATH,
                 #variant,
             )?
         }

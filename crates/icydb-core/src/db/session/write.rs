@@ -308,6 +308,14 @@ const fn dynamic_typed_mutation_mode(request: &DynamicTypedMutation) -> Mutation
     }
 }
 
+const fn save_mutation_kind(mode: MutationMode) -> SaveMutationKind {
+    match mode {
+        MutationMode::Insert => SaveMutationKind::Insert,
+        MutationMode::Replace => SaveMutationKind::Replace,
+        MutationMode::Update => SaveMutationKind::Update,
+    }
+}
+
 const fn diagnostic_mutation_operation(
     mode: MutationMode,
 ) -> icydb_diagnostic_code::DiagnosticMutationOperation {
@@ -489,6 +497,40 @@ fn lower_typed_patch(
         };
     }
     Ok(lowered)
+}
+
+fn lower_typed_mutation_intent(
+    entity_tag: crate::types::EntityTag,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    binding: &DynamicTypedEntityBinding,
+    request: &DynamicTypedMutation,
+    batch_position: u32,
+) -> Result<Option<(AcceptedStructuralMutation, SaveMutationKind)>, InternalError> {
+    let mode = dynamic_typed_mutation_mode(request);
+    let (target, patch) = match request {
+        DynamicTypedMutation::Insert { patch } => (
+            AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+            patch,
+        ),
+        DynamicTypedMutation::Update { key, patch }
+        | DynamicTypedMutation::Replace { key, patch } => (
+            AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
+            patch,
+        ),
+    };
+    if !patch.is_bound_to(binding) {
+        return Ok(None);
+    }
+    let patch = lower_typed_patch(
+        descriptor,
+        patch,
+        mode,
+        mutation_diagnostic_context(entity_tag, mode, batch_position),
+    )?;
+    Ok(Some((
+        AcceptedStructuralMutation::save(mode, target, patch),
+        save_mutation_kind(mode),
+    )))
 }
 
 fn preserve_dynamic_replacement_identity(
@@ -1476,32 +1518,46 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(prepared)
     }
 
-    fn execute_one_accepted_save_mutation(
+    fn execute_lowered_dynamic_mutation_batch(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        mode: MutationMode,
-        target: AcceptedStructuralMutationTarget,
-        patch: AcceptedMutationIntentPatch,
+        mutations: Vec<AcceptedStructuralMutation>,
+        save_kinds: Vec<Option<SaveMutationKind>>,
+        enforce_mixed_batch_result_bound: bool,
     ) -> Result<DynamicMutationResult, InternalError> {
         let identity = catalog.identity();
-        let entity_path = identity.entity_path();
-        let result = self.execute_accepted_structural_save_batch(
+        let entity_path = identity.entity_path_handle();
+        let (result, metrics) = self.execute_accepted_structural_save_batch(
             catalog,
             descriptor,
-            vec![AcceptedStructuralMutation::save(mode, target, patch)],
+            mutations,
             Timestamp::now(),
-            |rows| prepare_dynamic_mutation_result(catalog, descriptor, rows, false),
-        )?;
-        record(MetricsEvent::SaveMutation {
-            entity_path: entity_path.into(),
-            kind: match mode {
-                MutationMode::Insert => SaveMutationKind::Insert,
-                MutationMode::Replace => SaveMutationKind::Replace,
-                MutationMode::Update => SaveMutationKind::Update,
+            |rows| {
+                if rows.len() != save_kinds.len() {
+                    return Err(InternalError::executor_invariant());
+                }
+                let metrics = rows
+                    .iter()
+                    .zip(save_kinds)
+                    .filter_map(|(row, kind)| kind.map(|kind| (kind, row.logical_changed())))
+                    .collect::<Vec<_>>();
+                let result = prepare_dynamic_mutation_result(
+                    catalog,
+                    descriptor,
+                    rows,
+                    enforce_mixed_batch_result_bound,
+                )?;
+                Ok((result, metrics))
             },
-            rows_touched: u64::from(result.affected_rows),
-        });
+        )?;
+        for (kind, logical_changed) in metrics {
+            record(MetricsEvent::SaveMutation {
+                entity_path: entity_path.clone(),
+                kind,
+                rows_touched: u64::from(logical_changed),
+            });
+        }
         Ok(result)
     }
 
@@ -1587,38 +1643,13 @@ impl<C: CanisterKind> DbSession<C> {
             save_kinds.push(save_kind);
         }
 
-        let entity_path = accepted_identity.entity_path_handle();
-        let (result, metrics) = self.execute_accepted_structural_save_batch(
+        self.execute_lowered_dynamic_mutation_batch(
             &catalog,
             &descriptor,
             mutations,
-            Timestamp::now(),
-            |rows| {
-                if rows.len() != save_kinds.len() {
-                    return Err(InternalError::executor_invariant());
-                }
-                let metrics = rows
-                    .iter()
-                    .zip(save_kinds)
-                    .filter_map(|(row, kind)| kind.map(|kind| (kind, row.logical_changed())))
-                    .collect::<Vec<_>>();
-                let result = prepare_dynamic_mutation_result(
-                    &catalog,
-                    &descriptor,
-                    rows,
-                    enforce_mixed_batch_result_bound,
-                )?;
-                Ok((result, metrics))
-            },
-        )?;
-        for (kind, logical_changed) in metrics {
-            record(MetricsEvent::SaveMutation {
-                entity_path: entity_path.clone(),
-                kind,
-                rows_touched: u64::from(logical_changed),
-            });
-        }
-        Ok(result)
+            save_kinds,
+            enforce_mixed_batch_result_bound,
+        )
     }
 
     /// Execute one generated typed write through immutable accepted entity and
@@ -1635,32 +1666,83 @@ impl<C: CanisterKind> DbSession<C> {
         let identity = catalog.identity();
         let descriptor =
             AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-        let mode = dynamic_typed_mutation_mode(request);
-        let (target, patch) = match request {
-            DynamicTypedMutation::Insert { patch } => (
-                AcceptedStructuralMutationTarget::ResolveFromAfterImage,
-                patch,
-            ),
-            DynamicTypedMutation::Update { key, patch }
-            | DynamicTypedMutation::Replace { key, patch } => (
-                AcceptedStructuralMutationTarget::expected(dynamic_key(
-                    identity.entity_tag(),
-                    key,
-                )?),
-                patch,
-            ),
-        };
-        if !patch.is_bound_to(binding) {
+        let Some((mutation, save_kind)) =
+            lower_typed_mutation_intent(identity.entity_tag(), &descriptor, binding, request, 0)?
+        else {
             return Ok(None);
-        }
-        let patch = lower_typed_patch(
+        };
+        self.execute_lowered_dynamic_mutation_batch(
+            &catalog,
             &descriptor,
-            patch,
-            mode,
-            mutation_diagnostic_context(identity.entity_tag(), mode, 0),
-        )?;
-        self.execute_one_accepted_save_mutation(&catalog, &descriptor, mode, target, patch)
-            .map(Some)
+            vec![mutation],
+            vec![Some(save_kind)],
+            false,
+        )
+        .map(Some)
+    }
+
+    /// Execute one bounded generated typed-write batch atomically through one
+    /// exact current binding. `None` means a binding or patch is stale or
+    /// mismatched.
+    #[doc(hidden)]
+    pub fn execute_trusted_typed_mutation_batch(
+        &self,
+        requests: Vec<(DynamicTypedEntityBinding, DynamicTypedMutation)>,
+    ) -> Result<Option<DynamicMutationResult>, InternalError> {
+        if requests.is_empty() {
+            return Err(InternalError::mutation_batch_empty());
+        }
+        if requests.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+            return Err(InternalError::mutation_batch_too_many_items(
+                requests.len(),
+                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+            ));
+        }
+        let first_binding = requests
+            .first()
+            .map(|(binding, _)| binding)
+            .ok_or_else(InternalError::mutation_batch_empty)?;
+        let Some(catalog) = self.current_typed_entity_binding_catalog(first_binding)? else {
+            return Ok(None);
+        };
+        let identity = catalog.identity();
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let mut mutations = Vec::with_capacity(requests.len());
+        let mut save_kinds = Vec::with_capacity(requests.len());
+
+        for (batch_position, (binding, request)) in requests.iter().enumerate() {
+            if binding != first_binding {
+                return Ok(None);
+            }
+            let batch_position = u32::try_from(batch_position).map_err(|_| {
+                InternalError::mutation_batch_too_many_items(
+                    requests.len(),
+                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+                )
+            })?;
+            let Some((mutation, save_kind)) = lower_typed_mutation_intent(
+                identity.entity_tag(),
+                &descriptor,
+                binding,
+                request,
+                batch_position,
+            )?
+            else {
+                return Ok(None);
+            };
+            mutations.push(mutation);
+            save_kinds.push(Some(save_kind));
+        }
+
+        self.execute_lowered_dynamic_mutation_batch(
+            &catalog,
+            &descriptor,
+            mutations,
+            save_kinds,
+            true,
+        )
+        .map(Some)
     }
 
     /// Execute one trusted atomic insert batch from entity-name-driven patches.
@@ -1687,9 +1769,9 @@ impl<C: CanisterKind> DbSession<C> {
 #[cfg(test)]
 mod typed_adapter_tests {
     use super::{
-        AcceptedFieldKind, DbSession, DynamicTypedBindingError, DynamicTypedFieldBindingRequest,
-        DynamicTypedFieldType, DynamicTypedMutation, DynamicWriteCell, dynamic_typed_field_type,
-        typed_adapter_field_kind_matches,
+        AcceptedFieldKind, DbSession, DynamicTypedBindingError, DynamicTypedEntityBinding,
+        DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicTypedMutation,
+        DynamicWriteCell, dynamic_typed_field_type, typed_adapter_field_kind_matches,
     };
     use crate::{
         db::{
@@ -1825,6 +1907,71 @@ mod typed_adapter_tests {
         )
     }
 
+    fn initialize_typed_session() -> DbSession<TestCanister> {
+        let entity_tag = EntityTag::new(91);
+        DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
+        session
+            .db
+            .drive_startup_recovery_page()
+            .expect("typed adapter test database should initialize");
+        publish(
+            &session,
+            AcceptedSchemaRevision::NONE,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([(
+                entity_tag,
+                snapshot(
+                    ENTITY_SOURCE,
+                    "Entity",
+                    vec![nat64_field(1, "id", 0), nat64_field(2, "value", 1)],
+                ),
+            )]),
+            BTreeMap::from([
+                ((entity_tag, field_source(ID_SOURCE)), FieldId::new(1)),
+                ((entity_tag, field_source(VALUE_SOURCE)), FieldId::new(2)),
+            ]),
+        );
+        session
+    }
+
+    fn typed_insert(
+        binding: &DynamicTypedEntityBinding,
+        id: u64,
+        value: u64,
+    ) -> DynamicTypedMutation {
+        let patch = binding
+            .bind_write_fields(vec![
+                (
+                    ID_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(id)),
+                ),
+                (
+                    VALUE_SOURCE.to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(value)),
+                ),
+            ])
+            .expect("typed insert patch should bind");
+        DynamicTypedMutation::Insert { patch }
+    }
+
+    fn typed_value_patch(
+        binding: &DynamicTypedEntityBinding,
+        value: u64,
+    ) -> super::DynamicTypedStructuralPatch {
+        binding
+            .bind_write_fields(vec![(
+                VALUE_SOURCE.to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(value)),
+            )])
+            .expect("typed value patch should bind")
+    }
+
     fn assert_query_diagnostic(
         error: crate::db::QueryError,
         code: icydb_diagnostic_code::DiagnosticCode,
@@ -1871,6 +2018,127 @@ mod typed_adapter_tests {
             dynamic_typed_field_type(DynamicTypedFieldType::Scalar(ScalarType::Nat16)),
             Ok(icydb_schema::FieldType::Scalar(ScalarType::Nat16)),
         ));
+    }
+
+    #[test]
+    fn typed_mutation_batch_is_same_binding_bounded_and_atomic() {
+        let session = initialize_typed_session();
+        let binding = session
+            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .expect("typed batch binding should issue");
+
+        session
+            .execute_trusted_typed_mutation_batch(Vec::new())
+            .expect_err("empty typed batch should reject");
+        let insert = typed_insert(&binding, 1, 10);
+        let oversized = (0..=super::MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS)
+            .map(|_| (binding.clone(), insert.clone()))
+            .collect();
+        session
+            .execute_trusted_typed_mutation_batch(oversized)
+            .expect_err("oversized typed batch should reject");
+
+        let duplicate = vec![
+            (binding.clone(), insert.clone()),
+            (binding.clone(), typed_insert(&binding, 1, 11)),
+        ];
+        session
+            .execute_trusted_typed_mutation_batch(duplicate)
+            .expect_err("late duplicate key should reject the whole typed batch");
+        let empty = session
+            .execute_trusted_live_page(&crate::db::DynamicQuery::new("Entity"), None)
+            .expect("failed typed batch should leave the entity readable");
+        assert!(empty.rows.is_empty());
+
+        let result = session
+            .execute_trusted_typed_mutation_batch(vec![
+                (binding.clone(), insert),
+                (binding.clone(), typed_insert(&binding, 2, 20)),
+            ])
+            .expect("valid typed batch should execute")
+            .expect("exact binding should remain current");
+        assert_eq!(result.affected_rows, 2);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![
+                    crate::value::OutputValue::Nat64(1),
+                    crate::value::OutputValue::Nat64(10),
+                ],
+                vec![
+                    crate::value::OutputValue::Nat64(2),
+                    crate::value::OutputValue::Nat64(20),
+                ],
+            ]
+        );
+
+        let mut mismatched = binding.clone();
+        mismatched.accepted_revision = mismatched.accepted_revision.saturating_add(1);
+        let mismatch = session
+            .execute_trusted_typed_mutation_batch(vec![
+                (binding.clone(), typed_insert(&binding, 3, 30)),
+                (mismatched.clone(), typed_insert(&binding, 4, 40)),
+            ])
+            .expect("mismatched typed batch should fail closed");
+        assert!(mismatch.is_none());
+        let stale = session
+            .execute_trusted_typed_mutation_batch(vec![(mismatched, typed_insert(&binding, 5, 50))])
+            .expect("stale typed batch should fail closed");
+        assert!(stale.is_none());
+    }
+
+    #[test]
+    fn typed_mutation_batch_preserves_mixed_result_order() {
+        let session = initialize_typed_session();
+        let binding = session
+            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .expect("typed batch binding should issue");
+        session
+            .execute_trusted_typed_mutation_batch(vec![
+                (binding.clone(), typed_insert(&binding, 1, 10)),
+                (binding.clone(), typed_insert(&binding, 2, 20)),
+            ])
+            .expect("typed fixture batch should execute")
+            .expect("typed fixture binding should be current");
+
+        let result = session
+            .execute_trusted_typed_mutation_batch(vec![
+                (
+                    binding.clone(),
+                    DynamicTypedMutation::Update {
+                        key: InputValue::Nat64(1),
+                        patch: typed_value_patch(&binding, 11),
+                    },
+                ),
+                (
+                    binding.clone(),
+                    DynamicTypedMutation::Replace {
+                        key: InputValue::Nat64(2),
+                        patch: typed_value_patch(&binding, 22),
+                    },
+                ),
+                (binding.clone(), typed_insert(&binding, 3, 30)),
+            ])
+            .expect("mixed typed batch should execute")
+            .expect("mixed typed binding should remain current");
+        assert_eq!(result.affected_rows, 3);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![
+                    crate::value::OutputValue::Nat64(1),
+                    crate::value::OutputValue::Nat64(11),
+                ],
+                vec![
+                    crate::value::OutputValue::Nat64(2),
+                    crate::value::OutputValue::Nat64(22),
+                ],
+                vec![
+                    crate::value::OutputValue::Nat64(3),
+                    crate::value::OutputValue::Nat64(30),
+                ],
+            ],
+        );
     }
 
     // Keep the full rename, stale-binding, and old-name-reuse lifecycle in one
@@ -3196,7 +3464,6 @@ mod mixed_relation_batch_tests {
 
 #[cfg(test)]
 mod identity_pre_key_tests {
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use super::DynamicTypedEntityBinding;
     use super::{
         AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
@@ -3683,7 +3950,6 @@ mod identity_pre_key_tests {
         vec![OutputValue::Nat64(id), OutputValue::Nat64(payload)]
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     fn exact_key_binding<C: CanisterKind>(session: &DbSession<C>) -> DynamicTypedEntityBinding {
         session
             .issue_typed_entity_binding(
@@ -3702,6 +3968,19 @@ mod identity_pre_key_tests {
                 ],
             )
             .expect("exact-key test binding should issue")
+    }
+
+    fn typed_payload_insert(
+        binding: &DynamicTypedEntityBinding,
+        payload: u64,
+    ) -> DynamicTypedMutation {
+        let patch = binding
+            .bind_write_fields(vec![(
+                PAYLOAD_SOURCE.to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(payload)),
+            )])
+            .expect("typed payload patch should bind");
+        DynamicTypedMutation::Insert { patch }
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -6470,6 +6749,41 @@ mod identity_pre_key_tests {
             );
             assert!(tail.has_stored_batch());
         });
+    }
+
+    #[test]
+    fn typed_mutation_batch_recovers_as_one_marker_atomic_transition() {
+        let session = initialize_journaled();
+        let binding = exact_key_binding(&session);
+        interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::RowsPublished);
+
+        let interrupted = session.execute_trusted_typed_mutation_batch(vec![
+            (binding.clone(), typed_payload_insert(&binding, 10)),
+            (binding.clone(), typed_payload_insert(&binding, 20)),
+        ]);
+        assert!(
+            interrupted.is_err(),
+            "typed batch should expose the selected durable interruption",
+        );
+        let pending = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(30),
+            })
+            .expect_err("ordinary writes must not bypass retained-marker recovery");
+        assert_eq!(
+            pending.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+        );
+
+        drive_journaled_recovery_to_completion(&session);
+        let recovered = session
+            .execute_trusted_live_page(&crate::db::DynamicQuery::new(ENTITY_NAME), None)
+            .expect("the recovered typed batch should be readable");
+        assert_eq!(
+            recovered.rows,
+            vec![expected_dynamic_row(1, 10), expected_dynamic_row(2, 20)],
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use icydb::{
-    db::{DbSession, StructuralMutation, StructuralPatch, WriteCell},
+    db::{DbSession, StructuralMutation, StructuralPatch, TypedWrite, WriteCell},
     traits::CanisterKind,
     value::InputValue,
 };
@@ -31,6 +31,14 @@ where
     ];
 
     let _ = db.execute_trusted_structural_mutation_batch(batch);
+}
+
+#[allow(dead_code)]
+fn typed_write_batch_compiles_without_sql<C>(db: &DbSession<C>, writes: Vec<TypedWrite>)
+where
+    C: CanisterKind,
+{
+    let _ = db.execute_trusted_typed_write_batch(writes);
 }
 
 #[test]
