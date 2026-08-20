@@ -36,3 +36,8 @@ profile must be recreated rather than translated.
 See the
 [0.213 design](../../docs/design/archive/0.213-schema-authority-and-application-model-separation/0.213-design.md)
 for the package and authority boundary.
+
+Application authors should start with the
+[schema authoring guide](../../docs/guides/schema-authoring.md), which derives
+the maintained primary-key primitive set from this crate's scalar metadata and
+explains the host-build/runtime authority boundary.

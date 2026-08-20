@@ -558,7 +558,7 @@ impl<C: CanisterKind> DbSession<C> {
         let visible_indexes =
             self.visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
         let prefix_keys =
-            super::direct_count::direct_count_cardinality_prefix_keys_for_accepted_authority(
+            crate::db::session::query::exact_count_cardinality_prefix_keys_for_accepted_authority(
                 authority,
                 command.query(),
                 &visible_indexes,

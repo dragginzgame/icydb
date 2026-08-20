@@ -3487,11 +3487,12 @@ mod identity_pre_key_tests {
     use crate::db::mutation_job::{MutationJobRecord, MutationJobTransition};
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::{
-        CompareProofAndAdvanceError, DynamicQuery, ExhaustiveReadError, MutationJobError,
+        CompareProofAndAdvanceError, ExhaustiveReadError, MutationJobError,
         MutationJobRestartReason, RawDataStoreKey, ReadSetRevisionError, ResumableJobAdvance,
         ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
         ResumableJobIdempotencyKey, ResumableJobStatus, asc,
     };
+    use crate::db::{DynamicQuery, QueryExecutionError};
     use crate::{
         db::{
             GeneratedStartupDriverStep, MutationJobAdvanceRequest, MutationJobId,
@@ -3655,6 +3656,14 @@ mod identity_pre_key_tests {
     }
 
     fn identity_snapshot(store_path: &str, payload_unique: bool) -> PersistedSchemaSnapshot {
+        identity_snapshot_with_payload_index(store_path, payload_unique, false)
+    }
+
+    fn identity_snapshot_with_payload_index(
+        store_path: &str,
+        payload_unique: bool,
+        composite: bool,
+    ) -> PersistedSchemaSnapshot {
         let fields = vec![
             PersistedFieldSnapshot::new_initial_with_write_policy(
                 FieldId::new(1),
@@ -3683,6 +3692,22 @@ mod identity_pre_key_tests {
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
         ];
+        let mut index_fields = vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["payload".to_string()],
+            AcceptedFieldKind::Nat64,
+            false,
+        )];
+        if composite {
+            index_fields.push(PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(1),
+                SchemaFieldSlot::new(0),
+                vec!["id".to_string()],
+                AcceptedFieldKind::Nat64,
+                false,
+            ));
+        }
         PersistedSchemaSnapshot::new_with_indexes(
             SchemaVersion::initial(),
             ENTITY_SOURCE.to_string(),
@@ -3698,22 +3723,30 @@ mod identity_pre_key_tests {
             vec![PersistedIndexSnapshot::new(
                 SchemaIndexId::new(1).expect("identity test index ID should admit"),
                 1,
-                "by_payload".to_string(),
+                if composite {
+                    "by_payload_id".to_string()
+                } else {
+                    "by_payload".to_string()
+                },
                 store_path.to_string(),
                 payload_unique,
-                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                    FieldId::new(2),
-                    SchemaFieldSlot::new(1),
-                    vec!["payload".to_string()],
-                    AcceptedFieldKind::Nat64,
-                    false,
-                )]),
+                PersistedIndexKeySnapshot::FieldPath(index_fields),
                 None,
             )],
         )
     }
 
     fn initialize() -> DbSession<TestCanister> {
+        initialize_with_snapshot(identity_snapshot(STORE_PATH, false))
+    }
+
+    fn initialize_with_composite_payload_index() -> DbSession<TestCanister> {
+        initialize_with_snapshot(identity_snapshot_with_payload_index(
+            STORE_PATH, false, true,
+        ))
+    }
+
+    fn initialize_with_snapshot(snapshot: PersistedSchemaSnapshot) -> DbSession<TestCanister> {
         DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
@@ -3731,7 +3764,7 @@ mod identity_pre_key_tests {
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
             STORE_PATH,
             AcceptedSchemaRevision::INITIAL,
-            BTreeMap::from([(ENTITY_TAG, identity_snapshot(STORE_PATH, false))]),
+            BTreeMap::from([(ENTITY_TAG, snapshot)]),
             BTreeMap::from([
                 ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
                 ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
@@ -3983,7 +4016,6 @@ mod identity_pre_key_tests {
         DynamicTypedMutation::Insert { patch }
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     fn insert_exact_key_fixture<C: CanisterKind>(session: &DbSession<C>, payload: u64) -> u64 {
         let output = session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
@@ -4002,6 +4034,163 @@ mod identity_pre_key_tests {
             },
             _ => panic!("exact-key fixture insert should return one row"),
         }
+    }
+
+    #[test]
+    fn exact_counts_use_entity_and_bounded_index_metadata_without_physical_reads() {
+        let session = initialize();
+        for payload in [10, 10, 20] {
+            insert_exact_key_fixture(&session, payload);
+        }
+        let binding = exact_key_binding(&session);
+        let entity = DynamicQuery::new(ENTITY_NAME);
+        let tens =
+            DynamicQuery::new(ENTITY_NAME).filter(crate::db::FieldRef::new("payload").eq(10_u64));
+        let selected = DynamicQuery::new(ENTITY_NAME)
+            .filter(crate::db::FieldRef::new("payload").in_list([10_u64, 10, 20, 99]));
+        let missing =
+            DynamicQuery::new(ENTITY_NAME).filter(crate::db::FieldRef::new("payload").eq(99_u64));
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
+
+        assert_eq!(session.execute_public_exact_count(&entity).unwrap(), 3);
+        assert_eq!(session.execute_public_exact_count(&tens).unwrap(), 2);
+        assert_eq!(session.execute_public_exact_count(&selected).unwrap(), 3);
+        assert_eq!(session.execute_public_exact_count(&missing).unwrap(), 0);
+        assert_eq!(
+            session
+                .execute_public_exact_count_for_typed_binding(&binding, &tens)
+                .unwrap(),
+            Some(2),
+        );
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+
+        session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                (0..64).map(|_| dynamic_payload_patch(10)).collect(),
+            )
+            .expect("a larger matching population should commit");
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
+        assert_eq!(session.execute_public_exact_count(&tens).unwrap(), 66);
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+    }
+
+    #[test]
+    fn exact_count_accepts_the_leading_field_of_a_composite_user_index() {
+        let session = initialize_with_composite_payload_index();
+        for payload in [10, 10, 20] {
+            insert_exact_key_fixture(&session, payload);
+        }
+        let tens =
+            DynamicQuery::new(ENTITY_NAME).filter(crate::db::FieldRef::new("payload").eq(10_u64));
+        let selected = DynamicQuery::new(ENTITY_NAME)
+            .filter(crate::db::FieldRef::new("payload").in_list([10_u64, 20, 99]));
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
+
+        assert_eq!(session.execute_public_exact_count(&tens).unwrap(), 2);
+        assert_eq!(session.execute_public_exact_count(&selected).unwrap(), 3);
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn exact_count_shared_executor_preserves_sql_direct_count_results() {
+        let session = initialize();
+        for payload in [10, 10, 20] {
+            insert_exact_key_fixture(&session, payload);
+        }
+
+        let crate::db::SqlStatementResult::Projection { rows, .. } = session
+            .execute_trusted_sql_query(
+                "SELECT COUNT(*) FROM IdentityRow WHERE payload IN (10, 10, 20, 99)",
+            )
+            .expect("SQL direct count should use the shared exact executor")
+        else {
+            panic!("SQL direct count should return one projection row")
+        };
+        assert_eq!(rows, vec![vec![OutputValue::Nat64(3)]]);
+    }
+
+    #[test]
+    fn exact_count_rejects_non_metadata_shapes_and_unready_cardinality() {
+        let session = initialize();
+        insert_exact_key_fixture(&session, 10);
+        let rejected = [
+            DynamicQuery::new(ENTITY_NAME).limit(1),
+            DynamicQuery::new(ENTITY_NAME).select(["payload"]),
+            DynamicQuery::new(ENTITY_NAME).order_by(crate::db::asc("payload")),
+            DynamicQuery::new(ENTITY_NAME).filter(crate::db::FieldRef::new("id").eq(1_u64)),
+            DynamicQuery::new(ENTITY_NAME).filter(crate::db::FilterExpr::and(vec![
+                crate::db::FieldRef::new("payload").eq(10_u64),
+                crate::db::FieldRef::new("id").eq(1_u64),
+            ])),
+            DynamicQuery::new(ENTITY_NAME)
+                .filter(crate::db::FieldRef::new("payload").in_list(0_u64..=16)),
+        ];
+        for request in rejected {
+            assert!(matches!(
+                session.execute_public_exact_count(&request),
+                Err(crate::db::QueryError::Execute(
+                    QueryExecutionError::Unsupported(_)
+                )),
+            ));
+        }
+
+        let journaled = initialize_journaled();
+        insert_exact_key_fixture(&journaled, 10);
+        assert!(matches!(
+            journaled.execute_public_exact_count(&DynamicQuery::new(ENTITY_NAME)),
+            Err(crate::db::QueryError::Execute(
+                QueryExecutionError::Unsupported(_)
+            )),
+        ));
+    }
+
+    #[test]
+    fn exact_count_typed_binding_fails_closed_after_accepted_revision_changes() {
+        let session = initialize();
+        let binding = exact_key_binding(&session);
+        let request = DynamicQuery::new(ENTITY_NAME);
+        assert_eq!(
+            session
+                .execute_public_exact_count_for_typed_binding(&binding, &request)
+                .unwrap(),
+            Some(0),
+        );
+
+        let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            STORE_PATH,
+            AcceptedSchemaRevision::new(2),
+            BTreeMap::from([(ENTITY_TAG, identity_snapshot(STORE_PATH, false))]),
+            BTreeMap::from([
+                ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
+                ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
+            ]),
+        );
+        let store = session
+            .db
+            .store_handle(STORE_PATH)
+            .expect("exact-count store should resolve");
+        crate::db::commit::publish_accepted_schema_candidate(
+            STORE_PATH,
+            store,
+            AcceptedSchemaRevision::INITIAL,
+            &candidate,
+        )
+        .expect("successor accepted schema should publish");
+
+        assert_eq!(
+            session
+                .execute_public_exact_count_for_typed_binding(&binding, &request)
+                .unwrap(),
+            None,
+        );
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]

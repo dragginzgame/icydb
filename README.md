@@ -90,7 +90,9 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.233.3" }
 
 ## Minimal Schema
 
-Schema definitions normally live in a small schema crate used by the canister:
+Schema definitions normally live in a small schema crate used by the canister.
+See [Schema authoring](docs/guides/schema-authoring.md) for primary-key types,
+reserved names, relation suffixes, and host/Wasm crate layouts.
 
 ```rust
 use icydb_model::prelude::*;

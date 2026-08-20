@@ -13,6 +13,9 @@ TYPED_ADAPTER_FIXTURE_CARGO="testing/model-typed-adapter/Cargo.toml"
 CORE_APPLICATION="crates/icydb-core/src/db/schema/application.rs"
 CORE_SOURCE_BINDING="crates/icydb-core/src/db/schema/source_binding.rs"
 CORE_ACCEPTED_BUNDLE="crates/icydb-core/src/db/schema/enum_catalog/publication.rs"
+SCALAR_REGISTRY="crates/icydb-schema/src/scalar_macros.rs"
+MODEL_RESERVED_WORDS="crates/icydb-model-macros/src/validate/reserved.rs"
+SCHEMA_AUTHORING_GUIDE="docs/guides/schema-authoring.md"
 
 status=0
 
@@ -21,6 +24,12 @@ fail_with_matches() {
   local matches="$2"
   echo "[ERROR] $message" >&2
   printf '%s\n' "$matches" >&2
+  status=1
+}
+
+fail_contract() {
+  local message="$1"
+  echo "[ERROR] $message" >&2
   status=1
 }
 
@@ -201,6 +210,96 @@ for atom in "${canonical_atoms[@]}"; do
       "$duplicate_definitions"
   fi
 done
+
+for entrypoint_contract in \
+  'README.md:[Schema authoring](docs/guides/schema-authoring.md)' \
+  'crates/icydb-model/README.md:[Schema authoring guide](../../docs/guides/schema-authoring.md)' \
+  'crates/icydb-model-macros/README.md:[Schema authoring guide](../../docs/guides/schema-authoring.md)' \
+  'crates/icydb-schema/README.md:[schema authoring guide](../../docs/guides/schema-authoring.md)'
+do
+  entrypoint="${entrypoint_contract%%:*}"
+  contract="${entrypoint_contract#*:}"
+  if ! rg -q --fixed-strings "$contract" "$entrypoint"; then
+    fail_contract "maintained schema entry point must link to the authoring guide: $entrypoint"
+  fi
+done
+
+if ! rg -q --fixed-strings \
+  '[identity and primary-key contract](../contracts/IDENTITY_CONTRACT.md)' \
+  "$SCHEMA_AUTHORING_GUIDE"
+then
+  fail_contract "schema authoring guide must link to the identity contract"
+fi
+
+reserved_source_words="$({
+  sed -n '/let mut words = Vec::new();/,/words.into_iter().collect()/p' \
+    "$MODEL_RESERVED_WORDS" \
+    | rg -o '"[A-Za-z0-9_]+"' \
+    | tr -d '"' \
+    | sort -u \
+    | paste -sd ' ' -
+})"
+reserved_documented_words="$({
+  sed -n \
+    '/<!-- icydb-reserved-field-identifiers:start -->/,/<!-- icydb-reserved-field-identifiers:end -->/p' \
+    "$SCHEMA_AUTHORING_GUIDE" \
+    | rg -o '`[A-Za-z0-9_]+' \
+    | tr -d '`' \
+    | sort -u \
+    | paste -sd ' ' -
+})"
+if [[ "$reserved_source_words" != "$reserved_documented_words" ]]; then
+  fail_contract "documented reserved field identifiers must match derive authority"
+fi
+
+primary_key_scalars="$({
+  awk '
+    /macro_rules! scalar_kind_registry_entries/ { in_registry = 1; next }
+    in_registry && /macro_rules! scalar_kind_registry/ { exit }
+    in_registry && $0 ~ /^[[:space:]]*\([[:space:]]*$/ {
+      expect_kind = 1
+      next
+    }
+    in_registry && expect_kind &&
+      $0 ~ /^[[:space:]]*[A-Z][A-Za-z0-9_]*,[[:space:]]*$/ {
+      value = $0
+      gsub(/[[:space:],]/, "", value)
+      kind = value
+      expect_kind = 0
+      next
+    }
+    in_registry && /is_primary_key_component_encodable = true/ { print kind }
+  ' "$SCALAR_REGISTRY" | paste -sd ' ' -
+})"
+primary_key_source_primitives="$({
+  awk -v key_scalars="$primary_key_scalars" '
+    BEGIN {
+      count = split(key_scalars, values, " ")
+      for (i = 1; i <= count; i++) {
+        primary_key_scalar[values[i]] = 1
+      }
+    }
+    /macro_rules! authoring_primitive_registry/ { in_registry = 1; next }
+    in_registry && /^macro_rules! metadata_from_registry/ { exit }
+    in_registry &&
+      match($0, /\(([A-Z][A-Za-z0-9_]*),[[:space:]]*([A-Z][A-Za-z0-9_]*)\)/, parts) &&
+      primary_key_scalar[parts[2]] {
+      print parts[1]
+    }
+  ' "$SCALAR_REGISTRY" | sort -u | paste -sd ' ' -
+})"
+primary_key_documented_primitives="$({
+  sed -n \
+    '/<!-- icydb-primary-key-primitives:start -->/,/<!-- icydb-primary-key-primitives:end -->/p' \
+    "$SCHEMA_AUTHORING_GUIDE" \
+    | rg -o '`[A-Za-z0-9_]+' \
+    | tr -d '`' \
+    | sort -u \
+    | paste -sd ' ' -
+})"
+if [[ "$primary_key_source_primitives" != "$primary_key_documented_primitives" ]]; then
+  fail_contract "documented primary-key primitives must match canonical scalar metadata"
+fi
 
 if (( status != 0 )); then
   echo "[FAIL] Schema/model boundary invariants failed." >&2

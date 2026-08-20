@@ -140,6 +140,21 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
+    /// Return exact visible cardinality without scanning rows.
+    ///
+    /// The request must contain only an optional strict equality or bounded
+    /// `IN` filter over the leading field of an accepted unfiltered field-path
+    /// user index. The index may have trailing fields. Unsupported shapes and
+    /// unavailable exact-cardinality metadata fail closed.
+    pub fn execute_exact_count(
+        &self,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<u64, crate::Error> {
+        self.inner
+            .execute_public_exact_count(request)
+            .map_err(Into::into)
+    }
+
     /// Execute one trusted revision-tolerant bounded dynamic page.
     pub fn execute_trusted_live_page(
         &self,
@@ -315,6 +330,16 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Option<crate::db::LiveQueryPageOutput>, crate::Error> {
         self.inner
             .execute_public_live_page_for_typed_binding(binding.inner(), request, continuation)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn execute_public_typed_exact_count(
+        &self,
+        binding: &TypedEntityBinding,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<Option<u64>, crate::Error> {
+        self.inner
+            .execute_public_exact_count_for_typed_binding(binding.inner(), request)
             .map_err(Into::into)
     }
 

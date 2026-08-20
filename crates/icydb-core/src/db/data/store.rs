@@ -17,18 +17,18 @@ use crate::{
 use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ops::{Bound, RangeBounds};
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 thread_local! {
     static DATA_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 fn record_data_store_get_call() {
     DATA_STORE_GET_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
@@ -590,7 +590,7 @@ impl DataStore {
 
     /// Read one visible row without cloning heap/live payloads.
     pub(in crate::db) fn read<'a>(&'a self, key: &RawDataStoreKey) -> StoredRowRead<'a> {
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
         record_data_store_get_call();
 
         match &self.backend {
@@ -896,7 +896,7 @@ impl DataStore {
     }
 
     /// Return the monotonic perf-only count of stable row fetches seen by this process.
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
     }

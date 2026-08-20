@@ -97,4 +97,5 @@ manual implementation.
 References:
 
 - Workspace overview: `../../README.md`
+- [Schema authoring guide](../../docs/guides/schema-authoring.md)
 - Release notes: `../../CHANGELOG.md`

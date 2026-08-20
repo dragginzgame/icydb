@@ -79,6 +79,7 @@ current accepted profile is `ICYU`.
 References:
 
 - Workspace overview: `../../README.md`
+- [Schema authoring guide](../../docs/guides/schema-authoring.md)
 - Design:
   `../../docs/design/archive/0.213-schema-authority-and-application-model-separation/0.213-design.md`
 - Release notes: `../../CHANGELOG.md`

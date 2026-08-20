@@ -7,19 +7,17 @@
 //! introspection DTOs at the session facade.
 
 #[cfg(feature = "sql")]
-use crate::db::schema::SchemaInfo;
-#[cfg(feature = "sql")]
 use crate::db::schema::show_indexes_for_schema_info_with_runtime_state;
-#[cfg(feature = "sql")]
-use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
         DbSession, EntityCatalogCounts, EntityCatalogDescription, EntityIdentityDescription,
-        EntitySchemaDescription, SchemaApplicationTarget, SchemaChangeJobId, SchemaChangeProgress,
-        SchemaChangeReceipt, StorageReport, StoreCatalogDescription,
+        EntitySchemaDescription, IndexState, QueryError, SchemaApplicationTarget,
+        SchemaChangeJobId, SchemaChangeProgress, SchemaChangeReceipt, StorageReport,
+        StoreCatalogDescription,
         commit::database_incarnation_id,
+        query::plan::VisibleIndexes,
         schema::{
-            AcceptedEntityDescriptionMetadata, ConstraintValidationJob,
+            AcceptedEntityDescriptionMetadata, ConstraintValidationJob, SchemaInfo,
             describe_accepted_entity_with_persisted_schema, describe_accepted_identity,
         },
     },
@@ -176,7 +174,6 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve the exact secondary-index set that is visible to planner-owned
     // query planning for one recovered store and accepted schema pair.
-    #[cfg(feature = "sql")]
     pub(in crate::db::session) fn visible_indexes_for_store_accepted_schema(
         &self,
         store_path: &str,

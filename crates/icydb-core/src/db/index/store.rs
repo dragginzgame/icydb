@@ -33,28 +33,28 @@ thread_local! {
     static JOURNALED_SNAPSHOT_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 thread_local! {
     static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_RANGE_SCAN_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 fn record_index_store_get_call() {
     INDEX_STORE_GET_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 fn record_index_store_range_scan_call() {
     INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
 fn record_index_store_entry_read() {
     INDEX_STORE_ENTRY_READ_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
@@ -66,7 +66,7 @@ fn visit_index_store_entry<E>(
     value: &IndexEntryValue,
     visit: &mut impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
 ) -> Result<bool, E> {
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     record_index_store_entry_read();
 
     visit(key, value)
@@ -217,7 +217,7 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => {
                 for (key, value) in map {
-                    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+                    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
                     record_index_store_entry_read();
 
                     if visitor(key, value)?.should_stop() {
@@ -236,7 +236,7 @@ impl IndexStore {
     }
 
     pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
         record_index_store_get_call();
 
         match &self.backend {
@@ -833,24 +833,24 @@ impl IndexStore {
     }
 
     /// Return the monotonic perf-only count of index-entry fetches seen by this process.
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         INDEX_STORE_GET_CALL_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of index range traversal probes seen by this process.
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     pub(in crate::db) fn current_range_scan_call_count() -> u64 {
         INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of index entries yielded by traversal.
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     pub(in crate::db) fn current_entry_read_count() -> u64 {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
     pub(in crate::db::index) fn record_range_scan_call() {
         record_index_store_range_scan_call();
     }

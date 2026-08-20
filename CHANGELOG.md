@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.234.md](docs/changelog/0.234.md)
 
-- `0.234.0` completes durable mutation-job liveness closeout and adds atomic
-  generated typed-write batches while correcting downstream schema authoring.
+- `0.234.0` adds fail-closed exact cardinality to Rust query facades and
+  publishes schema-authoring guidance tied to canonical key and name rules.
 
 ## [0.233.x] ⏱️ - 2026-08-20 - Durable Mutation-Job Liveness And Recovery
 
 Detailed notes: [docs/changelog/0.233.md](docs/changelog/0.233.md)
+
+- `0.233.3` closes durable mutation-job liveness and includes generated schema
+  corrections plus atomic typed-write batching through the existing executor.
 
 - `0.233.2` narrows durable Verify invalidation to journal-owned target-entity
   revisions with bounded predecessor initialization and one retained cross-page

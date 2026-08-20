@@ -73,6 +73,15 @@ let page = db!()?
     .execute_live_page(None)?;
 ```
 
+When only cardinality is needed, `DbSession::execute_exact_count` and typed
+`Query::execute_exact_count` return an exact `u64` without scanning rows. They
+accept a bare entity query or one strict equality/non-empty bounded `IN`
+filter over the leading field of an accepted unfiltered field-path user index.
+The index may be single-field or composite; a composite index contributes its
+one-component leading prefix. Non-leading fields, residual predicates, and
+unavailable cardinality metadata fail closed rather than entering row
+execution.
+
 `query::<E>()` is generated automatically for entities declared in a crate
 that depends on the `icydb` runtime facade. The generated adapter resolves the
 authored entity and field names through the current accepted source bindings.

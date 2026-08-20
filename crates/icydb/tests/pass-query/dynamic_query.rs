@@ -19,6 +19,8 @@ where
     let _ = db.execute_exhaustive_page(&request, None, None);
     let _ = db.execute_trusted_exhaustive_page(&request, None, None);
     let _ = db.capture_read_set_revision_proof(&["app::User"]);
+    let exact = DynamicQuery::new("app::User");
+    let _ = db.execute_exact_count(&exact);
     if let Ok(job_id) = icydb::db::ResumableJobId::try_from_bytes([1; 32]) {
         let _ = db.acknowledge_resumable_job(job_id, 1);
     }
@@ -39,6 +41,15 @@ where
     E: TypedEntityAdapter,
 {
     let _ = query.limit(25).execute_exhaustive_page(None, None);
+}
+
+#[allow(dead_code)]
+fn typed_exact_count_compiles_without_sql<C, E>(query: Query<'_, C, E>)
+where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+{
+    let _ = query.execute_exact_count();
 }
 
 #[allow(dead_code)]

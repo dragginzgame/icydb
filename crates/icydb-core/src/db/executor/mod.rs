@@ -36,11 +36,14 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use aggregate::execute_structural_aggregate_rows_for_canister;
 pub(in crate::db) use aggregate::runtime::RuntimeGroupedRow;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
+pub(in crate::db) use aggregate::{ExactCardinalityTarget, execute_exact_cardinality_for_canister};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use aggregate::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
@@ -48,11 +51,6 @@ pub(in crate::db) use aggregate::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use aggregate::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
-};
-#[cfg(feature = "sql")]
-pub(in crate::db) use aggregate::{
-    execute_direct_count_index_prefix_cardinality_for_canister,
-    execute_structural_aggregate_rows_for_canister,
 };
 pub(in crate::db) use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;

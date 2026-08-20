@@ -99,7 +99,7 @@ impl<C: CanisterKind> DbSession<C> {
         access.as_by_keys_path().map(<[crate::value::Value]>::len)
     }
 
-    fn structural_query_from_dynamic_request(
+    pub(super) fn structural_query_from_dynamic_request(
         request: &DynamicQuery,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<StructuralQuery, QueryError> {

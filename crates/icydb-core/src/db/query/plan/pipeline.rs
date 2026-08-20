@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, MAX_INDEX_BRANCH_SET_VALUES},
         predicate::{CompareOp, Predicate},
         query::{
             intent::{QueryError, QueryModel},
@@ -294,7 +294,7 @@ fn plan_access_from_parameterized_template(
 }
 
 /// Build the exact-prefix COUNT metadata access proof directly from query
-/// intent that already carries a normalized SQL predicate subset.
+/// intent that already carries one normalized predicate subset.
 pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query_model<'query>(
     query: &'query QueryModel,
     visible_indexes: &VisibleIndexes,
@@ -345,6 +345,9 @@ fn direct_count_exact_prefix_values<'predicate>(
             let Value::List(values) = &cmp.value else {
                 return None;
             };
+            if values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+                return None;
+            }
             CountCardinalityPrefixValues::Many(values.as_slice())
         }
         CompareOp::Ne

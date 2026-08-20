@@ -8,6 +8,7 @@ mod cache;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 mod diagnostics;
 mod dynamic;
+mod exact_count;
 mod exact_key;
 mod grouped;
 mod projection;
@@ -29,6 +30,8 @@ pub use diagnostics::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     KernelRowAttribution, ScalarAggregateAttribution,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db::session) use exact_count::exact_count_cardinality_prefix_keys_for_accepted_authority;
 #[doc(hidden)]
 pub use exact_key::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
