@@ -17,7 +17,7 @@ use candid::CandidType;
 use icydb_core as core;
 use icydb_schema::ScalarType;
 use serde::Deserialize;
-use std::{collections::BTreeSet, error::Error as StdError, fmt};
+use std::{collections::BTreeSet, error::Error as StdError, fmt, marker::PhantomData, sync::Arc};
 
 ///
 /// WriteCell
@@ -102,6 +102,9 @@ impl OutputRow {
 /// Stable typed-adapter boundary failures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TypedAdapterError {
+    /// A typed item handle does not belong to this exact batch result owner.
+    BatchHandleMismatch,
+
     /// The row belongs to another accepted entity.
     EntityMismatch,
 
@@ -127,6 +130,7 @@ pub enum TypedAdapterError {
 impl fmt::Display for TypedAdapterError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::BatchHandleMismatch => "typed batch handle mismatch",
             Self::EntityMismatch => "typed binding entity mismatch",
             Self::FieldUnavailable => "typed binding field unavailable",
             Self::IncompatibleField => "typed binding field contract is incompatible",
@@ -212,6 +216,21 @@ impl StdError for TypedWriteError {}
 impl From<Error> for TypedWriteError {
     fn from(error: Error) -> Self {
         Self::Database(error)
+    }
+}
+
+impl From<TypedAdapterError> for TypedWriteError {
+    fn from(error: TypedAdapterError) -> Self {
+        Self::Adapter(error)
+    }
+}
+
+impl From<TypedBindingError> for TypedWriteError {
+    fn from(error: TypedBindingError) -> Self {
+        match error {
+            TypedBindingError::Adapter(error) => Self::Adapter(error),
+            TypedBindingError::Database(error) => Self::Database(error),
+        }
     }
 }
 
@@ -645,6 +664,9 @@ pub trait TypedEntityAdapter: TypedRowAdapter {
 
 /// IcyDB-owned write adapter implemented by runtime-enabled generated inputs.
 pub trait TypedWriteAdapter {
+    /// Generated entity that owns this operation-specific write input.
+    type Entity: TypedEntityAdapter;
+
     /// Lower explicit application write intent without resolving database policy.
     fn encode_write(self, binding: &TypedEntityBinding) -> Result<TypedWrite, TypedAdapterError>;
 }
@@ -702,6 +724,127 @@ impl TypedWrite {
             binding: binding.clone(),
             mutation: core::db::DynamicTypedMutation::Replace { key, patch },
         })
+    }
+}
+
+/// Sealed reference to one item accepted by a typed write-batch builder.
+///
+/// Handles are process-local facade values. They are not serializable,
+/// durable, authoritative, or reusable with another builder result.
+pub struct TypedWriteHandle<E> {
+    owner: Arc<()>,
+    position: usize,
+    entity: PhantomData<fn() -> E>,
+}
+
+impl<E> Clone for TypedWriteHandle<E> {
+    fn clone(&self) -> Self {
+        Self {
+            owner: self.owner.clone(),
+            position: self.position,
+            entity: PhantomData,
+        }
+    }
+}
+
+/// One ephemeral mixed-entity typed batch over the canonical write executor.
+pub struct TrustedTypedWriteBatch<'session, C: CanisterKind> {
+    session: &'session DbSession<C>,
+    owner: Arc<()>,
+    writes: Vec<TypedWrite>,
+    bindings: Vec<TypedEntityBinding>,
+}
+
+impl<'session, C: CanisterKind> TrustedTypedWriteBatch<'session, C> {
+    fn new(session: &'session DbSession<C>) -> Self {
+        Self {
+            session,
+            owner: Arc::new(()),
+            writes: Vec::new(),
+            bindings: Vec::new(),
+        }
+    }
+
+    /// Resolve and encode one generated write under its generated entity.
+    pub fn push<W>(&mut self, input: W) -> Result<TypedWriteHandle<W::Entity>, TypedWriteError>
+    where
+        W: TypedWriteAdapter,
+    {
+        let binding = W::Entity::typed_binding(self.session)?;
+        let write = input.encode_write(&binding)?;
+        if write.binding != binding {
+            return Err(TypedAdapterError::EntityMismatch.into());
+        }
+        let position = self.writes.len();
+        self.writes.push(write);
+        self.bindings.push(binding);
+        Ok(TypedWriteHandle {
+            owner: self.owner.clone(),
+            position,
+            entity: PhantomData,
+        })
+    }
+
+    /// Consume this builder and execute its writes in one canonical batch.
+    pub fn execute(self) -> Result<TypedWriteBatchResults<'session, C>, TypedWriteError> {
+        let results = self
+            .session
+            .execute_trusted_typed_write_batch(self.writes)?;
+        Ok(TypedWriteBatchResults {
+            session: self.session,
+            owner: self.owner,
+            bindings: self.bindings,
+            results,
+        })
+    }
+}
+
+/// Ordered dynamic results and retained bindings from one typed batch.
+pub struct TypedWriteBatchResults<'session, C: CanisterKind> {
+    session: &'session DbSession<C>,
+    owner: Arc<()>,
+    bindings: Vec<TypedEntityBinding>,
+    results: Vec<DynamicMutationResult>,
+}
+
+impl<C: CanisterKind> TypedWriteBatchResults<'_, C> {
+    fn handle_position<E>(&self, handle: &TypedWriteHandle<E>) -> Result<usize, TypedAdapterError> {
+        if !Arc::ptr_eq(&self.owner, &handle.owner)
+            || handle.position >= self.bindings.len()
+            || handle.position >= self.results.len()
+        {
+            return Err(TypedAdapterError::BatchHandleMismatch);
+        }
+        Ok(handle.position)
+    }
+
+    /// Borrow the exact dynamic result selected by a builder-issued handle.
+    pub fn result<E>(
+        &self,
+        handle: &TypedWriteHandle<E>,
+    ) -> Result<&DynamicMutationResult, TypedAdapterError> {
+        let position = self.handle_position(handle)?;
+        self.results
+            .get(position)
+            .ok_or(TypedAdapterError::BatchHandleMismatch)
+    }
+
+    /// Decode the selected result's single row through its retained binding.
+    pub fn row<E>(&self, handle: &TypedWriteHandle<E>) -> Result<E::Row, TypedRowError>
+    where
+        E: TypedEntityAdapter,
+    {
+        let position = self
+            .handle_position(handle)
+            .map_err(TypedRowError::Adapter)?;
+        let binding = self.bindings.get(position).ok_or(TypedRowError::Adapter(
+            TypedAdapterError::BatchHandleMismatch,
+        ))?;
+        let result = self.results.get(position).ok_or(TypedRowError::Adapter(
+            TypedAdapterError::BatchHandleMismatch,
+        ))?;
+        let row = self.session.typed_mutation_row(binding, result, 0)?;
+        E::decode_row(binding, row).map_err(TypedRowError::Adapter)
     }
 }
 
@@ -851,19 +994,19 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_trusted_dynamic_mutation(&request.into_core())?)
     }
 
-    /// Execute one bounded same-entity structural mutation batch atomically.
+    /// Execute one bounded same-store structural mutation batch atomically.
     ///
     /// Inserts, updates, replacements, and deletes share one accepted snapshot,
     /// operation timestamp, final-row overlay, commit marker, and recovery
-    /// outcome. Results retain input order and expose each save after-image or
-    /// delete before-image. The batch admits at most 4,096 operations, 16 MiB
-    /// of staged canonical keys/rows, and a 1 MiB encoded result. Every
-    /// operation must resolve to the same accepted entity and target a distinct
-    /// primary key.
+    /// outcome. Results retain input order, with one single-row result per
+    /// request. The batch admits at most 4,096 operations across 64 accepted
+    /// entities, 16 MiB of staged canonical keys/rows, and a 1 MiB encoded
+    /// result. Every entity must belong to the same store and each operation
+    /// must target a distinct entity-qualified primary key.
     pub fn execute_trusted_structural_mutation_batch(
         &self,
         mutations: Vec<StructuralMutation>,
-    ) -> Result<DynamicMutationResult, Error> {
+    ) -> Result<Vec<DynamicMutationResult>, Error> {
         let mutations = mutations
             .into_iter()
             .map(StructuralMutation::into_core)
@@ -1034,14 +1177,16 @@ impl<C: CanisterKind> DbSession<C> {
             .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
     }
 
-    /// Execute one non-empty same-binding generated write batch atomically.
+    /// Execute one non-empty same-store generated write batch atomically.
     ///
-    /// The canonical structural batch owner enforces the shared operation,
-    /// staged-byte, and result-byte limits before publishing any durable effect.
+    /// Each exact current binding is revalidated from one captured accepted
+    /// root. The canonical structural batch owner enforces the entity,
+    /// operation, staged-byte, and result-byte limits before publishing any
+    /// durable effect. Results retain input order with one item per write.
     pub fn execute_trusted_typed_write_batch(
         &self,
         writes: Vec<TypedWrite>,
-    ) -> Result<DynamicMutationResult, TypedWriteError> {
+    ) -> Result<Vec<DynamicMutationResult>, TypedWriteError> {
         let requests = writes
             .into_iter()
             .map(|write| (write.binding.inner, write.mutation))
@@ -1050,6 +1195,15 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_trusted_typed_mutation_batch(requests)
             .map_err(|error| TypedWriteError::Database(Error::from(error)))?
             .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
+    }
+
+    /// Start one mixed-entity generated typed-write batch.
+    ///
+    /// `push` resolves each generated input's entity binding automatically;
+    /// `execute` dispatches exactly once through the canonical typed batch.
+    #[must_use]
+    pub fn trusted_typed_write_batch(&self) -> TrustedTypedWriteBatch<'_, C> {
+        TrustedTypedWriteBatch::new(self)
     }
 
     /// Build one field-name-driven structural patch.

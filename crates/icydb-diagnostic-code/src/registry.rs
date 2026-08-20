@@ -619,8 +619,8 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchStagedBytesExceeded });
     RUNTIME_BOUNDARY_MUTATION_BATCH_RESULT_BYTES_EXCEEDED = 238 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchResultBytesExceeded });
-    RUNTIME_BOUNDARY_MUTATION_BATCH_ENTITY_MISMATCH = 239 => RuntimeConflict,
-        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchEntityMismatch });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_STORE_MISMATCH = 239 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchStoreMismatch });
     RUNTIME_BOUNDARY_MUTATION_BATCH_DUPLICATE_KEY = 240 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchDuplicateKey });
     RUNTIME_BOUNDARY_OPERATIONAL_SURFACE_CONTROLLER_REQUIRED = 241 => RuntimeUnsupported,
@@ -711,4 +711,6 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchCommitWorkExceeded });
     RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE = 284 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ConvergenceBacklogPressure });
+    RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ENTITIES = 285 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchTooManyEntities });
 }

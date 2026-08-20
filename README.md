@@ -469,11 +469,12 @@ neither operation implicitly.
 IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
 single-entity IcyDB operations, and returning `Err` from a canister update
 method does not roll back earlier state changes made by that method. Use the
-structural mutation-batch helper when one same-entity combination of inserts,
-updates, replacements, and deletes must be all-or-nothing; the insert-batch
-helper is its convenience shape. On the Internet Computer, update calls for
-one canister execute one at a time; two concurrent client requests observe
-serialized canister state rather than a shared database transaction.
+structural mutation-batch helper when one same-store combination of inserts,
+updates, replacements, and deletes across at most 64 entities must be all-or-
+nothing; the same-entity insert-batch helper is its convenience shape. On the
+Internet Computer, update calls for one canister execute one at a time; two
+concurrent client requests observe serialized canister state rather than a
+shared database transaction.
 
 Generated canister SQL endpoints are deliberately narrower than the
 session/library SQL APIs. The exported methods are `icydb_query`, `icydb_ddl`,

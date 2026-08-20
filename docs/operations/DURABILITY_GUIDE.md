@@ -64,7 +64,8 @@ Unsafe assumptions:
 - multiple IcyDB writes in one update method are not automatically rolled back
   together if a later write or application check fails.
 
-When callers need all-or-nothing behavior for a same-entity batch, use the
+When callers need all-or-nothing behavior for a bounded same-store structural
+batch, use the
 atomic batch helpers. When partial progress is acceptable and intentional, use
 the non-atomic helpers and document the prefix-commit behavior at the call site.
 

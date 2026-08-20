@@ -84,6 +84,12 @@ participate in RI enforcement. Generated relation metadata is proposal input;
 runtime save, reverse-index, and delete paths do not infer a missing edge from
 raw generated field kinds.
 
+Generated direct scalar-relation write inputs expose `Id<Target>` so the Rust
+facade cannot silently substitute another entity's equal-shaped key. The
+adapter lowers it to the declared primitive key before accepted relation
+validation. This facade typing does not replace the runtime existence check;
+composite relation components remain their declared component types.
+
 There is:
 
 * no inference from type shape or cardinality
@@ -120,6 +126,13 @@ Rules:
 * Any failure aborts the mutation
 * No partial state is written
 * No cascading inserts or deletes occur
+
+For one same-store structural batch, all participating entities share one
+complete entity-qualified final overlay. A relation source may therefore
+precede a caller-keyed target insert in request order, and a target delete may
+be paired with every source deletion or update-away in the same batch. Delete
+protection runs for each target entity that has deleted keys; retained final
+sources still block the whole batch.
 
 Supported relation shapes in the current contract:
 

@@ -8,17 +8,22 @@ use ic_cdk::{query, update};
 use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
-    db::{StructuralMutation, StructuralPatch, WriteCell},
+    db::{
+        DynamicQuery, StructuralMutation, StructuralPatch, TypedAdapterError, TypedEntityAdapter,
+        TypedRowError, TypedWriteAdapter, TypedWriteError, TypedWriteHandle, WriteCell,
+    },
+    prelude::FieldRef,
+    types::{Id, Ulid},
     value::InputValue,
 };
 #[cfg(feature = "sql")]
-use icydb::{
-    db::{DynamicQuery, query::asc},
-    prelude::FieldRef,
-    value::OutputValue,
-};
+use icydb::{db::query::asc, value::OutputValue};
 use icydb_model::base::types::web::MimeType;
 use icydb_model::{Inner as _, NormalizeAndValidate as _, normalize, validate};
+use icydb_testing_test_sql_fixtures::sql::{
+    SqlTestEnrollmentRobotInsert, SqlTestEnrollmentUser, SqlTestEnrollmentUserInsert,
+    SqlTestEnrollmentUserPrincipalInsert,
+};
 
 icydb::start!();
 
@@ -163,6 +168,12 @@ struct IdentityCloseoutPerfResult {
     one_row_batch_instructions: u64,
     maximum_batch_instructions: u64,
     maximum_batch_rows: u32,
+    sequential_three_entity_instructions: u64,
+    atomic_three_entity_instructions: u64,
+    maximum_entity_context_instructions: u64,
+    maximum_entity_context_count: u32,
+    sequential_typed_enrollment_instructions: u64,
+    atomic_typed_enrollment_instructions: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
@@ -444,6 +455,282 @@ fn caller_nat64_patch(id: u64, payload: u64) -> StructuralPatch {
     identity_payload_patch(payload).field("id", WriteCell::Value(InputValue::Nat64(id)))
 }
 
+const fn typed_fixture_invariant_error() -> icydb::Error {
+    icydb::Error::from_kind(
+        ErrorKind::Query(QueryErrorKind::Validate),
+        ErrorOrigin::Executor,
+    )
+}
+
+fn typed_write_fixture_error(error: TypedWriteError) -> icydb::Error {
+    match error {
+        TypedWriteError::Adapter(_) => typed_fixture_invariant_error(),
+        TypedWriteError::Database(error) => error,
+    }
+}
+
+fn typed_row_fixture_error(error: TypedRowError) -> icydb::Error {
+    match error {
+        TypedRowError::Adapter(_) => typed_fixture_invariant_error(),
+        TypedRowError::Database(error) => error,
+    }
+}
+
+const fn typed_adapter_fixture_error(_error: TypedAdapterError) -> icydb::Error {
+    typed_fixture_invariant_error()
+}
+
+fn enrollment_user_input(id: Id<SqlTestEnrollmentUser>, name: &str) -> SqlTestEnrollmentUserInsert {
+    SqlTestEnrollmentUserInsert {
+        id: WriteCell::Value(id),
+        display_name: WriteCell::Value(name.to_string()),
+    }
+}
+
+const fn enrollment_membership_input(
+    principal: icydb::types::Principal,
+    user_id: Id<SqlTestEnrollmentUser>,
+) -> SqlTestEnrollmentUserPrincipalInsert {
+    SqlTestEnrollmentUserPrincipalInsert {
+        authentication_principal: WriteCell::Value(Id::from_key(principal)),
+        user_id: WriteCell::Value(user_id),
+    }
+}
+
+fn enrollment_robot_input(
+    user_id: Id<SqlTestEnrollmentUser>,
+    label: &str,
+) -> SqlTestEnrollmentRobotInsert {
+    SqlTestEnrollmentRobotInsert {
+        user_id: WriteCell::Value(user_id),
+        label: WriteCell::Value(label.to_string()),
+    }
+}
+
+fn execute_one_typed<C, W>(session: &icydb::db::DbSession<C>, input: W) -> Result<(), icydb::Error>
+where
+    C: icydb::traits::CanisterKind,
+    W: TypedWriteAdapter,
+{
+    let binding = W::Entity::typed_binding(session).map_err(|error| match error {
+        icydb::db::TypedBindingError::Adapter(_) => typed_fixture_invariant_error(),
+        icydb::db::TypedBindingError::Database(error) => error,
+    })?;
+    let write = input
+        .encode_write(&binding)
+        .map_err(typed_adapter_fixture_error)?;
+    session
+        .execute_trusted_typed_write(write)
+        .map_err(typed_write_fixture_error)?;
+    Ok(())
+}
+
+fn verify_typed_enrollment_failure_controls<C: icydb::traits::CanisterKind>(
+    session: &icydb::db::DbSession<C>,
+    existing_user_id: Id<SqlTestEnrollmentUser>,
+    existing_principal: icydb::types::Principal,
+    foreign_user: &TypedWriteHandle<SqlTestEnrollmentUser>,
+) -> Result<(), icydb::Error> {
+    let other_user_id = Id::<SqlTestEnrollmentUser>::generate().map_err(icydb::Error::from)?;
+    let mut other = session.trusted_typed_write_batch();
+    let other_user = other
+        .push(enrollment_user_input(other_user_id, "Other Owner"))
+        .map_err(typed_write_fixture_error)?;
+    let other_results = other.execute().map_err(typed_write_fixture_error)?;
+    if !matches!(
+        other_results.result(foreign_user),
+        Err(TypedAdapterError::BatchHandleMismatch)
+    ) || other_results
+        .result(&other_user)
+        .map_err(typed_adapter_fixture_error)?
+        .affected_rows
+        != 1
+    {
+        return Err(typed_fixture_invariant_error());
+    }
+
+    let failed_user_id = Id::<SqlTestEnrollmentUser>::generate().map_err(icydb::Error::from)?;
+    let mut failed = session.trusted_typed_write_batch();
+    failed
+        .push(enrollment_user_input(failed_user_id, "Must Remain Atomic"))
+        .map_err(typed_write_fixture_error)?;
+    failed
+        .push(enrollment_robot_input(failed_user_id, "Must Not Commit"))
+        .map_err(typed_write_fixture_error)?;
+    failed
+        .push(enrollment_membership_input(
+            existing_principal,
+            failed_user_id,
+        ))
+        .map_err(typed_write_fixture_error)?;
+    if !matches!(failed.execute(), Err(TypedWriteError::Database(_))) {
+        return Err(typed_fixture_invariant_error());
+    }
+    let failed_robot_page = session.execute_trusted_live_page(
+        &DynamicQuery::new("SqlTestEnrollmentRobot")
+            .filter(FieldRef::new("user_id").eq(failed_user_id.key()))
+            .select(["id"])
+            .limit(1),
+        None,
+    )?;
+    if !failed_robot_page.rows.is_empty() {
+        return Err(typed_fixture_invariant_error());
+    }
+    execute_one_typed(
+        session,
+        enrollment_user_input(failed_user_id, "Atomic Retry"),
+    )?;
+
+    let explicit_generated_id = StructuralPatch::new()
+        .field("id", WriteCell::Value(InputValue::Ulid(Ulid::nil())))
+        .field(
+            "user_id",
+            WriteCell::Value(InputValue::Ulid(existing_user_id.key())),
+        )
+        .field(
+            "label",
+            WriteCell::Value(InputValue::Text("Generated bypass".to_string())),
+        );
+    if session
+        .execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "SqlTestEnrollmentRobot".to_string(),
+            patch: explicit_generated_id,
+        })
+        .is_ok()
+    {
+        return Err(typed_fixture_invariant_error());
+    }
+    Ok(())
+}
+
+fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
+    session: &icydb::db::DbSession<C>,
+) -> Result<(u64, u64), icydb::Error> {
+    let sequential_user_id = Id::<SqlTestEnrollmentUser>::generate().map_err(icydb::Error::from)?;
+    let sequential_principal = icydb::types::Principal::from_slice(b"icydb-0.235-sequential");
+    let start = ic_cdk::api::performance_counter(1);
+    execute_one_typed(
+        session,
+        enrollment_user_input(sequential_user_id, "Sequential User"),
+    )?;
+    execute_one_typed(
+        session,
+        enrollment_membership_input(sequential_principal, sequential_user_id),
+    )?;
+    execute_one_typed(
+        session,
+        enrollment_robot_input(sequential_user_id, "Sequential Robot"),
+    )?;
+    let sequential = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let atomic_user_id = Id::<SqlTestEnrollmentUser>::generate().map_err(icydb::Error::from)?;
+    let atomic_principal = icydb::types::Principal::from_slice(b"icydb-0.235-atomic");
+    let start = ic_cdk::api::performance_counter(1);
+    let mut batch = session.trusted_typed_write_batch();
+    let user = batch
+        .push(enrollment_user_input(atomic_user_id, "Atomic User"))
+        .map_err(typed_write_fixture_error)?;
+    let membership = batch
+        .push(enrollment_membership_input(
+            atomic_principal,
+            atomic_user_id,
+        ))
+        .map_err(typed_write_fixture_error)?;
+    let robot = batch
+        .push(enrollment_robot_input(atomic_user_id, "Atomic Robot"))
+        .map_err(typed_write_fixture_error)?;
+    let results = batch.execute().map_err(typed_write_fixture_error)?;
+    let atomic = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let user_row = results.row(&user).map_err(typed_row_fixture_error)?;
+    let membership_row = results.row(&membership).map_err(typed_row_fixture_error)?;
+    let robot_row = results.row(&robot).map_err(typed_row_fixture_error)?;
+    if user_row.id != atomic_user_id.key()
+        || membership_row.authentication_principal != atomic_principal
+        || membership_row.user_id != atomic_user_id.key()
+        || robot_row.user_id != atomic_user_id.key()
+        || results
+            .result(&robot)
+            .map_err(typed_adapter_fixture_error)?
+            .entity
+            != "SqlTestEnrollmentRobot"
+    {
+        return Err(typed_fixture_invariant_error());
+    }
+    verify_typed_enrollment_failure_controls(session, atomic_user_id, atomic_principal, &user)?;
+
+    Ok((sequential, atomic))
+}
+
+fn measure_three_entity_write_costs<C: icydb::traits::CanisterKind>(
+    session: &icydb::db::DbSession<C>,
+) -> Result<(u64, u64), icydb::Error> {
+    let start = ic_cdk::api::performance_counter(1);
+    for entity in [
+        "SqlTestIdentityNat64",
+        "SqlTestIdentityNat128",
+        "SqlTestIdentityBatch",
+    ] {
+        session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: entity.to_string(),
+            patch: identity_payload_patch(3),
+        })?;
+    }
+    let sequential = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    let start = ic_cdk::api::performance_counter(1);
+    let atomic = session.execute_trusted_structural_mutation_batch(vec![
+        StructuralMutation::Insert {
+            entity: "SqlTestIdentityNat64".to_string(),
+            patch: identity_payload_patch(4),
+        },
+        StructuralMutation::Insert {
+            entity: "SqlTestIdentityNat128".to_string(),
+            patch: identity_payload_patch(4),
+        },
+        StructuralMutation::Insert {
+            entity: "SqlTestIdentityBatch".to_string(),
+            patch: identity_payload_patch(4),
+        },
+    ])?;
+    let atomic_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if atomic.len() != 3
+        || atomic
+            .iter()
+            .any(|result| result.affected_rows != 1 || result.rows.len() != 1)
+    {
+        return Err(icydb::Error::from_kind(
+            ErrorKind::Query(QueryErrorKind::Validate),
+            ErrorOrigin::Executor,
+        ));
+    }
+
+    Ok((sequential, atomic_instructions))
+}
+
+fn measure_maximum_entity_context_cost<C: icydb::traits::CanisterKind>(
+    session: &icydb::db::DbSession<C>,
+) -> Result<(u64, u32), icydb::Error> {
+    const ENTITY_COUNT: u32 = 64;
+    let batch = (0..ENTITY_COUNT)
+        .map(|index| StructuralMutation::Insert {
+            entity: format!("SqlTestContext{index:02}"),
+            patch: caller_nat64_patch(1, u64::from(index)),
+        })
+        .collect();
+    let start = ic_cdk::api::performance_counter(1);
+    let results = session.execute_trusted_structural_mutation_batch(batch)?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    if results.len() != 64
+        || results
+            .iter()
+            .any(|result| result.affected_rows != 1 || result.rows.len() != 1)
+    {
+        return Err(typed_fixture_invariant_error());
+    }
+    Ok((instructions, ENTITY_COUNT))
+}
+
 /// Measure the final Identity write matrix on one fresh test canister.
 #[update]
 fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb::Error> {
@@ -491,6 +778,13 @@ fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb:
         let generated_nat128_instructions =
             ic_cdk::api::performance_counter(1).saturating_sub(start);
 
+        let (sequential_three_entity_instructions, atomic_three_entity_instructions) =
+            measure_three_entity_write_costs(&session)?;
+        let (maximum_entity_context_instructions, maximum_entity_context_count) =
+            measure_maximum_entity_context_cost(&session)?;
+        let (sequential_typed_enrollment_instructions, atomic_typed_enrollment_instructions) =
+            measure_typed_enrollment_costs(&session)?;
+
         let start = ic_cdk::api::performance_counter(1);
         let one_row = session.execute_trusted_structural_insert_batch(
             "SqlTestIdentityBatch",
@@ -525,6 +819,12 @@ fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb:
             one_row_batch_instructions,
             maximum_batch_instructions,
             maximum_batch_rows: IDENTITY_MAX_BATCH_ROWS,
+            sequential_three_entity_instructions,
+            atomic_three_entity_instructions,
+            maximum_entity_context_instructions,
+            maximum_entity_context_count,
+            sequential_typed_enrollment_instructions,
+            atomic_typed_enrollment_instructions,
         })
     })
 }

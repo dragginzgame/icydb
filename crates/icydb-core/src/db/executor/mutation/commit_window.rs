@@ -8,10 +8,10 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitGuard, CommitMarker, CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp,
-            begin_commit, begin_mutation_progress_commit, database_incarnation_id, finish_commit,
-            generate_commit_id, generate_marker_batch_id, next_database_commit_sequence,
-            prepare_row_commit_with_context,
+            CommitGuard, CommitMarker, CommitPrepareContext, CommitRowOp, PreparedIndexMutation,
+            PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
+            database_incarnation_id, finish_commit, generate_commit_id, generate_marker_batch_id,
+            next_database_commit_sequence, prepare_row_commit_with_context,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -42,6 +42,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     ops::Bound,
     ptr,
+    rc::Rc,
     thread::LocalKey,
 };
 
@@ -137,7 +138,8 @@ pub(in crate::db::executor) struct OpenCommitWindow {
     positioned_rows: Vec<Option<JournalOverlayPosition>>,
     effects: PreparedCommitEffects,
     pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
-    pub(in crate::db::executor) delta: PreparedRowOpDelta,
+    pub(in crate::db::executor) entity_deltas: Vec<(Rc<str>, PreparedRowOpDelta)>,
+    pub(in crate::db::executor) entity_count: usize,
     pub(in crate::db::executor) commit_class: MutationCommitClass,
 }
 
@@ -216,7 +218,7 @@ impl IndexStoreGenerationGuard {
 struct PreparedRowOpBatch {
     prepared_row_ops: Vec<PreparedRowCommitOp>,
     index_store_guards: Vec<IndexStoreGenerationGuard>,
-    delta: PreparedRowOpDelta,
+    entity_deltas: Vec<(Rc<str>, PreparedRowOpDelta)>,
     commit_work_units: usize,
 }
 
@@ -232,18 +234,38 @@ impl PreparedRowOpBatch {
         Ok(Self {
             prepared_row_ops: Vec::with_capacity(reserve_rows),
             index_store_guards: Vec::new(),
-            delta: PreparedRowOpDelta::zero(),
+            entity_deltas: Vec::new(),
             commit_work_units: fixed_commit_work_units,
         })
     }
 
     // Add one prepared row op and update all derived apply metadata immediately.
-    fn push(&mut self, row_op: PreparedRowCommitOp) -> Result<(), InternalError> {
+    fn push(
+        &mut self,
+        entity_path: Rc<str>,
+        row_op: PreparedRowCommitOp,
+    ) -> Result<(), InternalError> {
         let next_commit_work_units =
             next_mutation_commit_work_units(self.commit_work_units, row_op.index_ops.len())?;
 
+        let delta = if let Some((_, delta)) = self
+            .entity_deltas
+            .iter_mut()
+            .find(|(path, _)| path.as_ref() == entity_path.as_ref())
+        {
+            delta
+        } else {
+            self.entity_deltas
+                .push((entity_path, PreparedRowOpDelta::zero()));
+            &mut self
+                .entity_deltas
+                .last_mut()
+                .ok_or_else(InternalError::query_executor_invariant)?
+                .1
+        };
+
         for index_op in &row_op.index_ops {
-            record_prepared_index_delta(&mut self.delta, index_op);
+            record_prepared_index_delta(delta, index_op);
             record_index_store_generation_guard(&mut self.index_store_guards, index_op.index_store);
         }
 
@@ -588,22 +610,55 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     overlay: &mut PreflightStoreOverlay<'_, C>,
     fixed_commit_work_units: usize,
 ) -> Result<PreparedRowOpBatch, InternalError> {
-    let Some(first_row_op) = row_ops.first() else {
+    if row_ops.is_empty() {
         return PreparedRowOpBatch::with_row_capacity(0, fixed_commit_work_units);
-    };
-    let runtime_entity = db.accepted_runtime_entity_for_path(first_row_op.entity_path.as_ref())?;
-    let context = runtime_entity.prepare_commit_context(
-        db,
-        first_row_op.schema_fingerprint,
-        crate::db::commit::CommitPrepareMode::NormalWrite,
-    )?;
+    }
 
     let mut batch = PreparedRowOpBatch::with_row_capacity(row_ops.len(), fixed_commit_work_units)?;
+    let mut contexts: Vec<(
+        Rc<str>,
+        [u8; 16],
+        crate::types::EntityTag,
+        CommitPrepareContext,
+    )> = Vec::new();
 
     for row_op in row_ops {
-        let row = prepare_row_commit_with_context(db, row_op, &context, overlay, overlay)?;
+        let context_index = contexts.iter().position(|(path, fingerprint, _, _)| {
+            path.as_ref() == row_op.entity_path.as_ref()
+                && *fingerprint == row_op.schema_fingerprint
+        });
+        let context_index = if let Some(index) = context_index {
+            index
+        } else {
+            let runtime_entity =
+                db.accepted_runtime_entity_for_path(row_op.entity_path.as_ref())?;
+            let context = runtime_entity.prepare_commit_context(
+                db,
+                row_op.schema_fingerprint,
+                crate::db::commit::CommitPrepareMode::NormalWrite,
+            )?;
+            contexts.push((
+                runtime_entity.entity_path_handle(),
+                row_op.schema_fingerprint,
+                runtime_entity.entity_tag(),
+                context,
+            ));
+            contexts.len().saturating_sub(1)
+        };
+        let decoded_key = DecodedDataStoreKey::try_from_raw(&row_op.key)
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        if decoded_key.entity_tag() != contexts[context_index].2 {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let row = prepare_row_commit_with_context(
+            db,
+            row_op,
+            &contexts[context_index].3,
+            overlay,
+            overlay,
+        )?;
         overlay.stage_prepared_row_op(&row);
-        batch.push(row)?;
+        batch.push(row_op.entity_path.clone(), row)?;
     }
 
     Ok(batch)
@@ -613,31 +668,29 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
 pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: Vec<CommitRowOp>,
-    deleted_keys: &BTreeSet<RawDataStoreKey>,
+    deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
     identity_ranges: Vec<IdentityRangeAdvance>,
 ) -> Result<OpenCommitWindow, InternalError> {
-    open_commit_window_structural_inner(db, row_ops, deleted_keys, identity_ranges, None)
+    open_commit_window_structural_inner(db, row_ops, deleted_key_groups, identity_ranges, None)
 }
 
 fn open_commit_window_structural_inner<C: CanisterKind>(
     db: &Db<C>,
     row_ops: Vec<CommitRowOp>,
-    deleted_keys: &BTreeSet<RawDataStoreKey>,
+    deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
     identity_ranges: Vec<IdentityRangeAdvance>,
     mutation_progress: Option<MutationProgressRecordOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
     let fixed_commit_work_units =
         fixed_mutation_commit_work_units(identity_ranges.len(), mutation_progress.is_some())?;
     let mut overlay = PreflightStoreOverlay::<C>::from_row_ops(db, &row_ops)?;
-    let entity_path = row_ops
-        .first()
-        .map(|row_op| row_op.entity_path.as_ref())
-        .ok_or_else(InternalError::query_executor_invariant)?;
-    db.validate_delete_relations_with_reader(entity_path, deleted_keys, &overlay)?;
+    for (entity_path, deleted_keys) in deleted_key_groups {
+        db.validate_delete_relations_with_reader(entity_path, deleted_keys, &overlay)?;
+    }
     let PreparedRowOpBatch {
         prepared_row_ops,
         index_store_guards,
-        delta,
+        entity_deltas,
         ..
     } = preflight_prepare_row_op_batch_structural(
         db,
@@ -647,6 +700,7 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     )?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
+    let entity_count = entity_deltas.len();
     let CommitWindowPayload { marker, effects } = commit_window_payload_for_prepared_row_ops(
         db,
         &row_ops,
@@ -665,7 +719,8 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         positioned_rows,
         effects,
         index_store_guards,
-        delta,
+        entity_deltas,
+        entity_count,
         commit_class,
     })
 }
@@ -830,24 +885,24 @@ fn apply_prepared_state_effects<C: CanisterKind>(
 
 /// Commit one accepted mixed structural row-operation batch through one
 /// nongeneric commit window.
-pub(in crate::db) fn commit_structural_row_ops_with_window_for_path<C: CanisterKind>(
+pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: &str,
     batch: AcceptedMutationConstraintBatch,
     identity_ranges: Vec<IdentityRangeAdvance>,
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
-    let (row_ops, deleted_keys) = batch.into_parts();
+    let (row_ops, deleted_key_groups) = batch.into_parts();
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
         positioned_rows,
         effects,
         index_store_guards,
-        delta,
+        entity_deltas,
+        entity_count,
         commit_class,
-    } = open_commit_window_structural(db, row_ops, &deleted_keys, identity_ranges)?;
-    record_mutation_commit_plan(entity_path, commit_class);
+    } = open_commit_window_structural(db, row_ops, &deleted_key_groups, identity_ranges)?;
+    record_mutation_commit_plan(entity_count, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
@@ -860,37 +915,37 @@ pub(in crate::db) fn commit_structural_row_ops_with_window_for_path<C: CanisterK
         effects,
         index_store_guards,
     )?;
-    emit_index_delta_metrics_for_path(entity_path, &delta);
+    emit_index_delta_metrics(&entity_deltas);
     mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
     Ok(())
 }
 
 /// Commit one accepted row batch and exact mutation-progress successor together.
-pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress_for_path<C: CanisterKind>(
+pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: &str,
     batch: AcceptedMutationConstraintBatch,
     identity_ranges: Vec<IdentityRangeAdvance>,
     mutation_progress: MutationProgressRecordOp,
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
-    let (row_ops, deleted_keys) = batch.into_parts();
+    let (row_ops, deleted_key_groups) = batch.into_parts();
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
         positioned_rows,
         effects,
         index_store_guards,
-        delta,
+        entity_deltas,
+        entity_count,
         commit_class,
     } = open_commit_window_structural_inner(
         db,
         row_ops,
-        &deleted_keys,
+        &deleted_key_groups,
         identity_ranges,
         Some(mutation_progress),
     )?;
-    record_mutation_commit_plan(entity_path, commit_class);
+    record_mutation_commit_plan(entity_count, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
@@ -903,7 +958,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress_for_path<C
         effects,
         index_store_guards,
     )?;
-    emit_index_delta_metrics_for_path(entity_path, &delta);
+    emit_index_delta_metrics(&entity_deltas);
     mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
     Ok(())
 }
@@ -1258,11 +1313,11 @@ pub(in crate::db::executor) fn classify_mutation_commit_plan(
 }
 
 pub(in crate::db::executor) fn record_mutation_commit_plan(
-    entity_path: &str,
+    entity_count: usize,
     class: MutationCommitClass,
 ) {
     record(MetricsEvent::MutationCommitPlan {
-        entity_path: entity_path.into(),
+        entity_count: u64::try_from(entity_count).unwrap_or(u64::MAX),
         class,
     });
 }
@@ -1280,18 +1335,20 @@ fn index_store_id(index_store: &'static LocalKey<RefCell<IndexStore>>) -> usize 
     std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(index_store) as usize
 }
 
-fn emit_index_delta_metrics_for_path(entity_path: &str, delta: &PreparedRowOpDelta) {
-    record(MetricsEvent::IndexDelta {
-        entity_path: entity_path.into(),
-        inserts: u64::try_from(delta.index_inserts).unwrap_or(u64::MAX),
-        removes: u64::try_from(delta.index_removes).unwrap_or(u64::MAX),
-    });
+fn emit_index_delta_metrics(entity_deltas: &[(Rc<str>, PreparedRowOpDelta)]) {
+    for (entity_path, delta) in entity_deltas {
+        record(MetricsEvent::IndexDelta {
+            entity_path: entity_path.clone(),
+            inserts: u64::try_from(delta.index_inserts).unwrap_or(u64::MAX),
+            removes: u64::try_from(delta.index_removes).unwrap_or(u64::MAX),
+        });
 
-    record(MetricsEvent::ReverseIndexDelta {
-        entity_path: entity_path.into(),
-        inserts: u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX),
-        removes: u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX),
-    });
+        record(MetricsEvent::ReverseIndexDelta {
+            entity_path: entity_path.clone(),
+            inserts: u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX),
+            removes: u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX),
+        });
+    }
 }
 
 fn key_within_bounds(

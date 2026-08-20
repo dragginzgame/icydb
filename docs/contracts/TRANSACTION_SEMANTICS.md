@@ -4,8 +4,9 @@ This document defines the explicit write semantics for IcyDB batch helpers in
 the current line.
 
 It is intentionally narrow: it covers what the current APIs guarantee today.
-The atomic batch surface is strictly single-entity-type; it is not multi-entity
-transaction support.
+The atomic batch surface may span at most 64 accepted entities from one
+captured runtime root and one registered store. It is not a cross-store,
+cross-canister, or multi-message transaction system.
 The broader operator-facing durability boundary is defined in
 `docs/contracts/DURABILITY.md`. Per-row strictness and mutation ingress are
 defined in `docs/contracts/WRITE_ADMISSION.md`.
@@ -30,7 +31,7 @@ Covered by this document:
 
 Out of scope:
 
-* Multi-entity transactions
+* Cross-store transactions
 * Cross-canister transactions
 * Multi-message transaction protocols
 
@@ -41,14 +42,15 @@ Out of scope:
 IcyDB exposes one canonical maintained batch-write lane:
 `execute_trusted_structural_mutation_batch`.
 
-* Scope: one accepted entity per call.
+* Scope: one accepted runtime root and store per call, with at most 64 distinct
+  entities.
 * Input: field-name-driven structural inserts, updates, replacements, and
   deletes in deterministic request order.
 * Contract: all-or-nothing for that batch.
 * If any item fails before commit, no row from the batch is persisted.
 * The operation uses commit-marker-bound journal batches and recovery folding
   for durable correctness.
-* It is not a multi-entity transaction.
+* It is not a database-session or cross-store transaction.
 
 `execute_trusted_structural_insert_batch` is the insert-only convenience shape
 over that canonical lane. Single structural mutations use the same owner. No
@@ -63,13 +65,13 @@ that derives a conservation-sensitive split, merge, or transfer must:
 1. authorize the caller;
 2. perform any asynchronous work;
 3. read the current accepted rows;
-4. calculate the complete same-entity mutation set; and
+4. calculate the complete same-store mutation set; and
 5. submit that set synchronously, without an `await` or logical interleaving
    point between the final read and batch admission.
 
 After any `await`, the application must re-read and recompute before submitting
 the batch. This is the maintained non-interleaved flow; IcyDB does not add a
-hidden compare-and-set, retry, or cross-entity transaction around it.
+hidden compare-and-set, retry, or cross-store transaction around it.
 
 ### SQL exact and prefix update
 
@@ -95,7 +97,8 @@ For one structural mutation batch, execution is split into two phases:
 For each item in request order:
 
 * apply the complete `docs/contracts/WRITE_ADMISSION.md` contract
-* bind it to the exact same accepted entity and schema head
+* resolve it from the same captured accepted root and store, then bind it to
+  its own exact accepted entity and schema head
 * preserve its insert/update/replace/delete intent and materialize its save
   after-image or delete before-image under one operation timestamp
 * reject duplicate target keys across every operation-kind combination
@@ -108,9 +111,10 @@ lookup sees inserted or updated targets while treating deleted targets as
 absent.
 
 Public value conversion and exact Candid response-size validation complete
-before the marker is opened. The current bounds are 4,096 operations, 16 MiB
+before the marker is opened. The current bounds are 4,096 operations, 64
+distinct entities, 16 MiB
 of cumulative encoded keys plus canonical before/after rows, 4 MiB per row,
-and 1 MiB for the encoded public result of
+and 1 MiB for the encoded ordered result vector of
 `execute_trusted_structural_mutation_batch`. Existing single-mutation and
 insert-only convenience calls retain their prior response behavior; SQL
 `RETURNING` owns an independent query response bound.
@@ -193,15 +197,21 @@ see a staged target creation while treating a staged target delete as absent.
 * Inserts, updates, and replacements return their final after-images.
 * Deletes return their removed before-images.
 * Rows retain request order.
-* `affected_rows` covers the complete successful batch.
+* The general batch returns one `DynamicMutationResult` per request, each with
+  exactly one row and a zero-or-one `affected_rows` count.
+* The mixed typed builder retains that same vector and issues sealed
+  entity-typed handles for ordered dynamic-result and generated-row lookup. A
+  handle from another result owner fails closed; it creates no second result
+  or execution protocol.
 
 ### Identity
 
 Only actual Identity-generating inserts consume tentative allocation ordinals.
-Interleaved updates, replacements, and deletes do not create gaps. Rejection
-before marker publication consumes no value; committed mixed journal proof
-filters existing-key puts and deletes from the exact contiguous generated
-range.
+Each participating Identity owner has one statement-local cursor; all exact
+owner ranges publish under the same marker. Interleaved updates, replacements,
+and deletes do not create gaps. Rejection before marker publication consumes
+no value; committed mixed journal proof filters existing-key puts and deletes
+from each exact contiguous generated range.
 
 ---
 
@@ -211,7 +221,7 @@ This API surface does not provide:
 
 * implicit upgrades of old helpers
 * hidden retries or inferred recovery policy at API boundaries
-* multi-entity atomicity
-* multi-entity transaction coordination (kept separate due higher complexity)
+* cross-store or cross-canister atomicity
+* transaction blocks, partial rollback, or multi-message coordination
 
 Any expansion beyond this requires a new explicit transaction spec.

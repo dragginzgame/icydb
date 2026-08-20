@@ -1,0 +1,22 @@
+error[E0308]: mismatched types
+  --> tests/fail-typed-write/raw_ulid_identity.rs:26:30
+   |
+26 |         id: WriteCell::Value(Ulid::nil()),
+   |             ---------------- ^^^^^^^^^^^ expected `Id<User>`, found `Ulid`
+   |             |
+   |             arguments to this enum variant are incorrect
+   |
+   = note: expected struct `Id<User>`
+              found struct `icydb::prelude::Ulid`
+help: the type constructed contains `icydb::prelude::Ulid` due to the type of the argument passed
+  --> tests/fail-typed-write/raw_ulid_identity.rs:26:13
+   |
+26 |         id: WriteCell::Value(Ulid::nil()),
+   |             ^^^^^^^^^^^^^^^^^-----------^
+   |                              |
+   |                              this argument influences the type of `Value`
+note: tuple variant defined here
+  --> src/db/session/write.rs
+   |
+   |     Value(T),
+   |     ^^^^^

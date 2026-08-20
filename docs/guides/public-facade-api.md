@@ -200,11 +200,62 @@ Bind the generated entity to the current session, encode the input, then call
 `execute_trusted_typed_write`. This is an ergonomic projection over the same
 structural mutation authority.
 
+Generated authored scalar primary keys and direct scalar relations retain
+their entity identity as `Id<E>` in write inputs. Optional and many direct
+relations use nullable `WriteCell<Id<E>>` and `WriteCell<Vec<Id<E>>>` intent.
+Ordinary non-relation key fields and composite-relation components retain their
+declared primitive types. Row storage, output, and Candid encoding remain the
+declared raw key shape. A schema-generated primary key is still omitted from
+its generated insert input and cannot be authored through the structural lane.
+
+Use the mixed typed builder when generated inputs for several entities must
+commit in one same-store batch. The builder resolves each exact binding,
+executes the canonical structural batch once, and returns sealed handles so
+callers do not coordinate heterogeneous result indexes:
+
+```rust,ignore
+fn enroll<C: CanisterKind>(
+    session: &DbSession<C>,
+    principal: Principal,
+) -> Result<Id<User>, TypedWriteError> {
+    let user_id = Id::<User>::generate()
+        .map_err(icydb::Error::from)
+        .map_err(TypedWriteError::Database)?;
+    let mut batch = session.trusted_typed_write_batch();
+    let user = batch.push(UserInsert {
+        id: WriteCell::Value(user_id),
+        display_name: WriteCell::Value("Ada".to_string()),
+    })?;
+    let membership = batch.push(UserPrincipalInsert {
+        authentication_principal: WriteCell::Value(Id::from_key(principal)),
+        user_id: WriteCell::Value(user_id),
+    })?;
+    let robot = batch.push(RobotInsert {
+        user_id: WriteCell::Value(user_id),
+        label: WriteCell::Value("Ada's robot".to_string()),
+    })?;
+
+    let results = batch.execute()?;
+    let _ = results.result(&user).map_err(TypedWriteError::from)?;
+    let _ = results
+        .result(&membership)
+        .map_err(TypedWriteError::from)?;
+    let _ = results.result(&robot).map_err(TypedWriteError::from)?;
+    Ok(user_id)
+}
+```
+
+The maintained no-SQL compile fixture contains the complete schema and error
+mapping. A handle is valid only for the result owner that issued it; mixing
+builders fails with payload-free `BatchHandleMismatch`. Authorization,
+operation IDs, lost-response handling, and domain error mapping remain
+application responsibilities.
+
 `execute_trusted_structural_insert_batch` is the maintained atomic
 same-entity insert-batch surface. It either commits every patch or publishes
 none.
 
-For conservation-sensitive same-entity changes, submit the complete
+For conservation-sensitive same-store changes, submit the complete
 insert/update/replace/delete set through
 `execute_trusted_structural_mutation_batch`:
 
@@ -218,7 +269,7 @@ let output = StructuralPatch::new().field(
     WriteCell::Value(InputValue::Nat64(40)),
 );
 
-let result = db!()?.execute_trusted_structural_mutation_batch(vec![
+let results = db!()?.execute_trusted_structural_mutation_batch(vec![
     StructuralMutation::Update {
         entity: "TokenHolding".to_string(),
         key: InputValue::Ulid(source_id),
@@ -231,8 +282,11 @@ let result = db!()?.execute_trusted_structural_mutation_batch(vec![
 ])?;
 ```
 
-The batch uses one accepted snapshot and operation timestamp, validates one
-complete final-row overlay, and either publishes every mutation or none.
+The batch resolves at most 64 entities from one captured accepted root and
+registered store, uses one operation timestamp, validates one complete
+entity-qualified final-row overlay, and either publishes every mutation or
+none. `results` contains one single-row `DynamicMutationResult` per request in
+request order.
 Split, merge, and transfer logic must not replace this call with sequential
 writes or compensation.
 
@@ -241,7 +295,7 @@ read/calculate/batch sequence synchronously, without an `await` or another
 logical interleaving point. If asynchronous work is required, complete it
 first, then re-read the holdings and recompute the batch. Atomic publication
 does not make a calculation from an earlier, stale read current, and IcyDB
-does not infer a hidden retry or cross-entity transaction.
+does not infer a hidden retry or cross-store transaction.
 
 ## SQL Surfaces
 

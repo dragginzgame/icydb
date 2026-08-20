@@ -226,16 +226,19 @@ operation under the same stable identity.
 * Apply phase appends marker-bound journal batches and applies prevalidated row
   operations only
 
-### Batch writes (single entity)
+### Batch writes (one accepted store)
 
-`execute_trusted_structural_mutation_batch` admits one bounded same-entity
-collection of insert, update, replacement, and delete intents against one
-accepted snapshot and commits it atomically. One operation timestamp resolves
-all database-owned fields. Constraints and physical preparation read one
-complete final-row overlay, and public result conversion completes before the
-marker. If any item fails pre-commit validation, no row or Identity range from
-the batch is persisted. `execute_trusted_structural_insert_batch` is its
-insert-only convenience shape. This is not multi-entity transaction support.
+`execute_trusted_structural_mutation_batch` admits one bounded collection of
+insert, update, replacement, and delete intents across at most 64 entities
+resolved from one captured accepted root and one registered store. It commits
+them atomically under one marker. One operation timestamp resolves all
+database-owned fields. Constraints and physical preparation use each row's
+exact accepted context and one complete entity-qualified final overlay. Public
+result conversion completes before the marker and returns one ordered result
+per request. If any item fails pre-commit validation, no row or Identity range
+from the batch is persisted. `execute_trusted_structural_insert_batch` remains
+the same-entity insert-only convenience shape. This is not cross-store or
+database-session transaction support.
 
 Detailed batch behavior and edge cases are defined in
 `docs/contracts/TRANSACTION_SEMANTICS.md`; per-item row strictness remains

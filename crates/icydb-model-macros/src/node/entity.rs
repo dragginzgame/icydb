@@ -985,15 +985,53 @@ fn field_is_primary_key(entity: &Entity, field: &Field) -> bool {
     entity.primary_key.fields().contains(&field.name)
 }
 
-fn typed_write_cell_type(field: &Field) -> TokenStream {
+fn typed_write_value_type(entity: &Entity, field: &Field) -> TokenStream {
+    if entity.primary_key.fields().len() == 1 && field_is_primary_key(entity, field) {
+        let entity_ident = entity.def.ident();
+        return quote!(::icydb::types::Id<#entity_ident>);
+    }
+    if let Some(target) = &field.value.item.relation {
+        return match field.value.cardinality() {
+            Cardinality::Many => quote!(Vec<::icydb::types::Id<#target>>),
+            Cardinality::One | Cardinality::Opt => quote!(::icydb::types::Id<#target>),
+        };
+    }
     match field.value.cardinality() {
         Cardinality::Opt => field.value.item.type_expr(),
         Cardinality::One | Cardinality::Many => field.value.type_expr(),
     }
 }
 
-fn typed_write_cell_input_expr(field: &Field, access: TokenStream) -> TokenStream {
-    let ty = typed_write_cell_type(field);
+fn typed_write_value_input_expr(entity: &Entity, field: &Field, value: TokenStream) -> TokenStream {
+    if entity.primary_key.fields().len() == 1 && field_is_primary_key(entity, field) {
+        return quote!(::icydb::value::InputValue::from(#value));
+    }
+    if field.value.item.relation.is_some() {
+        return match field.value.cardinality() {
+            Cardinality::Many => quote! {
+                ::icydb::value::InputValue::List(
+                    #value
+                        .into_iter()
+                        .map(::icydb::value::InputValue::from)
+                        .collect()
+                )
+            },
+            Cardinality::One | Cardinality::Opt => {
+                quote!(::icydb::value::InputValue::from(#value))
+            }
+        };
+    }
+    let ty = typed_write_value_type(entity, field);
+    quote! {
+        <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+            #value,
+            binding,
+        )?
+    }
+}
+
+fn typed_write_cell_input_expr(entity: &Entity, field: &Field, access: TokenStream) -> TokenStream {
+    let value = typed_write_value_input_expr(entity, field, quote!(value));
 
     quote! {
         match #access {
@@ -1001,12 +1039,7 @@ fn typed_write_cell_input_expr(field: &Field, access: TokenStream) -> TokenStrea
             ::icydb::db::WriteCell::Default => ::icydb::db::WriteCell::Default,
             ::icydb::db::WriteCell::Null => ::icydb::db::WriteCell::Null,
             ::icydb::db::WriteCell::Value(value) => {
-                ::icydb::db::WriteCell::Value(
-                    <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
-                        value,
-                        binding,
-                    )?
-                )
+                ::icydb::db::WriteCell::Value(#value)
             }
         }
     }
@@ -1022,7 +1055,12 @@ fn typed_operation_struct_tokens(
             return None;
         }
         let ident = &field.name;
-        let ty = field.value.type_expr();
+        let ty = if entity.primary_key.fields().len() == 1 {
+            let entity_ident = entity.def.ident();
+            quote!(::icydb::types::Id<#entity_ident>)
+        } else {
+            field.value.type_expr()
+        };
 
         Some(quote!(pub #ident: #ty))
     });
@@ -1033,7 +1071,7 @@ fn typed_operation_struct_tokens(
             return None;
         }
         let ident = &field.name;
-        let ty = typed_write_cell_type(field);
+        let ty = typed_write_value_type(entity, field);
 
         Some(quote!(pub #ident: ::icydb::db::WriteCell<#ty>))
     });
@@ -1065,18 +1103,7 @@ fn typed_operation_struct_tokens(
 fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
     if entity.primary_key.fields().len() == 1 {
         let primary_key_field = entity.primary_key.scalar_field();
-        let field = entity
-            .fields
-            .iter()
-            .find(|field| field.name == *primary_key_field)
-            .expect("validated scalar primary-key field must exist");
-        let ty = field.value.type_expr();
-        return quote!(
-            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
-                self.#primary_key_field,
-                binding,
-            )?
-        );
+        return quote!(::icydb::value::InputValue::from(self.#primary_key_field));
     }
 
     let components = entity.primary_key.fields().iter().map(|field_ident| {
@@ -1110,7 +1137,7 @@ fn typed_write_fields_tokens(entity: &Entity, include_primary_key: bool) -> Vec<
             }
             let name = quote_one(&field.name, to_str_lit);
             let ident = &field.name;
-            let input = typed_write_cell_input_expr(field, quote!(self.#ident));
+            let input = typed_write_cell_input_expr(entity, field, quote!(self.#ident));
 
             Some(quote! {
                 fields.push((#name, #input));
@@ -1124,6 +1151,7 @@ fn typed_write_adapter_impl_tokens(
     operation_ident: &Ident,
     operation: &str,
 ) -> TokenStream {
+    let entity_ident = entity.def.ident();
     let include_primary_key = operation == "insert";
     let fields = typed_write_fields_tokens(entity, include_primary_key);
     let field_count = fields.len();
@@ -1142,6 +1170,8 @@ fn typed_write_adapter_impl_tokens(
 
     quote! {
         impl ::icydb::db::TypedWriteAdapter for #operation_ident {
+            type Entity = #entity_ident;
+
             fn encode_write(
                 self,
                 binding: &::icydb::db::TypedEntityBinding,

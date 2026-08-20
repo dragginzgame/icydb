@@ -30,9 +30,10 @@ pub use sql::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
 pub use write::{
-    OutputRow, StructuralMutation, StructuralPatch, TypedAdapterError, TypedBindingError,
-    TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite,
-    TypedWriteAdapter, TypedWriteError, WriteCell,
+    OutputRow, StructuralMutation, StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError,
+    TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError,
+    TypedWrite, TypedWriteAdapter, TypedWriteBatchResults, TypedWriteError, TypedWriteHandle,
+    WriteCell,
 };
 
 /// Failure while capturing or executing one revision-strict exhaustive read.

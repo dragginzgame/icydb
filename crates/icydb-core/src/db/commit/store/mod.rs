@@ -47,6 +47,8 @@ use crate::db::commit::store::control_slot::encode_commit_control_slot;
 use crate::db::database_format::crc32c;
 #[cfg(test)]
 use crate::db::database_format::initialize_current_database_control_for_tests;
+#[cfg(test)]
+use crate::db::journal::journal_batch_encoded_len;
 
 #[cfg(not(test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,6 +116,27 @@ pub(in crate::db) fn persist_raw_commit_marker_for_tests(
     with_commit_store(|store| {
         store.set_raw_marker_bytes_for_tests(control_slot);
         Ok(())
+    })
+}
+
+/// Measure one retained marker and its embedded journal batches without
+/// changing stable state.
+#[cfg(test)]
+pub(in crate::db) fn retained_commit_marker_measurement_for_tests()
+-> Result<Option<(usize, Vec<usize>)>, InternalError> {
+    with_commit_store(|store| {
+        let control_slot = store.read_control_slot()?;
+        let marker_bytes = decode_commit_control_slot(&control_slot)?;
+        let marker_bytes_len = marker_bytes.len();
+        let Some(marker) = RawCommitMarker(marker_bytes).try_decode()? else {
+            return Ok(None);
+        };
+        let journal_batch_bytes = marker
+            .journal_batches()
+            .iter()
+            .map(journal_batch_encoded_len)
+            .collect();
+        Ok(Some((marker_bytes_len, journal_batch_bytes)))
     })
 }
 

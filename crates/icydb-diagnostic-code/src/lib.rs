@@ -535,8 +535,10 @@ pub enum RuntimeBoundaryCode {
     MutationBatchStagedBytesExceeded,
     /// A mixed structural mutation result exceeded its encoded response bound.
     MutationBatchResultBytesExceeded,
-    /// A mixed structural mutation batch resolved to more than one accepted entity.
-    MutationBatchEntityMismatch,
+    /// A mixed structural mutation batch crossed an accepted store boundary.
+    MutationBatchStoreMismatch,
+    /// A mixed structural mutation batch exceeded its distinct-entity bound.
+    MutationBatchTooManyEntities,
     /// More than one mixed structural operation targeted the same accepted key.
     MutationBatchDuplicateKey,
     /// An operational report or reset endpoint requires a controller caller.
@@ -1111,7 +1113,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 284);
+        assert_eq!(last, 285);
     }
 
     #[test]

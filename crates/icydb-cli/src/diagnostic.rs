@@ -1166,8 +1166,11 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::MutationBatchCommitWorkExceeded => {
             "structural mutation batch exceeds the prepared-commit work bound"
         }
-        RuntimeBoundaryCode::MutationBatchEntityMismatch => {
-            "structural mutation batch targets more than one accepted entity"
+        RuntimeBoundaryCode::MutationBatchStoreMismatch => {
+            "structural mutation batch crosses an accepted store boundary"
+        }
+        RuntimeBoundaryCode::MutationBatchTooManyEntities => {
+            "structural mutation batch exceeds the distinct-entity bound"
         }
         RuntimeBoundaryCode::MutationBatchDuplicateKey => {
             "structural mutation batch targets the same accepted key more than once"

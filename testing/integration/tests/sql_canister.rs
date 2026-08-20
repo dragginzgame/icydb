@@ -56,6 +56,12 @@ struct IdentityCloseoutPerfResult {
     one_row_batch_instructions: u64,
     maximum_batch_instructions: u64,
     maximum_batch_rows: u32,
+    sequential_three_entity_instructions: u64,
+    atomic_three_entity_instructions: u64,
+    maximum_entity_context_instructions: u64,
+    maximum_entity_context_count: u32,
+    sequential_typed_enrollment_instructions: u64,
+    atomic_typed_enrollment_instructions: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -276,6 +282,7 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
 #[ignore = "release-closeout instruction probe over the exact prepared-commit work bound"]
 fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     let fixture = install_sql_canister_fixture();
+    let stable_before = stable_memory_fingerprint(&fixture);
     let result: Result<IdentityCloseoutPerfResult, Error> = fixture
         .update_candid("measure_identity_closeout_perf", ())
         .expect("Identity closeout perf result should decode");
@@ -286,16 +293,55 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     assert!(result.generated_nat128_instructions > 0);
     assert!(result.one_row_batch_instructions > 0);
     assert!(result.maximum_batch_instructions > result.one_row_batch_instructions);
+    assert!(result.sequential_three_entity_instructions > 0);
+    assert!(result.atomic_three_entity_instructions > 0);
+    assert!(result.maximum_entity_context_instructions > 0);
+    assert!(result.sequential_typed_enrollment_instructions > 0);
+    assert!(result.atomic_typed_enrollment_instructions > 0);
+    assert!(result.atomic_three_entity_instructions < 40_000_000_000);
+    assert!(result.maximum_entity_context_instructions < 40_000_000_000);
+    assert!(result.atomic_typed_enrollment_instructions < 40_000_000_000);
+    assert!(
+        result.atomic_three_entity_instructions < result.sequential_three_entity_instructions,
+        "one marker should cost less than three independently committed writes",
+    );
+    assert!(
+        result.atomic_typed_enrollment_instructions
+            < result.sequential_typed_enrollment_instructions,
+        "one typed marker should cost less than three typed commits",
+    );
     assert_eq!(result.maximum_batch_rows, (4 * 1024) - 1);
+    assert_eq!(result.maximum_entity_context_count, 64);
+    let membership_indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestEnrollmentUserPrincipal")
+            .expect("Toko-shaped membership indexes should remain introspectable"),
+    );
+    assert!(membership_indexes.iter().any(|index| {
+        index.contains("(user_id)") && !index.contains("authentication_principal")
+    }));
+    assert!(membership_indexes.iter().any(|index| {
+        index.starts_with("UNIQUE INDEX") && index.contains("(user_id, authentication_principal)")
+    }));
+    let stable_after = stable_memory_fingerprint(&fixture);
+    assert!(stable_after.1 >= stable_before.1);
 
     println!(
-        "identity closeout instructions: caller_nat64={} generated_nat64={} generated_nat128={} one_row_batch={} maximum_batch={} maximum_batch_rows={}",
+        "identity closeout instructions: caller_nat64={} generated_nat64={} generated_nat128={} one_row_batch={} maximum_batch={} maximum_batch_rows={} sequential_three_entity={} atomic_three_entity={} maximum_entity_context={} maximum_entity_context_count={} sequential_typed_enrollment={} atomic_typed_enrollment={} stable_before={} stable_after={} stable_delta={}",
         result.caller_nat64_instructions,
         result.generated_nat64_instructions,
         result.generated_nat128_instructions,
         result.one_row_batch_instructions,
         result.maximum_batch_instructions,
         result.maximum_batch_rows,
+        result.sequential_three_entity_instructions,
+        result.atomic_three_entity_instructions,
+        result.maximum_entity_context_instructions,
+        result.maximum_entity_context_count,
+        result.sequential_typed_enrollment_instructions,
+        result.atomic_typed_enrollment_instructions,
+        stable_before.1,
+        stable_after.1,
+        stable_after.1.saturating_sub(stable_before.1),
     );
 }
 

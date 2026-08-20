@@ -48,3 +48,10 @@ fn public_facade_compile_contract() {
     t.pass("tests/pass-sql/guard_endpoint.rs");
     t.compile_fail("tests/fail-endpoints/handwritten_duplicate.rs");
 }
+
+#[test]
+fn typed_write_identity_compile_contract() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/fail-typed-write/raw_ulid_identity.rs");
+    t.compile_fail("tests/fail-typed-write/wrong_entity_identity.rs");
+}

@@ -90,7 +90,7 @@ fn validate_row_local_after_image(
 
 pub(in crate::db) struct AcceptedMutationConstraintBatch {
     rows: Vec<CommitRowOp>,
-    deleted_keys: BTreeSet<RawDataStoreKey>,
+    deleted_key_groups: Vec<(String, BTreeSet<RawDataStoreKey>)>,
 }
 
 impl AcceptedMutationConstraintBatch {
@@ -102,9 +102,20 @@ impl AcceptedMutationConstraintBatch {
 
     pub(in crate::db::executor) fn into_parts(
         self,
-    ) -> (Vec<CommitRowOp>, BTreeSet<RawDataStoreKey>) {
-        (self.rows, self.deleted_keys)
+    ) -> (Vec<CommitRowOp>, Vec<(String, BTreeSet<RawDataStoreKey>)>) {
+        (self.rows, self.deleted_key_groups)
     }
+}
+
+/// Exact accepted authority for one entity participating in a structural
+/// mutation batch.
+pub(in crate::db) struct AcceptedMutationConstraintContext<'a> {
+    pub(in crate::db) entity_path: &'a str,
+    pub(in crate::db) entity_tag: EntityTag,
+    pub(in crate::db) row_decode_contract: AcceptedRowDecodeContract,
+    pub(in crate::db) schema_fingerprint: CommitSchemaFingerprint,
+    pub(in crate::db) fingerprint_method: u8,
+    pub(in crate::db) row_constraints: &'a CompiledAcceptedRowConstraints,
 }
 
 ///
@@ -118,47 +129,32 @@ impl AcceptedMutationConstraintBatch {
 /// set into final-overlay storage preflight before any commit marker is opened.
 ///
 
-pub(in crate::db) struct AcceptedMutationConstraintScheduler<'a> {
-    entity_path: &'a str,
-    entity_tag: EntityTag,
-    row_decode_contract: AcceptedRowDecodeContract,
-    schema_fingerprint: CommitSchemaFingerprint,
-    fingerprint_method: u8,
-    row_constraints: &'a CompiledAcceptedRowConstraints,
+pub(in crate::db) struct AcceptedMutationConstraintScheduler {
     seen_keys: BTreeMap<RawDataStoreKey, u32>,
-    deleted_keys: BTreeSet<RawDataStoreKey>,
+    deleted_key_groups: Vec<(String, BTreeSet<RawDataStoreKey>)>,
     rows: Vec<CommitRowOp>,
 }
 
-impl<'a> AcceptedMutationConstraintScheduler<'a> {
+impl AcceptedMutationConstraintScheduler {
     /// Start one accepted mixed schedule that receives every final row intent
     /// after database-owned policy has resolved it.
-    pub(in crate::db) fn new(
-        entity_path: &'a str,
-        entity_tag: EntityTag,
-        row_decode_contract: AcceptedRowDecodeContract,
-        schema_fingerprint: CommitSchemaFingerprint,
-        fingerprint_method: u8,
-        row_constraints: &'a CompiledAcceptedRowConstraints,
-        row_capacity: usize,
-    ) -> Self {
+    pub(in crate::db) fn new(row_capacity: usize) -> Self {
         Self {
-            entity_path,
-            entity_tag,
-            row_decode_contract,
-            schema_fingerprint,
-            fingerprint_method,
-            row_constraints,
             seen_keys: BTreeMap::new(),
-            deleted_keys: BTreeSet::new(),
+            deleted_key_groups: Vec::new(),
             rows: Vec::with_capacity(row_capacity),
         }
     }
 
     /// Evaluate one logical save after-image and stage its optional physical
     /// transition for later storage-backed preflight.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the scheduler keeps accepted authority, mutation intent, final row, provenance, physical transition, and request position explicit"
+    )]
     pub(in crate::db) fn schedule_save_after_image(
         &mut self,
+        context: AcceptedMutationConstraintContext<'_>,
         mode: MutationMode,
         data_key: &DecodedDataStoreKey,
         row: &RawRow,
@@ -167,9 +163,9 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
         batch_position: u32,
     ) -> Result<(), InternalError> {
         let raw_key = data_key.to_raw()?;
-        self.record_target_key(&raw_key, batch_position)?;
+        self.record_target_key(&raw_key, context.entity_tag, batch_position)?;
         let mutation = MutationDiagnosticContext::new(
-            self.entity_tag.value(),
+            context.entity_tag.value(),
             match mode {
                 MutationMode::Insert => icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
                 MutationMode::Replace => {
@@ -180,23 +176,23 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
             batch_position,
         );
         validate_row_local_after_image(
-            self.entity_path,
-            self.entity_tag,
+            context.entity_path,
+            context.entity_tag,
             mode,
             &raw_key,
             row,
             provenance,
-            self.row_decode_contract.clone(),
-            self.schema_fingerprint,
-            self.fingerprint_method,
-            self.row_constraints,
+            context.row_decode_contract,
+            context.schema_fingerprint,
+            context.fingerprint_method,
+            context.row_constraints,
             mutation,
         )?;
 
         if let Some(row_op) = row_op {
-            if row_op.entity_path.as_ref() != self.entity_path
+            if row_op.entity_path.as_ref() != context.entity_path
                 || row_op.key != raw_key
-                || row_op.schema_fingerprint != self.schema_fingerprint
+                || row_op.schema_fingerprint != context.schema_fingerprint
                 || row_op.after.as_deref() != Some(row.as_bytes())
             {
                 return Err(InternalError::query_executor_invariant());
@@ -212,23 +208,41 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
     /// complete batch key set is known.
     pub(in crate::db) fn schedule_delete(
         &mut self,
+        entity_path: &str,
+        entity_tag: EntityTag,
+        schema_fingerprint: CommitSchemaFingerprint,
         row_op: CommitRowOp,
         batch_position: u32,
     ) -> Result<(), InternalError> {
-        if row_op.entity_path.as_ref() != self.entity_path
+        if row_op.entity_path.as_ref() != entity_path
             || row_op.before.is_none()
             || row_op.after.is_some()
-            || row_op.schema_fingerprint != self.schema_fingerprint
+            || row_op.schema_fingerprint != schema_fingerprint
         {
             return Err(InternalError::query_executor_invariant());
         }
         let _ = DecodedDataStoreKey::try_from_raw(&row_op.key)
             .map_err(|_| InternalError::query_executor_invariant())?;
-        self.record_target_key(&row_op.key, batch_position)?;
-        self.deleted_keys.insert(row_op.key.clone());
+        self.record_target_key(&row_op.key, entity_tag, batch_position)?;
+        let deleted_keys = if let Some((_, deleted_keys)) = self
+            .deleted_key_groups
+            .iter_mut()
+            .find(|(path, _)| path == entity_path)
+        {
+            deleted_keys
+        } else {
+            self.deleted_key_groups
+                .push((entity_path.to_string(), BTreeSet::new()));
+            &mut self
+                .deleted_key_groups
+                .last_mut()
+                .ok_or_else(InternalError::query_executor_invariant)?
+                .1
+        };
+        deleted_keys.insert(row_op.key.clone());
         self.rows.push(
             row_op.with_mutation_diagnostic_context(MutationDiagnosticContext::new(
-                self.entity_tag.value(),
+                entity_tag.value(),
                 icydb_diagnostic_code::DiagnosticMutationOperation::Delete,
                 batch_position,
             )),
@@ -239,11 +253,12 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
     fn record_target_key(
         &mut self,
         raw_key: &RawDataStoreKey,
+        entity_tag: EntityTag,
         batch_position: u32,
     ) -> Result<(), InternalError> {
         if let Some(first_position) = self.seen_keys.get(raw_key).copied() {
             return Err(InternalError::mutation_atomic_save_duplicate_key(
-                self.entity_tag.value(),
+                entity_tag.value(),
                 first_position,
                 batch_position,
             ));
@@ -257,7 +272,7 @@ impl<'a> AcceptedMutationConstraintScheduler<'a> {
     pub(in crate::db) fn finish(self) -> AcceptedMutationConstraintBatch {
         AcceptedMutationConstraintBatch {
             rows: self.rows,
-            deleted_keys: self.deleted_keys,
+            deleted_key_groups: self.deleted_key_groups,
         }
     }
 }

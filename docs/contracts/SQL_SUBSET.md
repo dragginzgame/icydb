@@ -491,8 +491,10 @@ Mutation ownership lives on one accepted structural write lane:
 
 - `execute_trusted_structural_mutation(...)` for entity/field-name writes;
 - `execute_trusted_structural_mutation_batch(...)` for bounded atomic
-  same-entity mixed writes;
+  same-store mixed writes across at most 64 accepted entities;
 - `execute_trusted_typed_write(...)` for explicitly generated typed adapters;
+- `trusted_typed_write_batch()` for binding-resolved generated inputs over the
+  same bounded same-store structural batch;
 - `execute_trusted_structural_insert_batch(...)` for atomic same-entity
   insert convenience.
 

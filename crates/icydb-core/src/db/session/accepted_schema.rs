@@ -315,6 +315,22 @@ impl AcceptedSchemaCatalogContext {
         Self { root, entity }
     }
 
+    /// Resolve another accepted entity while retaining this exact captured
+    /// database-wide root publication.
+    pub(in crate::db) fn for_entity_name(&self, entity_name: &str) -> Option<Self> {
+        self.root
+            .entity_for_name(entity_name)
+            .map(|entity| Self::new(self.root.clone(), entity))
+    }
+
+    /// Resolve another accepted entity path while retaining this exact
+    /// captured database-wide root publication.
+    pub(in crate::db) fn for_entity_path(&self, entity_path: &str) -> Option<Self> {
+        self.root
+            .entity_for_path(entity_path)
+            .map(|entity| Self::new(self.root.clone(), entity))
+    }
+
     #[must_use]
     pub(in crate::db) fn snapshot(&self) -> &AcceptedSchemaSnapshot {
         self.entity.inspection_plan.snapshot()

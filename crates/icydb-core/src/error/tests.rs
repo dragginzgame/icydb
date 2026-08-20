@@ -923,12 +923,16 @@ fn mutation_error_details_project_exact_bounded_numeric_facts() {
         vec![(Tag::Limit, 16_384)],
     );
     assert_eq!(
-        InternalError::mutation_batch_entity_mismatch(2, 17, 18).diagnostic_facts(),
+        InternalError::mutation_batch_store_mismatch(2, 17, 18).diagnostic_facts(),
         vec![
             (Tag::BatchPosition, 2),
             (Tag::ExpectedEntityTag, 17),
             (Tag::ActualEntityTag, 18),
         ],
+    );
+    assert_eq!(
+        InternalError::mutation_batch_too_many_entities(65, 64).diagnostic_facts(),
+        vec![(Tag::ActualCount, 65), (Tag::Limit, 64)],
     );
     assert_eq!(
         InternalError::mutation_atomic_save_duplicate_key(17, 1, 4).diagnostic_facts(),

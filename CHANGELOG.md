@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.235.x] 🔗 - 2026-08-20 - Bounded Same-Store Multi-Entity Mutations
+
+Detailed notes: [docs/changelog/0.235.md](docs/changelog/0.235.md)
+
+- `0.235.0` adds bounded same-store multi-entity atomic writes plus entity-safe
+  generated inputs and a mixed typed builder over the existing executor and
+  recovery protocol, with closeout proof for reverse-relation recovery and the
+  exact 64-entity IC boundary.
+
 ## [0.234.x] 🧩 - 2026-08-20 - Downstream Schema And Facade Completion
 
 Detailed notes: [docs/changelog/0.234.md](docs/changelog/0.234.md)

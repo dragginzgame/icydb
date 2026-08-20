@@ -55,6 +55,10 @@ name = "compile_pass_structural_write_surface"
 path = "tests/pass/structural_write_surface.rs"
 
 [[test]]
+name = "compile_pass_typed_enrollment"
+path = "tests/pass/typed_enrollment.rs"
+
+[[test]]
 name = "compile_pass_dynamic_query"
 path = "tests/pass-query/dynamic_query.rs"
 

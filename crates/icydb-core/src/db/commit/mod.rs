@@ -91,8 +91,6 @@ pub(in crate::db) use schema_publication::{
     publish_accepted_schema_candidate_with_constraint_validation_job_removal,
     publish_constraint_validation_job, publish_generated_row_local_abort_with_application_record,
 };
-#[cfg(test)]
-pub(in crate::db) use store::initialize_current_commit_control_for_tests;
 pub(in crate::db) use store::{
     CommitControlObservation, PersistedCommitControlObservation,
     apply_prepared_commit_control_replacement, cursor_authentication_key,
@@ -103,6 +101,10 @@ pub(in crate::db) use store::{
 pub(in crate::db) use store::{
     MAX_PERSISTED_STORE_ALLOCATIONS, PersistedStoreAllocation, PersistedStoreAllocationState,
     canonicalize_store_registry,
+};
+#[cfg(test)]
+pub(in crate::db) use store::{
+    initialize_current_commit_control_for_tests, retained_commit_marker_measurement_for_tests,
 };
 #[cfg(test)]
 pub(in crate::db) use store::{

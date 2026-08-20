@@ -8,11 +8,12 @@ mod constraint_scheduler;
 
 pub(in crate::db) use commit_window::{
     MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT,
-    commit_structural_row_ops_with_mutation_progress_for_path,
-    commit_structural_row_ops_with_window_for_path,
+    commit_structural_row_ops_with_mutation_progress, commit_structural_row_ops_with_window,
 };
 #[cfg(test)]
 pub(in crate::db) use commit_window::{
     MutationCommitInterruption, interrupt_next_mutation_commit_for_tests,
 };
-pub(in crate::db) use constraint_scheduler::AcceptedMutationConstraintScheduler;
+pub(in crate::db) use constraint_scheduler::{
+    AcceptedMutationConstraintContext, AcceptedMutationConstraintScheduler,
+};

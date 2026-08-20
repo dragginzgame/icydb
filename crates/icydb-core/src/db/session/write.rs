@@ -20,10 +20,10 @@ use crate::{
             resolve_update_structural_patch_with_accepted_contract,
         },
         executor::{
-            AcceptedMutationConstraintScheduler,
+            AcceptedMutationConstraintContext, AcceptedMutationConstraintScheduler,
             budget::finish_current_execution_instruction_watermark,
-            commit_structural_row_ops_with_mutation_progress_for_path,
-            commit_structural_row_ops_with_window_for_path, mutation_key_exists_error,
+            commit_structural_row_ops_with_mutation_progress,
+            commit_structural_row_ops_with_window, mutation_key_exists_error,
         },
         integrity::MutationProgressRecordOp,
         schema::{
@@ -164,11 +164,25 @@ impl AcceptedStructuralMutation {
 }
 
 const MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS: usize = 4_096;
+const MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES: usize = 64;
 pub(in crate::db::session) const STRUCTURAL_MUTATION_BATCH_STAGED_BYTES_POLICY: u32 =
     16 * 1024 * 1024;
 pub(in crate::db::session) const MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES: usize =
     STRUCTURAL_MUTATION_BATCH_STAGED_BYTES_POLICY as usize;
 const MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES: usize = 1024 * 1024;
+
+struct AcceptedStructuralMutationBatchItem {
+    catalog: AcceptedSchemaCatalogContext,
+    mutation: AcceptedStructuralMutation,
+}
+
+struct AcceptedStructuralMutationEntityState {
+    entity_tag: crate::types::EntityTag,
+    identity_field: Option<AcceptedIdentityInsertField>,
+    identity_incarnation: Option<crate::db::integrity::DatabaseIncarnationId>,
+    identity_cursor: Option<IdentityStatementCursor>,
+    identity_insert_ordinal: u32,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session) struct AcceptedStructuralMutationPackingReport {
@@ -846,6 +860,18 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
+        self.typed_entity_binding_matches_catalog(binding, &catalog)
+            .map(|current| current.then_some(catalog))
+    }
+
+    fn typed_entity_binding_matches_catalog(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<bool, InternalError> {
+        if database_incarnation_id()?.to_bytes() != binding.database_incarnation {
+            return Ok(false);
+        }
         let row_contract = catalog.inspection_plan().row_contract();
         let identity = catalog.identity();
         if identity.entity_path() != binding.entity_source.as_str()
@@ -854,7 +880,7 @@ impl<C: CanisterKind> DbSession<C> {
             || catalog.fingerprint() != binding.accepted_fingerprint
             || row_contract.current_layout_version().get() != binding.entity_generation
         {
-            return Ok(None);
+            return Ok(false);
         }
         let entity_source = EntitySourceKey::try_new(binding.entity_source.clone())
             .map_err(|_| InternalError::store_invariant())?;
@@ -865,7 +891,7 @@ impl<C: CanisterKind> DbSession<C> {
         if bundle.revision() != catalog.revision()
             || bundle.source_bindings().entity(&entity_source) != Some(identity.entity_tag())
         {
-            return Ok(None);
+            return Ok(false);
         }
         let snapshot = bundle
             .entity_snapshots()
@@ -878,7 +904,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .source_bindings()
                 .field(identity.entity_tag(), &source)
             else {
-                return Ok(None);
+                return Ok(false);
             };
             let Some(field) = snapshot
                 .fields()
@@ -888,10 +914,10 @@ impl<C: CanisterKind> DbSession<C> {
                 return Err(InternalError::store_invariant());
             };
             if field_id.get() != expected_field_id || field.slot().get() != expected_slot {
-                return Ok(None);
+                return Ok(false);
             }
         }
-        Ok(Some(catalog))
+        Ok(true)
     }
 
     /// Verify that an opaque typed binding still names the exact accepted authority.
@@ -909,7 +935,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn execute_accepted_structural_delete_batch(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         keys: Vec<DecodedDataStoreKey>,
         precommit_validation: impl FnOnce(&[Vec<Value>]) -> Result<(), InternalError>,
     ) -> Result<Vec<Vec<Value>>, InternalError> {
@@ -921,10 +947,16 @@ impl<C: CanisterKind> DbSession<C> {
         let mut mutations = mutations.into_iter();
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
-            descriptor,
             mutation_capacity,
             0,
-            || Ok(mutations.next()),
+            || {
+                Ok(mutations
+                    .next()
+                    .map(|mutation| AcceptedStructuralMutationBatchItem {
+                        catalog: catalog.clone(),
+                        mutation,
+                    }))
+            },
             Timestamp::now(),
             AcceptedStructuralMutationCommitOptions::standard(),
             |rows, _report| {
@@ -948,7 +980,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn execute_accepted_structural_save_batch<T>(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         precommit_preparation: impl FnOnce(
@@ -972,10 +1004,16 @@ impl<C: CanisterKind> DbSession<C> {
         let mut mutations = mutations.into_iter();
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
-            descriptor,
             mutation_capacity,
             identity_candidate_count,
-            || Ok(mutations.next()),
+            || {
+                Ok(mutations
+                    .next()
+                    .map(|mutation| AcceptedStructuralMutationBatchItem {
+                        catalog: catalog.clone(),
+                        mutation,
+                    }))
+            },
             operation_timestamp,
             AcceptedStructuralMutationCommitOptions::standard(),
             |rows, _report| {
@@ -994,7 +1032,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn execute_accepted_structural_update_with_mutation_progress(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         mutation_progress: MutationProgressRecordOp,
@@ -1003,10 +1041,16 @@ impl<C: CanisterKind> DbSession<C> {
         let mut mutations = mutations.into_iter();
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
-            descriptor,
             mutation_capacity,
             0,
-            || Ok(mutations.next()),
+            || {
+                Ok(mutations
+                    .next()
+                    .map(|mutation| AcceptedStructuralMutationBatchItem {
+                        catalog: catalog.clone(),
+                        mutation,
+                    }))
+            },
             operation_timestamp,
             AcceptedStructuralMutationCommitOptions::with_mutation_progress(),
             |rows, _report| {
@@ -1026,7 +1070,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn execute_accepted_structural_update_bounded_prefix<T>(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutation_capacity: usize,
         mut next_mutation: impl FnMut() -> Result<Option<AcceptedStructuralMutation>, InternalError>,
         operation_timestamp: Timestamp,
@@ -1039,10 +1083,16 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<T, InternalError> {
         self.execute_accepted_structural_mutation_batch_inner(
             catalog,
-            descriptor,
             mutation_capacity,
             0,
-            &mut next_mutation,
+            || {
+                next_mutation().map(|mutation| {
+                    mutation.map(|mutation| AcceptedStructuralMutationBatchItem {
+                        catalog: catalog.clone(),
+                        mutation,
+                    })
+                })
+            },
             operation_timestamp,
             AcceptedStructuralMutationCommitOptions::bounded_prefix(),
             |rows, report| {
@@ -1061,11 +1111,13 @@ impl<C: CanisterKind> DbSession<C> {
     )]
     fn execute_accepted_structural_mutation_batch_inner<T>(
         &self,
-        catalog: &AcceptedSchemaCatalogContext,
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        anchor_catalog: &AcceptedSchemaCatalogContext,
         mutation_capacity: usize,
         identity_candidate_count: usize,
-        mut next_mutation: impl FnMut() -> Result<Option<AcceptedStructuralMutation>, InternalError>,
+        mut next_mutation: impl FnMut() -> Result<
+            Option<AcceptedStructuralMutationBatchItem>,
+            InternalError,
+        >,
         operation_timestamp: Timestamp,
         options: AcceptedStructuralMutationCommitOptions,
         precommit_preparation: impl FnOnce(
@@ -1076,26 +1128,15 @@ impl<C: CanisterKind> DbSession<C> {
             InternalError,
         >,
     ) -> Result<T, InternalError> {
-        let identity = catalog.identity();
         let AcceptedStructuralMutationCommitOptions {
             capture_output_values,
             packing,
         } = options;
-        let entity_path = identity.entity_path();
-        let store_path = identity.store_path();
-        let row_decode_contract =
-            descriptor.row_decode_contract(catalog.value_catalog_handle().clone());
-        let row_contract = StructuralRowContract::from_accepted_decode_contract(
-            entity_path,
-            row_decode_contract.clone(),
-        );
+        let anchor_identity = anchor_catalog.identity();
+        let accepted_root_identity = anchor_catalog.runtime_root_identity();
+        let store_path = anchor_identity.store_path();
         let store = self.db.recovered_store(store_path)?;
         let write_context = dynamic_write_context(operation_timestamp);
-        let identity_field = accepted_identity_insert_field(descriptor)?;
-        let identity_incarnation = identity_field
-            .as_ref()
-            .map(|_| database_incarnation_id())
-            .transpose()?;
         if mutation_capacity > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
             return Err(InternalError::mutation_batch_too_many_items(
                 mutation_capacity,
@@ -1103,24 +1144,15 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
         let _ = checked_pre_key_candidate_count(identity_candidate_count)?;
-        let mut identity_cursor: Option<IdentityStatementCursor> = None;
-        let mut identity_insert_ordinal = 0_u32;
-        let mut scheduler = AcceptedMutationConstraintScheduler::new(
-            entity_path,
-            identity.entity_tag(),
-            row_decode_contract.clone(),
-            catalog.fingerprint(),
-            catalog.fingerprint_method_version(),
-            catalog.accepted_row_constraints(),
-            mutation_capacity,
-        );
+        let mut entity_states: Vec<AcceptedStructuralMutationEntityState> = Vec::new();
+        let mut scheduler = AcceptedMutationConstraintScheduler::new(mutation_capacity);
         let mut output = Vec::with_capacity(mutation_capacity);
         let mut staged_bytes = 0_usize;
         let mut stopped_before_candidate = false;
         let mut candidate_exceeds_batch_policy = false;
         let mut input_index = 0_usize;
 
-        while let Some(mutation) = next_mutation()? {
+        while let Some(item) = next_mutation()? {
             if input_index >= mutation_capacity {
                 return Err(InternalError::mutation_batch_too_many_items(
                     input_index.saturating_add(1),
@@ -1134,6 +1166,51 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             })?;
             input_index = input_index.saturating_add(1);
+            let catalog = &item.catalog;
+            let identity = catalog.identity();
+            if catalog.runtime_root_identity() != accepted_root_identity
+                || identity.store_path() != store_path
+            {
+                return Err(InternalError::query_executor_invariant());
+            }
+            let descriptor =
+                AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+            let row_decode_contract =
+                descriptor.row_decode_contract(catalog.value_catalog_handle().clone());
+            let entity_path = identity.entity_path();
+            let row_contract = StructuralRowContract::from_accepted_decode_contract(
+                entity_path,
+                row_decode_contract.clone(),
+            );
+            let entity_state_index = entity_states
+                .iter()
+                .position(|state| state.entity_tag == identity.entity_tag());
+            let entity_state_index = if let Some(index) = entity_state_index {
+                index
+            } else {
+                if entity_states.len() >= MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES {
+                    return Err(InternalError::mutation_batch_too_many_entities(
+                        entity_states.len().saturating_add(1),
+                        MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES,
+                    ));
+                }
+                let identity_field = accepted_identity_insert_field(&descriptor)?;
+                let identity_incarnation = identity_field
+                    .as_ref()
+                    .map(|_| database_incarnation_id())
+                    .transpose()?;
+                entity_states.push(AcceptedStructuralMutationEntityState {
+                    entity_tag: identity.entity_tag(),
+                    identity_field,
+                    identity_incarnation,
+                    identity_cursor: None,
+                    identity_insert_ordinal: 0,
+                });
+                entity_states.len().saturating_sub(1)
+            };
+            let identity_field = entity_states[entity_state_index].identity_field.clone();
+            let identity_insert_ordinal = entity_states[entity_state_index].identity_insert_ordinal;
+            let mutation = item.mutation;
             let AcceptedStructuralMutation::Save {
                 mode,
                 target,
@@ -1172,6 +1249,9 @@ impl<C: CanisterKind> DbSession<C> {
                     }
                 }
                 scheduler.schedule_delete(
+                    entity_path,
+                    identity.entity_tag(),
+                    catalog.fingerprint(),
                     CommitRowOp::new(
                         entity_path,
                         raw_key,
@@ -1240,7 +1320,9 @@ impl<C: CanisterKind> DbSession<C> {
                     .take()
                     .ok_or_else(InternalError::executor_invariant)?;
                 keyed_patch = Some(preserve_dynamic_replacement_identity(
-                    key, descriptor, patch,
+                    key,
+                    &descriptor,
+                    patch,
                 )?);
             }
             let patch = pre_key_insert
@@ -1277,23 +1359,26 @@ impl<C: CanisterKind> DbSession<C> {
                         identity_field.field_id.get(),
                     )
                 })?;
-                if identity_cursor.is_none() {
-                    let incarnation = identity_incarnation
+                if entity_states[entity_state_index].identity_cursor.is_none() {
+                    let incarnation = entity_states[entity_state_index]
+                        .identity_incarnation
                         .ok_or_else(InternalError::identity_state_corruption)?;
-                    identity_cursor = Some(store.with_schema(|schema_store| {
-                        schema_store.identity_statement_cursor(
-                            incarnation,
-                            identity.entity_tag(),
-                            identity_field.field_id,
-                            &identity_field.accepted_kind,
-                        )
-                    })?);
+                    entity_states[entity_state_index].identity_cursor =
+                        Some(store.with_schema(|schema_store| {
+                            schema_store.identity_statement_cursor(
+                                incarnation,
+                                identity.entity_tag(),
+                                identity_field.field_id,
+                                &identity_field.accepted_kind,
+                            )
+                        })?);
                 }
-                let allocation = identity_cursor
+                let allocation = entity_states[entity_state_index]
+                    .identity_cursor
                     .as_mut()
                     .ok_or_else(InternalError::identity_state_corruption)?
                     .allocate(identity_field.field_slot, candidate.input_ordinal())?;
-                identity_insert_ordinal = identity_insert_ordinal
+                entity_states[entity_state_index].identity_insert_ordinal = identity_insert_ordinal
                     .checked_add(1)
                     .ok_or_else(InternalError::identity_candidate_count_exhausted)?;
                 Some(allocation)
@@ -1437,6 +1522,14 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             });
             scheduler.schedule_save_after_image(
+                AcceptedMutationConstraintContext {
+                    entity_path,
+                    entity_tag: identity.entity_tag(),
+                    row_decode_contract: row_decode_contract.clone(),
+                    schema_fingerprint: catalog.fingerprint(),
+                    fingerprint_method: catalog.fingerprint_method_version(),
+                    row_constraints: catalog.accepted_row_constraints(),
+                },
                 mode,
                 &data_key,
                 after.as_raw_row(),
@@ -1472,12 +1565,17 @@ impl<C: CanisterKind> DbSession<C> {
         let batch = scheduler.finish();
         let (prepared, commit_directive) = precommit_preparation(output, report)?;
         finish_current_execution_instruction_watermark()?;
-        let identity_ranges = identity_cursor
-            .map(IdentityStatementCursor::into_range_advance)
-            .transpose()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
+        let mut identity_ranges = Vec::with_capacity(entity_states.len());
+        for state in entity_states {
+            if let Some(range) = state
+                .identity_cursor
+                .map(IdentityStatementCursor::into_range_advance)
+                .transpose()?
+                .flatten()
+            {
+                identity_ranges.push(range);
+            }
+        }
         if !matches!(
             commit_directive,
             AcceptedStructuralMutationCommitDirective::Skip
@@ -1490,9 +1588,8 @@ impl<C: CanisterKind> DbSession<C> {
             AcceptedStructuralMutationCommitDirective::Skip => {}
             AcceptedStructuralMutationCommitDirective::Standard if batch.is_empty() => {}
             AcceptedStructuralMutationCommitDirective::Standard => {
-                commit_structural_row_ops_with_window_for_path(
+                commit_structural_row_ops_with_window(
                     &self.db,
-                    entity_path,
                     batch,
                     identity_ranges,
                     "accepted_structural_batch_apply",
@@ -1505,9 +1602,8 @@ impl<C: CanisterKind> DbSession<C> {
                 return Err(InternalError::executor_invariant());
             }
             AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation) => {
-                commit_structural_row_ops_with_mutation_progress_for_path(
+                commit_structural_row_ops_with_mutation_progress(
                     &self.db,
-                    entity_path,
                     batch,
                     identity_ranges,
                     operation,
@@ -1574,16 +1670,176 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_trusted_dynamic_mutation_batch_with_result_policy(vec![request.clone()], false)
     }
 
-    /// Execute one bounded same-entity structural mutation batch atomically.
+    /// Execute one bounded same-store structural mutation batch atomically.
     ///
-    /// Every item binds to the same accepted catalog identity, shares one
-    /// operation timestamp, and is projected to its public result before the
-    /// commit marker can be published.
+    /// Every item resolves from one captured accepted root and store, shares
+    /// one operation timestamp, and is projected to its public result before
+    /// the commit marker can be published.
     pub fn execute_trusted_dynamic_mutation_batch(
         &self,
         requests: Vec<DynamicMutation>,
-    ) -> Result<DynamicMutationResult, InternalError> {
-        self.execute_trusted_dynamic_mutation_batch_with_result_policy(requests, true)
+    ) -> Result<Vec<DynamicMutationResult>, InternalError> {
+        self.execute_trusted_dynamic_mutation_batch_mixed(requests)
+    }
+
+    fn execute_trusted_dynamic_mutation_batch_mixed(
+        &self,
+        requests: Vec<DynamicMutation>,
+    ) -> Result<Vec<DynamicMutationResult>, InternalError> {
+        if requests.is_empty() {
+            return Err(InternalError::mutation_batch_empty());
+        }
+        if requests.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+            return Err(InternalError::mutation_batch_too_many_items(
+                requests.len(),
+                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+            ));
+        }
+        let first = requests
+            .first()
+            .ok_or_else(InternalError::mutation_batch_empty)?;
+        if first.entity().is_empty() {
+            return Err(InternalError::executor_unsupported());
+        }
+        let anchor_catalog =
+            self.accepted_schema_catalog_context_for_entity_name(Some(first.entity()))?;
+        let anchor_identity = anchor_catalog.identity();
+        let mut entity_tags = std::collections::BTreeSet::new();
+        let mut items = Vec::with_capacity(requests.len());
+        let mut result_catalogs = Vec::with_capacity(requests.len());
+        let mut save_kinds = Vec::with_capacity(requests.len());
+        let mut identity_candidate_count = 0_usize;
+
+        for (batch_position, request) in requests.iter().enumerate() {
+            let batch_position = u32::try_from(batch_position).map_err(|_| {
+                InternalError::mutation_batch_too_many_items(
+                    requests.len(),
+                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+                )
+            })?;
+            if request.entity().is_empty() {
+                return Err(InternalError::executor_unsupported());
+            }
+            let item_catalog = anchor_catalog
+                .for_entity_name(request.entity())
+                .ok_or_else(|| InternalError::unsupported_entity_path(request.entity()))?;
+            let item_identity = item_catalog.identity();
+            if item_identity.store_path() != anchor_identity.store_path() {
+                return Err(InternalError::mutation_batch_store_mismatch(
+                    batch_position,
+                    anchor_identity.entity_tag().value(),
+                    item_identity.entity_tag().value(),
+                ));
+            }
+            entity_tags.insert(item_identity.entity_tag());
+            if entity_tags.len() > MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES {
+                return Err(InternalError::mutation_batch_too_many_entities(
+                    entity_tags.len(),
+                    MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES,
+                ));
+            }
+            let descriptor =
+                AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
+            let (mutation, save_kind) = lower_dynamic_mutation_intent(
+                item_identity.entity_tag(),
+                item_identity.entity_path(),
+                &descriptor,
+                request,
+                batch_position,
+            )?;
+            if matches!(
+                mutation,
+                AcceptedStructuralMutation::Save {
+                    mode: MutationMode::Insert,
+                    target: AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                    ..
+                }
+            ) {
+                identity_candidate_count = identity_candidate_count.saturating_add(1);
+            }
+            result_catalogs.push(item_catalog.clone());
+            save_kinds.push(save_kind);
+            items.push(AcceptedStructuralMutationBatchItem {
+                catalog: item_catalog,
+                mutation,
+            });
+        }
+
+        self.execute_lowered_mixed_mutation_batch(
+            &anchor_catalog,
+            items,
+            result_catalogs,
+            save_kinds,
+            identity_candidate_count,
+        )
+    }
+
+    fn execute_lowered_mixed_mutation_batch(
+        &self,
+        anchor_catalog: &AcceptedSchemaCatalogContext,
+        items: Vec<AcceptedStructuralMutationBatchItem>,
+        result_catalogs: Vec<AcceptedSchemaCatalogContext>,
+        save_kinds: Vec<Option<SaveMutationKind>>,
+        identity_candidate_count: usize,
+    ) -> Result<Vec<DynamicMutationResult>, InternalError> {
+        if items.len() != result_catalogs.len() || items.len() != save_kinds.len() {
+            return Err(InternalError::executor_invariant());
+        }
+        let mutation_count = items.len();
+        let mut items = items.into_iter();
+        let result_entity_paths = result_catalogs
+            .iter()
+            .map(|catalog| catalog.identity().entity_path_handle())
+            .collect::<Vec<_>>();
+        let (results, metrics) = self.execute_accepted_structural_mutation_batch_inner(
+            anchor_catalog,
+            mutation_count,
+            identity_candidate_count,
+            || Ok(items.next()),
+            Timestamp::now(),
+            AcceptedStructuralMutationCommitOptions::standard(),
+            |rows, _report| {
+                if rows.len() != result_catalogs.len() {
+                    return Err(InternalError::executor_invariant());
+                }
+                let mut results = Vec::with_capacity(rows.len());
+                let mut metrics = Vec::with_capacity(rows.len());
+                for (((row, catalog), entity_path), save_kind) in rows
+                    .into_iter()
+                    .zip(result_catalogs.iter())
+                    .zip(result_entity_paths.iter())
+                    .zip(save_kinds)
+                {
+                    let logical_changed = row.logical_changed();
+                    let descriptor =
+                        AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+                    results.push(prepare_dynamic_mutation_result(
+                        catalog,
+                        &descriptor,
+                        vec![row],
+                        false,
+                    )?);
+                    if let Some(kind) = save_kind {
+                        metrics.push((entity_path.clone(), kind, logical_changed));
+                    }
+                }
+                let encoded = candid::encode_one(&results)
+                    .map_err(|_| InternalError::executor_invariant())?;
+                validate_structural_mutation_result_bytes(encoded.len())?;
+                Ok((
+                    (results, metrics),
+                    AcceptedStructuralMutationCommitDirective::Standard,
+                ))
+            },
+        )?;
+        for (entity_path, kind, logical_changed) in metrics {
+            record(MetricsEvent::SaveMutation {
+                entity_path,
+                kind,
+                rows_touched: u64::from(logical_changed),
+            });
+        }
+        Ok(results)
     }
 
     fn execute_trusted_dynamic_mutation_batch_with_result_policy(
@@ -1626,11 +1882,7 @@ impl<C: CanisterKind> DbSession<C> {
             let item_catalog =
                 self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
             if item_catalog.identity() != accepted_identity {
-                return Err(InternalError::mutation_batch_entity_mismatch(
-                    batch_position,
-                    accepted_identity.entity_tag().value(),
-                    item_catalog.identity().entity_tag().value(),
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
             let (mutation, save_kind) = lower_dynamic_mutation_intent(
                 accepted_identity.entity_tag(),
@@ -1681,14 +1933,14 @@ impl<C: CanisterKind> DbSession<C> {
         .map(Some)
     }
 
-    /// Execute one bounded generated typed-write batch atomically through one
-    /// exact current binding. `None` means a binding or patch is stale or
-    /// mismatched.
+    /// Execute one bounded generated typed-write batch atomically through
+    /// exact current same-store bindings. `None` means a binding or patch is
+    /// stale or mismatched.
     #[doc(hidden)]
     pub fn execute_trusted_typed_mutation_batch(
         &self,
         requests: Vec<(DynamicTypedEntityBinding, DynamicTypedMutation)>,
-    ) -> Result<Option<DynamicMutationResult>, InternalError> {
+    ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
         if requests.is_empty() {
             return Err(InternalError::mutation_batch_empty());
         }
@@ -1705,24 +1957,45 @@ impl<C: CanisterKind> DbSession<C> {
         let Some(catalog) = self.current_typed_entity_binding_catalog(first_binding)? else {
             return Ok(None);
         };
-        let identity = catalog.identity();
-        let descriptor =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-        let mut mutations = Vec::with_capacity(requests.len());
+        let anchor_identity = catalog.identity();
+        let mut entity_tags = std::collections::BTreeSet::new();
+        let mut items = Vec::with_capacity(requests.len());
+        let mut result_catalogs = Vec::with_capacity(requests.len());
         let mut save_kinds = Vec::with_capacity(requests.len());
+        let mut identity_candidate_count = 0_usize;
 
         for (batch_position, (binding, request)) in requests.iter().enumerate() {
-            if binding != first_binding {
-                return Ok(None);
-            }
             let batch_position = u32::try_from(batch_position).map_err(|_| {
                 InternalError::mutation_batch_too_many_items(
                     requests.len(),
                     MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
                 )
             })?;
+            let Some(item_catalog) = catalog.for_entity_path(binding.entity_source.as_str()) else {
+                return Ok(None);
+            };
+            if !self.typed_entity_binding_matches_catalog(binding, &item_catalog)? {
+                return Ok(None);
+            }
+            let item_identity = item_catalog.identity();
+            if item_identity.store_path() != anchor_identity.store_path() {
+                return Err(InternalError::mutation_batch_store_mismatch(
+                    batch_position,
+                    anchor_identity.entity_tag().value(),
+                    item_identity.entity_tag().value(),
+                ));
+            }
+            entity_tags.insert(item_identity.entity_tag());
+            if entity_tags.len() > MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES {
+                return Err(InternalError::mutation_batch_too_many_entities(
+                    entity_tags.len(),
+                    MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES,
+                ));
+            }
+            let descriptor =
+                AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
             let Some((mutation, save_kind)) = lower_typed_mutation_intent(
-                identity.entity_tag(),
+                item_identity.entity_tag(),
                 &descriptor,
                 binding,
                 request,
@@ -1731,16 +2004,30 @@ impl<C: CanisterKind> DbSession<C> {
             else {
                 return Ok(None);
             };
-            mutations.push(mutation);
+            if matches!(
+                mutation,
+                AcceptedStructuralMutation::Save {
+                    mode: MutationMode::Insert,
+                    target: AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                    ..
+                }
+            ) {
+                identity_candidate_count = identity_candidate_count.saturating_add(1);
+            }
+            result_catalogs.push(item_catalog.clone());
             save_kinds.push(Some(save_kind));
+            items.push(AcceptedStructuralMutationBatchItem {
+                catalog: item_catalog,
+                mutation,
+            });
         }
 
-        self.execute_lowered_dynamic_mutation_batch(
+        self.execute_lowered_mixed_mutation_batch(
             &catalog,
-            &descriptor,
-            mutations,
+            items,
+            result_catalogs,
             save_kinds,
-            true,
+            identity_candidate_count,
         )
         .map(Some)
     }
@@ -1793,6 +2080,7 @@ mod typed_adapter_tests {
     use std::{cell::RefCell, collections::BTreeMap};
 
     const STORE_PATH: &str = "session::write::typed_adapter_tests::Store";
+    const OTHER_STORE_PATH: &str = "session::write::typed_adapter_tests::OtherStore";
     const ENTITY_SOURCE: &str = "session::write::typed_adapter_tests::Entity";
     const OTHER_ENTITY_SOURCE: &str = "session::write::typed_adapter_tests::OtherEntity";
     const ID_SOURCE: &str = "session::write::typed_adapter_tests::Entity::id";
@@ -1822,6 +2110,10 @@ mod typed_adapter_tests {
         static INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
         static SCHEMA_STORE: RefCell<SchemaStore> =
             const { RefCell::new(SchemaStore::init_heap()) };
+        static OTHER_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+        static OTHER_INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+        static OTHER_SCHEMA_STORE: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
         static STORE_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_store(
@@ -1832,6 +2124,14 @@ mod typed_adapter_tests {
                 StoreAllocationIdentities::absent(),
                 StoreRuntimeStorageCapabilities::heap(),
             ).expect("typed adapter test store should register");
+            registry.register_store(
+                OTHER_STORE_PATH,
+                &OTHER_DATA_STORE,
+                &OTHER_INDEX_STORE,
+                &OTHER_SCHEMA_STORE,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("second typed adapter test store should register");
             registry
         };
     }
@@ -1886,15 +2186,26 @@ mod typed_adapter_tests {
         snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
         fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
     ) {
+        publish_to_store(session, STORE_PATH, expected, revision, snapshots, fields);
+    }
+
+    fn publish_to_store(
+        session: &DbSession<TestCanister>,
+        store_path: &'static str,
+        expected: AcceptedSchemaRevision,
+        revision: AcceptedSchemaRevision,
+        snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+        fields: BTreeMap<(EntityTag, FieldSourceKey), FieldId>,
+    ) {
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
-            STORE_PATH, revision, snapshots, fields,
+            store_path, revision, snapshots, fields,
         );
         let store = session
             .db
-            .store_handle(STORE_PATH)
+            .store_handle(store_path)
             .expect("typed adapter test store should resolve");
         crate::db::commit::publish_accepted_schema_candidate(
-            STORE_PATH, store, expected, &candidate,
+            store_path, store, expected, &candidate,
         )
         .expect("typed binding candidate should publish");
     }
@@ -1912,6 +2223,9 @@ mod typed_adapter_tests {
         DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        OTHER_DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        OTHER_INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        OTHER_SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
         let session = DbSession::<TestCanister>::new(
             &STORE_REGISTRY,
             &crate::db::RequestExecutionRoot::__new_runtime_root(),
@@ -1940,6 +2254,77 @@ mod typed_adapter_tests {
         session
     }
 
+    fn initialize_mixed_typed_session(other_store: bool) -> DbSession<TestCanister> {
+        let entity_tag = EntityTag::new(91);
+        let other_entity_tag = EntityTag::new(92);
+        DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        OTHER_DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        OTHER_INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        OTHER_SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
+        session
+            .db
+            .drive_startup_recovery_page()
+            .expect("mixed typed adapter database should initialize");
+
+        let entity_snapshot = snapshot(
+            ENTITY_SOURCE,
+            "Entity",
+            vec![nat64_field(1, "id", 0), nat64_field(2, "value", 1)],
+        );
+        let other_snapshot = snapshot(
+            OTHER_ENTITY_SOURCE,
+            "OtherEntity",
+            vec![nat64_field(1, "id", 0)],
+        );
+        let entity_fields = BTreeMap::from([
+            ((entity_tag, field_source(ID_SOURCE)), FieldId::new(1)),
+            ((entity_tag, field_source(VALUE_SOURCE)), FieldId::new(2)),
+        ]);
+        if other_store {
+            publish(
+                &session,
+                AcceptedSchemaRevision::NONE,
+                AcceptedSchemaRevision::INITIAL,
+                BTreeMap::from([(entity_tag, entity_snapshot)]),
+                entity_fields,
+            );
+            publish_to_store(
+                &session,
+                OTHER_STORE_PATH,
+                AcceptedSchemaRevision::NONE,
+                AcceptedSchemaRevision::INITIAL,
+                BTreeMap::from([(other_entity_tag, other_snapshot)]),
+                BTreeMap::from([(
+                    (other_entity_tag, field_source(OTHER_ID_SOURCE)),
+                    FieldId::new(1),
+                )]),
+            );
+        } else {
+            let mut fields = entity_fields;
+            fields.insert(
+                (other_entity_tag, field_source(OTHER_ID_SOURCE)),
+                FieldId::new(1),
+            );
+            publish(
+                &session,
+                AcceptedSchemaRevision::NONE,
+                AcceptedSchemaRevision::INITIAL,
+                BTreeMap::from([
+                    (entity_tag, entity_snapshot),
+                    (other_entity_tag, other_snapshot),
+                ]),
+                fields,
+            );
+        }
+        session
+    }
+
     fn typed_insert(
         binding: &DynamicTypedEntityBinding,
         id: u64,
@@ -1957,6 +2342,16 @@ mod typed_adapter_tests {
                 ),
             ])
             .expect("typed insert patch should bind");
+        DynamicTypedMutation::Insert { patch }
+    }
+
+    fn typed_other_insert(binding: &DynamicTypedEntityBinding, id: u64) -> DynamicTypedMutation {
+        let patch = binding
+            .bind_write_fields(vec![(
+                OTHER_ID_SOURCE.to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(id)),
+            )])
+            .expect("other typed insert patch should bind");
         DynamicTypedMutation::Insert { patch }
     }
 
@@ -2021,7 +2416,7 @@ mod typed_adapter_tests {
     }
 
     #[test]
-    fn typed_mutation_batch_is_same_binding_bounded_and_atomic() {
+    fn typed_mutation_batch_is_bounded_and_atomic() {
         let session = initialize_typed_session();
         let binding = session
             .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
@@ -2057,9 +2452,13 @@ mod typed_adapter_tests {
             ])
             .expect("valid typed batch should execute")
             .expect("exact binding should remain current");
-        assert_eq!(result.affected_rows, 2);
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|item| item.affected_rows == 1));
         assert_eq!(
-            result.rows,
+            result
+                .into_iter()
+                .map(|item| item.rows.into_iter().next().expect("one row per request"))
+                .collect::<Vec<_>>(),
             vec![
                 vec![
                     crate::value::OutputValue::Nat64(1),
@@ -2085,6 +2484,85 @@ mod typed_adapter_tests {
             .execute_trusted_typed_mutation_batch(vec![(mismatched, typed_insert(&binding, 5, 50))])
             .expect("stale typed batch should fail closed");
         assert!(stale.is_none());
+    }
+
+    #[test]
+    fn typed_mutation_batch_accepts_mixed_same_store_bindings_and_rejects_late_stale_input() {
+        let session = initialize_mixed_typed_session(false);
+        let binding = session
+            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .expect("first typed entity should bind");
+        let other = session
+            .issue_typed_entity_binding(OTHER_ENTITY_SOURCE, &[request(OTHER_ID_SOURCE)])
+            .expect("second typed entity should bind");
+
+        let mut stale_other = other.clone();
+        stale_other.accepted_revision = stale_other.accepted_revision.saturating_add(1);
+        let stale = session
+            .execute_trusted_typed_mutation_batch(vec![
+                (binding.clone(), typed_insert(&binding, 1, 10)),
+                (stale_other, typed_other_insert(&other, 1)),
+            ])
+            .expect("stale typed admission should remain an adapter outcome");
+        assert!(stale.is_none());
+        for entity in ["Entity", "OtherEntity"] {
+            let rows = session
+                .execute_trusted_live_page(&crate::db::DynamicQuery::new(entity), None)
+                .expect("failed mixed admission should leave both entities readable");
+            assert!(rows.rows.is_empty());
+        }
+
+        let results = session
+            .execute_trusted_typed_mutation_batch(vec![
+                (other.clone(), typed_other_insert(&other, 2)),
+                (binding.clone(), typed_insert(&binding, 3, 30)),
+            ])
+            .expect("same-store typed batch should execute")
+            .expect("both typed bindings should remain current");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].entity, "OtherEntity");
+        assert_eq!(
+            results[0].rows,
+            vec![vec![crate::value::OutputValue::Nat64(2)]]
+        );
+        assert_eq!(results[1].entity, "Entity");
+        assert_eq!(
+            results[1].rows,
+            vec![vec![
+                crate::value::OutputValue::Nat64(3),
+                crate::value::OutputValue::Nat64(30),
+            ]],
+        );
+    }
+
+    #[test]
+    fn typed_mutation_batch_rejects_cross_store_bindings_before_writes() {
+        let session = initialize_mixed_typed_session(true);
+        let binding = session
+            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .expect("first store typed entity should bind");
+        let other = session
+            .issue_typed_entity_binding(OTHER_ENTITY_SOURCE, &[request(OTHER_ID_SOURCE)])
+            .expect("second store typed entity should bind");
+
+        let error = session
+            .execute_trusted_typed_mutation_batch(vec![
+                (binding.clone(), typed_insert(&binding, 1, 10)),
+                (other.clone(), typed_other_insert(&other, 1)),
+            ])
+            .expect_err("typed cross-store rows must reject");
+        assert!(matches!(
+            error.diagnostic().detail(),
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchStoreMismatch,
+            })
+        ));
+        for entity in ["Entity", "OtherEntity"] {
+            let rows = session
+                .execute_trusted_live_page(&crate::db::DynamicQuery::new(entity), None)
+                .expect("cross-store rejection should leave both entities readable");
+            assert!(rows.rows.is_empty());
+        }
     }
 
     #[test]
@@ -2121,9 +2599,13 @@ mod typed_adapter_tests {
             ])
             .expect("mixed typed batch should execute")
             .expect("mixed typed binding should remain current");
-        assert_eq!(result.affected_rows, 3);
+        assert_eq!(result.len(), 3);
+        assert!(result.iter().all(|item| item.affected_rows == 1));
         assert_eq!(
-            result.rows,
+            result
+                .into_iter()
+                .map(|item| item.rows.into_iter().next().expect("one row per request"))
+                .collect::<Vec<_>>(),
             vec![
                 vec![
                     crate::value::OutputValue::Nat64(1),
@@ -2151,6 +2633,9 @@ mod typed_adapter_tests {
         DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        OTHER_DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        OTHER_INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        OTHER_SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
 
         let session = DbSession::<TestCanister>::new(
             &STORE_REGISTRY,
@@ -2598,11 +3083,12 @@ mod mixed_relation_batch_tests {
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::{
                 AcceptedConstraintCatalog, AcceptedFieldKind, AcceptedSchemaRevision, FieldId,
-                FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+                FieldStorageDecode, FieldWriteManagement, LeafCodec, PersistedFieldSnapshot,
                 PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
                 PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, ScalarCodec,
-                SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore,
-                SchemaVersion, accepted_schema_candidate_with_field_bindings_for_tests,
+                SchemaFieldSlot, SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault,
+                SchemaRowLayout, SchemaStore, SchemaVersion,
+                accepted_schema_candidate_with_field_bindings_for_tests,
             },
         },
         error::ErrorClass,
@@ -2623,8 +3109,21 @@ mod mixed_relation_batch_tests {
     const OTHER_ENTITY_SOURCE: &str = "session::write::mixed_relation_batch_tests::Other";
     const OTHER_ID_SOURCE: &str = "session::write::mixed_relation_batch_tests::Other::id";
     const OTHER_VALUE_SOURCE: &str = "session::write::mixed_relation_batch_tests::Other::value";
+    const OTHER_NODE_SOURCE: &str = "session::write::mixed_relation_batch_tests::Other::node_id";
     const OTHER_ENTITY_NAME: &str = "MixedRelationOther";
     const OTHER_ENTITY_TAG: EntityTag = EntityTag::new(95);
+    const CROSS_STORE_PATH: &str = "session::write::mixed_relation_batch_tests::OtherStore";
+    const CROSS_ENTITY_SOURCE: &str = "session::write::mixed_relation_batch_tests::CrossStore";
+    const CROSS_ID_SOURCE: &str = "session::write::mixed_relation_batch_tests::CrossStore::id";
+    const CROSS_ENTITY_NAME: &str = "MixedCrossStore";
+    const CROSS_ENTITY_TAG: EntityTag = EntityTag::new(2_000);
+
+    fn batch_rows(results: &[crate::db::DynamicMutationResult]) -> Vec<Vec<OutputValue>> {
+        results
+            .iter()
+            .flat_map(|result| result.rows.iter().cloned())
+            .collect()
+    }
 
     struct TestCanister;
 
@@ -2648,6 +3147,10 @@ mod mixed_relation_batch_tests {
         static INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
         static SCHEMA_STORE: RefCell<SchemaStore> =
             const { RefCell::new(SchemaStore::init_heap()) };
+        static CROSS_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+        static CROSS_INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+        static CROSS_SCHEMA_STORE: RefCell<SchemaStore> =
+            const { RefCell::new(SchemaStore::init_heap()) };
         static STORE_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_store(
@@ -2658,6 +3161,14 @@ mod mixed_relation_batch_tests {
                 StoreAllocationIdentities::absent(),
                 StoreRuntimeStorageCapabilities::heap(),
             ).expect("mixed relation test store should register");
+            registry.register_store(
+                CROSS_STORE_PATH,
+                &CROSS_DATA_STORE,
+                &CROSS_INDEX_STORE,
+                &CROSS_SCHEMA_STORE,
+                StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
+            ).expect("cross-store test store should register");
             registry
         };
     }
@@ -2770,8 +3281,25 @@ mod mixed_relation_batch_tests {
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(3),
+                "node_id".to_string(),
+                SchemaFieldSlot::new(2),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                true,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
         ];
-        PersistedSchemaSnapshot::new(
+        let relation = PersistedRelationEdgeSnapshot::new(
+            RelationId::new(1).expect("cross-entity relation identity should be non-zero"),
+            "node".to_string(),
+            ENTITY_SOURCE.to_string(),
+            vec![FieldId::new(3)],
+        );
+        let snapshot = PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             OTHER_ENTITY_SOURCE.to_string(),
             OTHER_ENTITY_NAME.to_string(),
@@ -2784,12 +3312,89 @@ mod mixed_relation_batch_tests {
             ),
             fields,
         )
+        .with_relations(vec![relation]);
+        let constraints = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+        )
+        .expect("cross-entity relation constraints should close");
+        snapshot.with_constraint_catalog(constraints)
+    }
+
+    fn bounded_entity_snapshot(index: usize) -> PersistedSchemaSnapshot {
+        let fields = vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new_initial_with_write_policy(
+                FieldId::new(2),
+                "updated_at".to_string(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Timestamp,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                SchemaFieldWritePolicy::from_model_policies(
+                    None,
+                    Some(FieldWriteManagement::UpdatedAt),
+                ),
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Timestamp),
+            ),
+        ];
+        PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            format!("session::write::mixed_relation_batch_tests::Bounded{index}"),
+            format!("MixedBounded{index}"),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+        )
+    }
+
+    fn cross_store_snapshot() -> PersistedSchemaSnapshot {
+        let field = PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Nat64,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        );
+        PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            CROSS_ENTITY_SOURCE.to_string(),
+            CROSS_ENTITY_NAME.to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(vec![(field.id(), field.slot())]),
+            vec![field],
+        )
     }
 
     fn initialize() -> DbSession<TestCanister> {
         DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
         INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
         SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
+        CROSS_DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
+        CROSS_INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
+        CROSS_SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
         let session = DbSession::<TestCanister>::new(
             &STORE_REGISTRY,
             &crate::db::RequestExecutionRoot::__new_runtime_root(),
@@ -2798,26 +3403,58 @@ mod mixed_relation_batch_tests {
             .db
             .drive_startup_recovery_page()
             .expect("mixed relation database should initialize");
+        let mut snapshots = BTreeMap::from([
+            (ENTITY_TAG, relation_snapshot()),
+            (OTHER_ENTITY_TAG, other_snapshot()),
+        ]);
+        let mut field_bindings = BTreeMap::from([
+            ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
+            ((ENTITY_TAG, source_key(PARENT_SOURCE)), FieldId::new(2)),
+            ((ENTITY_TAG, source_key(CODE_SOURCE)), FieldId::new(3)),
+            (
+                (OTHER_ENTITY_TAG, source_key(OTHER_ID_SOURCE)),
+                FieldId::new(1),
+            ),
+            (
+                (OTHER_ENTITY_TAG, source_key(OTHER_VALUE_SOURCE)),
+                FieldId::new(2),
+            ),
+            (
+                (OTHER_ENTITY_TAG, source_key(OTHER_NODE_SOURCE)),
+                FieldId::new(3),
+            ),
+        ]);
+        for index in 0..65 {
+            let tag = EntityTag::new(1_000 + index as u64);
+            snapshots.insert(tag, bounded_entity_snapshot(index));
+            field_bindings.insert(
+                (
+                    tag,
+                    source_key(
+                        format!("session::write::mixed_relation_batch_tests::Bounded{index}::id")
+                            .as_str(),
+                    ),
+                ),
+                FieldId::new(1),
+            );
+            field_bindings.insert(
+                (
+                    tag,
+                    source_key(
+                        format!(
+                            "session::write::mixed_relation_batch_tests::Bounded{index}::updated_at"
+                        )
+                        .as_str(),
+                    ),
+                ),
+                FieldId::new(2),
+            );
+        }
         let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
             STORE_PATH,
             AcceptedSchemaRevision::INITIAL,
-            BTreeMap::from([
-                (ENTITY_TAG, relation_snapshot()),
-                (OTHER_ENTITY_TAG, other_snapshot()),
-            ]),
-            BTreeMap::from([
-                ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
-                ((ENTITY_TAG, source_key(PARENT_SOURCE)), FieldId::new(2)),
-                ((ENTITY_TAG, source_key(CODE_SOURCE)), FieldId::new(3)),
-                (
-                    (OTHER_ENTITY_TAG, source_key(OTHER_ID_SOURCE)),
-                    FieldId::new(1),
-                ),
-                (
-                    (OTHER_ENTITY_TAG, source_key(OTHER_VALUE_SOURCE)),
-                    FieldId::new(2),
-                ),
-            ]),
+            snapshots,
+            field_bindings,
         );
         let store = session
             .db
@@ -2830,6 +3467,26 @@ mod mixed_relation_batch_tests {
             &candidate,
         )
         .expect("mixed relation candidate should publish");
+        let cross_candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            CROSS_STORE_PATH,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([(CROSS_ENTITY_TAG, cross_store_snapshot())]),
+            BTreeMap::from([(
+                (CROSS_ENTITY_TAG, source_key(CROSS_ID_SOURCE)),
+                FieldId::new(1),
+            )]),
+        );
+        let cross_store = session
+            .db
+            .store_handle(CROSS_STORE_PATH)
+            .expect("cross-store fixture should resolve");
+        crate::db::commit::publish_accepted_schema_candidate(
+            CROSS_STORE_PATH,
+            cross_store,
+            AcceptedSchemaRevision::NONE,
+            &cross_candidate,
+        )
+        .expect("cross-store candidate should publish");
         session
     }
 
@@ -2906,6 +3563,14 @@ mod mixed_relation_batch_tests {
     }
 
     fn other_patch(id: Option<u64>, value: u64) -> DynamicStructuralPatch {
+        other_patch_with_node(id, value, None)
+    }
+
+    fn other_patch_with_node(
+        id: Option<u64>,
+        value: u64,
+        node_id: Option<u64>,
+    ) -> DynamicStructuralPatch {
         let mut fields = Vec::new();
         if let Some(id) = id {
             fields.push((
@@ -2916,6 +3581,12 @@ mod mixed_relation_batch_tests {
         fields.push((
             "value".to_string(),
             DynamicWriteCell::Value(InputValue::Nat64(value)),
+        ));
+        fields.push((
+            "node_id".to_string(),
+            node_id.map_or(DynamicWriteCell::Null, |node_id| {
+                DynamicWriteCell::Value(InputValue::Nat64(node_id))
+            }),
         ));
         DynamicStructuralPatch::new(fields)
     }
@@ -3286,7 +3957,7 @@ mod mixed_relation_batch_tests {
             .execute_trusted_dynamic_mutation_batch(vec![delete(2), delete(1)])
             .expect("a source and its target should delete atomically");
         assert_eq!(
-            deleted.rows,
+            batch_rows(&deleted),
             vec![expected_row(2, Some(1)), expected_row(1, None)],
         );
 
@@ -3297,7 +3968,7 @@ mod mixed_relation_batch_tests {
             .execute_trusted_dynamic_mutation_batch(vec![update_parent(4, None), delete(3)])
             .expect("an updated final source may release a deleted target");
         assert_eq!(
-            updated_away.rows,
+            batch_rows(&updated_away),
             vec![expected_row(4, None), expected_row(3, None)],
         );
 
@@ -3321,7 +3992,7 @@ mod mixed_relation_batch_tests {
             .execute_trusted_dynamic_mutation_batch(vec![insert(10, Some(9)), insert(9, None)])
             .expect("an inserted relation should see its batch-final target");
         assert_eq!(
-            inserted_target.rows,
+            batch_rows(&inserted_target),
             vec![expected_row(10, Some(9)), expected_row(9, None)],
         );
 
@@ -3335,13 +4006,13 @@ mod mixed_relation_batch_tests {
             ])
             .expect("an updated relation should see its batch-final target");
         assert_eq!(
-            updated_target.rows,
+            batch_rows(&updated_target),
             vec![expected_row(11, Some(12)), expected_row(12, None)],
         );
     }
 
     #[test]
-    fn mixed_batch_rejects_cross_entity_missing_and_collision_then_honors_replace() {
+    fn mixed_batch_commits_cross_entity_then_rejects_late_failures_atomically() {
         let session = initialize();
         session
             .execute_trusted_dynamic_mutation(&insert(1, None))
@@ -3362,20 +4033,16 @@ mod mixed_relation_batch_tests {
                     patch: other_patch(None, 11),
                 },
             ])
-            .expect_err("one atomic batch must not cross accepted entities");
-        assert_eq!(mixed_entity.class(), ErrorClass::Conflict);
+            .expect("one atomic batch may span accepted entities in the same store");
         assert_eq!(
-            mixed_entity.diagnostic_facts(),
+            batch_rows(&mixed_entity),
             vec![
-                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 1,),
-                (
-                    icydb_diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
-                    ENTITY_TAG.value(),
-                ),
-                (
-                    icydb_diagnostic_code::DiagnosticFactTag::ActualEntityTag,
-                    OTHER_ENTITY_TAG.value(),
-                ),
+                expected_row_with_code(1, None, 11),
+                vec![
+                    OutputValue::Nat64(1),
+                    OutputValue::Nat64(11),
+                    OutputValue::Null,
+                ],
             ],
         );
 
@@ -3392,7 +4059,7 @@ mod mixed_relation_batch_tests {
             .expect_err("an insert collision must reject the earlier staged update");
         assert_eq!(collision.class(), ErrorClass::Conflict);
         let failures_unchanged = session
-            .execute_trusted_dynamic_mutation(&update_code(1, 1))
+            .execute_trusted_dynamic_mutation(&update_code(1, 11))
             .expect("failed batches must preserve the original unique value");
         assert_eq!(failures_unchanged.affected_rows, 0);
 
@@ -3407,7 +4074,7 @@ mod mixed_relation_batch_tests {
             ])
             .expect("ordinary caller-key replace should insert its absent final row");
         assert_eq!(
-            replaced.rows,
+            batch_rows(&replaced),
             vec![
                 expected_row_with_code(1, None, 14),
                 expected_row_with_code(99, None, 99),
@@ -3422,10 +4089,134 @@ mod mixed_relation_batch_tests {
             .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                 entity: OTHER_ENTITY_NAME.to_string(),
                 key: InputValue::Nat64(1),
-                patch: other_patch(None, 10),
+                patch: other_patch(None, 11),
             })
-            .expect("cross-entity rejection must preserve the secondary row");
+            .expect("the cross-entity commit must publish the secondary row");
         assert_eq!(other_unchanged.affected_rows, 0);
+    }
+
+    #[test]
+    fn cross_entity_relations_observe_one_complete_final_overlay() {
+        let session = initialize();
+        let inserted = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                DynamicMutation::Insert {
+                    entity: OTHER_ENTITY_NAME.to_string(),
+                    patch: other_patch_with_node(Some(20), 200, Some(42)),
+                },
+                insert(42, None),
+            ])
+            .expect("a source may precede its same-batch target in another entity");
+        assert_eq!(inserted.len(), 2);
+
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                delete(42),
+                DynamicMutation::Delete {
+                    entity: OTHER_ENTITY_NAME.to_string(),
+                    key: InputValue::Nat64(20),
+                },
+            ])
+            .expect("a target and cross-entity source may delete in either request order");
+
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                insert(43, None),
+                DynamicMutation::Insert {
+                    entity: OTHER_ENTITY_NAME.to_string(),
+                    patch: other_patch_with_node(Some(21), 210, Some(43)),
+                },
+            ])
+            .expect("the retained cross-entity relation fixture should commit");
+        let blocked = session
+            .execute_trusted_dynamic_mutation_batch(vec![delete(43)])
+            .expect_err("a retained source in another entity must protect its target");
+        assert_relation_violation(&blocked);
+    }
+
+    #[test]
+    fn mixed_batch_admits_64_entities_with_one_timestamp_and_rejects_the_65th() {
+        let session = initialize();
+        let requests = (0..64)
+            .map(|index| DynamicMutation::Insert {
+                entity: format!("MixedBounded{index}"),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "id".to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(1)),
+                )]),
+            })
+            .collect();
+        let admitted = session
+            .execute_trusted_dynamic_mutation_batch(requests)
+            .expect("exactly 64 same-store entities should admit");
+        assert_eq!(admitted.len(), 64);
+        let timestamps = admitted
+            .iter()
+            .map(|result| {
+                result
+                    .rows
+                    .first()
+                    .and_then(|row| row.get(1))
+                    .expect("every bounded entity should return its managed timestamp")
+            })
+            .collect::<Vec<_>>();
+        assert!(timestamps.windows(2).all(|pair| pair[0] == pair[1]));
+
+        let over_limit = (0..65)
+            .map(|index| DynamicMutation::Insert {
+                entity: format!("MixedBounded{index}"),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "id".to_string(),
+                    DynamicWriteCell::Value(InputValue::Nat64(2)),
+                )]),
+            })
+            .collect();
+        let error = session
+            .execute_trusted_dynamic_mutation_batch(over_limit)
+            .expect_err("the 65th distinct entity must reject before staging");
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (icydb_diagnostic_code::DiagnosticFactTag::ActualCount, 65),
+                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 64),
+            ],
+        );
+    }
+
+    #[test]
+    fn mixed_batch_rejects_a_cross_store_item_with_bounded_tags() {
+        let session = initialize();
+        let error = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                insert(70, None),
+                DynamicMutation::Insert {
+                    entity: CROSS_ENTITY_NAME.to_string(),
+                    patch: DynamicStructuralPatch::new(vec![(
+                        "id".to_string(),
+                        DynamicWriteCell::Value(InputValue::Nat64(70)),
+                    )]),
+                },
+            ])
+            .expect_err("a structural batch must remain inside one accepted store");
+        assert_eq!(error.class(), ErrorClass::Conflict);
+        assert_eq!(
+            error.diagnostic_facts(),
+            vec![
+                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 1),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
+                    ENTITY_TAG.value(),
+                ),
+                (
+                    icydb_diagnostic_code::DiagnosticFactTag::ActualEntityTag,
+                    CROSS_ENTITY_TAG.value(),
+                ),
+            ],
+        );
+        session
+            .execute_trusted_dynamic_mutation(&insert(70, None))
+            .expect("cross-store rejection must publish no first-item effect");
     }
 
     #[test]
@@ -3442,7 +4233,7 @@ mod mixed_relation_batch_tests {
             .execute_trusted_dynamic_mutation_batch(vec![update_code(1, 20), update_code(2, 10)])
             .expect("two final rows should atomically swap unique memberships");
         assert_eq!(
-            swapped.rows,
+            batch_rows(&swapped),
             vec![
                 expected_row_with_code(1, None, 20),
                 expected_row_with_code(2, None, 10),
@@ -3453,7 +4244,7 @@ mod mixed_relation_batch_tests {
             .execute_trusted_dynamic_mutation_batch(vec![delete(1), insert_with_code(3, None, 20)])
             .expect("a delete should release unique membership to a final inserted row");
         assert_eq!(
-            released.rows,
+            batch_rows(&released),
             vec![
                 expected_row_with_code(1, None, 20),
                 expected_row_with_code(3, None, 20),
@@ -3519,11 +4310,12 @@ mod identity_pre_key_tests {
                 StoreRuntimeStorageCapabilities,
             },
             schema::{
-                AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldInsertGeneration,
-                FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+                AcceptedConstraintCatalog, AcceptedFieldKind, AcceptedSchemaRevision, FieldId,
+                FieldInsertGeneration, FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
                 PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-                PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
-                SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
+                PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, ScalarCodec,
+                SchemaFieldSlot, SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault,
+                SchemaRowLayout, SchemaStore, SchemaVersion,
                 accepted_schema_candidate_with_field_bindings_for_tests,
                 cardinality_build::{
                     CardinalityBuildAuthority, CardinalityGenerationPageOutcome,
@@ -3552,8 +4344,29 @@ mod identity_pre_key_tests {
     const PAYLOAD_SOURCE: &str = "session::write::identity_pre_key_tests::Entity::payload";
     const ENTITY_NAME: &str = "IdentityRow";
     const ENTITY_TAG: EntityTag = EntityTag::new(93);
+    const SECOND_ENTITY_SOURCE: &str = "session::write::identity_pre_key_tests::SecondEntity";
+    const SECOND_ID_SOURCE: &str = "session::write::identity_pre_key_tests::SecondEntity::id";
+    const SECOND_PAYLOAD_SOURCE: &str =
+        "session::write::identity_pre_key_tests::SecondEntity::payload";
+    const SECOND_TARGET_SOURCE: &str =
+        "session::write::identity_pre_key_tests::SecondEntity::target_id";
+    const SECOND_ENTITY_NAME: &str = "SecondIdentityRow";
+    const SECOND_ENTITY_TAG: EntityTag = EntityTag::new(96);
+    const THIRD_ENTITY_SOURCE: &str = "session::write::identity_pre_key_tests::ThirdEntity";
+    const THIRD_ID_SOURCE: &str = "session::write::identity_pre_key_tests::ThirdEntity::id";
+    const THIRD_PAYLOAD_SOURCE: &str =
+        "session::write::identity_pre_key_tests::ThirdEntity::payload";
+    const THIRD_ENTITY_NAME: &str = "ThirdIdentityRow";
+    const THIRD_ENTITY_TAG: EntityTag = EntityTag::new(97);
     const JOURNALED_STORE_PATH: &str = "session::write::identity_pre_key_tests::JournaledStore";
     const UNRELATED_STORE_PATH: &str = "session::write::identity_pre_key_tests::UnrelatedStore";
+
+    fn batch_rows(results: &[crate::db::DynamicMutationResult]) -> Vec<Vec<OutputValue>> {
+        results
+            .iter()
+            .flat_map(|result| result.rows.iter().cloned())
+            .collect()
+    }
 
     struct TestCanister;
 
@@ -3656,7 +4469,14 @@ mod identity_pre_key_tests {
     }
 
     fn identity_snapshot(store_path: &str, payload_unique: bool) -> PersistedSchemaSnapshot {
-        identity_snapshot_with_payload_index(store_path, payload_unique, false)
+        identity_snapshot_for_entity(
+            store_path,
+            payload_unique,
+            false,
+            ENTITY_SOURCE,
+            ENTITY_NAME,
+            None,
+        )
     }
 
     fn identity_snapshot_with_payload_index(
@@ -3664,7 +4484,25 @@ mod identity_pre_key_tests {
         payload_unique: bool,
         composite: bool,
     ) -> PersistedSchemaSnapshot {
-        let fields = vec![
+        identity_snapshot_for_entity(
+            store_path,
+            payload_unique,
+            composite,
+            ENTITY_SOURCE,
+            ENTITY_NAME,
+            None,
+        )
+    }
+
+    fn identity_snapshot_for_entity(
+        store_path: &str,
+        payload_unique: bool,
+        composite: bool,
+        entity_source: &str,
+        entity_name: &str,
+        relation_target: Option<&str>,
+    ) -> PersistedSchemaSnapshot {
+        let mut fields = vec![
             PersistedFieldSnapshot::new_initial_with_write_policy(
                 FieldId::new(1),
                 "id".to_string(),
@@ -3692,6 +4530,19 @@ mod identity_pre_key_tests {
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
         ];
+        if relation_target.is_some() {
+            fields.push(PersistedFieldSnapshot::new_initial(
+                FieldId::new(3),
+                "target_id".to_string(),
+                SchemaFieldSlot::new(2),
+                AcceptedFieldKind::Nat64,
+                Vec::new(),
+                true,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ));
+        }
         let mut index_fields = vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(2),
             SchemaFieldSlot::new(1),
@@ -3708,10 +4559,10 @@ mod identity_pre_key_tests {
                 false,
             ));
         }
-        PersistedSchemaSnapshot::new_with_indexes(
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
             SchemaVersion::initial(),
-            ENTITY_SOURCE.to_string(),
-            ENTITY_NAME.to_string(),
+            entity_source.to_string(),
+            entity_name.to_string(),
             FieldId::new(1),
             SchemaRowLayout::initial(
                 fields
@@ -3733,7 +4584,23 @@ mod identity_pre_key_tests {
                 PersistedIndexKeySnapshot::FieldPath(index_fields),
                 None,
             )],
+        );
+        let Some(relation_target) = relation_target else {
+            return snapshot;
+        };
+        let snapshot = snapshot.with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            RelationId::new(1).expect("mixed recovery relation identity should be non-zero"),
+            "target".to_string(),
+            relation_target.to_string(),
+            vec![FieldId::new(3)],
+        )]);
+        let constraints = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
         )
+        .expect("mixed recovery relation constraints should close");
+        snapshot.with_constraint_catalog(constraints)
     }
 
     fn initialize() -> DbSession<TestCanister> {
@@ -3827,6 +4694,80 @@ mod identity_pre_key_tests {
         crate::db::RequestExecutionRoot,
     ) {
         initialize_journaled_with_root_and_payload_uniqueness(false)
+    }
+
+    fn initialize_journaled_multi_entity() -> DbSession<JournaledTestCanister> {
+        let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        let session = DbSession::<JournaledTestCanister>::new(&JOURNALED_STORE_REGISTRY, &root);
+        session
+            .db
+            .drive_startup_recovery_page()
+            .expect("multi-entity journaled database should initialize");
+        let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+            JOURNALED_STORE_PATH,
+            AcceptedSchemaRevision::INITIAL,
+            BTreeMap::from([
+                (ENTITY_TAG, identity_snapshot(JOURNALED_STORE_PATH, false)),
+                (
+                    SECOND_ENTITY_TAG,
+                    identity_snapshot_for_entity(
+                        JOURNALED_STORE_PATH,
+                        false,
+                        false,
+                        SECOND_ENTITY_SOURCE,
+                        SECOND_ENTITY_NAME,
+                        Some(ENTITY_SOURCE),
+                    ),
+                ),
+                (
+                    THIRD_ENTITY_TAG,
+                    identity_snapshot_for_entity(
+                        JOURNALED_STORE_PATH,
+                        false,
+                        false,
+                        THIRD_ENTITY_SOURCE,
+                        THIRD_ENTITY_NAME,
+                        None,
+                    ),
+                ),
+            ]),
+            BTreeMap::from([
+                ((ENTITY_TAG, source_key(ID_SOURCE)), FieldId::new(1)),
+                ((ENTITY_TAG, source_key(PAYLOAD_SOURCE)), FieldId::new(2)),
+                (
+                    (SECOND_ENTITY_TAG, source_key(SECOND_ID_SOURCE)),
+                    FieldId::new(1),
+                ),
+                (
+                    (SECOND_ENTITY_TAG, source_key(SECOND_PAYLOAD_SOURCE)),
+                    FieldId::new(2),
+                ),
+                (
+                    (SECOND_ENTITY_TAG, source_key(SECOND_TARGET_SOURCE)),
+                    FieldId::new(3),
+                ),
+                (
+                    (THIRD_ENTITY_TAG, source_key(THIRD_ID_SOURCE)),
+                    FieldId::new(1),
+                ),
+                (
+                    (THIRD_ENTITY_TAG, source_key(THIRD_PAYLOAD_SOURCE)),
+                    FieldId::new(2),
+                ),
+            ]),
+        );
+        let store = session
+            .db
+            .store_handle(JOURNALED_STORE_PATH)
+            .expect("multi-entity journaled store should resolve");
+        crate::db::commit::publish_accepted_schema_candidate(
+            JOURNALED_STORE_PATH,
+            store,
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .expect("multi-entity journaled candidate should publish");
+        session
     }
 
     fn initialize_journaled() -> DbSession<JournaledTestCanister> {
@@ -3977,6 +4918,19 @@ mod identity_pre_key_tests {
             "payload".to_string(),
             DynamicWriteCell::Value(InputValue::Nat64(value)),
         )])
+    }
+
+    fn related_dynamic_payload_patch(value: u64, target_id: u64) -> DynamicStructuralPatch {
+        DynamicStructuralPatch::new(vec![
+            (
+                "payload".to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(value)),
+            ),
+            (
+                "target_id".to_string(),
+                DynamicWriteCell::Value(InputValue::Nat64(target_id)),
+            ),
+        ])
     }
 
     fn expected_dynamic_row(id: u64, payload: u64) -> Vec<OutputValue> {
@@ -5247,9 +6201,12 @@ mod identity_pre_key_tests {
                 },
             ])
             .expect("one holding should split atomically");
-        assert_eq!(split.affected_rows, 2);
         assert_eq!(
-            split.rows,
+            split.iter().map(|result| result.affected_rows).sum::<u32>(),
+            2,
+        );
+        assert_eq!(
+            batch_rows(&split),
             vec![expected_dynamic_row(1, 60), expected_dynamic_row(2, 40),],
             "split after-images must retain input order and exact quantity",
         );
@@ -5302,7 +6259,7 @@ mod identity_pre_key_tests {
             ])
             .expect("distinct transfer patches should share one atomic batch");
         assert_eq!(
-            transfer.rows,
+            batch_rows(&transfer),
             vec![expected_dynamic_row(1, 70), expected_dynamic_row(2, 30),],
             "the transfer must preserve the exact total quantity",
         );
@@ -5321,7 +6278,7 @@ mod identity_pre_key_tests {
             ])
             .expect("two holdings should merge atomically");
         assert_eq!(
-            merge.rows,
+            batch_rows(&merge),
             vec![expected_dynamic_row(2, 30), expected_dynamic_row(1, 100),],
             "delete before-images and update after-images must retain input order",
         );
@@ -5340,7 +6297,7 @@ mod identity_pre_key_tests {
             ])
             .expect("the merged holding should split again");
         assert_eq!(
-            resplit.rows,
+            batch_rows(&resplit),
             vec![expected_dynamic_row(1, 60), expected_dynamic_row(3, 40),],
         );
 
@@ -6013,6 +6970,155 @@ mod identity_pre_key_tests {
                 .expect("uninterrupted transition must retain its entity revision"),
             initial_entity_revision + 5,
         );
+    }
+
+    fn assert_mixed_entity_recovered_state(session: &DbSession<JournaledTestCanister>) {
+        for (entity_name, payload) in [
+            (ENTITY_NAME, 100_u64),
+            (SECOND_ENTITY_NAME, 1_100),
+            (THIRD_ENTITY_NAME, 2_100),
+        ] {
+            let result = session
+                .execute_trusted_live_page(
+                    &DynamicQuery::new(entity_name)
+                        .filter(crate::db::FieldRef::new("payload").eq(payload))
+                        .select(["id", "payload"])
+                        .order_by(crate::db::asc("id"))
+                        .limit(64),
+                    None,
+                )
+                .expect("every recovered mixed entity should remain queryable");
+            assert_eq!(result.rows.len(), 1);
+        }
+        let retained_relation = session
+            .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Delete {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::Nat64(1),
+            }])
+            .expect_err("the recovered reverse relation must protect its target");
+        assert!(retained_relation.diagnostic_facts().contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+            icydb_diagnostic_code::DiagnosticConstraintKind::Relation.raw(),
+        )));
+        JOURNALED_SCHEMA_STORE.with(|store| {
+            let store = store.borrow();
+            for entity_tag in [ENTITY_TAG, SECOND_ENTITY_TAG, THIRD_ENTITY_TAG] {
+                let cursor = store
+                    .identity_statement_cursor(
+                        database_incarnation_id()
+                            .expect("database incarnation should remain readable"),
+                        entity_tag,
+                        FieldId::new(1),
+                        &AcceptedFieldKind::Nat64,
+                    )
+                    .expect("every mixed Identity owner should remain readable");
+                assert_eq!(cursor.expected_high_water(), 1);
+                assert!(!cursor.has_allocations());
+            }
+        });
+        JOURNALED_TAIL_STORE.with(|tail| {
+            let tail = tail.borrow();
+            assert_eq!(
+                tail.entity_mutation_revision(ENTITY_TAG)
+                    .expect("first entity revision should remain readable"),
+                2,
+            );
+            assert_eq!(
+                tail.entity_mutation_revision(SECOND_ENTITY_TAG)
+                    .expect("second entity revision should remain readable"),
+                2,
+            );
+            assert_eq!(
+                tail.entity_mutation_revision(THIRD_ENTITY_TAG)
+                    .expect("third entity revision should remain readable"),
+                2,
+            );
+        });
+    }
+
+    fn assert_mixed_entity_recovery(interruption: MutationCommitInterruption) {
+        let session = initialize_journaled_multi_entity();
+        interrupt_next_mutation_commit_for_tests(interruption);
+        let interrupted = session.execute_trusted_dynamic_mutation_batch(vec![
+            DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(100),
+            },
+            DynamicMutation::Insert {
+                entity: SECOND_ENTITY_NAME.to_string(),
+                patch: related_dynamic_payload_patch(1_100, 1),
+            },
+            DynamicMutation::Insert {
+                entity: THIRD_ENTITY_NAME.to_string(),
+                patch: dynamic_payload_patch(2_100),
+            },
+        ]);
+        let interruption_error =
+            interrupted.expect_err("the selected marker boundary should interrupt");
+        assert_eq!(interruption_error.class(), ErrorClass::InvariantViolation);
+        if interruption == MutationCommitInterruption::MarkerPersisted {
+            let (marker_bytes, journal_batch_bytes) =
+                crate::db::commit::retained_commit_marker_measurement_for_tests()
+                    .expect("the retained marker measurement should remain readable")
+                    .expect("marker persistence should retain one marker");
+            assert_eq!(marker_bytes, 770);
+            assert_eq!(journal_batch_bytes, vec![740]);
+        }
+        if interruption != MutationCommitInterruption::MarkerPersisted {
+            let retained_batch = JOURNALED_TAIL_STORE.with(|tail| {
+                let tail = tail.borrow();
+                let watermark = tail
+                    .fold_watermark()
+                    .expect("the interrupted fold watermark should decode")
+                    .highest_folded_journal_sequence();
+                tail.next_batch_after(watermark)
+                    .expect("the interrupted journal tail should decode")
+                    .expect("the interrupted marker should publish one journal batch")
+            });
+            let row_paths = retained_batch
+                .records()
+                .iter()
+                .filter_map(|record| match record {
+                    JournalRecord::RowPut { entity_path, .. }
+                    | JournalRecord::RowDelete { entity_path, .. } => Some(entity_path.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                row_paths,
+                vec![ENTITY_SOURCE, SECOND_ENTITY_SOURCE, THIRD_ENTITY_SOURCE],
+            );
+        }
+
+        forget_recovered_domain_for_tests(&session.db)
+            .expect("the retained mixed marker should reset volatile recovery ownership");
+        drive_journaled_recovery_to_completion(&session);
+        assert_mixed_entity_recovered_state(&session);
+    }
+
+    #[test]
+    fn mixed_entity_recovery_after_marker_persistence() {
+        assert_mixed_entity_recovery(MutationCommitInterruption::MarkerPersisted);
+    }
+
+    #[test]
+    fn mixed_entity_recovery_after_journal_publication() {
+        assert_mixed_entity_recovery(MutationCommitInterruption::JournalPublished);
+    }
+
+    #[test]
+    fn mixed_entity_recovery_after_row_prefix_publication() {
+        assert_mixed_entity_recovery(MutationCommitInterruption::RowPrefixPublished);
+    }
+
+    #[test]
+    fn mixed_entity_recovery_after_all_rows_publish() {
+        assert_mixed_entity_recovery(MutationCommitInterruption::RowsPublished);
+    }
+
+    #[test]
+    fn mixed_entity_recovery_after_state_materialization() {
+        assert_mixed_entity_recovery(MutationCommitInterruption::StateMaterialized);
     }
 
     #[test]
@@ -6724,7 +7830,7 @@ mod identity_pre_key_tests {
             ])
             .expect("one journal batch should admit a final-row unique swap");
         assert_eq!(
-            swapped.rows,
+            batch_rows(&swapped),
             vec![expected_dynamic_row(1, 20), expected_dynamic_row(2, 10)],
         );
         assert!(
@@ -6747,7 +7853,7 @@ mod identity_pre_key_tests {
             ])
             .expect("a journaled delete should release its unique value to the final insert");
         assert_eq!(
-            released.rows,
+            batch_rows(&released),
             vec![expected_dynamic_row(1, 20), expected_dynamic_row(3, 20)],
         );
         assert!(
@@ -7488,7 +8594,11 @@ mod targeted_rule_mutation_tests {
                 },
             ])
             .expect("compliant targeted values should share one accepted batch");
-        let [first, second] = admitted.rows.as_slice() else {
+        let admitted_rows = admitted
+            .iter()
+            .flat_map(|result| result.rows.iter())
+            .collect::<Vec<_>>();
+        let [first, second] = admitted_rows.as_slice() else {
             panic!("the mixed targeted batch should return two rows");
         };
         let first_timestamp = first

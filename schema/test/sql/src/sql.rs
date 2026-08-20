@@ -180,6 +180,145 @@ pub struct SqlTestIdentityNat128 {}
 )]
 pub struct SqlTestIdentityBatch {}
 
+// Minimal same-store entities used only to measure the exact 64-context
+// structural batch boundary in the maintained PocketIC closeout probe.
+macro_rules! define_context_boundary_entities {
+    ($($entity:ident),+ $(,)?) => {
+        $(
+            #[entity(
+                store = "SqlTestStore",
+                version = 1,
+                pk(field = "id"),
+                fields(
+                    field(name = "id", value(item(prim = "Nat64"))),
+                    field(name = "payload", value(item(prim = "Nat64")))
+                )
+            )]
+            pub struct $entity {}
+        )+
+    };
+}
+
+define_context_boundary_entities!(
+    SqlTestContext00,
+    SqlTestContext01,
+    SqlTestContext02,
+    SqlTestContext03,
+    SqlTestContext04,
+    SqlTestContext05,
+    SqlTestContext06,
+    SqlTestContext07,
+    SqlTestContext08,
+    SqlTestContext09,
+    SqlTestContext10,
+    SqlTestContext11,
+    SqlTestContext12,
+    SqlTestContext13,
+    SqlTestContext14,
+    SqlTestContext15,
+    SqlTestContext16,
+    SqlTestContext17,
+    SqlTestContext18,
+    SqlTestContext19,
+    SqlTestContext20,
+    SqlTestContext21,
+    SqlTestContext22,
+    SqlTestContext23,
+    SqlTestContext24,
+    SqlTestContext25,
+    SqlTestContext26,
+    SqlTestContext27,
+    SqlTestContext28,
+    SqlTestContext29,
+    SqlTestContext30,
+    SqlTestContext31,
+    SqlTestContext32,
+    SqlTestContext33,
+    SqlTestContext34,
+    SqlTestContext35,
+    SqlTestContext36,
+    SqlTestContext37,
+    SqlTestContext38,
+    SqlTestContext39,
+    SqlTestContext40,
+    SqlTestContext41,
+    SqlTestContext42,
+    SqlTestContext43,
+    SqlTestContext44,
+    SqlTestContext45,
+    SqlTestContext46,
+    SqlTestContext47,
+    SqlTestContext48,
+    SqlTestContext49,
+    SqlTestContext50,
+    SqlTestContext51,
+    SqlTestContext52,
+    SqlTestContext53,
+    SqlTestContext54,
+    SqlTestContext55,
+    SqlTestContext56,
+    SqlTestContext57,
+    SqlTestContext58,
+    SqlTestContext59,
+    SqlTestContext60,
+    SqlTestContext61,
+    SqlTestContext62,
+    SqlTestContext63,
+);
+
+/// Application-keyed user in the maintained Toko-shaped enrollment proof.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(name = "id", value(item(prim = "Ulid"))),
+        field(name = "display_name", value(item(prim = "Text", max_len = 64)))
+    ),
+    timestamps
+)]
+pub struct SqlTestEnrollmentUser {}
+
+/// Principal membership retaining both lookup and compound uniqueness.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "authentication_principal"),
+    index(field = "user_id"),
+    index(fields = ["user_id", "authentication_principal"], unique),
+    fields(
+        field(name = "authentication_principal", value(item(prim = "Principal"))),
+        field(
+            name = "user_id",
+            value(item(rel = "SqlTestEnrollmentUser", prim = "Ulid"))
+        )
+    ),
+    timestamps
+)]
+pub struct SqlTestEnrollmentUserPrincipal {}
+
+/// Generated-key robot related to the application-keyed enrollment user.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    index(field = "user_id"),
+    fields(
+        field(
+            name = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
+        field(
+            name = "user_id",
+            value(item(rel = "SqlTestEnrollmentUser", prim = "Ulid"))
+        ),
+        field(name = "label", value(item(prim = "Text", max_len = 64)))
+    ),
+    timestamps
+)]
+pub struct SqlTestEnrollmentRobot {}
+
 /// Reference-shaped accepted schema for typed rejected-field diagnostics.
 #[entity(
     store = "SqlTestStore",

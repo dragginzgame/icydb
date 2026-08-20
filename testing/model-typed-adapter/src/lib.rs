@@ -27,12 +27,16 @@ mod tests {
     };
     use model_api::visitor::{ApplicationOperation, CallbackKind, Visitable};
     use model_api::{Inner as _, NormalizeAndValidate as _, normalize, validate};
-    use runtime_api::db::{TypedRowAdapter, TypedWriteAdapter, WriteCell};
+    use runtime_api::{
+        db::{TypedRowAdapter, TypedWriteAdapter, WriteCell},
+        types::{Id, Ulid},
+    };
 
     use super::schema::{
         AdapterChoice, AdapterList, AdapterMap, AdapterRecord, AdapterSet, AdapterTuple,
         RecursiveRecord, TypedAdapterEntity, TypedAdapterEntityInsert, TypedAdapterEntityPatch,
-        TypedAdapterEntityReplace, X, XEntity,
+        TypedAdapterEntityReplace, TypedIdentityCounter, TypedIdentityOwnerInsert,
+        TypedIdentityUser, TypedIdentityUserInsert, TypedIdentityUserPatch, X, XEntity,
     };
 
     fn assert_row_adapter<T: TypedRowAdapter>() {}
@@ -71,6 +75,9 @@ mod tests {
         assert_write_adapter::<TypedAdapterEntityInsert>();
         assert_write_adapter::<TypedAdapterEntityPatch>();
         assert_write_adapter::<TypedAdapterEntityReplace>();
+        assert_write_adapter::<TypedIdentityUserInsert>();
+        assert_write_adapter::<TypedIdentityUserPatch>();
+        assert_write_adapter::<TypedIdentityOwnerInsert>();
         assert_named_adapter::<X>();
         assert_named_adapter::<XEntity>();
         assert_named_adapter::<AdapterChoice>();
@@ -122,6 +129,45 @@ mod tests {
         assert_named_adapter::<MimeType>();
         assert_named_adapter::<Url>();
         assert_model_behavior::<runtime_api::types::Ulid>();
+    }
+
+    #[test]
+    fn generated_write_inputs_preserve_scalar_entity_identity() {
+        let user_id = Id::<TypedIdentityUser>::from_key(Ulid::nil());
+        let counter_id = Id::<TypedIdentityCounter>::from_key(7);
+        let user = TypedIdentityUserInsert {
+            id: WriteCell::Value(user_id),
+            label: WriteCell::Value("Ada".to_string()),
+        };
+        let patch = TypedIdentityUserPatch {
+            id: user_id,
+            label: WriteCell::Omitted,
+        };
+        assert!(matches!(user.id, WriteCell::Value(value) if value == user_id));
+        assert_eq!(patch.id, user_id);
+        let owner = TypedIdentityOwnerInsert {
+            user_id: WriteCell::Value(user_id),
+            optional_user_id: WriteCell::Null,
+            user_ids: WriteCell::Value(vec![user_id]),
+            counter_id: WriteCell::Value(counter_id),
+            correlation_ulid: WriteCell::Value(Ulid::nil()),
+            tenant_id: WriteCell::Value(9),
+            local_id: WriteCell::Value(4),
+        };
+        assert!(matches!(owner.user_id, WriteCell::Value(value) if value == user_id));
+        assert!(matches!(owner.counter_id, WriteCell::Value(value) if value == counter_id));
+        assert!(matches!(owner.correlation_ulid, WriteCell::Value(value) if value == Ulid::nil()));
+    }
+
+    #[test]
+    fn typed_id_keeps_the_raw_key_candid_shape() {
+        let raw = Ulid::from_bytes([0x35; 16]);
+        let typed = Id::<TypedIdentityUser>::from_key(raw);
+        let typed_bytes = model_api::__reexports::candid::encode_one(typed)
+            .expect("typed identity should Candid-encode");
+        let raw_bytes =
+            model_api::__reexports::candid::encode_one(raw).expect("raw key should Candid-encode");
+        assert_eq!(typed_bytes, raw_bytes);
     }
 
     #[test]

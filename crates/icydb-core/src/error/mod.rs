@@ -892,17 +892,17 @@ impl InternalError {
         )
     }
 
-    /// Construct an executor-origin mixed-entity batch rejection.
+    /// Construct an executor-origin cross-store batch rejection.
     #[cold]
     #[inline(never)]
-    pub(crate) fn mutation_batch_entity_mismatch(
+    pub(crate) fn mutation_batch_store_mismatch(
         batch_position: u32,
         expected_entity_tag: u64,
         actual_entity_tag: u64,
     ) -> Self {
         Self::mutation_boundary_with_facts(
             ErrorClass::Conflict,
-            diagnostic_code::RuntimeBoundaryCode::MutationBatchEntityMismatch,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchStoreMismatch,
             vec![
                 (
                     diagnostic_code::DiagnosticFactTag::BatchPosition,
@@ -916,6 +916,23 @@ impl InternalError {
                     diagnostic_code::DiagnosticFactTag::ActualEntityTag,
                     actual_entity_tag,
                 ),
+            ],
+        )
+    }
+
+    /// Construct an executor-origin distinct-entity-bound rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mutation_batch_too_many_entities(actual_count: usize, limit: usize) -> Self {
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Unsupported,
+            diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyEntities,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualCount,
+                    actual_count as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
             ],
         )
     }
@@ -2389,8 +2406,10 @@ pub enum ExecutorErrorDetail {
     MutationBatchStagedBytesExceeded,
     /// A mixed structural mutation result exceeded its encoded response bound.
     MutationBatchResultBytesExceeded,
-    /// A mixed structural mutation batch resolved to more than one accepted entity.
-    MutationBatchEntityMismatch,
+    /// A mixed structural mutation batch crossed an accepted store boundary.
+    MutationBatchStoreMismatch,
+    /// A mixed structural mutation batch exceeded its distinct-entity bound.
+    MutationBatchTooManyEntities,
     /// More than one mixed structural operation targeted the same accepted key.
     MutationBatchDuplicateKey,
     /// Accepted row-constraint metadata or compiled state was inconsistent.
@@ -2723,11 +2742,12 @@ impl ExecutorErrorDetail {
             | Self::MutationDatabaseOwnedFieldExplicit
             | Self::MutationBatchEmpty
             | Self::MutationBatchTooManyItems
+            | Self::MutationBatchTooManyEntities
             | Self::MutationBatchStagedBytesExceeded
             | Self::MutationBatchResultBytesExceeded => {
                 diagnostic_code::DiagnosticCode::RuntimeUnsupported
             }
-            Self::MutationBatchEntityMismatch | Self::MutationBatchDuplicateKey => {
+            Self::MutationBatchStoreMismatch | Self::MutationBatchDuplicateKey => {
                 diagnostic_code::DiagnosticCode::RuntimeConflict
             }
             Self::MutationManagedTimestampRegression => {
@@ -2774,9 +2794,14 @@ impl ExecutorErrorDetail {
                         diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
                 })
             }
-            Self::MutationBatchEntityMismatch => {
+            Self::MutationBatchStoreMismatch => {
                 Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchEntityMismatch,
+                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchStoreMismatch,
+                })
+            }
+            Self::MutationBatchTooManyEntities => {
+                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyEntities,
                 })
             }
             Self::MutationBatchDuplicateKey => {

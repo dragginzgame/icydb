@@ -51,6 +51,14 @@ Implicit semantic inference is forbidden:
 
 This preserves auditable identity flow without treating identity as a security primitive.
 
+Generated write inputs preserve that boundary. An authored scalar primary key
+for entity `E` uses `Id<E>`, and a direct scalar relation targeting `E` uses
+`Id<E>` (or the corresponding optional/many container). The generated adapter
+alone lowers the typed identity to its declared primitive key before accepted
+write admission. This changes neither row storage nor output/Candid key shape.
+Composite relation components remain declared primitive component types, and a
+schema-generated primary key remains absent from generated insert input.
+
 ## 4. Declared Type Authority
 
 For all entities:
@@ -180,6 +188,14 @@ expression, or authorization mechanism.
 - SQL DML consumes accepted Identity policy, including `RETURNING`; SQL DDL
   authoring, reseeding, custom starts or steps, cycling, and BY DEFAULT remain
   unsupported.
+- A same-store structural batch keeps one tentative cursor per participating
+  Identity owner. All exact contiguous ranges are marker-bound together;
+  rejection consumes none, and recovery applies every owner range with the
+  corresponding multi-entity rows.
+- A generated mixed typed batch resolves every input's exact current entity
+  binding from one captured accepted root and delegates once to that same
+  structural batch. Typed item handles are result-position guards, not durable
+  identities or authorization tokens.
 
 Schema description exposes the fixed generator, exact accepted kind, domain,
 committed lifetime high-water, remaining capacity, and exhaustion state.

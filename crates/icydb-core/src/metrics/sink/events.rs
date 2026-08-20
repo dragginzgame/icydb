@@ -316,7 +316,7 @@ pub enum MetricsEvent {
         result_rows_emitted: u64,
     },
     MutationCommitPlan {
-        entity_path: Rc<str>,
+        entity_count: u64,
         class: MutationCommitClass,
     },
     MutationJobCapacity {
