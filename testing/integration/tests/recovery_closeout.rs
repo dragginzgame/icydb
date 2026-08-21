@@ -2,7 +2,10 @@ use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
-    db::{DatabaseStartupState, SqlQueryExecutionAttribution, sql::SqlQueryResult},
+    db::{
+        DatabaseStartupState, LiveQueryPageOutput, SqlQueryExecutionAttribution,
+        sql::SqlQueryResult,
+    },
     diagnostic::DiagnosticFactTag,
 };
 use icydb_testing_integration::{
@@ -39,6 +42,13 @@ struct ScaleFixtureFacts {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct JointFanoutFixtureFacts {
+    rows: u32,
+    secondary_indexes_per_row: u32,
+    load_local_instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
     instructions: u64,
@@ -48,6 +58,12 @@ struct SqlTotalOnlyPerfResult {
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
     attribution: SqlQueryExecutionAttribution,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct LiveQueryPagePerfOutput {
+    page: LiveQueryPageOutput,
+    instructions: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -352,6 +368,53 @@ fn assert_metadata_backed_count(sample: SqlQueryPerfResult, expected: u32) {
     );
 }
 
+fn assert_projection_row_count(result: &SqlQueryResult, expected: usize) {
+    let SqlQueryResult::Projection(rows) = result else {
+        panic!("cardinality tie-break fixture should return projected rows");
+    };
+    assert_eq!(rows.rendered_rows().len(), expected);
+}
+
+fn explain_text(result: SqlQueryResult) -> String {
+    let SqlQueryResult::Explain { explain, .. } = result else {
+        panic!("cardinality tie-break fixture should return explain text");
+    };
+    explain
+}
+
+fn assert_within_cardinality_hot_path_gate(candidate: u64, baseline: u64, label: &str) {
+    let allowance = (baseline / 20).max(2_000_000);
+    assert!(
+        candidate <= baseline.saturating_add(allowance),
+        "{label} must stay within max(5%, 2M instructions): baseline={baseline}, candidate={candidate}",
+    );
+}
+
+fn maximum_cardinality_probe_sql() -> String {
+    const VALUE_BYTES: usize = 4_000;
+
+    let value = |ordinal: u8| {
+        let prefix = format!("p{ordinal:02}");
+        format!(
+            "{prefix}{}",
+            "x".repeat(VALUE_BYTES.saturating_sub(prefix.len()))
+        )
+    };
+
+    let values = (0_u8..16)
+        .map(|ordinal| format!("'{}'", value(ordinal)))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "SELECT id FROM PerfAuditMaxCardinalityProbes WHERE a IN ({values}) \
+         AND b = '{}' AND c = '{}' \
+         ORDER BY id ASC LIMIT 1",
+        value(16),
+        value(17),
+    )
+}
+
 fn mutate_cardinality_index(
     fixture: &StandaloneCanisterFixture,
     present: bool,
@@ -521,6 +584,272 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
         stable_after_first_ready,
         stable_after_drop,
         stable_after_recreate,
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one causal IC proof keeps unavailable fallback, upgrade, Ready publication, pinned continuation, and exact selection comparable"
+)]
+fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
+    const SELECTIVE_SQL: &str = "SELECT id FROM PerfAuditCardinalityTie \
+        WHERE common = 0 AND rare = 20 ORDER BY id ASC LIMIT 200";
+    const SELECTIVE_EXPLAIN_SQL: &str = "EXPLAIN EXECUTION VERBOSE \
+        SELECT id FROM PerfAuditCardinalityTie WHERE common = 0 \
+        AND rare = 20 ORDER BY id ASC LIMIT 200";
+
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<u32, Error> = fixture
+        .update_candid("load_cardinality_tiebreak_fixture", ())
+        .expect("selective cardinality fixture should decode");
+    assert_eq!(
+        loaded.expect("selective cardinality fixture should load"),
+        10_001,
+    );
+    report_convergence_observation(
+        "cardinality-tiebreak-base-ready",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+
+    let created = mutate_cardinality_index(&fixture, true, 1, 2);
+    assert_eq!(created.rows_scanned, 0);
+    for _ in 0..4 {
+        deliver_startup_watchdog_message(&fixture);
+        if startup_observation(&fixture).state == DatabaseStartupState::Ready {
+            break;
+        }
+    }
+    assert_eq!(
+        startup_observation(&fixture).state,
+        DatabaseStartupState::Ready,
+    );
+    assert!(startup_watchdog_armed(&fixture));
+
+    let stable_before_upgrade = stable_memory_fingerprint(&fixture);
+    upgrade_with_wasm(&fixture, current_sql_perf_wasm());
+    let stable_after_upgrade = stable_memory_fingerprint(&fixture);
+    assert_eq!(
+        stable_after_upgrade.1, stable_before_upgrade.1,
+        "the 0.236 heap-only plan state must add no stable upgrade allocation",
+    );
+    advance_startup_watchdog_until_ready(&fixture);
+    assert!(startup_watchdog_armed(&fixture));
+
+    let fallback: Result<SqlQueryPerfResult, Error> = fixture
+        .update_candid("warm_user_query_with_perf", (SELECTIVE_SQL.to_string(),))
+        .expect("Building fallback sample should decode");
+    let fallback = fallback.expect("Building evidence should preserve query admission");
+    assert_projection_row_count(&fallback.result, 2);
+    let unchanged_fallback: Result<SqlQueryPerfResult, Error> = fixture
+        .update_candid("warm_user_query_with_perf", (SELECTIVE_SQL.to_string(),))
+        .expect("unchanged Building fallback sample should decode");
+    let unchanged_fallback =
+        unchanged_fallback.expect("unchanged Building fallback should remain admitted");
+    assert_eq!(unchanged_fallback.result, fallback.result);
+    assert_eq!(
+        unchanged_fallback.attribution.index_store_entry_reads,
+        fallback.attribution.index_store_entry_reads,
+    );
+    assert_within_cardinality_hot_path_gate(
+        unchanged_fallback.attribution.total_local_instructions,
+        fallback.attribution.total_local_instructions,
+        "unchanged unavailable fallback",
+    );
+    let fallback_explain = explain_text(query_total_only(
+        &fixture,
+        "query_user_total_only_perf",
+        SELECTIVE_EXPLAIN_SQL,
+    ));
+    assert!(
+        fallback_explain.contains("cardinality_evidence: unavailable"),
+        "{fallback_explain}",
+    );
+    assert!(
+        fallback_explain.contains("idx_perf_audit_cardinality_tie__common"),
+        "{fallback_explain}",
+    );
+    assert!(fallback.attribution.index_store_entry_reads >= 10_000);
+
+    let first: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .query_candid(
+            "query_cardinality_tiebreak_live_page_with_perf",
+            (None::<String>,),
+        )
+        .expect("fallback cursor page should decode");
+    let first = first.expect("fallback cursor page should execute");
+    let first_instructions = first.instructions;
+    let mut continuation = first.page.continuation;
+    let mut cursor_rows = first.page.row_count;
+    assert!(
+        continuation.is_some(),
+        "the common-prefix route should require a bounded continuation",
+    );
+
+    let before_ready: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .query_candid(
+            "query_cardinality_tiebreak_live_page_with_perf",
+            (Some(
+                continuation
+                    .clone()
+                    .expect("the pre-Ready pinned page must have a cursor"),
+            ),),
+        )
+        .expect("pre-Ready pinned cursor page should decode");
+    let before_ready = before_ready.expect("pre-Ready pinned cursor page should execute");
+    assert!(before_ready.page.continuation.is_none());
+
+    report_convergence_observation(
+        "cardinality-tiebreak-ready-publication",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+
+    let after_ready: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .query_candid(
+            "query_cardinality_tiebreak_live_page_with_perf",
+            (Some(
+                continuation
+                    .take()
+                    .expect("the post-Ready pinned page must have a cursor"),
+            ),),
+        )
+        .expect("post-Ready pinned cursor page should decode");
+    let after_ready = after_ready.expect("post-Ready pinned cursor page should execute");
+    assert_eq!(after_ready.page, before_ready.page);
+    assert_within_cardinality_hot_path_gate(
+        after_ready.instructions,
+        before_ready.instructions,
+        "pinned continuation across Ready publication",
+    );
+    cursor_rows = cursor_rows.saturating_add(after_ready.page.row_count);
+    assert_eq!(cursor_rows, 2);
+    assert!(after_ready.page.continuation.is_none());
+
+    let exact: Result<SqlQueryPerfResult, Error> = fixture
+        .update_candid("warm_user_query_with_perf", (SELECTIVE_SQL.to_string(),))
+        .expect("Ready exact sample should decode");
+    let exact = exact.expect("Ready exact selection should execute");
+    assert_eq!(exact.result, fallback.result);
+    assert!(exact.attribution.index_store_entry_reads <= 4);
+    assert!(
+        exact
+            .attribution
+            .index_store_entry_reads
+            .saturating_mul(1_000)
+            < fallback.attribution.index_store_entry_reads,
+    );
+    assert!(
+        exact.attribution.total_local_instructions < fallback.attribution.total_local_instructions,
+        "the production-shaped selective route must repay its bounded planning work",
+    );
+    let warm_exact: Result<SqlQueryPerfResult, Error> = fixture
+        .update_candid("warm_user_query_with_perf", (SELECTIVE_SQL.to_string(),))
+        .expect("warm exact-selected sample should decode");
+    let warm_exact = warm_exact.expect("warm exact-selected plan should execute");
+    assert_eq!(warm_exact.result, exact.result);
+    assert_eq!(warm_exact.attribution.index_store_entry_reads, 2);
+    assert_within_cardinality_hot_path_gate(
+        warm_exact.attribution.total_local_instructions,
+        exact.attribution.total_local_instructions,
+        "warm exact-selected plan",
+    );
+
+    let explain = explain_text(query_total_only(
+        &fixture,
+        "query_user_total_only_perf",
+        SELECTIVE_EXPLAIN_SQL,
+    ));
+    assert!(explain.contains("exact_cardinality_tiebreak"), "{explain}");
+    assert!(
+        explain.contains("cardinality_evidence: exact_at_selection"),
+        "{explain}",
+    );
+    assert!(explain.contains("exact_prefix_entries: 10001"), "{explain}");
+    assert!(explain.contains("exact_prefix_entries: 2"), "{explain}");
+
+    println!(
+        "0.236 selective tie-break: fallback_entries={} exact_entries={} fallback_instructions={} unchanged_fallback_instructions={} exact_instructions={} warm_exact_instructions={} first_cursor_instructions={} pinned_before_ready_instructions={} pinned_after_ready_instructions={} stable_before_upgrade={} stable_after_upgrade={}",
+        fallback.attribution.index_store_entry_reads,
+        exact.attribution.index_store_entry_reads,
+        fallback.attribution.total_local_instructions,
+        unchanged_fallback.attribution.total_local_instructions,
+        exact.attribution.total_local_instructions,
+        warm_exact.attribution.total_local_instructions,
+        first_instructions,
+        before_ready.instructions,
+        after_ready.instructions,
+        stable_before_upgrade.1,
+        stable_after_upgrade.1,
+    );
+}
+
+#[test]
+fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
+    const MAXIMUM_CANDIDATE_SQL: &str = "SELECT id FROM PerfAuditMaxFanout \
+        WHERE a = 0 AND b = 1 AND c = 2 AND d = 3 AND e = 4 \
+        AND f = 5 AND g = 6 AND h = 7 AND i = 8 ORDER BY id ASC LIMIT 1";
+    const IC_QUERY_INSTRUCTION_CEILING: u64 = 10_000_000_000;
+
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<JointFanoutFixtureFacts, Error> = fixture
+        .update_candid("load_joint_fanout_boundary_fixture", ())
+        .expect("maximum cardinality fixture should decode");
+    let loaded = loaded.expect("maximum cardinality fixture should load");
+    assert_eq!((loaded.rows, loaded.secondary_indexes_per_row), (240, 64));
+    report_convergence_observation(
+        "cardinality-tiebreak-maximum-ready",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+
+    let maximum_candidates = user_count_with_perf(&fixture, MAXIMUM_CANDIDATE_SQL);
+    assert_projection_row_count(&maximum_candidates.result, 1);
+    assert!(maximum_candidates.attribution.total_local_instructions < IC_QUERY_INSTRUCTION_CEILING,);
+    let candidate_explain = user_count_with_perf(
+        &fixture,
+        format!("EXPLAIN EXECUTION VERBOSE {MAXIMUM_CANDIDATE_SQL}").as_str(),
+    );
+    let candidate_explain = explain_text(candidate_explain.result);
+    assert_eq!(
+        candidate_explain.matches("exact_prefix_entries:").count(),
+        64
+    );
+    assert!(
+        candidate_explain.contains("cardinality_evidence: exact_at_selection"),
+        "{candidate_explain}",
+    );
+
+    let loaded: Result<u32, Error> = fixture
+        .update_candid("load_cardinality_probe_boundary_fixture", ())
+        .expect("maximum probe fixture should decode");
+    assert_eq!(loaded.expect("maximum probe fixture should load"), 1);
+    report_convergence_observation(
+        "cardinality-tiebreak-maximum-probes-ready",
+        run_bounded_convergence_watchdog(&fixture),
+    );
+
+    let maximum_probe_sql = maximum_cardinality_probe_sql();
+    let maximum_probes = user_count_with_perf(&fixture, &maximum_probe_sql);
+    assert_projection_row_count(&maximum_probes.result, 1);
+    assert!(maximum_probes.attribution.total_local_instructions < IC_QUERY_INSTRUCTION_CEILING);
+    let probe_explain = user_count_with_perf(
+        &fixture,
+        format!("EXPLAIN EXECUTION VERBOSE {maximum_probe_sql}").as_str(),
+    );
+    let probe_explain = explain_text(probe_explain.result);
+    assert_eq!(
+        probe_explain.matches("exact_prefix_entries:").count(),
+        16,
+        "{probe_explain}",
+    );
+    assert!(
+        probe_explain.contains("cardinality_evidence: exact_at_selection"),
+        "{probe_explain}",
+    );
+
+    println!(
+        "0.236 maximum tie-break: candidates=64 candidate_instructions={} probes=256 probe_instructions={} probe_value_bytes=3072000",
+        maximum_candidates.attribution.total_local_instructions,
+        maximum_probes.attribution.total_local_instructions,
     );
 }
 

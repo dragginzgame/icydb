@@ -164,6 +164,78 @@ pub struct PerfAuditUser {}
 pub struct PerfAuditMaxFanout {}
 
 ///
+/// PerfAuditMaxCardinalityProbes
+///
+/// Audit-only 0.236 shape exercising 16 structurally tied three-component
+/// branch candidates with 16 prefixes each, exactly filling the 256-probe
+/// policy and approaching the cumulative lowered-byte envelope.
+///
+
+#[entity(store = "PerfAuditFanoutStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["b", "c", "a", "d"]),
+    index(fields = ["b", "c", "a", "e"]),
+    index(fields = ["b", "c", "a", "f"]),
+    index(fields = ["b", "c", "a", "g"]),
+    index(fields = ["b", "c", "a", "h"]),
+    index(fields = ["b", "c", "a", "i"]),
+    index(fields = ["b", "c", "a", "j"]),
+    index(fields = ["b", "c", "a", "k"]),
+    index(fields = ["b", "c", "a", "l"]),
+    index(fields = ["b", "c", "a", "m"]),
+    index(fields = ["b", "c", "a", "n"]),
+    index(fields = ["b", "c", "a", "o"]),
+    index(fields = ["b", "c", "a", "p"]),
+    index(fields = ["b", "c", "a", "q"]),
+    index(fields = ["b", "c", "a", "r"]),
+    index(fields = ["b", "c", "a", "s"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "a", value(item(prim = "Text", unbounded))),
+        field(name = "b", value(item(prim = "Text", unbounded))),
+        field(name = "c", value(item(prim = "Text", unbounded))),
+        field(name = "d", value(item(prim = "Int32"))),
+        field(name = "e", value(item(prim = "Int32"))),
+        field(name = "f", value(item(prim = "Int32"))),
+        field(name = "g", value(item(prim = "Int32"))),
+        field(name = "h", value(item(prim = "Int32"))),
+        field(name = "i", value(item(prim = "Int32"))),
+        field(name = "j", value(item(prim = "Int32"))),
+        field(name = "k", value(item(prim = "Int32"))),
+        field(name = "l", value(item(prim = "Int32"))),
+        field(name = "m", value(item(prim = "Int32"))),
+        field(name = "n", value(item(prim = "Int32"))),
+        field(name = "o", value(item(prim = "Int32"))),
+        field(name = "p", value(item(prim = "Int32"))),
+        field(name = "q", value(item(prim = "Int32"))),
+        field(name = "r", value(item(prim = "Int32"))),
+        field(name = "s", value(item(prim = "Int32")))
+    )
+)]
+pub struct PerfAuditMaxCardinalityProbes {}
+
+///
+/// PerfAuditCardinalityTie
+///
+/// Production-shaped 0.236 fixture with two structurally identical scalar
+/// indexes whose accepted prefix populations differ materially.
+///
+
+#[entity(store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["common"]),
+    index(fields = ["rare"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "common", value(item(prim = "Int32"))),
+        field(name = "rare", value(item(prim = "Int32")))
+    )
+)]
+pub struct PerfAuditCardinalityTie {}
+
+///
 /// PerfAuditHeapUser
 ///
 /// Heap mirror of the primary-key user perf shape. It exists only so the

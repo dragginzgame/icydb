@@ -13,7 +13,10 @@ use crate::{
         schema::AcceptedSchemaSnapshot,
         session::{
             AcceptedSchemaCatalogContext,
-            query::{QueryPlanCacheAttribution, StructuralProjectionContract},
+            query::{
+                QueryPlanCacheAttribution, StructuralProjectionContract,
+                query_plan_requires_cardinality_lifecycle_recheck,
+            },
             sql::{SqlCacheAttribution, SqlCompiledCommandExecutionContext},
         },
     },
@@ -91,6 +94,9 @@ fn cache_compiled_select_prepared_plan(
     prepared_plan: &SharedPreparedExecutionPlan,
     projection: &StructuralProjectionContract,
 ) {
+    if query_plan_requires_cardinality_lifecycle_recheck(prepared_plan) {
+        return;
+    }
     context.command().set_cached_select_plan(
         context.compiled_schema_fingerprint(),
         prepared_plan.clone(),

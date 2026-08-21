@@ -9,6 +9,7 @@ use crate::{
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         session::{
             AcceptedSchemaCatalogContext,
+            query::query_plan_requires_cardinality_lifecycle_recheck,
             sql::{CompiledSqlCommand, SqlCacheAttribution, SqlCompiledSchemaFingerprint},
         },
         sql::lowering::SqlGlobalAggregateCommand,
@@ -85,6 +86,9 @@ fn cache_compiled_global_aggregate_prepared_plan(
     catalog: &AcceptedSchemaCatalogContext,
     prepared_plan: &SharedPreparedExecutionPlan,
 ) {
+    if query_plan_requires_cardinality_lifecycle_recheck(prepared_plan) {
+        return;
+    }
     compiled.set_cached_global_aggregate_plan(
         SqlCompiledSchemaFingerprint::from_catalog(catalog),
         prepared_plan.clone(),

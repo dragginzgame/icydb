@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.236.md](docs/changelog/0.236.md)
 
+- `0.236.1` closes IC, recovery, maximum-bound, and artifact evidence and fixes
+  warmed unavailable SQL plans so Ready exact evidence refreshes through the
+  canonical shared cache without changing public or persisted surfaces.
+
 - `0.236.0` uses existing exact prefix-cardinality authority only to resolve
   final equivalent prefix-family planner ties, with advisory cache reuse,
   candidate-stable authenticated cursors, and no statistics subsystem.

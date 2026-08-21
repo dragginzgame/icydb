@@ -303,13 +303,25 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
     assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
 
     reset_exact_prefix_evidence_call_counts_for_tests();
+    projection_rows(
+        &session,
+        "SELECT id FROM PlannerRow WHERE common = 'everyone' \
+         AND rare = 'group-a' ORDER BY id LIMIT 20",
+    );
+    assert_eq!(
+        exact_prefix_evidence_call_counts_for_tests(),
+        (1, 1),
+        "a compiled SQL fallback must re-enter the shared cache after Ready publication",
+    );
+
+    reset_exact_prefix_evidence_call_counts_for_tests();
     let ready = explain(&session, "common = 'everyone' AND rare = 'group-a'");
     assert!(ready.contains("IndexPrefix(z_rare_idx)"), "{ready}");
     assert!(
         ready.contains("cardinality_evidence: exact_at_selection"),
         "{ready}"
     );
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (1, 1));
+    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
 }
 
 fn selective_dynamic_query() -> DynamicQuery {

@@ -26,17 +26,17 @@ use icydb::{
         SqlIntegrityError, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
         SqlQueryExecutionAttribution, SqlStructuralWorkAttribution, StructuralMutation,
         StructuralPatch, WriteCell,
-        query::{FieldRef, asc},
+        query::{FieldRef, FilterExpr, asc},
         sql::SqlQueryResult,
     },
     value::InputValue,
 };
 #[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
-    PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser,
-    PerfAuditMutationScoringState, PerfAuditMutationToken, PerfAuditRelationSource,
-    PerfAuditRelationTarget, PerfAuditStreamingCompoundRow, PerfAuditStreamingRow, PerfAuditToken,
-    PerfAuditUser,
+    PerfAuditAccount, PerfAuditBlob, PerfAuditCardinalityTie, PerfAuditHeapUser,
+    PerfAuditJournaledUser, PerfAuditMutationScoringState, PerfAuditMutationToken,
+    PerfAuditRelationSource, PerfAuditRelationTarget, PerfAuditStreamingCompoundRow,
+    PerfAuditStreamingRow, PerfAuditToken, PerfAuditUser,
 };
 
 #[cfg(not(feature = "test-admin-api"))]
@@ -75,6 +75,13 @@ struct SqlQueryPerfResult {
 #[cfg(feature = "sql")]
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
+    instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "test-admin-api")]
+struct LiveQueryPagePerfOutput {
+    page: LiveQueryPageOutput,
     instructions: u64,
 }
 
@@ -755,6 +762,12 @@ const STREAMING_EXECUTION_FIXTURE_ROWS: i32 = 2_048;
 const STREAMING_EXECUTION_CONTINUATION_ROWS: i32 = 10_001;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_CONTINUATION_LOAD_BATCH_ROWS: i32 = 2_048;
+#[cfg(feature = "test-admin-api")]
+const CARDINALITY_TIEBREAK_FIXTURE_ROWS: i32 = 10_001;
+#[cfg(feature = "test-admin-api")]
+const CARDINALITY_TIEBREAK_LOAD_BATCH_ROWS: i32 = 2_048;
+#[cfg(feature = "test-admin-api")]
+const CARDINALITY_PROBE_VALUE_BYTES: usize = 4_000;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES: &[usize] = &[300 * 1_024, 150 * 1_024, 40 * 1_024];
 
@@ -824,6 +837,18 @@ impl StructuralFixtureRow for PerfAuditUser {
             .field("age_nat", authored(self.age_nat))
             .field("rank", authored(self.rank))
             .field("active", authored(self.active))
+    }
+}
+
+#[cfg(feature = "test-admin-api")]
+impl StructuralFixtureRow for PerfAuditCardinalityTie {
+    const ENTITY: &'static str = "PerfAuditCardinalityTie";
+
+    fn into_structural_patch(self) -> StructuralPatch {
+        StructuralPatch::new()
+            .field("id", authored(self.id))
+            .field("common", authored(self.common))
+            .field("rare", authored(self.rare))
     }
 }
 
@@ -1559,6 +1584,7 @@ fn reset_perf_fixtures() -> Result<(), icydb::Error> {
         "PerfAuditBlob",
         "PerfAuditHeapUser",
         "PerfAuditJournaledUser",
+        "PerfAuditMaxCardinalityProbes",
         "PerfAuditMaxFanout",
         "PerfAuditMutationScoringState",
         "PerfAuditMutationToken",
@@ -1708,6 +1734,55 @@ fn query_streaming_execution_exhaustive_page(
                 proof.as_ref(),
             )
             .map_err(Into::into)
+    })
+}
+
+/// Measure one fixed page through the 0.236 tied-index cursor fixture.
+#[cfg(feature = "test-admin-api")]
+#[query]
+fn query_cardinality_tiebreak_live_page_with_perf(
+    continuation: Option<String>,
+) -> Result<LiveQueryPagePerfOutput, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let page = db()?.execute_trusted_live_page(
+            &cardinality_tiebreak_continuation_query(),
+            continuation.as_deref(),
+        )?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(LiveQueryPagePerfOutput { page, instructions })
+    })
+}
+
+#[cfg(feature = "test-admin-api")]
+fn cardinality_tiebreak_continuation_query() -> DynamicQuery {
+    DynamicQuery::new("PerfAuditCardinalityTie")
+        .filter(FilterExpr::and(vec![
+            FieldRef::new("common").eq(0_i32),
+            FieldRef::new("rare").eq(20_i32),
+        ]))
+        .order_by(asc("id"))
+        .select(["id"])
+        .limit(5)
+}
+
+/// Load the production-shaped common/rare population used by 0.236 evidence.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn load_cardinality_tiebreak_fixture() -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        let mut first = 1;
+        while first <= CARDINALITY_TIEBREAK_FIXTURE_ROWS {
+            let last = first
+                .saturating_add(CARDINALITY_TIEBREAK_LOAD_BATCH_ROWS - 1)
+                .min(CARDINALITY_TIEBREAK_FIXTURE_ROWS);
+            insert_fixture_rows(perf_cardinality_tiebreak_rows(first, last))?;
+            first = last.saturating_add(1);
+        }
+
+        u32::try_from(CARDINALITY_TIEBREAK_FIXTURE_ROWS).map_err(|_| query_validate_error())
     })
 }
 
@@ -2013,6 +2088,51 @@ fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb
             load_local_instructions,
         })
     })
+}
+
+/// Load one row for the 16-candidate by 16-prefix cardinality policy boundary.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn load_cardinality_probe_boundary_fixture() -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        reset_perf_fixtures()?;
+        let patch = StructuralPatch::new()
+            .field("id", authored(0_i32))
+            .field("a", authored(cardinality_probe_value(0)))
+            .field("b", authored(cardinality_probe_value(16)))
+            .field("c", authored(cardinality_probe_value(17)))
+            .field("d", authored(3_i32))
+            .field("e", authored(4_i32))
+            .field("f", authored(5_i32))
+            .field("g", authored(6_i32))
+            .field("h", authored(7_i32))
+            .field("i", authored(8_i32))
+            .field("j", authored(9_i32))
+            .field("k", authored(10_i32))
+            .field("l", authored(11_i32))
+            .field("m", authored(12_i32))
+            .field("n", authored(13_i32))
+            .field("o", authored(14_i32))
+            .field("p", authored(15_i32))
+            .field("q", authored(16_i32))
+            .field("r", authored(17_i32))
+            .field("s", authored(18_i32));
+        let inserted = db()?.execute_trusted_structural_insert_batch(
+            "PerfAuditMaxCardinalityProbes",
+            vec![patch],
+        )?;
+
+        Ok(inserted.affected_rows)
+    })
+}
+
+#[cfg(feature = "test-admin-api")]
+fn cardinality_probe_value(ordinal: u8) -> String {
+    let prefix = format!("p{ordinal:02}");
+    format!(
+        "{prefix}{}",
+        "x".repeat(CARDINALITY_PROBE_VALUE_BYTES.saturating_sub(prefix.len()))
+    )
 }
 
 /// Load only the deterministic token scale surface at one reviewed cardinality.
@@ -3963,6 +4083,17 @@ fn perf_scale_blobs(row_count: i32) -> Vec<PerfAuditBlob> {
 #[cfg(feature = "sql")]
 fn perf_streaming_execution_rows() -> Vec<PerfAuditStreamingRow> {
     perf_streaming_execution_rows_range(1, STREAMING_EXECUTION_FIXTURE_ROWS)
+}
+
+#[cfg(feature = "test-admin-api")]
+fn perf_cardinality_tiebreak_rows(first: i32, last: i32) -> Vec<PerfAuditCardinalityTie> {
+    (first..=last)
+        .map(|id| PerfAuditCardinalityTie {
+            id,
+            common: 0,
+            rare: if id >= 10_000 { 20 } else { -id },
+        })
+        .collect()
 }
 
 #[cfg(feature = "sql")]

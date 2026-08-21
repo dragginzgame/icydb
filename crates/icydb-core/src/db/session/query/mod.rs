@@ -20,7 +20,9 @@ pub(in crate::db) use cache::QueryPlanCacheAttribution;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
 #[cfg(feature = "sql")]
-pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
+pub(in crate::db::session) use cache::{
+    query_plan_cache_reuse_event, query_plan_requires_cardinality_lifecycle_recheck,
+};
 #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use cache::{
     shared_query_plan_cache_len_for_tests, shared_query_template_cache_entry_upper_bound_for_tests,
