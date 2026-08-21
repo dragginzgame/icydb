@@ -17,10 +17,14 @@ with 0.231 complete and 0.232 still proposed. That release state is historical.
 The provisional 0.233, 0.234, and 0.235 assignments below were not adopted;
 those released lines contain different maintained work. They remain historical
 intake dispositions rather than promises that the named capabilities shipped.
-0.236 has now completed a current-surface design audit and is superseded by
-the focused [exact-cardinality planner tie-break design](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md).
-Every other unreleased candidate is unnumbered until a later current-surface
-audit and explicit user authorization promotes it.
+0.236 is released under the focused
+[exact-cardinality planner tie-break design](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md).
+The current 0.237 authority is the independent
+[accepted-schema runtime observation and cold-root scaling design](../0.237-accepted-schema-runtime-observation-and-cold-root-scaling/0.237-design.md),
+not an intake candidate from this historical roadmap. The provisional 0.237
+component/time-expression assignment was not adopted and is now unnumbered.
+Every other unreleased candidate remains unnumbered until a later
+current-surface audit and explicit user authorization promotes it.
 
 ## Historical Audit Decisions At The Roadmap Cut
 
@@ -121,8 +125,8 @@ the current 0.236 design.
 
 ## Historical Proposed Version Map
 
-This table preserves the original 2026-08-19 ordering for audit history. Except
-for the linked current 0.236 design, it is not a current version assignment.
+This table preserves the original 2026-08-19 ordering for audit history. It is
+not a current version assignment; even the linked 0.236 line is now released.
 
 | Order | Line | Candidate input | Maintained outcome or concise promotion question |
 | --- | --- | --- | --- |
@@ -132,7 +136,7 @@ for the linked current 0.236 design, it is not a current version assignment.
 | 0.234 | Bounded Indexed Relation Semi-Joins | 15 | Can one indexed `IN`/`EXISTS` semi-join, or one evidenced fixed second bridge, solve the reference application relation hop under existing intermediate/result budgets? |
 | 0.235 | Covering Index Payloads And Physical Index Evidence | 3 and Candidate 5 physical fields | Which admitted projections still load base rows, and do included payloads justify their exact entry bytes, write amplification, rebuild cost, and schema-transition surface? |
 | 0.236 | [Exact-Cardinality Planner Tie-Breaking](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md) | Narrowed Candidate 4 and maintained Candidate 5 surface | Design audit complete: reuse exact 0.230 prefix counts only for final equal-candidate ties, with no new persisted statistics or optimizer mode. |
-| 0.237 | Canonical Component And Time-Bucket Expressions | 6 and 7 | Which owner/subaccount and UTC nanosecond bucket operations have one canonical typed meaning across predicates, grouping, ordering, projection, and optional indexes? |
+| Historical 0.237 assignment, not adopted | Canonical Component And Time-Bucket Expressions | 6 and 7 | Unnumbered: which owner/subaccount and UTC nanosecond bucket operations have one canonical typed meaning across predicates, grouping, ordering, projection, and optional indexes? |
 | 0.238 | Exact NatBig Aggregate Semantics | 8 | What exact accumulator and result types preserve NatBig `SUM` and define bounded `AVG` behavior without Decimal narrowing, floating point, or silent saturation? |
 | 0.239 | Bounded Idempotent Ingestion | 9 | After reference application removes full-cache replay, unchanged replacements, and repeated lookups, does per-new-row or identical-replay engine cost still grow enough to justify one catalog-native idempotent batch primitive? |
 | 0.240 | Durable Resumable Aggregate Jobs | 11 | Which opt-in aggregate state can reuse durable-job identity/lifecycle principles while keeping accumulator, checkpoint, result, expiry, ownership, and schema drift bounded? |
@@ -156,7 +160,7 @@ as intake history, not current release order:
   -> 0.234 bounded indexed semi-joins
   -> 0.235 covering payloads and physical evidence
   -> 0.236 planner statistics/observability extending 0.230
-  -> 0.237 component/time-bucket expressions
+  -> unnumbered component/time-bucket expressions (historically assigned 0.237)
   -> 0.238 exact NatBig aggregates
   -> 0.239 bounded idempotent ingestion, only if evidence promotes it
   -> 0.240 durable aggregate jobs
@@ -170,17 +174,17 @@ Historical semantic dependency assumptions were:
 - 0.233 reuses the maintained continuation authority, may consume 0.232's typed
   diagnostic path, and must extend rather than replace 0.226's read-authority
   boundary;
-- 0.241 follows 0.237 exact expression semantics, 0.238 exact aggregate
-  semantics, the disposition of 0.239 ingestion, and 0.240 durable job
+- the historical 0.241 rollup candidate follows exact expression and aggregate
+  semantics, the disposition of the ingestion candidate, and durable-job
   lifecycle evidence; and
 - 0.242 remains last because it changes completeness relationships for
   planning, continuations, jobs, statistics, and archive routing.
 
 ## Roadmap Promotion Gate
 
-No line is implementation-ready from this file. The linked 0.236 design and
-status tracker, not this historical roadmap, own its explicitly authorized
-implementation. Promotion of any other intake candidate requires:
+No line is implementation-ready from this file. Released 0.236 and the current
+independent 0.237 design are owned by their own design/status trackers, not
+this historical roadmap. Promotion of any intake candidate requires:
 
 1. the current minor has a reported ready/complete closeout and the user
    explicitly names the next minor;

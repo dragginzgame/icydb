@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.237.x] 🧹 - 2026-08-21 - Accepted-Schema Runtime Observation
+
+Detailed notes: [docs/changelog/0.237.md](docs/changelog/0.237.md)
+
+- `0.237.0` removes repeated accepted-schema root observation while keeping
+  fully witnessed warm queries stable-read-free with no public or persisted
+  changes.
+
 ## [0.236.x] 📐 - 2026-08-21 - Exact-Cardinality Planner Tie-Breaking
 
 Detailed notes: [docs/changelog/0.236.md](docs/changelog/0.236.md)

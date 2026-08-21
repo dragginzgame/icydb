@@ -202,13 +202,15 @@ synchronous callbacks plus one volatile duplicate latch, then prove empty and
 populated same-release recovery under a framework-neutral single-owner root.
 Canic composition remains independently owned and is not an IcyDB release
 gate. The fully ready participant's narrow instruction headroom remains a
-named optimization carry-forward; a later authorized slice should reduce
-accepted-schema observation cost rather than silently raise the gate.
+named optimization carry-forward. It is now promoted into the focused
+[0.237 accepted-schema runtime observation and cold-root scaling design](../0.237-accepted-schema-runtime-observation-and-cold-root-scaling/0.237-design.md),
+which must reduce repeated accepted-schema work rather than silently raise the
+gate.
 0.228 Patch 1 independently reproduced the same scaling direction: temporarily
 co-locating an unrelated 64-index entity more than doubled one three-index
-recovery probe. The accepted-schema lookup optimization remains separately
-owned and must remove unrelated catalog work without becoming a second
-recovery executor or changing 0.228's corruption protocol.
+recovery probe. 0.237 owns only the accepted-schema observation optimization;
+it must not become a second recovery executor or change 0.228's corruption
+protocol.
 
 For later lines, 0.228 first measures whether a complete batch can validate,
 prepare, Apply, and retire in one IC message. An Apply cursor, durable Validate,

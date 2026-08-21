@@ -13,11 +13,11 @@ use crate::{
         registry::StoreHandle,
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
-            AcceptedCatalogIdentity, AcceptedEnumCatalog, AcceptedInspectionPlan,
-            AcceptedSchemaAuthority, AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity,
-            AcceptedSchemaRuntimeStoreRoot, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
-            CompiledAcceptedRowConstraints, SchemaInfo, SchemaStore, SchemaVersion,
-            enum_catalog::AcceptedSchemaRootSelection,
+            AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedEnumCatalog,
+            AcceptedInspectionPlan, AcceptedSchemaAuthority, AcceptedSchemaRevision,
+            AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaRuntimeStoreRoot,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, CompiledAcceptedRowConstraints,
+            SchemaInfo, SchemaStore, SchemaVersion, enum_catalog::AcceptedSchemaRootSelection,
         },
     },
     error::InternalError,
@@ -25,7 +25,12 @@ use crate::{
 };
 #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 use std::cell::Cell;
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeSet, HashMap},
+    rc::Rc,
+    sync::Arc,
+};
 
 #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -105,21 +110,18 @@ impl AcceptedSchemaEntityRuntime {
         db: &crate::db::Db<C>,
         root_identity: AcceptedSchemaRuntimeRootIdentity,
         runtime_entity: AcceptedRuntimeEntity,
-        store: StoreHandle,
+        selection: AcceptedCatalogSnapshotSelection,
     ) -> Result<Self, AcceptedInspectionPlanLoadError> {
-        let selection = store
-            .with_schema(|schema_store| {
-                schema_store.current_accepted_catalog_selection(
-                    runtime_entity.entity_tag(),
-                    runtime_entity.entity_path(),
-                    runtime_entity.store_path(),
-                )
-            })
-            .map_err(AcceptedInspectionPlanLoadError::Unselected)?
-            .ok_or_else(|| {
-                AcceptedInspectionPlanLoadError::Unselected(InternalError::store_corruption())
-            })?;
         let identity = selection.identity();
+        if identity.entity_tag() != runtime_entity.entity_tag()
+            || identity.entity_path() != runtime_entity.entity_path()
+            || identity.store_path() != runtime_entity.store_path()
+        {
+            return Err(AcceptedInspectionPlanLoadError::Selected {
+                identity,
+                error: InternalError::store_corruption(),
+            });
+        }
         let snapshot = selection.decode_verified().map_err(|error| {
             AcceptedInspectionPlanLoadError::Selected {
                 identity: identity.clone(),
@@ -189,23 +191,29 @@ impl AcceptedSchemaRuntimeRoot {
         db: &crate::db::Db<C>,
         identity: AcceptedSchemaRuntimeRootIdentity,
         store_roots: Vec<AcceptedSchemaRuntimeStoreRoot>,
+        runtime_entities: Vec<(AcceptedRuntimeEntity, AcceptedCatalogSnapshotSelection)>,
     ) -> Result<Self, AcceptedInspectionPlanLoadError> {
-        let runtime_entities = db
-            .accepted_runtime_entities()
-            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
         let mut entities = Vec::with_capacity(runtime_entities.len());
         let mut entities_by_path = HashMap::with_capacity(runtime_entities.len());
         let mut entities_by_canonical_name = HashMap::with_capacity(runtime_entities.len());
+        let mut entity_tags = BTreeSet::new();
+        let mut entity_paths = BTreeSet::new();
+        for (runtime_entity, _) in &runtime_entities {
+            if !entity_tags.insert(runtime_entity.entity_tag())
+                || !entity_paths.insert(runtime_entity.entity_path())
+            {
+                return Err(AcceptedInspectionPlanLoadError::Unselected(
+                    InternalError::store_corruption(),
+                ));
+            }
+        }
 
-        for runtime_entity in runtime_entities {
-            let store = runtime_entity
-                .store(db)
-                .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        for (runtime_entity, selection) in runtime_entities {
             let entity = Rc::new(AcceptedSchemaEntityRuntime::compile(
                 db,
                 identity,
                 runtime_entity,
-                store,
+                selection,
             )?);
             let entity_path = entity.inspection_plan.identity().entity_path_handle();
             let canonical_entity_name =
@@ -251,6 +259,11 @@ impl AcceptedSchemaRuntimeRoot {
     #[must_use]
     fn matches_store_roots(&self, store_roots: &[AcceptedSchemaRuntimeStoreRoot]) -> bool {
         self.store_roots == store_roots
+    }
+
+    #[must_use]
+    fn store_roots(&self) -> &[AcceptedSchemaRuntimeStoreRoot] {
+        &self.store_roots
     }
 
     fn entity_for_runtime_entity(
@@ -471,10 +484,27 @@ thread_local! {
     // Each registry owns one database-wide accepted runtime root. A cache hit
     // revalidates only the compact store-root records and never serializes or
     // hashes an accepted entity snapshot. The root binds the incarnation when
-    // built; upgrade/reinstall clears this heap cache, while schema publication
-    // explicitly invalidates it before another ordinary operation.
+    // built; upgrade/reinstall clears this heap cache, while the SchemaStore
+    // bundle witness fails before changed accepted authority can reuse it.
     static ACCEPTED_SCHEMA_RUNTIME_ROOTS: RefCell<HashMap<usize, Rc<AcceptedSchemaRuntimeRoot>>> =
         RefCell::new(HashMap::default());
+}
+
+#[derive(Clone, Copy)]
+struct AcceptedRuntimeStoreSelection {
+    store_path: &'static str,
+    store: StoreHandle,
+    selection: Option<AcceptedSchemaRootSelection>,
+}
+
+impl AcceptedRuntimeStoreSelection {
+    #[must_use]
+    fn runtime_store_root(self) -> AcceptedSchemaRuntimeStoreRoot {
+        AcceptedSchemaRuntimeStoreRoot::new(
+            self.store_path,
+            self.selection.map(AcceptedSchemaRootSelection::root),
+        )
+    }
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -486,9 +516,9 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(AcceptedInspectionPlanLoadError::into_internal)
     }
 
-    fn capture_accepted_runtime_store_roots(
+    fn capture_accepted_runtime_store_selections(
         &self,
-    ) -> Result<Vec<AcceptedSchemaRuntimeStoreRoot>, InternalError> {
+    ) -> Result<Vec<AcceptedRuntimeStoreSelection>, InternalError> {
         let mut stores = self
             .db
             .with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
@@ -496,11 +526,67 @@ impl<C: CanisterKind> DbSession<C> {
         stores
             .into_iter()
             .map(|(store_path, store)| {
-                let root = store
-                    .with_schema(SchemaStore::current_accepted_schema_root)?
-                    .map(AcceptedSchemaRootSelection::root);
-                Ok(AcceptedSchemaRuntimeStoreRoot::new(store_path, root))
+                let selection = store.with_schema(SchemaStore::current_accepted_schema_root)?;
+                Ok(AcceptedRuntimeStoreSelection {
+                    store_path,
+                    store,
+                    selection,
+                })
             })
+            .collect()
+    }
+
+    fn cached_accepted_runtime_root_is_current(
+        &self,
+        root: &AcceptedSchemaRuntimeRoot,
+    ) -> Result<bool, InternalError> {
+        let mut stores = self
+            .db
+            .with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+        stores.sort_unstable_by_key(|(store_path, _)| *store_path);
+        if stores.len() != root.store_roots().len() {
+            return Ok(false);
+        }
+
+        for ((store_path, store), expected) in stores.into_iter().zip(root.store_roots()) {
+            if store_path != expected.store_path() {
+                return Ok(false);
+            }
+            let Some(expected_root) = expected.root() else {
+                return Ok(false);
+            };
+            if !store
+                .with_schema(|schema| schema.cached_accepted_schema_root_matches(expected_root))?
+            {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    fn runtime_catalog_selections(
+        store_selections: &[AcceptedRuntimeStoreSelection],
+    ) -> Result<Vec<(AcceptedRuntimeEntity, AcceptedCatalogSnapshotSelection)>, InternalError> {
+        let mut runtime_entities = Vec::new();
+        for selected_store in store_selections {
+            runtime_entities.extend(selected_store.store.with_schema(|schema| {
+                schema.accepted_runtime_catalog_selections_for_root(
+                    selected_store.store_path,
+                    selected_store.selection,
+                )
+            })?);
+        }
+        Ok(runtime_entities)
+    }
+
+    fn runtime_store_roots(
+        store_selections: &[AcceptedRuntimeStoreSelection],
+    ) -> Vec<AcceptedSchemaRuntimeStoreRoot> {
+        store_selections
+            .iter()
+            .copied()
+            .map(AcceptedRuntimeStoreSelection::runtime_store_root)
             .collect()
     }
 
@@ -510,18 +596,30 @@ impl<C: CanisterKind> DbSession<C> {
         self.db
             .ensure_recovered_state()
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
-        let store_roots = self
-            .capture_accepted_runtime_store_roots()
-            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
         let scope_id = self.db.cache_scope_id();
-        let cached = ACCEPTED_SCHEMA_RUNTIME_ROOTS.with(|roots| {
-            roots
-                .borrow()
-                .get(&scope_id)
-                .filter(|root| root.matches_store_roots(store_roots.as_slice()))
-                .cloned()
-        });
-        if let Some(root) = cached {
+        let cached = ACCEPTED_SCHEMA_RUNTIME_ROOTS
+            .with(|roots| {
+                roots
+                    .try_borrow()
+                    .map_err(|_| InternalError::store_invariant())
+                    .map(|roots| roots.get(&scope_id).cloned())
+            })
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        if let Some(root) = &cached
+            && self
+                .cached_accepted_runtime_root_is_current(root)
+                .map_err(AcceptedInspectionPlanLoadError::Unselected)?
+        {
+            return Ok(root.clone());
+        }
+
+        let store_selections = self
+            .capture_accepted_runtime_store_selections()
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let store_roots = Self::runtime_store_roots(&store_selections);
+        if let Some(root) = cached
+            && root.matches_store_roots(store_roots.as_slice())
+        {
             return Ok(root);
         }
 
@@ -534,26 +632,36 @@ impl<C: CanisterKind> DbSession<C> {
             store_roots.as_slice(),
         )
         .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let runtime_entities = Self::runtime_catalog_selections(&store_selections)
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
 
         let root = Rc::new(AcceptedSchemaRuntimeRoot::compile(
             &self.db,
             identity,
             store_roots.clone(),
+            runtime_entities,
         )?);
         let current_incarnation =
             database_incarnation_id().map_err(AcceptedInspectionPlanLoadError::Unselected)?;
-        let current_store_roots = self
-            .capture_accepted_runtime_store_roots()
+        let current_store_selections = self
+            .capture_accepted_runtime_store_selections()
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
+        let current_store_roots = Self::runtime_store_roots(&current_store_selections);
         if current_incarnation != database_incarnation || current_store_roots != store_roots {
             return Err(AcceptedInspectionPlanLoadError::Unselected(
                 InternalError::store_invariant(),
             ));
         }
 
-        ACCEPTED_SCHEMA_RUNTIME_ROOTS.with(|roots| {
-            roots.borrow_mut().insert(scope_id, root.clone());
-        });
+        ACCEPTED_SCHEMA_RUNTIME_ROOTS
+            .with(|roots| {
+                roots
+                    .try_borrow_mut()
+                    .map_err(|_| InternalError::store_invariant())?
+                    .insert(scope_id, root.clone());
+                Ok::<(), InternalError>(())
+            })
+            .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
 
         Ok(root)
     }
@@ -670,13 +778,5 @@ impl<C: CanisterKind> DbSession<C> {
             expected.revision().get(),
             current_revision.map(AcceptedSchemaRevision::get),
         ))
-    }
-
-    /// Drop the complete cached root after schema publication by this session.
-    pub(in crate::db::session) fn invalidate_accepted_schema_runtime_root(&self) {
-        let scope_id = self.db.cache_scope_id();
-        ACCEPTED_SCHEMA_RUNTIME_ROOTS.with(|roots| {
-            roots.borrow_mut().remove(&scope_id);
-        });
     }
 }

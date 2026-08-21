@@ -569,12 +569,13 @@ placement is owned by the query-capability roadmap:
   and execution.
 
 Fixed-length blobs remain deferred pending a separate schema-type audit; they
-are not part of the expression line. Generated projections remain a 0.237
-promotion question. Physical DDL cost, index bytes, entry shape, covering
-status, and base-row avoidance belong only to 0.235. Plan comparisons,
-estimates, actuals, rejected routes, stale evidence, and warnings belong only
-to 0.236. Multivalue indexes and any unique-secondary expansion remain deferred
-pending their required audits.
+are not part of the expression line. Generated projections remain an
+unnumbered expression-design question; the historical 0.237 assignment was not
+adopted. Physical DDL cost, index bytes, entry shape, covering status, and
+base-row avoidance remain historical 0.235 intake scope. Plan comparisons,
+estimates, actuals, rejected routes, stale evidence, and warnings were narrowed
+by released 0.236. Multivalue indexes and any unique-secondary expansion
+remain deferred pending their required audits.
 
 ## Superseded Decomposition And Ordering
 
