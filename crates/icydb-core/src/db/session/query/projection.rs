@@ -11,7 +11,10 @@ use crate::{
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             intent::StructuralQuery,
-            plan::expr::{Expr, ProjectionField, ProjectionSpec},
+            plan::{
+                CardinalityTiebreakRoutePin,
+                expr::{Expr, ProjectionField, ProjectionSpec},
+            },
         },
         schema::{AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, output_value_from_runtime},
         session::query::QueryPlanCacheAttribution,
@@ -200,5 +203,43 @@ impl<C: CanisterKind> DbSession<C> {
         let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
         Ok((prepared_plan, projection, cache_attribution))
+    }
+
+    pub(in crate::db::session) fn structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        lane: DiagnosticExecutionLane,
+        route_pin: CardinalityTiebreakRoutePin,
+    ) -> Result<
+        Option<(
+            SharedPreparedExecutionPlan,
+            StructuralProjectionContract,
+            QueryPlanCacheAttribution,
+        )>,
+        QueryError,
+    > {
+        let schema_fingerprint = authority.accepted_schema_fingerprint();
+        let Some((prepared_plan, cache_attribution)) = self
+            .shared_query_plan_for_accepted_authority_with_route_pin(
+                authority.clone(),
+                accepted_schema,
+                schema_fingerprint,
+                query,
+                lane,
+                route_pin,
+            )?
+        else {
+            return Ok(None);
+        };
+        let projection_spec = prepared_plan.logical_plan().projection_spec_with_schema(
+            authority
+                .accepted_schema_info()
+                .ok_or_else(QueryError::invariant)?,
+        );
+        let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
+
+        Ok(Some((prepared_plan, projection, cache_attribution)))
     }
 }

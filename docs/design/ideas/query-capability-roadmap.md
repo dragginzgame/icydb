@@ -1,6 +1,8 @@
 # Query Capability Disposition And Dependency Roadmap
 
-Status: provisional roadmap; not design or implementation authority
+Status: historical provisional roadmap; assignments from 0.233 through 0.235
+were superseded by released work and remaining candidates are unnumbered unless
+a current design explicitly promotes them
 
 Roadmap cut: 2026-08-19
 
@@ -10,16 +12,17 @@ Evidence intake:
 Immediate programme predecessor:
 [post-0.224 design programme](post-0.224-design-programme.md)
 
-This roadmap disposes every numbered intake candidate exactly once. The 0.231
-line is a completed maintained outcome. The 0.232 line is a proposed
-documentation-only design awaiting review and implementation authorization.
-Version labels from 0.233 onward remain provisional ordering slots, not
-accepted minor scope, landing trackers, release targets, or permission to
-implement. Promotion requires a current-surface audit, one focused
-design/status line, 1-12 substantive landing patches, a completed predecessor
-closeout, and explicit user authorization.
+At its cut this roadmap disposed every numbered intake candidate exactly once,
+with 0.231 complete and 0.232 still proposed. That release state is historical.
+The provisional 0.233, 0.234, and 0.235 assignments below were not adopted;
+those released lines contain different maintained work. They remain historical
+intake dispositions rather than promises that the named capabilities shipped.
+0.236 has now completed a current-surface design audit and is superseded by
+the focused [exact-cardinality planner tie-break design](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md).
+Every other unreleased candidate is unnumbered until a later current-surface
+audit and explicit user authorization promotes it.
 
-## Current-Surface Audit Decisions Required By The Intake
+## Historical Audit Decisions At The Roadmap Cut
 
 ### Candidate 1: maintained external gap confirmed
 
@@ -30,9 +33,8 @@ entrypoint accepts only `&str`, and the generated SQL endpoint accepts a SQL
 string. No typed external binding envelope was found across the facade,
 generated endpoint, Candid, or CLI surface.
 
-Disposition: provisional 0.233, limited to the missing typed bound invocation
-surface and direct binding into existing accepted authority, policy, cache, and
-continuation identity.
+The provisional 0.233 assignment was not adopted. Any remaining public bound
+invocation gap is unnumbered and requires a fresh current-surface audit.
 
 ### Candidate 2: engine authority supported; public SQL gap confirmed
 
@@ -49,11 +51,10 @@ SQL results expose no resumable page input, while grouped SQL can return a
 into execution. Therefore the cursor engine exists, but a bound public SQL
 request/continuation surface does not.
 
-Disposition: provisional 0.233, limited to reusing the existing authenticated
-live continuation authority and binding Candidate 1 values into its identity.
-It must not create a second cursor or advertise snapshot isolation. A true
-multi-version snapshot expansion is rejected absent a separate demonstrated
-workload and bounded storage model.
+The provisional 0.233 assignment was not adopted. Any remaining public SQL
+continuation gap is unnumbered and must reuse the existing authenticated live
+continuation authority. A true multi-version snapshot expansion remains
+rejected absent a separate demonstrated workload and bounded storage model.
 
 ### Candidate 8: maintained exact-aggregate gap confirmed
 
@@ -62,67 +63,66 @@ maintained. Aggregate `SUM`/`AVG`, however, use the shared `ValueReducerState`
 and coerce numeric inputs into bounded `Decimal`; final `SUM` is a Decimal.
 Values outside that domain cannot supply exact NatBig accumulation.
 
-Disposition: provisional 0.238 remains in the roadmap. It must define exact
-NatBig aggregate accumulator/output semantics and bounds without widening all
-numeric operations or using lossy conversion.
+The gap remains intake evidence but is now unnumbered. Any future promotion
+must define exact NatBig aggregate accumulator/output semantics and bounds
+without widening all numeric operations or using lossy conversion.
 
 ## Exact Candidate Disposition
 
-| Candidate | One disposition | Provisional owner or maintained outcome |
+| Candidate | One disposition | Current owner or outcome |
 | --- | --- | --- |
-| 1. Public Parameterized And Prepared SQL | Provisional future slice | 0.233 typed bound SQL invocation; current internal parameterization is predecessor evidence, not a public substitute |
-| 2. Authenticated, Snapshot-Safe SQL Pagination | Provisional future slice; engine support exists but the public SQL request gap is confirmed, and true snapshot expansion is rejected | 0.233 reuses the existing authenticated live/exhaustive continuation authority and adds no MVCC cursor |
-| 3. Explicit Covering Index Payloads | Provisional future slice | 0.235 covering payloads and physical index evidence |
-| 4. Statistics-Aware Index Selection | Provisional future slice | 0.236 deterministic planner statistics extending 0.230 generations |
-| 5. Index And Plan Observability | Provisional future slice, split once by fact ownership | Physical facts go only to 0.235; planner facts go only to 0.236, as enumerated below |
-| 6. Account Component Expressions | Provisional future slice | 0.237 canonical component expressions |
-| 7. Nanosecond Time And Bucket Expressions | Provisional future slice | 0.237 canonical time-bucket expressions |
-| 8. Exact NatBig Aggregation Semantics | Provisional future slice; maintained gap confirmed | 0.238 exact NatBig aggregate semantics |
-| 9. Bounded Append-Only Ingestion Primitive | Provisional future slice, promotion blocked on application-first evidence | 0.239 bounded idempotent ingestion only if repeated benchmarks isolate an engine gap |
-| 10. Incremental Rollups Or Maintained Materializations | Provisional future slice | 0.241 incrementally maintained rollups |
-| 11. Durable Resumable Aggregate Jobs | Provisional future slice | 0.240 durable resumable aggregate jobs |
-| 12. Range Partitioning And Archive-Aware History | Provisional future slice | 0.242 partitioned/archive-aware history |
+| 1. Public Parameterized And Prepared SQL | Unnumbered after the provisional assignment was not adopted | Requires a fresh current-surface audit; current internal parameterization is predecessor evidence, not a public substitute |
+| 2. Authenticated, Snapshot-Safe SQL Pagination | Unnumbered after the provisional assignment was not adopted; true snapshot expansion remains rejected | Any public SQL gap must reuse existing authenticated live/exhaustive continuation authority and add no MVCC cursor |
+| 3. Explicit Covering Index Payloads | Unnumbered after the provisional assignment was not adopted | Requires a fresh physical representation and workload audit |
+| 4. Statistics-Aware Index Selection | Narrowed current design, not implementation authority | [0.236 exact-cardinality planner tie-breaking](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md); no new persisted statistics |
+| 5. Index And Plan Observability | Maintained surfaces plus one narrowed 0.236 extension | Existing explain/execution diagnostics remain authority; 0.236 adds exact tied-candidate evidence only |
+| 6. Account Component Expressions | Unnumbered intake candidate | Requires a fresh current-surface audit |
+| 7. Nanosecond Time And Bucket Expressions | Unnumbered intake candidate | Requires a fresh current-surface audit |
+| 8. Exact NatBig Aggregation Semantics | Unnumbered intake candidate; maintained gap was confirmed at the roadmap cut | Requires a fresh current-surface audit before promotion |
+| 9. Bounded Append-Only Ingestion Primitive | Unnumbered; promotion blocked on application-first evidence | Promote only if repeated benchmarks isolate an engine gap |
+| 10. Incremental Rollups Or Maintained Materializations | Unnumbered intake candidate | Requires a fresh current-surface audit |
+| 11. Durable Resumable Aggregate Jobs | Unnumbered intake candidate | Requires a fresh current-surface audit |
+| 12. Range Partitioning And Archive-Aware History | Unnumbered intake candidate | Requires a fresh current-surface audit |
 | 13. Explicit Nullable Unique-Index Semantics | Completed maintained outcome | [0.231 explicit nullable unique-index contracts](../0.231-explicit-nullable-unique-index-contracts/0.231-design.md); implementation, independent closeout, and measurement closure are complete |
-| 14. Specific Bounded Public SQL Diagnostics | Proposed review-gated design; implementation not authorized | [0.232 typed public SQL diagnostics](../0.232-typed-public-sql-diagnostics/0.232-design.md): one bounded query-field context through core, facade, Candid, and CLI |
-| 15. Bounded Indexed Relation Traversal | Provisional future slice | 0.234 bounded indexed relation semi-joins |
+| 14. Specific Bounded Public SQL Diagnostics | Completed maintained outcome | [0.232 typed public SQL diagnostics](../0.232-typed-public-sql-diagnostics/0.232-design.md): one bounded query-field context through core, facade, Candid, and CLI |
+| 15. Bounded Indexed Relation Traversal | Unnumbered after the provisional assignment was not adopted | Requires a fresh current-surface audit |
 
 No numbered candidate appears in another disposition category.
 
-## Candidate 5 Non-Duplicating Split
+## Candidate 5 Current Disposition
 
-Candidate 5 is one provisional disposition whose evidence fields have two
-disjoint owners:
+The former physical/planner version split was not adopted. Current authority is:
 
-| 0.235 physical-index evidence only | 0.236 planner evidence only |
+| Maintained physical/execution evidence | Narrow 0.236 planner extension |
 | --- | --- |
-| storage bytes | candidate-plan comparison |
-| write amplification and rebuild cost | estimates and actuals |
-| physical entry/key/payload shape | chosen and rejected routes |
-| covering status | stale-statistics evidence |
-| base-row avoidance/materialization | planner warnings |
-| DDL physical cost | plan/instruction/response observations |
+| existing index-entry contracts and artifact measurements | exact counts for tied Prefix/MultiLookup/BranchSet candidates |
+| existing execution trace actuals | one `exact_cardinality_tiebreak` reason |
+| existing chosen/alternative/rejected explain projection | bounded evidence availability/fallback state |
 
-0.235 may report which physical route exists and what it costs. 0.236 may
-explain why a route won and compare plan evidence. Neither line redefines the
-other's facts.
+The remaining broad physical costing, covering-payload, histogram, warning,
+and DDL-estimate ideas are unnumbered. They are not part of released 0.235 or
+the current 0.236 design.
 
 ## Secondary Finding Disposition
 
 | Intake finding | Disposition |
 | --- | --- |
 | Explorer least-privilege SQL/schema authority, evidenced on Canic fleets | Promoted out of the provisional roadmap into the framework-neutral [0.226 application-scoped read authority](../0.226-application-scoped-sql-and-schema-read-authority/0.226-design.md). Canic remains incident evidence and an independent downstream adapter, not an IcyDB dependency or promotion gate. This is not a numbered intake candidate and does not duplicate Candidate 1 or 2. |
-| Fixed-length blobs | Deferred. Do not absorb into 0.237. Promotion requires a separate schema-type audit proving that max-length Blob plus checks cannot coherently express the invariant. |
+| Fixed-length blobs | Deferred. Do not absorb into another expression slice. Promotion requires a separate schema-type audit proving that max-length Blob plus checks cannot coherently express the invariant. |
 | Multivalue collection indexes | Deferred pending workload, storage, write-amplification, planner, and boundedness audits. `COLLECTION_CONTAINS` remains a residual predicate, not an index claim. |
 | Unique-secondary-index expansion | Deferred pending a current proposal/DDL/accepted-catalog/mutation/execution gap audit. Maintained `CREATE UNIQUE INDEX` support means historical absence is not evidence. |
-| Included fields, entry shape, predicate detail, physical DDL estimates | 0.235 only. |
-| Estimate/actual comparison, rejected routes, stale evidence, warnings | 0.236 only. |
-| Generated/stored owner, subaccount, or bucket projections | A 0.237 promotion question; they are not automatically added if canonical expressions suffice. |
+| Included fields, entry shape, predicate detail, physical DDL estimates | Unnumbered; released 0.235 did not implement this provisional assignment. |
+| Estimate/actual comparison, rejected routes, stale evidence, warnings | Existing explain/trace remains authority; 0.236 adds only exact tied-prefix evidence. |
+| Generated/stored owner, subaccount, or bucket projections | An unnumbered promotion question; they are not automatically added if canonical expressions suffice. |
 | Unknown-field detail | [0.232](../0.232-typed-public-sql-diagnostics/0.232-design.md); the field context is bounded, typed, and shared by equivalent SQL and structural planner failures. |
 | Symbolic runtime-boundary documentation | Separate documentation-only follow-up; it has no dependency on rejected-field propagation and is not part of 0.232. |
 | Concise human enum rendering | Deferred outside 0.232 because it changes successful result presentation rather than failed-query diagnostics; structured values remain canonical. |
-| reference application no-op/upsert observations | 0.239 evidence only after application-side replay and lookup costs are removed and benchmarks are repeated. |
+| reference application no-op/upsert observations | Unnumbered evidence only after application-side replay and lookup costs are removed and benchmarks are repeated. |
 
-## Maintained, Proposed, And Provisional Lines
+## Historical Proposed Version Map
+
+This table preserves the original 2026-08-19 ordering for audit history. Except
+for the linked current 0.236 design, it is not a current version assignment.
 
 | Order | Line | Candidate input | Maintained outcome or concise promotion question |
 | --- | --- | --- | --- |
@@ -131,7 +131,7 @@ other's facts.
 | 0.233 | Bound SQL Invocation And Authenticated Continuation | 1 and 2, narrowed to current facade/generated gaps | What typed request and continuation envelope is externally missing, and how does it bind values to the existing cache, policy, 0.226 read-authority boundary, and authenticated live cursor without a second authorization owner, cursor, or snapshot model? |
 | 0.234 | Bounded Indexed Relation Semi-Joins | 15 | Can one indexed `IN`/`EXISTS` semi-join, or one evidenced fixed second bridge, solve the reference application relation hop under existing intermediate/result budgets? |
 | 0.235 | Covering Index Payloads And Physical Index Evidence | 3 and Candidate 5 physical fields | Which admitted projections still load base rows, and do included payloads justify their exact entry bytes, write amplification, rebuild cost, and schema-transition surface? |
-| 0.236 | Deterministic Planner Statistics And Plan Observability | 4 and Candidate 5 planner fields | What smallest deterministic advisory evidence improves measured choices while extending 0.230's generation/build/staleness authority and keeping observability bounded? |
+| 0.236 | [Exact-Cardinality Planner Tie-Breaking](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md) | Narrowed Candidate 4 and maintained Candidate 5 surface | Design audit complete: reuse exact 0.230 prefix counts only for final equal-candidate ties, with no new persisted statistics or optimizer mode. |
 | 0.237 | Canonical Component And Time-Bucket Expressions | 6 and 7 | Which owner/subaccount and UTC nanosecond bucket operations have one canonical typed meaning across predicates, grouping, ordering, projection, and optional indexes? |
 | 0.238 | Exact NatBig Aggregate Semantics | 8 | What exact accumulator and result types preserve NatBig `SUM` and define bounded `AVG` behavior without Decimal narrowing, floating point, or silent saturation? |
 | 0.239 | Bounded Idempotent Ingestion | 9 | After reference application removes full-cache replay, unchanged replacements, and repeated lookups, does per-new-row or identical-replay engine cost still grow enough to justify one catalog-native idempotent batch primitive? |
@@ -139,20 +139,14 @@ other's facts.
 | 0.241 | Incrementally Maintained Rollups | 10 | Which deliberately small deterministic aggregate class can have one atomic or typed-lag replay/repair model after exact scalar, aggregate, ingestion, and job semantics settle? |
 | 0.242 | Partitioned And Archive-Aware History | 12 | What accepted catalog authority can prove complete/pruned/unavailable ranges across planning, continuations, jobs, statistics, and archives without silent omission? |
 
-If a promotion audit finds no maintained gap, that line is removed or
-contracted before implementation begins. Candidate 2 is already contracted to
-public SQL integration over the maintained cursor engine; snapshot isolation
-is not promoted. The 0.238 gap is currently confirmed, so that line remains.
+At the roadmap cut, a promotion audit could remove or contract a line before
+implementation. The current rule is stricter: all unnumbered candidates above
+need a new audit against the released surface and explicit minor authorization.
 
-0.231 has completed implementation, independent closeout, and its user-owned
-release handoff. On 2026-08-19 the user authorized documentation-only 0.232
-promotion. The resulting [design and tracker](../0.232-typed-public-sql-diagnostics/0.232-design.md)
-do not authorize implementation. The intended `v0.231.1` predecessor identity
-must be captured from its exact tag before Patch 1 begins.
+## Historical Dependency Order
 
-## Final Dependency Order
-
-The governance order is numeric and sequential after a completed 0.230:
+The following was the provisional order at the 2026-08-19 cut. It is retained
+as intake history, not current release order:
 
 ```text
 0.230 exact cardinality generation authority
@@ -170,7 +164,7 @@ The governance order is numeric and sequential after a completed 0.230:
   -> 0.242 partitioned/archive-aware history
 ```
 
-Semantic dependency constraints within that order are:
+Historical semantic dependency assumptions were:
 
 - 0.236 extends 0.230 and consumes 0.235's final physical index evidence;
 - 0.233 reuses the maintained continuation authority, may consume 0.232's typed
@@ -184,12 +178,12 @@ Semantic dependency constraints within that order are:
 
 ## Roadmap Promotion Gate
 
-No line is implementation-ready from this file. The proposed 0.232 design
-still requires review and explicit implementation authorization. Promotion of
-one provisional line from 0.233 onward requires:
+No line is implementation-ready from this file. The linked 0.236 design and
+status tracker, not this historical roadmap, own its explicitly authorized
+implementation. Promotion of any other intake candidate requires:
 
-1. all earlier numeric lines have a reported ready/complete closeout, or the
-   roadmap is explicitly renumbered after a removed line;
+1. the current minor has a reported ready/complete closeout and the user
+   explicitly names the next minor;
 2. maintained code/contracts/tests prove a concrete remaining gap;
 3. rejected and already-supported behavior is removed from proposed scope;
 4. one canonical owner, hard cuts, invariants, measurements, and 1-12 landing

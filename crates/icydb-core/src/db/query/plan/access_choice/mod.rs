@@ -19,7 +19,8 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
-            AccessPlannedQuery, ResidualFilterShape,
+            AccessPlannedQuery, CardinalityTiebreakCandidate, CardinalityTiebreakFamily,
+            ResidualFilterShape,
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
@@ -50,6 +51,109 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_semantic_indexe
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
     project_access_choice_explain_snapshot_from_authority(semantic_indexes, schema_info, plan)
+}
+
+/// Enumerate the complete final tie set from the existing access-choice owner.
+///
+/// This does not read cardinality. It returns candidates only when at least two
+/// non-grouped routes remain equal under the maintained structural and residual
+/// policy, immediately before the predecessor lexicographic tie-break.
+#[must_use]
+pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
+    semantic_indexes: &[SemanticIndexAccessContract],
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+) -> Option<Vec<CardinalityTiebreakCandidate>> {
+    if plan.grouped_plan().is_some() {
+        return None;
+    }
+    let (family, consumed_prefix_arity) = cardinality_family_and_arity(&plan.access)?;
+    let explain_family = access_choice_family_for_cardinality(family);
+    let chosen_index = plan.access.selected_index_contract()?;
+    let predicate = plan.scalar_plan().predicate.as_ref();
+    let order = plan.scalar_plan().order.as_ref();
+    let chosen_score = match evaluate_index_candidate(
+        explain_family,
+        &chosen_index,
+        schema_info,
+        predicate,
+        order,
+        false,
+    ) {
+        self::model::CandidateEvaluation::Eligible(score) => score,
+        self::model::CandidateEvaluation::Rejected(_) => return None,
+    };
+    let chosen_burden = residual_burden_for_plan(plan);
+    let mut candidates = vec![CardinalityTiebreakCandidate::new(
+        plan.access.clone(),
+        chosen_index.clone(),
+        family,
+        consumed_prefix_arity,
+    )];
+
+    for index in sorted_index_refs(semantic_indexes) {
+        if index.name() == chosen_index.name() {
+            continue;
+        }
+        let self::model::CandidateEvaluation::Eligible(score) =
+            evaluate_index_candidate(explain_family, index, schema_info, predicate, order, false)
+        else {
+            continue;
+        };
+        if score != chosen_score {
+            continue;
+        }
+        let candidate_access = eligible_candidate_access_for_index(schema_info, plan, index)?;
+        let (candidate_family, candidate_prefix_arity) =
+            cardinality_family_and_arity(&candidate_access)?;
+        if candidate_family != family || candidate_prefix_arity != consumed_prefix_arity {
+            continue;
+        }
+        let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
+        if residual_burden_for_plan(&candidate_plan) != chosen_burden {
+            continue;
+        }
+        candidates.push(CardinalityTiebreakCandidate::new(
+            candidate_access,
+            index.clone(),
+            candidate_family,
+            candidate_prefix_arity,
+        ));
+    }
+    if candidates.len() < 2 {
+        return None;
+    }
+    candidates.sort_by(|left, right| left.index().name().cmp(right.index().name()));
+
+    Some(candidates)
+}
+
+fn cardinality_family_and_arity(
+    access: &AccessPlan<Value>,
+) -> Option<(CardinalityTiebreakFamily, usize)> {
+    let path = access.as_path()?;
+    if let Some((_index, values)) = path.as_index_prefix_contract() {
+        return Some((CardinalityTiebreakFamily::Prefix, values.len()));
+    }
+    if path.as_index_multi_lookup_contract().is_some() {
+        return Some((CardinalityTiebreakFamily::MultiLookup, 1));
+    }
+    path.as_index_branch_set_spec().map(|spec| {
+        (
+            CardinalityTiebreakFamily::BranchSet,
+            spec.branch_prefix_len(),
+        )
+    })
+}
+
+const fn access_choice_family_for_cardinality(
+    family: CardinalityTiebreakFamily,
+) -> AccessChoiceFamily {
+    match family {
+        CardinalityTiebreakFamily::Prefix => AccessChoiceFamily::Prefix,
+        CardinalityTiebreakFamily::MultiLookup => AccessChoiceFamily::MultiLookup,
+        CardinalityTiebreakFamily::BranchSet => AccessChoiceFamily::BranchSet,
+    }
 }
 
 fn project_access_choice_explain_snapshot_from_authority(
@@ -166,6 +270,7 @@ fn project_access_choice_explain_snapshot_from_authority(
         alternatives,
         rejected,
         primary_key_input_resource: None,
+        cardinality_evidence_state: "not_applicable",
     }
 }
 
@@ -184,6 +289,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             alternatives: Vec::new(),
             rejected: Vec::new(),
             primary_key_input_resource: None,
+            cardinality_evidence_state: "not_applicable",
         };
     }
     if access
@@ -197,6 +303,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             alternatives: Vec::new(),
             rejected: Vec::new(),
             primary_key_input_resource: None,
+            cardinality_evidence_state: "not_applicable",
         };
     }
     if access.as_primary_key_range_path().is_some() {
@@ -206,6 +313,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             alternatives: Vec::new(),
             rejected: Vec::new(),
             primary_key_input_resource: None,
+            cardinality_evidence_state: "not_applicable",
         };
     }
     if access.is_single_full_scan() {
@@ -215,6 +323,7 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
             alternatives: Vec::new(),
             rejected: Vec::new(),
             primary_key_input_resource: None,
+            cardinality_evidence_state: "not_applicable",
         };
     }
 
@@ -400,6 +509,7 @@ fn project_candidate_explain_summary(
         order_compatible: score.order_compatible,
         residual_burden: residual_burden.kind(),
         residual_predicate_terms: residual_burden.predicate_term_count,
+        exact_prefix_entries: None,
     }
 }
 
@@ -471,8 +581,15 @@ fn residual_burden_for_plan(plan: &AccessPlannedQuery) -> ResidualBurdenProfile 
         .effective_execution_predicate()
         .as_ref()
         .map_or(0, count_predicate_terms);
-    let kind_rank =
-        ResidualBurdenProfile::kind_rank_for_residual_shape(plan.residual_filter_shape());
+    // A semantic expression represented completely by the normalized
+    // predicate is executed through the residual predicate program, not a
+    // second expression program. Derive that canonical final shape here so
+    // finalized chosen plans and lightweight alternative shells compare under
+    // one residual authority.
+    let expression_required = plan.scalar_plan().filter_expr.is_some()
+        && !plan.scalar_plan().predicate_covers_filter_expr;
+    let shape = ResidualFilterShape::from_presence(expression_required, predicate_term_count > 0);
+    let kind_rank = ResidualBurdenProfile::kind_rank_for_residual_shape(shape);
 
     ResidualBurdenProfile {
         kind_rank,

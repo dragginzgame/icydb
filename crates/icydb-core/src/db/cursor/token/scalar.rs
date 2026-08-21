@@ -6,7 +6,7 @@
 use crate::{
     db::{
         cursor::{ContinuationSignature, CursorBoundary, token::TokenWireError},
-        query::plan::OrderDirection,
+        query::plan::{CardinalityTiebreakRoutePin, OrderDirection},
     },
     types::EntityTag,
 };
@@ -213,6 +213,7 @@ pub(in crate::db) struct ScalarPageToken {
     mode: ScalarPageMode,
     signature: ContinuationSignature,
     authority: ScalarPageTokenAuthority,
+    route_pin: Option<CardinalityTiebreakRoutePin>,
     window: ScalarPageTokenWindow,
     order_terms: Vec<ScalarOrderTermContract>,
     progress: ScalarPageTokenProgress,
@@ -224,6 +225,7 @@ impl ScalarPageToken {
         mode: ScalarPageMode,
         signature: ContinuationSignature,
         authority: ScalarPageTokenAuthority,
+        route_pin: Option<CardinalityTiebreakRoutePin>,
         window: ScalarPageTokenWindow,
         order_terms: Vec<ScalarOrderTermContract>,
         progress: ScalarPageTokenProgress,
@@ -232,6 +234,7 @@ impl ScalarPageToken {
             mode,
             signature,
             authority,
+            route_pin,
             window,
             order_terms,
             progress,
@@ -262,6 +265,11 @@ impl ScalarPageToken {
     }
 
     #[must_use]
+    pub(in crate::db) const fn route_pin(&self) -> Option<CardinalityTiebreakRoutePin> {
+        self.route_pin
+    }
+
+    #[must_use]
     pub(in crate::db) const fn window(&self) -> ScalarPageTokenWindow {
         self.window
     }
@@ -281,7 +289,11 @@ impl ScalarPageToken {
 mod tests {
     use super::*;
     use crate::{
-        db::{cursor::CursorBoundarySlot, query::plan::OrderDirection},
+        db::{
+            cursor::CursorBoundarySlot,
+            index::IndexId,
+            query::plan::{CardinalityTiebreakFamily, OrderDirection},
+        },
         value::Value,
     };
 
@@ -297,6 +309,7 @@ mod tests {
                 [0x44; 16],
                 EntityTag::new(9),
             ),
+            None,
             ScalarPageTokenWindow::new(0, Some(2_048), 0x55),
             vec![
                 ScalarOrderTermContract::new("score", OrderDirection::Desc),
@@ -329,6 +342,35 @@ mod tests {
             .expect("authenticated token should decode");
 
         assert_eq!(decoded, token);
+    }
+
+    #[test]
+    fn current_version_one_scalar_token_round_trips_exact_route_pin() {
+        let key = [0x66; 32];
+        let mut token = token();
+        token.route_pin = CardinalityTiebreakRoutePin::new(
+            IndexId::new_with_generation(EntityTag::new(9), 3, 4),
+            CardinalityTiebreakFamily::BranchSet,
+            2,
+        );
+        let encoded = token.encode(&key).expect("bounded route pin should encode");
+        let decoded = ScalarPageToken::decode(encoded.as_slice(), &key)
+            .expect("current authenticated route pin should decode");
+
+        assert_eq!(encoded[4], 1);
+        assert_eq!(decoded, token);
+    }
+
+    #[test]
+    fn current_scalar_token_rejects_route_pin_for_another_entity() {
+        let mut token = token();
+        token.route_pin = CardinalityTiebreakRoutePin::new(
+            IndexId::new_with_generation(EntityTag::new(10), 3, 4),
+            CardinalityTiebreakFamily::Prefix,
+            1,
+        );
+
+        assert!(token.encode(&[0x66; 32]).is_err());
     }
 
     #[test]

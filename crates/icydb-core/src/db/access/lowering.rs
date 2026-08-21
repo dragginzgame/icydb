@@ -388,6 +388,15 @@ impl LoweredIndexPrefixSpec {
         self.prefix_components.as_slice()
     }
 
+    /// Consume this preparation and transfer its encoded prefix components.
+    ///
+    /// Advisory planner consumers use this after charging the complete
+    /// transient lowering footprint, avoiding a second component buffer.
+    #[must_use]
+    pub(in crate::db) fn into_prefix_components(self) -> Vec<Vec<u8>> {
+        self.prefix_components
+    }
+
     #[must_use]
     pub(in crate::db) const fn deferred_cardinality_source(
         &self,

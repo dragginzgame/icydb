@@ -474,6 +474,8 @@ pub struct ExplainAccessDecision {
     pub rejections: Vec<ExplainRejectedIndex>,
     /// Residual-work summary for the selected route when available.
     pub residual: ExplainResidualSummary,
+    /// Availability class of exact cardinality evidence used at selection time.
+    pub cardinality_evidence_state: &'static str,
 }
 
 impl ExplainAccessDecision {
@@ -514,6 +516,7 @@ impl ExplainAccessDecision {
                 selected_candidate,
                 snapshot.chosen_reason(),
             ),
+            cardinality_evidence_state: snapshot.cardinality_evidence_state,
         }
     }
 
@@ -525,11 +528,12 @@ impl ExplainAccessDecision {
             .map_or("none", |index| index);
 
         format!(
-            "kind={} index={} reason={} residual={} candidates={} alternatives={} rejections={}",
+            "kind={} index={} reason={} residual={} cardinality_evidence={} candidates={} alternatives={} rejections={}",
             self.selected.kind.code(),
             index,
             self.selected.reason,
             self.residual.burden_class,
+            self.cardinality_evidence_state,
             self.candidates.len(),
             self.alternatives.len(),
             self.rejections.len(),
@@ -624,6 +628,8 @@ pub struct ExplainAccessCandidate {
     pub residual_burden: &'static str,
     /// Number of residual predicate terms recorded by the planner.
     pub residual_predicate_terms: usize,
+    /// Exact matching prefix entries at selection time, when available.
+    pub exact_prefix_entries: Option<u64>,
 }
 
 impl ExplainAccessCandidate {
@@ -636,6 +642,7 @@ impl ExplainAccessCandidate {
             order_compatible: candidate.order_compatible,
             residual_burden: candidate.residual_burden.label(),
             residual_predicate_terms: candidate.residual_predicate_terms,
+            exact_prefix_entries: candidate.exact_prefix_entries,
         }
     }
 }
@@ -1287,6 +1294,10 @@ fn write_access_decision_json(decision: &ExplainAccessDecision, out: &mut String
         );
         residual.finish();
     });
+    object.field_str(
+        "cardinality_evidence_state",
+        decision.cardinality_evidence_state,
+    );
     object.finish();
 }
 
@@ -1302,5 +1313,10 @@ fn write_access_candidate_json(candidate: &ExplainAccessCandidate, out: &mut Str
         "residual_predicate_terms",
         candidate.residual_predicate_terms as u64,
     );
+    if let Some(entries) = candidate.exact_prefix_entries {
+        object.field_u64("exact_prefix_entries", entries);
+    } else {
+        object.field_null("exact_prefix_entries");
+    }
     object.finish();
 }

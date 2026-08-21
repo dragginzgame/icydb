@@ -7,8 +7,9 @@ use crate::db::{
     access::{AccessPath, AccessPlan, AccessShapeFacts, SemanticIndexAccessContract},
     predicate::{CoercionId, CompareOp, IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
-        AccessChoiceExplainSnapshot, GroupedAggregateExecutionSpec,
-        GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
+        AccessChoiceExplainSnapshot, CardinalityTiebreakRoutePin, CardinalityTiebreakState,
+        GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
+        PlannerRouteProfile,
         access_choice::{
             non_index_access_choice_snapshot_for_access_plan,
             project_access_choice_explain_snapshot_with_semantic_indexes_and_schema,
@@ -709,6 +710,7 @@ pub(in crate::db) struct AccessPlannedQuery {
     pub(in crate::db) access: AccessPlan<Value>,
     pub(in crate::db) projection_selection: ProjectionSelection,
     pub(in crate::db) access_choice: AccessChoiceExplainSnapshot,
+    cardinality_tiebreak: CardinalityTiebreakState,
     pub(in crate::db) planner_route_profile: PlannerRouteProfile,
     pub(in crate::db) static_execution_planning_contract: Option<StaticExecutionPlanningContract>,
 }
@@ -770,6 +772,7 @@ impl AccessPlannedQuery {
             access,
             projection_selection,
             access_choice,
+            cardinality_tiebreak: CardinalityTiebreakState::NotApplicable,
             planner_route_profile,
             static_execution_planning_contract: None,
         }
@@ -851,6 +854,28 @@ impl AccessPlannedQuery {
         &self.access_choice
     }
 
+    /// Borrow selection-time exact-cardinality advisory state.
+    #[must_use]
+    pub(in crate::db) const fn cardinality_tiebreak(&self) -> &CardinalityTiebreakState {
+        &self.cardinality_tiebreak
+    }
+
+    /// Return the authenticated continuation route identity, when applicable.
+    #[must_use]
+    pub(in crate::db) const fn cardinality_tiebreak_route_pin(
+        &self,
+    ) -> Option<CardinalityTiebreakRoutePin> {
+        self.cardinality_tiebreak.route_pin()
+    }
+
+    /// Freeze the optional tie-break result before the plan enters shared preparation.
+    pub(in crate::db::query) fn set_cardinality_tiebreak(
+        &mut self,
+        state: CardinalityTiebreakState,
+    ) {
+        self.cardinality_tiebreak = state;
+    }
+
     /// Freeze one explain-only access-choice snapshot using already-projected
     /// semantic index contracts from the visible-index boundary.
     pub(in crate::db) fn finalize_access_choice_with_semantic_indexes_and_schema(
@@ -862,12 +887,17 @@ impl AccessPlannedQuery {
             return;
         }
 
+        let selected_index_name = self
+            .access
+            .selected_index_contract()
+            .map(|index| index.name().to_string());
         self.access_choice =
             project_access_choice_explain_snapshot_with_semantic_indexes_and_schema(
                 semantic_indexes,
                 schema_info,
                 self,
-            );
+            )
+            .with_cardinality_tiebreak(&self.cardinality_tiebreak, selected_index_name.as_deref());
     }
 
     /// Borrow the frozen planner-owned route profile.

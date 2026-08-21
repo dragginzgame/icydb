@@ -225,15 +225,6 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(AccessPath::selected_index_contract)
     }
 
-    /// Collect selected secondary-index contracts across this access tree in
-    /// deterministic traversal order, deduplicated by physical identity.
-    #[must_use]
-    pub(in crate::db) fn selected_index_contracts(&self) -> Vec<SemanticIndexAccessContract> {
-        let mut selected = Vec::new();
-        self.collect_selected_index_contracts(&mut selected);
-        selected
-    }
-
     /// Return true when this plan or any composite child selects an accepted
     /// secondary-index access shape.
     #[must_use]
@@ -323,29 +314,6 @@ impl<K> AccessPlan<K> {
         }
 
         Ok(out)
-    }
-
-    fn collect_selected_index_contracts(&self, selected: &mut Vec<SemanticIndexAccessContract>) {
-        match self {
-            Self::Path(path) => {
-                let Some(contract) = path.selected_index_contract() else {
-                    return;
-                };
-                if selected.iter().any(|existing| {
-                    existing.ordinal() == contract.ordinal()
-                        && existing.physical_generation() == contract.physical_generation()
-                        && existing.store_path() == contract.store_path()
-                }) {
-                    return;
-                }
-                selected.push(contract);
-            }
-            Self::Union(children) | Self::Intersection(children) => {
-                for child in children {
-                    child.collect_selected_index_contracts(selected);
-                }
-            }
-        }
     }
 }
 

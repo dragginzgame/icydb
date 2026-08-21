@@ -7,6 +7,7 @@ mod access_choice;
 mod access_plan;
 mod access_planner;
 mod aggregate_shape;
+mod cardinality_tiebreak;
 mod continuation;
 mod covering;
 pub(in crate::db) mod expr;
@@ -30,6 +31,7 @@ pub(crate) mod validate;
 
 use crate::db::{Predicate, access::SemanticIndexAccessContract, schema::SchemaInfo};
 
+pub(in crate::db) use access_choice::exact_cardinality_tiebreak_candidates;
 pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_semantic_indexes;
 pub(in crate::db) use access_choice::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
@@ -45,6 +47,10 @@ pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access_with_accepted_schema,
 };
 pub(in crate::db) use aggregate_shape::AggregateShape;
+pub(in crate::db) use cardinality_tiebreak::{
+    CardinalityTiebreakCandidate, CardinalityTiebreakCandidateEvidence, CardinalityTiebreakFamily,
+    CardinalityTiebreakRoutePin, CardinalityTiebreakState, ExactCardinalityTiebreakEvidence,
+};
 pub(in crate::db) use continuation::{
     AcceptedContinuationIdentity, GroupedPaginationWindow, PlannedContinuationContract,
     ScalarAccessWindowPlan, effective_offset_for_cursor_window,
@@ -97,6 +103,7 @@ pub(in crate::db) use order_contract::{
 pub(in crate::db) use order_term::index_key_item_order_terms;
 pub(in crate::db) use parameters::PreparedQueryParameterContract;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
+pub(in crate::db) use pipeline::apply_exact_cardinality_tiebreak_selection;
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{

@@ -21,7 +21,30 @@ use crate::db::{
 use crate::{error::InternalError, types::EntityTag};
 use candid::CandidType;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+#[cfg(test)]
+use std::cell::Cell;
 use std::{cell::RefCell, thread::LocalKey};
+
+#[cfg(test)]
+thread_local! {
+    static EXACT_PREFIX_EVIDENCE_PROBE_CALLS: Cell<u64> = const { Cell::new(0) };
+    static EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_exact_prefix_evidence_call_counts_for_tests() {
+    EXACT_PREFIX_EVIDENCE_PROBE_CALLS.with(|count| count.set(0));
+    EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(in crate::db) fn exact_prefix_evidence_call_counts_for_tests() -> (u64, u64) {
+    (
+        EXACT_PREFIX_EVIDENCE_PROBE_CALLS.with(Cell::get),
+        EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS.with(Cell::get),
+    )
+}
 
 ///
 /// StoreHandle
@@ -57,6 +80,34 @@ enum ReadyCardinalitySource {
         accepted_root: CardinalityAcceptedRootIdentity,
         fold_watermark: FoldWatermark,
     },
+}
+
+/// Opaque comparable lifecycle identity for optional exact-prefix evidence.
+///
+/// The fields remain private to the evidence owner. Consumers may only retain
+/// and compare this value; they cannot reconstruct generation policy from it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ExactPrefixCardinalityLifecycleStamp(
+    ExactPrefixCardinalityLifecycleIdentity,
+);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExactPrefixCardinalityLifecycleIdentity {
+    Volatile,
+    MissingDurableAuthority,
+    Corrupt,
+    Journaled {
+        header_digest: Option<[u8; 32]>,
+        cursor_present: bool,
+        delta_watermark: Option<FoldWatermark>,
+    },
+}
+
+/// One complete exact-prefix evidence attempt through current store authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum ExactUserIndexPrefixEvidence {
+    Exact(Vec<u64>),
+    Unavailable(ExactPrefixCardinalityLifecycleStamp),
 }
 
 impl ReadyCardinalityCountTargets<'_> {
@@ -659,6 +710,72 @@ impl StoreHandle {
             keys,
             Some((database_incarnation, accepted_root)),
         )
+    }
+
+    /// Return complete exact counts or one opaque current availability stamp.
+    ///
+    /// This boundary knows nothing about plans, caches, bindings, cursors, or
+    /// selected winners. It only proves current accepted-prefix evidence.
+    #[must_use]
+    pub(in crate::db) fn exact_user_index_prefix_evidence_for_admitted_root(
+        &self,
+        database_incarnation: DatabaseIncarnationId,
+        accepted_root: CardinalityAcceptedRootIdentity,
+        keys: &[UserIndexPrefixCardinalityKey],
+    ) -> ExactUserIndexPrefixEvidence {
+        #[cfg(test)]
+        EXACT_PREFIX_EVIDENCE_PROBE_CALLS.with(|count| count.set(count.get().saturating_add(1)));
+        let data_generation = self.with_data(DataStore::generation);
+        if let Some(counts) = self.exact_user_index_prefix_key_counts_for_admitted_root(
+            database_incarnation,
+            accepted_root,
+            data_generation,
+            keys,
+        ) {
+            return ExactUserIndexPrefixEvidence::Exact(counts);
+        }
+
+        ExactUserIndexPrefixEvidence::Unavailable(
+            self.exact_user_index_prefix_evidence_lifecycle_stamp(),
+        )
+    }
+
+    /// Return the cheap availability identity without reading any prefix count.
+    #[must_use]
+    pub(in crate::db) fn exact_user_index_prefix_evidence_lifecycle_stamp(
+        &self,
+    ) -> ExactPrefixCardinalityLifecycleStamp {
+        #[cfg(test)]
+        EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS
+            .with(|count| count.set(count.get().saturating_add(1)));
+        if self.journal.is_none() {
+            return ExactPrefixCardinalityLifecycleStamp(
+                ExactPrefixCardinalityLifecycleIdentity::Volatile,
+            );
+        }
+        if self.cardinality_allocation.is_none() {
+            return ExactPrefixCardinalityLifecycleStamp(
+                ExactPrefixCardinalityLifecycleIdentity::MissingDurableAuthority,
+            );
+        }
+        let delta_watermark = self.with_index(IndexStore::exact_prefix_cardinality_delta_watermark);
+        match self.with_schema(SchemaStore::cardinality_generation_lifecycle_control) {
+            Ok((header, cursor_present)) => ExactPrefixCardinalityLifecycleStamp(
+                ExactPrefixCardinalityLifecycleIdentity::Journaled {
+                    header_digest: header.map(|header| {
+                        let mut hasher = Sha256::new();
+                        hasher.update(b"icydb.cardinality-lifecycle-stamp.v1");
+                        hasher.update(header.encode());
+                        hasher.finalize().into()
+                    }),
+                    cursor_present,
+                    delta_watermark,
+                },
+            ),
+            Err(_) => ExactPrefixCardinalityLifecycleStamp(
+                ExactPrefixCardinalityLifecycleIdentity::Corrupt,
+            ),
+        }
     }
 
     fn exact_user_index_prefix_key_counts_with_authority(

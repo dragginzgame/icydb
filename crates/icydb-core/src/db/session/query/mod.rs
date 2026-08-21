@@ -5,6 +5,7 @@
 //! Boundary: resolves session visibility and cursor policy before handing work to the planner/executor.
 
 mod cache;
+mod cardinality_tiebreak;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 mod diagnostics;
 mod dynamic;

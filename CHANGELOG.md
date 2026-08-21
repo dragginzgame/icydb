@@ -5,9 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.236.x] 📐 - 2026-08-21 - Exact-Cardinality Planner Tie-Breaking
+
+Detailed notes: [docs/changelog/0.236.md](docs/changelog/0.236.md)
+
+- `0.236.0` uses existing exact prefix-cardinality authority only to resolve
+  final equivalent prefix-family planner ties, with advisory cache reuse,
+  candidate-stable authenticated cursors, and no statistics subsystem.
+
 ## [0.235.x] 🔗 - 2026-08-20 - Bounded Same-Store Multi-Entity Mutations
 
 Detailed notes: [docs/changelog/0.235.md](docs/changelog/0.235.md)
+
+- `0.235.2` aligns diagnostic test helpers with their owning feature set,
+  restoring warning-clean workspace validation without changing runtime behavior.
 
 - `0.235.1` restores SQL and dynamic predicates for accepted `#[newtype]`
   fields by planning against their admitted scalar or collection value shape

@@ -1018,6 +1018,33 @@ impl SchemaStore {
         Ok((header, cursor))
     }
 
+    /// Load only lifecycle identity needed by advisory cardinality consumers.
+    ///
+    /// Cursor payload progress is deliberately not decoded or retained here:
+    /// Building progress does not change whether exact evidence is available.
+    pub(in crate::db) fn cardinality_generation_lifecycle_control(
+        &self,
+    ) -> Result<(Option<CardinalityGenerationHeader>, bool), InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &self.backend else {
+            return Err(InternalError::store_invariant());
+        };
+        let header_key = RawSchemaKey::from_cardinality_generation_header();
+        let cursor_key = RawSchemaKey::from_cardinality_build_cursor();
+        let mut header = None;
+        let mut cursor_present = false;
+        for entry in canonical.range(header_key..=cursor_key) {
+            if *entry.key() == header_key {
+                header = Some(self.decode_cardinality_header_cached(&entry.value())?);
+            } else if *entry.key() == cursor_key {
+                cursor_present = true;
+            } else {
+                return Err(InternalError::store_corruption());
+            }
+        }
+
+        Ok((header, cursor_present))
+    }
+
     fn decode_cardinality_header_cached(
         &self,
         raw: &RawSchemaSnapshot,

@@ -10,12 +10,12 @@ use crate::{
         query::{
             intent::{QueryError, QueryModel},
             plan::{
-                AccessPlannedQuery, AccessPlanningInputs, LogicalPlan, LogicalPlanningInputs,
-                OrderSpec, PlannedAccessSelection, PlannedNonIndexAccessReason,
-                PrimaryKeyAccessProof, PrimaryKeyInputResourceSummary, VisibleIndexes,
-                build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
-                logical_query_from_logical_inputs, normalize_query_predicate,
-                plan_access_selection_with_order_and_semantic_indexes,
+                AccessPlannedQuery, AccessPlanningInputs, CardinalityTiebreakState, LogicalPlan,
+                LogicalPlanningInputs, OrderSpec, PlannedAccessSelection,
+                PlannedNonIndexAccessReason, PrimaryKeyAccessProof, PrimaryKeyInputResourceSummary,
+                VisibleIndexes, build_logical_plan, fold_constant_predicate,
+                is_limit_zero_load_window, logical_query_from_logical_inputs,
+                normalize_query_predicate, plan_access_selection_with_order_and_semantic_indexes,
                 plan_query_access_with_accepted_schema, predicate_is_constant_false,
                 primary_key_input_resource_from_value_list,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
@@ -245,22 +245,56 @@ fn assemble_query_model_plan(
     attach_primary_key_input_resource_if_exact_access(&mut plan, primary_key_input_resource);
     simplify_limit_one_page_for_by_key_access(&mut plan);
 
+    finalize_query_model_plan(&schema_info, plan)
+}
+
+fn finalize_query_model_plan(
+    schema_info: &SchemaInfo,
+    mut plan: AccessPlannedQuery,
+) -> Result<AccessPlannedQuery, QueryError> {
     // Phase 4: freeze the planner-owned route profile before validation so
     // policy gates that depend on finalized access/order contracts, such as
     // expression ORDER BY support, see the accepted route semantics.
-    plan.finalize_planner_route_profile_for_model_with_schema(&schema_info);
+    plan.finalize_planner_route_profile_for_model_with_schema(schema_info);
 
     // Phase 5: validate the assembled plan against schema, access-shape, and
     // planner-policy contracts before projecting explain metadata.
-    validate_plan_semantics(&schema_info, &plan)?;
+    validate_plan_semantics(schema_info, &plan)?;
 
     // Phase 6: freeze planner-owned execution metadata only after semantic
     // validation succeeds so user-facing projection/order errors remain
     // planner-domain failures instead of executor invariant violations.
-    plan.finalize_static_execution_planning_contract_with_schema(&schema_info)
+    plan.finalize_static_execution_planning_contract_with_schema(schema_info)
         .map_err(QueryError::execute)?;
 
     Ok(plan)
+}
+
+/// Freeze one optional exact-cardinality decision through the canonical plan finalizer.
+pub(in crate::db) fn apply_exact_cardinality_tiebreak_selection(
+    mut plan: AccessPlannedQuery,
+    selected_access: Option<AccessPlan<Value>>,
+    state: CardinalityTiebreakState,
+    schema_info: &SchemaInfo,
+) -> Result<AccessPlannedQuery, QueryError> {
+    let Some(selected_access) = selected_access else {
+        plan.set_cardinality_tiebreak(state);
+        return Ok(plan);
+    };
+    if selected_access == plan.access {
+        plan.set_cardinality_tiebreak(state);
+        return Ok(plan);
+    }
+
+    let mut reselected = AccessPlannedQuery::from_planned_access_with_projection(
+        plan.logical,
+        selected_access,
+        plan.projection_selection,
+        None,
+    );
+    reselected.set_cardinality_tiebreak(state);
+    simplify_limit_one_page_for_by_key_access(&mut reselected);
+    finalize_query_model_plan(schema_info, reselected)
 }
 
 fn plan_access_from_parameterized_template(

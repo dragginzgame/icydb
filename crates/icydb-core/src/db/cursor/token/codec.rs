@@ -22,7 +22,8 @@ use crate::{
             },
         },
         direction::Direction,
-        query::plan::OrderDirection,
+        index::IndexId,
+        query::plan::{CardinalityTiebreakRoutePin, OrderDirection},
     },
     types::EntityTag,
     value::Value,
@@ -44,6 +45,7 @@ const PAGE_MODE_EXHAUSTIVE: u8 = 1;
 const ORDER_DIRECTION_ASC: u8 = 0;
 const ORDER_DIRECTION_DESC: u8 = 1;
 const NULL_COMPARISON_CANONICAL_V1: u8 = 1;
+const SCALAR_ROUTE_PIN_LAYOUT_CURRENT: u8 = 0xA6;
 const SLOT_MISSING: u8 = 0;
 const SLOT_PRESENT: u8 = 1;
 
@@ -200,6 +202,8 @@ fn write_scalar_payload(out: &mut Vec<u8>, token: &ScalarPageToken) -> Result<()
     out.extend_from_slice(&authority.accepted_root_fingerprint());
     out.extend_from_slice(&authority.accepted_entity_fingerprint());
     write_u64(out, authority.entity_tag().value());
+    out.push(SCALAR_ROUTE_PIN_LAYOUT_CURRENT);
+    write_optional_cardinality_route_pin(out, token.route_pin(), authority.entity_tag())?;
 
     let window = token.window();
     write_u32(out, window.initial_offset());
@@ -246,6 +250,10 @@ fn read_scalar_payload(mut cursor: ByteCursor<'_>) -> Result<ScalarPageToken, To
         accepted_entity_fingerprint,
         entity_tag,
     );
+    if cursor.read_u8()? != SCALAR_ROUTE_PIN_LAYOUT_CURRENT {
+        return Err(TokenWireError::decode());
+    }
+    let route_pin = read_optional_cardinality_route_pin(&mut cursor, entity_tag)?;
 
     let initial_offset = cursor.read_u32()?;
     let total_limit = read_optional_u32(&mut cursor)?;
@@ -286,6 +294,7 @@ fn read_scalar_payload(mut cursor: ByteCursor<'_>) -> Result<ScalarPageToken, To
         mode,
         signature,
         authority,
+        route_pin,
         window,
         order_terms,
         ScalarPageTokenProgress::new(
@@ -296,6 +305,49 @@ fn read_scalar_payload(mut cursor: ByteCursor<'_>) -> Result<ScalarPageToken, To
             rows_emitted,
         ),
     ))
+}
+
+fn write_optional_cardinality_route_pin(
+    out: &mut Vec<u8>,
+    route_pin: Option<CardinalityTiebreakRoutePin>,
+    entity_tag: EntityTag,
+) -> Result<(), TokenWireError> {
+    let Some(route_pin) = route_pin else {
+        out.push(0);
+        return Ok(());
+    };
+    if route_pin.index_id().entity_tag() != entity_tag {
+        return Err(TokenWireError::encode());
+    }
+    out.push(1);
+    out.extend_from_slice(&route_pin.index_id().to_bytes());
+    out.push(route_pin.family().wire_tag());
+    out.push(route_pin.consumed_prefix_arity());
+    Ok(())
+}
+
+fn read_optional_cardinality_route_pin(
+    cursor: &mut ByteCursor<'_>,
+    entity_tag: EntityTag,
+) -> Result<Option<CardinalityTiebreakRoutePin>, TokenWireError> {
+    match cursor.read_u8()? {
+        0 => Ok(None),
+        1 => {
+            let index_id = IndexId::from_bytes(cursor.read_exact(IndexId::STORED_SIZE_USIZE)?)
+                .ok_or_else(TokenWireError::decode)?;
+            let family =
+                crate::db::query::plan::CardinalityTiebreakFamily::from_wire_tag(cursor.read_u8()?)
+                    .ok_or_else(TokenWireError::decode)?;
+            let prefix_arity = usize::from(cursor.read_u8()?);
+            if index_id.entity_tag() != entity_tag {
+                return Err(TokenWireError::decode());
+            }
+            CardinalityTiebreakRoutePin::new(index_id, family, prefix_arity)
+                .map(Some)
+                .ok_or_else(TokenWireError::decode)
+        }
+        _ => Err(TokenWireError::decode()),
+    }
 }
 
 fn write_optional_u32(out: &mut Vec<u8>, value: Option<u32>) {

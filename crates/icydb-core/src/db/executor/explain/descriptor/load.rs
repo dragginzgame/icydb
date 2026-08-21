@@ -548,6 +548,9 @@ fn render_access_choice_verbose_section(
                 "      residual: {}",
                 candidate_residual_burden_label(candidate)
             ));
+            if let Some(entries) = candidate.exact_prefix_entries {
+                lines.push(format!("      exact_prefix_entries: {entries}"));
+            }
         }
     }
 
@@ -557,6 +560,10 @@ fn render_access_choice_verbose_section(
         format!(
             "    reason: {}",
             verbose_preparation.access_choice.chosen_reason.code()
+        ),
+        format!(
+            "    cardinality_evidence: {}",
+            verbose_preparation.access_choice.cardinality_evidence_state
         ),
     ]);
 

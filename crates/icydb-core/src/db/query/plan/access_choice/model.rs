@@ -4,7 +4,9 @@
 //! Does not own: candidate enumeration or final execution-plan assembly.
 //! Boundary: keeps planner access-choice data structures separate from evaluator logic.
 
-use crate::db::query::plan::PlannedNonIndexAccessReason;
+use crate::db::query::plan::{
+    CardinalityTiebreakCandidateEvidence, CardinalityTiebreakState, PlannedNonIndexAccessReason,
+};
 
 pub(super) use crate::db::query::plan::planner::AccessCandidateScore as CandidateScore;
 
@@ -22,6 +24,7 @@ pub(in crate::db) struct AccessChoiceExplainSnapshot {
     pub(in crate::db) alternatives: Vec<String>,
     pub(in crate::db) rejected: Vec<AccessChoiceRejectedIndex>,
     pub(in crate::db) primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
+    pub(in crate::db) cardinality_evidence_state: &'static str,
 }
 
 impl AccessChoiceExplainSnapshot {
@@ -35,6 +38,7 @@ impl AccessChoiceExplainSnapshot {
             alternatives: Vec::new(),
             rejected: Vec::new(),
             primary_key_input_resource: None,
+            cardinality_evidence_state: "not_applicable",
         }
     }
 
@@ -48,6 +52,7 @@ impl AccessChoiceExplainSnapshot {
             alternatives: Vec::new(),
             rejected: Vec::new(),
             primary_key_input_resource: None,
+            cardinality_evidence_state: "not_applicable",
         }
     }
 
@@ -105,6 +110,7 @@ impl AccessChoiceExplainSnapshot {
             alternatives: Vec::new(),
             rejected: Vec::new(),
             primary_key_input_resource: None,
+            cardinality_evidence_state: "not_applicable",
         }
     }
 
@@ -130,6 +136,58 @@ impl AccessChoiceExplainSnapshot {
         resource: PrimaryKeyInputResourceSummary,
     ) -> Self {
         self.primary_key_input_resource = Some(resource);
+        self
+    }
+
+    /// Attach privacy-safe selection evidence after the ordinary candidate projection.
+    #[must_use]
+    pub(in crate::db) fn with_cardinality_tiebreak(
+        mut self,
+        state: &CardinalityTiebreakState,
+        selected_index_name: Option<&str>,
+    ) -> Self {
+        match state {
+            CardinalityTiebreakState::NotApplicable => {}
+            CardinalityTiebreakState::Unavailable { .. } => {
+                self.cardinality_evidence_state = "unavailable";
+            }
+            CardinalityTiebreakState::PolicyFallback(_) => {
+                self.cardinality_evidence_state = "policy_fallback";
+            }
+            CardinalityTiebreakState::PinnedContinuation(_) => {
+                self.cardinality_evidence_state = "pinned_continuation";
+            }
+            CardinalityTiebreakState::ExactAtSelection(evidence) => {
+                self.cardinality_evidence_state = "exact_at_selection";
+                for candidate in &mut self.candidates {
+                    candidate.exact_prefix_entries = evidence
+                        .candidates()
+                        .iter()
+                        .find(|exact| exact.index_name() == candidate.index_name())
+                        .map(CardinalityTiebreakCandidateEvidence::exact_prefix_entries);
+                }
+                let selected_count = selected_index_name.and_then(|selected| {
+                    evidence
+                        .candidates()
+                        .iter()
+                        .find(|candidate| candidate.index_name() == selected)
+                        .map(CardinalityTiebreakCandidateEvidence::exact_prefix_entries)
+                });
+                if selected_index_name.zip(selected_count).is_some_and(
+                    |(selected_index_name, selected_count)| {
+                        evidence.candidates().iter().all(|candidate| {
+                            candidate.index_name() == selected_index_name
+                                || selected_count < candidate.exact_prefix_entries()
+                        })
+                    },
+                ) {
+                    self.chosen_reason = AccessChoiceSelectedReason::Ranked(
+                        AccessChoiceRankingReason::ExactCardinalityTiebreak,
+                    );
+                }
+            }
+        }
+
         self
     }
 }
@@ -239,6 +297,7 @@ pub(in crate::db) struct AccessChoiceCandidateExplainSummary {
     pub(in crate::db) order_compatible: bool,
     pub(in crate::db) residual_burden: AccessChoiceResidualBurden,
     pub(in crate::db) residual_predicate_terms: usize,
+    pub(in crate::db) exact_prefix_entries: Option<u64>,
 }
 
 impl AccessChoiceCandidateExplainSummary {
@@ -271,6 +330,7 @@ impl AccessChoiceCandidateExplainSummary {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AccessChoiceRankingReason {
+    ExactCardinalityTiebreak,
     ExactMatchPreferred,
     FilteredPredicatePreferred,
     StrongerRangeBoundsPreferred,
@@ -283,6 +343,7 @@ impl AccessChoiceRankingReason {
     #[must_use]
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
+            Self::ExactCardinalityTiebreak => "exact_cardinality_tiebreak",
             Self::ExactMatchPreferred => "exact_match_preferred",
             Self::FilteredPredicatePreferred => "filtered_predicate_preferred",
             Self::StrongerRangeBoundsPreferred => "stronger_range_bounds_preferred",

@@ -25,6 +25,7 @@ use crate::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
             expr::{FilterExpr, OrderTerm as FluentOrderTerm},
             intent::{IntentError, StructuralQuery},
+            plan::CardinalityTiebreakRoutePin,
         },
         session::AcceptedSchemaCatalogContext,
     },
@@ -69,6 +70,7 @@ enum DynamicReadLane {
 struct ScalarCursorContract {
     signature: crate::db::cursor::ContinuationSignature,
     authority: ScalarPageTokenAuthority,
+    route_pin: Option<CardinalityTiebreakRoutePin>,
     window: ScalarPageTokenWindow,
     order_terms: Vec<ScalarOrderTermContract>,
 }
@@ -209,6 +211,9 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(ScalarCursorContract {
             signature,
             authority,
+            route_pin: prepared_plan
+                .logical_plan()
+                .cardinality_tiebreak_route_pin(),
             window,
             order_terms,
         })
@@ -217,25 +222,23 @@ impl<C: CanisterKind> DbSession<C> {
     fn validate_scalar_page_token(
         token: &ScalarPageToken,
         mode: ScalarPageMode,
-        signature: crate::db::cursor::ContinuationSignature,
-        authority: ScalarPageTokenAuthority,
-        window: ScalarPageTokenWindow,
-        order_terms: &[ScalarOrderTermContract],
+        contract: &ScalarCursorContract,
         entity: &str,
     ) -> Result<(), QueryError> {
-        if token.signature() != signature {
+        if token.signature() != contract.signature {
             return Err(QueryError::from_cursor_plan_error(
                 CursorPlanError::continuation_cursor_signature_mismatch(
                     entity,
-                    &signature,
+                    &contract.signature,
                     &token.signature(),
                 ),
             ));
         }
         if token.mode() != mode
-            || token.authority() != authority
-            || token.window() != window
-            || token.order_terms() != order_terms
+            || token.authority() != contract.authority
+            || token.route_pin() != contract.route_pin
+            || token.window() != contract.window
+            || token.order_terms() != contract.order_terms.as_slice()
         {
             return Err(Self::scalar_page_cursor_error());
         }
@@ -414,12 +417,23 @@ impl<C: CanisterKind> DbSession<C> {
                 Some(execution_limit),
                 true,
             )?;
-            self.structural_projection_prepared_plan_for_accepted_authority(
-                &query,
-                catalog.accepted_entity_authority(),
-                catalog.snapshot(),
-                execution_lane,
-            )?
+            if let Some(route_pin) = decoded_token.as_ref().and_then(ScalarPageToken::route_pin) {
+                self.structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
+                    &query,
+                    catalog.accepted_entity_authority(),
+                    catalog.snapshot(),
+                    execution_lane,
+                    route_pin,
+                )?
+                .ok_or_else(Self::scalar_page_cursor_error)?
+            } else {
+                self.structural_projection_prepared_plan_for_accepted_authority(
+                    &query,
+                    catalog.accepted_entity_authority(),
+                    catalog.snapshot(),
+                    execution_lane,
+                )?
+            }
         };
         if matches!(lane, DynamicReadLane::Public) {
             let policy = QueryAdmissionPolicy::default_bounded_read();
@@ -444,15 +458,7 @@ impl<C: CanisterKind> DbSession<C> {
                     mode,
                     exhaustive_proof.as_ref(),
                 )?;
-                Self::validate_scalar_page_token(
-                    token,
-                    mode,
-                    contract.signature,
-                    contract.authority,
-                    contract.window,
-                    contract.order_terms.as_slice(),
-                    request.entity(),
-                )?;
+                Self::validate_scalar_page_token(token, mode, &contract, request.entity())?;
                 Ok::<_, QueryError>(contract)
             })
             .transpose()?;
@@ -550,6 +556,7 @@ impl<C: CanisterKind> DbSession<C> {
                 mode,
                 cursor_contract.signature,
                 cursor_contract.authority,
+                cursor_contract.route_pin,
                 cursor_contract.window,
                 cursor_contract.order_terms,
                 ScalarPageTokenProgress::new(
