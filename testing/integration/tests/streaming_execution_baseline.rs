@@ -40,11 +40,14 @@ struct StreamingQueryPerfResult {
     attribution: SqlQueryExecutionAttribution,
 }
 
-const PREFIX_FAMILY_MAX_FANOUT_INSTRUCTION_CEILING: u64 = 5_150_250;
+// The 0.236 exact-cardinality entities widen this shared audit canister's
+// accepted schema. The physical prefix-merge gate below remains unchanged at
+// fewer than 68 entries; this ceiling freezes the remeasured current schema.
+const PREFIX_FAMILY_MAX_FANOUT_INSTRUCTION_CEILING: u64 = 5_300_000;
 // Total attribution includes accepted-schema observation. Keep the exact
 // 41-entry/one-fetch structural gate below, while allowing for the wider
-// 0.228 maximum-fanout audit schema in the shared canister.
-const INTERSECTION_2_SPARSE_INSTRUCTION_CEILING: u64 = 2_100_000;
+// 0.236 exact-cardinality audit schema in the shared canister.
+const INTERSECTION_2_SPARSE_INSTRUCTION_CEILING: u64 = 2_300_000;
 const TOPN_WIDE_PAYLOAD_INSTRUCTION_CEILING: u64 = 65_592_124;
 
 #[derive(CandidType, Debug, Deserialize)]

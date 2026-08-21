@@ -103,15 +103,11 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
-        let mut matching = candidates
-            .into_iter()
-            .filter(|candidate| candidate.route_pin(authority.entity_tag()) == Some(route_pin));
-        let Some(selected) = matching.next() else {
+        let Some(selected) = exactly_one_matching_candidate(candidates, |candidate| {
+            candidate.route_pin(authority.entity_tag()) == Some(route_pin)
+        }) else {
             return Ok(None);
         };
-        if matching.next().is_some() {
-            return Ok(None);
-        }
 
         let mut plan = apply_exact_cardinality_tiebreak_selection(
             plan,
@@ -129,7 +125,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         candidates: Vec<CardinalityTiebreakCandidate>,
     ) -> Result<CardinalityTiebreakAttempt, QueryError> {
-        if candidates.len() > MAX_CARDINALITY_TIEBREAK_CANDIDATES {
+        if !cardinality_candidate_count_is_admitted(candidates.len()) {
             return Ok(CardinalityTiebreakAttempt::PolicyFallback);
         }
         let store = self
@@ -201,14 +197,7 @@ fn prepare_cardinality_candidates(
             return None;
         };
         let (_executable, prefix_specs, range_specs) = lowered.into_executable_and_index_specs();
-        if !range_specs.is_empty()
-            || prefix_specs.is_empty()
-            || prefix_specs.len() > MAX_CARDINALITY_TIEBREAK_PREFIXES_PER_CANDIDATE
-        {
-            return None;
-        }
-        total_probes = total_probes.checked_add(prefix_specs.len())?;
-        if total_probes > MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES {
+        if !range_specs.is_empty() || prefix_specs.is_empty() {
             return None;
         }
         let candidate_component_bytes = prefix_specs.iter().try_fold(0usize, |total, spec| {
@@ -225,13 +214,13 @@ fn prepare_cardinality_candidates(
                         .checked_add(bound_key_bytes(lower))?
                         .checked_add(bound_key_bytes(upper))
                 })?;
-        if candidate_transient_bytes > MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES {
-            return None;
-        }
-        total_lowered_bytes = total_lowered_bytes.checked_add(candidate_component_bytes)?;
-        if total_lowered_bytes > MAX_CARDINALITY_TIEBREAK_LOWERED_BYTES {
-            return None;
-        }
+        (total_probes, total_lowered_bytes) = admit_cardinality_candidate_shape(
+            total_probes,
+            prefix_specs.len(),
+            total_lowered_bytes,
+            candidate_component_bytes,
+            candidate_transient_bytes,
+        )?;
 
         let index_id = IndexId::new_with_generation(
             entity_tag,
@@ -309,6 +298,47 @@ fn exact_selected_route_pin(
     matching.next().is_none().then_some(selected)
 }
 
+// A pinned cursor is valid only when its authenticated route identifies one
+// and only one member of the normally eligible final tie set.
+fn exactly_one_matching_candidate<T>(
+    candidates: impl IntoIterator<Item = T>,
+    mut is_match: impl FnMut(&T) -> bool,
+) -> Option<T> {
+    let mut matching = candidates
+        .into_iter()
+        .filter(|candidate| is_match(candidate));
+    let selected = matching.next()?;
+
+    matching.next().is_none().then_some(selected)
+}
+
+const fn cardinality_candidate_count_is_admitted(candidate_count: usize) -> bool {
+    candidate_count <= MAX_CARDINALITY_TIEBREAK_CANDIDATES
+}
+
+fn admit_cardinality_candidate_shape(
+    total_probes: usize,
+    candidate_probes: usize,
+    total_lowered_bytes: usize,
+    candidate_component_bytes: usize,
+    candidate_transient_bytes: usize,
+) -> Option<(usize, usize)> {
+    if candidate_probes > MAX_CARDINALITY_TIEBREAK_PREFIXES_PER_CANDIDATE
+        || candidate_transient_bytes > MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES
+    {
+        return None;
+    }
+    let admitted_probes = total_probes.checked_add(candidate_probes)?;
+    let admitted_lowered_bytes = total_lowered_bytes.checked_add(candidate_component_bytes)?;
+    if admitted_probes > MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES
+        || admitted_lowered_bytes > MAX_CARDINALITY_TIEBREAK_LOWERED_BYTES
+    {
+        return None;
+    }
+
+    Some((admitted_probes, admitted_lowered_bytes))
+}
+
 fn bound_key_bytes(bound: &Bound<crate::db::access::LoweredKey>) -> usize {
     match bound {
         Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
@@ -324,11 +354,79 @@ fn checked_exact_prefix_entries(counts: &[u64]) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::checked_exact_prefix_entries;
+    use super::{
+        MAX_CARDINALITY_TIEBREAK_LOWERED_BYTES, MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES,
+        MAX_CARDINALITY_TIEBREAK_PREFIXES_PER_CANDIDATE,
+        MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES, admit_cardinality_candidate_shape,
+        cardinality_candidate_count_is_admitted, checked_exact_prefix_entries,
+        exactly_one_matching_candidate,
+    };
 
     #[test]
     fn exact_prefix_entry_sum_is_checked() {
         assert_eq!(checked_exact_prefix_entries(&[2, 3, 5]), Some(10));
         assert_eq!(checked_exact_prefix_entries(&[u64::MAX, 1]), None);
+    }
+
+    #[test]
+    fn optional_policy_admits_exact_bounds_and_rejects_every_first_excess() {
+        assert!(cardinality_candidate_count_is_admitted(64));
+        assert!(!cardinality_candidate_count_is_admitted(65));
+        assert_eq!(
+            admit_cardinality_candidate_shape(
+                MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES
+                    - MAX_CARDINALITY_TIEBREAK_PREFIXES_PER_CANDIDATE,
+                MAX_CARDINALITY_TIEBREAK_PREFIXES_PER_CANDIDATE,
+                MAX_CARDINALITY_TIEBREAK_LOWERED_BYTES
+                    - MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES,
+                MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES,
+                MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES,
+            ),
+            Some((
+                MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES,
+                MAX_CARDINALITY_TIEBREAK_LOWERED_BYTES,
+            )),
+        );
+        assert!(
+            admit_cardinality_candidate_shape(0, 17, 0, 0, 0).is_none(),
+            "a seventeenth candidate prefix must fall back",
+        );
+        assert!(
+            admit_cardinality_candidate_shape(MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES, 1, 0, 0, 0,)
+                .is_none(),
+            "the 257th proof must fall back",
+        );
+        assert!(
+            admit_cardinality_candidate_shape(0, 1, MAX_CARDINALITY_TIEBREAK_LOWERED_BYTES, 1, 0,)
+                .is_none(),
+            "the first byte above the cumulative envelope must fall back",
+        );
+        assert!(
+            admit_cardinality_candidate_shape(
+                0,
+                1,
+                0,
+                0,
+                MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES + 1,
+            )
+            .is_none(),
+            "the first byte above the transient envelope must fall back",
+        );
+    }
+
+    #[test]
+    fn pinned_route_selection_requires_exactly_one_match() {
+        assert_eq!(
+            exactly_one_matching_candidate([1, 2, 3], |candidate| *candidate == 2),
+            Some(2),
+        );
+        assert_eq!(
+            exactly_one_matching_candidate([1, 2, 3], |candidate| *candidate == 4),
+            None,
+        );
+        assert_eq!(
+            exactly_one_matching_candidate([1, 2, 2], |candidate| *candidate == 2),
+            None,
+        );
     }
 }
