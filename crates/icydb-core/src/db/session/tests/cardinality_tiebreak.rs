@@ -46,11 +46,11 @@ impl Path for TestCanister {
 }
 
 impl CanisterKind for TestCanister {
-    const COMMIT_MEMORY_ID: u8 = 216;
+    const COMMIT_MEMORY_ID: u8 = 162;
     const COMMIT_STABLE_KEY: &'static str = "icydb.test.cardinality-tiebreak.commit.v1";
-    const STARTUP_MEMORY_ID: u8 = 217;
+    const STARTUP_MEMORY_ID: u8 = 163;
     const STARTUP_STABLE_KEY: &'static str = "icydb.test.cardinality-tiebreak.startup.v1";
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 218;
+    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 164;
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
         "icydb.test.cardinality-tiebreak.integrity.v1";
 }
@@ -62,11 +62,11 @@ impl Path for JournaledTestCanister {
 }
 
 impl CanisterKind for JournaledTestCanister {
-    const COMMIT_MEMORY_ID: u8 = 190;
+    const COMMIT_MEMORY_ID: u8 = 159;
     const COMMIT_STABLE_KEY: &'static str = "icydb.cardinality_tie.commit.v1";
-    const STARTUP_MEMORY_ID: u8 = 192;
+    const STARTUP_MEMORY_ID: u8 = 161;
     const STARTUP_STABLE_KEY: &'static str = "icydb.cardinality_tie.startup.v1";
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 191;
+    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 160;
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.cardinality_tie.integrity.v1";
 }
 
@@ -87,13 +87,13 @@ thread_local! {
         registry
     };
     static JOURNALED_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init_journaled(test_memory(186)));
+        RefCell::new(DataStore::init_journaled(test_memory(155)));
     static JOURNALED_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init_journaled(test_memory(187)));
+        RefCell::new(IndexStore::init_journaled(test_memory(156)));
     static JOURNALED_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init_journaled(test_memory(188)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(157)));
     static JOURNALED_TAIL_STORE: RefCell<JournalTailStore> =
-        RefCell::new(JournalTailStore::init(test_memory(189)));
+        RefCell::new(JournalTailStore::init(test_memory(158)));
     static JOURNALED_STORE_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry.register_journaled_store(
@@ -103,10 +103,10 @@ thread_local! {
             &JOURNALED_SCHEMA_STORE,
             &JOURNALED_TAIL_STORE,
             StoreAllocationIdentities::new_journaled(
-                StoreAllocationIdentity::new(186, "icydb.cardinality_tie.data.v1"),
-                StoreAllocationIdentity::new(187, "icydb.cardinality_tie.index.v1"),
-                StoreAllocationIdentity::new(188, "icydb.cardinality_tie.schema.v1"),
-                StoreAllocationIdentity::new(189, "icydb.cardinality_tie.journal.v1"),
+                StoreAllocationIdentity::new(155, "icydb.cardinality_tie.data.v1"),
+                StoreAllocationIdentity::new(156, "icydb.cardinality_tie.index.v1"),
+                StoreAllocationIdentity::new(157, "icydb.cardinality_tie.schema.v1"),
+                StoreAllocationIdentity::new(158, "icydb.cardinality_tie.journal.v1"),
             ),
             StoreRuntimeStorageCapabilities::journaled(),
         ).expect("journaled cardinality tie-break store should register");

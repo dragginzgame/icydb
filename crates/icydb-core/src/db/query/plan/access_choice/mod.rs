@@ -581,15 +581,8 @@ fn residual_burden_for_plan(plan: &AccessPlannedQuery) -> ResidualBurdenProfile 
         .effective_execution_predicate()
         .as_ref()
         .map_or(0, count_predicate_terms);
-    // A semantic expression represented completely by the normalized
-    // predicate is executed through the residual predicate program, not a
-    // second expression program. Derive that canonical final shape here so
-    // finalized chosen plans and lightweight alternative shells compare under
-    // one residual authority.
-    let expression_required = plan.scalar_plan().filter_expr.is_some()
-        && !plan.scalar_plan().predicate_covers_filter_expr;
-    let shape = ResidualFilterShape::from_presence(expression_required, predicate_term_count > 0);
-    let kind_rank = ResidualBurdenProfile::kind_rank_for_residual_shape(shape);
+    let kind_rank =
+        ResidualBurdenProfile::kind_rank_for_residual_shape(plan.residual_filter_shape());
 
     ResidualBurdenProfile {
         kind_rank,

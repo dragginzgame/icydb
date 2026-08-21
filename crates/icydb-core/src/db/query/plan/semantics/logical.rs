@@ -178,8 +178,14 @@ impl AccessPlannedQuery {
             return static_contract.residual_filter_contract.shape();
         }
 
+        // Normalize pre-finalization candidate shells to the same execution
+        // shape later frozen in the static contract. A filter expression fully
+        // represented by its predicate executes through that predicate, not a
+        // second expression program.
+        let expression_required = self.scalar_plan().filter_expr.is_some()
+            && !derive_semantic_filter_fully_satisfied_by_access_contract(self);
         ResidualFilterShape::from_presence(
-            self.residual_filter_expr().is_some(),
+            expression_required,
             self.effective_execution_predicate().is_some(),
         )
     }

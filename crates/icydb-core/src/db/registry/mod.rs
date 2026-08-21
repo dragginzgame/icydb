@@ -21,7 +21,7 @@ pub use handle::{
     StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use handle::{
     exact_prefix_evidence_call_counts_for_tests, reset_exact_prefix_evidence_call_counts_for_tests,
 };
