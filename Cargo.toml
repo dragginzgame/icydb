@@ -92,7 +92,7 @@ icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
-num-bigint = "0.4"
+num-bigint = "0.5"
 pocket-ic = "15.0.0"
 proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0"
