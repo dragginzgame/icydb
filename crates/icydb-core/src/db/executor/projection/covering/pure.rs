@@ -83,14 +83,12 @@ where
         return Ok(Some(projected_rows));
     }
 
-    if let Some(projected_rows) = try_execute_bounded_index_range_covering_rows_for_canister(
-        db,
-        &authority,
-        plan,
-        index_prefix_specs,
-        index_range_specs,
-        covering,
-    )? {
+    if index_prefix_specs.is_empty()
+        && let [range] = index_range_specs
+        && let Some(projected_rows) = try_execute_bounded_index_range_covering_rows_for_canister(
+            db, &authority, plan, range, covering,
+        )?
+    {
         return Ok(Some(projected_rows));
     }
 
@@ -417,8 +415,7 @@ fn try_execute_bounded_index_range_covering_rows_for_canister<C>(
     db: &Db<C>,
     authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-    index_range_specs: &[LoweredIndexRangeSpec],
+    range: &LoweredIndexRangeSpec,
     covering: &CoveringReadExecutionPlan,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
@@ -427,13 +424,9 @@ where
     if !plan.access.has_selected_index_access_path()
         || plan.scalar_plan().distinct
         || plan.has_any_residual_filter()
-        || !index_prefix_specs.is_empty()
     {
         return Ok(None);
     }
-    let [range] = index_range_specs else {
-        return Ok(None);
-    };
     let CoveringProjectionOrder::IndexOrder(direction) = covering.order_contract else {
         return Ok(None);
     };

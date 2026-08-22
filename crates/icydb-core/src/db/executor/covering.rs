@@ -892,23 +892,49 @@ pub(in crate::db::executor) fn fold_covering_projection_component_rows_in_window
     existing_row_mode: CoveringExistingRowMode,
     window: CoveringProjectionComponentWindow,
     initial: T,
-    fold_component_row: F,
+    mut fold_component_row: F,
 ) -> Result<Option<T>, InternalError>
 where
     F: FnMut(T, DecodedDataStoreKey, IndexComponentValues) -> Result<Option<T>, InternalError>,
 {
-    let mut raw_pairs = raw_pairs.into_iter();
+    let mut accumulator = initial;
+    let mut present_rows = 0usize;
+    let mut emitted_rows = 0usize;
 
-    fold_covering_projection_component_rows_from_source(
-        || Ok(raw_pairs.next()),
-        store,
-        consistency,
-        existing_row_mode,
-        window,
-        false,
-        initial,
-        fold_component_row,
-    )
+    for (data_key, _existence_witness, components) in raw_pairs {
+        if matches!(consistency, MissingRowPolicy::Ignore)
+            && window.limit.is_some_and(|limit| emitted_rows >= limit)
+        {
+            break;
+        }
+
+        if existing_row_mode.requires_row_presence_check() {
+            let row_present = store.with_data(|data| {
+                read_row_presence_with_consistency_from_data_store(data, &data_key, consistency)
+            })?;
+            if !row_present {
+                continue;
+            }
+        }
+
+        if present_rows < window.offset {
+            present_rows = present_rows.saturating_add(1);
+            continue;
+        }
+        if window.limit.is_some_and(|limit| emitted_rows >= limit) {
+            present_rows = present_rows.saturating_add(1);
+            continue;
+        }
+
+        let Some(next_accumulator) = fold_component_row(accumulator, data_key, components)? else {
+            return Ok(None);
+        };
+        accumulator = next_accumulator;
+        present_rows = present_rows.saturating_add(1);
+        emitted_rows = emitted_rows.saturating_add(1);
+    }
+
+    Ok(Some(accumulator))
 }
 
 // Pull one secondary index range only until the requested present-row window
@@ -955,20 +981,17 @@ where
         consistency,
         existing_row_mode,
         window,
-        true,
         initial,
         fold_component_row,
     )
 }
 
-#[expect(clippy::too_many_arguments)]
 fn fold_covering_projection_component_rows_from_source<T, Next, F>(
     mut next_row: Next,
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
     window: CoveringProjectionComponentWindow,
-    window_satisfaction_ends_access: bool,
     initial: T,
     mut fold_component_row: F,
 ) -> Result<Option<T>, InternalError>
@@ -981,9 +1004,7 @@ where
     let mut emitted_rows = 0usize;
 
     loop {
-        if (window_satisfaction_ends_access || matches!(consistency, MissingRowPolicy::Ignore))
-            && window.limit.is_some_and(|limit| emitted_rows >= limit)
-        {
+        if window.limit.is_some_and(|limit| emitted_rows >= limit) {
             break;
         }
         let Some((data_key, _existence_witness, components)) = next_row()? else {
