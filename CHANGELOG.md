@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.237.md](docs/changelog/0.237.md)
 
-- `0.237.0` broadens exact SQL performance evidence and prevents untracked files
-  from contaminating release validation, without changing runtime behavior.
+- `0.237.0` broadens exact SQL performance evidence to multiple count, extrema,
+  ordered-limit and branch-boundary combinations, isolates four separate future
+  optimization intakes, and prevents untracked files from contaminating release
+  validation, without changing runtime behavior.
 
 ## [0.236.x] 📐 - 2026-08-21 - Exact-Cardinality Planner Tie-Breaking
 
