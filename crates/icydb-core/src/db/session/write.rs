@@ -4473,6 +4473,19 @@ mod identity_pre_key_tests {
             store_path,
             payload_unique,
             false,
+            false,
+            ENTITY_SOURCE,
+            ENTITY_NAME,
+            None,
+        )
+    }
+
+    fn identity_snapshot_with_nullable_payload(store_path: &str) -> PersistedSchemaSnapshot {
+        identity_snapshot_for_entity(
+            store_path,
+            false,
+            false,
+            true,
             ENTITY_SOURCE,
             ENTITY_NAME,
             None,
@@ -4488,6 +4501,7 @@ mod identity_pre_key_tests {
             store_path,
             payload_unique,
             composite,
+            false,
             ENTITY_SOURCE,
             ENTITY_NAME,
             None,
@@ -4498,6 +4512,7 @@ mod identity_pre_key_tests {
         store_path: &str,
         payload_unique: bool,
         composite: bool,
+        payload_nullable: bool,
         entity_source: &str,
         entity_name: &str,
         relation_target: Option<&str>,
@@ -4524,7 +4539,7 @@ mod identity_pre_key_tests {
                 SchemaFieldSlot::new(1),
                 AcceptedFieldKind::Nat64,
                 Vec::new(),
-                false,
+                payload_nullable,
                 SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
@@ -4548,7 +4563,7 @@ mod identity_pre_key_tests {
             SchemaFieldSlot::new(1),
             vec!["payload".to_string()],
             AcceptedFieldKind::Nat64,
-            false,
+            payload_nullable,
         )];
         if composite {
             index_fields.push(PersistedIndexFieldPathSnapshot::new(
@@ -4714,6 +4729,7 @@ mod identity_pre_key_tests {
                         JOURNALED_STORE_PATH,
                         false,
                         false,
+                        false,
                         SECOND_ENTITY_SOURCE,
                         SECOND_ENTITY_NAME,
                         Some(ENTITY_SOURCE),
@@ -4723,6 +4739,7 @@ mod identity_pre_key_tests {
                     THIRD_ENTITY_TAG,
                     identity_snapshot_for_entity(
                         JOURNALED_STORE_PATH,
+                        false,
                         false,
                         false,
                         THIRD_ENTITY_SOURCE,
@@ -5056,19 +5073,149 @@ mod identity_pre_key_tests {
     #[test]
     fn exact_count_shared_executor_preserves_sql_direct_count_results() {
         let session = initialize();
+        let data_reads_before = DataStore::current_get_call_count();
+        let crate::db::SqlStatementResult::Projection { rows, .. } = session
+            .execute_trusted_sql_query("SELECT COUNT(*) FROM IdentityRow")
+            .expect("empty SQL direct count should succeed")
+        else {
+            panic!("empty SQL direct count should return one projection row")
+        };
+        assert_eq!(rows, vec![vec![OutputValue::Nat64(0)]]);
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+
         for payload in [10, 10, 20] {
             insert_exact_key_fixture(&session, payload);
         }
 
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
+        for sql in [
+            "SELECT COUNT(*) FROM IdentityRow",
+            "SELECT COUNT(payload) FROM IdentityRow",
+            "SELECT COUNT(1) FROM IdentityRow",
+            "SELECT COUNT(*) FROM IdentityRow WHERE true",
+            "SELECT COUNT(*) FROM IdentityRow WHERE payload IN (10, 10, 20, 99)",
+        ] {
+            let crate::db::SqlStatementResult::Projection { rows, .. } = session
+                .execute_trusted_sql_query(sql)
+                .expect("SQL direct count should use the shared exact executor")
+            else {
+                panic!("SQL direct count should return one projection row")
+            };
+            assert_eq!(rows, vec![vec![OutputValue::Nat64(3)]], "{sql}");
+        }
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+
         let crate::db::SqlStatementResult::Projection { rows, .. } = session
-            .execute_trusted_sql_query(
-                "SELECT COUNT(*) FROM IdentityRow WHERE payload IN (10, 10, 20, 99)",
-            )
-            .expect("SQL direct count should use the shared exact executor")
+            .execute_trusted_sql_query("SELECT COUNT(*) FROM IdentityRow WHERE payload = 10")
+            .expect("nontrivial exact-prefix count should preserve its predicate")
         else {
-            panic!("SQL direct count should return one projection row")
+            panic!("nontrivial exact-prefix count should return one projection row")
         };
-        assert_eq!(rows, vec![vec![OutputValue::Nat64(3)]]);
+        assert_eq!(rows, vec![vec![OutputValue::Nat64(2)]]);
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+
+        let data_reads_before = DataStore::current_get_call_count();
+        for (sql, expected) in [
+            ("SELECT COUNT(*) FROM IdentityRow WHERE false", 0_u64),
+            ("SELECT COUNT(*) FROM IdentityRow WHERE id = 1", 1),
+        ] {
+            let crate::db::SqlStatementResult::Projection { rows, .. } = session
+                .execute_trusted_sql_query(sql)
+                .expect("non-entity count control should succeed")
+            else {
+                panic!("non-entity count control should return one projection row")
+            };
+            assert_eq!(rows, vec![vec![OutputValue::Nat64(expected)]], "{sql}");
+        }
+        assert!(DataStore::current_get_call_count() > data_reads_before);
+
+        session
+            .execute_trusted_sql_query("SELECT COUNT(*) FROM IdentityRow LIMIT 1")
+            .expect_err("unordered aggregate input pagination must remain rejected");
+
+        let data_reads_before = DataStore::current_get_call_count();
+        let crate::db::SqlStatementResult::Projection { rows, .. } = session
+            .execute_trusted_sql_query("SELECT COUNT(DISTINCT payload) FROM IdentityRow")
+            .expect("distinct count should retain buffered execution")
+        else {
+            panic!("distinct count should return one projection row")
+        };
+        assert_eq!(rows, vec![vec![OutputValue::Nat64(2)]]);
+        assert!(DataStore::current_get_call_count() > data_reads_before);
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn exact_count_nullable_field_retains_buffered_execution() {
+        let session = initialize_with_snapshot(identity_snapshot_with_nullable_payload(STORE_PATH));
+        session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![
+                    dynamic_payload_patch(10),
+                    DynamicStructuralPatch::new(Vec::new()),
+                ],
+            )
+            .expect("nullable count fixture should insert");
+
+        let data_reads_before = DataStore::current_get_call_count();
+        let crate::db::SqlStatementResult::Projection { rows, .. } = session
+            .execute_trusted_sql_query("SELECT COUNT(payload) FROM IdentityRow")
+            .expect("nullable count should retain buffered execution")
+        else {
+            panic!("nullable count should return one projection row")
+        };
+        assert_eq!(rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(DataStore::current_get_call_count() - data_reads_before, 2,);
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn indexed_extrema_nullable_field_retains_complete_reduction() {
+        let session = initialize_with_snapshot(identity_snapshot_with_nullable_payload(STORE_PATH));
+        session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![DynamicStructuralPatch::new(Vec::new())],
+            )
+            .expect("all-null extrema fixture should insert");
+
+        for sql in [
+            "SELECT MIN(payload) FROM IdentityRow",
+            "SELECT MAX(payload) FROM IdentityRow",
+        ] {
+            let data_reads_before = DataStore::current_get_call_count();
+            let crate::db::SqlStatementResult::Projection { rows, .. } = session
+                .execute_trusted_sql_query(sql)
+                .expect("all-null extrema should retain complete reduction")
+            else {
+                panic!("all-null extrema should return one projection row")
+            };
+            assert_eq!(rows, vec![vec![OutputValue::Null]], "{sql}");
+            assert_eq!(DataStore::current_get_call_count() - data_reads_before, 1);
+        }
+
+        session
+            .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(10)])
+            .expect("mixed nullable extrema fixture should insert");
+
+        for sql in [
+            "SELECT MIN(payload) FROM IdentityRow",
+            "SELECT MAX(payload) FROM IdentityRow",
+        ] {
+            let data_reads_before = DataStore::current_get_call_count();
+            let crate::db::SqlStatementResult::Projection { rows, .. } = session
+                .execute_trusted_sql_query(sql)
+                .expect("mixed nullable extrema should retain complete reduction")
+            else {
+                panic!("mixed nullable extrema should return one projection row")
+            };
+            assert_eq!(rows, vec![vec![OutputValue::Nat64(10)]], "{sql}");
+            assert_eq!(DataStore::current_get_call_count() - data_reads_before, 2);
+        }
     }
 
     #[test]
@@ -7694,6 +7841,18 @@ mod identity_pre_key_tests {
             None,
             "non-Ready evidence must select the conservative path",
         );
+        #[cfg(feature = "sql")]
+        {
+            let data_reads_before = DataStore::current_get_call_count();
+            let crate::db::SqlStatementResult::Projection { rows, .. } = session
+                .execute_trusted_sql_query("SELECT COUNT(*) FROM IdentityRow")
+                .expect("non-Ready entity cardinality should retain SQL fallback")
+            else {
+                panic!("fallback count should return one projection row")
+            };
+            assert_eq!(rows, vec![vec![OutputValue::Nat64(1)]]);
+            assert!(DataStore::current_get_call_count() > data_reads_before);
+        }
     }
 
     #[test]

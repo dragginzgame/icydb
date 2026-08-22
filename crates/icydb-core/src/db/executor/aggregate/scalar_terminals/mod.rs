@@ -136,6 +136,11 @@ where
     let plan = plan.into_prepared_load_plan();
     let authority = plan.authority();
     let retained_slot_layout = terminals.retained_slot_layout(&authority, plan.logical_plan())?;
+    let aggregate_route_plan = terminals
+        .single_field_extrema_route_candidate()
+        .map(|(kind, field)| plan.aggregate_execution_route_plan(kind, field))
+        .transpose()?
+        .flatten();
 
     let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
     #[cfg(feature = "diagnostics")]
@@ -146,6 +151,7 @@ where
                 debug,
                 plan,
                 retained_slot_layout,
+                aggregate_route_plan,
                 |row| reducer_runtime.ingest_row(row),
             )
         });
@@ -162,6 +168,7 @@ where
         debug,
         plan,
         retained_slot_layout,
+        aggregate_route_plan,
         |row| reducer_runtime.ingest_row(row),
     )?;
 

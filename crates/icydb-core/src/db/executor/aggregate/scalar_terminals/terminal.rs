@@ -126,6 +126,31 @@ impl PreparedScalarAggregateTerminalSet {
         self.terminals.is_empty()
     }
 
+    /// Return the single direct-field extrema candidate that may borrow the
+    /// canonical aggregate route. Terminal-local filters, DISTINCT state,
+    /// expressions, and multi-terminal reductions remain complete scans.
+    pub(super) fn single_field_extrema_route_candidate(&self) -> Option<(AggregateKind, &str)> {
+        let [terminal] = self.terminals.as_slice() else {
+            return None;
+        };
+        if terminal.filter.is_some() || terminal.distinct {
+            return None;
+        }
+        let InternedScalarAggregateInput::Field { field, .. } = &terminal.input else {
+            return None;
+        };
+        let kind = match terminal.kind {
+            ScalarAggregateTerminalKind::Min => AggregateKind::Min,
+            ScalarAggregateTerminalKind::Max => AggregateKind::Max,
+            ScalarAggregateTerminalKind::CountRows
+            | ScalarAggregateTerminalKind::CountValues
+            | ScalarAggregateTerminalKind::Sum
+            | ScalarAggregateTerminalKind::Avg => return None,
+        };
+
+        Some((kind, field.as_str()))
+    }
+
     #[cfg(feature = "diagnostics")]
     pub(super) const fn terminal_count(&self) -> usize {
         self.terminals.len()
@@ -516,7 +541,7 @@ fn first_unknown_structural_aggregate_expr_field(
 mod tests {
     use crate::{
         db::executor::aggregate::{
-            BinaryOp, CompiledExpr,
+            AggregateKind, BinaryOp, CompiledExpr,
             scalar_terminals::terminal::{
                 InternedScalarAggregateInput, PreparedScalarAggregateTerminal,
                 PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
@@ -544,6 +569,76 @@ mod tests {
             left: Box::new(literal_nat(42)),
             right: Box::new(literal_nat(1)),
         }
+    }
+
+    fn field_terminal(
+        kind: ScalarAggregateTerminalKind,
+        filter: Option<CompiledExpr>,
+        distinct: bool,
+    ) -> PreparedScalarAggregateTerminal {
+        PreparedScalarAggregateTerminal::from_validated_inputs(
+            kind,
+            ScalarAggregateInput::Field {
+                slot: 2,
+                field: "age".to_string(),
+            },
+            filter,
+            distinct,
+        )
+    }
+
+    #[test]
+    fn scalar_aggregate_terminal_set_exposes_only_single_direct_extrema_route_candidates() {
+        let min = PreparedScalarAggregateTerminalSet::new(vec![field_terminal(
+            ScalarAggregateTerminalKind::Min,
+            None,
+            false,
+        )]);
+        let max = PreparedScalarAggregateTerminalSet::new(vec![field_terminal(
+            ScalarAggregateTerminalKind::Max,
+            None,
+            false,
+        )]);
+
+        assert_eq!(
+            min.single_field_extrema_route_candidate(),
+            Some((AggregateKind::Min, "age")),
+        );
+        assert_eq!(
+            max.single_field_extrema_route_candidate(),
+            Some((AggregateKind::Max, "age")),
+        );
+    }
+
+    #[test]
+    fn scalar_aggregate_terminal_set_keeps_unsafe_extrema_shapes_off_routed_probes() {
+        let filtered = PreparedScalarAggregateTerminalSet::new(vec![field_terminal(
+            ScalarAggregateTerminalKind::Min,
+            Some(repeated_filter_expr()),
+            false,
+        )]);
+        let distinct = PreparedScalarAggregateTerminalSet::new(vec![field_terminal(
+            ScalarAggregateTerminalKind::Min,
+            None,
+            true,
+        )]);
+        let expression = PreparedScalarAggregateTerminalSet::new(vec![
+            PreparedScalarAggregateTerminal::from_validated_inputs(
+                ScalarAggregateTerminalKind::Min,
+                ScalarAggregateInput::Expr(repeated_input_expr()),
+                None,
+                false,
+            ),
+        ]);
+        let multiple = PreparedScalarAggregateTerminalSet::new(vec![
+            field_terminal(ScalarAggregateTerminalKind::Min, None, false),
+            field_terminal(ScalarAggregateTerminalKind::Max, None, false),
+        ]);
+
+        assert_eq!(filtered.single_field_extrema_route_candidate(), None);
+        assert_eq!(distinct.single_field_extrema_route_candidate(), None);
+        assert_eq!(expression.single_field_extrema_route_candidate(), None);
+        assert_eq!(multiple.single_field_extrema_route_candidate(), None);
     }
 
     #[test]

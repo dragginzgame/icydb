@@ -602,9 +602,9 @@ mod tests {
         )
         .expect("subject identity may differ in a comparable scale pair");
 
-        assert_eq!(comparison.totals.len(), 72);
-        assert!(!comparison.normalized.is_empty());
-        assert_eq!(comparison.slopes.len(), 48);
+        assert_eq!(comparison.totals.len(), 174);
+        assert_eq!(comparison.normalized.len(), 345);
+        assert_eq!(comparison.slopes.len(), 116);
         assert!(comparison.totals.iter().all(|delta| delta.delta == 0));
         assert!(
             comparison

@@ -1270,7 +1270,7 @@ pub(crate) mod tests {
             hash,
             SQL_PERFORMANCE_PROFILE.expected_scale_scenario_set_hash(),
         );
-        assert_eq!(declarations.len(), 72);
+        assert_eq!(declarations.len(), 174);
         let mut counts = vec![0_usize; usize::from(SQL_PERFORMANCE_PROFILE.shard_count())];
         for declaration in declarations {
             let shard_index = SQL_PERFORMANCE_PROFILE
@@ -1377,9 +1377,9 @@ pub(crate) mod tests {
         .expect("all exact scale shards should merge");
 
         assert_eq!(merged.receipts.len(), 8);
-        assert_eq!(merged.observations.len(), 72);
-        assert_eq!(merged.slopes.len(), 48);
-        assert!(merged.normalized_costs.len() >= 72);
+        assert_eq!(merged.observations.len(), 174);
+        assert_eq!(merged.normalized_costs.len(), 345);
+        assert_eq!(merged.slopes.len(), 116);
         assert!(merged.p2_representatives.iter().any(|representative| {
             representative.stratum == "route/equality_prefix_ordered_suffix"
         }));

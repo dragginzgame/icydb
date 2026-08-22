@@ -35,6 +35,11 @@ use crate::db::{
 /// accepted schema owns runtime planning.
 ///
 
+enum DirectCountCardinalityPredicate<'a> {
+    Entity,
+    UserIndexPrefix(&'a Predicate),
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::db::query) struct QueryModel {
     intent: QueryIntent,
@@ -95,11 +100,11 @@ impl QueryModel {
         self.intent.planning_logical_inputs()
     }
 
-    // Return the normalized predicate only when this complete query intent can
-    // use direct COUNT prefix cardinality without changing visible semantics.
-    pub(in crate::db::query) fn direct_count_cardinality_prefix_predicate(
+    // Classify the complete query intent for direct cardinality without
+    // changing its visible aggregate semantics.
+    fn direct_count_cardinality_predicate(
         &self,
-    ) -> Result<Option<&Predicate>, QueryError> {
+    ) -> Result<Option<DirectCountCardinalityPredicate<'_>>, QueryError> {
         self.validate_policy_shape()?;
 
         let access_inputs = self.planning_access_inputs();
@@ -119,7 +124,28 @@ impl QueryModel {
             return Ok(None);
         }
 
-        Ok(access_inputs.predicate())
+        Ok(Some(match access_inputs.predicate() {
+            None | Some(Predicate::True) => DirectCountCardinalityPredicate::Entity,
+            Some(predicate) => DirectCountCardinalityPredicate::UserIndexPrefix(predicate),
+        }))
+    }
+
+    // Return the normalized predicate only when this complete query intent can
+    // use direct COUNT prefix cardinality without changing visible semantics.
+    pub(in crate::db::query) fn direct_count_cardinality_prefix_predicate(
+        &self,
+    ) -> Result<Option<&Predicate>, QueryError> {
+        Ok(match self.direct_count_cardinality_predicate()? {
+            Some(DirectCountCardinalityPredicate::UserIndexPrefix(predicate)) => Some(predicate),
+            Some(DirectCountCardinalityPredicate::Entity) | None => None,
+        })
+    }
+
+    pub(in crate::db::query) fn direct_count_cardinality_entity_candidate(&self) -> bool {
+        matches!(
+            self.direct_count_cardinality_predicate(),
+            Ok(Some(DirectCountCardinalityPredicate::Entity))
+        )
     }
 
     #[must_use]

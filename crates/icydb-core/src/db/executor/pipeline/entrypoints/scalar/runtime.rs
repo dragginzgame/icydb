@@ -80,6 +80,7 @@ pub(super) struct InitialScalarPlanRuntimeOptions {
     projection_runtime_mode: ProjectionMaterializationMode,
     cursor_emission: CursorEmissionMode,
     suppress_route_scan_hints: bool,
+    prebuilt_route_plan: Option<ExecutionRoutePlan>,
 }
 
 impl InitialScalarPlanRuntimeOptions {
@@ -103,7 +104,18 @@ impl InitialScalarPlanRuntimeOptions {
             projection_runtime_mode,
             cursor_emission,
             suppress_route_scan_hints,
+            prebuilt_route_plan: None,
         }
+    }
+
+    /// Replace the ordinary cached load route for one terminal-owned initial
+    /// execution. Absence preserves the existing load route exactly.
+    pub(super) fn with_prebuilt_route_plan(
+        mut self,
+        prebuilt_route_plan: Option<ExecutionRoutePlan>,
+    ) -> Self {
+        self.prebuilt_route_plan = prebuilt_route_plan;
+        self
     }
 }
 
@@ -279,8 +291,10 @@ where
         projection_runtime_mode,
         cursor_emission,
         suppress_route_scan_hints,
+        prebuilt_route_plan,
     } = options;
-    let prebuilt_route_plan = prepare_initial_scalar_route_plan_from_handoff(&prepared);
+    let prebuilt_route_plan = prebuilt_route_plan
+        .unwrap_or_else(|| prepare_initial_scalar_route_plan_from_handoff(&prepared));
 
     prepare_scalar_route_runtime_from_inputs(
         db,

@@ -406,6 +406,25 @@ impl PreparedExecutionPlanCore {
             .clone()
     }
 
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_aggregate_execution_preparation(
+        &self,
+    ) -> ExecutionPreparation {
+        // Aggregate route planning additionally consumes the predicate
+        // capability snapshot and strict index program. Keep that immutable
+        // preparation in the existing aggregate resident rather than
+        // rebuilding it in SQL or terminal execution.
+        self.residents
+            .aggregate_execution_preparation
+            .get_or_init(|| {
+                ExecutionPreparation::from_plan(
+                    &self.residents.plan,
+                    slot_map_for_model_plan(&self.residents.plan),
+                )
+            })
+            .clone()
+    }
+
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_initial_scalar_route_plan(
         &self,
         authority: EntityAuthority,

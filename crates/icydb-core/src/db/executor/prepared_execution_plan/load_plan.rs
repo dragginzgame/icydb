@@ -13,6 +13,12 @@ use crate::{
     error::InternalError,
 };
 
+#[cfg(feature = "sql")]
+use crate::db::{
+    executor::{ExecutionRoutePlan, route::build_aggregate_execution_route_plan_for_explain},
+    query::plan::AggregateKind,
+};
+
 ///
 /// PreparedLoadPlan
 ///
@@ -35,6 +41,35 @@ impl PreparedLoadPlan {
     #[must_use]
     pub(in crate::db::executor) fn logical_plan(&self) -> &AccessPlannedQuery {
         self.core.plan()
+    }
+
+    /// Build one scalar aggregate route through the prepared plan's existing
+    /// authority and aggregate preparation resident.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) fn aggregate_execution_route_plan(
+        &self,
+        kind: AggregateKind,
+        target_field: &str,
+    ) -> Result<Option<ExecutionRoutePlan>, InternalError> {
+        if self
+            .authority
+            .accepted_schema_info()
+            .and_then(|schema| schema.accepted_field_is_nullable(target_field))
+            != Some(false)
+        {
+            return Ok(None);
+        }
+
+        let aggregate = self
+            .authority
+            .aggregate_route_shape(kind, Some(target_field))?;
+        let execution_preparation = self.core.get_or_init_aggregate_execution_preparation();
+
+        Ok(Some(build_aggregate_execution_route_plan_for_explain(
+            self.logical_plan(),
+            aggregate,
+            &execution_preparation,
+        )))
     }
 
     pub(in crate::db::executor) fn continuation_signature_for_runtime(

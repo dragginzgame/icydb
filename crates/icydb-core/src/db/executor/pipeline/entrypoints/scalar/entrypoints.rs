@@ -5,7 +5,7 @@
 
 #[cfg(feature = "sql")]
 use crate::db::executor::{
-    PreparedLoadPlan, RetainedSlotLayout,
+    ExecutionRoutePlan, PreparedLoadPlan, RetainedSlotLayout,
     pipeline::{
         contracts::ProjectionMaterializationMode,
         entrypoints::scalar::{
@@ -110,6 +110,7 @@ pub(in crate::db::executor) fn execute_prepared_scalar_aggregate_kernel_row_sink
     debug: bool,
     plan: PreparedLoadPlan,
     retained_slot_layout: RetainedSlotLayout,
+    aggregate_route_plan: Option<ExecutionRoutePlan>,
     row_sink: impl FnMut(&KernelRow) -> Result<(), InternalError>,
 ) -> Result<(), InternalError>
 where
@@ -122,7 +123,8 @@ where
         retained_slot_layout,
         InitialScalarPlanRuntimeOptions::unpaged_rows(
             ProjectionMaterializationMode::RetainSlotRows,
-        ),
+        )
+        .with_prebuilt_route_plan(aggregate_route_plan),
     )?;
 
     execute_prepared_scalar_kernel_row_sink_execution(prepared, row_sink)?;

@@ -364,6 +364,15 @@ fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
     drain_online_watchdog_until_quiescent(fixture);
 }
 
+fn clear_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
+    drain_online_watchdog_until_quiescent(fixture);
+    let reset: Result<(), Error> = fixture
+        .update_candid("icydb_fixtures_reset", ())
+        .expect("icydb_fixtures_reset should decode");
+    reset.expect("icydb_fixtures_reset should succeed");
+    drain_online_watchdog_until_quiescent(fixture);
+}
+
 fn reset_sql_perf_metrics(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
         .update_candid("icydb_metrics_reset", ())
@@ -3309,6 +3318,298 @@ fn sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path() {
         reset_sql_perf_fixtures(&fixture);
         assert_repeat_scenario_keeps_compiled_and_shared_cache_path(&fixture, scenario);
     }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture keeps the exact-count scale, warm-cache and fallback evidence comparable"
+)]
+fn sql_perf_exact_entity_count_family_avoids_row_and_index_traversal() {
+    const MAX_FIXTURE_ROWS: u32 = 2_048;
+    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    const MINIMUM_SAVING: u64 = 75_000_000;
+    const CASES: [(&str, &str, u64); 4] = [
+        (
+            "count_rows",
+            "SELECT COUNT(*) FROM PerfAuditUser",
+            96_891_236,
+        ),
+        (
+            "count_non_null_field",
+            "SELECT COUNT(id) FROM PerfAuditUser",
+            97_310_566,
+        ),
+        (
+            "count_non_null_literal",
+            "SELECT COUNT(1) FROM PerfAuditUser",
+            96_928_342,
+        ),
+        (
+            "count_rows_true",
+            "SELECT COUNT(*) FROM PerfAuditUser WHERE true",
+            126_777_804,
+        ),
+    ];
+
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    for fixture_rows in [16_u32, 256, MAX_FIXTURE_ROWS] {
+        reset_sql_perf_fixtures(&fixture);
+        load_user_scale_integrity_fixture(&fixture, fixture_rows);
+
+        for (label, sql, predecessor_total) in CASES {
+            let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+                .expect("row-equivalent count should succeed");
+            let SqlQueryResult::Projection(rows) = &sample.result else {
+                panic!("row-equivalent count should return one projection row: {sql}")
+            };
+            assert_eq!(rows.rendered_rows(), vec![vec![fixture_rows.to_string()]]);
+            assert_eq!(sample.attribution.store_get_calls, 0, "{sql}");
+            assert_eq!(sample.attribution.index_store_entry_reads, 0, "{sql}");
+            assert!(
+                sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
+                "{sql} exceeded the exact-entity count ceiling: {} > {CURRENT_TOTAL_CEILING}",
+                sample.attribution.total_local_instructions,
+            );
+            println!(
+                "0.237 Patch 4 exact entity count ladder: label={label} rows={fixture_rows} candidate={} compile={} execute={} store_gets={} index_entry_reads={}",
+                sample.attribution.total_local_instructions,
+                sample.attribution.compile_local_instructions,
+                sample.attribution.execution.executor_local_instructions,
+                sample.attribution.store_get_calls,
+                sample.attribution.index_store_entry_reads,
+            );
+            if fixture_rows == MAX_FIXTURE_ROWS {
+                let saving =
+                    predecessor_total.saturating_sub(sample.attribution.total_local_instructions);
+                assert!(
+                    saving >= MINIMUM_SAVING,
+                    "{sql} saved {saving} instructions, below the {MINIMUM_SAVING} gate",
+                );
+                println!(
+                    "0.237 Patch 4 exact entity count saving: label={label} predecessor={predecessor_total} candidate={} saving={saving}",
+                    sample.attribution.total_local_instructions,
+                );
+            }
+        }
+    }
+
+    let warming = warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(*) FROM PerfAuditUser",
+    )
+    .expect("exact count cache warm should succeed");
+    assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
+    let warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(*) FROM PerfAuditUser",
+        1,
+    )
+    .expect("true-warm exact count should succeed");
+    assert_eq!(warm.attribution.store_get_calls, 0);
+    assert_eq!(warm.attribution.index_store_entry_reads, 0);
+    assert!(warm.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
+    println!(
+        "0.237 Patch 4 true-warm exact entity count: candidate={} compile={} execute={}",
+        warm.attribution.total_local_instructions,
+        warm.attribution.compile_local_instructions,
+        warm.attribution.execution.executor_local_instructions,
+    );
+
+    let distinct = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser",
+        1,
+    )
+    .expect("distinct count control should succeed");
+    assert_eq!(
+        distinct.attribution.store_get_calls,
+        u64::from(MAX_FIXTURE_ROWS)
+    );
+
+    let filtered = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser",
+        1,
+    )
+    .expect("filtered count control should succeed");
+    assert_eq!(
+        filtered.attribution.store_get_calls,
+        u64::from(MAX_FIXTURE_ROWS)
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture keeps extrema scale, warm-cache, and conservative controls comparable"
+)]
+fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
+    const MAX_FIXTURE_ROWS: u32 = 2_048;
+    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    const MINIMUM_SAVING: u64 = 75_000_000;
+    const CASES: [(&str, &str, u64); 4] = [
+        (
+            "min_primary",
+            "SELECT MIN(id) FROM PerfAuditUser",
+            102_814_331,
+        ),
+        (
+            "max_primary",
+            "SELECT MAX(id) FROM PerfAuditUser",
+            105_158_825,
+        ),
+        (
+            "min_secondary",
+            "SELECT MIN(age) FROM PerfAuditUser",
+            102_538_164,
+        ),
+        (
+            "min_secondary_range",
+            "SELECT MIN(age) FROM PerfAuditUser WHERE age >= 31",
+            134_776_857,
+        ),
+    ];
+
+    let fixture = install_sql_perf_canister_fixture();
+    clear_sql_perf_fixtures(&fixture);
+
+    for (label, sql, _) in CASES {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("empty extrema query should succeed");
+        let SqlQueryResult::Projection(rows) = &sample.result else {
+            panic!("empty extrema should return one projection row: {sql}")
+        };
+        assert_eq!(
+            rows.rendered_rows(),
+            vec![vec!["null".to_string()]],
+            "{label}"
+        );
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(sample.attribution.index_store_entry_reads, 0, "{label}");
+    }
+
+    for fixture_rows in [16_u32, 256, MAX_FIXTURE_ROWS] {
+        reset_sql_perf_fixtures(&fixture);
+        load_user_scale_integrity_fixture(&fixture, fixture_rows);
+
+        for (label, sql, predecessor_total) in CASES {
+            let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+                .expect("indexed scalar extrema should succeed");
+            let SqlQueryResult::Projection(rows) = &sample.result else {
+                panic!("indexed extrema should return one projection row: {sql}")
+            };
+            let expected = match label {
+                "min_primary" => "1".to_string(),
+                "max_primary" => fixture_rows.to_string(),
+                "min_secondary" | "min_secondary_range" => "31".to_string(),
+                _ => panic!("unknown extrema case"),
+            };
+            assert_eq!(rows.rendered_rows(), vec![vec![expected]], "{label}");
+            assert!(sample.attribution.store_get_calls <= 1, "{label}");
+            assert!(sample.attribution.index_store_entry_reads <= 1, "{label}");
+            assert!(
+                sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
+                "{label} exceeded the bounded extrema ceiling: {} > {CURRENT_TOTAL_CEILING}",
+                sample.attribution.total_local_instructions,
+            );
+            println!(
+                "0.237 Patch 5 indexed extrema ladder: label={label} rows={fixture_rows} candidate={} compile={} execute={} store_gets={} index_entry_reads={}",
+                sample.attribution.total_local_instructions,
+                sample.attribution.compile_local_instructions,
+                sample.attribution.execution.executor_local_instructions,
+                sample.attribution.store_get_calls,
+                sample.attribution.index_store_entry_reads,
+            );
+            if fixture_rows == MAX_FIXTURE_ROWS {
+                let saving =
+                    predecessor_total.saturating_sub(sample.attribution.total_local_instructions);
+                assert!(
+                    saving >= MINIMUM_SAVING,
+                    "{label} saved {saving} instructions, below the {MINIMUM_SAVING} gate",
+                );
+                println!(
+                    "0.237 Patch 5 indexed extrema saving: label={label} predecessor={predecessor_total} candidate={} saving={saving}",
+                    sample.attribution.total_local_instructions,
+                );
+            }
+        }
+    }
+
+    let warming = warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT MIN(id) FROM PerfAuditUser",
+    )
+    .expect("indexed extrema cache warm should succeed");
+    assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
+    let warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT MIN(id) FROM PerfAuditUser",
+        1,
+    )
+    .expect("true-warm indexed extrema should succeed");
+    assert!(warm.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING);
+    assert!(warm.attribution.store_get_calls <= 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
+    println!(
+        "0.237 Patch 5 true-warm indexed extrema: candidate={} compile={} execute={}",
+        warm.attribution.total_local_instructions,
+        warm.attribution.compile_local_instructions,
+        warm.attribution.execution.executor_local_instructions,
+    );
+
+    for (label, sql) in [
+        ("non_tie_free_max", "SELECT MAX(age) FROM PerfAuditUser"),
+        ("computed_min", "SELECT MIN(age + 1) FROM PerfAuditUser"),
+        (
+            "filtered_min",
+            "SELECT MIN(age) FILTER (WHERE active = true) FROM PerfAuditUser",
+        ),
+        (
+            "multiple_extrema",
+            "SELECT MIN(id), MAX(id) FROM PerfAuditUser",
+        ),
+        ("unindexed_min", "SELECT MIN(rank) FROM PerfAuditUser"),
+    ] {
+        let control = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("conservative extrema control should succeed");
+        assert_eq!(
+            control.attribution.store_get_calls,
+            u64::from(MAX_FIXTURE_ROWS),
+            "{label}",
+        );
+    }
+
+    let input_window = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT MIN(id) FROM PerfAuditUser ORDER BY id DESC LIMIT 1",
+        1,
+    )
+    .expect("ordered extrema input window should succeed");
+    let SqlQueryResult::Projection(rows) = input_window.result else {
+        panic!("ordered extrema input window should return one projection row")
+    };
+    assert_eq!(
+        rows.rendered_rows(),
+        vec![vec!["1".to_string()]],
+        "global aggregate modifiers must not change complete extrema reduction",
+    );
+    assert!(
+        input_window.attribution.store_get_calls <= 1,
+        "the canonical planner may retain the explicitly ordered bounded edge",
+    );
 }
 
 #[test]

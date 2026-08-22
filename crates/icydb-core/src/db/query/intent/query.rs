@@ -101,6 +101,11 @@ impl StructuralQuery {
         )
     }
 
+    #[must_use]
+    pub(in crate::db) fn direct_count_cardinality_entity_candidate(&self) -> bool {
+        self.intent.direct_count_cardinality_entity_candidate()
+    }
+
     /// Append one predicate that has already been normalized by the caller.
     #[must_use]
     pub(in crate::db) fn filter_normalized_predicate(mut self, predicate: Predicate) -> Self {

@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, QueryError,
         executor::{
-            EntityAuthority, ExactCardinalityTarget, SharedPreparedExecutionPlan,
+            EntityAuthority, SharedPreparedExecutionPlan,
             exact_count_cardinality_prefixes_for_plan, execute_exact_cardinality_for_canister,
             user_index_prefix_cardinality_keys_from_plan,
         },
@@ -172,10 +172,20 @@ fn direct_count_cardinality_plan_entry_from_prefix_keys(
         return None;
     }
 
-    Some(Rc::new(SqlGlobalAggregateCountPlanCacheEntry::new(
+    Some(Rc::new(
+        SqlGlobalAggregateCountPlanCacheEntry::user_index_prefixes(
+            SqlCompiledSchemaFingerprint::from_catalog(catalog),
+            Rc::from(prefix_keys),
+        ),
+    ))
+}
+
+fn direct_count_cardinality_entity_plan_entry(
+    catalog: &AcceptedSchemaCatalogContext,
+) -> Rc<SqlGlobalAggregateCountPlanCacheEntry> {
+    Rc::new(SqlGlobalAggregateCountPlanCacheEntry::entity(
         SqlCompiledSchemaFingerprint::from_catalog(catalog),
-        Rc::from(prefix_keys),
-    )))
+    ))
 }
 
 fn direct_count_cardinality_prefix_keys_from_planned_query(
@@ -221,6 +231,12 @@ fn cache_compiled_direct_count_cardinality_target(
     }
 }
 
+fn direct_count_cardinality_metadata_candidate(command: &SqlGlobalAggregateCommand) -> bool {
+    command.facts().is_direct_count_rows()
+        && (command.query().direct_count_cardinality_entity_candidate()
+            || command.query().direct_count_cardinality_prefix_candidate())
+}
+
 impl<C: CanisterKind> DbSession<C> {
     fn execute_direct_count_cardinality_global_aggregate(
         &self,
@@ -233,7 +249,7 @@ impl<C: CanisterKind> DbSession<C> {
                     &self.db,
                     authority,
                     DiagnosticExecutionLane::TrustedRead,
-                    ExactCardinalityTarget::UserIndexPrefixes(plan.prefix_keys()),
+                    plan.target(),
                 )
             })
             .map_err(QueryError::execute)?;
@@ -337,6 +353,13 @@ impl<C: CanisterKind> DbSession<C> {
         let Some(schema_info) = authority.accepted_schema_info() else {
             return Err(QueryError::invariant());
         };
+        if command.query().direct_count_cardinality_entity_candidate() {
+            return Ok(DirectCountCardinalityTarget::from_optional_entry(
+                authority.clone(),
+                Some(direct_count_cardinality_entity_plan_entry(catalog)),
+                SqlCacheAttribution::none(),
+            ));
+        }
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let visible_indexes = Self::visible_indexes_for_accepted_schema(schema_info, visibility);
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
@@ -411,10 +434,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<DirectCountCardinalityTarget, QueryError> {
-        if !command
-            .facts()
-            .is_direct_count_cardinality_metadata_candidate()
-        {
+        if !direct_count_cardinality_metadata_candidate(command) {
             return Ok(DirectCountCardinalityTarget::Disabled);
         }
 
@@ -428,10 +448,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<DirectCountCardinalityTarget, QueryError> {
-        if !command
-            .facts()
-            .is_direct_count_cardinality_metadata_candidate()
-        {
+        if !direct_count_cardinality_metadata_candidate(command) {
             return Ok(DirectCountCardinalityTarget::Disabled);
         }
         if let Some(entry) = cached_compiled_direct_count_cardinality_entry(compiled, catalog) {
@@ -458,10 +475,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     > {
         let mut attribution = QueryPlanCompilePhaseAttribution::default();
-        if !command
-            .facts()
-            .is_direct_count_cardinality_metadata_candidate()
-        {
+        if !direct_count_cardinality_metadata_candidate(command) {
             return Ok((DirectCountCardinalityTarget::Disabled, attribution));
         }
 

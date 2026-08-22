@@ -1,6 +1,6 @@
 //! Module: executor::planning::route::planner::entrypoints
 //! Responsibility: route-planner entrypoint orchestration for scalar loads,
-//! grouped execution, and EXPLAIN-only scalar aggregates.
+//! grouped execution, and scalar aggregates.
 //! Does not own: intent/feasibility/execution stage semantics.
 //! Boundary: consumes staged planner contracts and assembles execution route plans.
 
@@ -25,7 +25,7 @@ use crate::db::{
 /// RoutePlanRequest
 ///
 /// Canonical borrowed-state-free runtime route-build request surface.
-/// Scalar aggregate EXPLAIN has a feature-gated entrypoint because its route
+/// Scalar aggregates have a feature-gated entrypoint because their route
 /// shape borrows preparation state that runtime load/grouped requests do not.
 ///
 pub(in crate::db::executor) enum RoutePlanRequest {
@@ -93,7 +93,7 @@ fn build_load_execution_route_plan(
     build_execution_route_plan_from_stages(intent_stage, feasibility_stage, load_terminal_fast_path)
 }
 
-/// Build canonical aggregate EXPLAIN routing from planner-frozen query metadata.
+/// Build canonical aggregate routing from planner-frozen query metadata.
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
     plan: &AccessPlannedQuery,

@@ -418,6 +418,12 @@ impl SchemaInfo {
         ))
     }
 
+    /// Return accepted top-level field nullability without reopening proposal metadata.
+    #[must_use]
+    pub(in crate::db) fn accepted_field_is_nullable(&self, name: &str) -> Option<bool> {
+        schema_field_info(self.fields.as_slice(), name).map(|field| field.nullable)
+    }
+
     /// Borrow the accepted field kind projected to its admitted query-value shape.
     #[must_use]
     pub(in crate::db) fn accepted_query_field_kind(

@@ -3,7 +3,7 @@
 
 use crate::db::{
     commit::CommitSchemaFingerprint,
-    executor::SharedPreparedExecutionPlan,
+    executor::{ExactCardinalityTarget, SharedPreparedExecutionPlan},
     index::UserIndexPrefixCardinalityKey,
     session::{AcceptedSchemaCatalogContext, query::StructuralProjectionContract},
 };
@@ -97,23 +97,42 @@ impl SqlGlobalAggregatePlanCacheEntry {
 #[derive(Debug)]
 pub(in crate::db) struct SqlGlobalAggregateCountPlanCacheEntry {
     pub(super) schema_fingerprint: SqlCompiledSchemaFingerprint,
-    prefix_keys: Rc<[UserIndexPrefixCardinalityKey]>,
+    target: SqlGlobalAggregateCountPlanTarget,
+}
+
+#[derive(Debug)]
+enum SqlGlobalAggregateCountPlanTarget {
+    Entity,
+    UserIndexPrefixes(Rc<[UserIndexPrefixCardinalityKey]>),
 }
 
 impl SqlGlobalAggregateCountPlanCacheEntry {
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) const fn entity(schema_fingerprint: SqlCompiledSchemaFingerprint) -> Self {
+        Self {
+            schema_fingerprint,
+            target: SqlGlobalAggregateCountPlanTarget::Entity,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn user_index_prefixes(
         schema_fingerprint: SqlCompiledSchemaFingerprint,
         prefix_keys: Rc<[UserIndexPrefixCardinalityKey]>,
     ) -> Self {
         Self {
             schema_fingerprint,
-            prefix_keys,
+            target: SqlGlobalAggregateCountPlanTarget::UserIndexPrefixes(prefix_keys),
         }
     }
 
     #[must_use]
-    pub(in crate::db) fn prefix_keys(&self) -> &[UserIndexPrefixCardinalityKey] {
-        self.prefix_keys.as_ref()
+    pub(in crate::db) fn target(&self) -> ExactCardinalityTarget<'_> {
+        match &self.target {
+            SqlGlobalAggregateCountPlanTarget::Entity => ExactCardinalityTarget::Entity,
+            SqlGlobalAggregateCountPlanTarget::UserIndexPrefixes(prefix_keys) => {
+                ExactCardinalityTarget::UserIndexPrefixes(prefix_keys.as_ref())
+            }
+        }
     }
 }

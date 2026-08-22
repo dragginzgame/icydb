@@ -951,6 +951,18 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert_user_name_id(&populated, upgrade_debt.first_id, true);
     assert_user_name_id(&populated, upgrade_debt.last_admitted_id, true);
     assert_user_name_id(&populated, upgrade_debt.rejected_id, false);
+    let extrema_before_upgrade = [
+        query_total_only(
+            &populated,
+            "query_user_total_only_perf",
+            "SELECT MIN(id) FROM PerfAuditUser",
+        ),
+        query_total_only(
+            &populated,
+            "query_user_total_only_perf",
+            "SELECT MAX(id) FROM PerfAuditUser",
+        ),
+    ];
     let memory_before_upgrade = canister_memory_bytes(&populated);
     upgrade_with_wasm(&populated, current_sql_perf_wasm());
     let memory_after_upgrade = canister_memory_bytes(&populated);
@@ -993,6 +1005,22 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert_user_name_id(&populated, upgrade_debt.first_id, true);
     assert_user_name_id(&populated, upgrade_debt.last_admitted_id, true);
     assert_user_name_id(&populated, upgrade_debt.rejected_id, false);
+    assert_eq!(
+        [
+            query_total_only(
+                &populated,
+                "query_user_total_only_perf",
+                "SELECT MIN(id) FROM PerfAuditUser",
+            ),
+            query_total_only(
+                &populated,
+                "query_user_total_only_perf",
+                "SELECT MAX(id) FROM PerfAuditUser",
+            ),
+        ],
+        extrema_before_upgrade,
+        "indexed scalar extrema must retain their accepted-schema result across recovery",
+    );
     assert_user_index_count(&populated);
 
     retry_convergence_row(&populated, upgrade_debt.rejected_id);
