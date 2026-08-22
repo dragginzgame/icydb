@@ -19,35 +19,19 @@ use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
 /// Current checked-in SQL performance profile version.
 pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
 /// Stable identity of the PocketIC 15 SQL performance authority.
-pub(crate) const SQL_PERFORMANCE_PROFILE_ID: &str = "icydb-sql-performance/0.220/v3";
+pub(crate) const SQL_PERFORMANCE_PROFILE_ID: &str = "icydb-sql-performance/0.237/v1";
 
 const EXPECTED_SCENARIO_COUNT: usize = 1_787;
 const EXPECTED_SCENARIO_SET_HASH: &str =
     "a6823a84aa768257b2dc27d166e79c20260c5629eb33c70f590d308c64a1f80b";
-const EXPECTED_SCALE_SCENARIO_COUNT: usize = 72;
+const EXPECTED_SCALE_SCENARIO_COUNT: usize = 126;
 const EXPECTED_SCALE_SCENARIO_SET_HASH: &str =
-    "afa7c342801019da5b1f36674fd7cc4997332822b39f15eac5bf4633381b9ca0";
-const EXPECTED_SCALE_SHARD_COUNTS: &[usize] = &[8, 11, 10, 11, 6, 7, 8, 11];
+    "0654aca99f69b89eec75b34829c6015e0ad764b7b74564814df3be02578becd0";
+const EXPECTED_SCALE_SHARD_COUNTS: &[usize] = &[18, 19, 12, 24, 12, 13, 14, 14];
 const PERFORMANCE_SHARD_COUNT: u8 = SQL_SCHEDULED_SHARD_COUNT;
 const SCALE_ROW_CARDINALITIES: &[u32] = &[16, 256, 2_048];
-const RESULT_WINDOW_SIZES: &[u32] = &[1, 10, 16, 50, 100];
-const FOCUSED_HOTSPOT_SCENARIO_IDS: &[&str] = &[
-    "token.collection_id.sparse_in.count",
-    "token.collection_id.sparse_in.page_only.limit50",
-    "token.collection_stage_id.branch_set.count",
-    "token.collection_stage_id.branch_set.covering_page_only.limit50",
-    "token.collection_stage_id.branch_set.duplicate_count",
-    "token.collection_stage_id.branch_set.full_entity.limit50",
-    "token.collection_stage_id.branch_set.index_residual_covering.limit3",
-    "token.collection_stage_id.branch_set.noncovered_page_only.limit50",
-    "token.collection_stage_id.branch_set.page_only.limit50",
-    "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
-    "token.collection_stage_id.branch_set.wide_page_only.limit50",
-    "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
-    "token.collection_stage_id.overcap_fallback.page_only.limit50",
-    "token.collection_stage_id.overcap_pruned.page_only.limit50",
-    "token.collection_stage_id.prefixed_stage_range.page_only.limit50",
-];
+const RESULT_WINDOW_SIZES: &[u32] = &[1, 3, 10, 16, 50, 100];
+const FOCUSED_HOTSPOT_SCENARIO_IDS: &[&str] = &[];
 /// One absolute-plus-relative regression threshold.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PerformanceThreshold {
@@ -667,8 +651,8 @@ mod tests {
         assert_eq!(profile.cold_samples_per_confirmation(), 5);
         assert_eq!(profile.warm_samples_per_confirmation(), 5);
         assert_eq!(profile.scale_row_cardinalities(), &[16, 256, 2_048]);
-        assert_eq!(profile.result_window_sizes(), &[1, 10, 16, 50, 100]);
-        assert_eq!(profile.focused_hotspot_scenario_ids().len(), 15);
+        assert_eq!(profile.result_window_sizes(), &[1, 3, 10, 16, 50, 100]);
+        assert!(profile.focused_hotspot_scenario_ids().is_empty());
         assert_eq!(profile.regression_sentinel_scenario_ids().len(), 351);
         assert_eq!(profile.contract_sentinel_scenario_ids().len(), 10);
         assert_eq!(

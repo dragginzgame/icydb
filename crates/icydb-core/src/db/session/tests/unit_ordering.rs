@@ -9,16 +9,13 @@ use crate::{
         index::IndexStore,
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaRevision, AcceptedSchemaStoreObservationCounts,
-            FieldId, FieldStorageDecode, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaStore,
-            SchemaVersion, accepted_schema_candidate_for_tests,
+            AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode,
+            PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
+            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId,
+            SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
             accepted_schema_candidate_with_field_bindings_for_tests,
             accepted_schema_snapshot_fingerprint_builds_for_tests,
-            accepted_schema_store_observation_counts_for_tests,
             reset_accepted_schema_snapshot_fingerprint_builds_for_tests,
-            reset_accepted_schema_store_observation_counts_for_tests,
         },
         session::{
             AcceptedSchemaRuntimeBuildCounts, accepted_schema_runtime_build_counts_for_tests,
@@ -45,14 +42,6 @@ const ENTITY_NAME: &str = "Singleton";
 const ID_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::id";
 const LABEL_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::label";
 const ENTITY_TAG: EntityTag = EntityTag::new(220);
-const MULTI_TARGET_STORE_PATH: &str = "db::session::tests::unit_ordering::TargetStore";
-const MULTI_UNRELATED_STORE_PATH: &str = "db::session::tests::unit_ordering::UnrelatedStore";
-const MULTI_TARGET_ENTITY_SOURCE: &str = "db::session::tests::unit_ordering::TargetEntity";
-const MULTI_UNRELATED_ENTITY_SOURCE: &str = "db::session::tests::unit_ordering::UnrelatedEntity";
-const MULTI_TARGET_ENTITY_NAME: &str = "TargetEntity";
-const MULTI_UNRELATED_ENTITY_NAME: &str = "UnrelatedEntity";
-const MULTI_TARGET_ENTITY_TAG: EntityTag = EntityTag::new(221);
-const MULTI_UNRELATED_ENTITY_TAG: EntityTag = EntityTag::new(222);
 
 struct TestCanister;
 
@@ -84,32 +73,6 @@ thread_local! {
             StoreAllocationIdentities::absent(),
             StoreRuntimeStorageCapabilities::heap(),
         ).expect("Unit ordering test store should register");
-        registry
-    };
-    static MULTI_TARGET_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
-    static MULTI_TARGET_INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
-    static MULTI_TARGET_SCHEMA_STORE: RefCell<SchemaStore> = const { RefCell::new(SchemaStore::init_heap()) };
-    static MULTI_UNRELATED_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
-    static MULTI_UNRELATED_INDEX_STORE: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
-    static MULTI_UNRELATED_SCHEMA_STORE: RefCell<SchemaStore> = const { RefCell::new(SchemaStore::init_heap()) };
-    static MULTI_STORE_REGISTRY: StoreRegistry = {
-        let mut registry = StoreRegistry::new();
-        registry.register_store(
-            MULTI_TARGET_STORE_PATH,
-            &MULTI_TARGET_DATA_STORE,
-            &MULTI_TARGET_INDEX_STORE,
-            &MULTI_TARGET_SCHEMA_STORE,
-            StoreAllocationIdentities::absent(),
-            StoreRuntimeStorageCapabilities::heap(),
-        ).expect("target test store should register");
-        registry.register_store(
-            MULTI_UNRELATED_STORE_PATH,
-            &MULTI_UNRELATED_DATA_STORE,
-            &MULTI_UNRELATED_INDEX_STORE,
-            &MULTI_UNRELATED_SCHEMA_STORE,
-            StoreAllocationIdentities::absent(),
-            StoreRuntimeStorageCapabilities::heap(),
-        ).expect("unrelated test store should register");
         registry
     };
 }
@@ -533,7 +496,6 @@ fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
         .expect("warm query should build the accepted runtime root");
     reset_accepted_schema_runtime_build_counts_for_tests();
     reset_accepted_schema_snapshot_fingerprint_builds_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
 
     for _ in 0..1_000 {
         let request_session = new_request_session();
@@ -547,106 +509,7 @@ fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
         accepted_schema_runtime_build_counts_for_tests(),
         AcceptedSchemaRuntimeBuildCounts::default(),
     );
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts::default(),
-    );
     assert_eq!(accepted_schema_snapshot_fingerprint_builds_for_tests(), 0);
-}
-
-#[test]
-fn accepted_runtime_root_cold_and_warm_observation_counts_are_bounded() {
-    let session = initialize();
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
-
-    session
-        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
-        .expect("cold accepted runtime root should compile");
-
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts {
-            root_selections: 2,
-            authority_selections: 1,
-            identity_closure_validations: 1,
-            entity_selection_projections: 1,
-        },
-    );
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts {
-            root_identity_builds: 1,
-            root_publications: 1,
-            entity_compilations: 1,
-        },
-    );
-
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
-    new_request_session()
-        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
-        .expect("warm accepted runtime root should be reused");
-
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts::default(),
-    );
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts::default(),
-    );
-}
-
-#[test]
-fn accepted_runtime_root_with_absent_store_authority_uses_full_capture() {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let session = new_request_session();
-    session
-        .db
-        .drive_startup_recovery_page()
-        .expect("empty database should initialize");
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
-
-    session
-        .accepted_schema_catalog_context_for_entity_name(None)
-        .expect_err("empty accepted authority should not resolve an entity");
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts {
-            root_selections: 2,
-            authority_selections: 1,
-            ..AcceptedSchemaStoreObservationCounts::default()
-        },
-    );
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts {
-            root_identity_builds: 1,
-            root_publications: 1,
-            entity_compilations: 0,
-        },
-    );
-
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
-    new_request_session()
-        .accepted_schema_catalog_context_for_entity_name(None)
-        .expect_err("empty accepted authority should remain empty");
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts {
-            root_selections: 1,
-            ..AcceptedSchemaStoreObservationCounts::default()
-        },
-    );
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts::default(),
-    );
 }
 
 #[test]
@@ -947,14 +810,13 @@ fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .expect("initial accepted runtime root should resolve");
     let first_root = first_context.runtime_root_identity();
+    reset_accepted_schema_runtime_build_counts_for_tests();
 
     publish_schema(
         &session,
         AcceptedSchemaRevision::INITIAL,
         AcceptedSchemaRevision::new(2),
     );
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
     let second_context = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .expect("replacement accepted runtime root should resolve");
@@ -974,73 +836,6 @@ fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
             root_publications: 1,
             entity_compilations: 1,
         },
-    );
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts {
-            root_selections: 2,
-            authority_selections: 1,
-            identity_closure_validations: 1,
-            entity_selection_projections: 1,
-        },
-    );
-}
-
-#[test]
-fn unrelated_store_publication_rebuilds_one_complete_runtime_root() {
-    let session = initialize_multi_store();
-    let first_context = session
-        .accepted_schema_catalog_context_for_entity_name(Some(MULTI_TARGET_ENTITY_NAME))
-        .expect("initial target runtime context should resolve");
-    let first_root = first_context.runtime_root_identity();
-
-    publish_simple_schema(
-        &session,
-        MULTI_UNRELATED_STORE_PATH,
-        AcceptedSchemaRevision::INITIAL,
-        AcceptedSchemaRevision::new(2),
-        MULTI_UNRELATED_ENTITY_TAG,
-        MULTI_UNRELATED_ENTITY_SOURCE,
-        MULTI_UNRELATED_ENTITY_NAME,
-    );
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
-    let second_context = new_multi_store_request_session()
-        .accepted_schema_catalog_context_for_entity_name(Some(MULTI_TARGET_ENTITY_NAME))
-        .expect("target context should observe unrelated publication atomically");
-
-    assert_ne!(first_root, second_context.runtime_root_identity());
-    assert_eq!(first_context.runtime_root_identity(), first_root);
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts {
-            root_selections: 4,
-            authority_selections: 2,
-            identity_closure_validations: 2,
-            entity_selection_projections: 2,
-        },
-    );
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts {
-            root_identity_builds: 1,
-            root_publications: 1,
-            entity_compilations: 2,
-        },
-    );
-
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_store_observation_counts_for_tests();
-    new_multi_store_request_session()
-        .accepted_schema_catalog_context_for_entity_name(Some(MULTI_TARGET_ENTITY_NAME))
-        .expect("warm target context should reuse the complete replacement root");
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts::default(),
-    );
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts::default(),
     );
 }
 
@@ -1064,77 +859,6 @@ fn new_request_session() -> DbSession<TestCanister> {
         &STORE_REGISTRY,
         &crate::db::RequestExecutionRoot::__new_runtime_root(),
     )
-}
-
-fn initialize_multi_store() -> DbSession<TestCanister> {
-    MULTI_TARGET_DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    MULTI_TARGET_INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    MULTI_TARGET_SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    MULTI_UNRELATED_DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    MULTI_UNRELATED_INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    MULTI_UNRELATED_SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-
-    let session = new_multi_store_request_session();
-    publish_simple_schema(
-        &session,
-        MULTI_TARGET_STORE_PATH,
-        AcceptedSchemaRevision::NONE,
-        AcceptedSchemaRevision::INITIAL,
-        MULTI_TARGET_ENTITY_TAG,
-        MULTI_TARGET_ENTITY_SOURCE,
-        MULTI_TARGET_ENTITY_NAME,
-    );
-    publish_simple_schema(
-        &session,
-        MULTI_UNRELATED_STORE_PATH,
-        AcceptedSchemaRevision::NONE,
-        AcceptedSchemaRevision::INITIAL,
-        MULTI_UNRELATED_ENTITY_TAG,
-        MULTI_UNRELATED_ENTITY_SOURCE,
-        MULTI_UNRELATED_ENTITY_NAME,
-    );
-    session
-}
-
-fn new_multi_store_request_session() -> DbSession<TestCanister> {
-    DbSession::new(
-        &MULTI_STORE_REGISTRY,
-        &crate::db::RequestExecutionRoot::__new_runtime_root(),
-    )
-}
-
-fn publish_simple_schema(
-    session: &DbSession<TestCanister>,
-    store_path: &'static str,
-    expected: AcceptedSchemaRevision,
-    revision: AcceptedSchemaRevision,
-    entity_tag: EntityTag,
-    entity_source: &str,
-    entity_name: &str,
-) {
-    let snapshot = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        entity_source.to_string(),
-        entity_name.to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![field(1, "id", 0, AcceptedFieldKind::Unit)],
-    );
-    let candidate = accepted_schema_candidate_for_tests(
-        store_path,
-        revision,
-        BTreeMap::from([(entity_tag, snapshot)]),
-    );
-    session
-        .db
-        .drive_startup_recovery_page()
-        .expect("multi-store database should initialize");
-    let store = session
-        .db
-        .store_handle(store_path)
-        .expect("multi-store schema store should resolve");
-    crate::db::commit::publish_accepted_schema_candidate(store_path, store, expected, &candidate)
-        .expect("multi-store accepted schema should publish");
 }
 
 fn publish_schema(

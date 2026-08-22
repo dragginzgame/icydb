@@ -167,6 +167,15 @@ verify_only_staged_release_notes() {
     done < <(git -C "$ROOT_DIR" diff --cached --name-only -z HEAD --)
 }
 
+verify_no_untracked_paths() {
+    local path
+
+    while IFS= read -r -d '' path; do
+        echo "Untracked path could affect release validation: $path" >&2
+        exit 1
+    done < <(git -C "$ROOT_DIR" ls-files --others --exclude-standard -z)
+}
+
 verify_tested_tree() {
     local tested_commit="$1"
     local current_commit path
@@ -182,6 +191,7 @@ verify_tested_tree() {
         exit 1
     fi
     verify_only_staged_release_notes
+    verify_no_untracked_paths
 
     while IFS= read -r -d '' path; do
         if ! is_release_note_path "$path"; then

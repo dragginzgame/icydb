@@ -201,16 +201,19 @@ or lifecycle owner entered that line.
 synchronous callbacks plus one volatile duplicate latch, then prove empty and
 populated same-release recovery under a framework-neutral single-owner root.
 Canic composition remains independently owned and is not an IcyDB release
-gate. The fully ready participant's narrow instruction headroom remains a
-named optimization carry-forward. It is now promoted into the focused
+gate. The fully ready participant's narrow instruction headroom became the
+focused but now historical
 [0.237 accepted-schema runtime observation and cold-root scaling design](../0.237-accepted-schema-runtime-observation-and-cold-root-scaling/0.237-design.md),
-which must reduce repeated accepted-schema work rather than silently raise the
-gate.
+which measured a 1.892% cold-read improvement against a frozen 25% gate and
+closed as an unreleased no-build with its implementation reverted.
 0.228 Patch 1 independently reproduced the same scaling direction: temporarily
 co-locating an unrelated 64-index entity more than doubled one three-index
-recovery probe. 0.237 owns only the accepted-schema observation optimization;
-it must not become a second recovery executor or change 0.228's corruption
-protocol.
+recovery probe. That historical evidence no longer justifies active 0.237 work;
+future optimization requires a new baseline and separate design without
+becoming a second recovery executor or changing 0.228's corruption protocol.
+The later explicit 0.237 assignment belongs instead to the independent
+[SQL query performance hotspot rediscovery design](../0.237-sql-query-performance-hotspot-rediscovery/0.237-design.md)
+and does not revive the accepted-schema candidate.
 
 For later lines, 0.228 first measures whether a complete batch can validate,
 prepare, Apply, and retire in one IC message. An Apply cursor, durable Validate,

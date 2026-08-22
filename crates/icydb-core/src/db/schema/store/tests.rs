@@ -1,12 +1,9 @@
 use super::{
     ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST,
-    ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET, AcceptedSchemaStoreObservationCounts,
-    AcceptedStoreCatalogScope, IdentityStateStorageView, RawSchemaKey, RawSchemaSnapshot,
-    SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore, SchemaStoreBackend, SchemaStoreVisit,
-    accepted_schema_bundle_cache_miss_count_for_tests,
-    accepted_schema_store_observation_counts_for_tests, hash_accepted_field_kind,
-    reset_accepted_schema_bundle_cache_miss_count_for_tests,
-    reset_accepted_schema_store_observation_counts_for_tests,
+    ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET, AcceptedStoreCatalogScope, IdentityStateStorageView,
+    RawSchemaKey, RawSchemaSnapshot, SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore,
+    SchemaStoreBackend, SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests,
+    hash_accepted_field_kind, reset_accepted_schema_bundle_cache_miss_count_for_tests,
 };
 use crate::db::schema::identity_state::{
     IdentityAdvanceId, IdentityRangeAdvance, IdentityState, IdentityStateLifecycle,
@@ -31,7 +28,6 @@ use crate::{
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
             SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout,
             SchemaVersion, accepted_schema_cache_fingerprint, accepted_schema_candidate_for_tests,
-            accepted_schema_candidate_with_field_bindings_for_tests,
             cardinality_generation::{
                 CardinalityBuildCursor, CardinalityBuildPhase, CardinalityBuildTotals,
                 CardinalityCountDigest, CardinalityCountRecord, CardinalityCountSlot,
@@ -50,7 +46,6 @@ use crate::{
 };
 
 use ic_stable_structures::{Storable, storable::Bound};
-use icydb_schema::FieldSourceKey;
 use std::borrow::Cow;
 use std::convert::Infallible;
 
@@ -1051,14 +1046,8 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
         )
         .expect("repeated candidate fold should be idempotent");
     reopened
-        .current_accepted_schema_bundle()
-        .expect("folded accepted bundle should populate the cache")
-        .expect("folded accepted bundle should exist");
-    assert!(reopened.accepted_bundle_cache.borrow().is_some());
-    reopened
         .reset_journaled_live_projection()
         .expect("live projection should reset");
-    assert!(reopened.accepted_bundle_cache.borrow().is_none());
     assert_eq!(
         reopened
             .current_accepted_schema_bundle()
@@ -1621,104 +1610,6 @@ fn accepted_catalog_selection_reuses_verified_entity_bytes() {
     assert_eq!(
         first.value_catalog_handle().authority(),
         second.value_catalog_handle().authority(),
-    );
-}
-
-#[test]
-fn accepted_runtime_catalog_batch_selects_one_authority_for_every_entity() {
-    const STORE_PATH: &str = "test::AcceptedRuntimeCatalogBatchStore";
-    let first = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        "entities::First".to_string(),
-        "First".to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Unit,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Unit),
-        )],
-    );
-    let second = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        "entities::Second".to_string(),
-        "Second".to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Unit,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Unit),
-        )],
-    );
-    let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
-        STORE_PATH,
-        AcceptedSchemaRevision::INITIAL,
-        std::collections::BTreeMap::from([(EntityTag::new(7), first), (EntityTag::new(8), second)]),
-        std::collections::BTreeMap::from([
-            (
-                (
-                    EntityTag::new(7),
-                    FieldSourceKey::try_new("entities::First::id")
-                        .expect("first field source should admit"),
-                ),
-                FieldId::new(1),
-            ),
-            (
-                (
-                    EntityTag::new(8),
-                    FieldSourceKey::try_new("entities::Second::id")
-                        .expect("second field source should admit"),
-                ),
-                FieldId::new(1),
-            ),
-        ]),
-    );
-    let mut store = SchemaStore::init_heap();
-    store
-        .publish_accepted_schema_candidate(
-            test_database_incarnation(),
-            AcceptedSchemaRevision::NONE,
-            &candidate,
-        )
-        .expect("accepted candidate should publish");
-    let root = store
-        .current_accepted_schema_root()
-        .expect("accepted root should decode");
-    reset_accepted_schema_store_observation_counts_for_tests();
-
-    let projections = store
-        .accepted_runtime_catalog_selections_for_root(STORE_PATH, root)
-        .expect("one store projection should admit every entity");
-
-    assert_eq!(projections.len(), 2);
-    assert_eq!(projections[0].0.entity_tag(), EntityTag::new(7));
-    assert_eq!(projections[1].0.entity_tag(), EntityTag::new(8));
-    assert_eq!(
-        accepted_schema_store_observation_counts_for_tests(),
-        AcceptedSchemaStoreObservationCounts {
-            root_selections: 0,
-            authority_selections: 1,
-            identity_closure_validations: 1,
-            entity_selection_projections: 2,
-        },
-    );
-    assert!(
-        store
-            .cached_accepted_schema_root_matches(root.expect("accepted root should exist").root())
-            .expect("cached accepted root witness should remain readable"),
     );
 }
 

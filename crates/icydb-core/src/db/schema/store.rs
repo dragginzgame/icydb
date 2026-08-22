@@ -47,7 +47,7 @@ use crate::{
             encode_persisted_schema_snapshot,
             enum_catalog::{
                 AcceptedSchemaAuthority, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
-                AcceptedSchemaRevisionBundle, AcceptedSchemaRoot, AcceptedSchemaRootSelection,
+                AcceptedSchemaRevisionBundle, AcceptedSchemaRootSelection,
                 AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, CandidateSchemaRevision,
                 decode_verified_accepted_schema_revision_bundle,
                 prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
@@ -124,46 +124,6 @@ pub(in crate::db) fn load_accepted_schema_snapshot(
 #[cfg(test)]
 thread_local! {
     static ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES: Cell<u64> = const { Cell::new(0) };
-    static ACCEPTED_SCHEMA_STORE_OBSERVATION_COUNTS: Cell<AcceptedSchemaStoreObservationCounts> =
-        const { Cell::new(AcceptedSchemaStoreObservationCounts {
-            root_selections: 0,
-            authority_selections: 0,
-            identity_closure_validations: 0,
-            entity_selection_projections: 0,
-        }) };
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct AcceptedSchemaStoreObservationCounts {
-    pub root_selections: u64,
-    pub authority_selections: u64,
-    pub identity_closure_validations: u64,
-    pub entity_selection_projections: u64,
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_accepted_schema_store_observation_counts_for_tests() {
-    ACCEPTED_SCHEMA_STORE_OBSERVATION_COUNTS
-        .with(|counts| counts.set(AcceptedSchemaStoreObservationCounts::default()));
-}
-
-#[cfg(test)]
-#[must_use]
-pub(in crate::db) fn accepted_schema_store_observation_counts_for_tests()
--> AcceptedSchemaStoreObservationCounts {
-    ACCEPTED_SCHEMA_STORE_OBSERVATION_COUNTS.with(Cell::get)
-}
-
-#[cfg(test)]
-fn record_accepted_schema_store_observation_for_tests(
-    update: impl FnOnce(&mut AcceptedSchemaStoreObservationCounts),
-) {
-    ACCEPTED_SCHEMA_STORE_OBSERVATION_COUNTS.with(|cell| {
-        let mut counts = cell.get();
-        update(&mut counts);
-        cell.set(counts);
-    });
 }
 
 #[cfg(test)]
@@ -2242,10 +2202,6 @@ impl SchemaStore {
     pub(in crate::db) fn current_accepted_schema_root(
         &self,
     ) -> Result<Option<AcceptedSchemaRootSelection>, InternalError> {
-        #[cfg(test)]
-        record_accepted_schema_store_observation_for_tests(|counts| {
-            counts.root_selections = counts.root_selections.saturating_add(1);
-        });
         let first = self.accepted_root_slot_bytes(0)?;
         let second = self.accepted_root_slot_bytes(1)?;
         select_current_accepted_schema_root([first.as_deref(), second.as_deref()])
@@ -2286,54 +2242,6 @@ impl SchemaStore {
                 )
             })
             .collect()
-    }
-
-    /// Project every accepted entity and catalog selection from one captured root.
-    ///
-    /// The caller owns the before/after current-root check. This method admits
-    /// and validates the captured immutable bundle once, then derives every
-    /// entity selection from that same authority without reselecting the root.
-    pub(in crate::db) fn accepted_runtime_catalog_selections_for_root(
-        &self,
-        registered_store_path: &'static str,
-        selection: Option<AcceptedSchemaRootSelection>,
-    ) -> Result<Vec<(AcceptedRuntimeEntity, AcceptedCatalogSnapshotSelection)>, InternalError> {
-        let Some((selection, bundle)) =
-            self.accepted_schema_authority_ref_for_selection(selection)?
-        else {
-            return Ok(Vec::new());
-        };
-        if bundle.store_path() != registered_store_path {
-            return Err(InternalError::store_corruption());
-        }
-
-        let cache = self
-            .accepted_bundle_cache
-            .try_borrow()
-            .map_err(|_| InternalError::store_invariant())?;
-        let cached = cache
-            .as_ref()
-            .filter(|cached| cached.selection == selection)
-            .ok_or_else(InternalError::store_invariant)?;
-        let mut projections = Vec::with_capacity(bundle.entity_snapshots().len());
-        for (entity_tag, snapshot) in bundle.entity_snapshots() {
-            let runtime_entity = AcceptedRuntimeEntity::from_accepted_snapshot(
-                &bundle,
-                *entity_tag,
-                snapshot,
-                registered_store_path,
-            )?;
-            let catalog = Self::accepted_catalog_selection_from_cached_bundle(
-                cached,
-                &bundle,
-                *entity_tag,
-                runtime_entity.entity_path(),
-                registered_store_path,
-            )?
-            .ok_or_else(InternalError::store_corruption)?;
-            projections.push((runtime_entity, catalog));
-        }
-        Ok(projections)
     }
 
     /// Resolve one accepted entity tag without materializing the full store catalog.
@@ -2829,23 +2737,6 @@ impl SchemaStore {
         Ok(expected.matches_store_root(store_scope, root.revision(), root.fingerprint()))
     }
 
-    /// Return whether the already-verified bundle cache witnesses one exact root.
-    ///
-    /// This never reads stable memory. Absence is deliberately inconclusive so
-    /// callers fall back to current-root selection rather than treating an
-    /// unloaded cache as proof that no accepted root exists.
-    pub(in crate::db) fn cached_accepted_schema_root_matches(
-        &self,
-        expected: AcceptedSchemaRoot,
-    ) -> Result<bool, InternalError> {
-        Ok(self
-            .accepted_bundle_cache
-            .try_borrow()
-            .map_err(|_| InternalError::store_invariant())?
-            .as_ref()
-            .is_some_and(|cached| cached.selection.root() == expected))
-    }
-
     /// Publish a candidate directly into its canonical schema allocation.
     ///
     /// Journaled online revisions must use
@@ -3272,13 +3163,16 @@ impl SchemaStore {
         Ok(bundle.entity_snapshots().get(&entity).cloned())
     }
 
-    fn accepted_catalog_selection_from_cached_bundle(
-        cached: &AcceptedSchemaBundleCache,
-        bundle: &AcceptedSchemaRevisionBundle,
+    /// Return one accepted catalog selection from the current immutable root.
+    pub(in crate::db) fn current_accepted_catalog_selection(
+        &self,
         entity: EntityTag,
         entity_path: &str,
         store_path: &'static str,
     ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError> {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(None);
+        };
         if bundle.store_path() != store_path {
             return Err(InternalError::store_corruption());
         }
@@ -3288,12 +3182,12 @@ impl SchemaStore {
         if snapshot.entity_path() != entity_path {
             return Err(InternalError::store_corruption());
         }
-        #[cfg(test)]
-        record_accepted_schema_store_observation_for_tests(|counts| {
-            counts.entity_selection_projections =
-                counts.entity_selection_projections.saturating_add(1);
-        });
 
+        let cache = self
+            .accepted_bundle_cache
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())?;
+        let cached = cache.as_ref().ok_or_else(InternalError::store_invariant)?;
         if let Some(selection) = cached
             .entity_selections
             .try_borrow()
@@ -3314,6 +3208,7 @@ impl SchemaStore {
             snapshot.version(),
             fingerprint,
         );
+
         let selected = AcceptedCatalogSnapshotSelection::new(
             identity,
             cached.value_catalog.clone(),
@@ -3326,31 +3221,6 @@ impl SchemaStore {
             .insert(entity, selected.clone());
 
         Ok(Some(selected))
-    }
-
-    /// Return one accepted catalog selection from the current immutable root.
-    pub(in crate::db) fn current_accepted_catalog_selection(
-        &self,
-        entity: EntityTag,
-        entity_path: &str,
-        store_path: &'static str,
-    ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError> {
-        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
-            return Ok(None);
-        };
-
-        let cache = self
-            .accepted_bundle_cache
-            .try_borrow()
-            .map_err(|_| InternalError::store_invariant())?;
-        let cached = cache.as_ref().ok_or_else(InternalError::store_invariant)?;
-        Self::accepted_catalog_selection_from_cached_bundle(
-            cached,
-            &bundle,
-            entity,
-            entity_path,
-            store_path,
-        )
     }
 
     /// Return one accepted catalog selection from the canonical journal base.
@@ -3997,10 +3867,6 @@ impl SchemaStore {
         )>,
         InternalError,
     > {
-        #[cfg(test)]
-        record_accepted_schema_store_observation_for_tests(|counts| {
-            counts.authority_selections = counts.authority_selections.saturating_add(1);
-        });
         let Some(selection) = selection else {
             self.accepted_bundle_cache
                 .try_borrow_mut()
@@ -4059,11 +3925,6 @@ impl SchemaStore {
                 .map(|cached| &cached.bundle)
         })
         .map_err(|_| InternalError::store_invariant())?;
-        #[cfg(test)]
-        record_accepted_schema_store_observation_for_tests(|counts| {
-            counts.identity_closure_validations =
-                counts.identity_closure_validations.saturating_add(1);
-        });
         self.validate_identity_state_closure(&bundle)?;
         Ok(Some((selection, bundle)))
     }

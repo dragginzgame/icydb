@@ -235,6 +235,8 @@ impl<C: CanisterKind> DbSession<C> {
             derivation,
             &prepared,
         )?;
+        self.invalidate_accepted_schema_runtime_root();
+
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -251,23 +253,20 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &PreparedSqlDdlCommand,
     ) -> Option<Result<SqlStatementResult, QueryError>> {
         match prepared.bound().statement() {
-            BoundSqlDdlStatement::AddCheckConstraint(add) => Some(
-                Self::execute_prepared_add_check(store, accepted_before, prepared, add),
-            ),
-            BoundSqlDdlStatement::DropConstraint(drop) => Some(Self::execute_prepared_drop_check(
-                store,
-                accepted_before,
-                prepared,
-                drop,
-            )),
+            BoundSqlDdlStatement::AddCheckConstraint(add) => {
+                Some(self.execute_prepared_add_check(store, accepted_before, prepared, add))
+            }
+            BoundSqlDdlStatement::DropConstraint(drop) => {
+                Some(self.execute_prepared_drop_check(store, accepted_before, prepared, drop))
+            }
             BoundSqlDdlStatement::ValidateConstraint(validate) => {
                 Some(self.execute_prepared_validate_constraint(accepted_before, prepared, validate))
             }
             BoundSqlDdlStatement::AlterColumnNullability(alter) => Some(
-                Self::execute_prepared_field_nullability(store, accepted_before, prepared, alter),
+                self.execute_prepared_field_nullability(store, accepted_before, prepared, alter),
             ),
             BoundSqlDdlStatement::CreateIndex(create) if create.candidate_index().unique() => {
-                Some(Self::execute_prepared_unique_index_activation(
+                Some(self.execute_prepared_unique_index_activation(
                     store,
                     accepted_before,
                     prepared,
@@ -275,7 +274,7 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             }
             BoundSqlDdlStatement::DropIndex(drop) if drop.pending_activation_id().is_some() => {
-                Some(Self::execute_prepared_unique_index_activation_abort(
+                Some(self.execute_prepared_unique_index_activation_abort(
                     store,
                     accepted_before,
                     prepared,
@@ -293,6 +292,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn execute_prepared_add_check(
+        &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
@@ -313,6 +313,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -327,6 +328,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn execute_prepared_unique_index_activation(
+        &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
@@ -347,6 +349,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -356,6 +359,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn execute_prepared_unique_index_activation_abort(
+        &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
@@ -376,6 +380,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -385,6 +390,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn execute_prepared_drop_check(
+        &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
@@ -405,6 +411,7 @@ impl<C: CanisterKind> DbSession<C> {
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -459,6 +466,7 @@ impl<C: CanisterKind> DbSession<C> {
             )?
         };
         let rows_scanned = usize::try_from(validation_page.rows_scanned()).unwrap_or(usize::MAX);
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared
                 .report()
@@ -470,6 +478,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn execute_prepared_field_nullability(
+        &self,
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
@@ -513,6 +522,7 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
         };
+        self.invalidate_accepted_schema_runtime_root();
         Ok(SqlStatementResult::Ddl(
             prepared.report().clone().with_execution_status(status),
         ))

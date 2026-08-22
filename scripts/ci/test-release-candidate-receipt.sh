@@ -28,16 +28,23 @@ git -C "$FIXTURE" init -q
 git -C "$FIXTURE" config user.name "IcyDB release fixture"
 git -C "$FIXTURE" config user.email "release-fixture@invalid.example"
 mkdir -p "$FIXTURE/docs/changelog"
+printf '.ignored/\n' > "$FIXTURE/.gitignore"
 printf '[workspace.package]\nversion = "0.223.6"\n' > "$FIXTURE/Cargo.toml"
 printf 'version = 3\n\n[[package]]\nname = "fixture"\nversion = "0.223.6"\n' > "$FIXTURE/Cargo.lock"
 printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 printf 'root release notes\n' > "$FIXTURE/CHANGELOG.md"
 printf 'detailed release notes\n' > "$FIXTURE/docs/changelog/0.223.md"
 printf 'candidate source\n' > "$FIXTURE/code.txt"
-git -C "$FIXTURE" add Cargo.toml Cargo.lock README.md CHANGELOG.md docs/changelog/0.223.md code.txt
+git -C "$FIXTURE" add .gitignore Cargo.toml Cargo.lock README.md CHANGELOG.md docs/changelog/0.223.md code.txt
 git -C "$FIXTURE" commit -q --no-verify -m "candidate"
 candidate_commit="$(git -C "$FIXTURE" rev-parse HEAD)"
 
+run_subject verify-tested-tree "$candidate_commit"
+printf 'untracked source used only by the working tree\n' > "$FIXTURE/build.rs"
+expect_failure run_subject verify-tested-tree "$candidate_commit"
+find "$FIXTURE" -maxdepth 1 -type f -name build.rs -delete
+mkdir -p "$FIXTURE/.ignored"
+printf 'ignored local artifact\n' > "$FIXTURE/.ignored/artifact.txt"
 run_subject verify-tested-tree "$candidate_commit"
 printf 'candidate source changed during test\n' > "$FIXTURE/code.txt"
 expect_failure run_subject verify-tested-tree "$candidate_commit"

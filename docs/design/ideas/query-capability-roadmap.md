@@ -19,10 +19,15 @@ those released lines contain different maintained work. They remain historical
 intake dispositions rather than promises that the named capabilities shipped.
 0.236 is released under the focused
 [exact-cardinality planner tie-break design](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md).
-The current 0.237 authority is the independent
+The independent
 [accepted-schema runtime observation and cold-root scaling design](../0.237-accepted-schema-runtime-observation-and-cold-root-scaling/0.237-design.md),
-not an intake candidate from this historical roadmap. The provisional 0.237
-component/time-expression assignment was not adopted and is now unnumbered.
+which was not an intake candidate from this historical roadmap, closed as a
+measured unreleased no-build. The provisional 0.237 component/time-expression
+assignment was not adopted and is now unnumbered.
+The current 0.237 authority is the separately assigned
+[SQL query performance hotspot rediscovery design](../0.237-sql-query-performance-hotspot-rediscovery/0.237-design.md),
+which is an evidence audit rather than a capability promotion from this
+roadmap.
 Every other unreleased candidate remains unnumbered until a later
 current-surface audit and explicit user authorization promotes it.
 
@@ -182,9 +187,9 @@ Historical semantic dependency assumptions were:
 
 ## Roadmap Promotion Gate
 
-No line is implementation-ready from this file. Released 0.236 and the current
-independent 0.237 design are owned by their own design/status trackers, not
-this historical roadmap. Promotion of any intake candidate requires:
+No line is implementation-ready from this file. Released 0.236 and historical
+no-build 0.237 are owned by their own design/status trackers, not this
+historical roadmap. Promotion of any intake candidate requires:
 
 1. the current minor has a reported ready/complete closeout and the user
    explicitly names the next minor;

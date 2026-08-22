@@ -403,11 +403,6 @@ pub(in crate::db) use store::{
     PreparedSchemaPositionPublication, PreparedSchemaPositionRetirement,
     SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata, load_accepted_schema_snapshot,
 };
-#[cfg(test)]
-pub(in crate::db) use store::{
-    AcceptedSchemaStoreObservationCounts, accepted_schema_store_observation_counts_for_tests,
-    reset_accepted_schema_store_observation_counts_for_tests,
-};
 
 #[cfg(test)]
 pub(in crate::db) fn build_record_newtype_composite_catalog_for_tests(
