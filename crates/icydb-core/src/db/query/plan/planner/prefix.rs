@@ -283,6 +283,47 @@ pub(super) fn index_branch_set_from_and(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Option<AccessPlan<Value>> {
+    index_branch_set_from_and_with_cap(
+        candidate_indexes,
+        schema,
+        children,
+        order,
+        grouped,
+        MAX_INDEX_BRANCH_SET_VALUES,
+        true,
+    )
+}
+
+pub(in crate::db::query) fn count_cardinality_index_branch_set_from_and(
+    candidate_indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
+    children: &[Predicate],
+    max_branch_values: usize,
+) -> Option<AccessPlan<Value>> {
+    // This semantic plan is proof input for exact metadata only. Its cap is
+    // deliberately independent of executable branch-plan admission, and the
+    // caller must not route it into row execution.
+    index_branch_set_from_and_with_cap(
+        candidate_indexes,
+        schema,
+        children,
+        None,
+        false,
+        max_branch_values,
+        false,
+    )
+}
+
+fn index_branch_set_from_and_with_cap(
+    candidate_indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
+    children: &[Predicate],
+    order: Option<&OrderSpec>,
+    grouped: bool,
+    max_branch_values: usize,
+    record_shared_branch_cap: bool,
+) -> Option<AccessPlan<Value>> {
+    let _ = record_shared_branch_cap;
     if grouped || order.is_some_and(|order| !primary_key_asc_order(schema, order)) {
         return None;
     }
@@ -325,10 +366,12 @@ pub(super) fn index_branch_set_from_and(
         let mut branch_values = branch_values;
         prune_branch_values_by_exclusions(branch_key_item, &mut branch_values, &excluded_values);
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        crate::db::diagnostics::record_sql_prefix_branch_cap(
-            !branch_values.is_empty() && branch_values.len() <= MAX_INDEX_BRANCH_SET_VALUES,
-        );
-        if branch_values.is_empty() || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+        if record_shared_branch_cap {
+            crate::db::diagnostics::record_sql_prefix_branch_cap(
+                !branch_values.is_empty() && branch_values.len() <= max_branch_values,
+            );
+        }
+        if branch_values.is_empty() || branch_values.len() > max_branch_values {
             continue;
         }
 

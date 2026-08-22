@@ -641,7 +641,7 @@ pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_a
             lower_single_component_user_index_prefix_cardinality_keys(
                 entity_tag,
                 access.index().clone(),
-                std::slice::from_ref(value),
+                std::slice::from_ref(*value),
                 schema_info,
             )
             .map_err(|_err| LoweredAccessError::IndexPrefix)
@@ -655,7 +655,42 @@ pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_a
             )
             .map_err(|_err| LoweredAccessError::IndexPrefix)
         }
+        crate::db::query::plan::CountCardinalityPrefixValues::ExactPrefixes(prefixes) => {
+            lower_user_index_prefix_cardinality_keys(
+                entity_tag,
+                access.index().clone(),
+                prefixes,
+                schema_info,
+            )
+            .map_err(|_err| LoweredAccessError::IndexPrefix)
+        }
     }
+}
+
+fn lower_user_index_prefix_cardinality_keys(
+    entity_tag: EntityTag,
+    index: crate::db::access::SemanticIndexAccessContract,
+    prefixes: &[Vec<Value>],
+    schema_info: &SchemaInfo,
+) -> Result<Vec<UserIndexPrefixCardinalityKey>, InternalError> {
+    // Every component is encoded against the already selected accepted index;
+    // this boundary derives lookup keys and never reconstructs index authority.
+    if prefixes.is_empty() || prefixes.iter().any(Vec::is_empty) {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    let index_id =
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
+    let mut keys = Vec::with_capacity(prefixes.len());
+    for prefix in prefixes {
+        let components = encode_index_prefix_values(Some(schema_info), &index, prefix)?
+            .into_iter()
+            .map(|encoded| encoded.encoded().to_vec())
+            .collect();
+        keys.push(UserIndexPrefixCardinalityKey::new(index_id, components));
+    }
+
+    Ok(keys)
 }
 
 fn lower_single_component_user_index_prefix_cardinality_keys(

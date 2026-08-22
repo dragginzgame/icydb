@@ -4268,7 +4268,7 @@ mod identity_pre_key_tests {
         insert_key_exists_after_generation, structural_mutation_staged_charge,
         validate_structural_mutation_result_bytes,
     };
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     use crate::db::data::DecodedDataStoreKey;
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::executor::budget::{
@@ -5007,6 +5007,119 @@ mod identity_pre_key_tests {
         }
     }
 
+    #[cfg(feature = "sql")]
+    fn sql_projection_rows(session: &DbSession<TestCanister>, sql: &str) -> Vec<Vec<OutputValue>> {
+        let crate::db::SqlStatementResult::Projection { rows, .. } = session
+            .execute_trusted_sql_query(sql)
+            .expect("focused SQL projection should execute")
+        else {
+            panic!("focused SQL projection should return rows")
+        };
+
+        rows
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn secondary_ordered_covering_limit_stops_at_the_present_row_window() {
+        let session = initialize_with_composite_payload_index();
+        for payload in [30, 10, 20, 20, 40] {
+            insert_exact_key_fixture(&session, payload);
+        }
+
+        assert_eq!(
+            sql_projection_rows(
+                &session,
+                "SELECT payload FROM IdentityRow ORDER BY payload ASC, id ASC LIMIT 1",
+            ),
+            vec![vec![OutputValue::Nat64(10)]],
+        );
+        #[cfg(feature = "diagnostics")]
+        assert_sql_query_fits_resource_limit(
+            &session,
+            "SELECT payload FROM IdentityRow ORDER BY payload ASC, id ASC LIMIT 1",
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            1,
+        );
+
+        assert_eq!(
+            sql_projection_rows(
+                &session,
+                "SELECT payload FROM IdentityRow ORDER BY payload DESC, id DESC LIMIT 1",
+            ),
+            vec![vec![OutputValue::Nat64(40)]],
+        );
+        #[cfg(feature = "diagnostics")]
+        assert_sql_query_fits_resource_limit(
+            &session,
+            "SELECT payload FROM IdentityRow ORDER BY payload DESC, id DESC LIMIT 1",
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            1,
+        );
+
+        assert_eq!(
+            sql_projection_rows(
+                &session,
+                "SELECT id, payload FROM IdentityRow \
+                 ORDER BY payload ASC, id ASC LIMIT 2 OFFSET 1",
+            ),
+            vec![
+                vec![OutputValue::Nat64(3), OutputValue::Nat64(20)],
+                vec![OutputValue::Nat64(4), OutputValue::Nat64(20)],
+            ],
+        );
+        #[cfg(feature = "diagnostics")]
+        assert_sql_query_fits_resource_limit(
+            &session,
+            "SELECT id, payload FROM IdentityRow \
+             ORDER BY payload ASC, id ASC LIMIT 2 OFFSET 1",
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            3,
+        );
+
+        assert_eq!(
+            sql_projection_rows(
+                &session,
+                "SELECT payload FROM IdentityRow ORDER BY payload ASC, id ASC",
+            ),
+            [10, 20, 20, 30, 40]
+                .into_iter()
+                .map(|payload| vec![OutputValue::Nat64(payload)])
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn secondary_ordered_covering_limit_fails_on_an_accessed_missing_row() {
+        let session = initialize_with_composite_payload_index();
+        let first = insert_exact_key_fixture(&session, 10);
+        insert_exact_key_fixture(&session, 20);
+        let raw_key =
+            DecodedDataStoreKey::try_from_structural_key(ENTITY_TAG, &Value::Nat64(first))
+                .expect("missing-row fixture key should decode")
+                .to_raw()
+                .expect("missing-row fixture key should encode");
+        let store = session
+            .db
+            .store_handle(STORE_PATH)
+            .expect("missing-row fixture store should resolve");
+        assert!(
+            store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
+            "fixture must remove only the authoritative row",
+        );
+
+        let error = session
+            .execute_trusted_sql_query(
+                "SELECT payload FROM IdentityRow ORDER BY payload ASC, id ASC LIMIT 1",
+            )
+            .expect_err("an accessed accepted-index row must remain fail-closed");
+        assert!(matches!(
+            error,
+            crate::db::QueryError::Execute(QueryExecutionError::Corruption(_))
+        ));
+    }
+
     #[test]
     fn exact_counts_use_entity_and_bounded_index_metadata_without_physical_reads() {
         let session = initialize();
@@ -5144,6 +5257,50 @@ mod identity_pre_key_tests {
             panic!("distinct count should return one projection row")
         };
         assert_eq!(rows, vec![vec![OutputValue::Nat64(2)]]);
+        assert!(DataStore::current_get_call_count() > data_reads_before);
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn exact_count_composite_prefix_admits_seventeen_canonical_keys_only() {
+        let session = initialize_with_composite_payload_index();
+        for payload in [10, 10, 20] {
+            insert_exact_key_fixture(&session, payload);
+        }
+        let ids_at_count_cap = (1_u64..=17)
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let at_count_cap_sql = format!(
+            "SELECT COUNT(*) FROM IdentityRow WHERE payload = 10 AND id IN ({ids_at_count_cap})",
+        );
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
+        assert_eq!(
+            sql_projection_rows(&session, at_count_cap_sql.as_str()),
+            vec![vec![OutputValue::Nat64(2)]],
+        );
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+
+        let authored_duplicate_sql = format!(
+            "SELECT COUNT(*) FROM IdentityRow WHERE payload = 10 AND id IN (1, {ids_at_count_cap})",
+        );
+        assert_eq!(
+            sql_projection_rows(&session, authored_duplicate_sql.as_str()),
+            vec![vec![OutputValue::Nat64(2)]],
+        );
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+
+        let ids_over_count_cap = format!("{ids_at_count_cap}, 18");
+        let over_count_cap_sql = format!(
+            "SELECT COUNT(*) FROM IdentityRow WHERE payload = 10 AND id IN ({ids_over_count_cap})",
+        );
+        assert_eq!(
+            sql_projection_rows(&session, over_count_cap_sql.as_str()),
+            vec![vec![OutputValue::Nat64(2)]],
+        );
         assert!(DataStore::current_get_call_count() > data_reads_before);
     }
 
@@ -6021,6 +6178,29 @@ mod identity_pre_key_tests {
                 resource.raw(),
             ),
         );
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    fn assert_sql_query_fits_resource_limit(
+        session: &DbSession<TestCanister>,
+        sql: &str,
+        resource: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
+        limit: u64,
+    ) {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            u64::MAX,
+            HardExecutionFailureHeadroom::new(500, 256),
+        )
+        .with_limit_for_tests(resource, limit);
+        let context = HardExecutionContext::new(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::TrustedRead,
+            0x7371_6c2d_626f_756e,
+        );
+        with_query_execution_budget_for_tests(budget, context, || {
+            session.execute_trusted_sql_query(sql)
+        })
+        .expect("bounded SQL execution should fit its physical-work limit");
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]

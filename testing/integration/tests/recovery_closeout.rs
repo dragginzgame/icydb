@@ -354,6 +354,13 @@ fn user_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQu
     result.expect("attributed user count should succeed")
 }
 
+fn token_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQueryPerfResult {
+    let result: Result<SqlQueryPerfResult, Error> = fixture
+        .query_candid("query_token_with_perf", (sql.to_string(),))
+        .expect("attributed token count should decode");
+    result.expect("attributed token count should succeed")
+}
+
 fn assert_metadata_backed_count(sample: SqlQueryPerfResult, expected: u32) {
     assert_count(sample.result, expected);
     assert_eq!(sample.attribution.store_get_calls, 0);
@@ -963,6 +970,18 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
             "SELECT MAX(id) FROM PerfAuditUser",
         ),
     ];
+    let ordered_endpoints_before_upgrade = [
+        query_total_only(
+            &populated,
+            "query_user_total_only_perf",
+            "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
+        ),
+        query_total_only(
+            &populated,
+            "query_user_total_only_perf",
+            "SELECT age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 1",
+        ),
+    ];
     let memory_before_upgrade = canister_memory_bytes(&populated);
     upgrade_with_wasm(&populated, current_sql_perf_wasm());
     let memory_after_upgrade = canister_memory_bytes(&populated);
@@ -1020,6 +1039,22 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         ],
         extrema_before_upgrade,
         "indexed scalar extrema must retain their accepted-schema result across recovery",
+    );
+    assert_eq!(
+        [
+            query_total_only(
+                &populated,
+                "query_user_total_only_perf",
+                "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
+            ),
+            query_total_only(
+                &populated,
+                "query_user_total_only_perf",
+                "SELECT age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 1",
+            ),
+        ],
+        ordered_endpoints_before_upgrade,
+        "secondary ordered limits must retain their accepted-schema result across recovery",
     );
     assert_user_index_count(&populated);
 
@@ -1122,6 +1157,41 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
         panic!("recovered schema should expose its indexes");
     };
     assert_eq!(indexes.len(), 4);
+}
+
+#[test]
+fn count_prefix_cardinality_cap_survives_same_wasm_recovery_without_query_allocation() {
+    const COUNT_SQL: &str = "\
+SELECT COUNT(*) FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
+'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', \
+'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')";
+
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<ScaleFixtureFacts, Error> = fixture
+        .update_candid("load_token_scale_fixture", (2_048_u32,))
+        .expect("token recovery fixture facts should decode");
+    let loaded = loaded.expect("token recovery fixture should load");
+    assert_eq!(loaded.quarter_match_rows, 512);
+    assert_metadata_backed_count(token_count_with_perf(&fixture, COUNT_SQL), 512);
+
+    let stable_before_upgrade = canister_memory_bytes(&fixture).1;
+    upgrade_with_wasm(&fixture, current_sql_perf_wasm());
+    assert_eq!(canister_memory_bytes(&fixture).1, stable_before_upgrade);
+    assert_eq!(
+        startup_observation(&fixture).state,
+        DatabaseStartupState::Recovering,
+    );
+
+    advance_startup_watchdog_until_ready(&fixture);
+    assert_eq!(
+        startup_observation(&fixture).state,
+        DatabaseStartupState::Ready,
+    );
+    let stable_after_recovery = canister_memory_bytes(&fixture).1;
+    assert_metadata_backed_count(token_count_with_perf(&fixture, COUNT_SQL), 512);
+    assert_eq!(canister_memory_bytes(&fixture).1, stable_after_recovery);
 }
 
 #[test]

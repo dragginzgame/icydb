@@ -12,9 +12,9 @@ use crate::{
         data::{DataStore, DecodedDataStoreKey},
         direction::Direction,
         executor::{
-            ExecutorError, FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
-            IndexComponentRow, IndexComponentRows, IndexComponentValues, IndexScan,
-            KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
+            ACCESS_SCAN_CHUNK_ENTRIES, ExecutorError, FlatMergeOrderedChild, FlatMergeSiblingSet,
+            FlatMergeStream, IndexComponentRow, IndexComponentRows, IndexComponentValues,
+            IndexScan, KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
             branch_stream_chunk_entries, budget::charge_current_execution_budget,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
@@ -892,21 +892,103 @@ pub(in crate::db::executor) fn fold_covering_projection_component_rows_in_window
     existing_row_mode: CoveringExistingRowMode,
     window: CoveringProjectionComponentWindow,
     initial: T,
+    fold_component_row: F,
+) -> Result<Option<T>, InternalError>
+where
+    F: FnMut(T, DecodedDataStoreKey, IndexComponentValues) -> Result<Option<T>, InternalError>,
+{
+    let mut raw_pairs = raw_pairs.into_iter();
+
+    fold_covering_projection_component_rows_from_source(
+        || Ok(raw_pairs.next()),
+        store,
+        consistency,
+        existing_row_mode,
+        window,
+        false,
+        initial,
+        fold_component_row,
+    )
+}
+
+// Pull one secondary index range only until the requested present-row window
+// is satisfied. The row store remains authoritative for every pulled
+// candidate; stale candidates before the window therefore retain the existing
+// typed failure or skip semantics without forcing complete-range materialization.
+#[expect(clippy::too_many_arguments)]
+pub(in crate::db::executor) fn fold_index_range_covering_projection_rows_in_window<T, F>(
+    index_store: StoreHandle,
+    row_store: StoreHandle,
+    entity_tag: EntityTag,
+    range: &LoweredIndexRangeSpec,
+    direction: Direction,
+    component_indices: &[usize],
+    consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
+    window: CoveringProjectionComponentWindow,
+    initial: T,
+    fold_component_row: F,
+) -> Result<Option<T>, InternalError>
+where
+    F: FnMut(T, DecodedDataStoreKey, IndexComponentValues) -> Result<Option<T>, InternalError>,
+{
+    let requested_rows = window.limit.map_or(ACCESS_SCAN_CHUNK_ENTRIES, |limit| {
+        window.offset.saturating_add(limit)
+    });
+    let chunk_entries = requested_rows.clamp(1, ACCESS_SCAN_CHUNK_ENTRIES);
+    let mut stream = CoveringPrefixComponentStream::new(
+        index_store,
+        entity_tag,
+        range.scan_contract(),
+        range.lower().clone(),
+        range.upper().clone(),
+        direction,
+        None,
+        chunk_entries,
+        Arc::from(component_indices),
+        None,
+    );
+
+    fold_covering_projection_component_rows_from_source(
+        || stream.next_row(),
+        row_store,
+        consistency,
+        existing_row_mode,
+        window,
+        true,
+        initial,
+        fold_component_row,
+    )
+}
+
+#[expect(clippy::too_many_arguments)]
+fn fold_covering_projection_component_rows_from_source<T, Next, F>(
+    mut next_row: Next,
+    store: StoreHandle,
+    consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
+    window: CoveringProjectionComponentWindow,
+    window_satisfaction_ends_access: bool,
+    initial: T,
     mut fold_component_row: F,
 ) -> Result<Option<T>, InternalError>
 where
+    Next: FnMut() -> Result<Option<IndexComponentRow>, InternalError>,
     F: FnMut(T, DecodedDataStoreKey, IndexComponentValues) -> Result<Option<T>, InternalError>,
 {
     let mut accumulator = initial;
     let mut present_rows = 0usize;
     let mut emitted_rows = 0usize;
 
-    for (data_key, _existence_witness, components) in raw_pairs {
-        if matches!(consistency, MissingRowPolicy::Ignore)
+    loop {
+        if (window_satisfaction_ends_access || matches!(consistency, MissingRowPolicy::Ignore))
             && window.limit.is_some_and(|limit| emitted_rows >= limit)
         {
             break;
         }
+        let Some((data_key, _existence_witness, components)) = next_row()? else {
+            break;
+        };
 
         if existing_row_mode.requires_row_presence_check() {
             let row_present = store.with_data(|data| {
@@ -971,7 +1053,7 @@ pub(in crate::db::executor) fn decode_covering_projection_component(
 
 // Decode one ordered component vector into runtime values while keeping
 // unsupported component kinds fail-closed at the caller boundary.
-fn decode_covering_projection_components(
+pub(in crate::db::executor) fn decode_covering_projection_components(
     components: IndexComponentValues,
 ) -> Result<Option<Vec<Value>>, InternalError> {
     let mut decoded = Vec::with_capacity(components.len());

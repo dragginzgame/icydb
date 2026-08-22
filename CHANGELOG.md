@@ -10,10 +10,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Detailed notes: [docs/changelog/0.237.md](docs/changelog/0.237.md)
 
 - `0.237.0` broadens exact SQL performance evidence across count, extrema,
-  ordered-limit and branch-boundary combinations, reduces schema-proven exact
-  entity counts by 96.1M–126.0M instructions and safe indexed scalar extrema
-  by 100.8M–133.0M instructions at 2,048 rows, and prevents untracked files
-  from contaminating release validation.
+  ordered-limit and branch-boundary combinations; at 2,048 rows it cuts exact
+  counts by 96.1M–126.0M instructions, indexed extrema by 100.8M–133.0M, and
+  covering secondary ordered endpoints by 54.0M–54.2M, and saves 40.5M on the
+  measured 17-key exact-prefix count without raising the shared page cap, while
+  preventing untracked files from contaminating release validation.
 
 ## [0.236.x] 📐 - 2026-08-21 - Exact-Cardinality Planner Tie-Breaking
 

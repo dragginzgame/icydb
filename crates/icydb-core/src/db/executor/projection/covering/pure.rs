@@ -17,8 +17,8 @@ use crate::{
             },
             shared::{
                 CoveringIndexScanRequest, PreparedCoveringIndexScan, apply_covering_page_window,
-                covering_residual_filter_supported, covering_scan_window,
-                project_covering_row_from_decoded_values,
+                covering_projection_component_indices, covering_residual_filter_supported,
+                covering_scan_window, project_covering_row_from_decoded_values,
                 project_covering_row_from_owned_decoded_values,
                 project_covering_row_from_single_decoded_value, resolve_index_backed_covering_scan,
             },
@@ -27,8 +27,9 @@ use crate::{
             EntityAuthority, IndexComponentRows, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             OrderedKeyStreamBox, PrimaryRangeKeyStream,
             covering::{
-                CoveringProjectionComponentWindow,
+                CoveringProjectionComponentWindow, decode_covering_projection_components,
                 fold_covering_projection_component_rows_in_window,
+                fold_index_range_covering_projection_rows_in_window,
             },
             decode_covering_projection_pairs, decode_single_covering_projection_pairs,
             map_covering_projection_pairs, reorder_covering_projection_pairs,
@@ -77,6 +78,17 @@ where
         db,
         authority.clone(),
         plan,
+        covering,
+    )? {
+        return Ok(Some(projected_rows));
+    }
+
+    if let Some(projected_rows) = try_execute_bounded_index_range_covering_rows_for_canister(
+        db,
+        &authority,
+        plan,
+        index_prefix_specs,
+        index_range_specs,
         covering,
     )? {
         return Ok(Some(projected_rows));
@@ -396,6 +408,72 @@ where
     );
 
     Ok(Some(projected_rows))
+}
+
+// Stop one cursorless pure-covering secondary range after its authoritative
+// present-row window is full. Selection and order remain planner-owned; this
+// terminal only makes the already-selected component stream demand-driven.
+fn try_execute_bounded_index_range_covering_rows_for_canister<C>(
+    db: &Db<C>,
+    authority: &EntityAuthority,
+    plan: &AccessPlannedQuery,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    index_range_specs: &[LoweredIndexRangeSpec],
+    covering: &CoveringReadExecutionPlan,
+) -> Result<Option<Vec<Vec<Value>>>, InternalError>
+where
+    C: CanisterKind,
+{
+    if !plan.access.has_selected_index_access_path()
+        || plan.scalar_plan().distinct
+        || plan.has_any_residual_filter()
+        || !index_prefix_specs.is_empty()
+    {
+        return Ok(None);
+    }
+    let [range] = index_range_specs else {
+        return Ok(None);
+    };
+    let CoveringProjectionOrder::IndexOrder(direction) = covering.order_contract else {
+        return Ok(None);
+    };
+    let Some(page) = plan.scalar_plan().page.as_ref() else {
+        return Ok(None);
+    };
+    let Some(limit) = page.limit else {
+        return Ok(None);
+    };
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+    let component_indices = covering_projection_component_indices(covering.fields.as_slice());
+    let index_store = db.recovered_store(range.scan_contract().store_path())?;
+    let row_store = db.recovered_store(authority.store_path())?;
+
+    fold_index_range_covering_projection_rows_in_window(
+        index_store,
+        row_store,
+        authority.entity_tag(),
+        range,
+        direction,
+        component_indices.as_slice(),
+        plan.scalar_consistency(),
+        covering.existing_row_mode,
+        CoveringProjectionComponentWindow::new(offset, Some(limit)),
+        Vec::with_capacity(limit.min(32)),
+        |mut rows, data_key, components| {
+            let Some(decoded_values) = decode_covering_projection_components(components)? else {
+                return Ok(None);
+            };
+            rows.push(project_covering_row_from_owned_decoded_values(
+                &data_key,
+                covering.fields.as_slice(),
+                component_indices.as_slice(),
+                decoded_values,
+            )?);
+
+            Ok(Some(rows))
+        },
+    )
 }
 
 fn try_execute_primary_store_covering_projection_rows_for_canister<C>(

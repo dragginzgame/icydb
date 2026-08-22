@@ -19,6 +19,7 @@ use crate::{
                 plan_query_access_with_accepted_schema, predicate_is_constant_false,
                 primary_key_input_resource_from_value_list,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
+                residual_query_predicate_after_access_path_bounds,
                 validate_group_query_semantics_with_schema, validate_query_semantics_with_schema,
             },
         },
@@ -30,8 +31,14 @@ use crate::{
 use crate::db::{
     access::SemanticIndexAccessContract,
     predicate::{CoercionId, ComparePredicate},
-    query::plan::planner::index_field_literal_matcher,
+    query::plan::planner::{
+        count_cardinality_index_branch_set_from_and, index_field_literal_matcher,
+    },
 };
+
+/// Evidence-bounded exact-count prefix-key cap. Row-producing branch routes
+/// remain governed independently by `MAX_INDEX_BRANCH_SET_VALUES`.
+pub(in crate::db) const MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS: usize = 17;
 
 ///
 /// PreparedScalarPlanningState
@@ -82,18 +89,21 @@ pub(in crate::db) struct CountCardinalityPrefixAccess<'a> {
     values: CountCardinalityPrefixValues<'a>,
 }
 
-#[derive(Clone, Copy)]
 pub(in crate::db) enum CountCardinalityPrefixValues<'a> {
     One(&'a Value),
     Many(&'a [Value]),
+    ExactPrefixes(Vec<Vec<Value>>),
 }
 
 impl CountCardinalityPrefixValues<'_> {
     #[must_use]
-    pub(in crate::db) const fn is_empty(&self) -> bool {
+    pub(in crate::db) fn is_empty(&self) -> bool {
         match self {
             Self::One(_) => false,
             Self::Many(values) => values.is_empty(),
+            Self::ExactPrefixes(prefixes) => {
+                prefixes.is_empty() || prefixes.iter().any(Vec::is_empty)
+            }
         }
     }
 }
@@ -106,14 +116,21 @@ impl<'a> CountCardinalityPrefixAccess<'a> {
         Self { index, values }
     }
 
+    const fn from_exact_prefixes(
+        index: SemanticIndexAccessContract,
+        prefixes: Vec<Vec<Value>>,
+    ) -> Self {
+        Self::new(index, CountCardinalityPrefixValues::ExactPrefixes(prefixes))
+    }
+
     #[must_use]
     pub(in crate::db) const fn index(&self) -> &SemanticIndexAccessContract {
         &self.index
     }
 
     #[must_use]
-    pub(in crate::db) const fn values(&self) -> CountCardinalityPrefixValues<'a> {
-        self.values
+    pub(in crate::db) const fn values(&self) -> &CountCardinalityPrefixValues<'a> {
+        &self.values
     }
 }
 
@@ -351,11 +368,72 @@ fn direct_count_cardinality_prefix_access_from_predicate<'predicate>(
     normalized_predicate: &'predicate Predicate,
 ) -> Option<CountCardinalityPrefixAccess<'predicate>> {
     visible_indexes.accepted_field_path_index_count()?;
-    let cmp = direct_count_exact_prefix_compare(normalized_predicate)?;
-    let values = direct_count_exact_prefix_values(schema_info, cmp)?;
-    let index = direct_count_exact_prefix_index(visible_indexes, cmp.field.as_str())?;
+    if let Some(cmp) = direct_count_exact_prefix_compare(normalized_predicate) {
+        let values = direct_count_exact_prefix_values(schema_info, cmp)?;
+        let index = direct_count_exact_prefix_index(visible_indexes, cmp.field.as_str())?;
 
-    Some(CountCardinalityPrefixAccess::new(index, values))
+        return Some(CountCardinalityPrefixAccess::new(index, values));
+    }
+
+    let Predicate::And(children) = normalized_predicate else {
+        return None;
+    };
+    direct_count_exact_composite_prefix_access(
+        visible_indexes,
+        schema_info,
+        normalized_predicate,
+        children,
+    )
+}
+
+fn direct_count_exact_composite_prefix_access<'predicate>(
+    visible_indexes: &VisibleIndexes,
+    schema_info: &SchemaInfo,
+    normalized_predicate: &'predicate Predicate,
+    children: &[Predicate],
+) -> Option<CountCardinalityPrefixAccess<'predicate>> {
+    // Keep selection authority on accepted field-path contracts, then require
+    // the concrete bounds to discharge the entire predicate before retaining
+    // only metadata prefixes from this non-executable proof plan.
+    let candidate_indexes = visible_indexes
+        .accepted_field_path_indexes()
+        .iter()
+        .map(super::AcceptedPlannerFieldPathIndex::semantic_access_contract)
+        .filter(|index| !index.is_filtered() && !index.has_expression_key_items())
+        .collect::<Vec<_>>();
+    let access = count_cardinality_index_branch_set_from_and(
+        candidate_indexes.as_slice(),
+        schema_info,
+        children,
+        MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS,
+    )?;
+    let path = access.as_path()?;
+    if residual_query_predicate_after_access_path_bounds(Some(path), normalized_predicate).is_some()
+    {
+        return None;
+    }
+
+    if path.as_index_prefix_contract().is_some() {
+        return None;
+    }
+    let branch_set = path.as_index_branch_set_spec()?;
+    let prefixes = branch_set
+        .branch_values()
+        .iter()
+        .map(|branch_value| {
+            let mut prefix = branch_set.fixed_values().to_vec();
+            prefix.push(branch_value.clone());
+            prefix
+        })
+        .collect::<Vec<_>>();
+    if prefixes.len() <= MAX_INDEX_BRANCH_SET_VALUES {
+        return None;
+    }
+
+    Some(CountCardinalityPrefixAccess::from_exact_prefixes(
+        branch_set.index(),
+        prefixes,
+    ))
 }
 
 fn direct_count_exact_prefix_compare(predicate: &Predicate) -> Option<&ComparePredicate> {
@@ -379,7 +457,7 @@ fn direct_count_exact_prefix_values<'predicate>(
             let Value::List(values) = &cmp.value else {
                 return None;
             };
-            if values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+            if values.len() > MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS {
                 return None;
             }
             CountCardinalityPrefixValues::Many(values.as_slice())
@@ -394,7 +472,7 @@ fn direct_count_exact_prefix_values<'predicate>(
         | CompareOp::Contains
         | CompareOp::EndsWith => return None,
     };
-    if values.is_empty() || direct_count_exact_prefix_values_mismatch(schema_info, cmp, values) {
+    if values.is_empty() || direct_count_exact_prefix_values_mismatch(schema_info, cmp, &values) {
         return None;
     }
 
@@ -404,7 +482,7 @@ fn direct_count_exact_prefix_values<'predicate>(
 fn direct_count_exact_prefix_values_mismatch(
     schema_info: &SchemaInfo,
     cmp: &ComparePredicate,
-    values: CountCardinalityPrefixValues<'_>,
+    values: &CountCardinalityPrefixValues<'_>,
 ) -> bool {
     let matcher = index_field_literal_matcher(schema_info, &cmp.field);
     match values {
@@ -412,6 +490,7 @@ fn direct_count_exact_prefix_values_mismatch(
         CountCardinalityPrefixValues::Many(values) => {
             values.iter().any(|value| !matcher.matches(value))
         }
+        CountCardinalityPrefixValues::ExactPrefixes(_) => true,
     }
 }
 

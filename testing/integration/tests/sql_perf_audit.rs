@@ -469,6 +469,21 @@ fn load_user_scale_integrity_fixture(fixture: &StandaloneCanisterFixture, row_co
     assert_eq!(facts.fixture_rows, row_count);
 }
 
+fn load_token_scale_integrity_fixture(
+    fixture: &StandaloneCanisterFixture,
+    row_count: u32,
+) -> ScaleFixtureFacts {
+    let result: Result<ScaleFixtureFacts, Error> = fixture
+        .update_candid("load_token_scale_fixture", (row_count,))
+        .expect("token scale fixture facts should decode");
+    let facts = result.expect("token scale fixture should load");
+
+    assert_eq!(facts.surface, "token");
+    assert_eq!(facts.fixture_rows, row_count);
+
+    facts
+}
+
 fn load_relation_integrity_fixture(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
         .update_candid("load_relation_integrity_fixture", ())
@@ -3609,6 +3624,288 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
     assert!(
         input_window.attribution.store_get_calls <= 1,
         "the canonical planner may retain the explicitly ordered bounded edge",
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture keeps ordered endpoint scale, warm-cache, and fallback evidence comparable"
+)]
+fn sql_perf_secondary_ordered_limits_stop_at_the_requested_covering_window() {
+    const MAX_FIXTURE_ROWS: u32 = 2_048;
+    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    const MINIMUM_SAVING: u64 = 40_000_000;
+    const CASES: [(&str, &str, &str, u64); 2] = [
+        (
+            "first_age",
+            "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
+            "31",
+            55_557_996,
+        ),
+        (
+            "last_age",
+            "SELECT age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 1",
+            "43",
+            55_361_305,
+        ),
+    ];
+
+    let fixture = install_sql_perf_canister_fixture();
+    clear_sql_perf_fixtures(&fixture);
+    for (label, sql, _, _) in CASES {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("empty ordered endpoint should succeed");
+        let SqlQueryResult::Projection(rows) = &sample.result else {
+            panic!("empty ordered endpoint should return projection rows: {sql}")
+        };
+        assert!(rows.rendered_rows().is_empty(), "{label}");
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(sample.attribution.index_store_entry_reads, 0, "{label}");
+    }
+
+    for fixture_rows in [16_u32, 256, MAX_FIXTURE_ROWS] {
+        reset_sql_perf_fixtures(&fixture);
+        load_user_scale_integrity_fixture(&fixture, fixture_rows);
+
+        for (label, sql, expected, predecessor_total) in CASES {
+            let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+                .expect("secondary ordered endpoint should succeed");
+            let SqlQueryResult::Projection(rows) = &sample.result else {
+                panic!("secondary ordered endpoint should return one projection row: {sql}")
+            };
+            assert_eq!(
+                rows.rendered_rows(),
+                vec![vec![expected.to_string()]],
+                "{label}",
+            );
+            assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+            assert_eq!(sample.attribution.index_store_entry_reads, 1, "{label}");
+            assert!(
+                sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
+                "{label} exceeded the ordered endpoint ceiling: {} > {CURRENT_TOTAL_CEILING}",
+                sample.attribution.total_local_instructions,
+            );
+            println!(
+                "0.237 Patch 6 secondary ordered limit ladder: label={label} rows={fixture_rows} candidate={} compile={} execute={} store_gets={} index_entry_reads={}",
+                sample.attribution.total_local_instructions,
+                sample.attribution.compile_local_instructions,
+                sample.attribution.execution.executor_local_instructions,
+                sample.attribution.store_get_calls,
+                sample.attribution.index_store_entry_reads,
+            );
+            if fixture_rows == MAX_FIXTURE_ROWS {
+                let saving =
+                    predecessor_total.saturating_sub(sample.attribution.total_local_instructions);
+                assert!(
+                    saving >= MINIMUM_SAVING,
+                    "{label} saved {saving} instructions, below the {MINIMUM_SAVING} gate",
+                );
+                println!(
+                    "0.237 Patch 6 secondary ordered limit saving: label={label} predecessor={predecessor_total} candidate={} saving={saving}",
+                    sample.attribution.total_local_instructions,
+                );
+            }
+        }
+    }
+
+    let warming = warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
+    )
+    .expect("secondary ordered endpoint cache warm should succeed");
+    assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
+    let warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
+        1,
+    )
+    .expect("true-warm secondary ordered endpoint should succeed");
+    assert!(warm.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING);
+    assert_eq!(warm.attribution.store_get_calls, 0);
+    assert_eq!(warm.attribution.index_store_entry_reads, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
+    println!(
+        "0.237 Patch 6 true-warm secondary ordered limit: candidate={} compile={} execute={}",
+        warm.attribution.total_local_instructions,
+        warm.attribution.compile_local_instructions,
+        warm.attribution.execution.executor_local_instructions,
+    );
+
+    let unbounded = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC",
+        1,
+    )
+    .expect("unbounded secondary order control should succeed");
+    assert_eq!(
+        unbounded.attribution.index_store_entry_reads,
+        u64::from(MAX_FIXTURE_ROWS),
+    );
+
+    let hybrid = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT name FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
+        1,
+    )
+    .expect("hybrid secondary order control should succeed");
+    assert_eq!(
+        hybrid.attribution.store_get_calls,
+        u64::from(MAX_FIXTURE_ROWS),
+    );
+    assert_eq!(
+        hybrid.attribution.index_store_entry_reads,
+        u64::from(MAX_FIXTURE_ROWS),
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture keeps the exact-count cap, warm path, and shared page fallback comparable"
+)]
+fn sql_perf_count_prefix_cardinality_admits_only_the_measured_seventeenth_key() {
+    const MAX_FIXTURE_ROWS: u32 = 2_048;
+    const CURRENT_TOTAL_CEILING: u64 = 5_000_000;
+    const PREDECESSOR_TOTAL: u64 = 42_726_968;
+    const MINIMUM_SAVING: u64 = 35_000_000;
+    const COUNT_AT_SHARED_CAP_SQL: &str = "\
+SELECT COUNT(*) FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
+'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', \
+'Missing03', 'Missing04', 'Missing05', 'Missing06')";
+    const COUNT_AT_COUNT_CAP_SQL: &str = "\
+SELECT COUNT(*) FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
+'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', \
+'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')";
+    const COUNT_OVER_COUNT_CAP_SQL: &str = "\
+SELECT COUNT(*) FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
+'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', \
+'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07', 'Missing08')";
+    const COUNT_AUTHORED_DUPLICATE_AT_CAP_SQL: &str = "\
+SELECT COUNT(*) FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+AND stage IN ('Draft', 'Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
+'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', \
+'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')";
+
+    fn assert_count_result(sample: &SqlQueryPerfResult, expected: u32, label: &str) {
+        let SqlQueryResult::Projection(rows) = &sample.result else {
+            panic!("{label} should return one SQL projection row")
+        };
+        assert_eq!(
+            rows.rendered_rows(),
+            vec![vec![expected.to_string()]],
+            "{label}",
+        );
+    }
+
+    let fixture = install_sql_perf_canister_fixture();
+    for fixture_rows in [16_u32, 256, MAX_FIXTURE_ROWS] {
+        let facts = load_token_scale_integrity_fixture(&fixture, fixture_rows);
+        let sample =
+            query_surface_with_perf(&fixture, SqlPerfSurface::Token, COUNT_AT_COUNT_CAP_SQL, 1)
+                .expect("17-key exact count should succeed");
+        assert_count_result(&sample, facts.quarter_match_rows, "17-key count");
+        assert_eq!(sample.attribution.store_get_calls, 0);
+        assert_eq!(sample.attribution.index_store_entry_reads, 0);
+        assert!(
+            sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
+            "17-key count exceeded the exact metadata ceiling: {} > {CURRENT_TOTAL_CEILING}",
+            sample.attribution.total_local_instructions,
+        );
+        println!(
+            "0.237 Patch 7 count prefix ladder: rows={fixture_rows} candidate={} compile={} execute={} store_gets={} index_entry_reads={}",
+            sample.attribution.total_local_instructions,
+            sample.attribution.compile_local_instructions,
+            sample.attribution.execution.executor_local_instructions,
+            sample.attribution.store_get_calls,
+            sample.attribution.index_store_entry_reads,
+        );
+        if fixture_rows == MAX_FIXTURE_ROWS {
+            let saving =
+                PREDECESSOR_TOTAL.saturating_sub(sample.attribution.total_local_instructions);
+            assert!(
+                saving >= MINIMUM_SAVING,
+                "17-key count saved {saving} instructions, below the {MINIMUM_SAVING} gate",
+            );
+            println!(
+                "0.237 Patch 7 count prefix saving: predecessor={PREDECESSOR_TOTAL} candidate={} saving={saving}",
+                sample.attribution.total_local_instructions,
+            );
+        }
+    }
+
+    let at_shared_cap =
+        query_surface_with_perf(&fixture, SqlPerfSurface::Token, COUNT_AT_SHARED_CAP_SQL, 1)
+            .expect("16-key exact count should remain supported");
+    assert_count_result(&at_shared_cap, MAX_FIXTURE_ROWS / 4, "16-key count");
+    assert_eq!(at_shared_cap.attribution.store_get_calls, 0);
+    assert_eq!(at_shared_cap.attribution.index_store_entry_reads, 0);
+
+    let duplicate = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Token,
+        COUNT_AUTHORED_DUPLICATE_AT_CAP_SQL,
+        1,
+    )
+    .expect("18 authored values canonicalized to 17 keys should succeed");
+    assert_count_result(
+        &duplicate,
+        MAX_FIXTURE_ROWS / 4,
+        "canonicalized 17-key count",
+    );
+    assert_eq!(duplicate.attribution.store_get_calls, 0);
+    assert_eq!(duplicate.attribution.index_store_entry_reads, 0);
+
+    let over_cap =
+        query_surface_with_perf(&fixture, SqlPerfSurface::Token, COUNT_OVER_COUNT_CAP_SQL, 1)
+            .expect("18-key fallback count should succeed");
+    assert_count_result(&over_cap, MAX_FIXTURE_ROWS / 4, "18-key fallback count");
+    assert!(over_cap.attribution.store_get_calls > 0);
+    assert!(over_cap.attribution.index_store_entry_reads > 0);
+
+    let page_control = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Token,
+        TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL,
+        1,
+    )
+    .expect("17-value page fallback should succeed");
+    assert!(
+        page_control
+            .attribution
+            .structural_work
+            .prefix_branch_cap_rejections
+            > 0
+    );
+
+    let warming =
+        warm_query_surface_with_perf(&fixture, SqlPerfSurface::Token, COUNT_AT_COUNT_CAP_SQL)
+            .expect("17-key exact count cache warm should succeed");
+    assert_count_result(&warming, MAX_FIXTURE_ROWS / 4, "warming 17-key count");
+    let warm = query_surface_with_perf(&fixture, SqlPerfSurface::Token, COUNT_AT_COUNT_CAP_SQL, 1)
+        .expect("true-warm 17-key exact count should succeed");
+    assert_count_result(&warm, MAX_FIXTURE_ROWS / 4, "true-warm 17-key count");
+    assert_eq!(warm.attribution.store_get_calls, 0);
+    assert_eq!(warm.attribution.index_store_entry_reads, 0);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
+    println!(
+        "0.237 Patch 7 true-warm count prefix: candidate={} compile={} execute={}",
+        warm.attribution.total_local_instructions,
+        warm.attribution.compile_local_instructions,
+        warm.attribution.execution.executor_local_instructions,
     );
 }
 
