@@ -20,7 +20,10 @@ use std::{
 };
 
 use ic_testkit::artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path};
-use ic_testkit::pic::{InstallSpec, PocketIc, StandaloneCanisterFixture};
+use ic_testkit::pic::{
+    InstallSpec, PocketIc, PocketIcBuilder, PocketIcBuilderExt, PocketIcStartupConfig,
+    StandaloneCanisterFixture,
+};
 use icydb::Error;
 
 use crate::canister_build_cache::{
@@ -32,6 +35,8 @@ use crate::canister_build_cache::{
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
 const FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS: usize = 4;
+const POCKET_IC_INSTANCE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const POCKET_IC_SERVER_URL_ENV: &str = "ICYDB_POCKET_IC_SERVER_URL";
 // A production watchdog callback may consume its full 30-billion-instruction
 // allocation under deterministic time slicing. The maintained timer-
 // exhaustion proof uses this same zero-time completion envelope.
@@ -662,7 +667,7 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
     fixture_for_canister_name(canister_name)
         .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
     StandaloneCanisterFixture::install(
-        PocketIc::new(),
+        start_fixture_pocket_ic(),
         InstallSpec::new(
             wasm,
             candid::encode_args(()).expect("encode empty init args"),
@@ -725,7 +730,7 @@ fn install_fixture_canister_with_options_and_optional_progress(
     }
 
     let fixture = StandaloneCanisterFixture::install(
-        PocketIc::new(),
+        start_fixture_pocket_ic(),
         InstallSpec::new(
             wasm,
             candid::encode_args(()).expect("encode empty init args"),
@@ -737,6 +742,23 @@ fn install_fixture_canister_with_options_and_optional_progress(
         eprintln!("{label}: installed {canister_name} canister in PocketIC");
     }
     fixture
+}
+
+fn start_fixture_pocket_ic() -> PocketIc {
+    let Some(server_url) = env::var(POCKET_IC_SERVER_URL_ENV)
+        .ok()
+        .filter(|value| !value.is_empty())
+    else {
+        return PocketIc::new();
+    };
+
+    PocketIcBuilder::new()
+        .with_application_subnet()
+        .try_build(PocketIcStartupConfig::connect(
+            server_url,
+            POCKET_IC_INSTANCE_STARTUP_TIMEOUT,
+        ))
+        .unwrap_or_else(|error| panic!("start fixture PocketIC on governed server: {error}"))
 }
 
 /// Deliver a bounded set of generated startup-watchdog messages.

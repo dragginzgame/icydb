@@ -93,6 +93,13 @@ if ! rg -q 'run:[[:space:]]+make ci-static' .github/workflows/ci.yml ||
   fail "CI jobs must consume the shared local validation targets"
 fi
 
+if ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/ci.yml ||
+   ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/sql-performance.yml ||
+   ! rg -q --fixed-strings 'scripts/ci/run-with-pocketic-server.sh' Makefile ||
+   ! rg -q --fixed-strings 'ICYDB_POCKET_IC_SERVER_URL' testing/integration/src/lib.rs; then
+  fail "PocketIC workflows must install one locked binary and Tier B must use one governed server"
+fi
+
 if rg -q '^[[:space:]]+CARGO_HOME:' .github/workflows/ci.yml &&
    ! rg -q --fixed-strings \
      "printf '%s\\n' \"\$CARGO_HOME/bin\" >> \"\$GITHUB_PATH\"" \

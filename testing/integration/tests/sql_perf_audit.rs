@@ -4223,21 +4223,19 @@ fn sql_perf_secondary_ordered_limits_stop_at_the_requested_covering_window() {
         u64::from(MAX_FIXTURE_ROWS),
     );
 
-    let hybrid = query_surface_with_perf(
+    let bounded_row_backed = query_surface_with_perf(
         &fixture,
         SqlPerfSurface::User,
         "SELECT name FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
         1,
     )
-    .expect("hybrid secondary order control should succeed");
-    assert_eq!(
-        hybrid.attribution.store_get_calls,
-        u64::from(MAX_FIXTURE_ROWS),
+    .expect("bounded row-backed secondary order control should succeed");
+    assert_eq!(bounded_row_backed.attribution.store_get_calls, 1);
+    assert!(
+        bounded_row_backed.attribution.index_store_entry_reads <= 2,
+        "the finite row-backed window should read only its result and lookahead",
     );
-    assert_eq!(
-        hybrid.attribution.index_store_entry_reads,
-        u64::from(MAX_FIXTURE_ROWS),
-    );
+    assert!(bounded_row_backed.attribution.hybrid_covering.is_none());
 }
 
 #[test]

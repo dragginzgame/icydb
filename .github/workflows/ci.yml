@@ -120,6 +120,11 @@ jobs:
           sudo apt-get install -y binaryen=108-1
           scripts/ci/verify-wasm-optimizer.sh
       - run: cargo fetch --locked
+      - name: Install exact locked PocketIC server
+        if: matrix.lane == 'tier-b'
+        run: |
+          pocket_ic_bin="$(bash scripts/ci/install-pocketic.sh)"
+          echo "POCKET_IC_BIN=$pocket_ic_bin" >> "$GITHUB_ENV"
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           HARD_TIMEOUT_SECONDS: ${{ matrix.hard_timeout_seconds }}

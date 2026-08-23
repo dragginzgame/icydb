@@ -44,6 +44,7 @@ CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
 PERF_POCKET_IC_ENV := POCKET_IC_BIN="$(POCKET_IC_BIN)"
 VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-validation-targets.sh"
+POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION ?= 1.7.12
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
@@ -746,7 +747,9 @@ _ci-tier-a-integration:
 		-p icydb-testing-integration --test sql_correctness --verbose
 
 ci-sql-tier-b:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used by Tier B" >&2; exit 1; }
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
+		$(POCKET_IC_RUNNER) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_canister --verbose
 
 # Run tests in watch mode
