@@ -257,12 +257,35 @@ pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
         plan,
         strict_predicate_compatible,
     )?;
+    if checked_hybrid_finite_index_window_prefers_scalar_path(plan, &covering) {
+        return None;
+    }
 
     Some(covering_hybrid_read_execution_plan(
         covering,
         CoveringExistingRowMode::RequiresRowPresenceCheck,
         strict_predicate_compatible,
     ))
+}
+
+// Keep finite ordered range windows on the existing demand-driven scalar path
+// instead of materializing a checked hybrid candidate set before pagination.
+fn checked_hybrid_finite_index_window_prefers_scalar_path(
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadPlan,
+) -> bool {
+    !plan.scalar_plan().distinct
+        && !plan.has_any_residual_filter()
+        && plan
+            .scalar_plan()
+            .page
+            .as_ref()
+            .is_some_and(|page| page.limit.is_some())
+        && plan.access.as_index_range_path().is_some()
+        && matches!(
+            covering.order_contract,
+            CoveringProjectionOrder::IndexOrder(_)
+        )
 }
 
 /// Derive one execution-grade scalar covering-read plan from accepted schema

@@ -991,6 +991,11 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
             "query_user_total_only_perf",
             "SELECT age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 1",
         ),
+        query_total_only(
+            &populated,
+            "query_user_total_only_perf",
+            "SELECT id, name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+        ),
     ];
     let memory_before_upgrade = canister_memory_bytes(&populated);
     upgrade_with_wasm(&populated, current_sql_perf_wasm());
@@ -1071,6 +1076,11 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
                 &populated,
                 "query_user_total_only_perf",
                 "SELECT age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 1",
+            ),
+            query_total_only(
+                &populated,
+                "query_user_total_only_perf",
+                "SELECT id, name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
             ),
         ],
         ordered_endpoints_before_upgrade,

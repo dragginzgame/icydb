@@ -3799,6 +3799,46 @@ fn sql_perf_compound_one_sided_ranges_begin_at_the_bounded_edge() {
         assert_eq!(sample.attribution.index_store_entry_reads, 1, "{label}");
     }
 
+    for (label, sql, expected) in [
+        (
+            "select_upper_desc_limit_three",
+            "SELECT age FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+            "34",
+        ),
+        (
+            "select_lower_asc_limit_three",
+            "SELECT age FROM PerfAuditUser WHERE age > 31 ORDER BY age ASC, id ASC LIMIT 3",
+            "32",
+        ),
+    ] {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("wider one-sided covering window should succeed");
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            vec![vec![expected.to_string()]; 3],
+            "{label}",
+        );
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(
+            sample.attribution.index_store_range_scan_calls, 1,
+            "{label}"
+        );
+        assert_eq!(sample.attribution.index_store_entry_reads, 3, "{label}");
+        assert!(
+            sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
+            "{label} exceeded the one-sided range ceiling: {} > {CURRENT_TOTAL_CEILING}",
+            sample.attribution.total_local_instructions,
+        );
+        println!(
+            "0.237 Patch 9 one-sided LIMIT 3: label={label} candidate={} compile={} execute={} store_gets={} index_entries={}",
+            sample.attribution.total_local_instructions,
+            sample.attribution.compile_local_instructions,
+            sample.attribution.execution.executor_local_instructions,
+            sample.attribution.store_get_calls,
+            sample.attribution.index_store_entry_reads,
+        );
+    }
+
     for (label, sql) in [
         (
             "empty_upper",
@@ -3863,6 +3903,204 @@ fn sql_perf_compound_one_sided_ranges_begin_at_the_bounded_edge() {
             "{label} must remain on complete qualifying-row reduction",
         );
     }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture keeps checked-hybrid scale, window, route, and warm evidence comparable"
+)]
+fn sql_perf_checked_hybrid_finite_windows_use_the_bounded_scalar_path() {
+    const MAX_FIXTURE_ROWS: u32 = 2_048;
+    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    const CASES: [(&str, &str, &str, u64, u64); 2] = [
+        (
+            "bounded_name",
+            "SELECT name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+            "SELECT COALESCE(name, '') FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+            71_581_154,
+            60_000_000,
+        ),
+        (
+            "unbounded_name",
+            "SELECT name FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 3",
+            "SELECT COALESCE(name, '') FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 3",
+            291_273_583,
+            250_000_000,
+        ),
+    ];
+
+    let fixture = install_sql_perf_canister_fixture();
+    clear_sql_perf_fixtures(&fixture);
+
+    for (label, sql, control_sql, _, _) in CASES {
+        let control = query_surface_with_perf(&fixture, SqlPerfSurface::User, control_sql, 1)
+            .expect("empty checked-hybrid control should succeed");
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("empty checked-hybrid query should succeed");
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            rendered_projection_rows(control.result),
+            "{label}",
+        );
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(sample.attribution.index_store_entry_reads, 0, "{label}");
+    }
+
+    for fixture_rows in [16_u32, 256, MAX_FIXTURE_ROWS] {
+        reset_sql_perf_fixtures(&fixture);
+        load_user_scale_integrity_fixture(&fixture, fixture_rows);
+
+        for (label, sql, control_sql, predecessor, minimum_saving) in CASES {
+            let control = query_surface_with_perf(&fixture, SqlPerfSurface::User, control_sql, 1)
+                .expect("checked-hybrid semantic control should succeed");
+            let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+                .expect("checked-hybrid bounded query should succeed");
+            assert_eq!(
+                rendered_projection_rows(sample.result),
+                rendered_projection_rows(control.result),
+                "{label}",
+            );
+            assert!(
+                sample.attribution.hybrid_covering.is_none(),
+                "{label} must fall through the checked-hybrid materialization route",
+            );
+            assert_eq!(
+                sample.attribution.index_store_range_scan_calls, 1,
+                "{label}",
+            );
+            assert!(sample.attribution.store_get_calls <= 3, "{label}");
+            assert!(sample.attribution.index_store_entry_reads <= 4, "{label}");
+            assert!(
+                sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
+                "{label} exceeded the bounded scalar ceiling: {} > {CURRENT_TOTAL_CEILING}",
+                sample.attribution.total_local_instructions,
+            );
+            println!(
+                "0.237 Patch 10 checked-hybrid narrowing: label={label} rows={fixture_rows} candidate={} store_gets={} index_entries={}",
+                sample.attribution.total_local_instructions,
+                sample.attribution.store_get_calls,
+                sample.attribution.index_store_entry_reads,
+            );
+            if fixture_rows == MAX_FIXTURE_ROWS {
+                let saving =
+                    predecessor.saturating_sub(sample.attribution.total_local_instructions);
+                assert!(
+                    saving >= minimum_saving,
+                    "{label} saved {saving}, below the frozen {minimum_saving} gate",
+                );
+                println!(
+                    "0.237 Patch 10 checked-hybrid saving: label={label} predecessor={predecessor} candidate={} saving={saving}",
+                    sample.attribution.total_local_instructions,
+                );
+            }
+        }
+    }
+
+    for (label, sql, control_sql, expected_index_entries, expected_row_gets) in [
+        (
+            "bounded_narrow_projection",
+            "SELECT id, name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+            "SELECT id, COALESCE(name, '') FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+            4,
+            3,
+        ),
+        (
+            "bounded_offset",
+            "SELECT id, name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3 OFFSET 3",
+            "SELECT id, COALESCE(name, '') FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3 OFFSET 3",
+            7,
+            6,
+        ),
+        (
+            "ascending_lower_range",
+            "SELECT id, name FROM PerfAuditUser WHERE age > 31 ORDER BY age ASC, id ASC LIMIT 3",
+            "SELECT id, COALESCE(name, '') FROM PerfAuditUser WHERE age > 31 ORDER BY age ASC, id ASC LIMIT 3",
+            4,
+            3,
+        ),
+    ] {
+        let control = query_surface_with_perf(&fixture, SqlPerfSurface::User, control_sql, 1)
+            .expect("checked-hybrid semantic control should succeed");
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("checked-hybrid window query should succeed");
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            rendered_projection_rows(control.result),
+            "{label}",
+        );
+        assert!(sample.attribution.hybrid_covering.is_none(), "{label}");
+        assert!(
+            sample.attribution.index_store_entry_reads <= expected_index_entries,
+            "{label}",
+        );
+        assert!(
+            sample.attribution.store_get_calls <= expected_row_gets,
+            "{label}",
+        );
+    }
+
+    let warming = warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+    )
+    .expect("checked-hybrid cache warm should succeed");
+    assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
+    let warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+        1,
+    )
+    .expect("true-warm bounded scalar query should succeed");
+    assert!(warm.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING);
+    assert!(warm.attribution.hybrid_covering.is_none());
+    assert_eq!(warm.attribution.store_get_calls, 3);
+    assert!(warm.attribution.index_store_entry_reads <= 4);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
+    println!(
+        "0.237 Patch 10 true-warm checked-hybrid fallback: candidate={} store_gets={} index_entries={}",
+        warm.attribution.total_local_instructions,
+        warm.attribution.store_get_calls,
+        warm.attribution.index_store_entry_reads,
+    );
+
+    let explain = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "EXPLAIN EXECUTION SELECT name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
+        1,
+    )
+    .expect("checked-hybrid fallback EXPLAIN should succeed");
+    let SqlQueryResult::Explain { explain, .. } = explain.result else {
+        panic!("checked-hybrid fallback EXPLAIN should return explain output")
+    };
+    assert!(
+        explain.contains("IndexRange"),
+        "checked-hybrid fallback must retain the selected index range: {explain}",
+    );
+    assert!(
+        !explain.contains("hybrid_covering"),
+        "EXPLAIN must agree that checked-hybrid materialization was declined: {explain}",
+    );
+
+    reset_sql_perf_fixtures(&fixture);
+    load_user_scale_integrity_fixture(&fixture, 16);
+    let no_limit = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT name FROM PerfAuditUser ORDER BY age DESC, id DESC",
+        1,
+    )
+    .expect("unbounded-result hybrid control should succeed");
+    assert!(
+        no_limit.attribution.hybrid_covering.is_some(),
+        "the no-limit hybrid route remains outside Patch 10",
+    );
+    assert_eq!(no_limit.attribution.store_get_calls, 16);
+    assert_eq!(no_limit.attribution.index_store_entry_reads, 16);
 }
 
 #[test]

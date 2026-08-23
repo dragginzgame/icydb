@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.237.md](docs/changelog/0.237.md)
 
-- `0.237.2` lets one-sided comparisons on a compound index's leading field
-  begin at the encoded range edge, saving 14.3M–273.4M instructions.
+- `0.237.2` lets one-sided compound-index ranges begin at their encoded edge
+  and keeps checked finite ordered projections on the bounded scalar path,
+  saving 14.3M–289.4M instructions across the affected queries.
 
 - `0.237.1` lets unfiltered direct-field scalar `MAX` use an existing secondary
   index edge across duplicate values, saving 113.4M instructions at 2,048 rows.
