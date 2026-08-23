@@ -273,7 +273,6 @@ fn derive_route_scan_hints_for_model(
         .flatten();
     let aggregate_terminal_probe_fetch_hint = inputs.aggregate_shape.and_then(|aggregate| {
         aggregate_probe_fetch_hint(
-            inputs.plan,
             aggregate,
             inputs.direction,
             inputs.support.desc_physical_reverse_supported,

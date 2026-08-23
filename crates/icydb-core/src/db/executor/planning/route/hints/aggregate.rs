@@ -5,14 +5,11 @@
 
 use crate::db::{
     direction::Direction,
-    executor::{
-        aggregate::field_target_is_tie_free_probe_target,
-        route::{
-            AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilityFacts,
-            direction_allows_physical_fetch_hint,
-        },
+    executor::route::{
+        AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilityFacts,
+        direction_allows_physical_fetch_hint,
     },
-    query::plan::{AccessPlannedQuery, AggregateKind},
+    query::plan::AggregateKind,
 };
 
 /// Resolve bounded fetch hint for aggregate probe execution.
@@ -29,7 +26,6 @@ pub(in crate::db::executor::planning::route) const fn count_pushdown_fetch_hint(
 
 /// Resolve one bounded aggregate probe fetch hint for a planned aggregate route.
 pub(in crate::db::executor::planning::route) fn aggregate_probe_fetch_hint(
-    plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
     desc_physical_reverse_supported: bool,
@@ -37,7 +33,7 @@ pub(in crate::db::executor::planning::route) fn aggregate_probe_fetch_hint(
     access_window: AccessWindow,
 ) -> Option<usize> {
     let kind = aggregate.kind();
-    aggregate_probe_shape_supported(plan, aggregate, direction, capability_facts).then_some(())?;
+    aggregate_probe_shape_supported(aggregate, direction, capability_facts).then_some(())?;
 
     (kind.supports_bounded_probe_hint()
         && direction_allows_physical_fetch_hint(direction, desc_physical_reverse_supported)
@@ -64,8 +60,7 @@ pub(in crate::db::executor::planning::route) fn aggregate_seek_spec_from_probe_f
 
 // Apply the route capability facts to the aggregate probe shape before the
 // bounded fetch-hint layer interprets the access window.
-fn aggregate_probe_shape_supported(
-    plan: &AccessPlannedQuery,
+const fn aggregate_probe_shape_supported(
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
     capability_facts: RouteCapabilityFacts,
@@ -76,7 +71,6 @@ fn aggregate_probe_shape_supported(
         }
         (Some(_), AggregateKind::Max, Direction::Desc) => {
             capability_facts.field_max_fast_path_eligible
-                && field_target_max_probe_shape_is_tie_free(plan, aggregate)
         }
         (Some(_), _, _) => false,
         (None, _, _) => true,
@@ -99,16 +93,4 @@ fn aggregate_probe_window_fetch_hint(
         .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
     kind.bounded_probe_fetch_hint(direction, offset, page_limit)
-}
-
-fn field_target_max_probe_shape_is_tie_free(
-    plan: &AccessPlannedQuery,
-    aggregate: AggregateRouteShape<'_>,
-) -> bool {
-    let access_shape_facts = plan.access_shape_facts();
-    let index = access_shape_facts
-        .single_path_index_prefix_details()
-        .or_else(|| access_shape_facts.single_path_index_range_details());
-
-    field_target_is_tie_free_probe_target(aggregate, index)
 }

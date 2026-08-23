@@ -5120,6 +5120,59 @@ mod identity_pre_key_tests {
         ));
     }
 
+    #[cfg(feature = "sql")]
+    #[test]
+    fn secondary_indexed_max_uses_one_descending_edge_across_ties() {
+        let session = initialize_with_composite_payload_index();
+        let mut inserted = Vec::new();
+        for payload in [30, 10, 20, 20, 40, 40] {
+            inserted.push(insert_exact_key_fixture(&session, payload));
+        }
+
+        let sql = "SELECT MAX(payload) FROM IdentityRow";
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
+        assert_eq!(
+            sql_projection_rows(&session, sql),
+            vec![vec![OutputValue::Nat64(40)]],
+        );
+        assert_eq!(DataStore::current_get_call_count() - data_reads_before, 1);
+        assert!(IndexStore::current_entry_read_count() - index_reads_before <= 1);
+
+        let range_sql = "SELECT MAX(payload) FROM IdentityRow WHERE payload < 40";
+        let data_reads_before = DataStore::current_get_call_count();
+        assert_eq!(
+            sql_projection_rows(&session, range_sql),
+            vec![vec![OutputValue::Nat64(30)]],
+        );
+        assert_eq!(DataStore::current_get_call_count() - data_reads_before, 6);
+
+        let last = inserted
+            .last()
+            .copied()
+            .expect("secondary MAX fixture should retain its last identity");
+        let raw_key = DecodedDataStoreKey::try_from_structural_key(ENTITY_TAG, &Value::Nat64(last))
+            .expect("missing-row fixture key should decode")
+            .to_raw()
+            .expect("missing-row fixture key should encode");
+        let store = session
+            .db
+            .store_handle(STORE_PATH)
+            .expect("missing-row fixture store should resolve");
+        assert!(
+            store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
+            "fixture must remove only the descending edge row",
+        );
+
+        let error = session
+            .execute_trusted_sql_query("SELECT MAX(payload) FROM IdentityRow")
+            .expect_err("an accessed accepted-index row must remain fail-closed");
+        assert!(matches!(
+            error,
+            crate::db::QueryError::Execute(QueryExecutionError::Corruption(_))
+        ));
+    }
+
     #[test]
     fn exact_counts_use_entity_and_bounded_index_metadata_without_physical_reads() {
         let session = initialize();

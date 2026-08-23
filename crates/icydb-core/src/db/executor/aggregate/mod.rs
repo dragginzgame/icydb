@@ -16,7 +16,6 @@ pub(in crate::db::executor::aggregate) mod value_reducer;
 
 pub(in crate::db::executor) use capability::{
     AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
-    field_target_is_tie_free_probe_target,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::AggregateFoldMode;

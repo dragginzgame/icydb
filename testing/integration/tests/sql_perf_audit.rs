@@ -3471,7 +3471,7 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
     const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
     const MINIMUM_SAVING: u64 = 75_000_000;
-    const CASES: [(&str, &str, u64); 4] = [
+    const CASES: [(&str, &str, u64); 5] = [
         (
             "min_primary",
             "SELECT MIN(id) FROM PerfAuditUser",
@@ -3491,6 +3491,11 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
             "min_secondary_range",
             "SELECT MIN(age) FROM PerfAuditUser WHERE age >= 31",
             134_776_857,
+        ),
+        (
+            "max_secondary",
+            "SELECT MAX(age) FROM PerfAuditUser",
+            114_777_435,
         ),
     ];
 
@@ -3526,23 +3531,24 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
                 "min_primary" => "1".to_string(),
                 "max_primary" => fixture_rows.to_string(),
                 "min_secondary" | "min_secondary_range" => "31".to_string(),
+                "max_secondary" => "43".to_string(),
                 _ => panic!("unknown extrema case"),
             };
             assert_eq!(rows.rendered_rows(), vec![vec![expected]], "{label}");
+            println!(
+                "0.237 indexed extrema ladder: label={label} rows={fixture_rows} candidate={} compile={} execute={} store_gets={} index_entry_reads={}",
+                sample.attribution.total_local_instructions,
+                sample.attribution.compile_local_instructions,
+                sample.attribution.execution.executor_local_instructions,
+                sample.attribution.store_get_calls,
+                sample.attribution.index_store_entry_reads,
+            );
             assert!(sample.attribution.store_get_calls <= 1, "{label}");
             assert!(sample.attribution.index_store_entry_reads <= 1, "{label}");
             assert!(
                 sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
                 "{label} exceeded the bounded extrema ceiling: {} > {CURRENT_TOTAL_CEILING}",
                 sample.attribution.total_local_instructions,
-            );
-            println!(
-                "0.237 Patch 5 indexed extrema ladder: label={label} rows={fixture_rows} candidate={} compile={} execute={} store_gets={} index_entry_reads={}",
-                sample.attribution.total_local_instructions,
-                sample.attribution.compile_local_instructions,
-                sample.attribution.execution.executor_local_instructions,
-                sample.attribution.store_get_calls,
-                sample.attribution.index_store_entry_reads,
             );
             if fixture_rows == MAX_FIXTURE_ROWS {
                 let saving =
@@ -3584,8 +3590,37 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
         warm.attribution.execution.executor_local_instructions,
     );
 
+    let warming = warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT MAX(age) FROM PerfAuditUser",
+    )
+    .expect("secondary MAX cache warm should succeed");
+    assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
+    let warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT MAX(age) FROM PerfAuditUser",
+        1,
+    )
+    .expect("true-warm secondary MAX should succeed");
+    assert!(warm.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING);
+    assert_eq!(warm.attribution.store_get_calls, 1);
+    assert_eq!(warm.attribution.index_store_entry_reads, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
+    println!(
+        "0.237 Patch 8 true-warm secondary MAX: candidate={} compile={} execute={}",
+        warm.attribution.total_local_instructions,
+        warm.attribution.compile_local_instructions,
+        warm.attribution.execution.executor_local_instructions,
+    );
+
     for (label, sql) in [
-        ("non_tie_free_max", "SELECT MAX(age) FROM PerfAuditUser"),
+        (
+            "secondary_range_max",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
+        ),
         ("computed_min", "SELECT MIN(age + 1) FROM PerfAuditUser"),
         (
             "filtered_min",

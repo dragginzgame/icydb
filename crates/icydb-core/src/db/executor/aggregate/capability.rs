@@ -4,7 +4,6 @@
 //! Boundary: reusable field capability checks for aggregate/route modules.
 
 use crate::db::{
-    access::IndexShapeDetails,
     direction::Direction,
     executor::{
         aggregate::{AccessPlannedQuery, AggregateKind},
@@ -334,38 +333,4 @@ fn field_extrema_target_has_matching_index(
                 .first_key_field()
                 .is_some_and(|field| field == target_field)
         })
-}
-
-/// Return whether one aggregate field target is the entity primary key.
-#[must_use]
-const fn field_target_is_primary_key(aggregate: AggregateRouteShape<'_>) -> bool {
-    aggregate.target_field_is_primary_key()
-}
-
-/// Return whether one field-target MAX probe can be treated as tie-free.
-/// Tie-free means:
-/// - target is the primary key, or
-/// - target is backed by one unique single-field index.
-#[must_use]
-pub(in crate::db::executor) fn field_target_is_tie_free_probe_target(
-    aggregate: AggregateRouteShape<'_>,
-    index: Option<IndexShapeDetails>,
-) -> bool {
-    field_target_is_primary_key(aggregate)
-        || aggregate.target_field().is_some_and(|target_field| {
-            field_target_is_unique_single_field_index_head(target_field, index)
-        })
-}
-
-fn field_target_is_unique_single_field_index_head(
-    target_field: &str,
-    index: Option<IndexShapeDetails>,
-) -> bool {
-    index.is_some_and(|index| {
-        index.is_unique()
-            && index.key_arity() == 1
-            && index
-                .first_key_field()
-                .is_some_and(|field| field == target_field)
-    })
 }

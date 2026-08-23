@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.237.md](docs/changelog/0.237.md)
 
+- `0.237.1` lets unfiltered direct-field scalar `MAX` use an existing secondary
+  index edge across duplicate values, saving 113.4M instructions at 2,048 rows.
+
 - `0.237.0` broadens exact SQL performance evidence across count, extrema,
   ordered-limit and branch-boundary combinations; at 2,048 rows it cuts exact
   counts by 96.1M–126.0M instructions, indexed extrema by 100.8M–133.0M, and

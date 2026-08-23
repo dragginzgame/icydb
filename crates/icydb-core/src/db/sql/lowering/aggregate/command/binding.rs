@@ -238,7 +238,9 @@ fn indexed_extrema_input_order(
         } => OrderDirection::Asc,
         PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
             kind: AggregateKind::Max,
-        } if schema.scalar_primary_key_name() == Some(target) => OrderDirection::Desc,
+        } if schema.scalar_primary_key_name() == Some(target) || query.filter.is_none() => {
+            OrderDirection::Desc
+        }
         PreparedSqlScalarAggregatePlanFragment::CountRows
         | PreparedSqlScalarAggregatePlanFragment::CountField
         | PreparedSqlScalarAggregatePlanFragment::NumericField { .. }
