@@ -1322,6 +1322,64 @@ fn in_range(
 }
 
 #[test]
+fn index_key_compound_leading_component_one_sided_bounds_cover_complete_groups() {
+    let key = |leading, trailing, primary_key| {
+        key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![
+                encode_component(&Value::Nat64(leading)),
+                encode_component(&Value::Nat64(trailing)),
+            ],
+            vec![primary_key],
+        )
+        .to_raw()
+        .expect("test index key should encode")
+    };
+    let keys = [
+        key(10, 1, 0x01),
+        key(10, 9, 0x02),
+        key(11, 1, 0x03),
+        key(20, 1, 0x04),
+        key(20, 9, 0x05),
+    ];
+
+    let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+        &index_id(),
+        IndexKeyKind::User,
+        2,
+        &[] as &[Vec<u8>],
+        &RangeBound::Unbounded,
+        &RangeBound::Excluded(encode_component(&Value::Nat64(20))),
+    )
+    .expect("one-sided upper bound should encode");
+    assert_eq!(
+        keys.iter()
+            .filter(|raw| in_range(raw, &lower, &upper))
+            .count(),
+        3,
+        "exclusive upper bounds must exclude the complete trailing-key group",
+    );
+
+    let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+        &index_id(),
+        IndexKeyKind::User,
+        2,
+        &[] as &[Vec<u8>],
+        &RangeBound::Excluded(encode_component(&Value::Nat64(10))),
+        &RangeBound::Unbounded,
+    )
+    .expect("one-sided lower bound should encode");
+    assert_eq!(
+        keys.iter()
+            .filter(|raw| in_range(raw, &lower, &upper))
+            .count(),
+        3,
+        "exclusive lower bounds must exclude the complete trailing-key group",
+    );
+}
+
+#[test]
 fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
     let prefix_a = encode_component(&Value::Nat64(7));
     let b10 = encode_component(&Value::Nat64(10));

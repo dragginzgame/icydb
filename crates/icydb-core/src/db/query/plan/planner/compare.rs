@@ -292,10 +292,6 @@ fn plan_ordered_compare(
         let Some(leading_key_item) = index.key_item_at(0) else {
             continue;
         };
-        if index.key_arity() != 1 {
-            continue;
-        }
-
         let Some(bound_value) = eq_lookup_value_for_key_item(
             leading_key_item,
             cmp.field.as_str(),

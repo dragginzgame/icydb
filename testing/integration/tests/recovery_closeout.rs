@@ -974,6 +974,11 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
             "query_user_total_only_perf",
             "SELECT MAX(age) FROM PerfAuditUser",
         ),
+        query_total_only(
+            &populated,
+            "query_user_total_only_perf",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
+        ),
     ];
     let ordered_endpoints_before_upgrade = [
         query_total_only(
@@ -1045,6 +1050,11 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
                 &populated,
                 "query_user_total_only_perf",
                 "SELECT MAX(age) FROM PerfAuditUser",
+            ),
+            query_total_only(
+                &populated,
+                "query_user_total_only_perf",
+                "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
             ),
         ],
         extrema_before_upgrade,

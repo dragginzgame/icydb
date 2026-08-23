@@ -3617,10 +3617,6 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
     );
 
     for (label, sql) in [
-        (
-            "secondary_range_max",
-            "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
-        ),
         ("computed_min", "SELECT MIN(age + 1) FROM PerfAuditUser"),
         (
             "filtered_min",
@@ -3660,6 +3656,213 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
         input_window.attribution.store_get_calls <= 1,
         "the canonical planner may retain the explicitly ordered bounded edge",
     );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture keeps one-sided range scale, warm, semantic, and fallback evidence comparable"
+)]
+fn sql_perf_compound_one_sided_ranges_begin_at_the_bounded_edge() {
+    const MAX_FIXTURE_ROWS: u32 = 2_048;
+    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    const CASES: [(&str, &str, &str, u64, u64, u64); 4] = [
+        (
+            "max_upper",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
+            "34",
+            121_581_549,
+            100_000_000,
+            1,
+        ),
+        (
+            "min_lower",
+            "SELECT MIN(age) FROM PerfAuditUser WHERE age > 31",
+            "32",
+            15_757_520,
+            10_000_000,
+            1,
+        ),
+        (
+            "select_upper_desc",
+            "SELECT age FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 1",
+            "34",
+            246_977_320,
+            200_000_000,
+            0,
+        ),
+        (
+            "select_lower_asc",
+            "SELECT age FROM PerfAuditUser WHERE age > 31 ORDER BY age ASC, id ASC LIMIT 1",
+            "32",
+            274_751_259,
+            200_000_000,
+            0,
+        ),
+    ];
+
+    let fixture = install_sql_perf_canister_fixture();
+    clear_sql_perf_fixtures(&fixture);
+
+    for (label, sql, _, _, _, _) in CASES {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("empty one-sided range query should succeed");
+        let rendered = rendered_projection_rows(sample.result);
+        if label.starts_with("select_") {
+            assert!(rendered.is_empty(), "{label}");
+        } else {
+            assert_eq!(rendered, vec![vec!["null".to_string()]], "{label}");
+        }
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(sample.attribution.index_store_entry_reads, 0, "{label}");
+    }
+
+    for fixture_rows in [16_u32, 256, MAX_FIXTURE_ROWS] {
+        reset_sql_perf_fixtures(&fixture);
+        load_user_scale_integrity_fixture(&fixture, fixture_rows);
+
+        for (label, sql, expected, predecessor, minimum_saving, expected_row_gets) in CASES {
+            let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+                .expect("one-sided compound range query should succeed");
+            assert_eq!(
+                rendered_projection_rows(sample.result),
+                vec![vec![expected.to_string()]],
+                "{label}",
+            );
+            assert_eq!(
+                sample.attribution.store_get_calls, expected_row_gets,
+                "{label}",
+            );
+            assert_eq!(
+                sample.attribution.index_store_range_scan_calls, 1,
+                "{label}"
+            );
+            assert_eq!(sample.attribution.index_store_entry_reads, 1, "{label}");
+            assert!(
+                sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
+                "{label} exceeded the one-sided range ceiling: {} > {CURRENT_TOTAL_CEILING}",
+                sample.attribution.total_local_instructions,
+            );
+            println!(
+                "0.237 Patch 9 one-sided range: label={label} rows={fixture_rows} candidate={} compile={} execute={} store_gets={} index_entries={}",
+                sample.attribution.total_local_instructions,
+                sample.attribution.compile_local_instructions,
+                sample.attribution.execution.executor_local_instructions,
+                sample.attribution.store_get_calls,
+                sample.attribution.index_store_entry_reads,
+            );
+            if fixture_rows == MAX_FIXTURE_ROWS {
+                let saving =
+                    predecessor.saturating_sub(sample.attribution.total_local_instructions);
+                assert!(
+                    saving >= minimum_saving,
+                    "{label} saved {saving}, below the frozen {minimum_saving} gate",
+                );
+                println!(
+                    "0.237 Patch 9 one-sided saving: label={label} predecessor={predecessor} candidate={} saving={saving}",
+                    sample.attribution.total_local_instructions,
+                );
+            }
+        }
+    }
+
+    for (label, sql, expected) in [
+        (
+            "max_inclusive_upper",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE age <= 34",
+            "34",
+        ),
+        (
+            "min_inclusive_lower",
+            "SELECT MIN(age) FROM PerfAuditUser WHERE age >= 32",
+            "32",
+        ),
+        (
+            "max_exclusive_lower",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE age > 31",
+            "43",
+        ),
+        (
+            "max_two_sided",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE age >= 31 AND age < 43",
+            "34",
+        ),
+    ] {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("inclusive one-sided range should succeed");
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            vec![vec![expected.to_string()]],
+            "{label}",
+        );
+        assert_eq!(sample.attribution.store_get_calls, 1, "{label}");
+        assert_eq!(sample.attribution.index_store_entry_reads, 1, "{label}");
+    }
+
+    for (label, sql) in [
+        (
+            "empty_upper",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE age < 31",
+        ),
+        (
+            "empty_lower",
+            "SELECT MIN(age) FROM PerfAuditUser WHERE age > 43",
+        ),
+    ] {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("empty one-sided range should succeed");
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            vec![vec!["null".to_string()]],
+            "{label}",
+        );
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(sample.attribution.index_store_entry_reads, 0, "{label}");
+    }
+
+    let warming = warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
+    )
+    .expect("upper-range MAX cache warm should succeed");
+    assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
+    let warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
+        1,
+    )
+    .expect("true-warm upper-range MAX should succeed");
+    assert!(warm.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING);
+    assert_eq!(warm.attribution.store_get_calls, 1);
+    assert_eq!(warm.attribution.index_store_entry_reads, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
+    println!(
+        "0.237 Patch 9 true-warm upper-range MAX: candidate={} compile={} execute={}",
+        warm.attribution.total_local_instructions,
+        warm.attribution.compile_local_instructions,
+        warm.attribution.execution.executor_local_instructions,
+    );
+
+    for (label, sql) in [
+        (
+            "tautological_max",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE true",
+        ),
+        (
+            "other_field_max",
+            "SELECT MAX(age) FROM PerfAuditUser WHERE rank < 2049",
+        ),
+    ] {
+        let control = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("conservative secondary MAX control should succeed");
+        assert!(
+            control.attribution.store_get_calls > 1,
+            "{label} must remain on complete qualifying-row reduction",
+        );
+    }
 }
 
 #[test]

@@ -282,10 +282,6 @@ fn evaluate_ordered_range_compare_candidate(
         }
     }
 
-    if index_contract.key_arity() != 1 {
-        return Err(AccessChoiceRejectedReason::SingleFieldRangeRequired);
-    }
-
     Ok(())
 }
 
