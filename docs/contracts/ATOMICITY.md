@@ -171,7 +171,7 @@ owner rejects without publishing a marker, row, or range.
 
 The marker binds each accepted range to its exact rows and journal envelope.
 After publication the range is committed even if its row or state projection
-has not yet materialized. Guarded recovery completes journal publication, row
+has not yet materialized. Startup recovery completes journal publication, row
 application, exact range materialization, fold, and derived rebuild before a
 later mutation may open another cursor. Reapplication is idempotent only when
 both high-water and complete advance identity match.

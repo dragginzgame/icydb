@@ -177,13 +177,11 @@ For one structural mutation batch:
 
 ### Insert conflict with existing row
 
-* Atomic lane: whole batch fails, no new rows from that request are persisted
-* Non-atomic lane: already-committed prefix remains committed
+* The whole batch fails and no new rows from that request are persisted.
 
 ### Update on missing row
 
-* Atomic lane: whole batch fails, no rows from that request are persisted
-* Non-atomic lane: already-committed prefix remains committed
+* The whole batch fails and no rows from that request are persisted.
 
 ### Relation checks and staged rows
 

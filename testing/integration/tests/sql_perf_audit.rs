@@ -86,6 +86,14 @@ struct PromotionIndexPublicationFacts {
     local_instructions: u64,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct MutationScaleLoadEvidence {
+    first_id: u32,
+    last_id: u32,
+    matching_rows_loaded: u32,
+    unrelated_rows_loaded: u32,
+}
+
 const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
 const PROMOTION_INDEX_LOAD_PAGE_ROWS: u32 = 4_096;
 // Leave room below R_max for the 1,025-record accepted-index publication
@@ -3340,36 +3348,40 @@ fn sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path() {
     clippy::too_many_lines,
     reason = "one matrix keeps DISTINCT direction, duplicate, null, route and physical-work evidence comparable"
 )]
-fn sql_perf_0_237_distinct_finite_window_interactions_are_measured_explicitly() {
+fn sql_perf_0_238_ordered_distinct_group_seek_is_bounded_and_falls_back_explicitly() {
     const FIXTURE_ROWS: u32 = 2_048;
-    const CASES: [(&str, &str, &[&str], bool, u64); 6] = [
+    const CASES: [(&str, &str, &[&str], bool, u64, u64); 6] = [
         (
             "age_asc_limit_one",
             "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 1",
             &["31"],
             true,
-            129,
+            2,
+            92_605_670,
         ),
         (
             "age_asc_limit_three",
             "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
             &["31", "32", "33"],
             true,
-            385,
+            4,
+            93_144_415,
         ),
         (
             "age_desc_limit_three",
             "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age DESC LIMIT 3",
             &["43", "34", "33"],
             true,
-            1_793,
+            4,
+            92_261_973,
         ),
         (
             "name_asc_limit_three",
             "SELECT DISTINCT name FROM PerfAuditUser ORDER BY name ASC LIMIT 3",
             &["scale-group-001", "scale-group-002", "scale-group-003"],
             true,
-            64,
+            4,
+            90_861_504,
         ),
         (
             "nullable_expression_asc_limit_three",
@@ -3377,6 +3389,7 @@ fn sql_perf_0_237_distinct_finite_window_interactions_are_measured_explicitly() 
             &["null", "32", "33"],
             false,
             2_048,
+            0,
         ),
         (
             "expression_order_asc_limit_three",
@@ -3384,13 +3397,14 @@ fn sql_perf_0_237_distinct_finite_window_interactions_are_measured_explicitly() 
             &["31", "32", "33"],
             false,
             2_048,
+            0,
         ),
     ];
 
     let fixture = install_sql_perf_canister_fixture();
     load_user_scale_integrity_fixture(&fixture, FIXTURE_ROWS);
 
-    for (label, sql, expected, adjacent, expected_candidates) in CASES {
+    for (label, sql, expected, adjacent, expected_candidates, predecessor) in CASES {
         let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
             .expect("DISTINCT finite-window interaction should succeed");
         let expected_rows = expected
@@ -3413,17 +3427,17 @@ fn sql_perf_0_237_distinct_finite_window_interactions_are_measured_explicitly() 
         assert_eq!(distinct.bounded_stop_hits, 1, "{label}");
         assert_eq!(
             sample.attribution.store_get_calls,
-            u64::from(FIXTURE_ROWS),
+            if adjacent { 0 } else { u64::from(FIXTURE_ROWS) },
             "{label}",
         );
         assert_eq!(
             sample.attribution.index_store_entry_reads,
-            if adjacent { u64::from(FIXTURE_ROWS) } else { 0 },
+            if adjacent { expected_candidates } else { 0 },
             "{label}",
         );
         assert_eq!(
             sample.attribution.index_store_range_scan_calls,
-            if adjacent { 33 } else { 0 },
+            if adjacent { expected_candidates } else { 0 },
             "{label}",
         );
         assert_eq!(
@@ -3431,9 +3445,21 @@ fn sql_perf_0_237_distinct_finite_window_interactions_are_measured_explicitly() 
             if adjacent { 1 } else { 5 },
             "{label}",
         );
+        if adjacent {
+            assert!(
+                sample.attribution.total_local_instructions <= 5_000_000,
+                "{label} exceeded the frozen 5M gate: {}",
+                sample.attribution.total_local_instructions,
+            );
+            assert!(
+                predecessor.saturating_sub(sample.attribution.total_local_instructions)
+                    >= 75_000_000,
+                "{label} missed the frozen 75M absolute-saving gate",
+            );
+        }
 
         println!(
-            "0.237 Patch 12 DISTINCT interaction: label={label} total={} compile={} execute={} candidates={} unique={} adjacent_hits={} global_hits={} store_gets={} index_entries={} range_scans={} peak_entries={} peak_bytes={}",
+            "0.238 Patch 1 ordered DISTINCT group seek: label={label} predecessor={predecessor} total={} compile={} execute={} candidates={} unique={} adjacent_hits={} global_hits={} store_gets={} index_entries={} range_scans={} peak_entries={} peak_bytes={}",
             sample.attribution.total_local_instructions,
             sample.attribution.compile_local_instructions,
             sample.attribution.execute_local_instructions,
@@ -3448,6 +3474,277 @@ fn sql_perf_0_237_distinct_finite_window_interactions_are_measured_explicitly() 
             distinct.peak_retained_backing_bytes,
         );
     }
+
+    for (label, sql, expected, expected_candidates) in [
+        (
+            "offset_one_limit_two",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 2 OFFSET 1",
+            vec![vec!["32".to_string()], vec!["33".to_string()]],
+            4,
+        ),
+        (
+            "bounded_asc",
+            "SELECT DISTINCT age FROM PerfAuditUser WHERE age > 31 AND age < 43 ORDER BY age ASC LIMIT 3",
+            vec![
+                vec!["32".to_string()],
+                vec!["33".to_string()],
+                vec!["34".to_string()],
+            ],
+            3,
+        ),
+        (
+            "bounded_desc",
+            "SELECT DISTINCT age FROM PerfAuditUser WHERE age > 31 AND age < 43 ORDER BY age DESC LIMIT 3",
+            vec![
+                vec!["34".to_string()],
+                vec!["33".to_string()],
+                vec!["32".to_string()],
+            ],
+            3,
+        ),
+        (
+            "empty_bounded_range",
+            "SELECT DISTINCT age FROM PerfAuditUser WHERE age > 43 ORDER BY age ASC LIMIT 3",
+            vec![],
+            0,
+        ),
+        (
+            "one_group_bounded_range",
+            "SELECT DISTINCT age FROM PerfAuditUser WHERE age >= 31 AND age < 32 ORDER BY age ASC LIMIT 3",
+            vec![vec!["31".to_string()]],
+            1,
+        ),
+        (
+            "exactly_three_groups_inclusive_asc",
+            "SELECT DISTINCT age FROM PerfAuditUser WHERE age >= 31 AND age <= 33 ORDER BY age ASC LIMIT 3",
+            vec![
+                vec!["31".to_string()],
+                vec!["32".to_string()],
+                vec!["33".to_string()],
+            ],
+            3,
+        ),
+        (
+            "exactly_three_groups_inclusive_desc",
+            "SELECT DISTINCT age FROM PerfAuditUser WHERE age >= 31 AND age <= 33 ORDER BY age DESC LIMIT 3",
+            vec![
+                vec!["33".to_string()],
+                vec!["32".to_string()],
+                vec!["31".to_string()],
+            ],
+            3,
+        ),
+        (
+            "descending_offset_one_limit_two",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age DESC LIMIT 2 OFFSET 1",
+            vec![vec!["34".to_string()], vec!["33".to_string()]],
+            4,
+        ),
+    ] {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("bounded DISTINCT group seek should succeed");
+        assert_eq!(rendered_projection_rows(sample.result), expected, "{label}");
+        let distinct = sample
+            .attribution
+            .distinct_projection
+            .expect("bounded group seek should report DISTINCT attribution");
+        assert_eq!(distinct.candidate_rows, expected_candidates, "{label}");
+        assert_eq!(distinct.adjacent_path_hits, 1, "{label}");
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(
+            sample.attribution.index_store_entry_reads, expected_candidates,
+            "{label}",
+        );
+        assert!(
+            sample.attribution.index_store_range_scan_calls <= 4,
+            "{label}"
+        );
+        assert!(
+            sample.attribution.total_local_instructions <= 5_000_000,
+            "{label}"
+        );
+    }
+
+    for (label, sql, expected_store_gets, expected_index_entries) in [
+        (
+            "oversized_window",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 4",
+            u64::from(FIXTURE_ROWS),
+            u64::from(FIXTURE_ROWS),
+        ),
+        (
+            "other_field_predicate",
+            "SELECT DISTINCT age FROM PerfAuditUser WHERE active = TRUE ORDER BY age ASC LIMIT 3",
+            u64::from(FIXTURE_ROWS),
+            u64::from(FIXTURE_ROWS),
+        ),
+        (
+            "derived_order",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age + 0 ASC LIMIT 3",
+            u64::from(FIXTURE_ROWS),
+            0,
+        ),
+        (
+            "multiple_order_terms",
+            "SELECT DISTINCT age, id FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+            u64::from(FIXTURE_ROWS),
+            u64::from(FIXTURE_ROWS),
+        ),
+    ] {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .unwrap_or_else(|error| panic!("{label} fallback should succeed: {error:?}"));
+        assert_eq!(
+            sample.attribution.store_get_calls, expected_store_gets,
+            "fallback must retain predecessor row work: {sql}",
+        );
+        assert_eq!(
+            sample.attribution.index_store_entry_reads, expected_index_entries,
+            "fallback must retain predecessor index work: {sql}",
+        );
+    }
+    assert!(
+        query_surface_with_perf(
+            &fixture,
+            SqlPerfSurface::User,
+            "SELECT DISTINCT age FROM PerfAuditUser LIMIT 3",
+            1,
+        )
+        .is_err(),
+        "an absent authored order must not reach execution",
+    );
+    assert!(
+        query_surface_with_perf(
+            &fixture,
+            SqlPerfSurface::User,
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+            1,
+        )
+        .is_err(),
+        "a second authored order term must not reach group-seek execution",
+    );
+
+    let zero = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 0",
+        1,
+    )
+    .expect("zero DISTINCT window should succeed");
+    assert!(rendered_projection_rows(zero.result).is_empty());
+    assert_eq!(zero.attribution.store_get_calls, 0);
+    assert_eq!(zero.attribution.index_store_entry_reads, 0);
+
+    let warming = warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
+    )
+    .expect("ordered DISTINCT group-seek cache warm should succeed");
+    assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
+    let warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
+        1,
+    )
+    .expect("true-warm ordered DISTINCT group seek should succeed");
+    assert!(warm.attribution.total_local_instructions <= 5_000_000);
+    assert_eq!(warm.attribution.index_store_entry_reads, 4);
+    assert_eq!(warm.attribution.index_store_range_scan_calls, 4);
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+
+    let loaded: Result<ScaleFixtureFacts, Error> = fixture
+        .update_candid("load_blob_scale_fixture", (FIXTURE_ROWS,))
+        .expect("mostly-unique blob scale fixture should decode");
+    assert_eq!(
+        loaded
+            .expect("mostly-unique blob scale fixture should load")
+            .fixture_rows,
+        FIXTURE_ROWS,
+    );
+    for (direction, expected) in [
+        (
+            "ASC",
+            [
+                "scale-payload-0001",
+                "scale-payload-0002",
+                "scale-payload-0003",
+            ],
+        ),
+        (
+            "DESC",
+            [
+                "scale-payload-2048",
+                "scale-payload-2047",
+                "scale-payload-2046",
+            ],
+        ),
+    ] {
+        let sql =
+            format!("SELECT DISTINCT label FROM PerfAuditBlob ORDER BY label {direction} LIMIT 3");
+        let mostly_unique = query_surface_with_perf(&fixture, SqlPerfSurface::Blob, &sql, 1)
+            .expect("mostly-unique ordered DISTINCT group seek should succeed");
+        assert_eq!(
+            rendered_projection_rows(mostly_unique.result),
+            expected
+                .into_iter()
+                .map(|value| vec![value.to_string()])
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(mostly_unique.attribution.index_store_entry_reads, 4);
+        assert_eq!(mostly_unique.attribution.index_store_range_scan_calls, 4);
+        assert_eq!(mostly_unique.attribution.store_get_calls, 0);
+        assert!(mostly_unique.attribution.total_local_instructions <= 5_000_000);
+    }
+}
+
+#[test]
+fn sql_perf_0_238_ordered_distinct_group_seek_survives_same_wasm_upgrade() {
+    let fixture = install_sql_perf_canister_fixture();
+    let loaded: Result<MutationScaleLoadEvidence, Error> = fixture
+        .update_candid("load_collection_mutation_scale_page", (1_u32, 32_u32))
+        .expect("journal-overlay group-seek fixture should decode");
+    let loaded = loaded.expect("journal-overlay group-seek fixture should load");
+    assert_eq!(loaded.matching_rows_loaded, 32);
+    assert_eq!(loaded.unrelated_rows_loaded, 17);
+
+    const SQL: &str = "SELECT DISTINCT collection_id FROM PerfAuditMutationToken ORDER BY collection_id DESC LIMIT 3";
+    let assert_group_seek = |phase: &str| {
+        let sample: Result<SqlQueryPerfResult, Error> = fixture
+            .query_candid("query_journaled_user_with_perf", (SQL.to_string(),))
+            .expect("journaled group-seek result should decode");
+        let sample = sample.unwrap_or_else(|error| {
+            panic!("{phase} journaled group seek should succeed: {error:?}")
+        });
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            vec![vec!["8".to_string()], vec!["7".to_string()]],
+            "{phase}",
+        );
+        assert_eq!(sample.attribution.index_store_entry_reads, 2, "{phase}");
+        assert_eq!(
+            sample.attribution.index_store_range_scan_calls, 3,
+            "{phase}"
+        );
+        assert_eq!(sample.attribution.store_get_calls, 0, "{phase}");
+    };
+    assert_group_seek("journal overlay");
+
+    upgrade_fixture_canister(&fixture, "sql_perf");
+    advance_startup_watchdog_until_ready(&fixture);
+    assert_group_seek("post-recovery fold");
+
+    let warming: Result<SqlQueryPerfResult, Error> = fixture
+        .update_candid("warm_journaled_user_query_with_perf", (SQL.to_string(),))
+        .expect("post-upgrade group-seek warm result should decode");
+    let warming = warming.expect("post-upgrade group-seek warm should succeed");
+    assert_eq!(warming.attribution.index_store_entry_reads, 2);
+    let warm: Result<SqlQueryPerfResult, Error> = fixture
+        .query_candid("query_journaled_user_with_perf", (SQL.to_string(),))
+        .expect("post-upgrade true-warm group-seek result should decode");
+    let warm = warm.expect("post-upgrade true-warm group seek should succeed");
+    assert_eq!(warm.attribution.index_store_entry_reads, 2);
+    assert!(warm.attribution.total_local_instructions <= 5_000_000);
 }
 
 #[test]

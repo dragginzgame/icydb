@@ -504,8 +504,21 @@ Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.
 
 ## Local Development
 
-Repository setup, local SQL demo commands, explicit endpoint declarations, CLI
-usage, IC test prerequisites, and wasm report commands live in
+Use the fast non-mutating preflight while iterating:
+
+```bash
+make validate-fast
+```
+
+For integration-test changes, run the exact case first and then its complete
+test binary through the focused feedback target:
+
+```bash
+make test-integration-feedback TEST_TARGET=sql_canister TEST_NAME=exact_test_name
+```
+
+Repository setup, the complete validation boundary, PocketIC and CI-equivalent
+Tier B commands, local SQL demos, CLI usage, and Wasm reports live in
 [INSTALLING.md](INSTALLING.md).
 
 ## Repository Map

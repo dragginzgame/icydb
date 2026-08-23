@@ -9,7 +9,7 @@ Pin IcyDB by tag in the canister crate:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.218.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.237.3" }
 ```
 
 The default crate feature set provides structural writes and accepted-schema
@@ -18,14 +18,14 @@ session/library SQL APIs, or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.218.0", features = ["sql"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.237.3", features = ["sql"] }
 ```
 
 Schema-authoring crates use `icydb-model` with the same tag:
 
 ```toml
 [dependencies]
-icydb-model = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.218.0" }
+icydb-model = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.237.3" }
 ```
 
 The runtime `icydb` facade does not re-export model declaration macros.
@@ -34,7 +34,7 @@ The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
 Its library dependency path, including `icydb-model` and
 `icydb-model-macros`, retains the same floor. Other workspace-only packages
 may use the workspace Rust `1.96.0` floor. Repository maintenance uses the
-newer internal toolchain listed below.
+pinned Rust `1.97.1` toolchain listed below.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and
 call `icydb::build::build_canister!(SchemaCanister)`.
@@ -230,14 +230,29 @@ needs to change.
 ### Common Commands
 
 ```bash
-make check      # type-check workspace
-make clippy     # lint with warnings denied
-make test       # unit + integration tests
-make validate   # formatting + invariants + feature checks + clippy + tests
-make fmt        # format workspace
+make validate-fast # formatting, workflows, shell, invariants, and type checks
+make check         # type-check workspace
+make clippy        # lint with warnings denied
+make test          # complete unit and integration test boundary
+make validate      # complete formatting, invariant, feature, lint, and test gate
+make fmt           # format workspace
 make install-hooks # install the formatting-only pre-commit hook
-make build      # release workspace build
+make build         # release workspace build
 ```
+
+For an integration change, use the focused feedback target before the complete
+gate. It runs the named case first and, if that passes, its complete test
+binary:
+
+```bash
+make test-integration-feedback \
+  TEST_TARGET=sql_canister \
+  TEST_NAME=exact_test_name
+```
+
+`make validate-fast` intentionally omits executable tests and the
+feature-specific Clippy lanes. It is an iteration preflight, not a substitute
+for `make validate`.
 
 ### SQL Evidence Commands
 
@@ -255,6 +270,18 @@ Run the generated live-canister SQL boundary separately with:
 ```bash
 make test-sql-canister-matrix
 ```
+
+Run the CI-equivalent required Tier B lane on Linux x86-64 with the exact
+PocketIC release pinned by `Cargo.lock`:
+
+```bash
+POCKET_IC_BIN="$(bash scripts/ci/install-pocketic.sh)" make ci-sql-tier-b
+```
+
+Tier B starts one runner-owned PocketIC server, connects the parallel fixture
+pool to that server, runs the complete `sql_canister` binary and the focused
+0.237 performance regressions, then reports elapsed time and peak server
+resources. The runner stops the server on success, failure, or termination.
 
 The complete Tier C native profile is a scheduled eight-shard lane. Run one
 exact shard locally with:
@@ -420,11 +447,12 @@ gate for release readiness and other hook bypasses.
 ## IC Testkit Tests
 
 Some integration tests need the PocketIC server binary. `ic-testkit` resolves
-the binary for `make test` in this order:
+the binary in this order:
 
 1. `POCKET_IC_BIN`, when it points at an executable.
 2. A cached binary for the pinned `pocket-ic` crate version under `.cache`.
-3. A pinned GitHub release download through `ic-testkit`.
+3. A pinned GitHub release download through `ic-testkit`, but only when
+   `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1` explicitly permits it.
 
 Use a trusted local binary when you have one:
 
@@ -432,12 +460,18 @@ Use a trusted local binary when you have one:
 POCKET_IC_BIN=/path/to/pocket-ic make test
 ```
 
-Or let `make test` allow `ic-testkit` to download the pinned release into the
-repo cache when it is missing:
+Or explicitly allow `ic-testkit` to download the pinned release into the repo
+cache when it is missing:
 
 ```bash
-make test
+IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 make test
 ```
+
+CI Tier B does not rely on a test-process download. On Linux x86-64,
+`scripts/ci/install-pocketic.sh` resolves the exact locked version, validates
+its reported version, and prints its cached executable path. `ci-sql-tier-b`
+then requires that path through `POCKET_IC_BIN` and owns one shared server for
+the complete lane.
 
 ## Wasm Reports
 
@@ -477,8 +511,10 @@ cargo install cargo-sort cargo-sort-derives --locked
 
 ### `make test` cannot find the IC testkit runner
 
-Set `POCKET_IC_BIN=/path/to/pocket-ic`, or run `make test` so the repository
-test target opts into `ic-testkit`'s pinned GitHub release download.
+Set `POCKET_IC_BIN=/path/to/pocket-ic`, or explicitly opt into the pinned
+download with `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 make test`. For the
+CI-equivalent Linux x86-64 Tier B lane, let `scripts/ci/install-pocketic.sh`
+resolve and validate the exact locked binary as shown above.
 
 ### Local SQL demo cannot find a canister
 

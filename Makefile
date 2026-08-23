@@ -118,7 +118,7 @@ help:
 	@echo "  publish          Publish crates; reuse the exact release-commit receipt when available"
 	@echo ""
 	@echo "Development:"
-	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
+	@echo "  test             Run all tests; PocketIC needs a cached/explicit binary or download opt-in"
 	@echo "  test-integration-feedback TEST_TARGET=... TEST_NAME=..."
 	@echo "                  Run one exact integration test, then its complete binary"
 	@echo "  test-durability  Run the focused commit, mutation-job, convergence, recovery, and perf matrix"

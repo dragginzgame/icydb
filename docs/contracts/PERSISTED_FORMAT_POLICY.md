@@ -12,7 +12,7 @@ The active persisted-surface checklist lives in
 ## Scope
 
 Persisted format includes any byte layout or durable identity that can be read
-after an upgrade or guarded recovery pass, including:
+after an upgrade or startup recovery pass, including:
 
 - commit markers;
 - journal-tail batches and fold watermarks;

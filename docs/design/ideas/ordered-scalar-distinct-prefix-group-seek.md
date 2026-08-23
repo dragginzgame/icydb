@@ -107,30 +107,37 @@ The first implementation should require all of the following:
 
 1. The request is a scalar load with `DISTINCT`, a finite `LIMIT`, no live or
    exhaustive cursor, and no continuation progress.
-2. `projection_distinct_strategy` returns `OrderedAdjacent`.
-3. The projection contains exactly one direct, non-nullable field.
-4. The covering plan sources that field from component zero of one accepted
+2. The query has exactly one authored, resolved `ORDER BY` term: the projected
+   direct field itself in ASC or DESC direction.
+3. `projection_distinct_strategy` returns `OrderedAdjacent`.
+4. The projection contains exactly one direct, non-nullable field.
+5. The covering plan sources that field from component zero of one accepted
    user secondary index.
-5. The selected access is exactly one lowered index range whose physical order
-   satisfies the resolved projection order in either direction.
-6. There is no residual expression, residual predicate, prefix family,
+6. The selected access is exactly one lowered full-index range or compatible
+   range bounded only by existing sargable constraints on the projected field;
+   its physical order satisfies the resolved projection order in either
+   direction.
+7. There is no residual expression, residual predicate, prefix family,
    intersection, hybrid row field, post-access sort or primary-store route.
-7. `LIMIT + OFFSET` is at most the single prepared-plan constant `3`; one
+8. `LIMIT + OFFSET` is at most the single prepared-plan constant `3`; one
    lookahead makes the physical maximum exactly four representatives.
-8. The accepted row-presence policy is `MissingRowPolicy::Error`; `Ignore`
+9. The accepted row-presence policy is `MissingRowPolicy::Error`; `Ignore`
    remains on the predecessor route.
 
 These restrictions are deliberately narrower than every shape for which
 adjacency could eventually be proven. Equality prefixes, composite DISTINCT
 tuples, nullable direct fields, expression-index projections, unique indexes,
-cursor continuation and index-only predicates should remain on existing paths
-until separately measured. A unique index would gain little because every row
-already forms one group.
+cursor continuation, other-field predicates and predicates not fully reducible
+to one projected-field range should remain on existing paths until separately
+measured. A unique index would gain little because every row already forms one
+group.
 
 The admission contract is an immutable derivative of the prepared projection,
-resolved order, covering plan and lowered access range. It introduces no mode,
-configuration, persisted representation, public enum, cache, authority,
-invalidation edge or compatibility path.
+resolved order, covering plan and lowered access range. It contains one opaque
+validated window value from which the adjacent accumulator is constructed;
+the executor never receives offset or limit independently from the logical
+plan. It introduces no mode, configuration, persisted representation, public
+enum, cache, authority, invalidation edge or compatibility path.
 
 ## Proposed execution
 

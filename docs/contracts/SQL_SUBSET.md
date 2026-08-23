@@ -464,9 +464,9 @@ structural constraint ownership remains outside this surface.
 Destructive DDL keeps physical state and accepted-schema publication atomic at
 the guarded operation boundary. Rejection before a durable commit marker owns
 the candidate leaves the accepted-before schema and physical state
-authoritative. Once a marker owns the candidate, guarded reentry completes the
-accepted-after schema and its required physical state before serving another
-operation.
+authoritative. Once a marker owns the candidate, startup-driver reentry
+completes the accepted-after schema and its required physical state before
+serving another operation.
 
 ## Public SQL Mutation Execution
 

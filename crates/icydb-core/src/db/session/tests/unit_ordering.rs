@@ -6,7 +6,7 @@ use crate::{
         DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicWriteCell, FieldRef,
         FilterExpr, QueryError, QueryExecutionError, SqlStatementResult, asc,
         data::{DataStore, DecodedDataStoreKey},
-        index::IndexStore,
+        index::{IndexEntryValue, IndexStore, IndexStoreVisit, RawIndexStoreKey},
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode,
@@ -32,9 +32,10 @@ use crate::{
     types::EntityTag,
     value::{InputValue, OutputValue, Value},
 };
+use ic_stable_structures::Storable;
 use icydb_diagnostic_code::{DiagnosticFactTag, QueryFieldRole};
 use icydb_schema::{FieldSourceKey, ScalarType};
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
 const STORE_PATH: &str = "db::session::tests::unit_ordering::Store";
 const ENTITY_SOURCE: &str = "db::session::tests::unit_ordering::Singleton";
@@ -315,6 +316,15 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
 fn accepted_index_missing_row_is_typed_store_corruption() {
     let session = initialize();
     seed_singleton(&session);
+    for direction in ["ASC", "DESC"] {
+        assert_eq!(
+            sql_rows(
+                &session,
+                &format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1"),
+            ),
+            vec![vec![OutputValue::Text("singleton".to_string())]],
+        );
+    }
     let raw_key = DecodedDataStoreKey::try_from_structural_key(ENTITY_TAG, &Value::Unit)
         .expect("Unit data key should decode")
         .to_raw()
@@ -368,13 +378,66 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
         )
         .expect_err("a covering accepted index must still prove row presence");
     assert_store_corruption(error);
+
+    for direction in ["ASC", "DESC"] {
+        let sql =
+            format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1");
+        let error = session
+            .execute_trusted_sql_query(&sql)
+            .expect_err("ordered DISTINCT group seek must fail closed on a missing representative");
+        assert_store_corruption(error);
+    }
+
+    let raw_index_key = store.with_index(|index| {
+        let mut raw_index_key = None;
+        let result: Result<(), std::convert::Infallible> = index.visit_entries(|key, _value| {
+            raw_index_key = Some(key.clone());
+            Ok(IndexStoreVisit::Stop)
+        });
+        result.expect("corruption fixture index traversal should be infallible");
+        raw_index_key.expect("corruption fixture should retain one accepted index key")
+    });
+    store.with_index_mut(|index| {
+        index.insert(
+            raw_index_key.clone(),
+            <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff])),
+        );
+    });
+    for direction in ["ASC", "DESC"] {
+        let sql =
+            format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1");
+        let error = session
+            .execute_trusted_sql_query(&sql)
+            .expect_err("ordered DISTINCT group seek must fail closed on an invalid witness");
+        assert_corruption_origin(error, ErrorOrigin::Index);
+    }
+
+    let mut malformed_bytes = raw_index_key.as_bytes().to_vec();
+    malformed_bytes.push(0xff);
+    let malformed_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(malformed_bytes));
+    store.with_index_mut(|index| {
+        assert!(index.remove(&raw_index_key).is_some());
+        index.insert(malformed_key, IndexEntryValue::presence());
+    });
+    for direction in ["ASC", "DESC"] {
+        let sql =
+            format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1");
+        let error = session
+            .execute_trusted_sql_query(&sql)
+            .expect_err("ordered DISTINCT group seek must fail closed on a malformed raw key");
+        assert_corruption_origin(error, ErrorOrigin::Index);
+    }
 }
 
 fn assert_store_corruption(error: QueryError) {
+    assert_corruption_origin(error, ErrorOrigin::Store);
+}
+
+fn assert_corruption_origin(error: QueryError, expected_origin: ErrorOrigin) {
     let QueryError::Execute(QueryExecutionError::Corruption(error)) = error else {
-        panic!("missing accepted-index row should retain corruption taxonomy");
+        panic!("accepted-index corruption should retain corruption taxonomy");
     };
-    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert_eq!(error.origin(), expected_origin);
 }
 
 #[test]

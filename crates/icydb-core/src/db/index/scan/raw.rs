@@ -442,7 +442,9 @@ impl IndexStore {
         match direction {
             Direction::Asc => match &self.backend {
                 IndexStoreBackend::Heap(map) => {
+                    let mut entry_reads = MergedEntryReadRecorder::new();
                     for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())) {
+                        entry_reads.record();
                         if visit(key, value)? {
                             return Ok(());
                         }
@@ -454,7 +456,9 @@ impl IndexStore {
             },
             Direction::Desc => match &self.backend {
                 IndexStoreBackend::Heap(map) => {
+                    let mut entry_reads = MergedEntryReadRecorder::new();
                     for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())).rev() {
+                        entry_reads.record();
                         if visit(key, value)? {
                             return Ok(());
                         }

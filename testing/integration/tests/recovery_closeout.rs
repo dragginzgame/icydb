@@ -1251,4 +1251,15 @@ fn explicit_reinstall_recreates_clean_current_state() {
         ),
         0,
     );
+    let group_seek = user_count_with_perf(
+        &fixture,
+        "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
+    );
+    let SqlQueryResult::Projection(rows) = group_seek.result else {
+        panic!("post-reinstall ordered DISTINCT should return a projection");
+    };
+    assert!(rows.rows.is_empty());
+    assert_eq!(group_seek.attribution.store_get_calls, 0);
+    assert_eq!(group_seek.attribution.index_store_entry_reads, 0);
+    assert_eq!(group_seek.attribution.index_store_range_scan_calls, 1);
 }

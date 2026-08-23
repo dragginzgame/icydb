@@ -1071,6 +1071,18 @@ fn sql_canister_required_sqlite_reference_profile_matches_bundled_reference() {
             "live IcyDB should agree with bundled SQLite for scenario {:?}",
             scenario.id(),
         );
+        if scenario.id() == "sqlite.required.scalar_distinct_window" {
+            let attribution = query_sql_attribution(&fixture, &correctness_scenario.sql)
+                .expect("SQLite DISTINCT window should expose route attribution");
+            assert_eq!(attribution.store_get_calls, 0);
+            assert_eq!(attribution.index_store_entry_reads, 3);
+            assert_eq!(attribution.index_store_range_scan_calls, 4);
+            let distinct = attribution
+                .distinct_projection
+                .expect("SQLite DISTINCT window should publish finalizer attribution");
+            assert_eq!(distinct.adjacent_path_hits, 1);
+            assert_eq!(distinct.candidate_rows, 3);
+        }
     }
 }
 
@@ -1837,6 +1849,38 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
         .expect("pre-index full-scan query should succeed");
 
     publish_and_assert_nullable_unique_constraints(&fixture, &mut schema_version);
+
+    let nullable_distinct_sql =
+        "SELECT DISTINCT nickname FROM SqlTestUser ORDER BY nickname ASC LIMIT 3";
+    let nullable_distinct_explain = expect_explain(
+        query_sql(
+            &fixture,
+            format!("EXPLAIN EXECUTION {nullable_distinct_sql}").as_str(),
+        )
+        .expect("direct nullable DISTINCT EXPLAIN should succeed"),
+    );
+    assert!(
+        nullable_distinct_explain.contains("FullScan")
+            && !nullable_distinct_explain.contains("sql_test_user_unique_nickname_idx"),
+        "a direct nullable field must not enter the non-null group-seek cohort: {nullable_distinct_explain}",
+    );
+    let nullable_distinct = query_sql_with_perf(&fixture, nullable_distinct_sql)
+        .expect("direct nullable DISTINCT fallback should succeed");
+    assert_projection_rendered(
+        &expect_projection(nullable_distinct.result),
+        "SqlTestUser",
+        &["nickname"],
+        &[&["ally"], &["bravo"], &["zulu"]],
+        3,
+        "direct nullable DISTINCT fallback should preserve canonical results",
+    );
+    let nullable_distinct_attribution = query_sql_attribution(&fixture, nullable_distinct_sql)
+        .expect("direct nullable DISTINCT fallback should expose attribution");
+    assert_eq!(nullable_distinct_attribution.index_store_entry_reads, 0);
+    assert_eq!(
+        nullable_distinct_attribution.index_store_range_scan_calls,
+        0
+    );
 
     let after_explain = expect_explain(
         query_sql(&fixture, format!("EXPLAIN EXECUTION {select_sql}").as_str())

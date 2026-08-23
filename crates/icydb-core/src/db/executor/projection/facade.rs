@@ -3,6 +3,7 @@
 //! Does not own: SQL DTO shaping, projection label policy, or diagnostic counter storage.
 //! Boundary: accepts prepared projection intent and returns structural projected rows.
 
+use super::covering::try_execute_ordered_distinct_group_seek_for_canister;
 use crate::{
     db::{
         Db,
@@ -10,6 +11,7 @@ use crate::{
             CoveringProjectionMetricsRecorder, ExecutionPreparation, PageWorkEnvelope,
             ProductionScalarOutputWork, ProjectionMaterializationMetricsRecorder,
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
+            StructuralCursorPage,
             budget::{
                 charge_runtime_value_rows, prepared_read_execution_context,
                 with_read_execution_budget,
@@ -24,6 +26,7 @@ use crate::{
                 projection_distinct_strategy,
                 try_execute_prepared_covering_projection_rows_for_canister,
             },
+            terminal::RetainedSlotRow,
             with_production_scalar_page_work,
         },
         index::predicate::IndexPredicateExecution,
@@ -230,6 +233,30 @@ where
     let emit_cursor = cursor_page_row_limit.is_some();
     let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
 
+    // Request-local cursor/work controls may decline planner admission before
+    // store access, but execution never reconstructs eligibility.
+    let group_seek = if scan_budget.is_none()
+        && !continuation.has_progress()
+        && !emit_cursor
+        && page_work_envelope.is_none()
+        && distinct_output_offset == 0
+    {
+        let covering = prepared_plan.projection_covering_read_execution_plan();
+        if let Some(covering) = covering {
+            try_execute_ordered_distinct_group_seek_for_canister(
+                db,
+                prepared_plan.authority(),
+                prepared_plan.index_range_specs(),
+                &covering,
+            )?
+            .map(|representatives| (representatives, covering))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Phase 1: choose the covering projection lane only for non-DISTINCT
     // requests. DISTINCT must see final projected rows in scalar execution order
     // before executor-owned deduplication and windowing.
@@ -284,7 +311,10 @@ where
         prepared_projection_contract,
         scalar_runtime,
     } = prepared_plan.into_projection_runtime_handoff()?;
-    let authored_page = scalar_runtime.plan_core.plan().scalar_plan().page.as_ref();
+    let authored_page = group_seek
+        .is_none()
+        .then(|| scalar_runtime.plan_core.plan().scalar_plan().page.as_ref())
+        .flatten();
     let authored_offset =
         authored_page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX));
     let authored_limit = authored_page
@@ -314,7 +344,7 @@ where
     let prepared_projection = prepared_projection_contract
         .as_deref()
         .ok_or_else(InternalError::query_executor_invariant)?;
-    let resolved_order = (emit_cursor || distinct)
+    let resolved_order = (emit_cursor || (distinct && group_seek.is_none()))
         .then(|| {
             scalar_runtime
                 .plan_core
@@ -323,7 +353,9 @@ where
                 .cloned()
         })
         .transpose()?;
-    let distinct_strategy = if distinct {
+    let distinct_strategy = if group_seek.is_some() {
+        Some(ProjectionDistinctStrategy::OrderedAdjacent)
+    } else if distinct {
         let order = resolved_order
             .as_ref()
             .ok_or_else(InternalError::query_executor_invariant)?;
@@ -331,16 +363,28 @@ where
     } else {
         None
     };
-    let distinct_window = distinct_strategy.map(|strategy| {
-        let offset = match strategy {
-            ProjectionDistinctStrategy::OrderedAdjacent if continuation.has_progress() => 0,
-            ProjectionDistinctStrategy::OrderedAdjacent => authored_offset,
-            ProjectionDistinctStrategy::GlobalReplay => {
-                authored_offset.saturating_add(distinct_output_offset)
-            }
-        };
-        ProjectionDistinctWindow::new(offset, cursor_page_row_limit.or(authored_limit))
-    });
+    let distinct_window = group_seek
+        .as_ref()
+        .map(|(_, covering)| {
+            let contract = covering
+                .ordered_distinct_group_seek_contract()
+                .ok_or_else(InternalError::query_executor_invariant)?;
+            let (offset, limit) = contract.output_window();
+            Ok::<_, InternalError>(ProjectionDistinctWindow::new(offset, Some(limit)))
+        })
+        .transpose()?
+        .or_else(|| {
+            distinct_strategy.map(|strategy| {
+                let offset = match strategy {
+                    ProjectionDistinctStrategy::OrderedAdjacent if continuation.has_progress() => 0,
+                    ProjectionDistinctStrategy::OrderedAdjacent => authored_offset,
+                    ProjectionDistinctStrategy::GlobalReplay => {
+                        authored_offset.saturating_add(distinct_output_offset)
+                    }
+                };
+                ProjectionDistinctWindow::new(offset, cursor_page_row_limit.or(authored_limit))
+            })
+        });
     let execution_continuation = if matches!(
         distinct_strategy,
         Some(ProjectionDistinctStrategy::GlobalReplay)
@@ -354,6 +398,39 @@ where
     } else {
         scalar_runtime
     };
+
+    let group_seek_page = group_seek
+        .map(|(representatives, covering)| {
+            let contract = covering
+                .ordered_distinct_group_seek_contract()
+                .ok_or_else(InternalError::query_executor_invariant)?;
+            let projected_slot = contract.projected_slot();
+            let retained_slot_layout = scalar_runtime
+                .retained_slot_layout
+                .as_ref()
+                .ok_or_else(InternalError::query_executor_invariant)?;
+            let value_index = retained_slot_layout
+                .value_index_for_slot(projected_slot)
+                .ok_or_else(InternalError::query_executor_invariant)?;
+            let scanned_keys = representatives.len();
+            let mut slot_rows = Vec::with_capacity(scanned_keys);
+            for representative in representatives {
+                let mut values = vec![None; retained_slot_layout.retained_value_count()];
+                let slot = values
+                    .get_mut(value_index)
+                    .ok_or_else(InternalError::query_executor_invariant)?;
+                *slot = Some(representative);
+                slot_rows.push(RetainedSlotRow::from_indexed_values(
+                    retained_slot_layout,
+                    values,
+                ));
+            }
+            Ok::<_, InternalError>((
+                StructuralCursorPage::new_with_slot_rows(slot_rows),
+                scanned_keys,
+            ))
+        })
+        .transpose()?;
 
     // Phase 2: execute the canonical scalar retained-slot path and let the
     // projection materializer choose slot-row, data-row, or scalar fallback
@@ -383,7 +460,9 @@ where
         }
     };
     let ((page, scanned_keys), production_page_work_exhausted, scan_receipt) =
-        if let Some(envelope) = page_work_envelope.filter(|_| page_entry_limit.is_some()) {
+        if let Some(page) = group_seek_page {
+            (page, false, None)
+        } else if let Some(envelope) = page_work_envelope.filter(|_| page_entry_limit.is_some()) {
             let production = with_production_scalar_page_work(envelope, execute_scalar_page)?;
             (
                 production.value,

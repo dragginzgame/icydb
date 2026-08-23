@@ -169,8 +169,12 @@ require_pattern \
   "operator guide must keep heap storage explicitly volatile"
 require_pattern \
   "docs/operations/DURABILITY_GUIDE.md" \
-  "\\*_many_non_atomic.*already committed prefix" \
-  "operator guide must keep non-atomic prefix-commit warning"
+  "execute_trusted_structural_mutation_batch" \
+  "operator guide must name the maintained same-store atomic batch surface"
+require_pattern \
+  "docs/operations/DURABILITY_GUIDE.md" \
+  "already successful calls remain committed" \
+  "operator guide must keep the independent sequential-commit warning"
 require_pattern \
   "docs/operations/DURABILITY_GUIDE.md" \
   "do not claim raw backup/import support" \

@@ -27,6 +27,8 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
     let upper = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
         vec![3],
     )));
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    let entry_reads_before = IndexStore::current_entry_read_count();
     let mut asc = Vec::new();
     index_store
         .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw_key, _| {
@@ -47,6 +49,12 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
         desc,
         vec![3, 2, 1],
         "desc scan should reverse raw key order"
+    );
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    assert_eq!(
+        IndexStore::current_entry_read_count().saturating_sub(entry_reads_before),
+        6,
+        "journaled raw-range diagnostics must count every delivered entry",
     );
 }
 
@@ -91,6 +99,8 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
     let upper = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
         vec![3],
     )));
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    let entry_reads_before = IndexStore::current_entry_read_count();
     let mut asc = Vec::new();
     index_store
         .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw_key, _| {
@@ -108,6 +118,12 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
         })
         .expect("heap desc scan should succeed");
     assert_eq!(desc, vec![3, 2, 1]);
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    assert_eq!(
+        IndexStore::current_entry_read_count().saturating_sub(entry_reads_before),
+        6,
+        "heap raw-range diagnostics must count every delivered entry",
+    );
 
     let mut stopped = Vec::new();
     let _: Result<(), std::convert::Infallible> = index_store.visit_entries(|raw_key, _| {

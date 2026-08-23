@@ -52,22 +52,25 @@ atomic batch helper.
 Safe assumptions:
 
 - a single save/delete operation is atomic;
-- `*_many_atomic` is all-or-nothing for one entity type in one call;
-- guarded reads and writes recover marker-authorized interrupted commits before
-  normal access proceeds.
+- `execute_trusted_structural_mutation_batch` is all-or-nothing for one bounded
+  same-store set of inserts, updates, replacements, and deletes across at most
+  64 accepted entities;
+- `execute_trusted_structural_insert_batch` is the same-entity insert-only
+  convenience shape;
+- guarded reads and writes remain unavailable until the replicated startup
+  driver has recovered marker-authorized interrupted commits.
 
 Unsafe assumptions:
 
 - a canister update method is not a database transaction block;
 - returning `Err` after a successful IcyDB write does not undo that write;
-- `*_many_non_atomic` may leave an already committed prefix;
 - multiple IcyDB writes in one update method are not automatically rolled back
   together if a later write or application check fails.
 
 When callers need all-or-nothing behavior for a bounded same-store structural
-batch, use the
-atomic batch helpers. When partial progress is acceptable and intentional, use
-the non-atomic helpers and document the prefix-commit behavior at the call site.
+batch, use the atomic structural mutation helper. When partial progress is
+acceptable and intentional, issue separate mutation calls and document that
+already successful calls remain committed.
 
 ## Async And Reentry
 
@@ -94,11 +97,12 @@ interrupted-recovery, or stale derived-index state.
 
 Startup rule:
 
-- the database is fully consistent after the first successful guarded recovery
-  pass;
-- before that pass, a leftover marker or journal tail may still represent
+- the database is fully consistent after the replicated startup driver reports
+  `Ready`;
+- before that readiness boundary, a leftover marker or journal tail may still represent
   recovery work;
-- tools that inspect raw stable memory before guarded recovery own the risk.
+- tools that inspect raw stable memory before startup recovery completes own
+  the risk.
 
 ## Recovery Guarantees
 
@@ -111,7 +115,7 @@ Current recovery is designed for internally produced interrupted states:
 - interruption while publishing or advancing a constraint activation job;
 - reconstruction of only the unique-index or reverse-relation candidate prefix
   authorized by that job's durable checkpoint;
-- marker-cleared readiness restoration on guarded reentry.
+- marker-cleared readiness restoration on startup-driver reentry.
 
 Recovery replays already admitted row bytes and durable activation evidence. It
 does not rerun accepted checks, application validators, normalizers, or
@@ -160,7 +164,7 @@ Supported:
 - normal IC stable-memory preservation for the same canister;
 - normal canister upgrade preservation when memory IDs and generated wiring
   remain stable;
-- guarded recovery of IcyDB-produced interrupted commit/recovery state.
+- startup recovery of IcyDB-produced interrupted commit/recovery state.
 
 Unsupported:
 
@@ -178,7 +182,7 @@ format compatibility, corruption detection, and resource limits first.
 The current line does not write persisted checksums.
 
 Current protection is structural validation, bounded fallible decoding, and
-guarded recovery. Checksums remain a future persisted-format feature and must
+startup recovery. Checksums remain a future persisted-format feature and must
 be classified under `docs/contracts/PERSISTED_FORMAT_POLICY.md` before being
 added.
 
@@ -218,8 +222,11 @@ Before deploying durable IcyDB data:
 - keep `heap()` stores limited to intentionally volatile state;
 - reserve stable-memory IDs and do not reuse them;
 - use generated/session APIs instead of direct raw-store access;
-- use `*_many_atomic` when a same-entity batch must be all-or-nothing;
-- document any `*_many_non_atomic` use as prefix-commit behavior;
+- use `execute_trusted_structural_mutation_batch` for bounded same-store
+  all-or-nothing changes and its insert-only convenience shape for same-entity
+  inserts;
+- document sequential mutation calls as independently committed when partial
+  progress is intentional;
 - treat every constraint-validation page as independently atomic and require
   explicit completion before claiming promotion;
 - expect each well-formed authorized integrity request to perform one bounded

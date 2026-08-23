@@ -363,6 +363,20 @@ const REQUIRED_SQLITE_REFERENCE_SCENARIOS: &[SqliteReferenceScenario] = &[
         nullable: false,
     },
     SqliteReferenceScenario {
+        id: "sqlite.required.scalar_distinct_window",
+        contract_features: &["pagination.scalar_limit_offset", "select.scalar_distinct"],
+        families: &[SqliteReferenceFamily::Scalar],
+        sql_template: "SELECT DISTINCT name FROM {entity} ORDER BY name DESC LIMIT 2 OFFSET 1",
+        columns: TEXT_COLUMNS,
+        row_order: SqliteReferenceRowOrder::Ordered,
+        predicate: SqliteReferencePredicateFamily::None,
+        window: SqliteReferenceWindow::OrderedLimit {
+            limit: 2,
+            offset: 1,
+        },
+        nullable: false,
+    },
+    SqliteReferenceScenario {
         id: "sqlite.required.global_aggregate",
         contract_features: &[
             "having.global_aggregate",

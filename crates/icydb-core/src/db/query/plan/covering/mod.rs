@@ -16,7 +16,7 @@ use crate::db::{
         expr::{Expr, FieldId, Function, ProjectionSelection, ProjectionSpec},
         index_key_item_order_terms,
     },
-    schema::SchemaInfo,
+    schema::{AcceptedFieldKind, SchemaInfo},
 };
 use crate::value::Value;
 
@@ -122,6 +122,73 @@ pub(in crate::db) struct CoveringReadExecutionPlan {
     pub(in crate::db) order_contract: CoveringProjectionOrder,
     pub(in crate::db) existing_row_mode: CoveringExistingRowMode,
     pub(in crate::db) strict_predicate_compatible: bool,
+    ordered_distinct_group_seek: Option<OrderedDistinctGroupSeekContract>,
+}
+
+const MAX_ORDERED_DISTINCT_GROUP_SEEK_OUTPUT_WINDOW: u32 = 3;
+
+/// Planner-owned execution proof for the bounded ordered DISTINCT group seek.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct OrderedDistinctGroupSeekContract {
+    direction: Direction,
+    projected_slot: usize,
+    output_offset: usize,
+    output_limit: usize,
+}
+
+impl OrderedDistinctGroupSeekContract {
+    fn try_new(
+        direction: Direction,
+        projected_slot: usize,
+        output_offset: u32,
+        output_limit: u32,
+    ) -> Option<Self> {
+        let output_end = output_offset.checked_add(output_limit)?;
+        if output_end > MAX_ORDERED_DISTINCT_GROUP_SEEK_OUTPUT_WINDOW {
+            return None;
+        }
+        Some(Self {
+            direction,
+            projected_slot,
+            output_offset: usize::try_from(output_offset).ok()?,
+            output_limit: usize::try_from(output_limit).ok()?,
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn direction(self) -> Direction {
+        self.direction
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn projected_slot(self) -> usize {
+        self.projected_slot
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn output_window(self) -> (usize, usize) {
+        (self.output_offset, self.output_limit)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn representative_budget(self) -> usize {
+        if self.output_limit == 0 {
+            0
+        } else {
+            self.output_offset
+                .saturating_add(self.output_limit)
+                .saturating_add(1)
+        }
+    }
+}
+
+impl CoveringReadExecutionPlan {
+    #[must_use]
+    pub(in crate::db) const fn ordered_distinct_group_seek_contract(
+        &self,
+    ) -> Option<OrderedDistinctGroupSeekContract> {
+        self.ordered_distinct_group_seek
+    }
 }
 
 ///
@@ -299,10 +366,12 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
     if let Some(covering) =
         covering_read_plan_with_schema_info(schema, plan, strict_predicate_compatible)
     {
+        let ordered_distinct_group_seek = ordered_distinct_group_seek_plan(schema, plan, &covering);
         return Some(covering_read_execution_plan(
             covering,
             CoveringExistingRowMode::RequiresRowPresenceCheck,
             strict_predicate_compatible,
+            ordered_distinct_group_seek,
         ));
     }
 
@@ -312,7 +381,54 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
         covering,
         existing_row_mode,
         strict_predicate_compatible,
+        None,
     ))
+}
+
+// Freeze the complete narrow admission proof once; execution never reclassifies it.
+fn ordered_distinct_group_seek_plan(
+    schema: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadPlan,
+) -> Option<OrderedDistinctGroupSeekContract> {
+    let page = plan.scalar_plan().page.as_ref()?;
+    let output_limit = page.limit?;
+    let mut projected_fields = plan.frozen_projection_spec().ok()?.fields();
+    let projected_field = projected_fields.next()?.direct_field_name()?;
+    let [covering_field] = covering.fields.as_slice() else {
+        return None;
+    };
+    let range = plan.access.as_index_range_path()?;
+    let CoveringProjectionOrder::IndexOrder(direction) = covering.order_contract else {
+        return None;
+    };
+    let primary_key_names = primary_key_names_from_schema(schema)?;
+    let order = plan
+        .scalar_plan()
+        .order
+        .as_ref()?
+        .deterministic_secondary_order_contract_fields(&primary_key_names)?;
+    let eligible = plan.scalar_plan().distinct
+        && !plan.has_any_residual_filter()
+        && range.prefix_values().is_empty()
+        && projected_fields.next().is_none()
+        && schema.accepted_field_is_nullable(projected_field) == Some(false)
+        && matches!(
+            schema.accepted_query_field_kind(projected_field)?,
+            AcceptedFieldKind::Int32 | AcceptedFieldKind::Text { .. }
+        )
+        && covering_field.source
+            == (CoveringReadFieldSource::IndexComponent { component_index: 0 })
+        && order.matches_expected_non_primary_key_terms([projected_field]);
+    if !eligible {
+        return None;
+    }
+    OrderedDistinctGroupSeekContract::try_new(
+        direction,
+        covering_field.field_slot.index(),
+        page.offset,
+        output_limit,
+    )
 }
 
 // Resolve one covering projection order contract from scalar ORDER BY shape.
@@ -360,6 +476,7 @@ fn covering_read_execution_plan(
     covering: CoveringReadPlan,
     existing_row_mode: CoveringExistingRowMode,
     strict_predicate_compatible: bool,
+    ordered_distinct_group_seek: Option<OrderedDistinctGroupSeekContract>,
 ) -> CoveringReadExecutionPlan {
     CoveringReadExecutionPlan {
         fields: covering.fields,
@@ -367,6 +484,7 @@ fn covering_read_execution_plan(
         order_contract: covering.order_contract,
         existing_row_mode,
         strict_predicate_compatible,
+        ordered_distinct_group_seek,
     }
 }
 

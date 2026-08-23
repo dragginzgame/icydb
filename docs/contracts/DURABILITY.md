@@ -90,10 +90,17 @@ Returning `Err` from application code after a successful IcyDB write does not
 roll back that write. The `Err` is an application response value, not a database
 transaction abort.
 
-Batch helpers have explicit lanes:
+The maintained batch surfaces are explicit:
 
-- `*_many_atomic` is all-or-nothing for one entity type in one call;
-- `*_many_non_atomic` is fail-fast and may leave an already committed prefix.
+- `execute_trusted_structural_mutation_batch` commits one bounded same-store
+  collection of inserts, updates, replacements, and deletes atomically across
+  at most 64 accepted entities;
+- `execute_trusted_structural_insert_batch` is the same-entity insert-only
+  convenience shape over that canonical lane.
+
+Separate successful mutation calls remain separately committed. IcyDB does not
+provide a prefix-committing batch helper or infer a larger transaction around
+multiple calls.
 
 The exact row-content and mutation-ingress requirements are defined in
 `docs/contracts/WRITE_ADMISSION.md`. Durability does not create a less strict
@@ -190,9 +197,9 @@ explicit read-only inspection operations.
 Identity-bearing recovery treats the marker range as committed authority and
 the schema-control record as its materialized projection. It never derives
 high-water from live rows, reevaluates the generator, or allocates during row,
-index, or relation rebuild. Before guarded recovery returns, every committed
-range has converged to the exact materialized high-water and last-applied
-advance identity.
+index, or relation rebuild. Before startup recovery reports `Ready`, every
+committed range has converged to the exact materialized high-water and
+last-applied advance identity.
 
 A mixed batch may also update or delete rows whose Identity keys were committed
 before the batch. Durable range proof counts only row puts in
@@ -256,7 +263,7 @@ The current line does not add persisted checksums.
 
 This is an explicit no-checksum-now decision, not a claim that checksums are
 unnecessary forever. The current supported boundary is same-canister stable
-memory plus fail-closed decoding and guarded recovery of internally produced
+memory plus fail-closed decoding and startup recovery of internally produced
 states. The 0.189/0.190 evidence strengthened marker, journal, row, schema,
 index, and structural decode failure behavior without changing persisted bytes.
 

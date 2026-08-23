@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.238.x] 🎯 - 2026-08-23 - Ordered Scalar DISTINCT Group Seek
+
+Detailed notes: [docs/changelog/0.238.md](docs/changelog/0.238.md)
+
+- `0.238.0` lets strictly admitted ordered scalar `DISTINCT` windows of at
+  most three outputs seek directly between accepted-index value groups,
+  cutting the frozen 2,048-row queries by 88.9M–91.1M instructions while
+  visiting at most four index entries and fetching no rows.
+
 ## [0.237.x] 📊 - 2026-08-22 - SQL Query Performance Hotspot Rediscovery
 
 Detailed notes: [docs/changelog/0.237.md](docs/changelog/0.237.md)

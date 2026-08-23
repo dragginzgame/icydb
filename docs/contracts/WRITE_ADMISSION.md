@@ -128,7 +128,6 @@ in the apply phase.
 | SQL `INSERT` and explicit exact/prefix `UPDATE` | Decode literals, omissions, and `DEFAULT` against accepted field contracts, then enter the same accepted structural after-image owner. Exact selection traverses authoritative primary keys and independently proves affected-row and scanned-key fit with cap plus one; prefix selection retains the explicit ordered `LIMIT`. Neither trusted nor generated SQL exposure policy bypasses row admission. |
 | Structural, typed-adapter, and SQL `DELETE` | Resolve selected rows through accepted authority, validate relation delete safety, and prepare row/index/relation removals before the marker. Deletes have no row after-image. |
 | Atomic same-store batches | Admit and stage every heterogeneous item before opening one commit window. Dynamic and mixed-binding typed facades converge here. Duplicate entity-qualified targets across operation kinds reject, while equal primitive keys in different entities remain distinct. Unique, relation, index, and row constraints consume the complete final overlay through each item's exact accepted context; public result conversion and response bounds finish before marker publication. One rejected item rejects the entire batch and consumes no Identity. |
-| Non-atomic single-entity batches | Apply the complete admission contract independently to each item. A previously committed prefix is not rolled back when a later item rejects. |
 | Defaults, generated values, and managed fields | Materialize only from accepted absence/write policy and pass normal canonical row admission. `Identity::next` is admitted only for an omitted/`DEFAULT` sole unsigned primary key, uses one statement-local cursor per accepted owner, and proves the final field/key value before commit preparation. |
 | SQL DDL and schema row rewrites | Derive an accepted-after catalog candidate first. Any physical row rewrite must preserve or construct values admitted by that candidate before accepted-schema publication becomes authoritative. |
 | Index and reverse-relation projection | Derived state only. Projection must consume row images already decoded through the accepted contract; it is not an independent row ingress. |
@@ -143,10 +142,10 @@ not generated callbacks. One operation timestamp is captured before accepted
 after-image resolution. Insert assigns both fields that timestamp; a logical
 update or replacement preserves `CreatedAt` and advances `UpdatedAt`; a
 semantic no-op preserves both. Atomic batches and the independently committed
-items of one non-atomic request reuse the request timestamp. Resumable updates
-store the timestamp in their continuation before the first row commit and
-reuse it on every retry or resume. A timestamp earlier than a retained
-`UpdatedAt` rejects rather than moving time backward or clamping one row.
+items within each batch reuse the request timestamp. Resumable updates store
+the timestamp in their continuation before the first row commit and reuse it
+on every retry or resume. A timestamp earlier than a retained `UpdatedAt`
+rejects rather than moving time backward or clamping one row.
 
 ## Schema Mutation And Backfill Rules
 
@@ -242,8 +241,7 @@ internal write path.
 - No index or relation projection may derive persisted state from an
   unvalidated row image.
 - Rejection before marker publication must not make that mutation's row effects
-  visible. Explicit non-atomic batches may retain only their already committed
-  prefix.
+  visible.
 - Adding a new mutation surface requires adding it to this inventory or marking
   it unsupported.
 
