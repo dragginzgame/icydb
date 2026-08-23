@@ -100,6 +100,13 @@ if ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflo
   fail "PocketIC workflows must install one locked binary and Tier B must use one governed server"
 fi
 
+tier_b_perf_target_refs="$(rg -c --fixed-strings '_ci-tier-b-0-237-perf-regressions' Makefile || true)"
+if [[ "$tier_b_perf_target_refs" -lt 3 ]] ||
+   ! rg -q '^_ci-tier-b-0-237-perf-regressions:$' Makefile ||
+   ! rg -q --fixed-strings 'sql_perf_0_237_' Makefile; then
+  fail "Tier B must retain the fixed 0.237 SQL performance regression gates"
+fi
+
 if rg -q '^[[:space:]]+CARGO_HOME:' .github/workflows/ci.yml &&
    ! rg -q --fixed-strings \
      "printf '%s\\n' \"\$CARGO_HOME/bin\" >> \"\$GITHUB_PATH\"" \

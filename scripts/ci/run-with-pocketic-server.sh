@@ -22,7 +22,7 @@ stdout_file="$scratch/stdout"
 stderr_file="$scratch/stderr"
 
 # Invoked from the EXIT-trap cleanup path.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 report_server_output() {
   echo "==> shared PocketIC stderr (last 40 lines)" >&2
   tail -40 "$stderr_file" >&2 || true
@@ -50,7 +50,7 @@ report_server_resources() {
 }
 
 # Registered as the process EXIT trap below.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 cleanup() {
   local status="$?"
   trap - EXIT INT TERM

@@ -988,7 +988,7 @@ pub(crate) mod tests {
             .expect("fixture identity should build");
         assert_eq!(
             fixture.profile_hash,
-            "5d16c26ff05dcb93b56ce1965d83ba2e22f4a4154dd1a3da95d1d74724ee20a4",
+            "4fe579f38f841f21219ce6f570f5e85a927303bdb4c5dbfc4fd598641734e23f",
         );
         let accepted =
             accepted_snapshot_hash(b"accepted-schema-test").expect("accepted payload should hash");

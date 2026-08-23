@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.237.md](docs/changelog/0.237.md)
 
+- `0.237.3`, the final 0.237 candidate, expands the exact SQL scale profile
+  from 58 to 70 families,
+  identifies nine additional simple query shapes above 10M instructions, and
+  closes the ordered scalar `DISTINCT` intake with direction- and
+  duplicate-sensitive evidence plus pull-request gates that prevent shipped
+  0.237 query reductions from silently regressing.
+
 - `0.237.2` lets one-sided compound-index ranges begin at their encoded edge
   and keeps checked finite ordered projections on the bounded scalar path,
   saving 14.3M–289.4M instructions across the affected queries. Tier B also

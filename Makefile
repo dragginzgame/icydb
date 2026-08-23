@@ -23,6 +23,7 @@
         _ci-core-diagnostics-check _ci-core-diagnostics-clippy \
         _ci-workspace-clippy _ci-workspace-integration-clippy _ci-workspace-tests \
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
+        _ci-tier-b-sql-canister _ci-tier-b-0-237-perf-regressions \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -749,8 +750,18 @@ _ci-tier-a-integration:
 ci-sql-tier-b:
 	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used by Tier B" >&2; exit 1; }
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
-		$(POCKET_IC_RUNNER) cargo test --locked --no-fail-fast \
+		$(POCKET_IC_RUNNER) $(VALIDATION_RUNNER) \
+		_ci-tier-b-sql-canister \
+		_ci-tier-b-0-237-perf-regressions
+
+_ci-tier-b-sql-canister:
+	cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_canister --verbose
+
+_ci-tier-b-0-237-perf-regressions:
+	cargo test --locked --no-fail-fast \
+		-p icydb-testing-integration --test sql_perf_audit \
+		sql_perf_0_237_ --verbose -- --nocapture
 
 # Run tests in watch mode
 test-watch:

@@ -3338,11 +3338,128 @@ fn sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path() {
 #[test]
 #[expect(
     clippy::too_many_lines,
+    reason = "one matrix keeps DISTINCT direction, duplicate, null, route and physical-work evidence comparable"
+)]
+fn sql_perf_0_237_distinct_finite_window_interactions_are_measured_explicitly() {
+    const FIXTURE_ROWS: u32 = 2_048;
+    const CASES: [(&str, &str, &[&str], bool, u64); 6] = [
+        (
+            "age_asc_limit_one",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 1",
+            &["31"],
+            true,
+            129,
+        ),
+        (
+            "age_asc_limit_three",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
+            &["31", "32", "33"],
+            true,
+            385,
+        ),
+        (
+            "age_desc_limit_three",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age DESC LIMIT 3",
+            &["43", "34", "33"],
+            true,
+            1_793,
+        ),
+        (
+            "name_asc_limit_three",
+            "SELECT DISTINCT name FROM PerfAuditUser ORDER BY name ASC LIMIT 3",
+            &["scale-group-001", "scale-group-002", "scale-group-003"],
+            true,
+            64,
+        ),
+        (
+            "nullable_expression_asc_limit_three",
+            "SELECT DISTINCT CASE WHEN age = 31 THEN NULL ELSE age END AS maybe_age FROM PerfAuditUser ORDER BY maybe_age ASC LIMIT 3",
+            &["null", "32", "33"],
+            false,
+            2_048,
+        ),
+        (
+            "expression_order_asc_limit_three",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age + 0 ASC LIMIT 3",
+            &["31", "32", "33"],
+            false,
+            2_048,
+        ),
+    ];
+
+    let fixture = install_sql_perf_canister_fixture();
+    load_user_scale_integrity_fixture(&fixture, FIXTURE_ROWS);
+
+    for (label, sql, expected, adjacent, expected_candidates) in CASES {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("DISTINCT finite-window interaction should succeed");
+        let expected_rows = expected
+            .iter()
+            .map(|value| vec![(*value).to_string()])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            expected_rows,
+            "{label}"
+        );
+
+        let distinct = sample
+            .attribution
+            .distinct_projection
+            .expect("DISTINCT execution should publish route attribution");
+        assert_eq!(distinct.adjacent_path_hits, u64::from(adjacent), "{label}");
+        assert_eq!(distinct.global_path_hits, u64::from(!adjacent), "{label}");
+        assert_eq!(distinct.candidate_rows, expected_candidates, "{label}");
+        assert_eq!(distinct.bounded_stop_hits, 1, "{label}");
+        assert_eq!(
+            sample.attribution.store_get_calls,
+            u64::from(FIXTURE_ROWS),
+            "{label}",
+        );
+        assert_eq!(
+            sample.attribution.index_store_entry_reads,
+            if adjacent { u64::from(FIXTURE_ROWS) } else { 0 },
+            "{label}",
+        );
+        assert_eq!(
+            sample.attribution.index_store_range_scan_calls,
+            if adjacent { 33 } else { 0 },
+            "{label}",
+        );
+        assert_eq!(
+            distinct.peak_retained_entries,
+            if adjacent { 1 } else { 5 },
+            "{label}",
+        );
+
+        println!(
+            "0.237 Patch 12 DISTINCT interaction: label={label} total={} compile={} execute={} candidates={} unique={} adjacent_hits={} global_hits={} store_gets={} index_entries={} range_scans={} peak_entries={} peak_bytes={}",
+            sample.attribution.total_local_instructions,
+            sample.attribution.compile_local_instructions,
+            sample.attribution.execute_local_instructions,
+            distinct.candidate_rows,
+            distinct.unique_rows,
+            distinct.adjacent_path_hits,
+            distinct.global_path_hits,
+            sample.attribution.store_get_calls,
+            sample.attribution.index_store_entry_reads,
+            sample.attribution.index_store_range_scan_calls,
+            distinct.peak_retained_entries,
+            distinct.peak_retained_backing_bytes,
+        );
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
     reason = "one fixture keeps the exact-count scale, warm-cache and fallback evidence comparable"
 )]
-fn sql_perf_exact_entity_count_family_avoids_row_and_index_traversal() {
+fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
-    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    // Patch 12 measured a maximum of 855,091; this permits only the retained
+    // 10,000-instruction regression tolerance before requiring review.
+    const CURRENT_TOTAL_CEILING: u64 = 865_091;
     const MINIMUM_SAVING: u64 = 75_000_000;
     const CASES: [(&str, &str, u64); 4] = [
         (
@@ -3467,9 +3584,11 @@ fn sql_perf_exact_entity_count_family_avoids_row_and_index_traversal() {
     clippy::too_many_lines,
     reason = "one fixture keeps extrema scale, warm-cache, and conservative controls comparable"
 )]
-fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
+fn sql_perf_0_237_indexed_scalar_extrema_use_bounded_edge_probes() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
-    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    // Patch 12 measured a maximum of 1,713,408; this is its one-percent
+    // regression boundary, rounded up to the next instruction.
+    const CURRENT_TOTAL_CEILING: u64 = 1_730_543;
     const MINIMUM_SAVING: u64 = 75_000_000;
     const CASES: [(&str, &str, u64); 5] = [
         (
@@ -3663,9 +3782,11 @@ fn sql_perf_indexed_scalar_extrema_use_bounded_edge_probes() {
     clippy::too_many_lines,
     reason = "one fixture keeps one-sided range scale, warm, semantic, and fallback evidence comparable"
 )]
-fn sql_perf_compound_one_sided_ranges_begin_at_the_bounded_edge() {
+fn sql_perf_0_237_compound_one_sided_ranges_begin_at_the_bounded_edge() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
-    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    // Patch 12 measured a maximum of 1,619,103; this is its one-percent
+    // regression boundary, rounded up to the next instruction.
+    const CURRENT_TOTAL_CEILING: u64 = 1_635_295;
     const CASES: [(&str, &str, &str, u64, u64, u64); 4] = [
         (
             "max_upper",
@@ -3910,9 +4031,11 @@ fn sql_perf_compound_one_sided_ranges_begin_at_the_bounded_edge() {
     clippy::too_many_lines,
     reason = "one fixture keeps checked-hybrid scale, window, route, and warm evidence comparable"
 )]
-fn sql_perf_checked_hybrid_finite_windows_use_the_bounded_scalar_path() {
+fn sql_perf_0_237_checked_hybrid_finite_windows_use_the_bounded_scalar_path() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
-    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    // Patch 12 measured a maximum of 1,859,095; this is its one-percent
+    // regression boundary, rounded up to the next instruction.
+    const CURRENT_TOTAL_CEILING: u64 = 1_877_686;
     const CASES: [(&str, &str, &str, u64, u64); 2] = [
         (
             "bounded_name",
@@ -4108,9 +4231,11 @@ fn sql_perf_checked_hybrid_finite_windows_use_the_bounded_scalar_path() {
     clippy::too_many_lines,
     reason = "one fixture keeps ordered endpoint scale, warm-cache, and fallback evidence comparable"
 )]
-fn sql_perf_secondary_ordered_limits_stop_at_the_requested_covering_window() {
+fn sql_perf_0_237_secondary_ordered_limits_stop_at_the_requested_covering_window() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
-    const CURRENT_TOTAL_CEILING: u64 = 10_000_000;
+    // Patch 12 measured a maximum of 1,510,863; this is its one-percent
+    // regression boundary, rounded up to the next instruction.
+    const CURRENT_TOTAL_CEILING: u64 = 1_525_972;
     const MINIMUM_SAVING: u64 = 40_000_000;
     const CASES: [(&str, &str, &str, u64); 2] = [
         (
@@ -4243,9 +4368,11 @@ fn sql_perf_secondary_ordered_limits_stop_at_the_requested_covering_window() {
     clippy::too_many_lines,
     reason = "one fixture keeps the exact-count cap, warm path, and shared page fallback comparable"
 )]
-fn sql_perf_count_prefix_cardinality_admits_only_the_measured_seventeenth_key() {
+fn sql_perf_0_237_count_prefix_cardinality_admits_only_the_measured_seventeenth_key() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
-    const CURRENT_TOTAL_CEILING: u64 = 5_000_000;
+    // Patch 12 measured a maximum of 2,267,465; this is its one-percent
+    // regression boundary, rounded up to the next instruction.
+    const CURRENT_TOTAL_CEILING: u64 = 2_290_140;
     const PREDECESSOR_TOTAL: u64 = 42_726_968;
     const MINIMUM_SAVING: u64 = 35_000_000;
     const COUNT_AT_SHARED_CAP_SQL: &str = "\
