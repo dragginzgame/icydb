@@ -35,11 +35,52 @@ if ! target_recipe validate | awk '
     exit !(runner_line > 0 && fmt_line > runner_line &&
            workflow_line > fmt_line && shell_line > workflow_line &&
            invariants_line > shell_line &&
-           features_line > invariants_line && check_line > features_line &&
-           clippy_line > check_line && test_line > clippy_line)
+           clippy_line > invariants_line && features_line > clippy_line &&
+           check_line > features_line && test_line > check_line)
   }
 '; then
-  echo "validate must aggregate formatting, automation, invariants, feature checks, check, clippy, and tests in order" >&2
+  echo "validate must run static checks, clippy, feature checks, check, and tests in order" >&2
+  exit 1
+fi
+
+if ! target_recipe clippy | awk '
+  /cargo clippy --workspace --all-targets/ { workspace_line = NR }
+  /cargo clippy -p icydb-core --no-default-features --features sql/ { sql_line = NR }
+  /cargo clippy -p icydb-core --no-default-features --features diagnostics/ {
+    diagnostics_line = NR
+  }
+  END {
+    exit !(workspace_line > 0 && sql_line > workspace_line &&
+           diagnostics_line > sql_line)
+  }
+'; then
+  echo "clippy must lint the complete workspace and test surface before feature-only lanes" >&2
+  exit 1
+fi
+
+if ! target_recipe ci-core | awk '
+  $1 == "_ci-core-sql-clippy" { sql_line = NR }
+  $1 == "_ci-core-diagnostics-clippy" { diagnostics_line = NR }
+  $1 == "_ci-core-no-default-test" { test_line = NR }
+  END {
+    exit !(sql_line > 0 && diagnostics_line > sql_line &&
+           test_line > diagnostics_line)
+  }
+'; then
+  echo "ci-core must complete clippy lanes before executable tests" >&2
+  exit 1
+fi
+
+if ! target_recipe ci-workspace | awk '
+  $1 == "_ci-workspace-clippy" { workspace_line = NR }
+  $1 == "_ci-workspace-integration-clippy" { integration_line = NR }
+  $1 == "_ci-workspace-tests" { test_line = NR }
+  END {
+    exit !(workspace_line > 0 && integration_line > workspace_line &&
+           test_line > integration_line)
+  }
+'; then
+  echo "ci-workspace must complete clippy lanes before executable tests" >&2
   exit 1
 fi
 

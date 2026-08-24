@@ -163,7 +163,7 @@ help:
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
-	@echo "  validate         Run formatting, invariants, feature checks, clippy, and tests"
+	@echo "  validate         Run static checks, clippy, feature checks, and tests"
 	@echo "  validate-fast    Run the quick formatting, automation, invariant, and workspace-check preflight"
 	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
@@ -573,9 +573,9 @@ check:
 	$(CARGO_WORK_ENV) cargo check --workspace
 
 clippy:
+	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features sql -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features diagnostics -- -D warnings
-	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 fmt:
 	$(CARGO_WORK_ENV) cargo sort --workspace
@@ -593,9 +593,9 @@ validate:
 		lint-workflows \
 		shellcheck \
 		check-invariants \
+		clippy \
 		check-feature-matrix \
 		check \
-		clippy \
 		test
 
 # Fast local/Codex preflight. This intentionally does not replace `validate`:
@@ -679,11 +679,11 @@ _ci-format:
 ci-core:
 	$(VALIDATION_RUNNER) \
 		_ci-core-no-default-check \
-		_ci-core-no-default-test \
 		_ci-core-sql-check \
 		_ci-core-sql-clippy \
 		_ci-core-diagnostics-check \
-		_ci-core-diagnostics-clippy
+		_ci-core-diagnostics-clippy \
+		_ci-core-no-default-test
 
 _ci-core-no-default-check:
 	$(CARGO_WORK_ENV) cargo check --locked -p icydb -p icydb-core --no-default-features

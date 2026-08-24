@@ -379,14 +379,11 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
         .expect_err("a covering accepted index must still prove row presence");
     assert_store_corruption(error);
 
-    for direction in ["ASC", "DESC"] {
-        let sql =
-            format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1");
-        let error = session
-            .execute_trusted_sql_query(&sql)
-            .expect_err("ordered DISTINCT group seek must fail closed on a missing representative");
-        assert_store_corruption(error);
-    }
+    assert_group_seek_corruption(
+        &session,
+        ErrorOrigin::Store,
+        "ordered DISTINCT group seek must fail closed on a missing representative",
+    );
 
     let raw_index_key = store.with_index(|index| {
         let mut raw_index_key = None;
@@ -403,14 +400,11 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
             <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff])),
         );
     });
-    for direction in ["ASC", "DESC"] {
-        let sql =
-            format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1");
-        let error = session
-            .execute_trusted_sql_query(&sql)
-            .expect_err("ordered DISTINCT group seek must fail closed on an invalid witness");
-        assert_corruption_origin(error, ErrorOrigin::Index);
-    }
+    assert_group_seek_corruption(
+        &session,
+        ErrorOrigin::Index,
+        "ordered DISTINCT group seek must fail closed on an invalid witness",
+    );
 
     let mut malformed_bytes = raw_index_key.as_bytes().to_vec();
     malformed_bytes.push(0xff);
@@ -419,13 +413,25 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
         assert!(index.remove(&raw_index_key).is_some());
         index.insert(malformed_key, IndexEntryValue::presence());
     });
+    assert_group_seek_corruption(
+        &session,
+        ErrorOrigin::Index,
+        "ordered DISTINCT group seek must fail closed on a malformed raw key",
+    );
+}
+
+fn assert_group_seek_corruption(
+    session: &DbSession<TestCanister>,
+    expected_origin: ErrorOrigin,
+    expectation: &str,
+) {
     for direction in ["ASC", "DESC"] {
         let sql =
             format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1");
         let error = session
             .execute_trusted_sql_query(&sql)
-            .expect_err("ordered DISTINCT group seek must fail closed on a malformed raw key");
-        assert_corruption_origin(error, ErrorOrigin::Index);
+            .expect_err(expectation);
+        assert_corruption_origin(error, expected_origin);
     }
 }
 
