@@ -24,7 +24,7 @@ use crate::{
             decode_single_covering_projection_pairs, projection::MaterializedProjectionRows,
         },
         index::{
-            IndexKey, key_within_envelope, predicate::IndexPredicateExecution,
+            IndexKey, envelope_is_empty, predicate::IndexPredicateExecution,
             raw_keys_for_component_prefix_with_kind,
         },
         predicate::MissingRowPolicy,
@@ -233,12 +233,12 @@ where
             crate::db::direction::Direction::Asc => group_high,
             crate::db::direction::Direction::Desc => group_low,
         };
-        if !key_within_envelope(&boundary, &lower, &upper) {
-            break;
-        }
         match direction {
             crate::db::direction::Direction::Asc => lower = Bound::Excluded(boundary),
             crate::db::direction::Direction::Desc => upper = Bound::Excluded(boundary),
+        }
+        if envelope_is_empty(&lower, &upper) {
+            break;
         }
     }
 
