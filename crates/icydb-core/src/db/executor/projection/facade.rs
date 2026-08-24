@@ -233,9 +233,10 @@ where
     let emit_cursor = cursor_page_row_limit.is_some();
     let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
 
-    // Request-local cursor/work controls may decline planner admission before
-    // store access, but execution never reconstructs eligibility.
-    let group_seek = if scan_budget.is_none()
+    // Negative preflight may decline before store access, but execution never
+    // reconstructs positive eligibility; only the prepared contract admits.
+    let group_seek = if distinct
+        && scan_budget.is_none()
         && !continuation.has_progress()
         && !emit_cursor
         && page_work_envelope.is_none()

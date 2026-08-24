@@ -94,6 +94,16 @@ struct MutationScaleLoadEvidence {
     unrelated_rows_loaded: u32,
 }
 
+#[derive(Clone, Copy)]
+struct OrderedDistinctGroupSeekCase {
+    label: &'static str,
+    sql: &'static str,
+    expected: &'static [&'static str],
+    adjacent: bool,
+    expected_candidates: u64,
+    predecessor: u64,
+}
+
 const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
 const PROMOTION_INDEX_LOAD_PAGE_ROWS: u32 = 4_096;
 // Leave room below R_max for the 1,025-record accepted-index publication
@@ -3350,61 +3360,69 @@ fn sql_perf_repeated_query_contracts_keep_compiled_and_shared_cache_path() {
 )]
 fn sql_perf_0_238_ordered_distinct_group_seek_is_bounded_and_falls_back_explicitly() {
     const FIXTURE_ROWS: u32 = 2_048;
-    const CASES: [(&str, &str, &[&str], bool, u64, u64); 6] = [
-        (
-            "age_asc_limit_one",
-            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 1",
-            &["31"],
-            true,
-            2,
-            92_605_670,
-        ),
-        (
-            "age_asc_limit_three",
-            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
-            &["31", "32", "33"],
-            true,
-            4,
-            93_144_415,
-        ),
-        (
-            "age_desc_limit_three",
-            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age DESC LIMIT 3",
-            &["43", "34", "33"],
-            true,
-            4,
-            92_261_973,
-        ),
-        (
-            "name_asc_limit_three",
-            "SELECT DISTINCT name FROM PerfAuditUser ORDER BY name ASC LIMIT 3",
-            &["scale-group-001", "scale-group-002", "scale-group-003"],
-            true,
-            4,
-            90_861_504,
-        ),
-        (
-            "nullable_expression_asc_limit_three",
-            "SELECT DISTINCT CASE WHEN age = 31 THEN NULL ELSE age END AS maybe_age FROM PerfAuditUser ORDER BY maybe_age ASC LIMIT 3",
-            &["null", "32", "33"],
-            false,
-            2_048,
-            0,
-        ),
-        (
-            "expression_order_asc_limit_three",
-            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age + 0 ASC LIMIT 3",
-            &["31", "32", "33"],
-            false,
-            2_048,
-            0,
-        ),
+    const CASES: [OrderedDistinctGroupSeekCase; 6] = [
+        OrderedDistinctGroupSeekCase {
+            label: "age_asc_limit_one",
+            sql: "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 1",
+            expected: &["31"],
+            adjacent: true,
+            expected_candidates: 2,
+            predecessor: 92_605_670,
+        },
+        OrderedDistinctGroupSeekCase {
+            label: "age_asc_limit_three",
+            sql: "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
+            expected: &["31", "32", "33"],
+            adjacent: true,
+            expected_candidates: 4,
+            predecessor: 93_144_415,
+        },
+        OrderedDistinctGroupSeekCase {
+            label: "age_desc_limit_three",
+            sql: "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age DESC LIMIT 3",
+            expected: &["43", "34", "33"],
+            adjacent: true,
+            expected_candidates: 4,
+            predecessor: 92_261_973,
+        },
+        OrderedDistinctGroupSeekCase {
+            label: "name_asc_limit_three",
+            sql: "SELECT DISTINCT name FROM PerfAuditUser ORDER BY name ASC LIMIT 3",
+            expected: &["scale-group-001", "scale-group-002", "scale-group-003"],
+            adjacent: true,
+            expected_candidates: 4,
+            predecessor: 90_861_504,
+        },
+        OrderedDistinctGroupSeekCase {
+            label: "nullable_expression_asc_limit_three",
+            sql: "SELECT DISTINCT CASE WHEN age = 31 THEN NULL ELSE age END AS maybe_age FROM PerfAuditUser ORDER BY maybe_age ASC LIMIT 3",
+            expected: &["null", "32", "33"],
+            adjacent: false,
+            expected_candidates: 2_048,
+            predecessor: 0,
+        },
+        OrderedDistinctGroupSeekCase {
+            label: "expression_order_asc_limit_three",
+            sql: "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age + 0 ASC LIMIT 3",
+            expected: &["31", "32", "33"],
+            adjacent: false,
+            expected_candidates: 2_048,
+            predecessor: 0,
+        },
     ];
 
     let fixture = install_sql_perf_canister_fixture();
     load_user_scale_integrity_fixture(&fixture, FIXTURE_ROWS);
 
-    for (label, sql, expected, adjacent, expected_candidates, predecessor) in CASES {
+    for OrderedDistinctGroupSeekCase {
+        label,
+        sql,
+        expected,
+        adjacent,
+        expected_candidates,
+        predecessor,
+    } in CASES
+    {
         let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
             .expect("DISTINCT finite-window interaction should succeed");
         let expected_rows = expected
@@ -3700,6 +3718,8 @@ fn sql_perf_0_238_ordered_distinct_group_seek_is_bounded_and_falls_back_explicit
 
 #[test]
 fn sql_perf_0_238_ordered_distinct_group_seek_survives_same_wasm_upgrade() {
+    const SQL: &str = "SELECT DISTINCT collection_id FROM PerfAuditMutationToken ORDER BY collection_id DESC LIMIT 3";
+
     let fixture = install_sql_perf_canister_fixture();
     let loaded: Result<MutationScaleLoadEvidence, Error> = fixture
         .update_candid("load_collection_mutation_scale_page", (1_u32, 32_u32))
@@ -3708,7 +3728,6 @@ fn sql_perf_0_238_ordered_distinct_group_seek_survives_same_wasm_upgrade() {
     assert_eq!(loaded.matching_rows_loaded, 32);
     assert_eq!(loaded.unrelated_rows_loaded, 17);
 
-    const SQL: &str = "SELECT DISTINCT collection_id FROM PerfAuditMutationToken ORDER BY collection_id DESC LIMIT 3";
     let assert_group_seek = |phase: &str| {
         let sample: Result<SqlQueryPerfResult, Error> = fixture
             .query_candid("query_journaled_user_with_perf", (SQL.to_string(),))

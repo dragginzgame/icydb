@@ -131,9 +131,9 @@ const MAX_ORDERED_DISTINCT_GROUP_SEEK_OUTPUT_WINDOW: u32 = 3;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct OrderedDistinctGroupSeekContract {
     direction: Direction,
-    projected_slot: usize,
-    output_offset: usize,
-    output_limit: usize,
+    projected_slot: u16,
+    output_offset: u8,
+    output_limit: u8,
 }
 
 impl OrderedDistinctGroupSeekContract {
@@ -149,9 +149,9 @@ impl OrderedDistinctGroupSeekContract {
         }
         Some(Self {
             direction,
-            projected_slot,
-            output_offset: usize::try_from(output_offset).ok()?,
-            output_limit: usize::try_from(output_limit).ok()?,
+            projected_slot: u16::try_from(projected_slot).ok()?,
+            output_offset: u8::try_from(output_offset).ok()?,
+            output_limit: u8::try_from(output_limit).ok()?,
         })
     }
 
@@ -162,12 +162,12 @@ impl OrderedDistinctGroupSeekContract {
 
     #[must_use]
     pub(in crate::db) const fn projected_slot(self) -> usize {
-        self.projected_slot
+        self.projected_slot as usize
     }
 
     #[must_use]
     pub(in crate::db) const fn output_window(self) -> (usize, usize) {
-        (self.output_offset, self.output_limit)
+        (self.output_offset as usize, self.output_limit as usize)
     }
 
     #[must_use]
@@ -175,8 +175,8 @@ impl OrderedDistinctGroupSeekContract {
         if self.output_limit == 0 {
             0
         } else {
-            self.output_offset
-                .saturating_add(self.output_limit)
+            (self.output_offset as usize)
+                .saturating_add(self.output_limit as usize)
                 .saturating_add(1)
         }
     }
@@ -391,6 +391,9 @@ fn ordered_distinct_group_seek_plan(
     plan: &AccessPlannedQuery,
     covering: &CoveringReadPlan,
 ) -> Option<OrderedDistinctGroupSeekContract> {
+    if !plan.scalar_plan().distinct {
+        return None;
+    }
     let page = plan.scalar_plan().page.as_ref()?;
     let output_limit = page.limit?;
     let mut projected_fields = plan.frozen_projection_spec().ok()?.fields();
@@ -408,8 +411,7 @@ fn ordered_distinct_group_seek_plan(
         .order
         .as_ref()?
         .deterministic_secondary_order_contract_fields(&primary_key_names)?;
-    let eligible = plan.scalar_plan().distinct
-        && !plan.has_any_residual_filter()
+    let eligible = !plan.has_any_residual_filter()
         && range.prefix_values().is_empty()
         && projected_fields.next().is_none()
         && schema.accepted_field_is_nullable(projected_field) == Some(false)
