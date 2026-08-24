@@ -14,6 +14,9 @@ pub struct Record {
     #[darling(default, skip)]
     pub(crate) def: Def,
 
+    #[darling(default, skip)]
+    pub(crate) emit_runtime_references: bool,
+
     #[darling(default)]
     pub(crate) name: Option<LitStr>,
 
@@ -108,9 +111,15 @@ impl HasType for Record {
 impl ToTokens for Record {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let base = self.all_tokens();
+        let schema_references = if self.emit_runtime_references {
+            runtime_schema_reference_tokens(&self.def, &self.fields, None)
+        } else {
+            TokenStream::new()
+        };
         let typed_adapter = crate::node::typed_adapter::record_adapter_tokens(self);
         tokens.extend(quote! {
             #base
+            #schema_references
             #typed_adapter
         });
     }
@@ -155,5 +164,40 @@ mod tests {
         let node = Record::from_list(&[]).expect("empty record should lower");
 
         assert!(!node.traits().contains(&TraitKind::From));
+    }
+
+    #[test]
+    fn runtime_records_emit_member_references_without_an_entity_source() {
+        let args = NestedMeta::parse_meta_list(quote!(fields(
+            field(name = "label", value(item(prim = "Text", max_len = 32))),
+            field(name = "quantity", value(item(prim = "Nat64")))
+        )))
+        .expect("record args should parse");
+        let mut node = Record::from_list(&args).expect("record should lower");
+        node.def = Def::new(
+            syn::parse2(quote!(
+                pub struct LineItem {}
+            ))
+            .expect("record input should parse as a struct"),
+        );
+        node.emit_runtime_references = true;
+
+        let tokens = node.to_token_stream().to_string();
+
+        for expected in [
+            "pub const LABEL : :: icydb :: db :: query :: FieldRef",
+            "FieldRef :: new (\"label\")",
+            "pub const QUANTITY : :: icydb :: db :: query :: FieldRef",
+            "FieldRef :: new (\"quantity\")",
+        ] {
+            assert!(
+                tokens.contains(expected),
+                "expected generated record reference `{expected}` in tokens: {tokens}",
+            );
+        }
+        assert!(
+            !tokens.contains("pub const ENTITY"),
+            "record references must not claim entity identity: {tokens}",
+        );
     }
 }

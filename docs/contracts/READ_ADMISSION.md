@@ -125,8 +125,8 @@ different active root.
 ```rust
 let page = db!()?
     .query::<User>()?
-    .filter(FieldRef::new("active").eq(true))
-    .order_by(asc("id"))
+    .filter(User::ACTIVE.eq(true))
+    .order_by(asc(User::ID))
     .execute_live_page(continuation.as_deref())?;
 ```
 

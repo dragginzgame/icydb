@@ -28,8 +28,9 @@ mod tests {
     use model_api::visitor::{ApplicationOperation, CallbackKind, Visitable};
     use model_api::{Inner as _, NormalizeAndValidate as _, normalize, validate};
     use runtime_api::{
-        db::{TypedRowAdapter, TypedWriteAdapter, WriteCell},
-        types::{Id, Ulid},
+        db::{DbSession, StructuralPatch, TypedRowAdapter, TypedWriteAdapter, WriteCell},
+        prelude::*,
+        traits::CanisterKind,
     };
 
     use super::schema::{
@@ -38,6 +39,18 @@ mod tests {
         TypedAdapterEntityReplace, TypedIdentityCounter, TypedIdentityOwnerInsert,
         TypedIdentityUser, TypedIdentityUserInsert, TypedIdentityUserPatch, X, XEntity,
     };
+
+    #[expect(
+        dead_code,
+        reason = "generic compile contract proves generated entity selection without a live session"
+    )]
+    fn generated_insert_batch_surface<C>(session: &DbSession<C>, patch: StructuralPatch)
+    where
+        C: CanisterKind,
+    {
+        let _ = session
+            .execute_trusted_structural_insert_batch(TypedAdapterEntity::ENTITY, vec![patch]);
+    }
 
     fn assert_row_adapter<T: TypedRowAdapter>() {}
 
@@ -129,6 +142,27 @@ mod tests {
         assert_named_adapter::<MimeType>();
         assert_named_adapter::<Url>();
         assert_model_behavior::<runtime_api::types::Ulid>();
+    }
+
+    #[test]
+    fn generated_schema_references_cover_queries_and_structural_writes() {
+        assert_eq!(TypedAdapterEntity::ENTITY, "TypedAdapterEntity");
+        assert_eq!(TypedAdapterEntity::NAME.as_str(), "name");
+        assert_eq!(AdapterRecord::LABEL.as_str(), "label");
+
+        let _predicate = TypedAdapterEntity::NAME.eq("Ada");
+        let _ordering = asc(TypedAdapterEntity::ID);
+        let patch = StructuralPatch::new().field(
+            TypedAdapterEntity::NAME.as_str(),
+            WriteCell::Value(InputValue::from("Ada")),
+        );
+        let embedded = InputValue::Map(vec![(
+            InputValue::from(AdapterRecord::LABEL.as_str()),
+            InputValue::from("Ada"),
+        )]);
+
+        assert!(matches!(embedded, InputValue::Map(values) if values.len() == 1));
+        assert_ne!(patch, StructuralPatch::new());
     }
 
     #[test]

@@ -11,6 +11,13 @@ Schema-only consumers depend on this package without depending on the IcyDB
 database runtime. Generated typed adapters are explicit opt-in output for
 consumers that also depend directly on `icydb`.
 
+Runtime-enabled entity fields and record members also receive schema-authored
+`FieldRef` constants, and entities implement `EntitySource`. The collision-safe
+source spelling is `<Entity as icydb::traits::EntitySource>::ENTITY`. They
+remove downstream string vocabularies but remain proposal/model convenience:
+accepted schema snapshots alone decide whether the referenced source is
+current.
+
 The three behavior families are intentionally separate:
 
 - durable rules are bounded proposal metadata that become accepted

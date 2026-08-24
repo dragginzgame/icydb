@@ -60,7 +60,8 @@ use thiserror::Error as ThisError;
 pub mod prelude {
     pub(crate) use crate::build::schema_read;
     pub use crate::{
-        Inner as _, NormalizeAndValidate as _, Path as _, base, canister, entity, enum_, err,
+        EntitySource as _, Inner as _, NormalizeAndValidate as _, Path as _, base, canister,
+        entity, enum_, err,
         error::ErrorTree,
         list, map, newtype,
         node::*,
@@ -100,6 +101,16 @@ pub use validate::validate;
 pub trait Path {
     /// Stable Rust declaration path.
     const PATH: &'static str;
+}
+
+/// Schema-authored entity source identity emitted for runtime-enabled models.
+///
+/// This is application vocabulary only. It cannot establish accepted-schema
+/// presence, freshness, or authority; runtime APIs resolve the source against
+/// their pinned accepted snapshot.
+pub trait EntitySource {
+    /// Exact authored entity source name.
+    const ENTITY: &'static str;
 }
 
 /// Borrowed and consuming access to one-field application wrappers.

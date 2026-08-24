@@ -67,6 +67,34 @@ Fields, variants, relations, constraints, and rules use their explicit authored
 names; indexes derive their canonical names. Do not create a second name map in
 application code.
 
+## Generated Source References
+
+When the declaring crate depends directly on the `icydb` runtime facade,
+entity fields and record members receive public upper-snake `FieldRef`
+constants. Entities also implement `EntitySource`; use its fully qualified
+constant as the collision-safe authored source name:
+
+```rust
+let query = DynamicQuery::new(<User as icydb::traits::EntitySource>::ENTITY)
+    .filter(User::ACTIVE.eq(true))
+    .order_by(asc(User::ID));
+
+let patch = StructuralPatch::new().field(
+    User::DISPLAY_NAME.as_str(),
+    WriteCell::Value(InputValue::Text("Ada".to_string())),
+);
+```
+
+If `EntitySource` is in scope and the entity has no field named `entity`,
+`User::ENTITY` is available as shorthand. An authored field named `entity`
+remains valid and generates the inherent `User::ENTITY: FieldRef`; use the
+fully qualified trait constant whenever the entity source is required.
+
+The constants remove a hand-maintained spelling map; they do not prove that a
+field or entity is accepted. Every query and write still binds the source names
+against one current accepted-schema snapshot. Schema-only consumers continue
+to depend on `icydb-model` without receiving runtime-owned `FieldRef` values.
+
 ## Host Build And Runtime Model Boundary
 
 Cargo compiles `build.rs` for the host, even when the library target is Wasm.

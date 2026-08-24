@@ -67,8 +67,8 @@ engine-neutral query runtime:
 ```rust
 let page = db!()?
     .query::<User>()?
-    .filter(FieldRef::new("active").eq(true))
-    .order_by(asc("id"))
+    .filter(User::ACTIVE.eq(true))
+    .order_by(asc(User::ID))
     .limit(25)
     .execute_live_page(None)?;
 ```
@@ -86,6 +86,17 @@ execution.
 that depends on the `icydb` runtime facade. The generated adapter resolves the
 authored entity and field names through the current accepted source bindings.
 It then decodes returned public values; it never supplies query semantics.
+
+That runtime-enabled declaration also generates one `FieldRef` associated
+constant for every entity field and record member, and implements
+`EntitySource` for the authored entity source name. Use the field constant
+directly in predicates and ordering, and call `.as_str()` at structural string
+boundaries. The collision-safe source spelling is
+`<Entity as icydb::traits::EntitySource>::ENTITY`. `Entity::ENTITY` is only
+shorthand when the trait is in scope and the entity has no field named
+`entity`; an authored `entity` field validly owns the inherent `ENTITY`
+`FieldRef`. These constants carry source spelling only; accepted-schema binding
+still proves whether that source is present and current for the request.
 
 Every named enum, record, newtype, list, set, map, or tuple implements the
 model-owned conversion traits automatically, including IcyDB's built-in model
@@ -177,13 +188,13 @@ named at the boundary and resolved once against accepted schema:
 
 ```rust
 let patch = StructuralPatch::new().field(
-    "name",
+    User::NAME.as_str(),
     WriteCell::Value(InputValue::Text("Ada".to_string())),
 );
 
 let result = db!()?.execute_trusted_structural_mutation(
     StructuralMutation::Update {
-        entity: "User".to_string(),
+        entity: <User as icydb::traits::EntitySource>::ENTITY.to_string(),
         key: InputValue::Ulid(user_id),
         patch,
     },
@@ -261,22 +272,22 @@ insert/update/replace/delete set through
 
 ```rust
 let source = StructuralPatch::new().field(
-    "quantity",
+    TokenHolding::QUANTITY.as_str(),
     WriteCell::Value(InputValue::Nat64(60)),
 );
 let output = StructuralPatch::new().field(
-    "quantity",
+    TokenHolding::QUANTITY.as_str(),
     WriteCell::Value(InputValue::Nat64(40)),
 );
 
 let results = db!()?.execute_trusted_structural_mutation_batch(vec![
     StructuralMutation::Update {
-        entity: "TokenHolding".to_string(),
+        entity: <TokenHolding as icydb::traits::EntitySource>::ENTITY.to_string(),
         key: InputValue::Ulid(source_id),
         patch: source,
     },
     StructuralMutation::Insert {
-        entity: "TokenHolding".to_string(),
+        entity: <TokenHolding as icydb::traits::EntitySource>::ENTITY.to_string(),
         patch: output,
     },
 ])?;

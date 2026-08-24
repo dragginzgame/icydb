@@ -1300,6 +1300,11 @@ impl ToTokens for Entity {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
         let schema = self.schema_tokens();
+        let schema_references = if self.emit_runtime_adapters {
+            runtime_schema_reference_tokens(&self.def, &self.fields, Some(&self.def.ident()))
+        } else {
+            TokenStream::new()
+        };
         let key_part = if self.emit_runtime_adapters {
             composite_primary_key_type_part(self)
         } else {
@@ -1318,6 +1323,9 @@ impl ToTokens for Entity {
             // MAIN TYPE
             #derive
             #type_part
+
+            // SCHEMA-AUTHORED SOURCE REFERENCES
+            #schema_references
 
             // AUTOMATIC RUNTIME TYPED ADAPTERS
             #typed_adapter_part

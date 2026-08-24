@@ -199,7 +199,7 @@ pub mod prelude {
     };
     pub use crate::{
         db,
-        traits::{Inner as _, Path as _},
+        traits::{EntitySource as _, Inner as _, Path as _},
         types::*,
         value::{InputValue, OutputValue},
     };

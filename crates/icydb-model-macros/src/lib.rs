@@ -179,7 +179,12 @@ macro_node!(enum_, node::Enum, r#gen::EnumGen);
 macro_node!(list, node::List, r#gen::ListGen);
 macro_node!(map, node::Map, r#gen::MapGen);
 macro_node!(newtype, node::Newtype, r#gen::NewtypeGen);
-macro_node!(record, node::Record, r#gen::RecordGen);
+macro_node!(
+    record,
+    node::Record,
+    r#gen::RecordGen,
+    |record: &mut node::Record, has_runtime| record.emit_runtime_references = has_runtime
+);
 macro_node!(normalizer, node::Normalizer, r#gen::NormalizerGen);
 macro_node!(set, node::Set, r#gen::SetGen);
 macro_node!(store, node::Store, r#gen::StoreGen);

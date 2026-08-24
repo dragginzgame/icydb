@@ -8,6 +8,7 @@ use crate::authoring_types::Primitive;
 use crate::node::{
     Arg, Def, Field, FieldGeneration, FieldList, FieldWriteManagement, HasSchemaPart, Index, Item,
     PrimaryKey, PrimaryKeySource, Relation, Type, ValidateNode, Value,
+    runtime_schema_reference_tokens,
 };
 use darling::{FromMeta, ast::NestedMeta};
 use proc_macro2::Span;
@@ -167,6 +168,40 @@ fn runtime_entity_adapters_are_omitted_without_runtime_capability() {
     let entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
 
     assert!(entity_typed_adapter_tokens(&entity).is_empty());
+}
+
+#[test]
+fn runtime_entity_references_include_source_fields_and_managed_timestamps() {
+    let mut created_at = primitive_field("created_at", Primitive::Timestamp);
+    created_at.write_management = Some(FieldWriteManagement::CreatedAt);
+    let entity = entity_with_fields_and_indexes(
+        vec![
+            scalar_field("id"),
+            primitive_field("display_name", Primitive::Text),
+            created_at,
+        ],
+        vec![],
+    );
+
+    let tokens =
+        runtime_schema_reference_tokens(&entity.def, &entity.fields, Some(&entity.def.ident()))
+            .to_string();
+
+    for expected in [
+        "impl :: icydb_model :: EntitySource for TestEntity",
+        "const ENTITY : & 'static str = \"TestEntity\"",
+        "pub const ID : :: icydb :: db :: query :: FieldRef",
+        "FieldRef :: new (\"id\")",
+        "pub const DISPLAY_NAME : :: icydb :: db :: query :: FieldRef",
+        "FieldRef :: new (\"display_name\")",
+        "pub const CREATED_AT : :: icydb :: db :: query :: FieldRef",
+        "FieldRef :: new (\"created_at\")",
+    ] {
+        assert!(
+            tokens.contains(expected),
+            "expected generated source reference `{expected}` in tokens: {tokens}",
+        );
+    }
 }
 
 #[test]

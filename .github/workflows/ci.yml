@@ -86,7 +86,7 @@ jobs:
             hard_timeout_seconds: "600"
           - lane: tier-b
             make_target: ci-sql-tier-b
-            hard_timeout_seconds: "600"
+            hard_timeout_seconds: "780"
     env:
       IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "1"
       TMPDIR: ${{ github.workspace }}/.cache

@@ -13,6 +13,14 @@ only by the `icydb` runtime facade. They expand to facade calls resolved through
 the consuming crate's direct dependency and do not own execution policy or
 depend on runtime internals.
 
+When a consumer also depends directly on `icydb`, entity and record macros
+emit runtime `FieldRef` constants from their authored field/member names, and
+entities implement `EntitySource`. The collision-safe source spelling is
+`<Entity as icydb::traits::EntitySource>::ENTITY`; `Entity::ENTITY` is only
+shorthand when no inherent field constant has that name. Schema-only consumers
+receive no runtime-owned references. The constants carry source spelling into
+accepted-schema-bound APIs; they never establish schema authority or freshness.
+
 ## Durable Rule Grammar
 
 A `ty(...)` declaration may contain multiple uniquely named durable rules.

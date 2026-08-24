@@ -274,9 +274,9 @@ pub fn top_users() -> Result<Vec<User>, Box<dyn std::error::Error>> {
     let session = db!()?;
     let rows = session
         .query::<User>()?
-        .filter(FieldRef::new("active").eq(true))
-        .order_by(desc("score"))
-        .order_by(asc("id"))
+        .filter(User::ACTIVE.eq(true))
+        .order_by(desc(User::SCORE))
+        .order_by(asc(User::ID))
         .limit(10)
         .execute_live_page(None)?
         .rows;
@@ -290,12 +290,12 @@ pub fn rename_user(
 ) -> Result<u32, icydb::Error> {
     let session = db!()?;
     let patch = session.structural_patch([(
-        "name",
+        User::NAME.as_str(),
         icydb::db::WriteCell::Value(InputValue::Text(name)),
     )]);
     let result = session.execute_trusted_structural_mutation(
         icydb::db::StructuralMutation::Update {
-            entity: "User".to_string(),
+            entity: <User as icydb::traits::EntitySource>::ENTITY.to_string(),
             key: InputValue::Ulid(id),
             patch,
         },
@@ -325,7 +325,10 @@ all-or-nothing:
 pub fn import_users(
     patches: Vec<icydb::db::StructuralPatch>,
 ) -> Result<icydb::db::DynamicMutationResult, icydb::Error> {
-    db!()?.execute_trusted_structural_insert_batch("User", patches)
+    db!()?.execute_trusted_structural_insert_batch(
+        <User as icydb::traits::EntitySource>::ENTITY,
+        patches,
+    )
 }
 ```
 

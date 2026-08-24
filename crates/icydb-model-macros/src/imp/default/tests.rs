@@ -163,6 +163,7 @@ fn records_follow_the_same_redundant_default_rule() {
         def: Def::new(syn::parse_quote!(
             struct RedundantDefaultRecord;
         )),
+        emit_runtime_references: false,
         name: None,
         fields,
         traits: TraitBuilder::default(),
@@ -187,6 +188,7 @@ fn record_default_request_rejects_required_fields_without_construction_values() 
         def: Def::new(syn::parse_quote!(
             struct RequiredRecord;
         )),
+        emit_runtime_references: false,
         name: None,
         fields,
         traits: TraitBuilder::default(),

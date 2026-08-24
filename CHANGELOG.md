@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.239.x] 🧭 - 2026-08-24 - Generated Schema References
+
+Detailed notes: [docs/changelog/0.239.md](docs/changelog/0.239.md)
+
+- `0.239.0` generates entity and record field references plus entity source
+  names from the authored model, removing downstream string vocabularies while
+  keeping accepted schema snapshots as the sole runtime authority.
+
 ## [0.238.x] 🎯 - 2026-08-23 - Ordered Scalar DISTINCT Group Seek
 
 Detailed notes: [docs/changelog/0.238.md](docs/changelog/0.238.md)

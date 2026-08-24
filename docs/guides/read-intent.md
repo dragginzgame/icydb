@@ -47,8 +47,8 @@ fn active_users(continuation: Option<String>) -> Result<LivePage<User>, String> 
         .map_err(|error| error.to_string())?
         .query::<User>()
         .map_err(|error| error.to_string())?
-        .filter(FieldRef::new("active").eq(true))
-        .order_by(asc("id"))
+        .filter(User::ACTIVE.eq(true))
+        .order_by(asc(User::ID))
         .execute_live_page(continuation.as_deref())
         .map_err(|error| error.to_string())
 }
@@ -86,8 +86,8 @@ Use an accepted indexed order and an explicit limit:
 ```rust
 let page = db!()?
     .query::<User>()?
-    .filter(FieldRef::new("active").eq(true))
-    .order_by(asc("id"))
+    .filter(User::ACTIVE.eq(true))
+    .order_by(asc(User::ID))
     .execute_live_page(continuation.as_deref())?;
 ```
 
