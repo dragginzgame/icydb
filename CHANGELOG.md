@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.239.md](docs/changelog/0.239.md)
 
+- `0.239.1` narrows internal runtime surfaces by keeping zero-target held-head
+  loading test-only and removing staging-era startup dead-code suppressions
+  after their classifier and receipt paths became live driver-owned code. The
+  explicit adoption planner now compiles only for migration and test builds.
 - `0.239.0` generates entity and record field references plus entity source
   names from the authored model, removing downstream string vocabularies while
   keeping accepted schema snapshots as the sole runtime authority.

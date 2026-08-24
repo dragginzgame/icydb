@@ -90,13 +90,6 @@ impl StartupFailure {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the classifier is consumed by the next driver slice"
-    )
-)]
 pub(in crate::db) fn classify_terminal_failure(
     kind: StartupFailureKind,
     error: &InternalError,

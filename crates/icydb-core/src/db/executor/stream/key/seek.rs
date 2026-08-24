@@ -181,15 +181,6 @@ impl HeldHeadSeekWork {
 
 /// Monotonic ordered-stream protocol that separates positioning from consumption.
 pub(in crate::db::executor) trait HeldHeadKeyStream {
-    /// Ensure one unconsumed head without moving an existing held occurrence.
-    // The physical adapter enters through `seek_head_at_or_after`; branch
-    // alignment consumes this zero-target positioning operation.
-    #[allow(dead_code)]
-    fn ensure_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError>;
-
     /// Hold the first occurrence not before `target` in traversal order.
     fn seek_head_at_or_after(
         &mut self,
@@ -241,6 +232,15 @@ where
             exhausted: false,
             last_pulled: None,
         }
+    }
+
+    /// Ensure one unconsumed head for reference-oracle tests.
+    pub(in crate::db::executor) fn ensure_head(
+        &mut self,
+        work: &mut HeldHeadSeekWork,
+    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+        let state = self.ensure_head_state(work)?;
+        self.outcome(state)
     }
 
     fn ensure_head_state(
@@ -306,14 +306,6 @@ impl<S> HeldHeadKeyStream for RepeatedPullHeldHeadKeyStream<S>
 where
     S: OrderedKeyStream,
 {
-    fn ensure_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        let state = self.ensure_head_state(work)?;
-        self.outcome(state)
-    }
-
     fn seek_head_at_or_after(
         &mut self,
         target: &DecodedDataStoreKey,

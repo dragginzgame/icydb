@@ -3,14 +3,6 @@
 //! Does not own: failure classification, recovery progress, or publication policy.
 //! Boundary: typed failure and maintained binding -> one 2,048-byte stable control cell.
 
-#![cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the publication boundary is wired by the next driver slice"
-    )
-)]
-
 use ic_memory::StableKey;
 use ic_stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
 use icydb_diagnostic_code::{

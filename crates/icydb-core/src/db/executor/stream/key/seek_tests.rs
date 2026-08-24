@@ -126,10 +126,13 @@ fn assert_held(outcome: HeldHeadSeekOutcome<'_>, expected: u64) {
     assert_eq!(key, &data_key(expected));
 }
 
-fn collect_remaining(
-    stream: &mut impl HeldHeadKeyStream,
+fn collect_remaining<S>(
+    stream: &mut RepeatedPullHeldHeadKeyStream<S>,
     work: &mut HeldHeadSeekWork,
-) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
+) -> Result<Vec<DecodedDataStoreKey>, InternalError>
+where
+    S: OrderedKeyStream,
+{
     let mut keys = Vec::new();
     loop {
         match stream.ensure_head(work)? {
@@ -144,10 +147,13 @@ fn collect_remaining(
     }
 }
 
-fn next_key_with_work(
-    stream: &mut impl HeldHeadKeyStream,
+fn next_key_with_work<S>(
+    stream: &mut RepeatedPullHeldHeadKeyStream<S>,
     work: &mut HeldHeadSeekWork,
-) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+) -> Result<Option<DecodedDataStoreKey>, InternalError>
+where
+    S: OrderedKeyStream,
+{
     match stream.ensure_head(work)? {
         HeldHeadSeekOutcome::Held(_) => stream.consume_head(work),
         HeldHeadSeekOutcome::Exhausted => Ok(None),

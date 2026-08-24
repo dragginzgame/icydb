@@ -90,6 +90,17 @@ If `EntitySource` is in scope and the entity has no field named `entity`,
 remains valid and generates the inherent `User::ENTITY: FieldRef`; use the
 fully qualified trait constant whenever the entity source is required.
 
+The shorthand requires `EntitySource` in every module that uses it. A parent
+module's import is not inherited by a nested module, including a nested test
+module. Use either the common prelude or a narrow anonymous trait import in
+each such module:
+
+```rust
+use icydb::prelude::*;
+// or, with narrow imports:
+use icydb::traits::EntitySource as _;
+```
+
 The constants remove a hand-maintained spelling map; they do not prove that a
 field or entity is accepted. Every query and write still binds the source names
 against one current accepted-schema snapshot. Schema-only consumers continue

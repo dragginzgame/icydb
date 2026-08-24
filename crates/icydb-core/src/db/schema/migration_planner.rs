@@ -182,8 +182,7 @@ impl<'a> WorkingStore<'a> {
 }
 
 /// Derive one explicit adoption without publishing it.
-// The controller-authorized operation consumes this planner.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(any(feature = "migration", test))]
 pub(in crate::db::schema) fn plan_entity_source_adoption(
     proposal: &SchemaProposal,
     stores: &[ExistingProposalStore<'_>],

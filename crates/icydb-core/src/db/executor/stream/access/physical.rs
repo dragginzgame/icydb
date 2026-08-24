@@ -1267,13 +1267,6 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
 }
 
 impl HeldHeadKeyStream for PrimaryRangeKeyStream {
-    fn ensure_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        self.ensure_physical_head(work)
-    }
-
     fn seek_head_at_or_after(
         &mut self,
         target: &DecodedDataStoreKey,
@@ -1662,13 +1655,6 @@ impl OrderedKeyStream for IndexRangeKeyStream {
 }
 
 impl HeldHeadKeyStream for IndexRangeKeyStream {
-    fn ensure_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        self.ensure_physical_head(work)
-    }
-
     fn seek_head_at_or_after(
         &mut self,
         target: &DecodedDataStoreKey,
@@ -2179,7 +2165,7 @@ mod physical_seek_tests {
 
             assert_eq!(
                 stream
-                    .ensure_head(&mut work)
+                    .ensure_physical_head(&mut work)
                     .expect("first head should load"),
                 HeldHeadSeekOutcome::Held(&data_key(first)),
             );
@@ -2199,7 +2185,7 @@ mod physical_seek_tests {
             );
             assert_eq!(
                 stream
-                    .ensure_head(&mut work)
+                    .ensure_physical_head(&mut work)
                     .expect("successor should load"),
                 HeldHeadSeekOutcome::Held(&data_key(next)),
             );
@@ -2287,7 +2273,7 @@ mod physical_seek_tests {
 
         assert_eq!(
             stream
-                .ensure_head(&mut work)
+                .ensure_physical_head(&mut work)
                 .expect("first index head should load"),
             HeldHeadSeekOutcome::Held(&data_key(1)),
         );
@@ -2312,7 +2298,9 @@ mod physical_seek_tests {
         let mut work = HeldHeadSeekWork::with_pull_attempt_limit(0);
 
         assert_eq!(
-            stream.ensure_head(&mut work).expect("page stop is success"),
+            stream
+                .ensure_physical_head(&mut work)
+                .expect("page stop is success"),
             HeldHeadSeekOutcome::PageStop,
         );
         assert_eq!(work.pull_attempts(), 0);
@@ -2427,7 +2415,7 @@ mod physical_seek_tests {
         );
         let mut work = HeldHeadSeekWork::unbounded();
 
-        assert!(stream.ensure_head(&mut work).is_err());
+        assert!(stream.ensure_physical_head(&mut work).is_err());
         assert_eq!(work.pull_attempts(), 1);
     }
 }
