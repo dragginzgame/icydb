@@ -73,66 +73,73 @@ impl SqlSelectPlanCacheEntry {
 #[derive(Debug)]
 pub(in crate::db) struct SqlGlobalAggregatePlanCacheEntry {
     pub(super) schema_fingerprint: SqlCompiledSchemaFingerprint,
-    prepared_plan: SharedPreparedExecutionPlan,
+    plan: SqlGlobalAggregateCachedPlan,
 }
 
 impl SqlGlobalAggregatePlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
         schema_fingerprint: SqlCompiledSchemaFingerprint,
-        prepared_plan: SharedPreparedExecutionPlan,
+        plan: SqlGlobalAggregateCachedPlan,
     ) -> Self {
         Self {
             schema_fingerprint,
-            prepared_plan,
+            plan,
         }
     }
 
     #[must_use]
-    pub(in crate::db) fn prepared_plan(&self) -> SharedPreparedExecutionPlan {
-        self.prepared_plan.clone()
-    }
-}
-
-#[derive(Debug)]
-pub(in crate::db) struct SqlGlobalAggregateCountPlanCacheEntry {
-    pub(super) schema_fingerprint: SqlCompiledSchemaFingerprint,
-    target: SqlGlobalAggregateCountPlanTarget,
-}
-
-#[derive(Debug)]
-enum SqlGlobalAggregateCountPlanTarget {
-    Entity,
-    UserIndexPrefixes(Rc<[UserIndexPrefixCardinalityKey]>),
-}
-
-impl SqlGlobalAggregateCountPlanCacheEntry {
-    #[must_use]
-    pub(in crate::db) const fn entity(schema_fingerprint: SqlCompiledSchemaFingerprint) -> Self {
-        Self {
-            schema_fingerprint,
-            target: SqlGlobalAggregateCountPlanTarget::Entity,
-        }
+    pub(in crate::db) fn exact_cardinality_target(&self) -> Option<ExactCardinalityTarget<'_>> {
+        self.plan.exact_cardinality_target()
     }
 
     #[must_use]
-    pub(in crate::db) const fn user_index_prefixes(
-        schema_fingerprint: SqlCompiledSchemaFingerprint,
+    pub(in crate::db) fn prepared_plan(&self) -> Option<SharedPreparedExecutionPlan> {
+        self.plan.prepared_plan()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::db) enum SqlGlobalAggregateCachedPlan {
+    ExactEntityCardinality,
+    ExactUserIndexPrefixes(Rc<[UserIndexPrefixCardinalityKey]>),
+    Prepared(SharedPreparedExecutionPlan),
+}
+
+impl SqlGlobalAggregateCachedPlan {
+    #[must_use]
+    pub(in crate::db) const fn exact_entity_cardinality() -> Self {
+        Self::ExactEntityCardinality
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn exact_user_index_prefixes(
         prefix_keys: Rc<[UserIndexPrefixCardinalityKey]>,
     ) -> Self {
-        Self {
-            schema_fingerprint,
-            target: SqlGlobalAggregateCountPlanTarget::UserIndexPrefixes(prefix_keys),
+        Self::ExactUserIndexPrefixes(prefix_keys)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn prepared(prepared_plan: SharedPreparedExecutionPlan) -> Self {
+        Self::Prepared(prepared_plan)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn exact_cardinality_target(&self) -> Option<ExactCardinalityTarget<'_>> {
+        match self {
+            Self::ExactEntityCardinality => Some(ExactCardinalityTarget::Entity),
+            Self::ExactUserIndexPrefixes(prefix_keys) => Some(
+                ExactCardinalityTarget::UserIndexPrefixes(prefix_keys.as_ref()),
+            ),
+            Self::Prepared(_) => None,
         }
     }
 
     #[must_use]
-    pub(in crate::db) fn target(&self) -> ExactCardinalityTarget<'_> {
-        match &self.target {
-            SqlGlobalAggregateCountPlanTarget::Entity => ExactCardinalityTarget::Entity,
-            SqlGlobalAggregateCountPlanTarget::UserIndexPrefixes(prefix_keys) => {
-                ExactCardinalityTarget::UserIndexPrefixes(prefix_keys.as_ref())
-            }
+    pub(in crate::db) fn prepared_plan(&self) -> Option<SharedPreparedExecutionPlan> {
+        match self {
+            Self::Prepared(prepared_plan) => Some(prepared_plan.clone()),
+            Self::ExactEntityCardinality | Self::ExactUserIndexPrefixes(_) => None,
         }
     }
 }

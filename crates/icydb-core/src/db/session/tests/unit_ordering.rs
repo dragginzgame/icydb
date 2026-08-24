@@ -25,6 +25,10 @@ use crate::{
                 shared_query_template_cache_len_for_tests,
             },
             reset_accepted_schema_runtime_build_counts_for_tests,
+            sql::{
+                SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan,
+                SqlGlobalAggregatePlanCacheEntry,
+            },
         },
     },
     error::ErrorOrigin,
@@ -35,7 +39,7 @@ use crate::{
 use ic_stable_structures::Storable;
 use icydb_diagnostic_code::{DiagnosticFactTag, QueryFieldRole};
 use icydb_schema::{FieldSourceKey, ScalarType};
-use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
+use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, rc::Rc};
 
 const STORE_PATH: &str = "db::session::tests::unit_ordering::Store";
 const ENTITY_SOURCE: &str = "db::session::tests::unit_ordering::Singleton";
@@ -186,6 +190,72 @@ fn direct_aggregate_and_having_fields_keep_exact_role() {
         )
         .expect_err("unknown HAVING field should fail before execution");
     assert_query_field(&error, QueryFieldRole::Having, "missing");
+}
+
+#[test]
+fn global_aggregate_command_cache_retains_one_fingerprint_bound_preparation() {
+    let session = initialize();
+    seed_singleton(&session);
+
+    let (exact_context, _, _) = session
+        .compile_sql_query_with_execution_context(
+            Some(ENTITY_NAME),
+            "SELECT COUNT(*) FROM Singleton",
+        )
+        .expect("exact count should compile");
+    let exact_fingerprint = exact_context.compiled_schema_fingerprint();
+    assert!(
+        exact_context
+            .command()
+            .cached_global_aggregate_plan(exact_fingerprint)
+            .is_none()
+    );
+    session
+        .execute_compiled_sql_query_context_with_cache_attribution(&exact_context)
+        .expect("exact count should execute");
+    let exact_entry = exact_context
+        .command()
+        .cached_global_aggregate_plan(exact_fingerprint)
+        .expect("exact count should retain its selected preparation");
+    assert!(exact_entry.exact_cardinality_target().is_some());
+    assert!(exact_entry.prepared_plan().is_none());
+
+    let mismatch = SqlCompiledSchemaFingerprint::new(u8::MAX, [0xa5; 16]);
+    assert!(
+        exact_context
+            .command()
+            .cached_global_aggregate_plan(mismatch)
+            .is_none(),
+        "a populated command entry must not establish freshness for another fingerprint",
+    );
+    exact_context
+        .command()
+        .set_cached_global_aggregate_plan(Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
+            mismatch,
+            SqlGlobalAggregateCachedPlan::exact_entity_cardinality(),
+        )));
+    let retained_entry = exact_context
+        .command()
+        .cached_global_aggregate_plan(exact_fingerprint)
+        .expect("a populated command slot must remain bound to its original fingerprint");
+    assert!(Rc::ptr_eq(&exact_entry, &retained_entry));
+
+    let (prepared_context, _, _) = session
+        .compile_sql_query_with_execution_context(
+            Some(ENTITY_NAME),
+            "SELECT COUNT(DISTINCT label) FROM Singleton",
+        )
+        .expect("ordinary aggregate should compile");
+    let prepared_fingerprint = prepared_context.compiled_schema_fingerprint();
+    session
+        .execute_compiled_sql_query_context_with_cache_attribution(&prepared_context)
+        .expect("ordinary aggregate should execute");
+    let prepared_entry = prepared_context
+        .command()
+        .cached_global_aggregate_plan(prepared_fingerprint)
+        .expect("ordinary aggregate should retain its selected preparation");
+    assert!(prepared_entry.exact_cardinality_target().is_none());
+    assert!(prepared_entry.prepared_plan().is_some());
 }
 
 #[test]

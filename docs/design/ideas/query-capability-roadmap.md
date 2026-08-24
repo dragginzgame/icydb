@@ -28,6 +28,11 @@ The current 0.237 authority is the separately assigned
 [SQL query performance hotspot rediscovery design](../0.237-sql-query-performance-hotspot-rediscovery/0.237-design.md),
 which is an evidence audit rather than a capability promotion from this
 roadmap.
+The current [0.240 singular global-aggregate compiled plan cache
+design](../0.240-singular-global-aggregate-plan-cache/0.240-design.md) is an
+independent runtime-convergence cleanup. It does not adopt the historical
+durable aggregate-job assignment recorded later in this document; that intake
+candidate remains unnumbered and unpromoted.
 Every other unreleased candidate remains unnumbered until a later
 current-surface audit and explicit user authorization promotes it.
 

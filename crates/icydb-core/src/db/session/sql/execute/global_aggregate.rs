@@ -28,8 +28,6 @@ use super::aggregate_plan::PreparedAggregatePlanResolution;
 use super::aggregate_request::PreparedAggregateRequestBundle;
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
-#[cfg(feature = "diagnostics")]
-use super::direct_count::MeasuredDirectCountCardinalityOutcome;
 use super::direct_count::{DirectCountCardinalityOutcome, DirectCountCardinalityTarget};
 #[cfg(feature = "diagnostics")]
 use crate::db::session::{
@@ -83,14 +81,28 @@ impl<C: CanisterKind> DbSession<C> {
         let direct_resolution = self
             .execute_direct_count_cardinality_target(command.projection(), direct_count_target)?;
         let fallback_authority = match direct_resolution {
-            DirectCountCardinalityOutcome::Direct(result, cache_attribution) => {
+            DirectCountCardinalityOutcome::Direct {
+                result,
+                cache_attribution,
+                ..
+            } => {
                 return Ok((result, cache_attribution));
             }
-            DirectCountCardinalityOutcome::Fallback { authority } => authority,
+            DirectCountCardinalityOutcome::Prepared {
+                prepared_plan,
+                cache_attribution,
+            } => {
+                return self.execute_global_aggregate_with_prepared_plan(
+                    command,
+                    catalog,
+                    prepared_plan,
+                    cache_attribution,
+                );
+            }
+            DirectCountCardinalityOutcome::Fallback { authority, .. } => authority,
         };
 
-        let resolved = resolve_prepared_plan(fallback_authority)?;
-        let (prepared_plan, cache_attribution) = resolved.into_parts();
+        let (prepared_plan, cache_attribution) = resolve_prepared_plan(fallback_authority)?;
 
         self.execute_global_aggregate_with_prepared_plan(
             command,
@@ -127,13 +139,24 @@ impl<C: CanisterKind> DbSession<C> {
             fallback_authority,
             direct_execute_local_instructions,
             direct_store_local_instructions,
+            cached_prepared_plan,
         ) = match direct_resolution {
-            MeasuredDirectCountCardinalityOutcome::Direct {
+            DirectCountCardinalityOutcome::Direct {
                 result,
                 cache_attribution,
                 phase_attribution,
-            } => return Ok((result, cache_attribution, *phase_attribution)),
-            MeasuredDirectCountCardinalityOutcome::Fallback {
+            } => {
+                let Some(phase_attribution) = phase_attribution else {
+                    return Err(QueryError::invariant());
+                };
+
+                return Ok((result, cache_attribution, *phase_attribution));
+            }
+            DirectCountCardinalityOutcome::Prepared {
+                prepared_plan,
+                cache_attribution,
+            } => (None, 0, 0, Some((prepared_plan, cache_attribution))),
+            DirectCountCardinalityOutcome::Fallback {
                 authority,
                 execute_local_instructions,
                 store_local_instructions,
@@ -141,11 +164,22 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 execute_local_instructions,
                 store_local_instructions,
+                None,
             ),
         };
 
-        let (resolved, mut plan_compile_attribution) = resolve_prepared_plan(fallback_authority)?;
-        let (prepared_plan, cache_attribution) = resolved.into_parts();
+        let (prepared_plan, cache_attribution, mut plan_compile_attribution) =
+            if let Some((prepared_plan, cache_attribution)) = cached_prepared_plan {
+                (
+                    prepared_plan,
+                    cache_attribution,
+                    QueryPlanCompilePhaseAttribution::default(),
+                )
+            } else {
+                let (prepared_plan, cache_attribution, plan_compile_attribution) =
+                    resolve_prepared_plan(fallback_authority)?;
+                (prepared_plan, cache_attribution, plan_compile_attribution)
+            };
         plan_compile_attribution.merge(direct_plan_compile_attribution);
         let (
             scalar_aggregate_terminal,

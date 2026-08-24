@@ -3772,6 +3772,14 @@ fn sql_perf_0_238_ordered_distinct_group_seek_survives_same_wasm_upgrade() {
     reason = "one fixture keeps the exact-count scale, warm-cache and fallback evidence comparable"
 )]
 fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
+    const fn ordinary_aggregate_ceiling(predecessor: u64) -> u64 {
+        predecessor.saturating_add(predecessor / 50)
+    }
+
+    const AGGREGATE_FILTER_COLD_PREDECESSOR: u64 = 114_058_947;
+    const AGGREGATE_FILTER_WARM_PREDECESSOR: u64 = 113_927_409;
+    const COUNT_DISTINCT_COLD_PREDECESSOR: u64 = 120_671_186;
+    const COUNT_DISTINCT_WARM_PREDECESSOR: u64 = 120_460_269;
     const MAX_FIXTURE_ROWS: u32 = 2_048;
     // Patch 12 measured a maximum of 855,091; this permits only the retained
     // 10,000-instruction regression tolerance before requiring review.
@@ -3881,6 +3889,42 @@ fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
         distinct.attribution.store_get_calls,
         u64::from(MAX_FIXTURE_ROWS)
     );
+    assert!(
+        distinct.attribution.total_local_instructions
+            <= ordinary_aggregate_ceiling(COUNT_DISTINCT_COLD_PREDECESSOR),
+        "cold COUNT(DISTINCT) exceeded its frozen two-percent regression gate",
+    );
+    println!(
+        "0.240 ordinary global aggregate cold: label=count_distinct candidate={}",
+        distinct.attribution.total_local_instructions,
+    );
+    warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser",
+    )
+    .expect("distinct count cache warm should succeed");
+    let distinct_warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser",
+        1,
+    )
+    .expect("warm distinct count control should succeed");
+    assert_eq!(
+        distinct_warm.attribution.store_get_calls,
+        u64::from(MAX_FIXTURE_ROWS)
+    );
+    assert_eq!(distinct_warm.attribution.cache.sql_compiled_command_hits, 1,);
+    assert!(
+        distinct_warm.attribution.total_local_instructions
+            <= ordinary_aggregate_ceiling(COUNT_DISTINCT_WARM_PREDECESSOR),
+        "warm COUNT(DISTINCT) exceeded its frozen two-percent regression gate",
+    );
+    println!(
+        "0.240 ordinary global aggregate warm: label=count_distinct candidate={}",
+        distinct_warm.attribution.total_local_instructions,
+    );
 
     let filtered = query_surface_with_perf(
         &fixture,
@@ -3892,6 +3936,42 @@ fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
     assert_eq!(
         filtered.attribution.store_get_calls,
         u64::from(MAX_FIXTURE_ROWS)
+    );
+    assert!(
+        filtered.attribution.total_local_instructions
+            <= ordinary_aggregate_ceiling(AGGREGATE_FILTER_COLD_PREDECESSOR),
+        "cold aggregate FILTER exceeded its frozen two-percent regression gate",
+    );
+    println!(
+        "0.240 ordinary global aggregate cold: label=aggregate_filter candidate={}",
+        filtered.attribution.total_local_instructions,
+    );
+    warm_query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser",
+    )
+    .expect("filtered count cache warm should succeed");
+    let filtered_warm = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser",
+        1,
+    )
+    .expect("warm filtered count control should succeed");
+    assert_eq!(
+        filtered_warm.attribution.store_get_calls,
+        u64::from(MAX_FIXTURE_ROWS)
+    );
+    assert_eq!(filtered_warm.attribution.cache.sql_compiled_command_hits, 1,);
+    assert!(
+        filtered_warm.attribution.total_local_instructions
+            <= ordinary_aggregate_ceiling(AGGREGATE_FILTER_WARM_PREDECESSOR),
+        "warm aggregate FILTER exceeded its frozen two-percent regression gate",
+    );
+    println!(
+        "0.240 ordinary global aggregate warm: label=aggregate_filter candidate={}",
+        filtered_warm.attribution.total_local_instructions,
     );
 }
 

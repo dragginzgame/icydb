@@ -2,8 +2,7 @@
 //! Does not own: accepted-schema execution context handoff.
 
 use super::cache::{
-    SqlCompiledSchemaFingerprint, SqlGlobalAggregateCountPlanCacheEntry,
-    SqlGlobalAggregatePlanCacheEntry, SqlSelectPlanCacheEntry,
+    SqlCompiledSchemaFingerprint, SqlGlobalAggregatePlanCacheEntry, SqlSelectPlanCacheEntry,
 };
 #[cfg(feature = "sql")]
 use crate::db::sql::lowering::LoweredSqlCommand;
@@ -42,7 +41,6 @@ pub(in crate::db) enum CompiledSqlCommand {
     GlobalAggregate {
         command: Arc<SqlGlobalAggregateCommand>,
         plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregatePlanCacheEntry>>>,
-        count_plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
     #[cfg(feature = "sql")]
     Explain(Box<LoweredSqlCommand>),
@@ -161,7 +159,6 @@ impl CompiledSqlCommand {
         Self::GlobalAggregate {
             command: Arc::new(command),
             plan_cache: Rc::new(OnceLock::new()),
-            count_plan_cache: Rc::new(OnceLock::new()),
         }
     }
 
@@ -200,30 +197,11 @@ impl CompiledSqlCommand {
     pub(in crate::db) fn cached_global_aggregate_plan(
         &self,
         schema_fingerprint: SqlCompiledSchemaFingerprint,
-    ) -> Option<SharedPreparedExecutionPlan> {
+    ) -> Option<Rc<SqlGlobalAggregatePlanCacheEntry>> {
         let Self::GlobalAggregate { plan_cache, .. } = self else {
             return None;
         };
         let entry = plan_cache.get()?;
-        if !entry.schema_fingerprint.matches(schema_fingerprint) {
-            return None;
-        }
-
-        Some(entry.prepared_plan())
-    }
-
-    #[must_use]
-    pub(in crate::db) fn cached_global_aggregate_count_plan(
-        &self,
-        schema_fingerprint: SqlCompiledSchemaFingerprint,
-    ) -> Option<Rc<SqlGlobalAggregateCountPlanCacheEntry>> {
-        let Self::GlobalAggregate {
-            count_plan_cache, ..
-        } = self
-        else {
-            return None;
-        };
-        let entry = count_plan_cache.get()?;
         if !entry.schema_fingerprint.matches(schema_fingerprint) {
             return None;
         }
@@ -233,26 +211,10 @@ impl CompiledSqlCommand {
 
     pub(in crate::db) fn set_cached_global_aggregate_plan(
         &self,
-        schema_fingerprint: SqlCompiledSchemaFingerprint,
-        prepared_plan: SharedPreparedExecutionPlan,
+        entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
     ) {
         if let Self::GlobalAggregate { plan_cache, .. } = self {
-            let _ = plan_cache.set(Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
-                schema_fingerprint,
-                prepared_plan,
-            )));
-        }
-    }
-
-    pub(in crate::db) fn set_cached_global_aggregate_count_plan(
-        &self,
-        entry: Rc<SqlGlobalAggregateCountPlanCacheEntry>,
-    ) {
-        if let Self::GlobalAggregate {
-            count_plan_cache, ..
-        } = self
-        {
-            let _ = count_plan_cache.set(entry);
+            let _ = plan_cache.set(entry);
         }
     }
 }

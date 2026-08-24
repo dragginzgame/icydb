@@ -60,7 +60,7 @@ pub(in crate::db::session::sql) use compile::{
 };
 pub(in crate::db) use compiled::{
     CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
-    SqlCompiledSchemaFingerprint, SqlGlobalAggregateCountPlanCacheEntry,
+    SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan, SqlGlobalAggregatePlanCacheEntry,
 };
 pub(in crate::db) use delete_policy::{
     SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,

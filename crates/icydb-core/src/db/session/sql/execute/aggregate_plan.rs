@@ -10,76 +10,32 @@ use crate::{
         session::{
             AcceptedSchemaCatalogContext,
             query::query_plan_requires_cardinality_lifecycle_recheck,
-            sql::{CompiledSqlCommand, SqlCacheAttribution, SqlCompiledSchemaFingerprint},
+            sql::{
+                CompiledSqlCommand, SqlCacheAttribution, SqlCompiledSchemaFingerprint,
+                SqlGlobalAggregateCachedPlan, SqlGlobalAggregatePlanCacheEntry,
+            },
         },
         sql::lowering::SqlGlobalAggregateCommand,
     },
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::DiagnosticExecutionLane;
+use std::rc::Rc;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::session::query::QueryPlanCompilePhaseAttribution;
 
-pub(super) struct ResolvedGlobalAggregatePreparedPlan {
-    prepared_plan: SharedPreparedExecutionPlan,
-    cache_attribution: SqlCacheAttribution,
-}
-
 pub(super) type PreparedAggregatePlanResolution =
-    Result<ResolvedGlobalAggregatePreparedPlan, QueryError>;
+    Result<(SharedPreparedExecutionPlan, SqlCacheAttribution), QueryError>;
 #[cfg(feature = "diagnostics")]
 pub(super) type MeasuredPreparedAggregatePlanResolution = Result<
     (
-        ResolvedGlobalAggregatePreparedPlan,
+        SharedPreparedExecutionPlan,
+        SqlCacheAttribution,
         QueryPlanCompilePhaseAttribution,
     ),
     QueryError,
 >;
-
-impl ResolvedGlobalAggregatePreparedPlan {
-    const fn new(
-        prepared_plan: SharedPreparedExecutionPlan,
-        cache_attribution: SqlCacheAttribution,
-    ) -> Self {
-        Self {
-            prepared_plan,
-            cache_attribution,
-        }
-    }
-
-    const fn from_compiled_cache_hit(prepared_plan: SharedPreparedExecutionPlan) -> Self {
-        Self::new(
-            prepared_plan,
-            SqlCacheAttribution::shared_query_plan_cache_hit(),
-        )
-    }
-
-    const fn from_shared_query_plan_cache(
-        prepared_plan: SharedPreparedExecutionPlan,
-        cache_attribution: crate::db::session::query::QueryPlanCacheAttribution,
-    ) -> Self {
-        Self::new(
-            prepared_plan,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        )
-    }
-
-    pub(super) fn into_parts(self) -> (SharedPreparedExecutionPlan, SqlCacheAttribution) {
-        (self.prepared_plan, self.cache_attribution)
-    }
-
-    const fn prepared_plan(&self) -> &SharedPreparedExecutionPlan {
-        &self.prepared_plan
-    }
-}
-
-fn cached_compiled_global_aggregate_prepared_plan(
-    compiled: &CompiledSqlCommand,
-    catalog: &AcceptedSchemaCatalogContext,
-) -> Option<SharedPreparedExecutionPlan> {
-    compiled.cached_global_aggregate_plan(SqlCompiledSchemaFingerprint::from_catalog(catalog))
-}
 
 fn cache_compiled_global_aggregate_prepared_plan(
     compiled: &CompiledSqlCommand,
@@ -89,10 +45,10 @@ fn cache_compiled_global_aggregate_prepared_plan(
     if query_plan_requires_cardinality_lifecycle_recheck(prepared_plan) {
         return;
     }
-    compiled.set_cached_global_aggregate_plan(
+    compiled.set_cached_global_aggregate_plan(Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
         SqlCompiledSchemaFingerprint::from_catalog(catalog),
-        prepared_plan.clone(),
-    );
+        SqlGlobalAggregateCachedPlan::prepared(prepared_plan.clone()),
+    )));
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -117,12 +73,10 @@ impl<C: CanisterKind> DbSession<C> {
                 DiagnosticExecutionLane::TrustedRead,
             )?;
 
-        Ok(
-            ResolvedGlobalAggregatePreparedPlan::from_shared_query_plan_cache(
-                prepared_plan,
-                cache_attribution,
-            ),
-        )
+        Ok((
+            prepared_plan,
+            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+        ))
     }
 
     #[cfg(feature = "diagnostics")]
@@ -141,10 +95,8 @@ impl<C: CanisterKind> DbSession<C> {
             )?;
 
         Ok((
-            ResolvedGlobalAggregatePreparedPlan::from_shared_query_plan_cache(
-                prepared_plan,
-                cache_attribution,
-            ),
+            prepared_plan,
+            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
             plan_compile_attribution,
         ))
     }
@@ -156,18 +108,12 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
     ) -> PreparedAggregatePlanResolution {
-        if let Some(prepared_plan) =
-            cached_compiled_global_aggregate_prepared_plan(compiled, catalog)
-        {
-            return Ok(ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan));
-        }
-
         let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority);
-        let resolved =
+        let (prepared_plan, cache_attribution) =
             self.resolve_global_aggregate_prepared_plan_for_authority(command, catalog, authority)?;
-        cache_compiled_global_aggregate_prepared_plan(compiled, catalog, resolved.prepared_plan());
+        cache_compiled_global_aggregate_prepared_plan(compiled, catalog, &prepared_plan);
 
-        Ok(resolved)
+        Ok((prepared_plan, cache_attribution))
     }
 
     #[cfg(feature = "diagnostics")]
@@ -178,22 +124,13 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
     ) -> MeasuredPreparedAggregatePlanResolution {
-        if let Some(prepared_plan) =
-            cached_compiled_global_aggregate_prepared_plan(compiled, catalog)
-        {
-            return Ok((
-                ResolvedGlobalAggregatePreparedPlan::from_compiled_cache_hit(prepared_plan),
-                QueryPlanCompilePhaseAttribution::default(),
-            ));
-        }
-
         let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority);
-        let (resolved, plan_compile_attribution) = self
+        let (prepared_plan, cache_attribution, plan_compile_attribution) = self
             .resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
                 command, catalog, authority,
             )?;
-        cache_compiled_global_aggregate_prepared_plan(compiled, catalog, resolved.prepared_plan());
+        cache_compiled_global_aggregate_prepared_plan(compiled, catalog, &prepared_plan);
 
-        Ok((resolved, plan_compile_attribution))
+        Ok((prepared_plan, cache_attribution, plan_compile_attribution))
     }
 }

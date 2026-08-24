@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.240.x] 🧹 - 2026-08-24 - Singular Global-Aggregate Plan Cache
+
+Detailed notes: [docs/changelog/0.240.md](docs/changelog/0.240.md)
+
+- `0.240.0` retains one fingerprint-bound exact-or-prepared execution plan per
+  compiled global aggregate, reducing command-local cache state and final raw
+  Wasm without changing query behavior or physical work.
+
 ## [0.239.x] 🧭 - 2026-08-24 - Generated Schema References
 
 Detailed notes: [docs/changelog/0.239.md](docs/changelog/0.239.md)

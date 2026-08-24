@@ -8,7 +8,7 @@ mod command;
 mod context;
 
 pub(in crate::db) use cache::{
-    SqlCompiledSchemaFingerprint, SqlGlobalAggregateCountPlanCacheEntry,
+    SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan, SqlGlobalAggregatePlanCacheEntry,
 };
 pub(in crate::db) use command::{CompiledSqlCommand, CompiledSqlInsertCommand};
 pub(in crate::db) use context::SqlCompiledCommandExecutionContext;

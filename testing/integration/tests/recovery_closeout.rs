@@ -354,6 +354,13 @@ fn user_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQu
     result.expect("attributed user count should succeed")
 }
 
+fn warm_user_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQueryPerfResult {
+    let result: Result<SqlQueryPerfResult, Error> = fixture
+        .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+        .expect("persistent attributed user count should decode");
+    result.expect("persistent attributed user count should succeed")
+}
+
 fn token_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQueryPerfResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
         .query_candid("query_token_with_perf", (sql.to_string(),))
@@ -481,7 +488,13 @@ fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservatio
     reason = "one causal real-canister scenario proves mid-build upgrade, fallback, Ready consumption, live maintenance, and two-slot reuse"
 )]
 fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly() {
+    const fn unavailable_fallback_ceiling(predecessor: u64) -> u64 {
+        predecessor.saturating_add(predecessor / 20)
+    }
+
     const ACTIVE_COUNT_SQL: &str = "SELECT COUNT(*) FROM PerfAuditUser WHERE active = true";
+    const FALLBACK_COLD_PREDECESSOR: u64 = 116_170_059;
+    const FALLBACK_WARM_PREDECESSOR: u64 = 53_841_143;
     const REBUILD_RETAINED_GROWTH_LIMIT: u64 = 4 * 1_024 * 1_024;
 
     let fixture = install_fixture_canister("sql_perf");
@@ -536,11 +549,58 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
         "the incomplete optional cardinality build must not gate ordinary readiness",
     );
     assert!(startup_watchdog_armed(&fixture));
-    let conservative = user_count_with_perf(&fixture, ACTIVE_COUNT_SQL);
-    assert_count(conservative.result, 512);
+    let conservative = warm_user_count_with_perf(&fixture, ACTIVE_COUNT_SQL);
+    assert_count(conservative.result.clone(), 512);
     assert!(
         conservative.attribution.index_store_entry_reads > 0,
         "a reopened Building generation must retain the conservative index scan",
+    );
+    assert_eq!(
+        conservative.attribution.cache.sql_compiled_command_misses, 1,
+        "the first persistent fallback must install one compiled command",
+    );
+    assert_eq!(
+        conservative.attribution.cache.shared_query_plan_misses, 1,
+        "the first persistent fallback must build through the shared plan cache",
+    );
+    assert!(
+        conservative.attribution.total_local_instructions
+            <= unavailable_fallback_ceiling(FALLBACK_COLD_PREDECESSOR),
+        "cold unavailable fallback exceeded its frozen five-percent regression gate",
+    );
+    let warm_conservative = warm_user_count_with_perf(&fixture, ACTIVE_COUNT_SQL);
+    assert_eq!(warm_conservative.result, conservative.result);
+    assert_eq!(
+        warm_conservative.attribution.index_store_entry_reads,
+        conservative.attribution.index_store_entry_reads,
+        "shared fallback reuse must preserve physical work",
+    );
+    assert_eq!(
+        warm_conservative
+            .attribution
+            .cache
+            .sql_compiled_command_hits,
+        1,
+        "the warm fallback must reuse the command carrying the exact target",
+    );
+    assert_eq!(
+        warm_conservative.attribution.cache.shared_query_plan_hits, 1,
+        "the warm fallback plan must come from the existing shared cache",
+    );
+    assert_eq!(
+        warm_conservative.attribution.cache.shared_query_plan_misses, 0,
+        "the exact command entry must not force a second fallback preparation",
+    );
+    assert!(
+        warm_conservative.attribution.total_local_instructions
+            <= unavailable_fallback_ceiling(FALLBACK_WARM_PREDECESSOR),
+        "warm unavailable fallback exceeded its frozen five-percent regression gate",
+    );
+    println!(
+        "0.240 unavailable exact-target fallback: cold={} warm={} index_entries={}",
+        conservative.attribution.total_local_instructions,
+        warm_conservative.attribution.total_local_instructions,
+        conservative.attribution.index_store_entry_reads,
     );
 
     report_convergence_observation(
