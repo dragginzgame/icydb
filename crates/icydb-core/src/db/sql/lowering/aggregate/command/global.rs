@@ -36,6 +36,7 @@ pub(in crate::db::sql::lowering) struct LoweredSqlGlobalAggregateCommand {
         Vec<LoweredSqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering::aggregate::command) projection: ProjectionSpec,
     pub(in crate::db::sql::lowering::aggregate::command) having: Option<Expr>,
+    pub(in crate::db::sql::lowering::aggregate::command) authored_order_by: bool,
 }
 
 impl LoweredSqlGlobalAggregateCommand {
@@ -72,6 +73,7 @@ impl LoweredSqlGlobalAggregateCommand {
             );
         }
         let projection_for_having = projection.clone();
+        let authored_order_by = !order_by.is_empty();
         let mut lowered_terminals =
             LoweredSqlGlobalAggregateTerminals::from_projection(projection, &projection_aliases)?;
         let order_by = strip_inert_global_aggregate_output_order_terms(
@@ -89,6 +91,7 @@ impl LoweredSqlGlobalAggregateCommand {
             terminals: lowered_terminal_parts.terminals,
             projection: lowered_terminal_parts.projection,
             having,
+            authored_order_by,
         })
     }
 
@@ -112,6 +115,7 @@ impl LoweredSqlGlobalAggregateCommand {
                 alias,
             }]),
             having: None,
+            authored_order_by: false,
         })
     }
 }

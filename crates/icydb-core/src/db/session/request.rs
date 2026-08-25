@@ -194,6 +194,59 @@ impl RequestExecutionScope {
         self.counters.charge(context, resource, amount)
     }
 
+    /// Return how many complete equal-cost units remain across every named
+    /// request resource without mutating request accounting.
+    pub(in crate::db) fn remaining_budget_units(
+        &self,
+        per_unit: &[(DiagnosticExecutionBudgetResource, u64)],
+    ) -> u64 {
+        per_unit
+            .iter()
+            .filter(|(_resource, amount)| *amount != 0)
+            .map(|(resource, amount)| {
+                let index = resource_index(*resource);
+                self.counters
+                    .budget
+                    .limit(*resource)
+                    .saturating_sub(self.counters.observed[index].get())
+                    / amount
+            })
+            .min()
+            .unwrap_or(u64::MAX)
+    }
+
+    /// Preflight one fixed resource bundle without retaining a rejected or
+    /// speculative charge in the request scope.
+    pub(in crate::db) fn can_charge_budget_bundle(
+        &self,
+        charges: &[(DiagnosticExecutionBudgetResource, u64)],
+    ) -> bool {
+        charges.iter().all(|(resource, amount)| {
+            let index = resource_index(*resource);
+            self.counters.observed[index]
+                .get()
+                .checked_add(*amount)
+                .is_some_and(|observed| observed <= self.counters.budget.limit(*resource))
+        })
+    }
+
+    /// Commit one complete bundle only when every request resource fits.
+    /// `false` leaves every request counter unchanged.
+    pub(in crate::db) fn try_commit_budget_bundle(
+        &self,
+        charges: &[(DiagnosticExecutionBudgetResource, u64)],
+    ) -> bool {
+        if !self.can_charge_budget_bundle(charges) {
+            return false;
+        }
+        for (resource, amount) in charges {
+            let counter = &self.counters.observed[resource_index(*resource)];
+            counter.set(counter.get().saturating_add(*amount));
+        }
+
+        true
+    }
+
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn enable_diagnostics(&self) -> bool {
         let mut diagnostics = self.counters.diagnostics.borrow_mut();
@@ -466,6 +519,47 @@ mod tests {
             assert_eq!(exhausted.scope(), DiagnosticExecutionBudgetScope::Request);
             assert_eq!(exhausted.observed(), 2);
         });
+    }
+
+    #[test]
+    fn budget_bundle_preflight_is_non_mutating_and_uses_remaining_capacity() {
+        let entries = DiagnosticExecutionBudgetResource::GroupDistinctEntries;
+        let bytes = DiagnosticExecutionBudgetResource::GroupDistinctStateBytes;
+        let budget = REQUEST_HARD_BUDGET
+            .with_limit_for_tests(entries, 5)
+            .with_limit_for_tests(bytes, 60);
+        let root = RequestExecutionRoot::new_for_tests(budget);
+        let scope = root.scope();
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
+            0,
+        );
+        scope
+            .charge(context, entries, 2)
+            .expect("initial request charge should fit");
+        scope
+            .charge(context, bytes, 20)
+            .expect("initial request charge should fit");
+
+        assert_eq!(
+            scope.remaining_budget_units(&[(entries, 1), (bytes, 10)]),
+            3
+        );
+        assert!(scope.can_charge_budget_bundle(&[(entries, 3), (bytes, 30)]));
+        assert!(!scope.can_charge_budget_bundle(&[(entries, 4), (bytes, 30)]));
+        assert_eq!(
+            root.observed(entries),
+            2,
+            "preflight must not charge entries"
+        );
+        assert_eq!(root.observed(bytes), 20, "preflight must not charge bytes");
+        assert!(!scope.try_commit_budget_bundle(&[(entries, 4), (bytes, 30)]));
+        assert_eq!(root.observed(entries), 2);
+        assert_eq!(root.observed(bytes), 20);
+        assert!(scope.try_commit_budget_bundle(&[(entries, 3), (bytes, 30)]));
+        assert_eq!(root.observed(entries), 5);
+        assert_eq!(root.observed(bytes), 50);
     }
 
     #[test]

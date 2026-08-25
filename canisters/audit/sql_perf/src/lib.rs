@@ -15,7 +15,7 @@ use icydb::types::{Blob, Timestamp, Ulid};
 use icydb::value::OutputValue;
 #[cfg(feature = "sql")]
 use icydb::{
-    ErrorCode, ErrorOrigin,
+    Error, ErrorCode, ErrorOrigin,
     db::{
         DynamicQuery, EntitySchemaDescription, ExhaustiveQueryPageOutput, ExhaustiveReadError,
         GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
@@ -75,6 +75,13 @@ struct SqlQueryPerfResult {
 #[cfg(feature = "sql")]
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
+    instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "test-admin-api")]
+struct SqlBudgetFallbackPerfResult {
+    outcome: Result<SqlQueryResult, Error>,
     instructions: u64,
 }
 
@@ -1819,6 +1826,31 @@ fn load_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
     })
 }
 
+/// Load a hostile all-unique leading-Int32 distribution for exact DISTINCT evidence.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn load_user_unique_age_scale_fixture(row_count: u32) -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let validated_rows = validate_scale_fixture_rows(row_count)?;
+        let rows = (1..=validated_rows)
+            .map(|id| PerfAuditUser {
+                id,
+                name: format!("unique-age-{id:04}"),
+                age: id,
+                age_nat: id.unsigned_abs(),
+                rank: id,
+                active: id % 2 == 0,
+                created_at: Timestamp::default(),
+                updated_at: Timestamp::default(),
+            })
+            .collect::<Vec<_>>();
+        reset_perf_fixtures()?;
+        insert_fixture_rows(rows)?;
+
+        Ok(row_count)
+    })
+}
+
 /// Load only the deterministic account scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
 #[update]
@@ -2457,6 +2489,39 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[query]
 fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
+}
+
+/// Consume most of the request DISTINCT budget, then measure either the exact
+/// candidate's bounded metadata probe plus fallback or the prepared control.
+#[cfg(feature = "test-admin-api")]
+#[query]
+fn query_user_distinct_budget_fallback_with_perf(
+    prepared_control: bool,
+) -> Result<SqlBudgetFallbackPerfResult, icydb::Error> {
+    const PRECHARGE_RUNS: u32 = 48;
+    const EXACT_SQL: &str = "SELECT COUNT(DISTINCT age) FROM PerfAuditUser";
+    const PREPARED_SQL: &str = "SELECT COUNT(DISTINCT age) FROM PerfAuditUser WHERE true";
+
+    icydb::db::with_request_execution(|| {
+        let session = icydb::db!()?;
+        for _ in 0..PRECHARGE_RUNS {
+            session.execute_trusted_sql_query(EXACT_SQL)?;
+        }
+
+        let sql = if prepared_control {
+            PREPARED_SQL
+        } else {
+            EXACT_SQL
+        };
+        let start = ic_cdk::api::performance_counter(1);
+        let outcome = session.execute_trusted_sql_query(sql);
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(SqlBudgetFallbackPerfResult {
+            outcome,
+            instructions,
+        })
+    })
 }
 
 /// Execute one fixed streaming-fixture query with full attribution.

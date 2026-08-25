@@ -4,7 +4,7 @@
 use crate::db::{
     commit::CommitSchemaFingerprint,
     executor::{ExactCardinalityTarget, SharedPreparedExecutionPlan},
-    index::UserIndexPrefixCardinalityKey,
+    index::{IndexId, UserIndexPrefixCardinalityKey},
     session::{AcceptedSchemaCatalogContext, query::StructuralProjectionContract},
 };
 use std::rc::Rc;
@@ -102,6 +102,7 @@ impl SqlGlobalAggregatePlanCacheEntry {
 #[derive(Clone, Debug)]
 pub(in crate::db) enum SqlGlobalAggregateCachedPlan {
     ExactEntityCardinality,
+    ExactUserIndexFirstComponentDistinct(IndexId),
     ExactUserIndexPrefixes(Rc<[UserIndexPrefixCardinalityKey]>),
     Prepared(SharedPreparedExecutionPlan),
 }
@@ -120,6 +121,13 @@ impl SqlGlobalAggregateCachedPlan {
     }
 
     #[must_use]
+    pub(in crate::db) const fn exact_user_index_first_component_distinct(
+        index_id: IndexId,
+    ) -> Self {
+        Self::ExactUserIndexFirstComponentDistinct(index_id)
+    }
+
+    #[must_use]
     pub(in crate::db) const fn prepared(prepared_plan: SharedPreparedExecutionPlan) -> Self {
         Self::Prepared(prepared_plan)
     }
@@ -128,6 +136,9 @@ impl SqlGlobalAggregateCachedPlan {
     pub(in crate::db) fn exact_cardinality_target(&self) -> Option<ExactCardinalityTarget<'_>> {
         match self {
             Self::ExactEntityCardinality => Some(ExactCardinalityTarget::Entity),
+            Self::ExactUserIndexFirstComponentDistinct(index_id) => Some(
+                ExactCardinalityTarget::UserIndexFirstComponentDistinct(*index_id),
+            ),
             Self::ExactUserIndexPrefixes(prefix_keys) => Some(
                 ExactCardinalityTarget::UserIndexPrefixes(prefix_keys.as_ref()),
             ),
@@ -139,7 +150,9 @@ impl SqlGlobalAggregateCachedPlan {
     pub(in crate::db) fn prepared_plan(&self) -> Option<SharedPreparedExecutionPlan> {
         match self {
             Self::Prepared(prepared_plan) => Some(prepared_plan.clone()),
-            Self::ExactEntityCardinality | Self::ExactUserIndexPrefixes(_) => None,
+            Self::ExactEntityCardinality
+            | Self::ExactUserIndexFirstComponentDistinct(_)
+            | Self::ExactUserIndexPrefixes(_) => None,
         }
     }
 }

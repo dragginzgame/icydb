@@ -33,6 +33,11 @@ design](../0.240-singular-global-aggregate-plan-cache/0.240-design.md) is an
 independent runtime-convergence cleanup. It does not adopt the historical
 durable aggregate-job assignment recorded later in this document; that intake
 candidate remains unnumbered and unpromoted.
+The current [0.241 exact indexed `COUNT(DISTINCT)` cardinality
+design](../0.241-exact-indexed-distinct-cardinality/0.241-design.md) is an
+independent, evidence-led physical aggregate optimization. It does not adopt
+the historical incremental-rollup assignment recorded later in this document;
+that intake candidate remains unnumbered and unpromoted.
 Every other unreleased candidate remains unnumbered until a later
 current-surface audit and explicit user authorization promotes it.
 

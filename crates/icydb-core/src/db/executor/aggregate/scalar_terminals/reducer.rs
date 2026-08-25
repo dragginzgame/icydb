@@ -46,6 +46,23 @@ enum ScalarDistinctValueBucket {
     Colliding(Vec<Value>),
 }
 
+/// Return the conservative retained-state and nested-value work for one fixed
+/// scalar DISTINCT value. The collision transition is deliberately included:
+/// exact metadata routes cannot know whether two canonical values share a
+/// stable hash, so their admission proof must cover either bucket shape.
+pub(in crate::db::executor::aggregate) fn scalar_distinct_conservative_unit_work(
+    value: &Value,
+) -> (u64, u64) {
+    let (value_bytes, nested_steps) = runtime_value_work(value);
+    let hash_entry_bytes =
+        retained_hash_entry_backing_bytes::<StableHash, ScalarDistinctValueBucket>();
+    let collision_transition_bytes =
+        retained_vec_element_backing_bytes::<Value>().saturating_mul(2);
+    let structural_bytes = hash_entry_bytes.max(collision_transition_bytes);
+
+    (value_bytes.saturating_add(structural_bytes), nested_steps)
+}
+
 impl ScalarDistinctValueBucket {
     fn contains(&self, value: &Value) -> bool {
         match self {
@@ -510,7 +527,9 @@ impl ScalarAggregateReducerRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::{ScalarDistinctValueBucket, ScalarDistinctValueSet};
+    use super::{
+        ScalarDistinctValueBucket, ScalarDistinctValueSet, scalar_distinct_conservative_unit_work,
+    };
     use crate::{
         db::{
             QueryError,
@@ -567,6 +586,29 @@ mod tests {
         assert!(bucket.contains(&Value::Nat64(1)));
         assert!(bucket.contains(&Value::Nat64(2)));
         assert!(!bucket.contains(&Value::Nat64(3)));
+    }
+
+    #[test]
+    fn exact_distinct_budget_covers_hash_entries_and_collision_promotion() {
+        let value = Value::Int64(0);
+        let (state_bytes, nested_steps) = scalar_distinct_conservative_unit_work(&value);
+        let (value_bytes, expected_nested_steps) = runtime_value_work(&value);
+        let hash_entry_bytes = crate::db::executor::group::retained_hash_entry_backing_bytes::<
+            crate::db::executor::group::StableHash,
+            ScalarDistinctValueBucket,
+        >();
+        let collision_transition_bytes =
+            crate::db::executor::group::retained_vec_element_backing_bytes::<Value>()
+                .saturating_mul(2);
+
+        assert_eq!(
+            std::mem::size_of::<ScalarDistinctValueBucket>(),
+            std::mem::size_of::<Value>(),
+            "the inline scalar DISTINCT bucket must retain the canonical value layout",
+        );
+        assert_eq!(nested_steps, expected_nested_steps);
+        assert!(state_bytes >= value_bytes.saturating_add(hash_entry_bytes));
+        assert!(state_bytes >= value_bytes.saturating_add(collision_transition_bytes));
     }
 
     #[test]

@@ -498,20 +498,51 @@ fn direct_count_exact_prefix_index(
     visible_indexes: &VisibleIndexes,
     field: &str,
 ) -> Option<SemanticIndexAccessContract> {
-    let mut best: Option<SemanticIndexAccessContract> = None;
-    for candidate in visible_indexes.accepted_field_path_indexes() {
-        let index = candidate.semantic_access_contract();
-        if direct_count_index_supports_exact_prefix(&index, field)
-            && best.as_ref().is_none_or(|best| {
-                index.key_arity() < best.key_arity()
-                    || (index.key_arity() == best.key_arity() && index.name() < best.name())
-            })
-        {
-            best = Some(index);
-        }
+    best_exact_field_path_index(visible_indexes, |index| {
+        direct_count_index_supports_exact_prefix(index, field)
+    })
+}
+
+/// Select one complete accepted index whose leading component can prove an
+/// exact global distinct count. Selection stays beside the existing exact
+/// prefix rule so SQL execution receives one immutable planner-owned target.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn exact_distinct_cardinality_index(
+    visible_indexes: &VisibleIndexes,
+    schema_info: &SchemaInfo,
+    field: &str,
+) -> Option<SemanticIndexAccessContract> {
+    if visible_indexes.accepted_field_path_index_count()
+        != Some(schema_info.field_path_indexes().len())
+    {
+        return None;
     }
 
-    best
+    best_exact_field_path_index(visible_indexes, |index| {
+        !index.is_filtered()
+            && index.key_field_at(0) == Some(field)
+            && (0..index.key_arity()).all(|slot| {
+                index.key_field_at(slot).is_some_and(|key_field| {
+                    schema_info.accepted_field_is_nullable(key_field) == Some(false)
+                })
+            })
+    })
+}
+
+fn best_exact_field_path_index(
+    visible_indexes: &VisibleIndexes,
+    supports: impl Fn(&SemanticIndexAccessContract) -> bool,
+) -> Option<SemanticIndexAccessContract> {
+    visible_indexes
+        .accepted_field_path_indexes()
+        .iter()
+        .map(super::AcceptedPlannerFieldPathIndex::semantic_access_contract)
+        .filter(supports)
+        .min_by(|left, right| {
+            left.key_arity()
+                .cmp(&right.key_arity())
+                .then_with(|| left.name().cmp(right.name()))
+        })
 }
 
 fn direct_count_index_supports_exact_prefix(
@@ -799,4 +830,126 @@ fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
     }
 
     scalar.page = None;
+}
+
+#[cfg(all(test, feature = "sql"))]
+mod tests {
+    use super::{VisibleIndexes, exact_distinct_cardinality_index};
+    use crate::db::schema::{
+        AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+        AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, FieldStorageDecode, LeafCodec,
+        PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
+        SchemaIndexId, SchemaInfo, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        empty_accepted_enum_catalog_for_tests,
+    };
+
+    fn exact_distinct_schema(indexes: &[(&str, &[&str])], nullable: &[&str]) -> SchemaInfo {
+        let fields = ["id", "age", "rank", "maybe"]
+            .into_iter()
+            .enumerate()
+            .map(|(offset, name)| {
+                let id = u32::try_from(offset + 1).expect("test field identity should fit");
+                let slot = u16::try_from(offset).expect("test field slot should fit");
+                PersistedFieldSnapshot::new_initial(
+                    FieldId::new(id),
+                    name.to_string(),
+                    SchemaFieldSlot::new(slot),
+                    AcceptedFieldKind::Int32,
+                    Vec::new(),
+                    nullable.contains(&name),
+                    SchemaInsertDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Int64),
+                )
+            })
+            .collect::<Vec<_>>();
+        let row_layout = SchemaRowLayout::initial(
+            fields
+                .iter()
+                .map(|field| (field.id(), field.slot()))
+                .collect(),
+        );
+        let indexes = indexes
+            .iter()
+            .enumerate()
+            .map(|(offset, (name, key_fields))| {
+                let ordinal = u16::try_from(offset + 1).expect("test index ordinal should fit");
+                let key = key_fields
+                    .iter()
+                    .map(|key_field| {
+                        let field = fields
+                            .iter()
+                            .find(|field| field.name() == *key_field)
+                            .expect("test index field should exist");
+                        PersistedIndexFieldPathSnapshot::new(
+                            field.id(),
+                            field.slot(),
+                            vec![field.name().to_string()],
+                            field.kind().clone(),
+                            field.nullable(),
+                        )
+                    })
+                    .collect();
+                PersistedIndexSnapshot::new(
+                    SchemaIndexId::new(u32::from(ordinal))
+                        .expect("test index identity should be non-zero"),
+                    ordinal,
+                    (*name).to_string(),
+                    format!("pipeline_tests::{name}"),
+                    false,
+                    PersistedIndexKeySnapshot::FieldPath(key),
+                    None,
+                )
+            })
+            .collect();
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "query::plan::pipeline::tests::Entity".to_string(),
+            "Entity".to_string(),
+            FieldId::new(1),
+            row_layout,
+            fields,
+            indexes,
+        ));
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+
+        SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    }
+
+    #[test]
+    fn exact_distinct_index_selection_is_complete_deterministic_and_visibility_bound() {
+        let schema = exact_distinct_schema(
+            &[
+                ("z_age_id", &["age", "id"]),
+                ("long_age_rank_id", &["age", "rank", "id"]),
+                ("a_age_rank", &["age", "rank"]),
+            ],
+            &[],
+        );
+        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+
+        assert_eq!(
+            exact_distinct_cardinality_index(&visible, &schema, "age")
+                .map(|index| index.name().to_string()),
+            Some("a_age_rank".to_string()),
+            "shortest arity and then stable name must be the sole selection rule",
+        );
+        assert!(
+            exact_distinct_cardinality_index(&VisibleIndexes::none(), &schema, "age").is_none(),
+            "store-not-ready visibility must not expose a metadata target",
+        );
+    }
+
+    #[test]
+    fn exact_distinct_index_selection_rejects_nullable_compound_suffixes() {
+        let schema = exact_distinct_schema(&[("age_maybe", &["age", "maybe"])], &["maybe"]);
+        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+
+        assert!(exact_distinct_cardinality_index(&visible, &schema, "age").is_none());
+    }
 }

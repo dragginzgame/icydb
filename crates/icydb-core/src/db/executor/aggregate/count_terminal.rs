@@ -30,6 +30,21 @@ use crate::db::{
     executor::plan_metrics::record_rows_scanned_for_path,
 };
 
+#[cfg(feature = "sql")]
+use crate::{
+    db::{
+        executor::{
+            aggregate::scalar_terminals::scalar_distinct_conservative_unit_work,
+            budget::{
+                current_execution_remaining_budget_units,
+                try_charge_current_execution_budget_bundle,
+            },
+        },
+        index::IndexState,
+    },
+    value::Value,
+};
+
 #[cfg(feature = "diagnostics")]
 fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
     measure_count_terminal_phase(run)
@@ -41,9 +56,13 @@ fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
 }
 
 /// One planner-proved exact-cardinality metadata target.
+#[derive(Clone, Copy)]
 pub(in crate::db) enum ExactCardinalityTarget<'keys> {
     /// Exact visible cardinality for the accepted entity.
     Entity,
+    #[cfg(feature = "sql")]
+    /// Exact number of non-empty leading components for one complete user index.
+    UserIndexFirstComponentDistinct(IndexId),
     /// Exact visible cardinality summed across one bounded user-index prefix family.
     UserIndexPrefixes(&'keys [UserIndexPrefixCardinalityKey]),
 }
@@ -52,7 +71,17 @@ impl ExactCardinalityTarget<'_> {
     fn charged_metadata_entries(&self) -> u64 {
         match self {
             Self::Entity => 1,
+            #[cfg(feature = "sql")]
+            Self::UserIndexFirstComponentDistinct(_) => 0,
             Self::UserIndexPrefixes(keys) => u64::try_from(keys.len()).unwrap_or(u64::MAX),
+        }
+    }
+
+    const fn charges_result_budget(&self) -> bool {
+        match self {
+            Self::Entity | Self::UserIndexPrefixes(_) => true,
+            #[cfg(feature = "sql")]
+            Self::UserIndexFirstComponentDistinct(_) => false,
         }
     }
 }
@@ -74,18 +103,32 @@ where
             target.charged_metadata_entries(),
         )?;
         let store = db.recovered_store(authority.store_path())?;
-        let index_prefix_target = matches!(&target, ExactCardinalityTarget::UserIndexPrefixes(_));
-        let (metadata_local_instructions, output) = measure_exact_cardinality(|| match target {
-            ExactCardinalityTarget::Entity => store.exact_entity_count(authority.entity_tag()),
-            ExactCardinalityTarget::UserIndexPrefixes(prefix_keys) => {
-                exact_user_index_prefix_cardinality_sum(store, prefix_keys)
-            }
-        });
+        let index_prefix_target = !matches!(&target, ExactCardinalityTarget::Entity);
+        let (metadata_local_instructions, output) =
+            measure_exact_cardinality(|| -> Result<Option<u64>, InternalError> {
+                match target {
+                    ExactCardinalityTarget::Entity => {
+                        Ok(store.exact_entity_count(authority.entity_tag()))
+                    }
+                    #[cfg(feature = "sql")]
+                    ExactCardinalityTarget::UserIndexFirstComponentDistinct(index_id) => {
+                        exact_user_index_first_component_distinct_cardinality(
+                            store, &authority, index_id,
+                        )
+                    }
+                    ExactCardinalityTarget::UserIndexPrefixes(prefix_keys) => {
+                        Ok(exact_user_index_prefix_cardinality_sum(store, prefix_keys))
+                    }
+                }
+            });
+        let output = output?;
         let Some(output) = output else {
             return Ok(None);
         };
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultRows, 1)?;
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, 32)?;
+        if target.charges_result_budget() {
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultRows, 1)?;
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, 32)?;
+        }
 
         #[cfg(not(feature = "diagnostics"))]
         let _ = (index_prefix_target, metadata_local_instructions);
@@ -101,6 +144,113 @@ where
 
         Ok(Some(output))
     })
+}
+
+#[cfg(feature = "sql")]
+fn exact_user_index_first_component_distinct_cardinality(
+    store: StoreHandle,
+    authority: &EntityAuthority,
+    index_id: IndexId,
+) -> Result<Option<u64>, InternalError> {
+    if !accepted_index_target_matches(authority, index_id) {
+        return Err(InternalError::query_executor_invariant());
+    }
+    if !store.with_index(|index| matches!(index.state(), IndexState::Ready)) {
+        return Ok(None);
+    }
+
+    let per_unit = exact_distinct_per_unit_budget();
+    let semantic_capacity = current_execution_remaining_budget_units(&per_unit)?;
+    let metadata_capacity = current_execution_remaining_budget_units(&[(
+        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+        1,
+    )])?;
+    let Some(semantic_stop_after) = semantic_capacity.checked_add(1) else {
+        return Ok(None);
+    };
+    let stop_after = semantic_stop_after.min(metadata_capacity);
+    if stop_after == 0 {
+        return Ok(None);
+    }
+
+    let data_generation = store.with_data(DataStore::generation);
+    let Some((count, examined)) = store.with_index(|index| {
+        index.exact_first_component_distinct_cardinality(data_generation, index_id, stop_after)
+    })?
+    else {
+        return Ok(None);
+    };
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+        examined,
+    )?;
+    if count == stop_after {
+        return Ok(None);
+    }
+
+    let charges = exact_distinct_success_budget(count)?;
+    if !try_charge_current_execution_budget_bundle(&charges)? {
+        return Ok(None);
+    }
+
+    Ok(Some(count))
+}
+
+#[cfg(feature = "sql")]
+fn accepted_index_target_matches(authority: &EntityAuthority, index_id: IndexId) -> bool {
+    index_id.entity_tag() == authority.entity_tag()
+        && authority.accepted_schema_info().is_some_and(|schema| {
+            schema.field_path_indexes().iter().any(|index| {
+                IndexId::new_with_generation(
+                    authority.entity_tag(),
+                    index.ordinal(),
+                    index.physical_generation(),
+                ) == index_id
+            })
+        })
+}
+
+#[cfg(feature = "sql")]
+fn exact_distinct_per_unit_budget() -> [(DiagnosticExecutionBudgetResource, u64); 3] {
+    let (state_bytes, nested_steps) = scalar_distinct_conservative_unit_work(&Value::Int64(0));
+
+    [
+        (
+            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+            state_bytes,
+        ),
+        (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
+        (
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            nested_steps,
+        ),
+    ]
+}
+
+#[cfg(feature = "sql")]
+fn exact_distinct_success_budget(
+    count: u64,
+) -> Result<[(DiagnosticExecutionBudgetResource, u64); 5], InternalError> {
+    let per_unit = exact_distinct_per_unit_budget();
+    Ok([
+        (
+            per_unit[0].0,
+            per_unit[0]
+                .1
+                .checked_mul(count)
+                .ok_or_else(InternalError::query_executor_invariant)?,
+        ),
+        (per_unit[1].0, count),
+        (
+            per_unit[2].0,
+            per_unit[2]
+                .1
+                .checked_mul(count)
+                .ok_or_else(InternalError::query_executor_invariant)?,
+        ),
+        (DiagnosticExecutionBudgetResource::ResultRows, 1),
+        (DiagnosticExecutionBudgetResource::ResultBytes, 32),
+    ])
 }
 
 fn exact_user_index_prefix_cardinality_sum(
@@ -151,6 +301,8 @@ mod tests {
     };
 
     use super::common_prefix_cardinality_index_id;
+    #[cfg(feature = "sql")]
+    use super::exact_distinct_success_budget;
 
     #[test]
     fn exact_count_rejects_prefix_keys_from_mixed_index_generations() {
@@ -172,5 +324,11 @@ mod tests {
             common_prefix_cardinality_index_id(&[current, next_generation]),
             None,
         );
+    }
+
+    #[test]
+    #[cfg(feature = "sql")]
+    fn exact_distinct_budget_overflow_is_an_invariant_failure() {
+        assert!(exact_distinct_success_budget(u64::MAX).is_err());
     }
 }

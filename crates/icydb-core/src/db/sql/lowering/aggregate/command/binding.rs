@@ -3,11 +3,11 @@ use crate::db::{
     query::{
         intent::StructuralQuery,
         plan::{
-            AggregateKind, OrderDirection, OrderSpec, OrderTerm,
+            AggregateKind, FieldSlot, OrderDirection, OrderSpec, OrderTerm,
             expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
-    schema::SchemaInfo,
+    schema::{AcceptedFieldKind, SchemaInfo},
     sql::{
         lowering::{
             PreparedSqlStatement, SqlLoweringError,
@@ -34,6 +34,7 @@ use crate::db::{
 pub(in crate::db) struct AggregateShapeFacts {
     direct_count_rows: bool,
     direct_count_cardinality_metadata_candidate: bool,
+    exact_distinct_cardinality_target_slot: Option<usize>,
 }
 
 impl AggregateShapeFacts {
@@ -43,15 +44,26 @@ impl AggregateShapeFacts {
         strategies: &[PreparedSqlScalarAggregateStrategy],
         projection: &ProjectionSpec,
         having: Option<&Expr>,
+        authored_order_by: bool,
     ) -> Self {
         let direct_count_rows = having.is_none()
             && Self::has_direct_count_rows_strategy(schema, strategies)
             && Self::has_direct_count_rows_projection(projection);
 
+        let exact_distinct_cardinality_target_slot = (having.is_none()
+            && !authored_order_by
+            && !query.has_scalar_filter()
+            && query.direct_count_cardinality_entity_candidate())
+        .then(|| {
+            Self::derive_exact_distinct_cardinality_target_slot(schema, strategies, projection)
+        })
+        .flatten();
+
         Self {
             direct_count_rows,
             direct_count_cardinality_metadata_candidate: direct_count_rows
                 && query.direct_count_cardinality_prefix_candidate(),
+            exact_distinct_cardinality_target_slot,
         }
     }
 
@@ -65,6 +77,13 @@ impl AggregateShapeFacts {
     #[must_use]
     pub(in crate::db) const fn is_direct_count_cardinality_metadata_candidate(self) -> bool {
         self.direct_count_cardinality_metadata_candidate
+    }
+
+    /// Return whether one unfiltered singleton `COUNT(DISTINCT Int32 field)`
+    /// may seek an exact accepted-index metadata target.
+    #[must_use]
+    pub(in crate::db) const fn exact_distinct_cardinality_target_slot(self) -> Option<usize> {
+        self.exact_distinct_cardinality_target_slot
     }
 
     fn has_direct_count_rows_strategy(
@@ -106,6 +125,44 @@ impl AggregateShapeFacts {
             && aggregate.kind() == AggregateKind::Count
             && aggregate.filter_expr().is_none()
             && !aggregate.is_distinct()
+    }
+
+    fn derive_exact_distinct_cardinality_target_slot(
+        schema: &SchemaInfo,
+        strategies: &[PreparedSqlScalarAggregateStrategy],
+        projection: &ProjectionSpec,
+    ) -> Option<usize> {
+        let [strategy] = strategies else {
+            return None;
+        };
+        let target_slot = strategy.target_slot()?;
+        let target = target_slot.field();
+
+        if strategy.filter_expr().is_some()
+            || !matches!(
+                strategy.plan_fragment(),
+                PreparedSqlScalarAggregatePlanFragment::CountField
+            )
+            || schema.accepted_query_field_kind(target) != Some(&AcceptedFieldKind::Int32)
+            || schema.accepted_field_is_nullable(target) != Some(false)
+        {
+            return None;
+        }
+        let mut fields = projection.fields();
+        let Some(ProjectionField::Scalar {
+            expr: Expr::Aggregate(aggregate),
+            ..
+        }) = fields.next()
+        else {
+            return None;
+        };
+
+        (fields.next().is_none()
+            && aggregate.kind() == AggregateKind::Count
+            && aggregate.is_distinct()
+            && aggregate.filter_expr().is_none()
+            && aggregate.target_field() == Some(target))
+        .then_some(target_slot.index())
     }
 }
 
@@ -156,6 +213,19 @@ impl SqlGlobalAggregateCommand {
     pub(in crate::db) const fn facts(&self) -> AggregateShapeFacts {
         self.facts
     }
+
+    /// Borrow the one lowering-admitted exact DISTINCT target, bound to the
+    /// accepted slot captured by the immutable shape fact.
+    #[must_use]
+    pub(in crate::db) fn exact_distinct_cardinality_target(&self) -> Option<&FieldSlot> {
+        let target_slot = self.facts.exact_distinct_cardinality_target_slot()?;
+        let [strategy] = self.strategies.as_slice() else {
+            return None;
+        };
+        let target = strategy.target_slot()?;
+
+        (target.index() == target_slot).then_some(target)
+    }
 }
 
 impl LoweredSqlGlobalAggregateCommand {
@@ -171,6 +241,7 @@ impl LoweredSqlGlobalAggregateCommand {
             terminals,
             projection,
             having,
+            authored_order_by,
         } = self;
 
         let strategies = terminals
@@ -199,6 +270,7 @@ impl LoweredSqlGlobalAggregateCommand {
             strategies.as_slice(),
             &projection,
             having.as_ref(),
+            authored_order_by,
         );
 
         Ok(SqlGlobalAggregateCommand {

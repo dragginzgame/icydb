@@ -28,7 +28,7 @@ use super::aggregate_plan::PreparedAggregatePlanResolution;
 use super::aggregate_request::PreparedAggregateRequestBundle;
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
-use super::direct_count::{DirectCountCardinalityOutcome, DirectCountCardinalityTarget};
+use super::exact_count::{ExactCountOutcome, ExactCountTarget};
 #[cfg(feature = "diagnostics")]
 use crate::db::session::{
     query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution,
@@ -71,24 +71,24 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_global_aggregate_after_direct_count_target(
+    fn execute_global_aggregate_after_exact_count_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        direct_count_target: DirectCountCardinalityTarget,
+        exact_count_target: ExactCountTarget,
         resolve_prepared_plan: impl FnOnce(Option<EntityAuthority>) -> PreparedAggregatePlanResolution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let direct_resolution = self
-            .execute_direct_count_cardinality_target(command.projection(), direct_count_target)?;
-        let fallback_authority = match direct_resolution {
-            DirectCountCardinalityOutcome::Direct {
+        let exact_resolution =
+            self.execute_exact_count_target(command.projection(), exact_count_target)?;
+        let fallback_authority = match exact_resolution {
+            ExactCountOutcome::Direct {
                 result,
                 cache_attribution,
                 ..
             } => {
                 return Ok((result, cache_attribution));
             }
-            DirectCountCardinalityOutcome::Prepared {
+            ExactCountOutcome::Prepared {
                 prepared_plan,
                 cache_attribution,
             } => {
@@ -99,7 +99,7 @@ impl<C: CanisterKind> DbSession<C> {
                     cache_attribution,
                 );
             }
-            DirectCountCardinalityOutcome::Fallback { authority, .. } => authority,
+            ExactCountOutcome::Fallback { authority, .. } => authority,
         };
 
         let (prepared_plan, cache_attribution) = resolve_prepared_plan(fallback_authority)?;
@@ -113,12 +113,12 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn execute_measured_global_aggregate_after_direct_count_target(
+    fn execute_measured_global_aggregate_after_exact_count_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        direct_count_target: DirectCountCardinalityTarget,
-        direct_plan_compile_attribution: QueryPlanCompilePhaseAttribution,
+        exact_count_target: ExactCountTarget,
+        exact_plan_compile_attribution: QueryPlanCompilePhaseAttribution,
         resolve_prepared_plan: impl FnOnce(
             Option<EntityAuthority>,
         ) -> MeasuredPreparedAggregatePlanResolution,
@@ -130,18 +130,18 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let direct_resolution = self.execute_measured_direct_count_cardinality_target(
+        let exact_resolution = self.execute_measured_exact_count_target(
             command.projection(),
-            direct_count_target,
-            direct_plan_compile_attribution,
+            exact_count_target,
+            exact_plan_compile_attribution,
         )?;
         let (
             fallback_authority,
-            direct_execute_local_instructions,
-            direct_store_local_instructions,
+            exact_execute_local_instructions,
+            exact_store_local_instructions,
             cached_prepared_plan,
-        ) = match direct_resolution {
-            DirectCountCardinalityOutcome::Direct {
+        ) = match exact_resolution {
+            ExactCountOutcome::Direct {
                 result,
                 cache_attribution,
                 phase_attribution,
@@ -152,11 +152,11 @@ impl<C: CanisterKind> DbSession<C> {
 
                 return Ok((result, cache_attribution, *phase_attribution));
             }
-            DirectCountCardinalityOutcome::Prepared {
+            ExactCountOutcome::Prepared {
                 prepared_plan,
                 cache_attribution,
             } => (None, 0, 0, Some((prepared_plan, cache_attribution))),
-            DirectCountCardinalityOutcome::Fallback {
+            ExactCountOutcome::Fallback {
                 authority,
                 execute_local_instructions,
                 store_local_instructions,
@@ -180,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
                     resolve_prepared_plan(fallback_authority)?;
                 (prepared_plan, cache_attribution, plan_compile_attribution)
             };
-        plan_compile_attribution.merge(direct_plan_compile_attribution);
+        plan_compile_attribution.merge(exact_plan_compile_attribution);
         let (
             scalar_aggregate_terminal,
             ((execute_local_instructions, store_local_instructions), result),
@@ -197,8 +197,8 @@ impl<C: CanisterKind> DbSession<C> {
             SqlExecutePhaseAttribution::from_query_plan_execute_total_and_store_total(
                 plan_compile_attribution.planner_local_instructions(),
                 plan_compile_attribution,
-                execute_local_instructions.saturating_add(direct_execute_local_instructions),
-                store_local_instructions.saturating_add(direct_store_local_instructions),
+                execute_local_instructions.saturating_add(exact_execute_local_instructions),
+                store_local_instructions.saturating_add(exact_store_local_instructions),
             )
             .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
 
@@ -214,13 +214,13 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let direct_count_target =
-            self.resolve_compiled_direct_count_cardinality_target(compiled, command, catalog)?;
+        let exact_count_target =
+            self.resolve_compiled_exact_count_target(compiled, command, catalog)?;
 
-        self.execute_global_aggregate_after_direct_count_target(
+        self.execute_global_aggregate_after_exact_count_target(
             command,
             catalog,
-            direct_count_target,
+            exact_count_target,
             |fallback_authority| {
                 self.resolve_compiled_global_aggregate_prepared_plan(
                     compiled,
@@ -246,16 +246,16 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let (direct_count_target, direct_plan_compile_attribution) = self
-            .resolve_compiled_direct_count_cardinality_target_with_phase_attribution(
+        let (exact_count_target, exact_plan_compile_attribution) = self
+            .resolve_compiled_exact_count_target_with_phase_attribution(
                 compiled, command, catalog,
             )?;
 
-        self.execute_measured_global_aggregate_after_direct_count_target(
+        self.execute_measured_global_aggregate_after_exact_count_target(
             command,
             catalog,
-            direct_count_target,
-            direct_plan_compile_attribution,
+            exact_count_target,
+            exact_plan_compile_attribution,
             |fallback_authority| {
                 self.resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution(
                     compiled,

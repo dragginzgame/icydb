@@ -327,6 +327,18 @@ impl IndexStore {
             .exact_count(data_generation, key_kind, index_id, components)
     }
 
+    /// Return the exact number of distinct non-empty leading components for
+    /// one user index, bounded by `stop_after`, when metadata is synchronized.
+    pub(in crate::db) fn exact_first_component_distinct_cardinality(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        stop_after: u64,
+    ) -> Result<Option<(u64, u64)>, crate::error::InternalError> {
+        self.prefix_cardinality
+            .exact_first_component_distinct_count(data_generation, index_id, stop_after)
+    }
+
     /// Return the exact live-overlay delta from canonical for one user-index prefix.
     #[must_use]
     pub(in crate::db) fn exact_prefix_cardinality_delta(
@@ -1196,6 +1208,70 @@ mod tests {
     }
 
     #[test]
+    fn first_component_distinct_cardinality_is_exact_bounded_and_generation_matched() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let alpha = b"alpha".to_vec();
+        let beta = b"beta".to_vec();
+        let alpha_one = indexed_raw_key(&index_id, vec![alpha.clone()], 1);
+        let alpha_two = indexed_raw_key(&index_id, vec![alpha], 2);
+        let beta_one = indexed_raw_key(&index_id, vec![beta], 3);
+        let mut store = IndexStore::init_heap();
+
+        assert_eq!(
+            store
+                .exact_first_component_distinct_cardinality(0, index_id, 1)
+                .expect("initialized metadata should be structurally valid"),
+            Some((0, 0)),
+            "initialized empty metadata must positively prove exact zero",
+        );
+        store.insert(alpha_one.clone(), IndexEntryValue::presence());
+        store.insert(alpha_two.clone(), IndexEntryValue::presence());
+        store.insert(beta_one.clone(), IndexEntryValue::presence());
+        assert_eq!(
+            store
+                .exact_first_component_distinct_cardinality(0, index_id, 3)
+                .expect("invalidated metadata should remain structurally valid"),
+            None,
+            "an unstamped mutation must make optional metadata unavailable",
+        );
+
+        store.mark_prefix_cardinality_data_generation(7);
+        assert_eq!(
+            store
+                .exact_first_component_distinct_cardinality(7, index_id, 3)
+                .expect("synchronized metadata should be structurally valid"),
+            Some((2, 2)),
+            "duplicate physical entries must contribute one leading component",
+        );
+        assert_eq!(
+            store
+                .exact_first_component_distinct_cardinality(7, index_id, 1)
+                .expect("bounded metadata should be structurally valid"),
+            Some((1, 1)),
+            "stop-after must bound both result evidence and metadata work",
+        );
+        assert_eq!(
+            store
+                .exact_first_component_distinct_cardinality(8, index_id, 3)
+                .expect("stale metadata should remain structurally valid"),
+            None,
+            "row-generation drift must fail closed",
+        );
+
+        store.remove(&alpha_one);
+        store.remove(&alpha_two);
+        store.remove(&beta_one);
+        store.mark_prefix_cardinality_data_generation(8);
+        assert_eq!(
+            store
+                .exact_first_component_distinct_cardinality(8, index_id, 1)
+                .expect("empty metadata should be structurally valid"),
+            Some((0, 0)),
+            "deleting every value must restore a positive exact-zero proof",
+        );
+    }
+
+    #[test]
     fn index_prefix_cardinality_enumerates_bounded_child_prefixes() {
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
@@ -1614,6 +1690,13 @@ mod tests {
             ),
             None,
             "startup must leave optional prefix cardinality unavailable without scanning stable entries",
+        );
+        assert_eq!(
+            reopened
+                .exact_first_component_distinct_cardinality(0, index_id, 2)
+                .expect("unmaterialized metadata should remain structurally valid"),
+            None,
+            "startup must not treat an absent materialized leading-component map as exact evidence",
         );
         assert_eq!(
             reopened.exact_prefix_cardinality_delta(

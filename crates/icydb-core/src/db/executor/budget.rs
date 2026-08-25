@@ -510,6 +510,72 @@ impl HardExecutionBudgetTracker {
         self.check_instruction_watermark()
     }
 
+    fn remaining_budget_units(&self, per_unit: &[(DiagnosticExecutionBudgetResource, u64)]) -> u64 {
+        let execution_remaining = per_unit
+            .iter()
+            .filter(|(_resource, amount)| *amount != 0)
+            .map(|(resource, amount)| {
+                self.budget
+                    .budget()
+                    .limit(*resource)
+                    .saturating_sub(self.observed[resource_index(*resource)])
+                    / amount
+            })
+            .min()
+            .unwrap_or(u64::MAX);
+        let request_remaining = self
+            .request_scope
+            .as_ref()
+            .map_or(u64::MAX, |scope| scope.remaining_budget_units(per_unit));
+
+        execution_remaining.min(request_remaining)
+    }
+
+    fn can_charge_budget_bundle(
+        &self,
+        charges: &[(DiagnosticExecutionBudgetResource, u64)],
+    ) -> bool {
+        charges.iter().all(|(resource, amount)| {
+            self.observed[resource_index(*resource)]
+                .checked_add(*amount)
+                .is_some_and(|observed| observed <= self.budget.budget().limit(*resource))
+        }) && self
+            .request_scope
+            .as_ref()
+            .is_none_or(|scope| scope.can_charge_budget_bundle(charges))
+    }
+
+    fn try_charge_budget_bundle(
+        &mut self,
+        charges: &[(DiagnosticExecutionBudgetResource, u64)],
+    ) -> Result<bool, ExecutionBudgetExceeded> {
+        if !self.can_charge_budget_bundle(charges) {
+            return Ok(false);
+        }
+
+        // Sample instructions before publishing any semantic charge. The
+        // second preflight accounts for that real instruction work.
+        self.check_instruction_watermark()?;
+        if !self.can_charge_budget_bundle(charges) {
+            return Ok(false);
+        }
+
+        if let Some(scope) = self.request_scope.as_ref()
+            && !scope.try_commit_budget_bundle(charges)
+        {
+            return Ok(false);
+        }
+        for (resource, amount) in charges {
+            let observed = &mut self.observed[resource_index(*resource)];
+            *observed = observed.saturating_add(*amount);
+        }
+        self.charges_since_instruction_watermark = self
+            .charges_since_instruction_watermark
+            .saturating_add(u16::try_from(charges.len()).unwrap_or(u16::MAX));
+
+        Ok(true)
+    }
+
     /// Publish one bounded request diagnostic observation after execution.
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn finish_request_diagnostics(&self) {
@@ -662,6 +728,42 @@ pub(in crate::db) fn charge_current_execution_budget(
 
         budget
             .charge_periodic(resource, amount)
+            .map_err(InternalError::from)
+    })
+}
+
+/// Return complete equal-cost units remaining in both the active execution
+/// and its owning request scope without mutating either authority.
+pub(in crate::db) fn current_execution_remaining_budget_units(
+    per_unit: &[(DiagnosticExecutionBudgetResource, u64)],
+) -> Result<u64, InternalError> {
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let budget = budget
+            .try_borrow()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        let budget = budget
+            .as_ref()
+            .ok_or_else(InternalError::query_executor_invariant)?;
+
+        Ok(budget.remaining_budget_units(per_unit))
+    })
+}
+
+/// Atomically charge one semantic bundle in the active execution and request.
+/// `false` means the complete bundle does not fit and neither scope changed.
+pub(in crate::db) fn try_charge_current_execution_budget_bundle(
+    charges: &[(DiagnosticExecutionBudgetResource, u64)],
+) -> Result<bool, InternalError> {
+    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+        let mut budget = budget
+            .try_borrow_mut()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        let budget = budget
+            .as_mut()
+            .ok_or_else(InternalError::query_executor_invariant)?;
+
+        budget
+            .try_charge_budget_bundle(charges)
             .map_err(InternalError::from)
     })
 }
@@ -1077,6 +1179,13 @@ mod tests {
     static PAIR_FIRST_FAILURE_BUDGET: HardExecutionBudget =
         HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
             .with_limit_for_tests(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 0);
+    static BUNDLE_EXECUTION_BUDGET: HardExecutionBudget =
+        HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(DiagnosticExecutionBudgetResource::GroupDistinctEntries, 5)
+            .with_limit_for_tests(
+                DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+                50,
+            );
 
     #[test]
     fn every_resource_charges_monotonically_and_retains_rejected_work() {
@@ -1245,6 +1354,54 @@ mod tests {
             0,
             "the second charge must not run after the first fails",
         );
+    }
+
+    #[test]
+    fn semantic_budget_bundle_is_atomic_across_execution_and_request() {
+        let entries = DiagnosticExecutionBudgetResource::GroupDistinctEntries;
+        let bytes = DiagnosticExecutionBudgetResource::GroupDistinctStateBytes;
+        let request_budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(entries, 3)
+            .with_limit_for_tests(bytes, 30);
+        let root = RequestExecutionRoot::new_for_tests(request_budget);
+
+        with_execution_budget(
+            HardExecutionBudgetTracker::new_with_request_scope(
+                &BUNDLE_EXECUTION_BUDGET,
+                TEST_CONTEXT,
+                &root.scope(),
+            ),
+            || {
+                charge_current_execution_budget(entries, 1)?;
+                charge_current_execution_budget(bytes, 10)?;
+                let before = current_execution_budget_usage()?;
+
+                assert!(!try_charge_current_execution_budget_bundle(&[
+                    (entries, 3),
+                    (bytes, 10),
+                ])?);
+                let rejected = current_execution_budget_usage()?;
+                assert_eq!(rejected.observed(entries), before.observed(entries));
+                assert_eq!(rejected.observed(bytes), before.observed(bytes));
+                assert_eq!(root.observed(entries), 1);
+                assert_eq!(root.observed(bytes), 10);
+
+                assert!(try_charge_current_execution_budget_bundle(&[
+                    (entries, 2),
+                    (bytes, 20),
+                ])?);
+                let committed = current_execution_budget_usage()?;
+                assert_eq!(committed.observed(entries), 3);
+                assert_eq!(committed.observed(bytes), 30);
+                assert_eq!(root.observed(entries), 3);
+                assert_eq!(root.observed(bytes), 30);
+
+                Ok::<_, InternalError>(())
+            },
+            std::convert::identity,
+            ExecutionBudgetFinish::Automatic,
+        )
+        .expect("atomic bundle proof should complete");
     }
 
     #[test]

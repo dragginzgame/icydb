@@ -23,6 +23,7 @@ use icydb::{
         DiagnosticFactTag, RuntimeBoundaryCode,
     },
     metrics::EventReport,
+    value::OutputValue,
 };
 use icydb_testing_integration::{
     MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_startup_watchdog_message,
@@ -47,6 +48,12 @@ struct SqlQueryPerfResult {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
+    instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlBudgetFallbackPerfResult {
+    outcome: Result<SqlQueryResult, Error>,
     instructions: u64,
 }
 
@@ -485,6 +492,28 @@ fn load_user_scale_integrity_fixture(fixture: &StandaloneCanisterFixture, row_co
 
     assert_eq!(facts.surface, "user");
     assert_eq!(facts.fixture_rows, row_count);
+}
+
+fn load_user_unique_age_scale_fixture(fixture: &StandaloneCanisterFixture, row_count: u32) {
+    let loaded: Result<u32, Error> = fixture
+        .update_candid("load_user_unique_age_scale_fixture", (row_count,))
+        .expect("unique-age fixture result should decode");
+
+    assert_eq!(loaded.expect("unique-age fixture should load"), row_count,);
+}
+
+fn query_user_distinct_budget_fallback_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    prepared_control: bool,
+) -> SqlBudgetFallbackPerfResult {
+    let result: Result<SqlBudgetFallbackPerfResult, Error> = fixture
+        .query_candid(
+            "query_user_distinct_budget_fallback_with_perf",
+            (prepared_control,),
+        )
+        .expect("budget fallback perf result should decode");
+
+    result.expect("budget fallback perf probe should complete")
 }
 
 fn load_token_scale_integrity_fixture(
@@ -3766,57 +3795,70 @@ fn sql_perf_0_238_ordered_distinct_group_seek_survives_same_wasm_upgrade() {
     assert!(warm.attribution.total_local_instructions <= 5_000_000);
 }
 
-#[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one fixture keeps the exact-count scale, warm-cache and fallback evidence comparable"
-)]
-fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
-    const fn ordinary_aggregate_ceiling(predecessor: u64) -> u64 {
-        predecessor.saturating_add(predecessor / 50)
-    }
+const EXACT_COUNT_AGGREGATE_FILTER_COLD_PREDECESSOR: u64 = 114_058_947;
+const EXACT_COUNT_AGGREGATE_FILTER_WARM_PREDECESSOR: u64 = 113_927_409;
+const EXACT_COUNT_DISTINCT_COLD_PREDECESSOR: u64 = 120_671_186;
+const EXACT_COUNT_DISTINCT_COLD_CEILING: u64 = 5_000_000;
+const EXACT_COUNT_DISTINCT_WARM_CEILING: u64 = 4_000_000;
+const EXACT_COUNT_DISTINCT_MINIMUM_SAVING: u64 = 110_000_000;
+const EXACT_COUNT_MAX_FIXTURE_ROWS: u32 = 2_048;
+// Patch 12 measured a maximum of 855,091; this permits only the retained
+// 10,000-instruction regression tolerance before requiring review.
+const EXACT_COUNT_CURRENT_TOTAL_CEILING: u64 = 865_091;
+const EXACT_COUNT_MINIMUM_SAVING: u64 = 75_000_000;
+const EXACT_COUNT_CASES: [(&str, &str, u64); 4] = [
+    (
+        "count_rows",
+        "SELECT COUNT(*) FROM PerfAuditUser",
+        96_891_236,
+    ),
+    (
+        "count_non_null_field",
+        "SELECT COUNT(id) FROM PerfAuditUser",
+        97_310_566,
+    ),
+    (
+        "count_non_null_literal",
+        "SELECT COUNT(1) FROM PerfAuditUser",
+        96_928_342,
+    ),
+    (
+        "count_rows_true",
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE true",
+        126_777_804,
+    ),
+];
 
-    const AGGREGATE_FILTER_COLD_PREDECESSOR: u64 = 114_058_947;
-    const AGGREGATE_FILTER_WARM_PREDECESSOR: u64 = 113_927_409;
-    const COUNT_DISTINCT_COLD_PREDECESSOR: u64 = 120_671_186;
-    const COUNT_DISTINCT_WARM_PREDECESSOR: u64 = 120_460_269;
-    const MAX_FIXTURE_ROWS: u32 = 2_048;
-    // Patch 12 measured a maximum of 855,091; this permits only the retained
-    // 10,000-instruction regression tolerance before requiring review.
-    const CURRENT_TOTAL_CEILING: u64 = 865_091;
-    const MINIMUM_SAVING: u64 = 75_000_000;
-    const CASES: [(&str, &str, u64); 4] = [
-        (
-            "count_rows",
-            "SELECT COUNT(*) FROM PerfAuditUser",
-            96_891_236,
-        ),
-        (
-            "count_non_null_field",
-            "SELECT COUNT(id) FROM PerfAuditUser",
-            97_310_566,
-        ),
-        (
-            "count_non_null_literal",
-            "SELECT COUNT(1) FROM PerfAuditUser",
-            96_928_342,
-        ),
-        (
-            "count_rows_true",
-            "SELECT COUNT(*) FROM PerfAuditUser WHERE true",
-            126_777_804,
-        ),
-    ];
+const fn exact_count_ordinary_aggregate_ceiling(predecessor: u64) -> u64 {
+    predecessor.saturating_add(predecessor / 50)
+}
 
-    let fixture = install_sql_perf_canister_fixture();
-    reset_sql_perf_fixtures(&fixture);
+fn assert_empty_exact_distinct_count(fixture: &StandaloneCanisterFixture) {
+    let empty = query_surface_with_perf(
+        fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(DISTINCT age) AS ages FROM PerfAuditUser",
+        1,
+    )
+    .expect("empty exact distinct count should succeed");
+    let SqlQueryResult::Projection(empty_rows) = empty.result else {
+        panic!("empty exact distinct count should return one projection row")
+    };
 
-    for fixture_rows in [16_u32, 256, MAX_FIXTURE_ROWS] {
-        reset_sql_perf_fixtures(&fixture);
-        load_user_scale_integrity_fixture(&fixture, fixture_rows);
+    assert_eq!(empty_rows.columns, vec!["ages"]);
+    assert_eq!(empty_rows.rows, vec![vec![OutputValue::Nat64(0)]]);
+    assert_eq!(empty_rows.rendered_rows(), vec![vec!["0".to_string()]]);
+    assert_eq!(empty.attribution.store_get_calls, 0);
+    assert_eq!(empty.attribution.index_store_entry_reads, 0);
+}
 
-        for (label, sql, predecessor_total) in CASES {
-            let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+fn assert_exact_entity_count_ladder(fixture: &StandaloneCanisterFixture) {
+    for fixture_rows in [16_u32, 256, EXACT_COUNT_MAX_FIXTURE_ROWS] {
+        reset_sql_perf_fixtures(fixture);
+        load_user_scale_integrity_fixture(fixture, fixture_rows);
+
+        for (label, sql, predecessor_total) in EXACT_COUNT_CASES {
+            let sample = query_surface_with_perf(fixture, SqlPerfSurface::User, sql, 1)
                 .expect("row-equivalent count should succeed");
             let SqlQueryResult::Projection(rows) = &sample.result else {
                 panic!("row-equivalent count should return one projection row: {sql}")
@@ -3825,8 +3867,8 @@ fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
             assert_eq!(sample.attribution.store_get_calls, 0, "{sql}");
             assert_eq!(sample.attribution.index_store_entry_reads, 0, "{sql}");
             assert!(
-                sample.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING,
-                "{sql} exceeded the exact-entity count ceiling: {} > {CURRENT_TOTAL_CEILING}",
+                sample.attribution.total_local_instructions <= EXACT_COUNT_CURRENT_TOTAL_CEILING,
+                "{sql} exceeded the exact-entity count ceiling: {} > {EXACT_COUNT_CURRENT_TOTAL_CEILING}",
                 sample.attribution.total_local_instructions,
             );
             println!(
@@ -3837,12 +3879,12 @@ fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
                 sample.attribution.store_get_calls,
                 sample.attribution.index_store_entry_reads,
             );
-            if fixture_rows == MAX_FIXTURE_ROWS {
+            if fixture_rows == EXACT_COUNT_MAX_FIXTURE_ROWS {
                 let saving =
                     predecessor_total.saturating_sub(sample.attribution.total_local_instructions);
                 assert!(
-                    saving >= MINIMUM_SAVING,
-                    "{sql} saved {saving} instructions, below the {MINIMUM_SAVING} gate",
+                    saving >= EXACT_COUNT_MINIMUM_SAVING,
+                    "{sql} saved {saving} instructions, below the {EXACT_COUNT_MINIMUM_SAVING} gate",
                 );
                 println!(
                     "0.237 Patch 4 exact entity count saving: label={label} predecessor={predecessor_total} candidate={} saving={saving}",
@@ -3851,24 +3893,19 @@ fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
             }
         }
     }
+}
 
-    let warming = warm_query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(*) FROM PerfAuditUser",
-    )
-    .expect("exact count cache warm should succeed");
+fn assert_exact_entity_count_warm_cache(fixture: &StandaloneCanisterFixture) {
+    const SQL: &str = "SELECT COUNT(*) FROM PerfAuditUser";
+
+    let warming = warm_query_surface_with_perf(fixture, SqlPerfSurface::User, SQL)
+        .expect("exact count cache warm should succeed");
     assert_eq!(warming.attribution.cache.sql_compiled_command_misses, 1);
-    let warm = query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(*) FROM PerfAuditUser",
-        1,
-    )
-    .expect("true-warm exact count should succeed");
+    let warm = query_surface_with_perf(fixture, SqlPerfSurface::User, SQL, 1)
+        .expect("true-warm exact count should succeed");
     assert_eq!(warm.attribution.store_get_calls, 0);
     assert_eq!(warm.attribution.index_store_entry_reads, 0);
-    assert!(warm.attribution.total_local_instructions <= CURRENT_TOTAL_CEILING);
+    assert!(warm.attribution.total_local_instructions <= EXACT_COUNT_CURRENT_TOTAL_CEILING);
     assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
     assert_eq!(warm.attribution.cache.sql_compiled_command_misses, 0);
     println!(
@@ -3877,101 +3914,237 @@ fn sql_perf_0_237_exact_entity_count_family_avoids_row_and_index_traversal() {
         warm.attribution.compile_local_instructions,
         warm.attribution.execution.executor_local_instructions,
     );
+}
 
-    let distinct = query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser",
-        1,
-    )
-    .expect("distinct count control should succeed");
+fn assert_exact_distinct_count_and_fallbacks(fixture: &StandaloneCanisterFixture) {
+    const SQL: &str = "SELECT COUNT(DISTINCT age) FROM PerfAuditUser";
+
+    let distinct = query_surface_with_perf(fixture, SqlPerfSurface::User, SQL, 1)
+        .expect("exact distinct count should succeed");
     assert_eq!(
-        distinct.attribution.store_get_calls,
-        u64::from(MAX_FIXTURE_ROWS)
+        rendered_projection_rows(distinct.result),
+        vec![vec!["5".to_string()]]
     );
+    assert_eq!(distinct.attribution.store_get_calls, 0);
+    assert_eq!(distinct.attribution.index_store_entry_reads, 0);
     assert!(
+        distinct.attribution.total_local_instructions <= EXACT_COUNT_DISTINCT_COLD_CEILING,
+        "cold exact COUNT(DISTINCT) exceeded its frozen release gate",
+    );
+    let cold_saving = EXACT_COUNT_DISTINCT_COLD_PREDECESSOR
+        .saturating_sub(distinct.attribution.total_local_instructions);
+    assert!(cold_saving >= EXACT_COUNT_DISTINCT_MINIMUM_SAVING);
+    println!(
+        "0.241 exact indexed distinct count cold: predecessor={EXACT_COUNT_DISTINCT_COLD_PREDECESSOR} candidate={} saving={cold_saving}",
         distinct.attribution.total_local_instructions
-            <= ordinary_aggregate_ceiling(COUNT_DISTINCT_COLD_PREDECESSOR),
-        "cold COUNT(DISTINCT) exceeded its frozen two-percent regression gate",
     );
-    println!(
-        "0.240 ordinary global aggregate cold: label=count_distinct candidate={}",
-        distinct.attribution.total_local_instructions,
-    );
-    warm_query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser",
-    )
-    .expect("distinct count cache warm should succeed");
-    let distinct_warm = query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser",
-        1,
-    )
-    .expect("warm distinct count control should succeed");
-    assert_eq!(
-        distinct_warm.attribution.store_get_calls,
-        u64::from(MAX_FIXTURE_ROWS)
-    );
-    assert_eq!(distinct_warm.attribution.cache.sql_compiled_command_hits, 1,);
+
+    warm_query_surface_with_perf(fixture, SqlPerfSurface::User, SQL)
+        .expect("distinct count cache warm should succeed");
+    let distinct_warm = query_surface_with_perf(fixture, SqlPerfSurface::User, SQL, 1)
+        .expect("warm exact distinct count should succeed");
+    assert_eq!(distinct_warm.attribution.store_get_calls, 0);
+    assert_eq!(distinct_warm.attribution.index_store_entry_reads, 0);
+    assert_eq!(distinct_warm.attribution.cache.sql_compiled_command_hits, 1);
     assert!(
-        distinct_warm.attribution.total_local_instructions
-            <= ordinary_aggregate_ceiling(COUNT_DISTINCT_WARM_PREDECESSOR),
-        "warm COUNT(DISTINCT) exceeded its frozen two-percent regression gate",
+        distinct_warm.attribution.total_local_instructions <= EXACT_COUNT_DISTINCT_WARM_CEILING,
+        "warm exact COUNT(DISTINCT) exceeded its frozen release gate",
     );
     println!(
-        "0.240 ordinary global aggregate warm: label=count_distinct candidate={}",
+        "0.241 exact indexed distinct count warm: candidate={}",
         distinct_warm.attribution.total_local_instructions,
     );
 
-    let filtered = query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser",
-        1,
-    )
-    .expect("filtered count control should succeed");
+    for sql in [
+        "SELECT COUNT(DISTINCT rank) FROM PerfAuditUser",
+        "SELECT COUNT(DISTINCT age_nat) FROM PerfAuditUser",
+        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser WHERE true",
+        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser WHERE active = true",
+        "SELECT COUNT(DISTINCT age) AS ages FROM PerfAuditUser ORDER BY ages",
+    ] {
+        let fallback = query_surface_with_perf(fixture, SqlPerfSurface::User, sql, 1)
+            .expect("out-of-cohort distinct count should use prepared fallback");
+        assert_eq!(
+            fallback.attribution.store_get_calls,
+            u64::from(EXACT_COUNT_MAX_FIXTURE_ROWS),
+            "{sql} must remain on the prepared row-reading route",
+        );
+    }
+}
+
+fn assert_exact_count_ordinary_aggregate_controls(fixture: &StandaloneCanisterFixture) {
+    const SQL: &str = "SELECT COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser";
+
+    let filtered = query_surface_with_perf(fixture, SqlPerfSurface::User, SQL, 1)
+        .expect("filtered count control should succeed");
     assert_eq!(
         filtered.attribution.store_get_calls,
-        u64::from(MAX_FIXTURE_ROWS)
+        u64::from(EXACT_COUNT_MAX_FIXTURE_ROWS)
     );
     assert!(
         filtered.attribution.total_local_instructions
-            <= ordinary_aggregate_ceiling(AGGREGATE_FILTER_COLD_PREDECESSOR),
+            <= exact_count_ordinary_aggregate_ceiling(
+                EXACT_COUNT_AGGREGATE_FILTER_COLD_PREDECESSOR,
+            ),
         "cold aggregate FILTER exceeded its frozen two-percent regression gate",
     );
     println!(
         "0.240 ordinary global aggregate cold: label=aggregate_filter candidate={}",
         filtered.attribution.total_local_instructions,
     );
-    warm_query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser",
-    )
-    .expect("filtered count cache warm should succeed");
-    let filtered_warm = query_surface_with_perf(
-        &fixture,
-        SqlPerfSurface::User,
-        "SELECT COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser",
-        1,
-    )
-    .expect("warm filtered count control should succeed");
+
+    warm_query_surface_with_perf(fixture, SqlPerfSurface::User, SQL)
+        .expect("filtered count cache warm should succeed");
+    let filtered_warm = query_surface_with_perf(fixture, SqlPerfSurface::User, SQL, 1)
+        .expect("warm filtered count control should succeed");
     assert_eq!(
         filtered_warm.attribution.store_get_calls,
-        u64::from(MAX_FIXTURE_ROWS)
+        u64::from(EXACT_COUNT_MAX_FIXTURE_ROWS)
     );
-    assert_eq!(filtered_warm.attribution.cache.sql_compiled_command_hits, 1,);
+    assert_eq!(filtered_warm.attribution.cache.sql_compiled_command_hits, 1);
     assert!(
         filtered_warm.attribution.total_local_instructions
-            <= ordinary_aggregate_ceiling(AGGREGATE_FILTER_WARM_PREDECESSOR),
+            <= exact_count_ordinary_aggregate_ceiling(
+                EXACT_COUNT_AGGREGATE_FILTER_WARM_PREDECESSOR,
+            ),
         "warm aggregate FILTER exceeded its frozen two-percent regression gate",
     );
     println!(
         "0.240 ordinary global aggregate warm: label=aggregate_filter candidate={}",
         filtered_warm.attribution.total_local_instructions,
+    );
+}
+
+#[test]
+fn sql_perf_0_241_exact_count_family_avoids_row_and_index_traversal() {
+    let fixture = install_sql_perf_canister_fixture();
+    clear_sql_perf_fixtures(&fixture);
+    assert_empty_exact_distinct_count(&fixture);
+    assert_exact_entity_count_ladder(&fixture);
+    assert_exact_entity_count_warm_cache(&fixture);
+    assert_exact_distinct_count_and_fallbacks(&fixture);
+    assert_exact_count_ordinary_aggregate_controls(&fixture);
+}
+
+fn assert_exact_distinct_over_budget_fallback(fixture: &StandaloneCanisterFixture) {
+    const SQL: &str = "SELECT COUNT(DISTINCT age) FROM PerfAuditUser";
+    const PREPARED_SQL: &str = "SELECT COUNT(DISTINCT age) FROM PerfAuditUser WHERE true";
+
+    warm_query_surface_with_perf(fixture, SqlPerfSurface::User, SQL)
+        .expect("exact over-budget command should warm");
+    warm_query_surface_with_perf(fixture, SqlPerfSurface::User, PREPARED_SQL)
+        .expect("prepared over-budget control should warm");
+    let prepared = query_user_distinct_budget_fallback_with_perf(fixture, true);
+    let exact = query_user_distinct_budget_fallback_with_perf(fixture, false);
+    let prepared_error = prepared
+        .outcome
+        .expect_err("prepared control should exhaust the remaining DISTINCT budget");
+    let exact_error = exact
+        .outcome
+        .expect_err("exact probe should preserve predecessor budget exhaustion");
+
+    assert_eq!(
+        exact_error.diagnostic_code(),
+        prepared_error.diagnostic_code()
+    );
+    assert_eq!(exact_error.class(), prepared_error.class());
+    assert_eq!(exact_error.origin(), prepared_error.origin());
+    for tag in [
+        DiagnosticFactTag::BudgetResource,
+        DiagnosticFactTag::Limit,
+        DiagnosticFactTag::Actual,
+        DiagnosticFactTag::ExecutionBudgetScope,
+    ] {
+        assert_eq!(
+            error_fact(&exact_error, tag),
+            error_fact(&prepared_error, tag),
+            "exact fallback must preserve the predecessor budget diagnostic facts",
+        );
+    }
+    assert!(
+        exact.instructions
+            <= prepared
+                .instructions
+                .saturating_add(prepared.instructions / 20),
+        "bounded metadata probe exceeded the frozen five-percent fallback regression gate",
+    );
+    println!(
+        "0.241 exact indexed distinct count over-budget fallback: prepared={} candidate={}",
+        prepared.instructions, exact.instructions,
+    );
+}
+
+#[test]
+fn sql_perf_0_241_exact_distinct_count_handles_all_unique_and_same_wasm_recovery() {
+    const FIXTURE_ROWS: u32 = 2_048;
+    const ALL_UNIQUE_CEILING: u64 = 30_000_000;
+    const MINIMUM_IMPROVEMENT_PERCENT: u64 = 75;
+    const SQL: &str = "SELECT COUNT(DISTINCT age) FROM PerfAuditUser";
+
+    let fixture = install_sql_perf_canister_fixture();
+    load_user_unique_age_scale_fixture(&fixture, FIXTURE_ROWS);
+
+    let cold = query_surface_with_perf(&fixture, SqlPerfSurface::User, SQL, 1)
+        .expect("all-unique exact distinct count should succeed");
+    assert_eq!(
+        rendered_projection_rows(cold.result),
+        vec![vec![FIXTURE_ROWS.to_string()]],
+    );
+    assert_eq!(cold.attribution.store_get_calls, 0);
+    assert_eq!(cold.attribution.index_store_entry_reads, 0);
+    assert!(cold.attribution.total_local_instructions <= ALL_UNIQUE_CEILING);
+    println!(
+        "0.241 exact indexed distinct count all-unique: rows={FIXTURE_ROWS} candidate={}",
+        cold.attribution.total_local_instructions,
+    );
+
+    let prepared = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT COUNT(DISTINCT age) FROM PerfAuditUser WHERE true",
+        1,
+    )
+    .expect("all-unique prepared control should succeed");
+    assert_eq!(
+        rendered_projection_rows(prepared.result),
+        vec![vec![FIXTURE_ROWS.to_string()]],
+    );
+    assert_eq!(
+        prepared.attribution.store_get_calls,
+        u64::from(FIXTURE_ROWS)
+    );
+    let saving = prepared
+        .attribution
+        .total_local_instructions
+        .saturating_sub(cold.attribution.total_local_instructions);
+    assert!(
+        saving.saturating_mul(100)
+            >= prepared
+                .attribution
+                .total_local_instructions
+                .saturating_mul(MINIMUM_IMPROVEMENT_PERCENT),
+        "all-unique exact route did not improve the unchanged prepared route by 75%",
+    );
+    println!(
+        "0.241 exact indexed distinct count all-unique saving: prepared={} candidate={} saving={saving}",
+        prepared.attribution.total_local_instructions, cold.attribution.total_local_instructions,
+    );
+
+    assert_exact_distinct_over_budget_fallback(&fixture);
+
+    upgrade_fixture_canister(&fixture, "sql_perf");
+    advance_startup_watchdog_until_ready(&fixture);
+    let recovered = query_surface_with_perf(&fixture, SqlPerfSurface::User, SQL, 1)
+        .expect("post-recovery exact path should preserve the result");
+    assert_eq!(
+        rendered_projection_rows(recovered.result),
+        vec![vec![FIXTURE_ROWS.to_string()]],
+    );
+    assert_eq!(recovered.attribution.store_get_calls, 0);
+    assert_eq!(recovered.attribution.index_store_entry_reads, 0);
+    println!(
+        "0.241 exact indexed distinct count post-recovery: candidate={}",
+        recovered.attribution.total_local_instructions,
     );
 }
 

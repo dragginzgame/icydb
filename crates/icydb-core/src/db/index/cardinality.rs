@@ -7,6 +7,7 @@ use crate::db::index::{
     IndexEntryExistenceWitness, IndexEntryValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
 };
 use crate::db::journal::FoldWatermark;
+use crate::error::InternalError;
 use std::collections::BTreeMap as HeapBTreeMap;
 
 /// Exact lookup key for one user-index component prefix.
@@ -53,6 +54,13 @@ impl UserIndexPrefixCardinalityKey {
 /// - all observed index entries decoded cleanly; and
 /// - the caller-provided row-store generation matches the generation recorded
 ///   after the last authoritative row/index commit transition.
+///
+/// For that synchronized generation, every retained first-component key owns
+/// exactly one canonical non-empty leading value present in the logical row
+/// set, its count is that value's row multiplicity, and no other key exists.
+/// Row/index mutation invalidates synchronization before changing either
+/// projection; commit, rollback, replay, and fold stamp the row generation only
+/// after their complete authoritative transition.
 ///
 #[derive(Clone, Debug)]
 pub(super) struct IndexPrefixCardinality {
@@ -144,6 +152,39 @@ impl IndexPrefixCardinality {
         }
 
         Some(self.exact_count_synchronized(key_kind, index_id, components))
+    }
+
+    /// Count distinct non-empty leading components for one accepted user
+    /// index while retaining a bounded physical metadata-work observation.
+    pub(super) fn exact_first_component_distinct_count(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        stop_after: u64,
+    ) -> Result<Option<(u64, u64)>, InternalError> {
+        if stop_after == 0 || !self.decodable || self.data_generation != Some(data_generation) {
+            return Ok(None);
+        }
+
+        let key_kind = IndexKeyKind::User;
+        let start = IndexPrefixCardinalityFirstKey::range_start(key_kind, index_id);
+        let mut distinct = 0_u64;
+        let mut examined = 0_u64;
+        for (key, multiplicity) in self.first_component_counts.range(start..) {
+            if !key.matches_identity(key_kind, index_id) {
+                break;
+            }
+            if *multiplicity == 0 {
+                return Err(InternalError::store_invariant());
+            }
+            examined = checked_metadata_count_increment(examined)?;
+            distinct = checked_metadata_count_increment(distinct)?;
+            if distinct == stop_after {
+                break;
+            }
+        }
+
+        Ok(Some((distinct, examined)))
     }
 
     #[must_use]
@@ -475,6 +516,12 @@ impl IndexPrefixCardinality {
     }
 }
 
+fn checked_metadata_count_increment(value: u64) -> Result<u64, InternalError> {
+    value
+        .checked_add(1)
+        .ok_or_else(InternalError::store_invariant)
+}
+
 impl IndexPrefixCardinalityDelta {
     #[must_use]
     pub(super) const fn unbound_empty() -> Self {
@@ -745,8 +792,11 @@ fn counted_prefixes(
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        IndexPrefixCardinality, IndexPrefixCardinalityFirstKey, checked_metadata_count_increment,
+    };
     use crate::{
-        db::index::{IndexId, UserIndexPrefixCardinalityKey},
+        db::index::{IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
         types::EntityTag,
     };
 
@@ -763,5 +813,30 @@ mod tests {
         assert_eq!(current.index_id(), current_index);
         assert_eq!(current.prefix_components(), components.as_slice());
         assert_ne!(current, next);
+    }
+
+    #[test]
+    fn impossible_zero_multiplicity_is_a_store_invariant_failure() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let mut cardinality = IndexPrefixCardinality::synchronized_empty();
+        cardinality.first_component_counts.insert(
+            IndexPrefixCardinalityFirstKey {
+                key_kind: IndexKeyKind::User,
+                index_id,
+                component: b"invalid-zero".to_vec(),
+            },
+            0,
+        );
+
+        assert!(
+            cardinality
+                .exact_first_component_distinct_count(0, index_id, 2)
+                .is_err(),
+        );
+    }
+
+    #[test]
+    fn impossible_metadata_count_overflow_is_a_store_invariant_failure() {
+        assert!(checked_metadata_count_increment(u64::MAX).is_err());
     }
 }

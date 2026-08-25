@@ -40,6 +40,7 @@ use std::borrow::Cow;
 use crate::db::executor::aggregate::terminal_attribution::{
     ScalarAggregateTerminalAttribution, measure_phase, record_scalar_aggregate_terminal_attribution,
 };
+pub(in crate::db::executor::aggregate) use reducer::scalar_distinct_conservative_unit_work;
 pub(in crate::db) use request::StructuralAggregateRequest;
 #[cfg(feature = "sql")]
 pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregateTerminalKind};

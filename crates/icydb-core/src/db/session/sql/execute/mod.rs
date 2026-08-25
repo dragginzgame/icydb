@@ -8,7 +8,7 @@
 mod aggregate_plan;
 mod aggregate_request;
 mod diagnostics;
-mod direct_count;
+mod exact_count;
 #[cfg(feature = "sql")]
 mod explain;
 mod global_aggregate;
