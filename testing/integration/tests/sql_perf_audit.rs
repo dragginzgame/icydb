@@ -3935,7 +3935,7 @@ fn assert_exact_distinct_count_and_fallbacks(fixture: &StandaloneCanisterFixture
         .saturating_sub(distinct.attribution.total_local_instructions);
     assert!(cold_saving >= EXACT_COUNT_DISTINCT_MINIMUM_SAVING);
     println!(
-        "0.241 exact indexed distinct count cold: predecessor={EXACT_COUNT_DISTINCT_COLD_PREDECESSOR} candidate={} saving={cold_saving}",
+        "0.240.1 exact indexed distinct count cold: predecessor={EXACT_COUNT_DISTINCT_COLD_PREDECESSOR} candidate={} saving={cold_saving}",
         distinct.attribution.total_local_instructions
     );
 
@@ -3951,7 +3951,7 @@ fn assert_exact_distinct_count_and_fallbacks(fixture: &StandaloneCanisterFixture
         "warm exact COUNT(DISTINCT) exceeded its frozen release gate",
     );
     println!(
-        "0.241 exact indexed distinct count warm: candidate={}",
+        "0.240.1 exact indexed distinct count warm: candidate={}",
         distinct_warm.attribution.total_local_instructions,
     );
 
@@ -4016,7 +4016,7 @@ fn assert_exact_count_ordinary_aggregate_controls(fixture: &StandaloneCanisterFi
 }
 
 #[test]
-fn sql_perf_0_241_exact_count_family_avoids_row_and_index_traversal() {
+fn sql_perf_0_240_1_exact_count_family_avoids_row_and_index_traversal() {
     let fixture = install_sql_perf_canister_fixture();
     clear_sql_perf_fixtures(&fixture);
     assert_empty_exact_distinct_count(&fixture);
@@ -4069,13 +4069,13 @@ fn assert_exact_distinct_over_budget_fallback(fixture: &StandaloneCanisterFixtur
         "bounded metadata probe exceeded the frozen five-percent fallback regression gate",
     );
     println!(
-        "0.241 exact indexed distinct count over-budget fallback: prepared={} candidate={}",
+        "0.240.1 exact indexed distinct count over-budget fallback: prepared={} candidate={}",
         prepared.instructions, exact.instructions,
     );
 }
 
 #[test]
-fn sql_perf_0_241_exact_distinct_count_handles_all_unique_and_same_wasm_recovery() {
+fn sql_perf_0_240_1_exact_distinct_count_handles_all_unique_and_same_wasm_recovery() {
     const FIXTURE_ROWS: u32 = 2_048;
     const ALL_UNIQUE_CEILING: u64 = 30_000_000;
     const MINIMUM_IMPROVEMENT_PERCENT: u64 = 75;
@@ -4094,7 +4094,7 @@ fn sql_perf_0_241_exact_distinct_count_handles_all_unique_and_same_wasm_recovery
     assert_eq!(cold.attribution.index_store_entry_reads, 0);
     assert!(cold.attribution.total_local_instructions <= ALL_UNIQUE_CEILING);
     println!(
-        "0.241 exact indexed distinct count all-unique: rows={FIXTURE_ROWS} candidate={}",
+        "0.240.1 exact indexed distinct count all-unique: rows={FIXTURE_ROWS} candidate={}",
         cold.attribution.total_local_instructions,
     );
 
@@ -4126,7 +4126,7 @@ fn sql_perf_0_241_exact_distinct_count_handles_all_unique_and_same_wasm_recovery
         "all-unique exact route did not improve the unchanged prepared route by 75%",
     );
     println!(
-        "0.241 exact indexed distinct count all-unique saving: prepared={} candidate={} saving={saving}",
+        "0.240.1 exact indexed distinct count all-unique saving: prepared={} candidate={} saving={saving}",
         prepared.attribution.total_local_instructions, cold.attribution.total_local_instructions,
     );
 
@@ -4143,7 +4143,7 @@ fn sql_perf_0_241_exact_distinct_count_handles_all_unique_and_same_wasm_recovery
     assert_eq!(recovered.attribution.store_get_calls, 0);
     assert_eq!(recovered.attribution.index_store_entry_reads, 0);
     println!(
-        "0.241 exact indexed distinct count post-recovery: candidate={}",
+        "0.240.1 exact indexed distinct count post-recovery: candidate={}",
         recovered.attribution.total_local_instructions,
     );
 }

@@ -5,21 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.241.x] ⚡ - 2026-08-25 - Exact Indexed Distinct Cardinality
+## [0.241.x] 🧹 - 2026-08-25 - Aggregate Module Boundary Cleanup
 
 Detailed notes: [docs/changelog/0.241.md](docs/changelog/0.241.md)
 
-- `0.241.1` hardens exact indexed distinct counts so impossible metadata
-  states fail closed and exact-success budgets share canonical reducer and
-  request authorities, without changing SQL or persisted/public surfaces.
-- `0.241.0` lets a bare `COUNT(DISTINCT non_nullable_int32_field)` use exact
-  synchronized leading-index metadata, cutting the measured 2,048-row query
-  from 120.7M instructions to 0.47M without adding persisted or cache state.
+- `0.241.0` narrows exact-count and prepared aggregate helpers to their actual
+  same-file owners without changing SQL behavior or execution flow.
 
-## [0.240.x] 🧹 - 2026-08-24 - Singular Global-Aggregate Plan Cache
+## [0.240.x] ⚡ - 2026-08-25 - Exact Global-Aggregate Execution
 
 Detailed notes: [docs/changelog/0.240.md](docs/changelog/0.240.md)
 
+- `0.240.1` lets a bare `COUNT(DISTINCT non_nullable_int32_field)` use exact
+  synchronized leading-index metadata, cutting the measured 2,048-row query
+  from 120.7M instructions to 0.47M with fail-closed metadata and atomic budget
+  handling, without adding persisted or cache state.
 - `0.240.0` retains one fingerprint-bound exact-or-prepared execution plan per
   compiled global aggregate, reducing command-local cache state and final raw
   Wasm without changing query behavior or physical work.

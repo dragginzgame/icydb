@@ -33,11 +33,19 @@ design](../0.240-singular-global-aggregate-plan-cache/0.240-design.md) is an
 independent runtime-convergence cleanup. It does not adopt the historical
 durable aggregate-job assignment recorded later in this document; that intake
 candidate remains unnumbered and unpromoted.
-The current [0.241 exact indexed `COUNT(DISTINCT)` cardinality
-design](../0.241-exact-indexed-distinct-cardinality/0.241-design.md) is an
+The [v0.240.1 exact indexed `COUNT(DISTINCT)` cardinality
+design](../0.240-exact-indexed-distinct-cardinality/0.240-design.md) is an
 independent, evidence-led physical aggregate optimization. It does not adopt
 the historical incremental-rollup assignment recorded later in this document;
 that intake candidate remains unnumbered and unpromoted.
+The [0.241 global-aggregate attribution convergence
+audit](../0.241-global-aggregate-attribution-convergence/0.241-design.md)
+closed as a measured no-build after every bounded candidate grew production
+raw Wasm, and its runtime changes were reverted. The separately authorized
+0.241 module-visibility cleanup does not reopen or ship that rejected
+execution-flow candidate. It does not adopt the historical incremental-rollup
+assignment recorded later in this document; that intake candidate remains
+unnumbered and unpromoted.
 Every other unreleased candidate remains unnumbered until a later
 current-surface audit and explicit user authorization promotes it.
 

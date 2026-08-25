@@ -52,14 +52,14 @@ fn cache_compiled_global_aggregate_prepared_plan(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(super) fn global_aggregate_prepared_plan_authority(
+    fn global_aggregate_prepared_plan_authority(
         catalog: &AcceptedSchemaCatalogContext,
         authority: Option<EntityAuthority>,
     ) -> EntityAuthority {
         catalog.accepted_or_provided_entity_authority(authority.as_ref())
     }
 
-    pub(super) fn resolve_global_aggregate_prepared_plan_for_authority(
+    fn resolve_global_aggregate_prepared_plan_for_authority(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
@@ -80,7 +80,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(super) fn resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
+    fn resolve_global_aggregate_prepared_plan_for_authority_with_phase_attribution(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,

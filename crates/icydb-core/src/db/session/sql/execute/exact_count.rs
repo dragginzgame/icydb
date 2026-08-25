@@ -72,7 +72,7 @@ pub(super) enum ExactCountOutcome {
     },
 }
 
-pub(super) fn exact_count_statement_result(
+fn exact_count_statement_result(
     projection: &ProjectionSpec,
     value: Value,
     cache_attribution: SqlCacheAttribution,
@@ -520,7 +520,7 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    pub(super) fn build_exact_count_target(
+    fn build_exact_count_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
