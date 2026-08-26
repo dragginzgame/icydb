@@ -148,6 +148,10 @@ impl QueryModel {
         )
     }
 
+    pub(in crate::db::query) fn direct_count_cardinality_candidate(&self) -> bool {
+        matches!(self.direct_count_cardinality_predicate(), Ok(Some(_)))
+    }
+
     #[must_use]
     pub(in crate::db::query) const fn scalar_projection_selection(&self) -> &ProjectionSelection {
         &self.intent.scalar().projection_selection

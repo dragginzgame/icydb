@@ -516,6 +516,20 @@ fn query_user_distinct_budget_fallback_with_perf(
     result.expect("budget fallback perf probe should complete")
 }
 
+fn query_user_range_budget_fallback_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    prepared_control: bool,
+) -> SqlBudgetFallbackPerfResult {
+    let result: Result<SqlBudgetFallbackPerfResult, Error> = fixture
+        .query_candid(
+            "query_user_range_budget_fallback_with_perf",
+            (prepared_control,),
+        )
+        .expect("range budget fallback perf result should decode");
+
+    result.expect("range budget fallback perf probe should complete")
+}
+
 fn load_token_scale_integrity_fixture(
     fixture: &StandaloneCanisterFixture,
     row_count: u32,
@@ -4036,9 +4050,17 @@ fn assert_exact_distinct_over_budget_fallback(fixture: &StandaloneCanisterFixtur
         .expect("prepared over-budget control should warm");
     let prepared = query_user_distinct_budget_fallback_with_perf(fixture, true);
     let exact = query_user_distinct_budget_fallback_with_perf(fixture, false);
+    assert_budget_fallback_equivalent(prepared, exact, "0.240.1 exact indexed distinct count");
+}
+
+fn assert_budget_fallback_equivalent(
+    prepared: SqlBudgetFallbackPerfResult,
+    exact: SqlBudgetFallbackPerfResult,
+    label: &str,
+) {
     let prepared_error = prepared
         .outcome
-        .expect_err("prepared control should exhaust the remaining DISTINCT budget");
+        .expect_err("prepared control should exhaust the remaining budget");
     let exact_error = exact
         .outcome
         .expect_err("exact probe should preserve predecessor budget exhaustion");
@@ -4069,8 +4091,24 @@ fn assert_exact_distinct_over_budget_fallback(fixture: &StandaloneCanisterFixtur
         "bounded metadata probe exceeded the frozen five-percent fallback regression gate",
     );
     println!(
-        "0.240.1 exact indexed distinct count over-budget fallback: prepared={} candidate={}",
+        "{label} over-budget fallback: prepared={} candidate={}",
         prepared.instructions, exact.instructions,
+    );
+}
+
+fn assert_exact_range_over_budget_fallback(fixture: &StandaloneCanisterFixture) {
+    const SQL: &str = "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 1 AND age <= 512";
+    const PREPARED_SQL: &str =
+        "SELECT COUNT(*) FILTER (WHERE true) FROM PerfAuditUser WHERE age >= 1 AND age <= 512";
+
+    warm_query_surface_with_perf(fixture, SqlPerfSurface::User, SQL)
+        .expect("exact range over-budget command should warm");
+    warm_query_surface_with_perf(fixture, SqlPerfSurface::User, PREPARED_SQL)
+        .expect("prepared range over-budget control should warm");
+    assert_budget_fallback_equivalent(
+        query_user_range_budget_fallback_with_perf(fixture, true),
+        query_user_range_budget_fallback_with_perf(fixture, false),
+        "0.242 exact indexed range count",
     );
 }
 
@@ -4145,6 +4183,132 @@ fn sql_perf_0_240_1_exact_distinct_count_handles_all_unique_and_same_wasm_recove
     println!(
         "0.240.1 exact indexed distinct count post-recovery: candidate={}",
         recovered.attribution.total_local_instructions,
+    );
+}
+
+fn assert_exact_indexed_range_count(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+    expected: u64,
+    ceiling: Option<u64>,
+) -> SqlQueryPerfResult {
+    let sample = query_surface_with_perf(fixture, SqlPerfSurface::User, sql, 1)
+        .expect("exact indexed range count should succeed");
+    println!(
+        "0.242 exact indexed range count: sql={sql:?} total={} compile={} execute={} store_gets={} index_entries={} cache={:?}",
+        sample.attribution.total_local_instructions,
+        sample.attribution.compile_local_instructions,
+        sample.attribution.execution.executor_local_instructions,
+        sample.attribution.store_get_calls,
+        sample.attribution.index_store_entry_reads,
+        sample.attribution.cache,
+    );
+    assert_eq!(
+        rendered_projection_rows(sample.result.clone()),
+        vec![vec![expected.to_string()]],
+        "{sql}",
+    );
+    assert_eq!(sample.attribution.store_get_calls, 0, "{sql}");
+    assert_eq!(sample.attribution.index_store_entry_reads, 0, "{sql}");
+    if let Some(ceiling) = ceiling {
+        assert!(
+            sample.attribution.total_local_instructions <= ceiling,
+            "{sql} exceeded its exact-range ceiling: {} > {ceiling}",
+            sample.attribution.total_local_instructions,
+        );
+    }
+
+    sample
+}
+
+#[test]
+fn sql_perf_0_242_exact_indexed_range_count_is_canonical_bounded_and_recoverable() {
+    const FIXTURE_ROWS: u32 = 2_048;
+    const PRINCIPAL_PREDECESSOR: u64 = 23_429_276;
+    const ONE_SIDED_PREDECESSOR: u64 = 92_426_034;
+    const PRINCIPAL_CEILING: u64 = 2_000_000;
+    const WARM_CEILING: u64 = 1_500_000;
+    const HOSTILE_CEILING: u64 = 3_000_000;
+    const SQL: &str = "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 24 AND age < 40";
+    const UNIQUE_RANGE_SQL: &str =
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 1 AND age <= 512";
+
+    let fixture = install_sql_perf_canister_fixture();
+    load_user_scale_integrity_fixture(&fixture, FIXTURE_ROWS);
+
+    for sql in [
+        SQL,
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE age BETWEEN 24 AND 39",
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE 24 <= age AND age < 40",
+        "SELECT COUNT(1) FROM PerfAuditUser WHERE age >= 24 AND age < 40",
+        "SELECT COUNT(id) FROM PerfAuditUser WHERE age >= 24 AND age < 40",
+    ] {
+        let sample = assert_exact_indexed_range_count(
+            &fixture,
+            sql,
+            u64::from(FIXTURE_ROWS / 4),
+            Some(PRINCIPAL_CEILING),
+        );
+        assert!(
+            PRINCIPAL_PREDECESSOR.saturating_sub(sample.attribution.total_local_instructions)
+                >= 20_000_000,
+            "{sql} missed the frozen 20M saving gate",
+        );
+    }
+
+    warm_query_surface_with_perf(&fixture, SqlPerfSurface::User, SQL)
+        .expect("exact indexed range command should warm");
+    let warm = assert_exact_indexed_range_count(
+        &fixture,
+        SQL,
+        u64::from(FIXTURE_ROWS / 4),
+        Some(WARM_CEILING),
+    );
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+
+    assert_exact_indexed_range_count(
+        &fixture,
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE age < 0",
+        0,
+        Some(PRINCIPAL_CEILING),
+    );
+    let one_sided = assert_exact_indexed_range_count(
+        &fixture,
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 24",
+        u64::from(FIXTURE_ROWS),
+        Some(HOSTILE_CEILING),
+    );
+    assert!(
+        ONE_SIDED_PREDECESSOR.saturating_sub(one_sided.attribution.total_local_instructions)
+            >= 85_000_000,
+    );
+
+    for sql in [
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 24 AND age < 40 AND active = true",
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE age = 31 AND id >= 1",
+        "SELECT COUNT(*) FROM PerfAuditUser WHERE rank >= 24 AND rank < 40",
+    ] {
+        let fallback = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("out-of-cohort range count should use prepared execution");
+        assert!(fallback.attribution.store_get_calls > 0, "{sql}");
+    }
+
+    load_user_unique_age_scale_fixture(&fixture, FIXTURE_ROWS);
+    assert_exact_indexed_range_count(
+        &fixture,
+        UNIQUE_RANGE_SQL,
+        u64::from(FIXTURE_ROWS / 4),
+        Some(HOSTILE_CEILING),
+    );
+    assert_exact_range_over_budget_fallback(&fixture);
+
+    upgrade_fixture_canister(&fixture, "sql_perf");
+    advance_startup_watchdog_until_ready(&fixture);
+    assert_exact_indexed_range_count(
+        &fixture,
+        UNIQUE_RANGE_SQL,
+        u64::from(FIXTURE_ROWS / 4),
+        None,
     );
 }
 

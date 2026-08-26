@@ -32,7 +32,6 @@ use crate::db::{
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AggregateShapeFacts {
-    direct_count_rows: bool,
     direct_count_cardinality_metadata_candidate: bool,
     exact_distinct_cardinality_target_slot: Option<usize>,
 }
@@ -60,17 +59,12 @@ impl AggregateShapeFacts {
         .flatten();
 
         Self {
-            direct_count_rows,
+            // The planner alone owns physical exact-cardinality selection; lowering admits the
+            // row-equivalent COUNT family without predicting prefix or range access.
             direct_count_cardinality_metadata_candidate: direct_count_rows
-                && query.direct_count_cardinality_prefix_candidate(),
+                && query.direct_count_cardinality_candidate(),
             exact_distinct_cardinality_target_slot,
         }
-    }
-
-    /// Return whether the command's only aggregate is schema-proven row-equivalent COUNT.
-    #[must_use]
-    pub(in crate::db) const fn is_direct_count_rows(self) -> bool {
-        self.direct_count_rows
     }
 
     /// Return whether direct prefix-cardinality metadata may answer this command.

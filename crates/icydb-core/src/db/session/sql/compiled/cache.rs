@@ -7,7 +7,7 @@ use crate::db::{
     index::{IndexId, UserIndexPrefixCardinalityKey},
     session::{AcceptedSchemaCatalogContext, query::StructuralProjectionContract},
 };
-use std::rc::Rc;
+use std::{ops::Bound, rc::Rc};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlCompiledSchemaFingerprint {
@@ -103,6 +103,11 @@ impl SqlGlobalAggregatePlanCacheEntry {
 pub(in crate::db) enum SqlGlobalAggregateCachedPlan {
     ExactEntityCardinality,
     ExactUserIndexFirstComponentDistinct(IndexId),
+    ExactUserIndexFirstComponentRange {
+        index_id: IndexId,
+        lower: Bound<Vec<u8>>,
+        upper: Bound<Vec<u8>>,
+    },
     ExactUserIndexPrefixes(Rc<[UserIndexPrefixCardinalityKey]>),
     Prepared(SharedPreparedExecutionPlan),
 }
@@ -139,6 +144,15 @@ impl SqlGlobalAggregateCachedPlan {
             Self::ExactUserIndexFirstComponentDistinct(index_id) => Some(
                 ExactCardinalityTarget::UserIndexFirstComponentDistinct(*index_id),
             ),
+            Self::ExactUserIndexFirstComponentRange {
+                index_id,
+                lower,
+                upper,
+            } => Some(ExactCardinalityTarget::UserIndexFirstComponentRange {
+                index_id: *index_id,
+                lower,
+                upper,
+            }),
             Self::ExactUserIndexPrefixes(prefix_keys) => Some(
                 ExactCardinalityTarget::UserIndexPrefixes(prefix_keys.as_ref()),
             ),
@@ -152,6 +166,7 @@ impl SqlGlobalAggregateCachedPlan {
             Self::Prepared(prepared_plan) => Some(prepared_plan.clone()),
             Self::ExactEntityCardinality
             | Self::ExactUserIndexFirstComponentDistinct(_)
+            | Self::ExactUserIndexFirstComponentRange { .. }
             | Self::ExactUserIndexPrefixes(_) => None,
         }
     }

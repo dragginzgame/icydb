@@ -9,6 +9,7 @@ use crate::db::index::{
 use crate::db::journal::FoldWatermark;
 use crate::error::InternalError;
 use std::collections::BTreeMap as HeapBTreeMap;
+use std::ops::Bound;
 
 /// Exact lookup key for one user-index component prefix.
 ///
@@ -156,35 +157,77 @@ impl IndexPrefixCardinality {
 
     /// Count distinct non-empty leading components for one accepted user
     /// index while retaining a bounded physical metadata-work observation.
+    #[cfg(test)]
     pub(super) fn exact_first_component_distinct_count(
         &self,
         data_generation: u64,
         index_id: IndexId,
         stop_after: u64,
     ) -> Result<Option<(u64, u64)>, InternalError> {
+        self.exact_first_component_range_count(
+            data_generation,
+            index_id,
+            &Bound::Unbounded,
+            &Bound::Unbounded,
+            stop_after,
+        )
+        .map(|result| {
+            result.map(|(_total, examined, complete)| {
+                (if complete { examined } else { stop_after }, examined)
+            })
+        })
+    }
+
+    /// Sum exact leading-component multiplicities inside one canonical range.
+    pub(super) fn exact_first_component_range_count(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        lower: &Bound<Vec<u8>>,
+        upper: &Bound<Vec<u8>>,
+        stop_after: u64,
+    ) -> Result<Option<(u64, u64, bool)>, InternalError> {
         if stop_after == 0 || !self.decodable || self.data_generation != Some(data_generation) {
             return Ok(None);
         }
 
         let key_kind = IndexKeyKind::User;
-        let start = IndexPrefixCardinalityFirstKey::range_start(key_kind, index_id);
-        let mut distinct = 0_u64;
+        let lower = match lower {
+            Bound::Unbounded => Bound::Included(IndexPrefixCardinalityFirstKey::range_start(
+                key_kind, index_id,
+            )),
+            Bound::Included(component) => Bound::Included(IndexPrefixCardinalityFirstKey::new(
+                key_kind, index_id, component,
+            )),
+            Bound::Excluded(component) => Bound::Excluded(IndexPrefixCardinalityFirstKey::new(
+                key_kind, index_id, component,
+            )),
+        };
+        let mut total = 0_u64;
         let mut examined = 0_u64;
-        for (key, multiplicity) in self.first_component_counts.range(start..) {
-            if !key.matches_identity(key_kind, index_id) {
+        for (key, multiplicity) in self.first_component_counts.range((lower, Bound::Unbounded)) {
+            if !key.matches_identity(key_kind, index_id)
+                || match upper {
+                    Bound::Unbounded => false,
+                    Bound::Included(upper) => key.component.as_slice() > upper.as_slice(),
+                    Bound::Excluded(upper) => key.component.as_slice() >= upper.as_slice(),
+                }
+            {
                 break;
+            }
+            if examined == stop_after {
+                return Ok(Some((total, examined, false)));
             }
             if *multiplicity == 0 {
                 return Err(InternalError::store_invariant());
             }
             examined = checked_metadata_count_increment(examined)?;
-            distinct = checked_metadata_count_increment(distinct)?;
-            if distinct == stop_after {
-                break;
-            }
+            total = total
+                .checked_add(*multiplicity)
+                .ok_or_else(InternalError::store_invariant)?;
         }
 
-        Ok(Some((distinct, examined)))
+        Ok(Some((total, examined, true)))
     }
 
     #[must_use]
@@ -799,6 +842,7 @@ mod tests {
         db::index::{IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
         types::EntityTag,
     };
+    use std::ops::Bound;
 
     #[test]
     fn user_prefix_lookup_key_preserves_physical_generation_and_encoded_components() {
@@ -838,5 +882,47 @@ mod tests {
     #[test]
     fn impossible_metadata_count_overflow_is_a_store_invariant_failure() {
         assert!(checked_metadata_count_increment(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn first_component_range_cardinality_preserves_bounds_and_work_cap() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let mut cardinality = IndexPrefixCardinality::synchronized_empty();
+        for (component, multiplicity) in [(b"a".as_slice(), 1), (b"b", 2), (b"c", 3)] {
+            cardinality.first_component_counts.insert(
+                IndexPrefixCardinalityFirstKey::new(IndexKeyKind::User, index_id, component),
+                multiplicity,
+            );
+        }
+        cardinality.mark_synchronized(7);
+        let lower = Bound::Included(b"b".to_vec());
+        let upper = Bound::Excluded(b"d".to_vec());
+
+        assert_eq!(
+            cardinality
+                .exact_first_component_range_count(7, index_id, &lower, &upper, 3)
+                .expect("synchronized range metadata should be valid"),
+            Some((5, 2, true)),
+        );
+        assert_eq!(
+            cardinality
+                .exact_first_component_range_count(7, index_id, &lower, &upper, 1)
+                .expect("bounded range metadata should be valid"),
+            Some((2, 1, false)),
+        );
+        assert_eq!(
+            cardinality
+                .exact_first_component_range_count(8, index_id, &lower, &upper, 3)
+                .expect("stale range metadata should fail closed"),
+            None,
+        );
+
+        let empty_lower = Bound::Excluded(b"z".to_vec());
+        assert_eq!(
+            cardinality
+                .exact_first_component_range_count(7, index_id, &empty_lower, &Bound::Unbounded, 1,)
+                .expect("empty synchronized range should be valid"),
+            Some((0, 0, true)),
+        );
     }
 }

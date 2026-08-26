@@ -11,8 +11,9 @@ use crate::{
             exact_count_cardinality_prefixes_for_plan, execute_exact_cardinality_for_canister,
             user_index_prefix_cardinality_keys_from_plan,
         },
-        index::{IndexId, UserIndexPrefixCardinalityKey},
+        index::{IndexId, IndexKey, RawIndexStoreKey, UserIndexPrefixCardinalityKey},
         query::plan::{exact_distinct_cardinality_index, expr::ProjectionSpec},
+        schema::AcceptedFieldKind,
         session::{
             AcceptedSchemaCatalogContext,
             query::{
@@ -30,7 +31,7 @@ use crate::{
     value::{OutputValue, Value},
 };
 use icydb_diagnostic_code::DiagnosticExecutionLane;
-use std::rc::Rc;
+use std::{ops::Bound, rc::Rc};
 
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
@@ -231,6 +232,81 @@ fn direct_count_cardinality_prefix_keys_from_planned_query(
     user_index_prefix_cardinality_keys_from_plan(prefix_plan)
 }
 
+fn direct_count_cardinality_range_from_planned_query(
+    prepared_plan: &SharedPreparedExecutionPlan,
+) -> Option<SqlGlobalAggregateCachedPlan> {
+    let plan = prepared_plan.logical_plan();
+    if plan.has_any_residual_filter() {
+        return None;
+    }
+    let semantic = plan.access.as_index_range_path()?;
+    let selected = semantic.index();
+    if !semantic.prefix_values().is_empty() || selected.is_filtered() {
+        return None;
+    }
+    let [lowered] = prepared_plan.index_range_specs() else {
+        return None;
+    };
+
+    let authority = prepared_plan.authority_ref();
+    let schema = authority.accepted_schema_info()?;
+    let accepted = schema
+        .field_path_indexes()
+        .iter()
+        .find(|index| index.ordinal() == selected.ordinal())?;
+    let first = accepted.fields().first()?;
+    if semantic.field_slots() != [0]
+        || first.persisted_kind() != Some(&AcceptedFieldKind::Int32)
+        || accepted.fields().iter().any(|field| {
+            field.path().len() != 1
+                || schema.accepted_field_is_nullable(field.field_name()) != Some(false)
+        })
+    {
+        return None;
+    }
+
+    let index_id = IndexId::new_with_generation(
+        authority.entity_tag(),
+        selected.ordinal(),
+        selected.physical_generation(),
+    );
+    let lower = encoded_component_bound(semantic.lower(), lowered.lower(), index_id)?;
+    let upper = encoded_component_bound(semantic.upper(), lowered.upper(), index_id)?;
+
+    Some(
+        SqlGlobalAggregateCachedPlan::ExactUserIndexFirstComponentRange {
+            index_id,
+            lower,
+            upper,
+        },
+    )
+}
+
+fn encoded_component_bound(
+    semantic: &Bound<Value>,
+    raw: &Bound<RawIndexStoreKey>,
+    index_id: IndexId,
+) -> Option<Bound<Vec<u8>>> {
+    let included = match semantic {
+        Bound::Unbounded => return Some(Bound::Unbounded),
+        Bound::Included(_) => true,
+        Bound::Excluded(_) => false,
+    };
+    let raw = match raw {
+        Bound::Included(raw) | Bound::Excluded(raw) => raw,
+        Bound::Unbounded => return None,
+    };
+    let key = IndexKey::try_from_raw(raw).ok()?;
+    (*key.index_id() == index_id).then_some(())?;
+    let component = key.component(0)?.to_vec();
+
+    Some(if included {
+        Bound::Included(component)
+    } else {
+        Bound::Excluded(component)
+    })
+}
+
 fn exact_count_target_from_cached_entry(
     catalog: &AcceptedSchemaCatalogContext,
     entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
@@ -260,10 +336,10 @@ fn cache_compiled_exact_count_target(compiled: &CompiledSqlCommand, target: &Exa
     }
 }
 
-fn exact_count_metadata_candidate(command: &SqlGlobalAggregateCommand) -> bool {
-    (command.facts().is_direct_count_rows()
-        && (command.query().direct_count_cardinality_entity_candidate()
-            || command.query().direct_count_cardinality_prefix_candidate()))
+const fn exact_count_metadata_candidate(command: &SqlGlobalAggregateCommand) -> bool {
+    command
+        .facts()
+        .is_direct_count_cardinality_metadata_candidate()
         || command
             .facts()
             .exact_distinct_cardinality_target_slot()
@@ -487,7 +563,15 @@ impl<C: CanisterKind> DbSession<C> {
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
             catalog,
             direct_count_cardinality_prefix_keys_from_planned_query(prepared_plan),
-        );
+        )
+        .or_else(|| {
+            direct_count_cardinality_range_from_planned_query(prepared_plan).map(|plan| {
+                Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
+                    SqlCompiledSchemaFingerprint::from_catalog(catalog),
+                    plan,
+                ))
+            })
+        });
 
         ExactCountTarget::from_optional_entry(authority, entry, cache_attribution)
     }

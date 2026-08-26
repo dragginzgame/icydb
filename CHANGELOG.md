@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.242.x] 🎯 - 2026-08-25 - Exact Indexed Range Cardinality
+
+Detailed notes: [docs/changelog/0.242.md](docs/changelog/0.242.md)
+
+- `0.242.0` lets strictly admitted indexed `Int32` range counts sum existing
+  exact leading-value metadata, reducing measured 2,048-row queries from
+  23.4M–92.4M instructions to 0.68M–1.14M with zero row or index-entry reads.
+
 ## [0.241.x] 🧹 - 2026-08-25 - Aggregate Module Boundary Cleanup
 
 Detailed notes: [docs/changelog/0.241.md](docs/changelog/0.241.md)

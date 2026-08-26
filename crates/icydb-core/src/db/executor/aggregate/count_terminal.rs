@@ -21,6 +21,8 @@ use crate::{
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
+#[cfg(feature = "sql")]
+use std::ops::Bound;
 
 const EXACT_COUNT_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6578;
 
@@ -63,6 +65,13 @@ pub(in crate::db) enum ExactCardinalityTarget<'keys> {
     #[cfg(feature = "sql")]
     /// Exact number of non-empty leading components for one complete user index.
     UserIndexFirstComponentDistinct(IndexId),
+    #[cfg(feature = "sql")]
+    /// Exact row cardinality inside one first-component user-index interval.
+    UserIndexFirstComponentRange {
+        index_id: IndexId,
+        lower: &'keys Bound<Vec<u8>>,
+        upper: &'keys Bound<Vec<u8>>,
+    },
     /// Exact visible cardinality summed across one bounded user-index prefix family.
     UserIndexPrefixes(&'keys [UserIndexPrefixCardinalityKey]),
 }
@@ -73,6 +82,8 @@ impl ExactCardinalityTarget<'_> {
             Self::Entity => 1,
             #[cfg(feature = "sql")]
             Self::UserIndexFirstComponentDistinct(_) => 0,
+            #[cfg(feature = "sql")]
+            Self::UserIndexFirstComponentRange { .. } => 0,
             Self::UserIndexPrefixes(keys) => u64::try_from(keys.len()).unwrap_or(u64::MAX),
         }
     }
@@ -81,7 +92,8 @@ impl ExactCardinalityTarget<'_> {
         match self {
             Self::Entity | Self::UserIndexPrefixes(_) => true,
             #[cfg(feature = "sql")]
-            Self::UserIndexFirstComponentDistinct(_) => false,
+            Self::UserIndexFirstComponentDistinct(_)
+            | Self::UserIndexFirstComponentRange { .. } => false,
         }
     }
 }
@@ -112,10 +124,22 @@ where
                     }
                     #[cfg(feature = "sql")]
                     ExactCardinalityTarget::UserIndexFirstComponentDistinct(index_id) => {
-                        exact_user_index_first_component_distinct_cardinality(
-                            store, &authority, index_id,
+                        exact_user_index_first_component_cardinality(
+                            store, &authority, index_id, None, None,
                         )
                     }
+                    #[cfg(feature = "sql")]
+                    ExactCardinalityTarget::UserIndexFirstComponentRange {
+                        index_id,
+                        lower,
+                        upper,
+                    } => exact_user_index_first_component_cardinality(
+                        store,
+                        &authority,
+                        index_id,
+                        Some(lower),
+                        Some(upper),
+                    ),
                     ExactCardinalityTarget::UserIndexPrefixes(prefix_keys) => {
                         Ok(exact_user_index_prefix_cardinality_sum(store, prefix_keys))
                     }
@@ -147,10 +171,12 @@ where
 }
 
 #[cfg(feature = "sql")]
-fn exact_user_index_first_component_distinct_cardinality(
+fn exact_user_index_first_component_cardinality(
     store: StoreHandle,
     authority: &EntityAuthority,
     index_id: IndexId,
+    lower: Option<&Bound<Vec<u8>>>,
+    upper: Option<&Bound<Vec<u8>>>,
 ) -> Result<Option<u64>, InternalError> {
     if !accepted_index_target_matches(authority, index_id) {
         return Err(InternalError::query_executor_invariant());
@@ -159,23 +185,36 @@ fn exact_user_index_first_component_distinct_cardinality(
         return Ok(None);
     }
 
-    let per_unit = exact_distinct_per_unit_budget();
-    let semantic_capacity = current_execution_remaining_budget_units(&per_unit)?;
     let metadata_capacity = current_execution_remaining_budget_units(&[(
         DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
         1,
     )])?;
-    let Some(semantic_stop_after) = semantic_capacity.checked_add(1) else {
-        return Ok(None);
+    let bounds = lower.zip(upper);
+    let stop_after = if bounds.is_some() {
+        metadata_capacity
+    } else {
+        let semantic_capacity =
+            current_execution_remaining_budget_units(&exact_distinct_per_unit_budget())?;
+        let Some(semantic_stop_after) = semantic_capacity.checked_add(1) else {
+            return Ok(None);
+        };
+        semantic_stop_after.min(metadata_capacity)
     };
-    let stop_after = semantic_stop_after.min(metadata_capacity);
     if stop_after == 0 {
         return Ok(None);
     }
 
+    let unbounded = Bound::Unbounded;
+    let (lower, upper) = bounds.unwrap_or((&unbounded, &unbounded));
     let data_generation = store.with_data(DataStore::generation);
-    let Some((count, examined)) = store.with_index(|index| {
-        index.exact_first_component_distinct_cardinality(data_generation, index_id, stop_after)
+    let Some((total, examined, complete)) = store.with_index(|index| {
+        index.exact_first_component_range_cardinality(
+            data_generation,
+            index_id,
+            lower,
+            upper,
+            stop_after,
+        )
     })?
     else {
         return Ok(None);
@@ -184,16 +223,24 @@ fn exact_user_index_first_component_distinct_cardinality(
         DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
         examined,
     )?;
-    if count == stop_after {
+    if !complete || (bounds.is_none() && examined == stop_after) {
         return Ok(None);
     }
 
-    let charges = exact_distinct_success_budget(count)?;
-    if !try_charge_current_execution_budget_bundle(&charges)? {
+    let charged = match bounds {
+        Some(_) => try_charge_current_execution_budget_bundle(&[
+            (DiagnosticExecutionBudgetResource::ResultRows, 1),
+            (DiagnosticExecutionBudgetResource::ResultBytes, 32),
+        ])?,
+        None => {
+            try_charge_current_execution_budget_bundle(&exact_distinct_success_budget(examined)?)?
+        }
+    };
+    if !charged {
         return Ok(None);
     }
 
-    Ok(Some(count))
+    Ok(Some(if bounds.is_some() { total } else { examined }))
 }
 
 #[cfg(feature = "sql")]

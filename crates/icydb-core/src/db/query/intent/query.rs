@@ -94,16 +94,13 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn direct_count_cardinality_prefix_candidate(&self) -> bool {
-        matches!(
-            self.intent.direct_count_cardinality_prefix_predicate(),
-            Ok(Some(_))
-        )
+    pub(in crate::db) fn direct_count_cardinality_entity_candidate(&self) -> bool {
+        self.intent.direct_count_cardinality_entity_candidate()
     }
 
     #[must_use]
-    pub(in crate::db) fn direct_count_cardinality_entity_candidate(&self) -> bool {
-        self.intent.direct_count_cardinality_entity_candidate()
+    pub(in crate::db) fn direct_count_cardinality_candidate(&self) -> bool {
+        self.intent.direct_count_cardinality_candidate()
     }
 
     /// Append one predicate that has already been normalized by the caller.

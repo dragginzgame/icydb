@@ -2524,6 +2524,40 @@ fn query_user_distinct_budget_fallback_with_perf(
     })
 }
 
+/// Exhaust range metadata capacity, then compare exact-probe fallback with prepared execution.
+#[cfg(feature = "test-admin-api")]
+#[query]
+fn query_user_range_budget_fallback_with_perf(
+    prepared_control: bool,
+) -> Result<SqlBudgetFallbackPerfResult, icydb::Error> {
+    const PRECHARGE_RUNS: u32 = 122;
+    const PRECHARGE_SQL: &str = "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 1";
+    const EXACT_SQL: &str = "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 1 AND age <= 512";
+    const PREPARED_SQL: &str =
+        "SELECT COUNT(*) FILTER (WHERE true) FROM PerfAuditUser WHERE age >= 1 AND age <= 512";
+
+    icydb::db::with_request_execution(|| {
+        let session = icydb::db!()?;
+        for _ in 0..PRECHARGE_RUNS {
+            session.execute_trusted_sql_query(PRECHARGE_SQL)?;
+        }
+
+        let sql = if prepared_control {
+            PREPARED_SQL
+        } else {
+            EXACT_SQL
+        };
+        let start = ic_cdk::api::performance_counter(1);
+        let outcome = session.execute_trusted_sql_query(sql);
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(SqlBudgetFallbackPerfResult {
+            outcome,
+            instructions,
+        })
+    })
+}
+
 /// Execute one fixed streaming-fixture query with full attribution.
 #[cfg(feature = "sql")]
 #[query]

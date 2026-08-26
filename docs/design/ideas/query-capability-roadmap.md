@@ -46,6 +46,12 @@ raw Wasm, and its runtime changes were reverted. The separately authorized
 execution-flow candidate. It does not adopt the historical incremental-rollup
 assignment recorded later in this document; that intake candidate remains
 unnumbered and unpromoted.
+The current [0.242 exact indexed range cardinality
+design](../0.242-exact-indexed-range-cardinality/0.242-design.md) is an
+independent physical count optimization over existing generation-matched
+leading-index multiplicities. It does not adopt the historical partitioned or
+archive-aware history assignment recorded later in this document; that intake
+candidate remains unnumbered and unpromoted.
 Every other unreleased candidate remains unnumbered until a later
 current-surface audit and explicit user authorization promotes it.
 

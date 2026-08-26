@@ -329,6 +329,7 @@ impl IndexStore {
 
     /// Return the exact number of distinct non-empty leading components for
     /// one user index, bounded by `stop_after`, when metadata is synchronized.
+    #[cfg(test)]
     pub(in crate::db) fn exact_first_component_distinct_cardinality(
         &self,
         data_generation: u64,
@@ -337,6 +338,24 @@ impl IndexStore {
     ) -> Result<Option<(u64, u64)>, crate::error::InternalError> {
         self.prefix_cardinality
             .exact_first_component_distinct_count(data_generation, index_id, stop_after)
+    }
+
+    /// Sum exact first-component multiplicities within the caller's bounded range and work cap.
+    pub(in crate::db) fn exact_first_component_range_cardinality(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        lower: &Bound<Vec<u8>>,
+        upper: &Bound<Vec<u8>>,
+        stop_after: u64,
+    ) -> Result<Option<(u64, u64, bool)>, crate::error::InternalError> {
+        self.prefix_cardinality.exact_first_component_range_count(
+            data_generation,
+            index_id,
+            lower,
+            upper,
+            stop_after,
+        )
     }
 
     /// Return the exact live-overlay delta from canonical for one user-index prefix.
