@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.245.x] 🧹 - 2026-08-26 - Generated Schema Application Footprint
+
+Detailed notes: [docs/changelog/0.245.md](docs/changelog/0.245.md)
+
+- `0.245.0` keeps generated schema installation and upgrade on the singular
+  accepted-schema application authority while making explicit-removal lowering
+  unreachable in generated-only actors, removing about 107 KiB of final raw
+  Wasm without changing schema behavior or startup cost.
+
 ## [0.244.x] ⚡ - 2026-08-26 - Exact Indexed Numeric Aggregates
 
 Detailed notes: [docs/changelog/0.244.md](docs/changelog/0.244.md)

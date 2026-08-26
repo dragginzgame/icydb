@@ -1,0 +1,96 @@
+{
+  "audit": {
+    "date": "2026-08-26",
+    "scope": "wasm-footprint",
+    "method": "WASM-3.0",
+    "run": "01",
+    "code_snapshot": "12400d581c60e826e5ef8e6013366bbe18f2abd8",
+    "tree": "d242440ba158ef69121f32a5a3368c839353fbd5",
+    "source_dirty_at_capture": false,
+    "compared_baseline": "docs/reports/recurring/2026/06/15/wasm-footprint/01/report.md",
+    "comparability": "non-comparable baseline target/method schema; clean current run establishes the WASM-3.0 eight-actor baseline",
+    "verdict": "PASS WITH FINDINGS",
+    "implementation_blockers": []
+  },
+  "findings": [
+    {
+      "id": "WASM-001",
+      "risk": "MEDIUM",
+      "owner": [
+        "crates/icydb-model/src/build/actor/db/store.rs",
+        "crates/icydb-core/src/db/schema/application.rs",
+        "crates/icydb-core/src/db/schema/application_lowering.rs"
+      ],
+      "title": "Startup and schema application dominate the shared runtime floor",
+      "evidence": "The final empty actor is 1,946,039 bytes. Named attribution retains 1,066,322 bytes from startup_driver_attempt in the typed actor and 1,009,362 bytes in the SQL actor; lower_application_candidates retains 271,360 and 247,799 bytes respectively.",
+      "impact": "A broad cleanup here could reduce every generated canister, while a mistaken split or duplicated helper could grow every canister and weaken startup correctness.",
+      "disposition": "OWNER AUDIT COMPLETE; BOUNDED EXPERIMENT ONLY",
+      "audit_result": "Generated proposals always carry an empty removal set, but initial and existing-head lowering, canonical proposal composition and the singular core admission/publication authority are all lifecycle-required.",
+      "measured_bounds": {
+        "direct_removal_family_named_shallow_bytes": 31466,
+        "removal_sort_family_named_shallow_bytes": 13833,
+        "existing_store_candidate_named_retained_bytes_min": 124104,
+        "existing_store_candidate_named_retained_bytes_max": 124120,
+        "minimum_future_final_raw_saving_bytes": 32768
+      },
+      "recommended_experiment": "Measure one private generated no-removal lowering contract beneath the existing core authority; reject it if any minimum actor saves less than 32 KiB final raw Wasm or startup instructions regress.",
+      "rejected_alternatives": [
+        "bypass generated fragment decoding or canonical proposal composition",
+        "split initial installation from existing-head reconciliation",
+        "merge removal representations only to share sort monomorphs",
+        "treat facade source duplication as measured Wasm duplication"
+      ],
+      "trigger": "Only after a new footprint minor is explicitly authorized; the SQL-ingress owner audit is the next read-only closeout opportunity.",
+      "blocks_0_244": false
+    },
+    {
+      "id": "WASM-002",
+      "risk": "MEDIUM",
+      "owner": [
+        "crates/icydb-core/src/db/session/sql",
+        "crates/icydb-core/src/db/sql",
+        "crates/icydb-core/src/db/executor"
+      ],
+      "title": "The SQL ingress retains a 1.125 MB execution closure",
+      "evidence": "Final-artifact dominators attribute 1,125,250 bytes, 34.23% of one_entity_sql_query, to query_one_entity_sql. The SQL actor is 1,169,747 bytes larger than the typed actor, but that cross-actor subtraction remains directional by contract.",
+      "impact": "The largest SQL-only opportunity is flow-wide frontend/executor retention, not another narrow exact aggregate branch.",
+      "disposition": "AUDIT OWNER SURFACE BEFORE DESIGN",
+      "trigger": "Before the next SQL performance or Wasm optimization design selects a production owner.",
+      "blocks_0_244": false
+    },
+    {
+      "id": "WASM-003",
+      "risk": "LOW",
+      "owner": [
+        "cross-cutting sort call sites"
+      ],
+      "title": "Sort monomorphization is the largest generic-bloat family",
+      "evidence": "Named Twiggy estimates 113,858 bytes across four sort families in the typed actor, 171,947 in SQL, and 148,653 in the ten-entity actor.",
+      "impact": "The signal is broad but not directly removable because the instances carry different types and ordering semantics; type erasure may exchange bytes for instructions and complexity.",
+      "disposition": "ACCEPT UNTIL PAIRED EXPERIMENT",
+      "trigger": "A concrete existing sort owner can be shared without allocation, indirect dispatch, semantic change or query regression.",
+      "blocks_0_244": false
+    }
+  ],
+  "authoritative_final_raw_bytes": {
+    "default_empty": 1946039,
+    "default_empty_metrics": 2127698,
+    "one_entity_dynamic_query": 2971900,
+    "one_entity_typed_query": 2117501,
+    "one_entity_sql_query": 3287248,
+    "ten_entity_typed_query": 2847161,
+    "sql_perf": 4453651,
+    "sql": 3836191
+  },
+  "verification": {
+    "clean_source_provenance": "PASS",
+    "eight_actor_production_build": "PASS",
+    "machine_readable_size_reports": "PASS",
+    "twiggy_top": "PASS",
+    "twiggy_dominators": "PASS",
+    "twiggy_retained": "PASS",
+    "twiggy_monos": "PASS",
+    "comparable_historical_baseline": "PARTIAL",
+    "production_changes_by_audit": "PASS"
+  }
+}

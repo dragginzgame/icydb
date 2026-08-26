@@ -62,6 +62,16 @@ impl<C: CanisterKind> DbSession<C> {
         crate::db::schema::schema_migration_status(&self.db, proposal, request)
     }
 
+    /// Apply one canonical generated proposal after proving it contains no
+    /// explicit removals.
+    #[doc(hidden)]
+    pub fn apply_generated_schema(
+        &self,
+        proposal: &SchemaProposal,
+    ) -> Result<SchemaChangeReceipt, InternalError> {
+        crate::db::schema::apply_generated_schema(&self.db, proposal)
+    }
+
     /// Apply one exact source-keyed schema proposal through accepted catalog
     /// authority and return its durable idempotent receipt.
     pub fn apply_schema(

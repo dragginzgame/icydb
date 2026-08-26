@@ -536,33 +536,8 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     {
         return Err(InternalError::store_unsupported());
     }
-    let mut store_by_identity = BTreeMap::new();
-    for store in stores {
-        store_by_identity.insert(store.identity, store);
-    }
-    let (entities, types) = proposal_definitions(proposal);
-    if entities.len() != proposal.assignments().len() {
-        return Err(InternalError::store_unsupported());
-    }
-
-    let mut entities_by_store = ExistingEntitiesByStore::new();
+    let (mut entities_by_store, types) = existing_proposal_entities_by_store(proposal, stores)?;
     let mut removals_by_store = BTreeMap::<&'static str, ExistingStoreRemovals>::new();
-    for assignment in proposal.assignments() {
-        let store = store_by_identity
-            .get(&assignment.store())
-            .copied()
-            .ok_or_else(InternalError::store_unsupported)?;
-        let entity = entities
-            .get(assignment.entity())
-            .copied()
-            .ok_or_else(InternalError::store_unsupported)?;
-        verify_unique_entity_binding(stores, assignment.entity(), store)?;
-        entities_by_store
-            .entry(store.path)
-            .or_insert_with(|| (store, Vec::new()))
-            .1
-            .push(entity);
-    }
     for removal in proposal.removals() {
         if let SchemaRemoval::Type(source) = removal {
             attach_existing_type_removal(
@@ -602,6 +577,74 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
         return Err(InternalError::store_unsupported());
     }
     Ok(candidates)
+}
+
+/// Lower one canonical generated proposal whose sealed ingress proves that it
+/// cannot request explicit removals.
+pub(in crate::db::schema) fn lower_generated_existing_schema_proposal(
+    proposal: &SchemaProposal,
+    stores: &[ExistingProposalStore<'_>],
+) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
+    if !proposal.removals().is_empty() {
+        return Err(InternalError::store_invariant());
+    }
+    let (entities_by_store, types) = existing_proposal_entities_by_store(proposal, stores)?;
+    let mut used_types = BTreeSet::new();
+    let mut candidates = Vec::new();
+    for (_, (store, store_entities)) in entities_by_store {
+        if let Some(candidate) = lower_generated_existing_store_candidate(
+            store,
+            stores,
+            store_entities,
+            &types,
+            &mut used_types,
+        )? {
+            candidates.push(candidate);
+        }
+    }
+    if used_types.len() != types.len() {
+        return Err(InternalError::store_unsupported());
+    }
+    Ok(candidates)
+}
+
+fn existing_proposal_entities_by_store<'store, 'bundle, 'proposal>(
+    proposal: &'proposal SchemaProposal,
+    stores: &'store [ExistingProposalStore<'bundle>],
+) -> Result<
+    (
+        ExistingEntitiesByStore<'store, 'bundle, 'proposal>,
+        BTreeMap<TypeSourceKey, &'proposal NamedTypeFragment>,
+    ),
+    InternalError,
+> {
+    let mut store_by_identity = BTreeMap::new();
+    for store in stores {
+        store_by_identity.insert(store.identity, store);
+    }
+    let (entities, types) = proposal_definitions(proposal);
+    if entities.len() != proposal.assignments().len() {
+        return Err(InternalError::store_unsupported());
+    }
+
+    let mut entities_by_store = ExistingEntitiesByStore::new();
+    for assignment in proposal.assignments() {
+        let store = store_by_identity
+            .get(&assignment.store())
+            .copied()
+            .ok_or_else(InternalError::store_unsupported)?;
+        let entity = entities
+            .get(assignment.entity())
+            .copied()
+            .ok_or_else(InternalError::store_unsupported)?;
+        verify_unique_entity_binding(stores, assignment.entity(), store)?;
+        entities_by_store
+            .entry(store.path)
+            .or_insert_with(|| (store, Vec::new()))
+            .1
+            .push(entity);
+    }
+    Ok((entities_by_store, types))
 }
 
 /// One source-resolved generated row-local constraint selected for exact removal.
@@ -691,97 +734,152 @@ enum ExistingRemoval {
     Relation(ExistingRelationRemoval),
 }
 
+/// Shared existing-store candidate state after accepted catalogs are pinned.
+/// Explicit removal mutation remains a separate optional preparation step so
+/// generated no-removal actors do not retain it.
+struct ExistingStoreCandidateState {
+    catalogs: ExistingCatalogCandidate,
+    snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    source_bindings: AcceptedSourceBindingCatalog,
+    changed: bool,
+}
+
+impl ExistingStoreCandidateState {
+    fn new(
+        store: &ExistingProposalStore<'_>,
+        entities: &[&EntityFragment],
+        types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+        used_types: &mut BTreeSet<TypeSourceKey>,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
+            catalogs: lower_existing_named_catalogs(store.bundle, entities, types, used_types)?,
+            snapshots: store.bundle.entity_snapshots().clone(),
+            source_bindings: store.bundle.source_bindings().clone(),
+            changed: false,
+        })
+    }
+
+    fn apply_removals(
+        &mut self,
+        mut removals: ExistingStoreRemovals,
+    ) -> Result<BTreeSet<EntityTag>, InternalError> {
+        removals.constraints.sort_unstable();
+        removals.entities.sort_unstable();
+        removals.fields.sort_unstable();
+        removals.indexes.sort_unstable();
+        removals.relations.sort_unstable();
+        removals.types.sort_unstable();
+        self.changed = !removals.is_empty();
+
+        let mut changed_entities = apply_existing_constraint_removals(
+            &mut self.snapshots,
+            &mut self.source_bindings,
+            removals.constraints.as_slice(),
+        )?;
+        changed_entities.extend(apply_existing_index_removals(
+            &mut self.snapshots,
+            &mut self.source_bindings,
+            removals.indexes.as_slice(),
+        )?);
+        changed_entities.extend(apply_existing_relation_removals(
+            &mut self.snapshots,
+            &mut self.source_bindings,
+            removals.relations.as_slice(),
+        )?);
+        changed_entities.extend(apply_existing_field_removals(
+            &mut self.snapshots,
+            &mut self.source_bindings,
+            removals.fields.as_slice(),
+        )?);
+        apply_existing_type_removals(
+            &mut self.catalogs,
+            &self.snapshots,
+            &mut self.source_bindings,
+            removals.types.as_slice(),
+        )?;
+        apply_existing_entity_removals(
+            &mut self.snapshots,
+            &mut self.source_bindings,
+            removals.entities.as_slice(),
+        )?;
+        advance_removed_entity_schema_versions(&mut self.snapshots, &changed_entities)?;
+        Ok(changed_entities)
+    }
+
+    fn finish(
+        mut self,
+        store: &ExistingProposalStore<'_>,
+        stores: &[ExistingProposalStore<'_>],
+        entities: Vec<&EntityFragment>,
+        version_advanced: Option<&BTreeSet<EntityTag>>,
+    ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+        for entity in entities {
+            let entity_tag = store
+                .bundle
+                .source_bindings()
+                .entity(entity.source_key())
+                .ok_or_else(InternalError::store_unsupported)?;
+            let current = self
+                .snapshots
+                .get(&entity_tag)
+                .ok_or_else(InternalError::store_invariant)?;
+            if let Some(candidate) = lower_existing_entity(
+                store.bundle,
+                &self.catalogs,
+                stores,
+                entity,
+                current,
+                version_advanced.is_some_and(|tags| tags.contains(&entity_tag)),
+                &mut self.source_bindings,
+            )? {
+                self.snapshots.insert(entity_tag, candidate);
+                self.changed = true;
+            }
+        }
+        if !self.changed && !self.catalogs.changed {
+            return Ok(None);
+        }
+        let revision = store
+            .bundle
+            .revision()
+            .checked_next()
+            .ok_or_else(InternalError::store_unsupported)?;
+        let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+            revision,
+            store.path,
+            self.catalogs.enum_catalog,
+            self.catalogs.composite_catalog,
+            self.source_bindings,
+            self.snapshots,
+        )?;
+        CandidateSchemaRevision::new(bundle).map(Some)
+    }
+}
+
 fn lower_existing_store_candidate(
     store: &ExistingProposalStore<'_>,
     stores: &[ExistingProposalStore<'_>],
     mut entities: Vec<&EntityFragment>,
-    mut removals: ExistingStoreRemovals,
+    removals: ExistingStoreRemovals,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
     entities.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
-    removals.constraints.sort_unstable();
-    removals.entities.sort_unstable();
-    removals.fields.sort_unstable();
-    removals.indexes.sort_unstable();
-    removals.relations.sort_unstable();
-    removals.types.sort_unstable();
-    let mut catalogs =
-        lower_existing_named_catalogs(store.bundle, entities.as_slice(), types, used_types)?;
-    let mut snapshots = store.bundle.entity_snapshots().clone();
-    let mut source_bindings = store.bundle.source_bindings().clone();
-    let mut removal_entity_tags = apply_existing_constraint_removals(
-        &mut snapshots,
-        &mut source_bindings,
-        removals.constraints.as_slice(),
-    )?;
-    removal_entity_tags.extend(apply_existing_index_removals(
-        &mut snapshots,
-        &mut source_bindings,
-        removals.indexes.as_slice(),
-    )?);
-    removal_entity_tags.extend(apply_existing_relation_removals(
-        &mut snapshots,
-        &mut source_bindings,
-        removals.relations.as_slice(),
-    )?);
-    removal_entity_tags.extend(apply_existing_field_removals(
-        &mut snapshots,
-        &mut source_bindings,
-        removals.fields.as_slice(),
-    )?);
-    apply_existing_type_removals(
-        &mut catalogs,
-        &snapshots,
-        &mut source_bindings,
-        removals.types.as_slice(),
-    )?;
-    apply_existing_entity_removals(
-        &mut snapshots,
-        &mut source_bindings,
-        removals.entities.as_slice(),
-    )?;
-    advance_removed_entity_schema_versions(&mut snapshots, &removal_entity_tags)?;
-    let mut changed = !removals.is_empty();
-    for entity in entities {
-        let entity_tag = store
-            .bundle
-            .source_bindings()
-            .entity(entity.source_key())
-            .ok_or_else(InternalError::store_unsupported)?;
-        let current = snapshots
-            .get(&entity_tag)
-            .ok_or_else(InternalError::store_invariant)?;
-        if let Some(candidate) = lower_existing_entity(
-            store.bundle,
-            &catalogs,
-            stores,
-            entity,
-            current,
-            removal_entity_tags.contains(&entity_tag),
-            &mut source_bindings,
-        )? {
-            snapshots.insert(entity_tag, candidate);
-            changed = true;
-        }
-    }
-    if !changed && !catalogs.changed {
-        return Ok(None);
-    }
-    let revision = store
-        .bundle
-        .revision()
-        .checked_next()
-        .ok_or_else(InternalError::store_unsupported)?;
-    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
-        revision,
-        store.path,
-        catalogs.enum_catalog,
-        catalogs.composite_catalog,
-        source_bindings,
-        snapshots,
-    )?;
-    CandidateSchemaRevision::new(bundle).map(Some)
+    let mut state = ExistingStoreCandidateState::new(store, &entities, types, used_types)?;
+    let version_advanced = state.apply_removals(removals)?;
+    state.finish(store, stores, entities, Some(&version_advanced))
+}
+
+fn lower_generated_existing_store_candidate(
+    store: &ExistingProposalStore<'_>,
+    stores: &[ExistingProposalStore<'_>],
+    mut entities: Vec<&EntityFragment>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    used_types: &mut BTreeSet<TypeSourceKey>,
+) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    entities.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
+    ExistingStoreCandidateState::new(store, &entities, types, used_types)?
+        .finish(store, stores, entities, None)
 }
 
 /// Resolve one explicit removal to its unique accepted store and structural
@@ -3210,7 +3308,8 @@ mod tests {
 
     use super::{
         ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
-        lower_field_type, lower_initial_field_type, lower_initial_schema_proposal,
+        lower_field_type, lower_generated_existing_schema_proposal, lower_initial_field_type,
+        lower_initial_schema_proposal,
     };
     use crate::db::{
         data::{
@@ -4413,15 +4512,16 @@ mod tests {
             5,
         );
 
-        let candidates = lower_existing_schema_proposal(
-            &addition,
-            &[ExistingProposalStore {
-                path: "test::Store",
-                identity: store,
-                bundle: initial_bundle,
-            }],
-        )
-        .expect("generated check addition should lower");
+        let stores = [ExistingProposalStore {
+            path: "test::Store",
+            identity: store,
+            bundle: initial_bundle,
+        }];
+        let candidates = lower_existing_schema_proposal(&addition, &stores)
+            .expect("generated check addition should lower");
+        let generated = lower_generated_existing_schema_proposal(&addition, &stores)
+            .expect("sealed generated check addition should lower");
+        assert_eq!(generated[0].bundle(), candidates[0].bundle());
         let added_bundle = candidates[0].bundle();
         let entity_tag = added_bundle
             .source_bindings_for_tests()
@@ -4491,15 +4591,17 @@ mod tests {
         )
         .expect("exact removal proposal should compose");
 
-        let candidates = lower_existing_schema_proposal(
-            &removal,
-            &[ExistingProposalStore {
-                path: "test::Store",
-                identity: store,
-                bundle: initial_bundle,
-            }],
-        )
-        .expect("generated check removal should lower");
+        let stores = [ExistingProposalStore {
+            path: "test::Store",
+            identity: store,
+            bundle: initial_bundle,
+        }];
+        assert!(
+            lower_generated_existing_schema_proposal(&removal, &stores).is_err(),
+            "sealed generated ingress must reject explicit removals",
+        );
+        let candidates = lower_existing_schema_proposal(&removal, &stores)
+            .expect("explicit generated check removal should lower");
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].revision().get(), 2);

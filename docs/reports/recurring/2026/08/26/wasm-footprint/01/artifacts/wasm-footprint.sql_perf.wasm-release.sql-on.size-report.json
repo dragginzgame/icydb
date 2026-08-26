@@ -1,0 +1,421 @@
+{
+  "format_version": 1,
+  "measurement_profile": {
+    "version": 1,
+    "identity": "icydb-wasm-footprint/0.220/v1",
+    "comparisons": [
+      {
+        "id": "metrics_surface",
+        "baseline": "default_empty",
+        "candidate": "default_empty_metrics",
+        "disposition": "directional_only",
+        "reason": "distinct actor sources differ by endpoint declarations and retained metrics wiring"
+      },
+      {
+        "id": "typed_ingress",
+        "baseline": "one_entity_dynamic_query",
+        "candidate": "one_entity_typed_query",
+        "disposition": "directional_only",
+        "reason": "distinct actor sources differ by public method bodies and typed adapter reachability"
+      },
+      {
+        "id": "sql_ingress",
+        "baseline": "one_entity_typed_query",
+        "candidate": "one_entity_sql_query",
+        "disposition": "directional_only",
+        "reason": "distinct actor sources differ by public method bodies and SQL capability reachability"
+      },
+      {
+        "id": "entity_scale",
+        "baseline": "one_entity_typed_query",
+        "candidate": "ten_entity_typed_query",
+        "disposition": "directional_only",
+        "reason": "the intended entity-count change also changes the generated accepted-schema proposal"
+      }
+    ],
+    "patch_budgets": [
+      {
+        "patch": 2,
+        "minimum_selected_raw_reduction_basis_points": 700,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 0,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 3,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 300,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 4,
+        "minimum_selected_raw_reduction_basis_points": 500,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 5,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 6,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 7,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 500,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      }
+    ],
+    "line_budgets": [
+      {
+        "subject": "default_empty",
+        "minimum_final_raw_reduction_basis_points": 0
+      },
+      {
+        "subject": "default_empty_metrics",
+        "minimum_final_raw_reduction_basis_points": 500
+      },
+      {
+        "subject": "one_entity_dynamic_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "one_entity_typed_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "one_entity_sql_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "ten_entity_typed_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "sql_perf",
+        "minimum_final_raw_reduction_basis_points": 500
+      },
+      {
+        "subject": "sql",
+        "minimum_final_raw_reduction_basis_points": 500
+      }
+    ]
+  },
+  "provenance": {
+    "source_revision": "12400d581c60e826e5ef8e6013366bbe18f2abd8",
+    "source_tree": "d242440ba158ef69121f32a5a3368c839353fbd5",
+    "source_dirty": false,
+    "lockfile_sha256": "c2f01201c039abe2d8237ef50a6c7aa8cfc9870f5230f2eb29e8446d17ae5022",
+    "workspace_root": "/home/adam/projects/icydb",
+    "cargo_target_dir": "/home/adam/projects/icydb/target/icydb",
+    "rust_toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)\nbinary: rustc\ncommit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452\ncommit-date: 2026-07-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.1\nLLVM version: 22.1.6"
+  },
+  "tools": {
+    "ic_wasm_version": "ic-wasm 0.11.1",
+    "ic_wasm_sha256": "204dad3ad59b78a46fad559dfefcdcaee3609433e5e4e6d81bda5e051a2bc0bc",
+    "wasm_opt_version": "wasm-opt version 108",
+    "wasm_opt_sha256": "945bd42c417fadcd7a522919cfee341317c16de7cc47cef8add1e6d7f7f88eea"
+  },
+  "pipeline": {
+    "compiler_emitted_stage": "cargo_wasm",
+    "post_link_transform": "binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2",
+    "final_deployable_stage": "binaryen_oz_wasm",
+    "candid_metadata": "enabled",
+    "build_profile": "production",
+    "no_default_features": true,
+    "path_remapping": "workspace=/w;cargo-registry=/c;rust-library=/r"
+  },
+  "canister": "sql_perf",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/sql_perf.wasm-release.did",
+      "bytes": 61408,
+      "sha256": "2df06ec3697e3392c16d80d0b2578c40005e489a3fb36cc75c7a17bd626c8ee5"
+    },
+    "candid_export": "available",
+    "compiler_emitted_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/sql_perf.wasm-release.compiler-emitted.wasm",
+      "bytes": 5092561,
+      "sha256": "c3a528f8b20d983e529d9b6b6082bf8105b7b74e9a4864c3f5cdb0e3a18387fc"
+    },
+    "final_deployable_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/sql_perf.wasm-release.final-deployable.wasm",
+      "bytes": 4453651,
+      "sha256": "dedcd5e863fd101cda1bd43cedaaaedd02d0256e858ea0109d81861636a74c2a"
+    },
+    "final_deployable_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/sql_perf.wasm-release.final-deployable.wasm.gz",
+      "bytes": 1731325,
+      "sha256": "ca3dffc348fd0c1831c7a634a565f0d12153df6408b7ecb86747d5ab2b9ede7c"
+    }
+  },
+  "analysis": {
+    "compiler_emitted": {
+      "function_count": 11343,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 240008,
+      "exported_method_count": 70,
+      "exported_methods": [
+        "canister_init (func_11273)",
+        "canister_query accepted_schema_descriptions (func_11274)",
+        "canister_query collection_mutation_scale_fact (func_11275)",
+        "canister_query icydb_metrics (func_11276)",
+        "canister_query query_account (func_11277)",
+        "canister_query query_account_loop_with_perf (func_11278)",
+        "canister_query query_account_with_perf (func_11279)",
+        "canister_query query_blob (func_11280)",
+        "canister_query query_blob_loop_with_perf (func_11281)",
+        "canister_query query_blob_with_perf (func_11282)",
+        "canister_query query_heap_user_loop_with_perf (func_11283)",
+        "canister_query query_heap_user_total_only_perf (func_11284)",
+        "canister_query query_heap_user_with_perf (func_11285)",
+        "canister_query query_journaled_user_loop_with_perf (func_11286)",
+        "canister_query query_journaled_user_total_only_perf (func_11287)",
+        "canister_query query_journaled_user_with_perf (func_11288)",
+        "canister_query query_streaming_execution_exhaustive_page (func_11289)",
+        "canister_query query_streaming_execution_live_page (func_11290)",
+        "canister_query query_streaming_execution_loop_with_perf (func_11291)",
+        "canister_query query_streaming_execution_with_perf (func_11292)",
+        "canister_query query_token (func_11293)",
+        "canister_query query_token_loop_with_perf (func_11294)",
+        "canister_query query_token_with_perf (func_11295)",
+        "canister_query query_user (func_11296)",
+        "canister_query query_user_attributed_total_perf (func_11297)",
+        "canister_query query_user_loop_with_perf (func_11298)",
+        "canister_query query_user_total_only_perf (func_11299)",
+        "canister_query query_user_with_perf (func_11300)",
+        "canister_update acknowledge_collection_mutation_scale_job (func_11301)",
+        "canister_update advance_collection_mutation_scale_job (func_11302)",
+        "canister_update collection_mutation_scale_job_state (func_11303)",
+        "canister_update icydb_metrics_reset (func_11304)",
+        "canister_update load_account_scale_fixture (func_11305)",
+        "canister_update load_blob_scale_fixture (func_11306)",
+        "canister_update load_collection_mutation_scale_page (func_11307)",
+        "canister_update load_heap_user_scale_fixture (func_11308)",
+        "canister_update load_journal_tail_integrity_fixture (func_11309)",
+        "canister_update load_journaled_reentry_probe_fixture (func_11310)",
+        "canister_update load_journaled_user_scale_fixture (func_11311)",
+        "canister_update load_relation_integrity_fixture (func_11312)",
+        "canister_update load_streaming_execution_continuation_fixture (func_11313)",
+        "canister_update load_streaming_execution_fixture (func_11314)",
+        "canister_update load_token_scale_fixture (func_11315)",
+        "canister_update load_user_scale_fixture (func_11316)",
+        "canister_update measure_heap_user_sql_write_materialization_perf (func_11317)",
+        "canister_update measure_heap_user_write_matrix_perf (func_11318)",
+        "canister_update measure_integrity_sql_perf (func_11319)",
+        "canister_update measure_journaled_reentry_perf (func_11320)",
+        "canister_update measure_journaled_user_checked_write_perf (func_11321)",
+        "canister_update measure_journaled_user_constraint_write_perf (func_11322)",
+        "canister_update measure_journaled_user_mutation_forward_perf (func_11323)",
+        "canister_update measure_journaled_user_sql_write_materialization_perf (func_11324)",
+        "canister_update measure_journaled_user_write_matrix_perf (func_11325)",
+        "canister_update recover_collection_mutation_scale_store (func_11326)",
+        "canister_update start_collection_mutation_scale_job (func_11327)",
+        "canister_update start_journaled_user_mutation_job (func_11328)",
+        "canister_update try_collection_eager_tier_reset (func_11329)",
+        "canister_update validate_journaled_user_perf_check (func_11330)",
+        "canister_update verify_journaled_user_mutation_job_lifecycle (func_11331)",
+        "canister_update warm_account_query_with_perf (func_11332)",
+        "canister_update warm_blob_query_with_perf (func_11333)",
+        "canister_update warm_heap_user_query_with_perf (func_11334)",
+        "canister_update warm_journaled_user_query_with_perf (func_11335)",
+        "canister_update warm_streaming_execution_query_with_perf (func_11336)",
+        "canister_update warm_token_query_with_perf (func_11337)",
+        "canister_update warm_user_query_with_perf (func_11338)",
+        "get_candid_pointer (func_11339)",
+        "canister_global_timer (func_11340)",
+        "canister_update <ic-cdk internal> timer_executor (func_11341)",
+        "canister_post_upgrade (func_11342)"
+      ]
+    },
+    "final_deployable": {
+      "function_count": 10853,
+      "callback_count": 1,
+      "data_section_count": 206,
+      "data_section_bytes": 233789,
+      "exported_method_count": 70,
+      "exported_methods": [
+        "canister_init (func_10600)",
+        "canister_query accepted_schema_descriptions (func_10601)",
+        "canister_query collection_mutation_scale_fact (func_10602)",
+        "canister_query icydb_metrics (func_10603)",
+        "canister_query query_account (func_10604)",
+        "canister_query query_account_loop_with_perf (func_10605)",
+        "canister_query query_account_with_perf (func_10606)",
+        "canister_query query_blob (func_10607)",
+        "canister_query query_blob_loop_with_perf (func_10608)",
+        "canister_query query_blob_with_perf (func_10609)",
+        "canister_query query_heap_user_loop_with_perf (func_10610)",
+        "canister_query query_heap_user_total_only_perf (func_10611)",
+        "canister_query query_heap_user_with_perf (func_10612)",
+        "canister_query query_journaled_user_loop_with_perf (func_10613)",
+        "canister_query query_journaled_user_total_only_perf (func_10614)",
+        "canister_query query_journaled_user_with_perf (func_10615)",
+        "canister_query query_streaming_execution_exhaustive_page (func_10616)",
+        "canister_query query_streaming_execution_live_page (func_10617)",
+        "canister_query query_streaming_execution_loop_with_perf (func_10618)",
+        "canister_query query_streaming_execution_with_perf (func_10619)",
+        "canister_query query_token (func_10620)",
+        "canister_query query_token_loop_with_perf (func_10621)",
+        "canister_query query_token_with_perf (func_10622)",
+        "canister_query query_user (func_10623)",
+        "canister_query query_user_attributed_total_perf (func_10624)",
+        "canister_query query_user_loop_with_perf (func_10625)",
+        "canister_query query_user_total_only_perf (func_10626)",
+        "canister_query query_user_with_perf (func_10627)",
+        "canister_update acknowledge_collection_mutation_scale_job (func_10628)",
+        "canister_update advance_collection_mutation_scale_job (func_10629)",
+        "canister_update collection_mutation_scale_job_state (func_10630)",
+        "canister_update icydb_metrics_reset (func_10631)",
+        "canister_update load_account_scale_fixture (func_10632)",
+        "canister_update load_blob_scale_fixture (func_10633)",
+        "canister_update load_collection_mutation_scale_page (func_10634)",
+        "canister_update load_heap_user_scale_fixture (func_10635)",
+        "canister_update load_journal_tail_integrity_fixture (func_10636)",
+        "canister_update load_journaled_reentry_probe_fixture (func_10637)",
+        "canister_update load_journaled_user_scale_fixture (func_10638)",
+        "canister_update load_relation_integrity_fixture (func_10639)",
+        "canister_update load_streaming_execution_continuation_fixture (func_10640)",
+        "canister_update load_streaming_execution_fixture (func_10641)",
+        "canister_update load_token_scale_fixture (func_10642)",
+        "canister_update load_user_scale_fixture (func_10643)",
+        "canister_update measure_heap_user_sql_write_materialization_perf (func_10644)",
+        "canister_update measure_heap_user_write_matrix_perf (func_10645)",
+        "canister_update measure_integrity_sql_perf (func_10646)",
+        "canister_update measure_journaled_reentry_perf (func_10647)",
+        "canister_update measure_journaled_user_checked_write_perf (func_10648)",
+        "canister_update measure_journaled_user_constraint_write_perf (func_10649)",
+        "canister_update measure_journaled_user_mutation_forward_perf (func_10650)",
+        "canister_update measure_journaled_user_sql_write_materialization_perf (func_10651)",
+        "canister_update measure_journaled_user_write_matrix_perf (func_10652)",
+        "canister_update recover_collection_mutation_scale_store (func_10653)",
+        "canister_update start_collection_mutation_scale_job (func_10654)",
+        "canister_update start_journaled_user_mutation_job (func_10655)",
+        "canister_update try_collection_eager_tier_reset (func_10656)",
+        "canister_update validate_journaled_user_perf_check (func_10657)",
+        "canister_update verify_journaled_user_mutation_job_lifecycle (func_10658)",
+        "canister_update warm_account_query_with_perf (func_10659)",
+        "canister_update warm_blob_query_with_perf (func_10660)",
+        "canister_update warm_heap_user_query_with_perf (func_10661)",
+        "canister_update warm_journaled_user_query_with_perf (func_10662)",
+        "canister_update warm_streaming_execution_query_with_perf (func_10663)",
+        "canister_update warm_token_query_with_perf (func_10664)",
+        "canister_update warm_user_query_with_perf (func_10665)",
+        "get_candid_pointer (func_10666)",
+        "canister_global_timer (func_10667)",
+        "canister_update <ic-cdk internal> timer_executor (func_10668)",
+        "canister_post_upgrade (func_10600)"
+      ]
+    },
+    "enabled_wasm_features": [
+      "--enable-bulk-memory",
+      "--enable-nontrapping-float-to-int",
+      "--enable-sign-ext"
+    ]
+  },
+  "build": {
+    "exact_features": [
+      "candid-export",
+      "diagnostics",
+      "sql"
+    ],
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_update": false,
+      "sql_integrity": false,
+      "sql_fixtures": false,
+      "metrics": true,
+      "metrics_extended": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": [
+      "canister_init",
+      "accepted_schema_descriptions",
+      "collection_mutation_scale_fact",
+      "query_account",
+      "query_account_loop_with_perf",
+      "query_account_with_perf",
+      "query_blob",
+      "query_blob_loop_with_perf",
+      "query_blob_with_perf",
+      "query_heap_user_loop_with_perf",
+      "query_heap_user_total_only_perf",
+      "query_heap_user_with_perf",
+      "query_journaled_user_loop_with_perf",
+      "query_journaled_user_total_only_perf",
+      "query_journaled_user_with_perf",
+      "query_streaming_execution_exhaustive_page",
+      "query_streaming_execution_live_page",
+      "query_streaming_execution_loop_with_perf",
+      "query_streaming_execution_with_perf",
+      "query_token",
+      "query_token_loop_with_perf",
+      "query_token_with_perf",
+      "query_user",
+      "query_user_attributed_total_perf",
+      "query_user_loop_with_perf",
+      "query_user_total_only_perf",
+      "query_user_with_perf",
+      "acknowledge_collection_mutation_scale_job",
+      "advance_collection_mutation_scale_job",
+      "collection_mutation_scale_job_state",
+      "load_account_scale_fixture",
+      "load_blob_scale_fixture",
+      "load_collection_mutation_scale_page",
+      "load_heap_user_scale_fixture",
+      "load_journal_tail_integrity_fixture",
+      "load_journaled_reentry_probe_fixture",
+      "load_journaled_user_scale_fixture",
+      "load_relation_integrity_fixture",
+      "load_streaming_execution_continuation_fixture",
+      "load_streaming_execution_fixture",
+      "load_token_scale_fixture",
+      "load_user_scale_fixture",
+      "measure_heap_user_sql_write_materialization_perf",
+      "measure_heap_user_write_matrix_perf",
+      "measure_integrity_sql_perf",
+      "measure_journaled_reentry_perf",
+      "measure_journaled_user_checked_write_perf",
+      "measure_journaled_user_constraint_write_perf",
+      "measure_journaled_user_mutation_forward_perf",
+      "measure_journaled_user_sql_write_materialization_perf",
+      "measure_journaled_user_write_matrix_perf",
+      "recover_collection_mutation_scale_store",
+      "start_collection_mutation_scale_job",
+      "start_journaled_user_mutation_job",
+      "try_collection_eager_tier_reset",
+      "validate_journaled_user_perf_check",
+      "verify_journaled_user_mutation_job_lifecycle",
+      "warm_account_query_with_perf",
+      "warm_blob_query_with_perf",
+      "warm_heap_user_query_with_perf",
+      "warm_journaled_user_query_with_perf",
+      "warm_streaming_execution_query_with_perf",
+      "warm_token_query_with_perf",
+      "warm_user_query_with_perf",
+      "canister_global_timer",
+      "<ic-cdk",
+      "canister_post_upgrade"
+    ]
+  },
+  "deltas": {
+    "post_link_wasm_bytes": -638910,
+    "post_link_reduction_basis_points": 1254
+  }
+}

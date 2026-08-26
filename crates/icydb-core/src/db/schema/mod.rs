@@ -90,7 +90,7 @@ pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
 pub(in crate::db) use application::generated_schema_authority;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use application::{
-    abort_schema_application, apply_schema, continue_schema_application,
+    abort_schema_application, apply_generated_schema, apply_schema, continue_schema_application,
     generated_schema_is_reconciled, generated_schema_reconciled, schema_application_receipt,
     schema_application_target,
 };
@@ -104,7 +104,7 @@ pub(in crate::db) use application_lowering::lower_field_type;
 pub(in crate::db) use application_lowering::lower_scalar_type;
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
-    lower_initial_schema_proposal,
+    lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
 };
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db::schema) use application_lowering::{

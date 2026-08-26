@@ -70,7 +70,8 @@ impl<C: CanisterKind> DbSession<C> {
                 return Ok(());
             }
         }
-        self.apply_schema(&proposal).map(|_receipt| ())
+        self.inner.apply_generated_schema(&proposal)?;
+        Ok(())
     }
 
     /// Execute one explicit migration operation for this deployed generated schema.
@@ -184,7 +185,7 @@ impl<C: CanisterKind> DbSession<C> {
             migration_plan,
         )?;
 
-        self.apply_schema(&proposal)
+        Ok(self.inner.apply_generated_schema(&proposal)?)
     }
 
     /// Apply one exact source-keyed schema proposal and return its durable

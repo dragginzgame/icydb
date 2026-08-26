@@ -37,8 +37,9 @@ use crate::{
             UnpublishedRowLocalValidation, advance_accepted_row_local_constraint_activation,
             constraint_validation_finding_output, derive_schema_change_job_id,
             load_schema_application_record_read_only, lower_existing_schema_proposal,
-            lower_initial_schema_proposal, prove_empty_user_index_domain,
-            validate_unpublished_row_local_candidate_bounded, with_schema_application_store,
+            lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
+            prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
+            with_schema_application_store,
         },
     },
     error::InternalError,
@@ -636,6 +637,25 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
     db: &Db<C>,
     proposal: &SchemaProposal,
 ) -> Result<SchemaChangeReceipt, InternalError> {
+    apply_schema_with_contract::<C, true>(db, proposal)
+}
+
+/// Apply one canonical generated proposal whose sealed facade proves that it
+/// cannot request explicit removals.
+pub(in crate::db) fn apply_generated_schema<C: CanisterKind>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+) -> Result<SchemaChangeReceipt, InternalError> {
+    if !proposal.removals().is_empty() {
+        return Err(InternalError::store_invariant());
+    }
+    apply_schema_with_contract::<C, false>(db, proposal)
+}
+
+fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
+    db: &Db<C>,
+    proposal: &SchemaProposal,
+) -> Result<SchemaChangeReceipt, InternalError> {
     ensure_recovery_admitted(db)?;
     ensure_schema_migration_ready_for_ordinary_operations()?;
     let proposal_digest = proposal
@@ -659,7 +679,7 @@ pub(in crate::db) fn apply_schema<C: CanisterKind>(
         current_bundles,
         candidates,
         pending,
-    } = lower_application_candidates(&target, proposal, authorities.as_slice())?;
+    } = lower_application_candidates::<ALLOW_REMOVALS>(&target, proposal, authorities.as_slice())?;
     validate_database_identity_state_capacity(
         authorities.as_slice(),
         candidates.as_slice(),
@@ -2092,7 +2112,7 @@ fn preflight_unpublished_schema_migration<C: CanisterKind>(
     Ok(())
 }
 
-fn lower_application_candidates(
+fn lower_application_candidates<const ALLOW_REMOVALS: bool>(
     target: &SchemaApplicationTarget,
     proposal: &SchemaProposal,
     authorities: &[StoreApplicationAuthority],
@@ -2149,7 +2169,11 @@ fn lower_application_candidates(
                     })
                 })
                 .collect::<Vec<_>>();
-            lower_existing_schema_proposal(proposal, stores.as_slice())?
+            if ALLOW_REMOVALS {
+                lower_existing_schema_proposal(proposal, stores.as_slice())?
+            } else {
+                lower_generated_existing_schema_proposal(proposal, stores.as_slice())?
+            }
         }
     };
     let pending = if initial_application {
