@@ -1346,7 +1346,6 @@ fn rebuild_relations(
             relations.push(replacement);
         }
     }
-    relations.sort_unstable_by_key(PersistedRelationEdgeSnapshot::id);
     Ok(relations)
 }
 

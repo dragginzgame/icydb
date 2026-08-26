@@ -11,7 +11,6 @@ use crate::db::journal::MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD;
 #[cfg(feature = "sql")]
 use crate::db::{
     data::DataStore,
-    index::IndexStore,
     schema::{
         StagedUserIndexDomainReplacement, accepted_schema_cache_fingerprint_for_persisted_snapshot,
     },
@@ -35,15 +34,27 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-#[cfg(feature = "sql")]
-use std::collections::BTreeSet;
+/// Optional prepared derived domain that crosses the same accepted-schema marker.
 
-/// Prepared derived domains that cross the same accepted-schema marker.
-
-enum StagedSchemaDomains {
-    None,
+struct StagedSchemaDomain {
     #[cfg(feature = "sql")]
-    UserIndexes(Vec<StagedUserIndexDomainReplacement>),
+    user_index: Option<StagedUserIndexDomainReplacement>,
+}
+
+impl StagedSchemaDomain {
+    const fn none() -> Self {
+        Self {
+            #[cfg(feature = "sql")]
+            user_index: None,
+        }
+    }
+
+    #[cfg(feature = "sql")]
+    const fn user_index(replacement: StagedUserIndexDomainReplacement) -> Self {
+        Self {
+            user_index: Some(replacement),
+        }
+    }
 }
 
 /// Exact validation-job mutation paired with one accepted-schema publication.
@@ -251,7 +262,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_constraint_validatio
         store,
         expected_revision,
         candidate,
-        StagedSchemaDomains::None,
+        StagedSchemaDomain::none(),
         ConstraintValidationJobChange::Put(job),
         None,
     )
@@ -272,7 +283,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_constraint_validatio
         store,
         expected_revision,
         candidate,
-        StagedSchemaDomains::None,
+        StagedSchemaDomain::none(),
         ConstraintValidationJobChange::Delete {
             entity_tag,
             constraint_id,
@@ -297,7 +308,7 @@ pub(in crate::db) fn publish_generated_row_local_abort_with_application_record(
         store,
         expected_revision,
         candidate,
-        StagedSchemaDomains::None,
+        StagedSchemaDomain::none(),
         ConstraintValidationJobChange::Delete {
             entity_tag,
             constraint_id,
@@ -369,29 +380,29 @@ pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entr
     )
 }
 
-/// Publish one accepted-schema candidate and its prevalidated per-entity
-/// user-index domains through the same marker window.
+/// Publish one accepted-schema candidate and its prevalidated entity-owned
+/// user-index domain through the same marker window.
 #[cfg(feature = "sql")]
-pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domains(
+pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domain(
     store_path: &'static str,
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
-    replacements: Vec<StagedUserIndexDomainReplacement>,
+    replacement: StagedUserIndexDomainReplacement,
 ) -> Result<(), InternalError> {
-    validate_user_index_domain_candidates(
+    validate_user_index_domain_candidate(
         store_path,
         store,
         expected_revision,
         candidate,
-        replacements.as_slice(),
+        &replacement,
     )?;
     publish_accepted_schema_candidate_with_prepared_domains(
         store_path,
         store,
         expected_revision,
         candidate,
-        StagedSchemaDomains::UserIndexes(replacements),
+        StagedSchemaDomain::user_index(replacement),
         ConstraintValidationJobChange::None,
         None,
     )
@@ -402,7 +413,7 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
-    domains: StagedSchemaDomains,
+    domain: StagedSchemaDomain,
     job_change: ConstraintValidationJobChange<'_>,
     application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
@@ -413,7 +424,7 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
             store,
             expected_revision,
             candidate,
-            domains,
+            domain,
             job_change,
             application_record,
         ),
@@ -422,7 +433,7 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
             store,
             expected_revision,
             candidate,
-            domains,
+            domain,
             job_change,
             application_record,
         ),
@@ -434,7 +445,7 @@ fn publish_live_candidate_with_prepared_domains(
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
-    domains: StagedSchemaDomains,
+    domain: StagedSchemaDomain,
     job_change: ConstraintValidationJobChange<'_>,
     application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
@@ -477,7 +488,7 @@ fn publish_live_candidate_with_prepared_domains(
                 candidate,
             )
         })?;
-        apply_staged_schema_domains(store, domains)?;
+        apply_staged_schema_domain(store, domain)?;
         Ok(())
     })
 }
@@ -487,7 +498,7 @@ fn publish_journaled_candidate(
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
-    domains: StagedSchemaDomains,
+    domain: StagedSchemaDomain,
     job_change: ConstraintValidationJobChange<'_>,
     application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
@@ -509,7 +520,7 @@ fn publish_journaled_candidate(
         candidate.encoded_root().to_vec(),
     )?;
     let mut records = vec![schema_record];
-    append_staged_schema_domain_journal_records(store_path, &domains, &mut records)?;
+    append_staged_schema_domain_journal_records(store_path, &domain, &mut records)?;
     if let Some(record) = constraint_validation_job_journal_record(store_path, job_change)? {
         records.push(record);
     }
@@ -540,7 +551,7 @@ fn publish_journaled_candidate(
             )
         })?;
         apply_constraint_validation_job_change(store, job_change)?;
-        apply_staged_schema_domains(store, domains)?;
+        apply_staged_schema_domain(store, domain)?;
         if let Some(operation) = application_record.as_ref() {
             apply_schema_application_record_op(operation)?;
         }
@@ -556,51 +567,44 @@ fn publish_journaled_candidate(
 )]
 const fn append_staged_schema_domain_journal_records(
     _store_path: &'static str,
-    domains: &StagedSchemaDomains,
+    _domain: &StagedSchemaDomain,
     _records: &mut Vec<JournalRecord>,
 ) -> Result<(), InternalError> {
-    match domains {
-        StagedSchemaDomains::None => {}
-    }
     Ok(())
 }
 
 #[cfg(feature = "sql")]
 fn append_staged_schema_domain_journal_records(
     store_path: &'static str,
-    domains: &StagedSchemaDomains,
+    domain: &StagedSchemaDomain,
     records: &mut Vec<JournalRecord>,
 ) -> Result<(), InternalError> {
-    let StagedSchemaDomains::UserIndexes(replacements) = domains else {
+    let Some(replacement) = domain.user_index.as_ref() else {
         return Ok(());
     };
-    let mut replacements = replacements.iter().collect::<Vec<_>>();
-    replacements.sort_unstable_by_key(|replacement| replacement.entity_tag());
-    for replacement in replacements {
-        let entity_tag = replacement.entity_tag();
-        let fingerprint = replacement.accepted_after_fingerprint();
-        for keys in replacement
-            .deletion_keys()
-            .chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
-        {
-            records.push(JournalRecord::accepted_schema_index_delete(
-                store_path,
-                entity_tag,
-                fingerprint,
-                keys.to_vec(),
-            )?);
-        }
-        for entries in replacement
-            .final_entries()
-            .chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
-        {
-            records.push(JournalRecord::accepted_schema_index_put(
-                store_path,
-                entity_tag,
-                fingerprint,
-                entries.iter().map(|entry| entry.key().clone()).collect(),
-            )?);
-        }
+    let entity_tag = replacement.entity_tag();
+    let fingerprint = replacement.accepted_after_fingerprint();
+    for keys in replacement
+        .deletion_keys()
+        .chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
+    {
+        records.push(JournalRecord::accepted_schema_index_delete(
+            store_path,
+            entity_tag,
+            fingerprint,
+            keys.to_vec(),
+        )?);
+    }
+    for entries in replacement
+        .final_entries()
+        .chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
+    {
+        records.push(JournalRecord::accepted_schema_index_put(
+            store_path,
+            entity_tag,
+            fingerprint,
+            entries.iter().map(|entry| entry.key().clone()).collect(),
+        )?);
     }
     Ok(())
 }
@@ -954,45 +958,15 @@ fn apply_constraint_validation_job_change(
 }
 
 #[cfg(feature = "sql")]
-fn validate_user_index_domain_candidates(
-    store_path: &'static str,
-    store: StoreHandle,
-    expected_revision: AcceptedSchemaRevision,
-    candidate: &CandidateSchemaRevision,
-    replacements: &[StagedUserIndexDomainReplacement],
-) -> Result<(), InternalError> {
-    if replacements.is_empty() || candidate.store_path() != store_path {
-        return Err(InternalError::store_invariant());
-    }
-    let mut entities = BTreeSet::new();
-    for replacement in replacements {
-        validate_user_index_domain_candidate(
-            store_path,
-            store,
-            expected_revision,
-            candidate,
-            replacement,
-            &mut entities,
-        )?;
-    }
-    if store.index_state() != crate::db::index::IndexState::Ready {
-        return Err(InternalError::store_unsupported());
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "sql")]
 fn validate_user_index_domain_candidate(
     store_path: &'static str,
     store: StoreHandle,
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
     replacement: &StagedUserIndexDomainReplacement,
-    entities: &mut BTreeSet<crate::types::EntityTag>,
 ) -> Result<(), InternalError> {
     let accepted_before_identity = replacement.accepted_before_identity();
-    if !entities.insert(replacement.entity_tag())
+    if candidate.store_path() != store_path
         || replacement.store_path() != store_path
         || accepted_before_identity.store_path() != store_path
         || accepted_before_identity.accepted_schema_revision() != expected_revision
@@ -1027,6 +1001,9 @@ fn validate_user_index_domain_candidate(
     if !(entity_path_matches && schema_version_matches && schema_fingerprint_matches) {
         return Err(InternalError::store_invariant());
     }
+    if store.index_state() != crate::db::index::IndexState::Ready {
+        return Err(InternalError::store_unsupported());
+    }
 
     Ok(())
 }
@@ -1036,60 +1013,44 @@ fn validate_user_index_domain_candidate(
     clippy::unnecessary_wraps,
     reason = "the no-SQL domain is infallible while preserving the shared fallible publication callback"
 )]
-const fn apply_staged_schema_domains(
+const fn apply_staged_schema_domain(
     _store: StoreHandle,
-    domains: StagedSchemaDomains,
+    _domain: StagedSchemaDomain,
 ) -> Result<(), InternalError> {
-    match domains {
-        StagedSchemaDomains::None => {}
-    }
     Ok(())
 }
 
 #[cfg(feature = "sql")]
-fn apply_staged_schema_domains(
+fn apply_staged_schema_domain(
     store: StoreHandle,
-    domains: StagedSchemaDomains,
+    domain: StagedSchemaDomain,
 ) -> Result<(), InternalError> {
-    match domains {
-        StagedSchemaDomains::None => {}
-        StagedSchemaDomains::UserIndexes(replacements) => {
-            apply_user_index_domain_replacements(store, replacements)?;
-        }
+    if let Some(replacement) = domain.user_index {
+        apply_user_index_domain_replacement(store, replacement)?;
     }
-    Ok(())
-}
-
-#[cfg(feature = "sql")]
-fn apply_user_index_domain_replacements(
-    store: StoreHandle,
-    replacements: Vec<StagedUserIndexDomainReplacement>,
-) -> Result<(), InternalError> {
-    let data_generation = store.with_data(DataStore::generation);
-    store.mark_index_building()?;
-    store.with_index_mut(|index_store| {
-        for replacement in replacements {
-            apply_user_index_domain_replacement(index_store, replacement);
-        }
-        index_store.mark_prefix_cardinality_data_generation(data_generation);
-    });
-    store.mark_index_ready()?;
     Ok(())
 }
 
 #[cfg(feature = "sql")]
 fn apply_user_index_domain_replacement(
-    index_store: &mut IndexStore,
+    store: StoreHandle,
     replacement: StagedUserIndexDomainReplacement,
-) {
+) -> Result<(), InternalError> {
+    let data_generation = store.with_data(DataStore::generation);
+    store.mark_index_building()?;
     let (deletion_keys, final_entries) = replacement.into_apply_parts();
-    for key in deletion_keys {
-        index_store.remove(&key);
-    }
-    for entry in final_entries {
-        let (key, value) = entry.into_parts();
-        index_store.insert_preflighted_absent(key, value);
-    }
+    store.with_index_mut(|index_store| {
+        for key in deletion_keys {
+            index_store.remove(&key);
+        }
+        for entry in final_entries {
+            let (key, value) = entry.into_parts();
+            index_store.insert_preflighted_absent(key, value);
+        }
+        index_store.mark_prefix_cardinality_data_generation(data_generation);
+    });
+    store.mark_index_ready()?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -59,12 +59,12 @@ fn publish_accepted_entity_snapshot_revision_with_user_index_domain(
     else {
         return Err(InternalError::store_invariant());
     };
-    crate::db::commit::publish_accepted_schema_candidate_with_user_index_domains(
+    crate::db::commit::publish_accepted_schema_candidate_with_user_index_domain(
         expected_identity.store_path(),
         store,
         expected_revision,
         &candidate,
-        vec![replacement],
+        replacement,
     )
 }
 

@@ -527,8 +527,9 @@ impl PersistedSchemaSnapshot {
     #[must_use]
     pub(in crate::db) fn with_relations(
         mut self,
-        relations: Vec<PersistedRelationEdgeSnapshot>,
+        mut relations: Vec<PersistedRelationEdgeSnapshot>,
     ) -> Self {
+        relations.sort_unstable_by_key(PersistedRelationEdgeSnapshot::id);
         self.relations = relations;
         self
     }
@@ -764,7 +765,7 @@ impl PersistedSchemaSnapshot {
         self.indexes.as_slice()
     }
 
-    /// Borrow accepted relation-edge contracts for this schema snapshot.
+    /// Borrow accepted relation-edge contracts in ascending identity order.
     #[must_use]
     pub(in crate::db) const fn relations(&self) -> &[PersistedRelationEdgeSnapshot] {
         self.relations.as_slice()

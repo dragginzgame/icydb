@@ -1856,10 +1856,9 @@ pub(in crate::db) fn describe_entity_relations_with_persisted_schema(
     if snapshot.relations().len() > icydb_schema::MAX_FRAGMENT_RELATIONS {
         return Err(InternalError::store_invariant());
     }
-    let mut relations = snapshot.relations().iter().collect::<Vec<_>>();
-    relations.sort_unstable_by_key(|relation| relation.id());
-    relations
-        .into_iter()
+    snapshot
+        .relations()
+        .iter()
         .map(|relation| {
             let local_fields = relation
                 .local_field_ids()

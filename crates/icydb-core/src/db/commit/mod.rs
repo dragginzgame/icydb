@@ -80,7 +80,7 @@ pub(in crate::db) use recovery::{
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 pub(in crate::db) use schema_publication::publish_accepted_schema_candidate;
 #[cfg(feature = "sql")]
-pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domains;
+pub(in crate::db) use schema_publication::publish_accepted_schema_candidate_with_user_index_domain;
 pub(in crate::db) use schema_publication::publish_constraint_validation_job_with_candidate_index_entries;
 pub(in crate::db) use schema_publication::{
     AcceptedSchemaPublication, publish_accepted_schema_candidates_with_application_record,

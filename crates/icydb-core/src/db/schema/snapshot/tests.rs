@@ -1154,7 +1154,7 @@ fn accepted_schema_snapshot_try_new_rejects_composite_relation_local_field() {
 }
 
 #[test]
-fn accepted_schema_snapshot_exposes_relation_edges() {
+fn accepted_schema_snapshot_exposes_relation_edges_in_identity_order() {
     let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         SchemaVersion::initial(),
         "schema::snapshot::tests::Related".to_string(),
@@ -1190,12 +1190,20 @@ fn accepted_schema_snapshot_exposes_relation_edges() {
         ],
         Vec::new(),
     )
-    .with_relations(vec![PersistedRelationEdgeSnapshot::new(
-        RelationId::new(1).expect("test relation identity should be non-zero"),
-        "owner".to_string(),
-        "schema::snapshot::tests::Owner".to_string(),
-        vec![FieldId::new(2)],
-    )]);
+    .with_relations(vec![
+        PersistedRelationEdgeSnapshot::new(
+            RelationId::new(2).expect("test relation identity should be non-zero"),
+            "reviewer".to_string(),
+            "schema::snapshot::tests::Reviewer".to_string(),
+            vec![FieldId::new(2)],
+        ),
+        PersistedRelationEdgeSnapshot::new(
+            RelationId::new(1).expect("test relation identity should be non-zero"),
+            "owner".to_string(),
+            "schema::snapshot::tests::Owner".to_string(),
+            vec![FieldId::new(2)],
+        ),
+    ]);
     let catalog = AcceptedConstraintCatalog::initial(
         snapshot.fields(),
         snapshot.indexes(),
@@ -1207,11 +1215,15 @@ fn accepted_schema_snapshot_exposes_relation_edges() {
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect("relation metadata should pass source-local integrity checks");
 
-    assert_eq!(accepted.persisted_snapshot().relations().len(), 1);
+    assert_eq!(accepted.persisted_snapshot().relations().len(), 2);
     assert_eq!(accepted.persisted_snapshot().relations()[0].name(), "owner");
     assert_eq!(
         accepted.persisted_snapshot().relations()[0].local_field_ids(),
         &[FieldId::new(2)]
+    );
+    assert_eq!(
+        accepted.persisted_snapshot().relations()[1].name(),
+        "reviewer"
     );
 }
 

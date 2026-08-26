@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.243.x] 🧹 - 2026-08-26 - Schema Publication Surface Contraction
+
+Detailed notes: [docs/changelog/0.243.md](docs/changelog/0.243.md)
+
+- `0.243.0` hard-cuts an unused plural schema-publication path to its actual
+  single-entity contract and makes accepted snapshots own canonical relation
+  order, removing 12,462 raw bytes of final production SQL Wasm without
+  changing schema, query, recovery or public behavior; its closing audit also
+  identifies a separate 96M+-instruction indexed `SUM`/`AVG` opportunity
+  without adding another 0.243 runtime path.
+
 ## [0.242.x] 🎯 - 2026-08-25 - Exact Indexed Range Cardinality
 
 Detailed notes: [docs/changelog/0.242.md](docs/changelog/0.242.md)
