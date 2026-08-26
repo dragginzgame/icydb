@@ -20,7 +20,10 @@ use crate::{
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, route::IndexPrefixChildExpansionBudget,
         },
-        index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
+        index::{
+            RawIndexStoreKey, decode_canonical_index_int64_component,
+            predicate::IndexPredicateExecution,
+        },
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
@@ -39,7 +42,6 @@ const COVERING_ULID_PAYLOAD_LEN: usize = 16;
 const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
-const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 
 type RawIndexBounds = (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>);
 
@@ -1054,7 +1056,9 @@ pub(in crate::db::executor) fn decode_covering_projection_component(
         return decode_covering_bool(payload);
     }
     if tag == ValueTag::Int64.to_u8() {
-        return decode_covering_i64(payload);
+        return decode_canonical_index_int64_component(component)
+            .map(Value::Int64)
+            .map(Some);
     }
     if tag == ValueTag::Nat64.to_u8() {
         return decode_covering_u64(payload);
@@ -1190,20 +1194,6 @@ fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> 
         1 => Ok(Some(Value::Bool(true))),
         _ => Err(InternalError::bytes_covering_bool_payload_invalid_value()),
     }
-}
-
-fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
-    }
-
-    let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
-    bytes.copy_from_slice(payload);
-    let biased = u64::from_be_bytes(bytes);
-    let unsigned = biased ^ COVERING_I64_SIGN_BIT_BIAS;
-    let value = i64::from_be_bytes(unsigned.to_be_bytes());
-
-    Ok(Some(Value::Int64(value)))
 }
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {

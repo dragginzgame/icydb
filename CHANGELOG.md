@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.244.x] ⚡ - 2026-08-26 - Exact Indexed Numeric Aggregates
+
+Detailed notes: [docs/changelog/0.244.md](docs/changelog/0.244.md)
+
+- `0.244.0` lets strictly admitted indexed `Int32` `SUM` and `AVG` queries
+  derive exact results from synchronized leading-value metadata without loading
+  rows, cutting the measured 2,048-row queries by about 97.6M instructions while
+  every incompatible or unavailable case retains prepared execution.
+
 ## [0.243.x] 🧹 - 2026-08-26 - Schema Publication Surface Contraction
 
 Detailed notes: [docs/changelog/0.243.md](docs/changelog/0.243.md)

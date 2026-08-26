@@ -358,6 +358,19 @@ impl IndexStore {
         )
     }
 
+    pub(in crate::db) fn exact_first_component_numeric_fold(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        stop_after: u64,
+    ) -> Result<Option<(u64, i128, u64, bool)>, crate::error::InternalError> {
+        self.prefix_cardinality.exact_first_component_numeric_fold(
+            data_generation,
+            index_id,
+            stop_after,
+        )
+    }
+
     /// Return the exact live-overlay delta from canonical for one user-index prefix.
     #[must_use]
     pub(in crate::db) fn exact_prefix_cardinality_delta(

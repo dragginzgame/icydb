@@ -503,11 +503,9 @@ fn direct_count_exact_prefix_index(
     })
 }
 
-/// Select one complete accepted index whose leading component can prove an
-/// exact global distinct count. Selection stays beside the existing exact
-/// prefix rule so SQL execution receives one immutable planner-owned target.
+/// Select one complete accepted index for exact leading-component metadata.
 #[cfg(feature = "sql")]
-pub(in crate::db) fn exact_distinct_cardinality_index(
+pub(in crate::db) fn exact_first_component_metadata_index(
     visible_indexes: &VisibleIndexes,
     schema_info: &SchemaInfo,
     field: &str,
@@ -834,7 +832,7 @@ fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests {
-    use super::{VisibleIndexes, exact_distinct_cardinality_index};
+    use super::{VisibleIndexes, exact_first_component_metadata_index};
     use crate::db::schema::{
         AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
         AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, FieldStorageDecode, LeafCodec,
@@ -844,7 +842,7 @@ mod tests {
         empty_accepted_enum_catalog_for_tests,
     };
 
-    fn exact_distinct_schema(indexes: &[(&str, &[&str])], nullable: &[&str]) -> SchemaInfo {
+    fn exact_metadata_schema(indexes: &[(&str, &[&str])], nullable: &[&str]) -> SchemaInfo {
         let fields = ["id", "age", "rank", "maybe"]
             .into_iter()
             .enumerate()
@@ -922,8 +920,8 @@ mod tests {
     }
 
     #[test]
-    fn exact_distinct_index_selection_is_complete_deterministic_and_visibility_bound() {
-        let schema = exact_distinct_schema(
+    fn exact_metadata_index_selection_is_complete_deterministic_and_visibility_bound() {
+        let schema = exact_metadata_schema(
             &[
                 ("z_age_id", &["age", "id"]),
                 ("long_age_rank_id", &["age", "rank", "id"]),
@@ -943,22 +941,22 @@ mod tests {
             "visible semantic contracts must establish canonical name order once",
         );
         assert_eq!(
-            exact_distinct_cardinality_index(&visible, &schema, "age")
+            exact_first_component_metadata_index(&visible, &schema, "age")
                 .map(|index| index.name().to_string()),
             Some("a_age_rank".to_string()),
             "shortest arity and then stable name must be the sole selection rule",
         );
         assert!(
-            exact_distinct_cardinality_index(&VisibleIndexes::none(), &schema, "age").is_none(),
+            exact_first_component_metadata_index(&VisibleIndexes::none(), &schema, "age").is_none(),
             "store-not-ready visibility must not expose a metadata target",
         );
     }
 
     #[test]
-    fn exact_distinct_index_selection_rejects_nullable_compound_suffixes() {
-        let schema = exact_distinct_schema(&[("age_maybe", &["age", "maybe"])], &["maybe"]);
+    fn exact_metadata_index_selection_rejects_nullable_compound_suffixes() {
+        let schema = exact_metadata_schema(&[("age_maybe", &["age", "maybe"])], &["maybe"]);
         let visible = VisibleIndexes::accepted_schema_visible(&schema);
 
-        assert!(exact_distinct_cardinality_index(&visible, &schema, "age").is_none());
+        assert!(exact_first_component_metadata_index(&visible, &schema, "age").is_none());
     }
 }

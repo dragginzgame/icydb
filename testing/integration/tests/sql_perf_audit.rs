@@ -530,6 +530,20 @@ fn query_user_range_budget_fallback_with_perf(
     result.expect("range budget fallback perf probe should complete")
 }
 
+fn query_user_numeric_budget_fallback_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    prepared_control: bool,
+) -> SqlBudgetFallbackPerfResult {
+    let result: Result<SqlBudgetFallbackPerfResult, Error> = fixture
+        .query_candid(
+            "query_user_numeric_budget_fallback_with_perf",
+            (prepared_control,),
+        )
+        .expect("numeric budget fallback perf result should decode");
+
+    result.expect("numeric budget fallback perf probe should complete")
+}
+
 fn load_token_scale_integrity_fixture(
     fixture: &StandaloneCanisterFixture,
     row_count: u32,
@@ -4038,6 +4052,184 @@ fn sql_perf_0_240_1_exact_count_family_avoids_row_and_index_traversal() {
     assert_exact_entity_count_warm_cache(&fixture);
     assert_exact_distinct_count_and_fallbacks(&fixture);
     assert_exact_count_ordinary_aggregate_controls(&fixture);
+}
+
+const EXACT_NUMERIC_SUM_COLD_PREDECESSOR: u64 = 98_081_958;
+const EXACT_NUMERIC_AVG_COLD_PREDECESSOR: u64 = 98_067_171;
+const EXACT_NUMERIC_COLD_CEILING: u64 = 2_000_000;
+const EXACT_NUMERIC_WARM_CEILING: u64 = 1_000_000;
+const EXACT_NUMERIC_MINIMUM_SAVING: u64 = 96_000_000;
+
+fn assert_exact_indexed_numeric_matches_prepared(
+    fixture: &StandaloneCanisterFixture,
+    exact_sql: &str,
+    prepared_sql: &str,
+) -> SqlQueryPerfResult {
+    let exact = query_surface_with_perf(fixture, SqlPerfSurface::User, exact_sql, 1)
+        .expect("exact indexed numeric aggregate should succeed");
+    let prepared = query_surface_with_perf(fixture, SqlPerfSurface::User, prepared_sql, 1)
+        .expect("prepared numeric aggregate control should succeed");
+
+    assert_eq!(
+        rendered_projection_rows(exact.result.clone()),
+        rendered_projection_rows(prepared.result),
+        "exact metadata and prepared aggregation must return identical rows: {exact_sql}",
+    );
+    assert_eq!(exact.attribution.store_get_calls, 0, "{exact_sql}");
+    assert_eq!(exact.attribution.index_store_entry_reads, 0, "{exact_sql}");
+
+    exact
+}
+
+fn assert_exact_indexed_numeric_projection_shapes(fixture: &StandaloneCanisterFixture) {
+    for (exact_sql, prepared_sql) in [
+        (
+            "SELECT SUM(age) AS total, AVG(age) AS mean FROM PerfAuditUser",
+            "SELECT SUM(age) AS total, AVG(age) AS mean FROM PerfAuditUser WHERE true",
+        ),
+        (
+            "SELECT AVG(age), SUM(age) FROM PerfAuditUser",
+            "SELECT AVG(age), SUM(age) FROM PerfAuditUser WHERE true",
+        ),
+        (
+            "SELECT SUM(age), SUM(age), AVG(age) FROM PerfAuditUser",
+            "SELECT SUM(age), SUM(age), AVG(age) FROM PerfAuditUser WHERE true",
+        ),
+    ] {
+        assert_exact_indexed_numeric_matches_prepared(fixture, exact_sql, prepared_sql);
+    }
+}
+
+fn assert_exact_indexed_numeric_fallback_controls(
+    fixture: &StandaloneCanisterFixture,
+    fixture_rows: u32,
+) {
+    for sql in [
+        "SELECT SUM(rank) FROM PerfAuditUser",
+        "SELECT SUM(age_nat) FROM PerfAuditUser",
+        "SELECT SUM(age) FROM PerfAuditUser WHERE true",
+        "SELECT SUM(age) FILTER (WHERE active = true) FROM PerfAuditUser",
+        "SELECT SUM(age) + 1 FROM PerfAuditUser",
+        "SELECT SUM(age) FROM PerfAuditUser HAVING SUM(age) > 0",
+        "SELECT SUM(age) AS total FROM PerfAuditUser ORDER BY total",
+    ] {
+        let fallback = query_surface_with_perf(fixture, SqlPerfSurface::User, sql, 1)
+            .unwrap_or_else(|err| {
+                panic!("out-of-cohort numeric aggregate should retain prepared execution: {sql}: {err:?}")
+            });
+        assert_eq!(
+            fallback.attribution.store_get_calls,
+            u64::from(fixture_rows),
+            "{sql}",
+        );
+    }
+}
+
+fn assert_exact_indexed_numeric_warm(fixture: &StandaloneCanisterFixture, label: &str, sql: &str) {
+    warm_query_surface_with_perf(fixture, SqlPerfSurface::User, sql)
+        .expect("exact numeric command should warm");
+    let warm = query_surface_with_perf(fixture, SqlPerfSurface::User, sql, 1)
+        .expect("true-warm exact numeric aggregate should succeed");
+    assert_eq!(warm.attribution.cache.sql_compiled_command_hits, 1);
+    assert!(warm.attribution.total_local_instructions <= EXACT_NUMERIC_WARM_CEILING);
+    println!(
+        "0.244 exact indexed numeric warm: label={label} candidate={}",
+        warm.attribution.total_local_instructions,
+    );
+}
+
+#[test]
+fn sql_perf_0_244_exact_indexed_numeric_aggregates_are_bounded_and_exact() {
+    const ROWS: u32 = 2_048;
+    const SUM_SQL: &str = "SELECT SUM(age) FROM PerfAuditUser";
+    const AVG_SQL: &str = "SELECT AVG(age) FROM PerfAuditUser";
+
+    let fixture = install_sql_perf_canister_fixture();
+    clear_sql_perf_fixtures(&fixture);
+    for (exact_sql, prepared_sql) in [
+        (SUM_SQL, "SELECT SUM(age) FROM PerfAuditUser WHERE true"),
+        (AVG_SQL, "SELECT AVG(age) FROM PerfAuditUser WHERE true"),
+    ] {
+        let empty =
+            assert_exact_indexed_numeric_matches_prepared(&fixture, exact_sql, prepared_sql);
+        assert_eq!(
+            rendered_projection_rows(empty.result),
+            vec![vec!["null".to_string()]],
+        );
+    }
+
+    load_user_scale_integrity_fixture(&fixture, ROWS);
+    let sum = assert_exact_indexed_numeric_matches_prepared(
+        &fixture,
+        SUM_SQL,
+        "SELECT SUM(age) FROM PerfAuditUser WHERE true",
+    );
+    let avg = assert_exact_indexed_numeric_matches_prepared(
+        &fixture,
+        AVG_SQL,
+        "SELECT AVG(age) FROM PerfAuditUser WHERE true",
+    );
+    for (label, sample, predecessor) in [
+        ("sum", &sum, EXACT_NUMERIC_SUM_COLD_PREDECESSOR),
+        ("avg", &avg, EXACT_NUMERIC_AVG_COLD_PREDECESSOR),
+    ] {
+        assert!(sample.attribution.total_local_instructions <= EXACT_NUMERIC_COLD_CEILING);
+        let saving = predecessor.saturating_sub(sample.attribution.total_local_instructions);
+        assert!(saving >= EXACT_NUMERIC_MINIMUM_SAVING);
+        println!(
+            "0.244 exact indexed numeric cold: label={label} predecessor={predecessor} candidate={} saving={saving}",
+            sample.attribution.total_local_instructions,
+        );
+    }
+
+    assert_exact_indexed_numeric_projection_shapes(&fixture);
+    assert_exact_indexed_numeric_fallback_controls(&fixture, ROWS);
+
+    for (label, sql) in [("sum", SUM_SQL), ("avg", AVG_SQL)] {
+        assert_exact_indexed_numeric_warm(&fixture, label, sql);
+    }
+
+    load_user_unique_age_scale_fixture(&fixture, ROWS);
+    let unique = assert_exact_indexed_numeric_matches_prepared(
+        &fixture,
+        SUM_SQL,
+        "SELECT SUM(age) FROM PerfAuditUser WHERE true",
+    );
+    let unique_prepared = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::User,
+        "SELECT SUM(age) FROM PerfAuditUser WHERE true",
+        1,
+    )
+    .expect("all-unique prepared numeric aggregate should succeed");
+    assert!(
+        unique
+            .attribution
+            .total_local_instructions
+            .saturating_mul(4)
+            <= unique_prepared.attribution.total_local_instructions,
+        "all-unique exact aggregate must remain at least 75% faster than prepared execution",
+    );
+    println!(
+        "0.244 exact indexed numeric all-unique: candidate={} prepared={}",
+        unique.attribution.total_local_instructions,
+        unique_prepared.attribution.total_local_instructions,
+    );
+    assert_budget_fallback_equivalent(
+        query_user_numeric_budget_fallback_with_perf(&fixture, true),
+        query_user_numeric_budget_fallback_with_perf(&fixture, false),
+        "0.244 exact indexed numeric aggregate",
+    );
+
+    upgrade_fixture_canister(&fixture, "sql_perf");
+    advance_startup_watchdog_until_ready(&fixture);
+    let recovered = query_surface_with_perf(&fixture, SqlPerfSurface::User, SUM_SQL, 1)
+        .expect("same-Wasm recovery should preserve exact numeric aggregation");
+    assert_eq!(recovered.attribution.store_get_calls, 0);
+    assert_eq!(
+        rendered_projection_rows(recovered.result),
+        rendered_projection_rows(unique.result),
+    );
 }
 
 fn assert_exact_distinct_over_budget_fallback(fixture: &StandaloneCanisterFixture) {

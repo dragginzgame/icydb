@@ -1,7 +1,7 @@
-//! Module: executor::aggregate::count_terminal
-//! Responsibility: exact entity and index-prefix cardinality execution.
+//! Module: executor::aggregate::exact_terminal
+//! Responsibility: exact cardinality and indexed numeric aggregate execution.
 //! Does not own: generic aggregate terminals or non-count reducers.
-//! Boundary: resolves one accepted exact-cardinality target against store metadata.
+//! Boundary: resolves planner-selected exact targets against synchronized store metadata.
 
 use crate::{
     db::{
@@ -25,31 +25,34 @@ use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecuti
 use std::ops::Bound;
 
 const EXACT_COUNT_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6578;
+#[cfg(feature = "sql")]
+const EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6e75;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::{
-    diagnostics::measure_local_instruction_delta as measure_count_terminal_phase,
+    diagnostics::measure_local_instruction_delta as measure_exact_terminal_phase,
     executor::plan_metrics::record_rows_scanned_for_path,
 };
 
 #[cfg(feature = "sql")]
-use crate::{
-    db::{
-        executor::{
-            aggregate::scalar_terminals::scalar_distinct_conservative_unit_work,
-            budget::{
-                current_execution_remaining_budget_units,
-                try_charge_current_execution_budget_bundle,
-            },
+use crate::db::{
+    executor::{
+        aggregate::scalar_terminals::scalar_distinct_conservative_unit_work,
+        budget::{
+            charge_runtime_value_rows, current_execution_remaining_budget_units,
+            try_charge_current_execution_budget_bundle,
         },
-        index::IndexState,
     },
-    value::Value,
+    index::IndexState,
+    numeric::{NumericEvalError, average_decimal_terms_checked},
+    query::plan::AggregateKind,
 };
+#[cfg(feature = "sql")]
+use crate::{types::Decimal, value::Value};
 
 #[cfg(feature = "diagnostics")]
 fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
-    measure_count_terminal_phase(run)
+    measure_exact_terminal_phase(run)
 }
 
 #[cfg(not(feature = "diagnostics"))]
@@ -167,6 +170,87 @@ where
         }
 
         Ok(Some(output))
+    })
+}
+
+/// Execute one planner-selected exact indexed `Int32` aggregate.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_exact_indexed_numeric_aggregate_for_canister<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    lane: DiagnosticExecutionLane,
+    index_id: IndexId,
+    output_kinds: &[AggregateKind],
+) -> Result<Option<Vec<Value>>, InternalError>
+where
+    C: CanisterKind,
+{
+    if output_kinds.is_empty() {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    let context =
+        direct_read_execution_context(&authority, lane, EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN);
+    with_read_execution_budget(db.request_execution_scope(), context, || {
+        if !accepted_index_target_matches(&authority, index_id) {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let store = db.recovered_store(authority.store_path())?;
+        if !store.with_index(|index| matches!(index.state(), IndexState::Ready)) {
+            return Ok(None);
+        }
+
+        let stop_after = current_execution_remaining_budget_units(&[(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            1,
+        )])?;
+        if stop_after == 0 {
+            return Ok(None);
+        }
+        let data_generation = store.with_data(DataStore::generation);
+        let (metadata_local_instructions, fold) = measure_exact_cardinality(|| {
+            store.with_index(|index| {
+                index.exact_first_component_numeric_fold(data_generation, index_id, stop_after)
+            })
+        });
+        let Some((count, sum, examined, complete)) = fold? else {
+            return Ok(None);
+        };
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            examined,
+        )?;
+        if !complete {
+            return Ok(None);
+        }
+
+        let sum = Decimal::from_i128_with_scale(sum, 0);
+        let average = (count != 0)
+            .then(|| average_decimal_terms_checked(sum, count))
+            .transpose()
+            .map_err(NumericEvalError::into_internal_error)?;
+        let row = output_kinds
+            .iter()
+            .map(|kind| match kind {
+                AggregateKind::Sum if count == 0 => Ok(Value::Null),
+                AggregateKind::Sum => Ok(Value::Decimal(sum)),
+                AggregateKind::Avg => Ok(average.map_or(Value::Null, Value::Decimal)),
+                _ => Err(InternalError::query_executor_invariant()),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        charge_runtime_value_rows(std::slice::from_ref(&row))?;
+
+        #[cfg(not(feature = "diagnostics"))]
+        let _ = metadata_local_instructions;
+        #[cfg(feature = "diagnostics")]
+        {
+            record_rows_scanned_for_path(authority.entity_path(), 0);
+            super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution(
+                metadata_local_instructions,
+            );
+        }
+
+        Ok(Some(row))
     })
 }
 

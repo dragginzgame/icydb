@@ -94,6 +94,11 @@ impl SqlGlobalAggregatePlanCacheEntry {
     }
 
     #[must_use]
+    pub(in crate::db) const fn exact_indexed_numeric_target(&self) -> Option<IndexId> {
+        self.plan.exact_indexed_numeric_target()
+    }
+
+    #[must_use]
     pub(in crate::db) fn prepared_plan(&self) -> Option<SharedPreparedExecutionPlan> {
         self.plan.prepared_plan()
     }
@@ -103,6 +108,7 @@ impl SqlGlobalAggregatePlanCacheEntry {
 pub(in crate::db) enum SqlGlobalAggregateCachedPlan {
     ExactEntityCardinality,
     ExactUserIndexFirstComponentDistinct(IndexId),
+    ExactUserIndexFirstComponentNumeric(IndexId),
     ExactUserIndexFirstComponentRange {
         index_id: IndexId,
         lower: Bound<Vec<u8>>,
@@ -156,7 +162,19 @@ impl SqlGlobalAggregateCachedPlan {
             Self::ExactUserIndexPrefixes(prefix_keys) => Some(
                 ExactCardinalityTarget::UserIndexPrefixes(prefix_keys.as_ref()),
             ),
-            Self::Prepared(_) => None,
+            Self::ExactUserIndexFirstComponentNumeric(_) | Self::Prepared(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn exact_indexed_numeric_target(&self) -> Option<IndexId> {
+        match self {
+            Self::ExactUserIndexFirstComponentNumeric(index_id) => Some(*index_id),
+            Self::ExactEntityCardinality
+            | Self::ExactUserIndexFirstComponentDistinct(_)
+            | Self::ExactUserIndexFirstComponentRange { .. }
+            | Self::ExactUserIndexPrefixes(_)
+            | Self::Prepared(_) => None,
         }
     }
 
@@ -166,6 +184,7 @@ impl SqlGlobalAggregateCachedPlan {
             Self::Prepared(prepared_plan) => Some(prepared_plan.clone()),
             Self::ExactEntityCardinality
             | Self::ExactUserIndexFirstComponentDistinct(_)
+            | Self::ExactUserIndexFirstComponentNumeric(_)
             | Self::ExactUserIndexFirstComponentRange { .. }
             | Self::ExactUserIndexPrefixes(_) => None,
         }

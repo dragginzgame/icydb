@@ -30,7 +30,8 @@ pub(in crate::db) use key::{
     EncodedValue, IndexExpressionSourceClass, encode_accepted_index_literal_component,
 };
 pub(in crate::db) use key::{
-    IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, derive_index_expression_value,
+    IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, decode_canonical_index_int64_component,
+    derive_index_expression_value,
 };
 pub(in crate::db) use plan::{
     AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan, IndexDelta, IndexDeltaGroup,

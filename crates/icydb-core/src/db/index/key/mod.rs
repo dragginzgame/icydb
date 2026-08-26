@@ -20,3 +20,4 @@ pub(in crate::db) use expression::derive_index_expression_value;
 pub(crate) use id::IndexId;
 pub(crate) use ordered::EncodedValue;
 pub(crate) use ordered::OrderedValueEncodeError;
+pub(in crate::db) use ordered::decode_canonical_index_int64_component;

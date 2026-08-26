@@ -12,7 +12,11 @@ mod semantics;
 use crate::db::key_taxonomy::PrimaryKeyComponent;
 #[cfg(test)]
 use crate::db::numeric::compare_numeric_or_strict_order;
-use crate::{db::index::key::ordered::semantics::OrderedEncode, value::Value};
+use crate::{
+    db::index::key::ordered::semantics::OrderedEncode,
+    error::InternalError,
+    value::{Value, ValueTag},
+};
 #[cfg(test)]
 use std::cmp::Ordering;
 
@@ -108,6 +112,25 @@ pub(crate) fn encode_canonical_index_component(
     encode_component_payload(&mut out, value)?;
 
     Ok(out)
+}
+
+/// Decode the canonical signed-integer component shared by covering and
+/// metadata-only execution.
+pub(in crate::db) fn decode_canonical_index_int64_component(
+    component: &[u8],
+) -> Result<i64, InternalError> {
+    let (&tag, payload) = component
+        .split_first()
+        .ok_or_else(InternalError::bytes_covering_component_payload_empty)?;
+    if tag != ValueTag::Int64.to_u8() {
+        return Err(InternalError::query_executor_invariant());
+    }
+    let Ok(bytes) = <[u8; 8]>::try_from(payload) else {
+        return Err(InternalError::bytes_covering_component_payload_invalid_length());
+    };
+    Ok(i64::from_be_bytes(
+        (u64::from_be_bytes(bytes) ^ (1_u64 << 63)).to_be_bytes(),
+    ))
 }
 
 /// Encode one decoded primary-key value into canonical index-component bytes without

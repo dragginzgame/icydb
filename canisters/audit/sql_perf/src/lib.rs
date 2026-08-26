@@ -2558,6 +2558,39 @@ fn query_user_range_budget_fallback_with_perf(
     })
 }
 
+/// Exhaust indexed numeric metadata capacity, then compare exact-probe fallback
+/// with unchanged prepared execution.
+#[cfg(feature = "test-admin-api")]
+#[query]
+fn query_user_numeric_budget_fallback_with_perf(
+    prepared_control: bool,
+) -> Result<SqlBudgetFallbackPerfResult, icydb::Error> {
+    const PRECHARGE_RUNS: u32 = 122;
+    const EXACT_SQL: &str = "SELECT SUM(age) FROM PerfAuditUser";
+    const PREPARED_SQL: &str = "SELECT SUM(age) FROM PerfAuditUser WHERE true";
+
+    icydb::db::with_request_execution(|| {
+        let session = icydb::db!()?;
+        for _ in 0..PRECHARGE_RUNS {
+            session.execute_trusted_sql_query(EXACT_SQL)?;
+        }
+
+        let sql = if prepared_control {
+            PREPARED_SQL
+        } else {
+            EXACT_SQL
+        };
+        let start = ic_cdk::api::performance_counter(1);
+        let outcome = session.execute_trusted_sql_query(sql);
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        Ok(SqlBudgetFallbackPerfResult {
+            outcome,
+            instructions,
+        })
+    })
+}
+
 /// Execute one fixed streaming-fixture query with full attribution.
 #[cfg(feature = "sql")]
 #[query]

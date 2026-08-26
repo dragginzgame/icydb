@@ -5,7 +5,7 @@
 
 pub(in crate::db::executor) mod capability;
 mod contracts;
-mod count_terminal;
+mod exact_terminal;
 pub(in crate::db::executor) mod field;
 pub(in crate::db::executor) mod runtime;
 #[cfg(feature = "sql")]
@@ -36,7 +36,9 @@ pub(in crate::db::executor) use contracts::{
     Expr, ProjectionField, admit_true_only_boolean_value,
     compile_scalar_projection_expr_with_schema,
 };
-pub(in crate::db) use count_terminal::{
+#[cfg(feature = "sql")]
+pub(in crate::db) use exact_terminal::execute_exact_indexed_numeric_aggregate_for_canister;
+pub(in crate::db) use exact_terminal::{
     ExactCardinalityTarget, execute_exact_cardinality_for_canister,
 };
 #[cfg(feature = "sql")]

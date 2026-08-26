@@ -28,7 +28,7 @@ use super::aggregate_plan::PreparedAggregatePlanResolution;
 use super::aggregate_request::PreparedAggregateRequestBundle;
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
-use super::exact_count::{ExactCountOutcome, ExactCountTarget};
+use super::exact_aggregate::{ExactCountOutcome, ExactCountTarget};
 #[cfg(feature = "diagnostics")]
 use crate::db::session::{
     query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution,
@@ -79,7 +79,7 @@ impl<C: CanisterKind> DbSession<C> {
         resolve_prepared_plan: impl FnOnce(Option<EntityAuthority>) -> PreparedAggregatePlanResolution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
         let exact_resolution =
-            self.execute_exact_count_target(command.projection(), exact_count_target)?;
+            self.execute_exact_count_target(command, catalog, exact_count_target)?;
         let fallback_authority = match exact_resolution {
             ExactCountOutcome::Direct {
                 result,
@@ -131,7 +131,8 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     > {
         let exact_resolution = self.execute_measured_exact_count_target(
-            command.projection(),
+            command,
+            catalog,
             exact_count_target,
             exact_plan_compile_attribution,
         )?;

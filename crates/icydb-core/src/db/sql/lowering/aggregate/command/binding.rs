@@ -33,7 +33,7 @@ use crate::db::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AggregateShapeFacts {
     direct_count_cardinality_metadata_candidate: bool,
-    exact_distinct_cardinality_target_slot: Option<usize>,
+    exact_first_component_metadata_target_slot: Option<usize>,
 }
 
 impl AggregateShapeFacts {
@@ -49,13 +49,11 @@ impl AggregateShapeFacts {
             && Self::has_direct_count_rows_strategy(schema, strategies)
             && Self::has_direct_count_rows_projection(projection);
 
-        let exact_distinct_cardinality_target_slot = (having.is_none()
+        let exact_first_component_metadata_target_slot = (having.is_none()
             && !authored_order_by
             && !query.has_scalar_filter()
             && query.direct_count_cardinality_entity_candidate())
-        .then(|| {
-            Self::derive_exact_distinct_cardinality_target_slot(schema, strategies, projection)
-        })
+        .then(|| Self::derive_exact_first_component_metadata_target(schema, strategies, projection))
         .flatten();
 
         Self {
@@ -63,7 +61,7 @@ impl AggregateShapeFacts {
             // row-equivalent COUNT family without predicting prefix or range access.
             direct_count_cardinality_metadata_candidate: direct_count_rows
                 && query.direct_count_cardinality_candidate(),
-            exact_distinct_cardinality_target_slot,
+            exact_first_component_metadata_target_slot,
         }
     }
 
@@ -73,11 +71,9 @@ impl AggregateShapeFacts {
         self.direct_count_cardinality_metadata_candidate
     }
 
-    /// Return whether one unfiltered singleton `COUNT(DISTINCT Int32 field)`
-    /// may seek an exact accepted-index metadata target.
     #[must_use]
-    pub(in crate::db) const fn exact_distinct_cardinality_target_slot(self) -> Option<usize> {
-        self.exact_distinct_cardinality_target_slot
+    const fn exact_first_component_metadata_target_slot(self) -> Option<usize> {
+        self.exact_first_component_metadata_target_slot
     }
 
     fn has_direct_count_rows_strategy(
@@ -121,43 +117,70 @@ impl AggregateShapeFacts {
             && !aggregate.is_distinct()
     }
 
-    fn derive_exact_distinct_cardinality_target_slot(
+    fn derive_exact_first_component_metadata_target(
         schema: &SchemaInfo,
         strategies: &[PreparedSqlScalarAggregateStrategy],
         projection: &ProjectionSpec,
     ) -> Option<usize> {
-        let [strategy] = strategies else {
-            return None;
-        };
-        let target_slot = strategy.target_slot()?;
+        let first = strategies.first()?;
+        let target_slot = first.target_slot()?;
         let target = target_slot.field();
-
-        if strategy.filter_expr().is_some()
-            || !matches!(
-                strategy.plan_fragment(),
-                PreparedSqlScalarAggregatePlanFragment::CountField
-            )
-            || schema.accepted_query_field_kind(target) != Some(&AcceptedFieldKind::Int32)
+        if schema.accepted_query_field_kind(target) != Some(&AcceptedFieldKind::Int32)
             || schema.accepted_field_is_nullable(target) != Some(false)
+            || strategies.iter().any(|strategy| {
+                strategy.filter_expr().is_some() || strategy.target_slot() != Some(target_slot)
+            })
         {
             return None;
         }
+
+        let numeric = strategies.len() <= 2
+            && strategies.iter().all(|strategy| {
+                matches!(
+                    strategy.aggregate_kind(),
+                    AggregateKind::Sum | AggregateKind::Avg
+                )
+            })
+            && exact_indexed_numeric_projection_matches(projection, target);
+        if numeric {
+            return Some(target_slot.index());
+        }
+        let [strategy] = strategies else {
+            return None;
+        };
         let mut fields = projection.fields();
-        let Some(ProjectionField::Scalar {
+        let ProjectionField::Scalar {
             expr: Expr::Aggregate(aggregate),
             ..
-        }) = fields.next()
+        } = fields.next()?
         else {
             return None;
         };
 
-        (fields.next().is_none()
+        (strategy.aggregate_kind() == AggregateKind::Count
+            && fields.next().is_none()
             && aggregate.kind() == AggregateKind::Count
             && aggregate.is_distinct()
             && aggregate.filter_expr().is_none()
             && aggregate.target_field() == Some(target))
         .then_some(target_slot.index())
     }
+}
+
+fn exact_indexed_numeric_projection_matches(projection: &ProjectionSpec, target: &str) -> bool {
+    projection.len() != 0
+        && projection.fields().all(|field| {
+            matches!(
+                field,
+                ProjectionField::Scalar {
+                    expr: Expr::Aggregate(aggregate),
+                    ..
+                } if matches!(aggregate.kind(), AggregateKind::Sum | AggregateKind::Avg)
+                    && !aggregate.is_distinct()
+                    && aggregate.filter_expr().is_none()
+                    && aggregate.target_field() == Some(target)
+            )
+        })
 }
 
 ///
@@ -212,13 +235,44 @@ impl SqlGlobalAggregateCommand {
     /// accepted slot captured by the immutable shape fact.
     #[must_use]
     pub(in crate::db) fn exact_distinct_cardinality_target(&self) -> Option<&FieldSlot> {
-        let target_slot = self.facts.exact_distinct_cardinality_target_slot()?;
+        let target_slot = self.facts.exact_first_component_metadata_target_slot()?;
         let [strategy] = self.strategies.as_slice() else {
             return None;
         };
         let target = strategy.target_slot()?;
 
-        (target.index() == target_slot).then_some(target)
+        (target.index() == target_slot && strategy.aggregate_kind() == AggregateKind::Count)
+            .then_some(target)
+    }
+
+    /// Borrow the admitted exact indexed numeric target.
+    #[must_use]
+    pub(in crate::db) fn exact_indexed_numeric_target(&self) -> Option<&FieldSlot> {
+        let target_slot = self.facts.exact_first_component_metadata_target_slot()?;
+        let strategy = self.strategies.first()?;
+        let target = strategy.target_slot()?;
+
+        (target.index() == target_slot
+            && matches!(
+                strategy.aggregate_kind(),
+                AggregateKind::Sum | AggregateKind::Avg
+            ))
+        .then_some(target)
+    }
+
+    /// Project the admitted direct exact-numeric output order.
+    pub(in crate::db) fn exact_indexed_numeric_output_kinds(&self) -> Option<Vec<AggregateKind>> {
+        self.exact_indexed_numeric_target()?;
+        self.projection
+            .fields()
+            .map(|field| match field {
+                ProjectionField::Scalar {
+                    expr: Expr::Aggregate(aggregate),
+                    ..
+                } => Some(aggregate.kind()),
+                ProjectionField::Scalar { .. } => None,
+            })
+            .collect()
     }
 }
 

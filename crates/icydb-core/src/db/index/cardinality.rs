@@ -5,6 +5,7 @@
 
 use crate::db::index::{
     IndexEntryExistenceWitness, IndexEntryValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
+    decode_canonical_index_int64_component,
 };
 use crate::db::journal::FoldWatermark;
 use crate::error::InternalError;
@@ -228,6 +229,50 @@ impl IndexPrefixCardinality {
         }
 
         Ok(Some((total, examined, true)))
+    }
+
+    /// Fold exact synchronized `Int32` leading values and multiplicities.
+    pub(super) fn exact_first_component_numeric_fold(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        stop_after: u64,
+    ) -> Result<Option<(u64, i128, u64, bool)>, InternalError> {
+        if stop_after == 0 || !self.decodable || self.data_generation != Some(data_generation) {
+            return Ok(None);
+        }
+
+        let key_kind = IndexKeyKind::User;
+        let start = IndexPrefixCardinalityFirstKey::range_start(key_kind, index_id);
+        let mut count = 0_u64;
+        let mut sum = 0_i128;
+        let mut examined = 0_u64;
+        for (key, multiplicity) in self.first_component_counts.range(start..) {
+            if !key.matches_identity(key_kind, index_id) {
+                break;
+            }
+            if examined == stop_after {
+                return Ok(Some((count, sum, examined, false)));
+            }
+            if *multiplicity == 0 {
+                return Err(InternalError::store_invariant());
+            }
+
+            let value = decode_canonical_index_int64_component(key.component.as_slice())?;
+            let value = i32::try_from(value).map_err(|_| InternalError::store_invariant())?;
+            let contribution = i128::from(value)
+                .checked_mul(i128::from(*multiplicity))
+                .ok_or_else(InternalError::store_invariant)?;
+            count = count
+                .checked_add(*multiplicity)
+                .ok_or_else(InternalError::store_invariant)?;
+            sum = sum
+                .checked_add(contribution)
+                .ok_or_else(InternalError::store_invariant)?;
+            examined = checked_metadata_count_increment(examined)?;
+        }
+
+        Ok(Some((count, sum, examined, true)))
     }
 
     #[must_use]
@@ -839,8 +884,9 @@ mod tests {
         IndexPrefixCardinality, IndexPrefixCardinalityFirstKey, checked_metadata_count_increment,
     };
     use crate::{
-        db::index::{IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
+        db::index::{EncodedValue, IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
         types::EntityTag,
+        value::Value,
     };
     use std::ops::Bound;
 
@@ -924,5 +970,69 @@ mod tests {
                 .expect("empty synchronized range should be valid"),
             Some((0, 0, true)),
         );
+    }
+
+    #[test]
+    fn first_component_numeric_fold_is_exact_bounded_and_generation_matched() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let mut cardinality = IndexPrefixCardinality::synchronized_empty();
+        for (value, multiplicity) in [
+            (i64::from(i32::MIN), 1_u64),
+            (-7, 2),
+            (0, 3),
+            (11, 4),
+            (i64::from(i32::MAX), 1),
+        ] {
+            let component = EncodedValue::try_new(&Value::Int64(value))
+                .expect("test Int64 component should encode")
+                .into_bytes();
+            cardinality.first_component_counts.insert(
+                IndexPrefixCardinalityFirstKey::new(IndexKeyKind::User, index_id, &component),
+                multiplicity,
+            );
+        }
+        cardinality.mark_synchronized(9);
+
+        let exact = cardinality
+            .exact_first_component_numeric_fold(9, index_id, 6)
+            .expect("synchronized numeric metadata should be valid")
+            .expect("synchronized numeric metadata should be available");
+        assert_eq!(exact, (11, 29, 5, true));
+
+        let bounded = cardinality
+            .exact_first_component_numeric_fold(9, index_id, 2)
+            .expect("bounded numeric metadata should be valid")
+            .expect("bounded numeric metadata should be available");
+        assert_eq!(bounded, (3, -2_147_483_662, 2, false));
+        assert!(
+            cardinality
+                .exact_first_component_numeric_fold(10, index_id, 6)
+                .expect("stale numeric metadata should fail closed")
+                .is_none(),
+        );
+    }
+
+    #[test]
+    fn first_component_numeric_fold_rejects_impossible_metadata() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        for value in [
+            Value::Text("wrong-kind".to_string()),
+            Value::Int64(i64::MAX),
+        ] {
+            let component = EncodedValue::try_new(&value)
+                .expect("test component should encode")
+                .into_bytes();
+            let mut cardinality = IndexPrefixCardinality::synchronized_empty();
+            cardinality.first_component_counts.insert(
+                IndexPrefixCardinalityFirstKey::new(IndexKeyKind::User, index_id, &component),
+                1,
+            );
+
+            assert!(
+                cardinality
+                    .exact_first_component_numeric_fold(0, index_id, 1)
+                    .is_err(),
+            );
+        }
     }
 }
