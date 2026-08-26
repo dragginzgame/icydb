@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.243.md](docs/changelog/0.243.md)
 
+- `0.243.1` makes the planner's canonical semantic-index order flow directly
+  through access choice, reranking, `EXPLAIN` and exact cardinality tie sets,
+  removing duplicate sorting and 8,554 raw production SQL Wasm bytes without
+  changing query results or routes.
 - `0.243.0` hard-cuts an unused plural schema-publication path to its actual
   single-entity contract and makes accepted snapshots own canonical relation
   order, removing 12,462 raw bytes of final production SQL Wasm without

@@ -24,7 +24,7 @@ use crate::{
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
-                    evaluate_index_candidate, ranked_rejection_reason, sorted_index_refs,
+                    evaluate_index_candidate, ranked_rejection_reason,
                 },
                 model::{AccessChoiceCandidateKind, AccessChoiceFamily},
             },
@@ -84,15 +84,20 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
         self::model::CandidateEvaluation::Rejected(_) => return None,
     };
     let chosen_burden = residual_burden_for_plan(plan);
-    let mut candidates = vec![CardinalityTiebreakCandidate::new(
-        plan.access.clone(),
-        chosen_index.clone(),
-        family,
-        consumed_prefix_arity,
-    )];
+    let mut candidates = Vec::new();
+    let mut chosen_seen = false;
 
-    for index in sorted_index_refs(semantic_indexes) {
+    for index in semantic_indexes {
         if index.name() == chosen_index.name() {
+            if !chosen_seen {
+                chosen_seen = true;
+                candidates.push(CardinalityTiebreakCandidate::new(
+                    plan.access.clone(),
+                    chosen_index.clone(),
+                    family,
+                    consumed_prefix_arity,
+                ));
+            }
             continue;
         }
         let self::model::CandidateEvaluation::Eligible(score) =
@@ -120,10 +125,9 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
             candidate_prefix_arity,
         ));
     }
-    if candidates.len() < 2 {
+    if !chosen_seen || candidates.len() < 2 {
         return None;
     }
-    candidates.sort_by(|left, right| left.index().name().cmp(right.index().name()));
 
     Some(candidates)
 }
@@ -201,7 +205,7 @@ fn project_access_choice_explain_snapshot_from_authority(
     // Phase 2: walk deterministic model order once so alternative/rejection
     // projection stays under one evaluation owner after the chosen score has
     // already been frozen from planner evaluation.
-    for index in sorted_index_refs(visible_indexes) {
+    for index in visible_indexes {
         let index_name = index.name().to_string();
         match evaluate_index_candidate(family, index, schema_info, predicate, order, grouped) {
             self::model::CandidateEvaluation::Eligible(score)
@@ -543,7 +547,7 @@ fn same_score_competing_candidate_plans(
     );
 
     let mut candidates = Vec::new();
-    for index in sorted_index_refs(visible_indexes) {
+    for index in visible_indexes {
         if index.name() == chosen_index_name.as_str() {
             continue;
         }

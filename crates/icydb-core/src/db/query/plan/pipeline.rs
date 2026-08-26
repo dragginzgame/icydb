@@ -934,6 +934,15 @@ mod tests {
         let visible = VisibleIndexes::accepted_schema_visible(&schema);
 
         assert_eq!(
+            visible
+                .accepted_semantic_index_contracts()
+                .iter()
+                .map(crate::db::access::SemanticIndexAccessContract::name)
+                .collect::<Vec<_>>(),
+            ["a_age_rank", "long_age_rank_id", "z_age_id"],
+            "visible semantic contracts must establish canonical name order once",
+        );
+        assert_eq!(
             exact_distinct_cardinality_index(&visible, &schema, "age")
                 .map(|index| index.name().to_string()),
             Some("a_age_rank".to_string()),

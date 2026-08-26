@@ -23,14 +23,6 @@ pub(in crate::db::query::plan::access_choice) use ranking::{
     chosen_access_shape_projection, chosen_selection_reason, ranked_rejection_reason,
 };
 
-pub(super) fn sorted_index_refs(
-    indexes: &[SemanticIndexAccessContract],
-) -> Vec<&SemanticIndexAccessContract> {
-    let mut indexes = indexes.iter().collect::<Vec<_>>();
-    indexes.sort_unstable_by(|left, right| left.name().cmp(right.name()));
-    indexes
-}
-
 #[derive(Clone, Copy)]
 struct CandidateScoringIndex<'a> {
     contract: &'a SemanticIndexAccessContract,
