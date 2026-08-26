@@ -28,7 +28,7 @@ use super::aggregate_plan::PreparedAggregatePlanResolution;
 use super::aggregate_request::PreparedAggregateRequestBundle;
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
-use super::exact_aggregate::{ExactCountOutcome, ExactCountTarget};
+use super::exact_aggregate::{ExactOutcome, ExactTarget};
 #[cfg(feature = "diagnostics")]
 use crate::db::session::{
     query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution,
@@ -71,24 +71,23 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn execute_global_aggregate_after_exact_count_target(
+    fn execute_global_aggregate_after_exact_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        exact_count_target: ExactCountTarget,
+        exact_target: ExactTarget,
         resolve_prepared_plan: impl FnOnce(Option<EntityAuthority>) -> PreparedAggregatePlanResolution,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let exact_resolution =
-            self.execute_exact_count_target(command, catalog, exact_count_target)?;
+        let exact_resolution = self.execute_exact_target(command, catalog, exact_target)?;
         let fallback_authority = match exact_resolution {
-            ExactCountOutcome::Direct {
+            ExactOutcome::Direct {
                 result,
                 cache_attribution,
                 ..
             } => {
                 return Ok((result, cache_attribution));
             }
-            ExactCountOutcome::Prepared {
+            ExactOutcome::Prepared {
                 prepared_plan,
                 cache_attribution,
             } => {
@@ -99,7 +98,7 @@ impl<C: CanisterKind> DbSession<C> {
                     cache_attribution,
                 );
             }
-            ExactCountOutcome::Fallback { authority, .. } => authority,
+            ExactOutcome::Fallback { authority, .. } => authority,
         };
 
         let (prepared_plan, cache_attribution) = resolve_prepared_plan(fallback_authority)?;
@@ -113,11 +112,11 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn execute_measured_global_aggregate_after_exact_count_target(
+    fn execute_measured_global_aggregate_after_exact_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        exact_count_target: ExactCountTarget,
+        exact_target: ExactTarget,
         exact_plan_compile_attribution: QueryPlanCompilePhaseAttribution,
         resolve_prepared_plan: impl FnOnce(
             Option<EntityAuthority>,
@@ -130,10 +129,10 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let exact_resolution = self.execute_measured_exact_count_target(
+        let exact_resolution = self.execute_measured_exact_target(
             command,
             catalog,
-            exact_count_target,
+            exact_target,
             exact_plan_compile_attribution,
         )?;
         let (
@@ -142,7 +141,7 @@ impl<C: CanisterKind> DbSession<C> {
             exact_store_local_instructions,
             cached_prepared_plan,
         ) = match exact_resolution {
-            ExactCountOutcome::Direct {
+            ExactOutcome::Direct {
                 result,
                 cache_attribution,
                 phase_attribution,
@@ -153,11 +152,11 @@ impl<C: CanisterKind> DbSession<C> {
 
                 return Ok((result, cache_attribution, *phase_attribution));
             }
-            ExactCountOutcome::Prepared {
+            ExactOutcome::Prepared {
                 prepared_plan,
                 cache_attribution,
             } => (None, 0, 0, Some((prepared_plan, cache_attribution))),
-            ExactCountOutcome::Fallback {
+            ExactOutcome::Fallback {
                 authority,
                 execute_local_instructions,
                 store_local_instructions,
@@ -215,13 +214,12 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let exact_count_target =
-            self.resolve_compiled_exact_count_target(compiled, command, catalog)?;
+        let exact_target = self.resolve_compiled_exact_target(compiled, command, catalog)?;
 
-        self.execute_global_aggregate_after_exact_count_target(
+        self.execute_global_aggregate_after_exact_target(
             command,
             catalog,
-            exact_count_target,
+            exact_target,
             |fallback_authority| {
                 self.resolve_compiled_global_aggregate_prepared_plan(
                     compiled,
@@ -247,15 +245,13 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let (exact_count_target, exact_plan_compile_attribution) = self
-            .resolve_compiled_exact_count_target_with_phase_attribution(
-                compiled, command, catalog,
-            )?;
+        let (exact_target, exact_plan_compile_attribution) =
+            self.resolve_compiled_exact_target_with_phase_attribution(compiled, command, catalog)?;
 
-        self.execute_measured_global_aggregate_after_exact_count_target(
+        self.execute_measured_global_aggregate_after_exact_target(
             command,
             catalog,
-            exact_count_target,
+            exact_target,
             exact_plan_compile_attribution,
             |fallback_authority| {
                 self.resolve_compiled_global_aggregate_prepared_plan_with_phase_attribution(

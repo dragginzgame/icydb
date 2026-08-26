@@ -44,18 +44,18 @@ use crate::db::session::{
     query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution,
 };
 
-pub(super) enum ExactCountTarget {
+pub(super) enum ExactTarget {
     Disabled,
     FallbackOnly(EntityAuthority),
     PreparedPlan(Rc<SqlGlobalAggregatePlanCacheEntry>),
-    CountPlan {
+    ExactPlan {
         authority: EntityAuthority,
         entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
         cache_attribution: SqlCacheAttribution,
     },
 }
 
-pub(super) enum ExactCountOutcome {
+pub(super) enum ExactOutcome {
     Direct {
         result: SqlStatementResult,
         cache_attribution: SqlCacheAttribution,
@@ -96,14 +96,14 @@ fn exact_aggregate_statement_result(
     ))
 }
 
-impl ExactCountTarget {
+impl ExactTarget {
     fn from_optional_entry(
         authority: EntityAuthority,
         entry: Option<Rc<SqlGlobalAggregatePlanCacheEntry>>,
         cache_attribution: SqlCacheAttribution,
     ) -> Self {
         match entry {
-            Some(entry) => Self::CountPlan {
+            Some(entry) => Self::ExactPlan {
                 authority,
                 entry,
                 cache_attribution,
@@ -112,15 +112,15 @@ impl ExactCountTarget {
         }
     }
 
-    const fn count_plan_entry(&self) -> Option<&Rc<SqlGlobalAggregatePlanCacheEntry>> {
+    const fn exact_plan_entry(&self) -> Option<&Rc<SqlGlobalAggregatePlanCacheEntry>> {
         match self {
-            Self::CountPlan { entry, .. } => Some(entry),
+            Self::ExactPlan { entry, .. } => Some(entry),
             Self::Disabled | Self::FallbackOnly(_) | Self::PreparedPlan(_) => None,
         }
     }
 }
 
-impl ExactCountOutcome {
+impl ExactOutcome {
     const fn disabled() -> Self {
         Self::Fallback {
             authority: None,
@@ -314,16 +314,16 @@ fn encoded_component_bound(
     })
 }
 
-fn exact_count_target_from_cached_entry(
+fn exact_target_from_cached_entry(
     catalog: &AcceptedSchemaCatalogContext,
     entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
-) -> ExactCountTarget {
+) -> ExactTarget {
     if entry.prepared_plan().is_some() {
-        return ExactCountTarget::PreparedPlan(entry);
+        return ExactTarget::PreparedPlan(entry);
     }
     let authority = catalog.accepted_entity_authority();
 
-    ExactCountTarget::CountPlan {
+    ExactTarget::ExactPlan {
         authority,
         entry,
         cache_attribution: SqlCacheAttribution::shared_query_plan_cache_hit(),
@@ -337,13 +337,13 @@ fn cached_compiled_global_aggregate_plan_entry(
     compiled.cached_global_aggregate_plan(SqlCompiledSchemaFingerprint::from_catalog(catalog))
 }
 
-fn cache_compiled_exact_count_target(compiled: &CompiledSqlCommand, target: &ExactCountTarget) {
-    if let Some(entry) = target.count_plan_entry() {
+fn cache_compiled_exact_target(compiled: &CompiledSqlCommand, target: &ExactTarget) {
+    if let Some(entry) = target.exact_plan_entry() {
         compiled.set_cached_global_aggregate_plan(Rc::clone(entry));
     }
 }
 
-fn exact_count_metadata_candidate(command: &SqlGlobalAggregateCommand) -> bool {
+fn exact_metadata_candidate(command: &SqlGlobalAggregateCommand) -> bool {
     command
         .facts()
         .is_direct_count_cardinality_metadata_candidate()
@@ -391,26 +391,26 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::execute)
     }
 
-    pub(super) fn execute_exact_count_target(
+    pub(super) fn execute_exact_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        target: ExactCountTarget,
-    ) -> Result<ExactCountOutcome, QueryError> {
+        target: ExactTarget,
+    ) -> Result<ExactOutcome, QueryError> {
         match target {
-            ExactCountTarget::Disabled => Ok(ExactCountOutcome::disabled()),
-            ExactCountTarget::FallbackOnly(authority) => Ok(ExactCountOutcome::fallback(authority)),
-            ExactCountTarget::PreparedPlan(entry) => {
+            ExactTarget::Disabled => Ok(ExactOutcome::disabled()),
+            ExactTarget::FallbackOnly(authority) => Ok(ExactOutcome::fallback(authority)),
+            ExactTarget::PreparedPlan(entry) => {
                 let Some(prepared_plan) = entry.prepared_plan() else {
                     return Err(QueryError::invariant());
                 };
 
-                Ok(ExactCountOutcome::Prepared {
+                Ok(ExactOutcome::Prepared {
                     prepared_plan,
                     cache_attribution: SqlCacheAttribution::shared_query_plan_cache_hit(),
                 })
             }
-            ExactCountTarget::CountPlan {
+            ExactTarget::ExactPlan {
                 authority,
                 entry,
                 cache_attribution,
@@ -418,7 +418,7 @@ impl<C: CanisterKind> DbSession<C> {
                 if let Some(row) =
                     self.execute_exact_global_aggregate(command, authority.clone(), &entry)?
                 {
-                    return ExactCountOutcome::from_direct_row(
+                    return ExactOutcome::from_direct_row(
                         catalog,
                         command.projection(),
                         row,
@@ -426,37 +426,37 @@ impl<C: CanisterKind> DbSession<C> {
                     );
                 }
 
-                Ok(ExactCountOutcome::fallback(authority))
+                Ok(ExactOutcome::fallback(authority))
             }
         }
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(super) fn execute_measured_exact_count_target(
+    pub(super) fn execute_measured_exact_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        target: ExactCountTarget,
+        target: ExactTarget,
         plan_compile_attribution: QueryPlanCompilePhaseAttribution,
-    ) -> Result<ExactCountOutcome, QueryError> {
-        let (authority, count_plan, cache_attribution) = match target {
-            ExactCountTarget::Disabled => {
-                return Ok(ExactCountOutcome::disabled());
+    ) -> Result<ExactOutcome, QueryError> {
+        let (authority, exact_plan, cache_attribution) = match target {
+            ExactTarget::Disabled => {
+                return Ok(ExactOutcome::disabled());
             }
-            ExactCountTarget::FallbackOnly(authority) => {
-                return Ok(ExactCountOutcome::fallback(authority));
+            ExactTarget::FallbackOnly(authority) => {
+                return Ok(ExactOutcome::fallback(authority));
             }
-            ExactCountTarget::PreparedPlan(entry) => {
+            ExactTarget::PreparedPlan(entry) => {
                 let Some(prepared_plan) = entry.prepared_plan() else {
                     return Err(QueryError::invariant());
                 };
 
-                return Ok(ExactCountOutcome::Prepared {
+                return Ok(ExactOutcome::Prepared {
                     prepared_plan,
                     cache_attribution: SqlCacheAttribution::shared_query_plan_cache_hit(),
                 });
             }
-            ExactCountTarget::CountPlan {
+            ExactTarget::ExactPlan {
                 authority,
                 entry,
                 cache_attribution,
@@ -466,7 +466,7 @@ impl<C: CanisterKind> DbSession<C> {
             scalar_aggregate_terminal,
             ((execute_local_instructions, store_local_instructions), result),
         ) = measure_scalar_aggregate_execute_phase_with_physical_access(|| {
-            self.execute_exact_global_aggregate(command, authority.clone(), &count_plan)
+            self.execute_exact_global_aggregate(command, authority.clone(), &exact_plan)
         });
         if let Some(row) = result? {
             let (result, cache_attribution) = exact_aggregate_statement_result(
@@ -484,26 +484,26 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
 
-            return Ok(ExactCountOutcome::measured_direct(
+            return Ok(ExactOutcome::measured_direct(
                 result,
                 cache_attribution,
                 Box::new(phase_attribution),
             ));
         }
 
-        Ok(ExactCountOutcome::measured_fallback(
+        Ok(ExactOutcome::measured_fallback(
             authority,
             execute_local_instructions,
             store_local_instructions,
         ))
     }
 
-    fn exact_count_shortcut_target_for_authority(
+    fn exact_shortcut_target_for_authority(
         &self,
         authority: &EntityAuthority,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<ExactCountTarget, QueryError> {
+    ) -> Result<ExactTarget, QueryError> {
         let Some(schema_info) = authority.accepted_schema_info() else {
             return Err(QueryError::invariant());
         };
@@ -529,14 +529,14 @@ impl<C: CanisterKind> DbSession<C> {
                     exact_first_component_plan_entry(catalog, index_id, exact_numeric)
                 });
 
-            return Ok(ExactCountTarget::from_optional_entry(
+            return Ok(ExactTarget::from_optional_entry(
                 authority.clone(),
                 entry,
                 SqlCacheAttribution::none(),
             ));
         }
         if command.query().direct_count_cardinality_entity_candidate() {
-            return Ok(ExactCountTarget::from_optional_entry(
+            return Ok(ExactTarget::from_optional_entry(
                 authority.clone(),
                 Some(direct_count_cardinality_entity_plan_entry(catalog)),
                 SqlCacheAttribution::none(),
@@ -554,19 +554,19 @@ impl<C: CanisterKind> DbSession<C> {
             )?,
         );
 
-        Ok(ExactCountTarget::from_optional_entry(
+        Ok(ExactTarget::from_optional_entry(
             authority.clone(),
             entry,
             SqlCacheAttribution::none(),
         ))
     }
 
-    fn exact_count_target_from_cached_shared_plan(
+    fn exact_target_from_cached_shared_plan(
         catalog: &AcceptedSchemaCatalogContext,
         authority: EntityAuthority,
         prepared_plan: &SharedPreparedExecutionPlan,
         cache_attribution: SqlCacheAttribution,
-    ) -> ExactCountTarget {
+    ) -> ExactTarget {
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
             catalog,
             direct_count_cardinality_prefix_keys_from_planned_query(prepared_plan),
@@ -580,18 +580,17 @@ impl<C: CanisterKind> DbSession<C> {
             })
         });
 
-        ExactCountTarget::from_optional_entry(authority, entry, cache_attribution)
+        ExactTarget::from_optional_entry(authority, entry, cache_attribution)
     }
 
-    fn exact_count_target_for_authority(
+    fn exact_target_for_authority(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         authority: EntityAuthority,
-    ) -> Result<ExactCountTarget, QueryError> {
-        let shortcut =
-            self.exact_count_shortcut_target_for_authority(&authority, command, catalog)?;
-        if shortcut.count_plan_entry().is_some() {
+    ) -> Result<ExactTarget, QueryError> {
+        let shortcut = self.exact_shortcut_target_for_authority(&authority, command, catalog)?;
+        if shortcut.exact_plan_entry().is_some() {
             return Ok(shortcut);
         }
 
@@ -603,7 +602,7 @@ impl<C: CanisterKind> DbSession<C> {
                 DiagnosticExecutionLane::TrustedRead,
             )?;
 
-        Ok(Self::exact_count_target_from_cached_shared_plan(
+        Ok(Self::exact_target_from_cached_shared_plan(
             catalog,
             authority,
             &prepared_plan,
@@ -611,66 +610,63 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn build_exact_count_target(
+    fn build_exact_target(
         &self,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<ExactCountTarget, QueryError> {
-        if !exact_count_metadata_candidate(command) {
-            return Ok(ExactCountTarget::Disabled);
+    ) -> Result<ExactTarget, QueryError> {
+        if !exact_metadata_candidate(command) {
+            return Ok(ExactTarget::Disabled);
         }
 
         let authority = catalog.accepted_entity_authority();
-        self.exact_count_target_for_authority(command, catalog, authority)
+        self.exact_target_for_authority(command, catalog, authority)
     }
 
-    pub(super) fn resolve_compiled_exact_count_target(
+    pub(super) fn resolve_compiled_exact_target(
         &self,
         compiled: &CompiledSqlCommand,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<ExactCountTarget, QueryError> {
+    ) -> Result<ExactTarget, QueryError> {
         if let Some(entry) = cached_compiled_global_aggregate_plan_entry(compiled, catalog) {
-            return Ok(exact_count_target_from_cached_entry(catalog, entry));
+            return Ok(exact_target_from_cached_entry(catalog, entry));
         }
-        if !exact_count_metadata_candidate(command) {
-            return Ok(ExactCountTarget::Disabled);
+        if !exact_metadata_candidate(command) {
+            return Ok(ExactTarget::Disabled);
         }
 
-        let target = self.build_exact_count_target(command, catalog)?;
-        cache_compiled_exact_count_target(compiled, &target);
+        let target = self.build_exact_target(command, catalog)?;
+        cache_compiled_exact_target(compiled, &target);
 
         Ok(target)
     }
 
     #[cfg(feature = "diagnostics")]
-    pub(super) fn resolve_compiled_exact_count_target_with_phase_attribution(
+    pub(super) fn resolve_compiled_exact_target_with_phase_attribution(
         &self,
         compiled: &CompiledSqlCommand,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<(ExactCountTarget, QueryPlanCompilePhaseAttribution), QueryError> {
+    ) -> Result<(ExactTarget, QueryPlanCompilePhaseAttribution), QueryError> {
         let mut attribution = QueryPlanCompilePhaseAttribution::default();
         let (cache_lookup, cached_plan) =
             measure_sql_stage(|| cached_compiled_global_aggregate_plan_entry(compiled, catalog));
         attribution.cache_lookup = attribution.cache_lookup.saturating_add(cache_lookup);
         if let Some(plan) = cached_plan {
-            return Ok((
-                exact_count_target_from_cached_entry(catalog, plan),
-                attribution,
-            ));
+            return Ok((exact_target_from_cached_entry(catalog, plan), attribution));
         }
-        if !exact_count_metadata_candidate(command) {
-            return Ok((ExactCountTarget::Disabled, attribution));
+        if !exact_metadata_candidate(command) {
+            return Ok((ExactTarget::Disabled, attribution));
         }
 
         let authority = catalog.accepted_entity_authority();
         let (schema_info_local, shortcut) = measure_sql_stage(|| {
-            self.exact_count_shortcut_target_for_authority(&authority, command, catalog)
+            self.exact_shortcut_target_for_authority(&authority, command, catalog)
         });
         attribution.schema_info = attribution.schema_info.saturating_add(schema_info_local);
         let shortcut = shortcut?;
-        let target = if shortcut.count_plan_entry().is_some() {
+        let target = if shortcut.exact_plan_entry().is_some() {
             shortcut
         } else {
             let (prepared_plan, cache_attribution, compile_attribution) = self
@@ -682,16 +678,16 @@ impl<C: CanisterKind> DbSession<C> {
                 )?;
             attribution.merge(compile_attribution);
 
-            Self::exact_count_target_from_cached_shared_plan(
+            Self::exact_target_from_cached_shared_plan(
                 catalog,
                 authority,
                 &prepared_plan,
                 SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
             )
         };
-        if target.count_plan_entry().is_some() {
+        if target.exact_plan_entry().is_some() {
             let (cache_insert, ()) = measure_sql_stage(|| {
-                cache_compiled_exact_count_target(compiled, &target);
+                cache_compiled_exact_target(compiled, &target);
             });
             attribution.cache_insert = attribution.cache_insert.saturating_add(cache_insert);
         }

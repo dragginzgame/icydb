@@ -130,6 +130,30 @@ Do not expose configuration merely to avoid making an architectural decision.
 Do not create a second bootstrap, schema, memory, planner, or recovery authority
 behind an option.
 
+## SQL Performance Breadth
+
+Prefer improving a reusable physical capability across the widest safely
+provable SQL surface over accumulating query-shape or field-type fast paths.
+Before adding an optimized route, inventory the adjacent query families,
+numeric or scalar kinds, and planner shapes that share the same correctness
+invariant. Where one owner-carried execution contract can cover them without
+adding independent states or runtime classification, design and measure that
+coherent surface together.
+
+Do not add a sequence of near-identical executor variants for individual SQL
+spellings or field kinds when one planner-owned physical primitive can serve
+them. Report the types and query families improved per added planner branch,
+execution branch, production line, and raw Wasm byte. An intentionally narrow
+optimization must explain why adjacent cases cannot safely share its contract
+and state the evidence that would trigger consolidation or broader replacement.
+
+Breadth does not authorize speculative semantics, unsafe generalization, or a
+multi-outcome landing patch. Unsupported cases must continue through the one
+canonical fallback, and a broad optimization remains one coherent outcome only
+when its variants share the same authority, correctness proof, lifecycle, and
+execution mechanism. If that common contract cannot be demonstrated, prefer
+further measurement or no-build over another isolated fast path.
+
 ## Technical Debt
 
 Technical debt is current, evidenced friction in maintaining or extending the

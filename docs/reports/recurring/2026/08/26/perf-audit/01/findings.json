@@ -1,0 +1,54 @@
+{
+  "audit": {
+    "date": "2026-08-26",
+    "scope": "perf-audit",
+    "method": "PERF-0.244-focused-pocketic-debug/v1",
+    "run": "01",
+    "code_snapshot": "7fa5cb5d35def70d1883a7c8e11f99718962d941",
+    "tree": "2201153fcf7933e5eea2da9a9d58cfcefa4c7323",
+    "includes_current_worktree": true,
+    "compared_baseline": "docs/reports/recurring/2026/05/14/perf-audit/01/report.md",
+    "comparability": "partial; current focused rows are comparable to their frozen candidate evidence, while historical recurring and complete scale matrices are method- or scenario-set-shifted",
+    "verdict": "PASS WITH FINDINGS",
+    "implementation_blockers": []
+  },
+  "findings": [
+    {
+      "id": "PERF-001",
+      "risk": "MEDIUM",
+      "owner": [
+        "testing/integration/tests/sql_perf_matrix_audit.rs",
+        "testing/integration/tests/sql_perf_profile.rs",
+        ".github/workflows/sql-performance-evidence.yml"
+      ],
+      "title": "No clean current-source complete matrix covers the 210-scenario scale profile",
+      "evidence": "The last complete clean P1/P2/scale bundle uses the current P1 hash but a 174-scenario scale hash. The only local shards with the current 210-scenario scale hash were captured from a dirty 0.237.2 worktree and were never promoted to reviewed baseline authority.",
+      "impact": "Focused release gates can prove the maintained optimized families, but this audit cannot claim matrix-wide regression freedom or rank the next current hotspot from comparable 0.244 evidence.",
+      "disposition": "MEASURE IN NEXT CLEAN SCHEDULED RUN",
+      "trigger": "Before selecting another SQL performance hotspot or claiming a complete current matrix comparison.",
+      "blocks_0_244": false
+    }
+  ],
+  "focused_drift_basis_points": {
+    "0_238_ordered_distinct_limit3": 24,
+    "0_240_1_exact_distinct_count_cold": 27,
+    "0_240_1_exact_distinct_count_warm": 39,
+    "0_242_exact_range_count_cold": 11,
+    "0_242_exact_range_count_warm": 40,
+    "0_244_sum_cold": -1,
+    "0_244_avg_cold": -1,
+    "0_244_sum_all_unique": 2,
+    "ordinary_aggregate_filter_cold": 4,
+    "ordinary_aggregate_filter_warm": -14
+  },
+  "verification": {
+    "focused_harness_registration": "PASS",
+    "0_238_ordered_distinct": "PASS",
+    "0_240_1_exact_count_family": "PASS",
+    "0_242_exact_range_count": "PASS",
+    "0_244_exact_numeric_aggregate": "PASS",
+    "ordinary_shared_floor": "PASS",
+    "complete_current_p1_p2_scale_comparison": "NOT RUN",
+    "production_changes_by_audit": "PASS"
+  }
+}

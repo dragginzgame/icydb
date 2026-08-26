@@ -1,0 +1,61 @@
+{
+  "audit": {
+    "date": "2026-08-26",
+    "scope": "flow-convergence-and-duplication",
+    "method": "FCD-1.0",
+    "run": "01",
+    "code_snapshot": "7fa5cb5d35def70d1883a7c8e11f99718962d941",
+    "tree": "2201153fcf7933e5eea2da9a9d58cfcefa4c7323",
+    "includes_current_worktree": true,
+    "worktree_relevance": "One authorized documentation-only SQL performance breadth rule was present at audit start; it does not change the inspected runtime.",
+    "compared_baseline": "docs/reports/recurring/2026/08/10/flow-convergence-and-duplication/01/report.md",
+    "comparability": "non-comparable scope change",
+    "verdict": "PASS WITH FINDINGS",
+    "implementation_blockers": []
+  },
+  "findings": [
+    {
+      "id": "FCD-002",
+      "class": "DuplicateFlow",
+      "risk": "MEDIUM",
+      "owner": [
+        "crates/icydb-core/src/db/index/cardinality.rs",
+        "crates/icydb-core/src/db/executor/aggregate/exact_terminal.rs"
+      ],
+      "title": "First-component metadata paths duplicate their bounded traversal and execution envelope",
+      "friction": "Another exact aggregate or numeric kind would need to repeat or choose between freshness, corruption, work-bound and fallback implementations.",
+      "disposition": "CONSOLIDATE",
+      "action_trigger": "Before another first-component aggregate, numeric kind, or shared freshness/work-budget change is authorized.",
+      "blocks_0_244": false
+    },
+    {
+      "id": "FCD-003",
+      "class": "StaleSurface",
+      "risk": "LOW",
+      "owner": [
+        "crates/icydb-core/src/db/session/sql/execute/exact_aggregate.rs"
+      ],
+      "title": "Generalized exact-aggregate orchestration retains count-only private vocabulary",
+      "friction": "The current names obscure that numeric execution already shares the exact-or-prepared owner and can encourage a sibling route.",
+      "disposition": "LOCALIZE",
+      "action_trigger": "The next authorized edit to the exact-aggregate session owner.",
+      "blocks_0_244": false
+    }
+  ],
+  "retained_separations": [
+    "Ordered DISTINCT group seeking remains separate from metadata aggregation because the physical contracts differ.",
+    "Executor accepted-index identity checks remain as fail-closed boundary validation.",
+    "Exact plan payload variants remain mutually exclusive values in one fingerprint-bound cache slot.",
+    "Diagnostics attribution plumbing remains separate while sharing target and execution helpers."
+  ],
+  "verification": {
+    "authority_and_flow_trace": "PASS",
+    "layer_authority_invariants": "PASS",
+    "sql_branch_ownership_invariants": "PASS",
+    "single_exact_or_prepared_cache_owner": "PASS",
+    "ordered_distinct_planner_contract": "PASS",
+    "production_changes": "PASS",
+    "full_repository_suite": "BLOCKED",
+    "live_performance_and_wasm_rerun": "BLOCKED"
+  }
+}

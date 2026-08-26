@@ -12,7 +12,9 @@ Detailed notes: [docs/changelog/0.244.md](docs/changelog/0.244.md)
 - `0.244.0` lets strictly admitted indexed `Int32` `SUM` and `AVG` queries
   derive exact results from synchronized leading-value metadata without loading
   rows, cutting the measured 2,048-row queries by about 97.6M instructions while
-  every incompatible or unavailable case retains prepared execution.
+  every incompatible or unavailable case retains prepared execution. Its
+  closeout hard-cuts count-only private orchestration names now that the same
+  exact-or-prepared owner serves cardinality and numeric aggregates.
 
 ## [0.243.x] 🧹 - 2026-08-26 - Schema Publication Surface Contraction
 

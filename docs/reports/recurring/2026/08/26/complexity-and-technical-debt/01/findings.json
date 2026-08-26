@@ -1,0 +1,60 @@
+{
+  "audit": {
+    "date": "2026-08-26",
+    "scope": "complexity-and-technical-debt",
+    "method": "CTD-1.0",
+    "run": "01",
+    "code_snapshot": "7fa5cb5d35def70d1883a7c8e11f99718962d941",
+    "tree": "2201153fcf7933e5eea2da9a9d58cfcefa4c7323",
+    "includes_current_worktree": true,
+    "compared_baseline": "docs/reports/recurring/2026/08/10/complexity-and-technical-debt/01/report.md",
+    "comparability": "non-comparable affected-owner scope",
+    "shared_flow_report": "docs/reports/recurring/2026/08/26/flow-convergence-and-duplication/01/report.md",
+    "verdict": "PASS WITH FINDINGS",
+    "implementation_blockers": []
+  },
+  "findings": [
+    {
+      "id": "CTD-002",
+      "debt_family": "DuplicatedFlowDebt",
+      "risk": "MEDIUM",
+      "owner": [
+        "crates/icydb-core/src/db/index/cardinality.rs",
+        "crates/icydb-core/src/db/executor/aggregate/exact_terminal.rs"
+      ],
+      "title": "Another exact metadata aggregate would make ordinary extension disproportionate",
+      "evidence": "FCD-002 plus Nat64 and bounded numeric aggregate extension rehearsals",
+      "present_friction": "The next adjacent feature must either copy generation, traversal, work-budget and fallback envelopes or first prove a shared physical capability.",
+      "disposition": "ACCEPT UNTIL TRIGGER",
+      "trigger": "Before another exact first-component aggregate, numeric kind, or shared metadata freshness/budget change is authorized.",
+      "blocks_0_244": false
+    }
+  ],
+  "state_space": {
+    "global_aggregate_cached_plan_values": 6,
+    "exact_payload_families": 5,
+    "command_local_plan_slots": 1,
+    "new_public_axes_0_238_to_0_244": 0,
+    "new_persisted_axes_0_238_to_0_244": 0,
+    "new_cache_owners_0_238_to_0_244": 0
+  },
+  "complexity_signals": {
+    "scoped_files": 15,
+    "added_lines_since_v0_237_3": 2014,
+    "removed_lines_since_v0_237_3": 887,
+    "net_lines_since_v0_237_3": 1127,
+    "0_244_net_production_rust_lines": 233,
+    "fcd_003_cleanup_production_line_delta": -8
+  },
+  "verification": {
+    "state_space_and_owner_trace": "PASS",
+    "extension_rehearsals": "PASS",
+    "repository_invariants": "PASS",
+    "clippy_first_feature_matrix": "PASS",
+    "focused_exact_aggregate_regressions": "PASS",
+    "production_wasm_and_candid": "PASS",
+    "production_changes_by_audit": "PASS",
+    "full_repository_suite": "BLOCKED",
+    "new_extension_implementation": "BLOCKED"
+  }
+}
