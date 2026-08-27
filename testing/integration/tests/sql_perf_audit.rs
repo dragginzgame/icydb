@@ -3500,11 +3500,7 @@ fn sql_perf_0_238_ordered_distinct_group_seek_is_bounded_and_falls_back_explicit
         assert_eq!(distinct.global_path_hits, u64::from(!adjacent), "{label}");
         assert_eq!(distinct.candidate_rows, expected_candidates, "{label}");
         assert_eq!(distinct.bounded_stop_hits, 1, "{label}");
-        assert_eq!(
-            sample.attribution.store_get_calls,
-            if adjacent { 0 } else { u64::from(FIXTURE_ROWS) },
-            "{label}",
-        );
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
         assert_eq!(
             sample.attribution.index_store_entry_reads,
             if adjacent { expected_candidates } else { 0 },
@@ -3656,7 +3652,7 @@ fn sql_perf_0_238_ordered_distinct_group_seek_is_bounded_and_falls_back_explicit
         (
             "derived_order",
             "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age + 0 ASC LIMIT 3",
-            u64::from(FIXTURE_ROWS),
+            0,
             0,
         ),
         (
@@ -3771,6 +3767,93 @@ fn sql_perf_0_238_ordered_distinct_group_seek_is_bounded_and_falls_back_explicit
         assert_eq!(mostly_unique.attribution.store_get_calls, 0);
         assert!(mostly_unique.attribution.total_local_instructions <= 5_000_000);
     }
+}
+
+#[test]
+fn sql_perf_0_246_borrowed_row_and_compact_order_controls() {
+    const FIXTURE_ROWS: u32 = 2_048;
+    const AGGREGATE_PREDECESSOR: u64 = 109_234_618;
+    const NULLABLE_DISTINCT_PREDECESSOR: u64 = 118_738_995;
+    const EXPRESSION_ORDER_DISTINCT_PREDECESSOR: u64 = 109_375_905;
+    const AGGREGATE_SQL: &str =
+        "SELECT COUNT(DISTINCT age), COUNT(*) FILTER (WHERE active = true) FROM PerfAuditUser";
+    const NULLABLE_DISTINCT_SQL: &str = "SELECT DISTINCT CASE WHEN age = 31 THEN NULL ELSE age END AS maybe_age FROM PerfAuditUser ORDER BY maybe_age ASC LIMIT 3";
+    const EXPRESSION_ORDER_DISTINCT_SQL: &str =
+        "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age + 0 ASC LIMIT 3";
+
+    let fixture = install_sql_perf_canister_fixture();
+    load_user_scale_integrity_fixture(&fixture, FIXTURE_ROWS);
+
+    let aggregate = query_surface_with_perf(&fixture, SqlPerfSurface::User, AGGREGATE_SQL, 1)
+        .expect("prepared aggregate borrowed-row control should succeed");
+    assert_eq!(
+        rendered_projection_rows(aggregate.result),
+        vec![vec!["5".to_string(), "512".to_string()]],
+    );
+    assert_eq!(aggregate.attribution.store_get_calls, 0);
+    assert_0_246_instruction_gate(
+        "aggregate_distinct_filter",
+        AGGREGATE_PREDECESSOR,
+        aggregate.attribution.total_local_instructions,
+    );
+
+    for (label, sql, predecessor, expected) in [
+        (
+            "nullable_distinct",
+            NULLABLE_DISTINCT_SQL,
+            NULLABLE_DISTINCT_PREDECESSOR,
+            ["null", "32", "33"],
+        ),
+        (
+            "expression_order_distinct",
+            EXPRESSION_ORDER_DISTINCT_SQL,
+            EXPRESSION_ORDER_DISTINCT_PREDECESSOR,
+            ["31", "32", "33"],
+        ),
+    ] {
+        let sample = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+            .expect("prepared DISTINCT borrowed-row control should succeed");
+        assert_eq!(
+            rendered_projection_rows(sample.result),
+            expected
+                .into_iter()
+                .map(|value| vec![value.to_string()])
+                .collect::<Vec<_>>(),
+            "{label}",
+        );
+        let distinct = sample
+            .attribution
+            .distinct_projection
+            .expect("DISTINCT delivery should publish attribution");
+        assert_eq!(distinct.candidate_rows, u64::from(FIXTURE_ROWS), "{label}");
+        assert_eq!(distinct.unique_rows, 5, "{label}");
+        assert_eq!(sample.attribution.store_get_calls, 0, "{label}");
+        assert_eq!(sample.attribution.index_store_entry_reads, 0, "{label}");
+        assert_0_246_instruction_gate(
+            label,
+            predecessor,
+            sample.attribution.total_local_instructions,
+        );
+    }
+}
+
+fn assert_0_246_instruction_gate(label: &str, predecessor: u64, candidate: u64) {
+    assert!(
+        predecessor.saturating_sub(candidate) >= 25_000_000,
+        "{label} missed the frozen 25M absolute-saving gate: predecessor={predecessor} candidate={candidate}",
+    );
+    assert!(
+        u128::from(candidate).saturating_mul(4) <= u128::from(predecessor).saturating_mul(3),
+        "{label} missed the frozen 25% relative-saving gate: predecessor={predecessor} candidate={candidate}",
+    );
+    println!(
+        "0.246 convergence: label={label} predecessor={predecessor} candidate={candidate} saving={} basis_points={}",
+        predecessor.saturating_sub(candidate),
+        u128::from(predecessor.saturating_sub(candidate))
+            .saturating_mul(10_000)
+            .checked_div(u128::from(predecessor))
+            .unwrap_or_default(),
+    );
 }
 
 #[test]

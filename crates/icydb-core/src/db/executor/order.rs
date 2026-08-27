@@ -154,19 +154,20 @@ where
     }
     charge_sort_work::<R>(rows.len())?;
     let rows_sorted = rows.len();
-    let ((), ordering_micros) = measure_execution_stats_phase(|| {
-        apply_structural_order_window_inner(rows, resolved_order, keep_count);
+    let (result, ordering_micros) = measure_execution_stats_phase(|| {
+        apply_structural_order_window_inner(rows, resolved_order, keep_count)
     });
     record_ordering(rows_sorted, ordering_micros);
 
-    Ok(())
+    result
 }
 
 fn apply_structural_order_window_inner<R>(
     rows: &mut Vec<R>,
     resolved_order: &ResolvedOrder,
     keep_count: Option<usize>,
-) where
+) -> Result<(), InternalError>
+where
     R: OrderReadableRow,
 {
     // Phase 1: pure direct-slot orders over retained executor rows can compare
@@ -175,36 +176,68 @@ fn apply_structural_order_window_inner<R>(
     // cached fallback for expression orders and rows that synthesize values.
     if can_use_borrowed_direct_order_path(rows.as_slice(), resolved_order) {
         apply_borrowed_direct_order_window(rows, resolved_order, keep_count);
-        return;
+        return Ok(());
     }
 
     // Phase 2: cache resolved order values once per row so bounded selection
     // and final sort do not re-read sparse slots or re-run expression-order
     // derivation inside comparator hot loops.
     let source_rows = std::mem::take(rows);
-    let mut cached_rows = Vec::with_capacity(source_rows.len());
-    for row in source_rows {
-        let cached_values = cache_order_values_from_row(&row, resolved_order);
-
-        cached_rows.push((row, cached_values));
-    }
+    let cached_values = source_rows
+        .iter()
+        .map(|row| cache_order_values_from_row(row, resolved_order))
+        .collect::<Vec<_>>();
+    let mut ordered_indices = (0..source_rows.len()).collect::<Vec<_>>();
 
     // Phase 3: retain only the bounded canonical window when pagination
     // exposes one, using the cached order keys instead of live row reads.
     if let Some(keep_count) = keep_count
-        && cached_rows.len() > keep_count
+        && ordered_indices.len() > keep_count
     {
-        cached_rows.select_nth_unstable_by(keep_count - 1, |left, right| {
-            compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
+        ordered_indices.select_nth_unstable_by(keep_count - 1, |left, right| {
+            compare_cached_order_indices(&cached_values, *left, *right, resolved_order)
         });
-        cached_rows.truncate(keep_count);
+        ordered_indices.truncate(keep_count);
     }
 
-    // Phase 4: sort the retained rows into final canonical order using the
-    // precomputed key values.
-    cached_rows
-        .sort_by(|left, right| compare_cached_orderable_rows(&left.1, &right.1, resolved_order));
-    rows.extend(cached_rows.into_iter().map(|(row, _)| row));
+    // Phase 4: sort compact source positions, then move each retained row at
+    // most once into final order. Sorting complete kernel payloads repeats
+    // large row moves without contributing to comparison semantics.
+    ordered_indices.sort_by(|left, right| {
+        compare_cached_order_indices(&cached_values, *left, *right, resolved_order)
+    });
+    *rows = reorder_rows_by_original_indices(source_rows, ordered_indices.as_slice())?;
+
+    Ok(())
+}
+
+fn compare_cached_order_indices(
+    cached_values: &[CachedOrderValues],
+    left: usize,
+    right: usize,
+    resolved_order: &ResolvedOrder,
+) -> Ordering {
+    match (cached_values.get(left), cached_values.get(right)) {
+        (Some(left), Some(right)) => compare_cached_orderable_rows(left, right, resolved_order),
+        _ => left.cmp(&right),
+    }
+}
+
+fn reorder_rows_by_original_indices<R>(
+    rows: Vec<R>,
+    ordered_original_indices: &[usize],
+) -> Result<Vec<R>, InternalError> {
+    let mut source_rows = rows.into_iter().map(Some).collect::<Vec<_>>();
+    let mut ordered_rows = Vec::with_capacity(ordered_original_indices.len());
+    for original in ordered_original_indices {
+        let row = source_rows
+            .get_mut(*original)
+            .and_then(Option::take)
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        ordered_rows.push(row);
+    }
+
+    Ok(ordered_rows)
 }
 
 ///
@@ -1190,5 +1223,25 @@ fn compare_order_value_with_boundary(
         (Some(value), CursorBoundarySlot::Present(boundary_value)) => {
             canonical_value_compare(value.as_ref(), boundary_value)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reorder_rows_by_original_indices;
+
+    #[test]
+    fn compact_order_indices_reorder_complete_and_bounded_rows() {
+        assert_eq!(
+            reorder_rows_by_original_indices(vec!['a', 'b', 'c', 'd'], &[2, 0, 3, 1])
+                .expect("complete permutation should reorder"),
+            vec!['c', 'a', 'd', 'b'],
+        );
+        assert_eq!(
+            reorder_rows_by_original_indices(vec!['a', 'b', 'c', 'd'], &[3, 1])
+                .expect("bounded permutation should retain selected rows"),
+            vec!['d', 'b'],
+        );
+        assert!(reorder_rows_by_original_indices(vec!['a'], &[1]).is_err());
     }
 }

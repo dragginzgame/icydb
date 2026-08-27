@@ -5,8 +5,11 @@
 
 use crate::{
     db::{
-        data::DecodedDataStoreKey,
-        executor::stream::key::{KeyOrderComparator, OrderedKeyStream},
+        data::{DecodedDataStoreKey, RawRow, StoreVisit},
+        executor::{
+            OrderedKeyStreamBox,
+            stream::key::{KeyOrderComparator, OrderedKeyStream},
+        },
     },
     error::InternalError,
 };
@@ -51,6 +54,26 @@ impl<S> DistinctOrderedKeyStream<S> {
             comparator,
             deduped_keys_counter: Some(deduped_keys_counter),
         }
+    }
+}
+
+impl DistinctOrderedKeyStream<Box<OrderedKeyStreamBox>> {
+    // Preserve DISTINCT monotonicity and progress while transparently
+    // forwarding an eligible primary-row visitor to the wrapped leaf.
+    pub(in crate::db::executor) fn try_visit_primary_rows_direct(
+        &mut self,
+        begin_row: &mut dyn FnMut() -> Result<bool, InternalError>,
+        visit_row: &mut dyn for<'row> FnMut(
+            DecodedDataStoreKey,
+            &'row RawRow,
+        ) -> Result<StoreVisit, InternalError>,
+    ) -> Result<Option<()>, InternalError> {
+        // Direct visitation is exposed only by one ASC primary-map leaf. Its
+        // keys are already strictly ordered and unique, and the leaf advances
+        // its exclusive lower bound even when the visitor stops early. The
+        // adapter therefore has no duplicate state to maintain on this route.
+        self.inner
+            .try_visit_primary_rows_direct(begin_row, visit_row)
     }
 }
 

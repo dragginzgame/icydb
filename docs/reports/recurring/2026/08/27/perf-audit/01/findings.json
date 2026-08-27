@@ -1,0 +1,60 @@
+{
+  "audit": {
+    "date": "2026-08-27",
+    "scope": "perf-audit",
+    "method": "PERF-0.246-clean-matrix/v1",
+    "run": "01",
+    "code_snapshot": "630cc9c974294631ff77a77d69a2704581ccb2dd",
+    "tree": "4b1c4464679e836bfb22da61b72080db1133b7bd",
+    "includes_current_worktree": false,
+    "compared_baseline": "docs/reports/recurring/2026/08/26/perf-audit/01/report.md",
+    "comparability": "exact clean current-source baseline; the preceding focused dirty report is context only",
+    "verdict": "PASS WITH ONE BOUNDED CANDIDATE",
+    "implementation_blockers": []
+  },
+  "findings": [
+    {
+      "id": "PERF-001",
+      "risk": "RESOLVED",
+      "owner": [
+        "testing/integration/tests/sql_perf_matrix_audit.rs",
+        "testing/integration/tests/sql_perf_profile.rs",
+        ".github/workflows/sql-performance-evidence.yml"
+      ],
+      "title": "Clean current-source complete matrix is available",
+      "evidence": "All 1787 P1 scenarios, 210 scale observations and 521 P2 confirmations passed from one exact clean v0.245.1 wasm-release subject.",
+      "impact": "0.246 can select a candidate from current evidence rather than dirty or partial historical captures.",
+      "disposition": "RESOLVED BY THIS RUN",
+      "blocks_0_246": false
+    },
+    {
+      "id": "PERF-002",
+      "risk": "HIGH",
+      "owner": [
+        "crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/streaming.rs",
+        "crates/icydb-core/src/db/executor/terminal/page/mod.rs",
+        "crates/icydb-core/src/db/executor/aggregate/scalar_terminals/mod.rs",
+        "crates/icydb-core/src/db/executor/projection/materialize/structural/distinct_entrypoints.rs"
+      ],
+      "title": "Prepared aggregate and scalar DISTINCT consumers receive fully retained source rows",
+      "evidence": "The 2048-row aggregate control costs 109234618 instructions and performs 2048 data-store gets; clean focused scalar DISTINCT controls cost 109375905 and 118738995 instructions with 2048 gets. Source inspection confirms both consumers run after the scalar row/page materialization boundary.",
+      "impact": "One existing prepared-row visitation seam may remove per-key lookup and complete source-row retention across two semantic consumers without adding a query-shape fast path.",
+      "disposition": "AUTHORIZE ONE BOUNDED PATCH 2 ATTEMPT",
+      "blocks_0_246": false
+    }
+  ],
+  "measurement": {
+    "p1_scenarios": 1787,
+    "scale_observations": 210,
+    "p2_confirmations": 521,
+    "raw_wasm_bytes": 4513444,
+    "raw_wasm_sha256": "0070381c8ca1e0f5a94a7da80b2c9235f51595f42a8fbc79ff7764e9ca2c9f95",
+    "aggregate_distinct_filter_rows2048_instructions": 109234618,
+    "aggregate_distinct_filter_rows2048_data_store_gets": 2048,
+    "nullable_expression_distinct_rows2048_instructions": 118738995,
+    "expression_order_distinct_rows2048_instructions": 109375905
+  },
+  "patch_2_decision": {
+    "projected_value_delivery": "ELIGIBLE FOR BOUNDED PATCH 2 ATTEMPT"
+  }
+}

@@ -4,7 +4,7 @@
 //! Does not own: parsed-statement semantic compilation or SQL execution.
 //! Boundary: keeps the public query/mutation compile surfaces on one cache shell.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "diagnostics"))]
 use crate::db::session::sql::sql_statement_dispatch;
 use crate::{
     db::{
@@ -31,7 +31,7 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "diagnostics"))]
     pub(in crate::db) fn compile_sql_query_with_execution_context(
         &self,
         sql: &str,

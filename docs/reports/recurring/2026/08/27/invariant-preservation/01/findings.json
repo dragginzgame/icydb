@@ -1,0 +1,44 @@
+{
+  "audit": {
+    "date": "2026-08-27",
+    "scope": "invariant-preservation",
+    "method": "Method V5",
+    "run": "01",
+    "code_snapshot": "630cc9c974294631ff77a77d69a2704581ccb2dd",
+    "tree": "4b1c4464679e836bfb22da61b72080db1133b7bd",
+    "includes_current_worktree": true,
+    "compared_baseline": "docs/reports/recurring/2026/05/11/invariant-preservation/01/report.md",
+    "comparability": "non-comparable (method change)",
+    "verdict": "PASS WITH FINDING",
+    "overall_invariant_risk_index": 4,
+    "runtime_invariant_violations": 0
+  },
+  "findings": [
+    {
+      "id": "INV-001",
+      "risk": "MEDIUM",
+      "owner": [
+        "docs/audits/recurring/integrity/invariant-preservation.md"
+      ],
+      "title": "The recurring invariant audit definition can produce false-green verification",
+      "evidence": "Five required cargo-test selectors exit successfully while executing zero tests, and the catalog-mutation registry predates current expression-index and physical-migration publication routes.",
+      "present_friction": "Every run must rediscover live replacement tests manually or risk reporting proof that did not execute; current mutation routes can also be omitted from the invariant registry.",
+      "disposition": "REVISE DEFINITION BEFORE NEXT RUN",
+      "trigger": "Before the next invariant-preservation audit execution.",
+      "runtime_blocker": false
+    }
+  ],
+  "verification": {
+    "memory_id_invariants": "PASS",
+    "layer_authority_invariants": "PASS",
+    "index_range_spec_invariants": "PASS",
+    "live_recovery_replacements": "PASS",
+    "schema_mutation_family": "PASS",
+    "physical_migration_recovery_publication": "PASS",
+    "index_envelope_and_ordering": "PASS",
+    "relation_symmetry": "PASS",
+    "stale_required_selectors": "FAIL",
+    "production_changes_by_audit": "PASS",
+    "full_repository_suite": "BLOCKED"
+  }
+}

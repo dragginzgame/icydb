@@ -23,10 +23,10 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 use std::cell::Cell;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 thread_local! {
     static SQL_PARSE_CALLS: Cell<u64> = const { Cell::new(0) };
 }
@@ -78,12 +78,12 @@ impl SqlParsePhaseAttribution {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 pub(crate) fn reset_sql_parse_calls_for_tests() {
     SQL_PARSE_CALLS.set(0);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 pub(crate) fn sql_parse_calls_for_tests() -> u64 {
     SQL_PARSE_CALLS.get()
 }
@@ -104,7 +104,7 @@ pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
 pub(crate) fn parse_sql_with_attribution(
     sql: &str,
 ) -> Result<(SqlStatement, SqlParsePhaseAttribution), SqlParseError> {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
     SQL_PARSE_CALLS.set(SQL_PARSE_CALLS.get().saturating_add(1));
 
     let (tokenize, tokens) = measure_parse_stage(|| tokenize_sql(sql));

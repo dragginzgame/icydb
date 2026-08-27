@@ -154,6 +154,7 @@ impl OrderedKeyStreamBox {
                     .inner
                     .try_visit_primary_rows_direct(begin_row, &mut observed_visit)
             }
+            Self::Distinct(stream) => stream.try_visit_primary_rows_direct(begin_row, visit_row),
             _ => Ok(None),
         }
     }

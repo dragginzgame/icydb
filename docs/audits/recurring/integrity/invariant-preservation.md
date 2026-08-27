@@ -96,14 +96,21 @@ Classify invariants into categories:
 ### G. Catalog Mutation Invariants
 
 * Accepted schema transitions are classified by schema-owned mutation plans
-* Metadata-safe/no-rebuild plans may publish
-* The supported single non-unique field-path index-add rebuild may publish only
-  through the startup field-path runner, rebuild gate, physical-store
-  publication, final physical-store revalidation, and accepted snapshot
-  publication decision
-* Other rebuild-required plans remain blocked before accepted runtime visibility
+* Metadata-only and supported SQL DDL metadata transitions may publish only
+  after exact accepted identity, revision, and mutation-plan preflight
+* Field-path and deterministic expression-index additions may publish only
+  after the complete accepted-before and accepted-after user-index domains are
+  staged, validated, and installed atomically with the schema candidate
+* Constraint and field-metadata SQL DDL frontends use schema-owned admission
+  and publication semantics rather than defining independent mutation rules
+* Feature-gated physical migrations own one exact persisted plan, isolated
+  candidate generations, bounded validation and rewrite progress, final
+  physical validation, and complete candidate publication
+* Migration abort and recovery affect only the exact candidate owned by the
+  persisted migration record and never expose incomplete physical state
 * Unsupported or incompatible mutations fail closed before write/read staging
-* Recovery reconciles schema before rebuilding index state from rows
+* Startup recovery completes journal and commit-marker recovery before schema
+  reconciliation or physical migration resumes
 
 Produce:
 
@@ -233,11 +240,17 @@ Explicitly deep-audit:
 
 ## G. Catalog Mutation Publication Safety
 
-* Additive nullable/default-backed fields remain metadata-safe
-* Index add/drop and expression-index add remain rebuild-required and blocked
+* Metadata-only and empty-entity transitions retain their exact admission proof
+* Field-path and deterministic expression-index additions stage and validate
+  one complete accepted-before/accepted-after user-index domain
+* Constraint and field-metadata SQL DDL remain schema-owned frontends
 * Unsupported nullability/type/key changes fail closed
 * Mutation-plan fingerprints are deterministic and semantic
-* Transition metrics distinguish exact, accepted, and rejected outcomes
+* Candidate schema and physical generations publish as one operation
+* Physical migration validation, rewrite, abort, recovery, and final
+  publication remain bound to one persisted exact plan
+* Transition metrics distinguish exact, accepted, rejected, and migration
+  outcomes without becoming publication authority
 
 ---
 
@@ -304,8 +317,8 @@ Examples:
 * Adding new index types
 * Adding new commit markers
 * Adding new error classes
-* Extending accepted schema mutation publication beyond the supported
-  field-path index-add path
+* Extending accepted schema mutation publication beyond current metadata,
+  field/index, constraint, or physical-migration paths
 * Adding SQL DDL frontends over schema mutations
 
 This anticipates silent invariant erosion.
@@ -321,15 +334,27 @@ Required commands:
 * `bash scripts/ci/check-memory-id-invariants.sh`
 * `bash scripts/ci/check-layer-authority-invariants.sh`
 * `bash scripts/ci/check-index-range-spec-invariants.sh`
-* `cargo test -p icydb-core recovery_replay_is_idempotent --features sql -- --nocapture`
-* `cargo test -p icydb-core recovery_reconciles_schema_before_rebuilding_indexes_from_rows --features sql -- --nocapture`
-* `cargo test -p icydb-core recovery_startup_rebuild_rejects_future_row_format_fail_closed --features sql -- --nocapture`
-* `cargo test -p icydb-core schema::mutation --features sql -- --nocapture`
-* `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
-* `cargo test -p icydb-core structural_guards --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib mixed_entity_recovery_after_ --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib exact_controls_append_replay_retire_and_reopen --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib journaled_schema_candidate_replay_and_fold_are_idempotent --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib completed_recovery_stays_recovering_until_exact_generated_schema_receipt_then_is_ready --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib persisted_row_envelope_malformed_corpus_fails_closed --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib schema::mutation --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib physical_migration_rewrite_recovers_and_publishes_one_complete_candidate --features "sql migration" -- --nocapture`
+* `cargo test -p icydb-core --lib accepted_index_missing_row_is_typed_store_corruption --features "sql diagnostics" -- --nocapture`
+* `cargo test -p icydb-core --lib index::envelope::tests --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib index_key_ordering_ --features sql -- --nocapture`
+* `cargo test -p icydb-core --lib mixed_relation_validation_uses_the_complete_final_row_overlay --features sql -- --nocapture`
 
-If a command is intentionally replaced because its historical target no longer
-matches live tests or files, state that in the report and name the replacement.
+Every required test command must execute at least one test. The
+`mixed_entity_recovery_after_` family must execute all five maintained
+interruption points. A successful command that reports `running 0 tests` is an
+audit failure, not verification evidence. Record the executed count for every
+selector in the report.
+
+If a required selector no longer matches live tests, stop the run, mark that
+verification `FAIL`, and revise this definition before rerunning the audit. Do
+not substitute an unrecorded replacement inside a report.
 
 ---
 

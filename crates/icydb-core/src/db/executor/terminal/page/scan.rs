@@ -404,25 +404,32 @@ fn scan_kernel_rows_with_bounded_order_window(
     Ok((window.into_pending_rows(), rows_scanned))
 }
 
-fn try_scan_borrowed_primary_rows_with_bounded_order_window(
+fn try_scan_borrowed_primary_rows(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
     mut read_row: impl FnMut(&DecodedDataStoreKey, &RawRow) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<Option<(PendingOrderRows<KernelRow>, usize)>, InternalError> {
-    let Some(order_window) = bounds.order_window else {
-        return Ok(None);
-    };
     if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
-        return Err(InternalError::query_executor_invariant());
+        return if bounds.order_window.is_some() {
+            Err(InternalError::query_executor_invariant())
+        } else {
+            Ok(None)
+        };
     }
-    if order_window.keep_count == 0 {
+    if bounds
+        .order_window
+        .is_some_and(|order| order.keep_count == 0)
+    {
         return Ok(Some((PendingOrderRows::plain(Vec::new()), 0)));
     }
 
     let rows_scanned = std::cell::Cell::new(0usize);
     let envelope_stopped = std::cell::Cell::new(false);
     let active_unit = std::cell::Cell::new(ScanPageUnit::Untracked);
-    let mut window = BoundedOrderWindow::new(order_window.keep_count, order_window.resolved_order);
+    let mut plain_rows = Vec::with_capacity(staged_row_capacity(key_stream, None, 0));
+    let mut window = bounds
+        .order_window
+        .map(|order| BoundedOrderWindow::new(order.keep_count, order.resolved_order));
     let mut begin_row = || {
         let page_unit = begin_direct_row_scan_page_unit()?;
         if matches!(page_unit, ScanPageUnit::EnvelopeFull) {
@@ -441,7 +448,11 @@ fn try_scan_borrowed_primary_rows_with_bounded_order_window(
             if !decoded.has_materialized_slots() {
                 return Err(InternalError::query_executor_invariant());
             }
-            window.push(decoded)?;
+            if let Some(window) = window.as_mut() {
+                window.push(decoded)?;
+            } else {
+                plain_rows.push(decoded);
+            }
         }
 
         Ok(StoreVisit::Continue)
@@ -460,9 +471,16 @@ fn try_scan_borrowed_primary_rows_with_bounded_order_window(
     }
 
     #[cfg(feature = "diagnostics")]
-    record_kernel_row_peak_retained_backing_bytes(window.peak_retained_backing_bytes());
+    if let Some(window) = window.as_ref() {
+        record_kernel_row_peak_retained_backing_bytes(window.peak_retained_backing_bytes());
+    }
 
-    Ok(Some((window.into_pending_rows(), rows_scanned.get())))
+    let rows = window.map_or_else(
+        || PendingOrderRows::plain(plain_rows),
+        BoundedOrderWindow::into_pending_rows,
+    );
+
+    Ok(Some((rows, rows_scanned.get())))
 }
 
 // Scan one ordered key stream into caller-owned row payloads while preserving
@@ -920,13 +938,11 @@ fn scan_slot_rows_into_kernel(
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    if let Some(rows) =
-        try_scan_borrowed_primary_rows_with_bounded_order_window(key_stream, bounds, |key, row| {
-            row_runtime
-                .read_borrowed_slot_only(key, row, retained_slot_layout)
-                .map(Some)
-        })?
-    {
+    if let Some(rows) = try_scan_borrowed_primary_rows(key_stream, bounds, |key, row| {
+        row_runtime
+            .read_borrowed_slot_only(key, row, retained_slot_layout)
+            .map(Some)
+    })? {
         return Ok(rows);
     }
     scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {
@@ -954,16 +970,14 @@ fn scan_slot_rows_into_kernel_with_filter_program(
     bounds: KernelRowScanBounds<'_>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    if let Some(rows) =
-        try_scan_borrowed_primary_rows_with_bounded_order_window(key_stream, bounds, |key, row| {
-            row_runtime.read_borrowed_slot_only_with_filter_program(
-                key,
-                row,
-                filter_program,
-                retained_slot_layout,
-            )
-        })?
-    {
+    if let Some(rows) = try_scan_borrowed_primary_rows(key_stream, bounds, |key, row| {
+        row_runtime.read_borrowed_slot_only_with_filter_program(
+            key,
+            row,
+            filter_program,
+            retained_slot_layout,
+        )
+    })? {
         return Ok(rows);
     }
     scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {

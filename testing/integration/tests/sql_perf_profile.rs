@@ -318,7 +318,7 @@ impl PerformanceProfile {
         )?;
         if !self.broad_scan_requires_full_enumeration
             || self.confirmation_top_n_per_metric != 20
-            || self.confirmation_scenario_cap != 512
+            || self.confirmation_scenario_cap != 544
             || self.cold_samples_per_confirmation != 5
             || self.warm_samples_per_confirmation != 5
             || self.expected_scale_scenario_count != EXPECTED_SCALE_SCENARIO_COUNT
@@ -480,7 +480,10 @@ pub(crate) const SQL_PERFORMANCE_PROFILE: PerformanceProfile = PerformanceProfil
     expected_scale_shard_counts: EXPECTED_SCALE_SHARD_COUNTS,
     broad_scan_requires_full_enumeration: true,
     confirmation_top_n_per_metric: 20,
-    confirmation_scenario_cap: 512,
+    // The complete current top-20-per-metric union contains 521 candidates.
+    // Keep a small explicit margin without permitting an unreviewed expansion
+    // to consume the complete discovery matrix in P2.
+    confirmation_scenario_cap: 544,
     cold_samples_per_confirmation: 5,
     warm_samples_per_confirmation: 5,
     scale_row_cardinalities: SCALE_ROW_CARDINALITIES,
@@ -647,7 +650,7 @@ mod tests {
         );
         assert!(profile.broad_scan_requires_full_enumeration());
         assert_eq!(profile.confirmation_top_n_per_metric(), 20);
-        assert_eq!(profile.confirmation_scenario_cap(), 512);
+        assert_eq!(profile.confirmation_scenario_cap(), 544);
         assert_eq!(profile.cold_samples_per_confirmation(), 5);
         assert_eq!(profile.warm_samples_per_confirmation(), 5);
         assert_eq!(profile.scale_row_cardinalities(), &[16, 256, 2_048]);

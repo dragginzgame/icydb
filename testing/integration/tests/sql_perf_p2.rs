@@ -1921,8 +1921,8 @@ mod tests {
                 &samples,
                 &requirements,
             ),
-            Err(P2SelectionError::CandidateCapExceeded { cap: 512, actual })
-                if actual > 512
+            Err(P2SelectionError::CandidateCapExceeded { cap: 544, actual })
+                if actual > 544
         ));
     }
 
