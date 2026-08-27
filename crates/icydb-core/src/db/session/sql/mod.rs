@@ -69,6 +69,7 @@ pub(in crate::db) use delete_policy::{
 pub use integrity::SqlIntegrityError;
 pub use result::SqlStatementResult;
 pub(in crate::db::session) use resumable_update::validate_current_initial_mutation_job_continuation;
+pub(in crate::db::session::sql) use surface::sql_statement_entity_name_from_statement;
 pub use surface::{
     SqlStatementDispatch, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
@@ -106,26 +107,22 @@ impl<C: CanisterKind> DbSession<C> {
     /// supplies finite physical and aggregate execution policy; its caller
     /// separately owns authorization.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
-        self.execute_trusted_sql_query_with_entity_name(sql)
+        let dispatch = sql_statement_dispatch(sql)?;
+        self.execute_trusted_sql_query_with_entity_name(&dispatch)
             .map(|(result, _)| result)
     }
 
-    /// Execute one trusted query and return the entity name resolved by the
-    /// same canonical parse used for compilation.
-    ///
-    /// This hidden facade seam prevents callers that need the response entity
-    /// from parsing the complete statement a second time.
+    /// Execute one trusted query from an admitted parsed dispatch.
     #[doc(hidden)]
     pub fn execute_trusted_sql_query_with_entity_name(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<(SqlStatementResult, String), QueryError> {
-        let entity_name = sql_statement_entity_name(sql)?;
-        let (compiled, _, _) =
-            self.compile_sql_query_with_execution_context(entity_name.as_deref(), sql)?;
+        let (compiled, entity_name, _, _) =
+            self.compile_sql_query_with_dispatch_execution_context(dispatch)?;
         let result = self.execute_compiled_sql_query_context_owned(compiled)?;
 
-        Ok((result, entity_name.unwrap_or_default()))
+        Ok((result, entity_name))
     }
 
     /// Execute one reduced SQL query while reporting the compile/execute split
@@ -136,14 +133,26 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<(SqlStatementResult, SqlQueryExecutionAttribution), QueryError> {
+        let dispatch = sql_statement_dispatch(sql)?;
+        self.execute_trusted_sql_query_with_entity_name_and_attribution(&dispatch)
+            .map(|(result, _, attribution)| (result, attribution))
+    }
+
+    /// Execute one trusted query with attribution from an admitted parsed dispatch.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn execute_trusted_sql_query_with_entity_name_and_attribution(
+        &self,
+        dispatch: &SqlStatementDispatch<'_>,
+    ) -> Result<(SqlStatementResult, String, SqlQueryExecutionAttribution), QueryError> {
+        let parse_local_instructions = dispatch.parse_local_instructions();
         begin_sql_structural_work_attribution();
-        let entity_name = sql_statement_entity_name(sql)?;
-        // Phase 1: measure the compile side of the new seam, including parse,
-        // surface validation, and semantic command construction.
-        let (compile_local_instructions, compiled) = measure_sql_stage(|| {
-            self.compile_sql_query_with_execution_context(entity_name.as_deref(), sql)
-        });
-        let (compiled, compile_cache_attribution, compile_phase_attribution) = compiled?;
+        let (remaining_compile_local_instructions, compiled) =
+            measure_sql_stage(|| self.compile_sql_query_with_dispatch_execution_context(dispatch));
+        let (compiled, entity_name, compile_cache_attribution, compile_phase_attribution) =
+            compiled?;
+        let compile_local_instructions =
+            parse_local_instructions.saturating_add(remaining_compile_local_instructions);
 
         // Phase 2: measure the execute side separately so repeat-run cache
         // experiments can prove which side actually moved.
@@ -180,7 +189,7 @@ impl<C: CanisterKind> DbSession<C> {
             },
         );
 
-        Ok((result, attribution))
+        Ok((result, entity_name, attribution))
     }
 
     /// Execute one trusted single-entity SQL `INSERT` or `DELETE` statement.

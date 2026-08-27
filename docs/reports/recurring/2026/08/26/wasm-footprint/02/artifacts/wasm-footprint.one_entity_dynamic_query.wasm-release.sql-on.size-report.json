@@ -1,0 +1,242 @@
+{
+  "format_version": 1,
+  "measurement_profile": {
+    "version": 1,
+    "identity": "icydb-wasm-footprint/0.220/v1",
+    "comparisons": [
+      {
+        "id": "metrics_surface",
+        "baseline": "default_empty",
+        "candidate": "default_empty_metrics",
+        "disposition": "directional_only",
+        "reason": "distinct actor sources differ by endpoint declarations and retained metrics wiring"
+      },
+      {
+        "id": "typed_ingress",
+        "baseline": "one_entity_dynamic_query",
+        "candidate": "one_entity_typed_query",
+        "disposition": "directional_only",
+        "reason": "distinct actor sources differ by public method bodies and typed adapter reachability"
+      },
+      {
+        "id": "sql_ingress",
+        "baseline": "one_entity_typed_query",
+        "candidate": "one_entity_sql_query",
+        "disposition": "directional_only",
+        "reason": "distinct actor sources differ by public method bodies and SQL capability reachability"
+      },
+      {
+        "id": "entity_scale",
+        "baseline": "one_entity_typed_query",
+        "candidate": "ten_entity_typed_query",
+        "disposition": "directional_only",
+        "reason": "the intended entity-count change also changes the generated accepted-schema proposal"
+      }
+    ],
+    "patch_budgets": [
+      {
+        "patch": 2,
+        "minimum_selected_raw_reduction_basis_points": 700,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 0,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 3,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 300,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 4,
+        "minimum_selected_raw_reduction_basis_points": 500,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 5,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 6,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 0,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      },
+      {
+        "patch": 7,
+        "minimum_selected_raw_reduction_basis_points": 0,
+        "minimum_selected_instruction_reduction_basis_points": 500,
+        "maximum_other_raw_regression_bytes": 8192,
+        "maximum_other_instruction_regression_basis_points": 100
+      }
+    ],
+    "line_budgets": [
+      {
+        "subject": "default_empty",
+        "minimum_final_raw_reduction_basis_points": 0
+      },
+      {
+        "subject": "default_empty_metrics",
+        "minimum_final_raw_reduction_basis_points": 500
+      },
+      {
+        "subject": "one_entity_dynamic_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "one_entity_typed_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "one_entity_sql_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "ten_entity_typed_query",
+        "minimum_final_raw_reduction_basis_points": 700
+      },
+      {
+        "subject": "sql_perf",
+        "minimum_final_raw_reduction_basis_points": 500
+      },
+      {
+        "subject": "sql",
+        "minimum_final_raw_reduction_basis_points": 500
+      }
+    ]
+  },
+  "provenance": {
+    "source_revision": "b6b5c287de5d3fcca3fc6dbe9acbe7c4026236b9",
+    "source_tree": "3d53872ddf71791bee02695e983f767c7049f51a",
+    "source_dirty": false,
+    "lockfile_sha256": "eafa0c1f759b947b413f9e14c044ac150b38209b0477a1ee2e5a44de348ff73e",
+    "workspace_root": "/home/adam/projects/icydb",
+    "cargo_target_dir": "/home/adam/projects/icydb/target/icydb",
+    "rust_toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)\nbinary: rustc\ncommit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452\ncommit-date: 2026-07-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.1\nLLVM version: 22.1.6"
+  },
+  "tools": {
+    "ic_wasm_version": "ic-wasm 0.11.1",
+    "ic_wasm_sha256": "204dad3ad59b78a46fad559dfefcdcaee3609433e5e4e6d81bda5e051a2bc0bc",
+    "wasm_opt_version": "wasm-opt version 108",
+    "wasm_opt_sha256": "945bd42c417fadcd7a522919cfee341317c16de7cc47cef8add1e6d7f7f88eea"
+  },
+  "pipeline": {
+    "compiler_emitted_stage": "cargo_wasm",
+    "post_link_transform": "binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2",
+    "final_deployable_stage": "binaryen_oz_wasm",
+    "candid_metadata": "enabled",
+    "build_profile": "production",
+    "no_default_features": true,
+    "path_remapping": "workspace=/w;cargo-registry=/c;rust-library=/r"
+  },
+  "canister": "one_entity_dynamic_query",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_entity_dynamic_query.wasm-release.did",
+      "bytes": 4675,
+      "sha256": "14ff87ea6b05c4a21fac2b02414a0650b27adb102e1585744fef426dc5b7ca9c"
+    },
+    "candid_export": "available",
+    "compiler_emitted_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_entity_dynamic_query.wasm-release.compiler-emitted.wasm",
+      "bytes": 3262612,
+      "sha256": "0cfcb3abcd7ff637a791420a6ed067d57d83224732efb336d25af6d9a57d9580"
+    },
+    "final_deployable_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_entity_dynamic_query.wasm-release.final-deployable.wasm",
+      "bytes": 2864615,
+      "sha256": "9375feec6519c0f0192d1a28169f8c50ef6fc0d66591576c6b24458bbd725ee0"
+    },
+    "final_deployable_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_entity_dynamic_query.wasm-release.final-deployable.wasm.gz",
+      "bytes": 1137805,
+      "sha256": "205f2ad88452372afbd7fbd349d3ba43c3f4031687818abfdb570ea8b4f6d407"
+    }
+  },
+  "analysis": {
+    "compiler_emitted": {
+      "function_count": 7868,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 156528,
+      "exported_method_count": 10,
+      "exported_methods": [
+        "canister_init (func_7858)",
+        "canister_query diagnose_repeated_point_queries (func_7859)",
+        "canister_query measure_parameterized_point_queries (func_7860)",
+        "canister_query measure_repeated_point_queries (func_7861)",
+        "canister_query measure_repeated_scan_queries (func_7862)",
+        "canister_query query_one_entity_dynamic_rows (func_7863)",
+        "get_candid_pointer (func_7864)",
+        "canister_global_timer (func_7865)",
+        "canister_update <ic-cdk internal> timer_executor (func_7866)",
+        "canister_post_upgrade (func_7867)"
+      ]
+    },
+    "final_deployable": {
+      "function_count": 7502,
+      "callback_count": 1,
+      "data_section_count": 172,
+      "data_section_bytes": 151901,
+      "exported_method_count": 10,
+      "exported_methods": [
+        "canister_init (func_7362)",
+        "canister_query diagnose_repeated_point_queries (func_7363)",
+        "canister_query measure_parameterized_point_queries (func_7364)",
+        "canister_query measure_repeated_point_queries (func_7365)",
+        "canister_query measure_repeated_scan_queries (func_7366)",
+        "canister_query query_one_entity_dynamic_rows (func_7367)",
+        "get_candid_pointer (func_7368)",
+        "canister_global_timer (func_7369)",
+        "canister_update <ic-cdk internal> timer_executor (func_7370)",
+        "canister_post_upgrade (func_7362)"
+      ]
+    },
+    "enabled_wasm_features": [
+      "--enable-bulk-memory",
+      "--enable-nontrapping-float-to-int",
+      "--enable-sign-ext"
+    ]
+  },
+  "build": {
+    "exact_features": [
+      "candid-export",
+      "request-diagnostics"
+    ],
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_update": false,
+      "sql_integrity": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_extended": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": [
+      "canister_init",
+      "diagnose_repeated_point_queries",
+      "measure_parameterized_point_queries",
+      "measure_repeated_point_queries",
+      "measure_repeated_scan_queries",
+      "query_one_entity_dynamic_rows",
+      "canister_global_timer",
+      "<ic-cdk",
+      "canister_post_upgrade"
+    ]
+  },
+  "deltas": {
+    "post_link_wasm_bytes": -397997,
+    "post_link_reduction_basis_points": 1219
+  }
+}

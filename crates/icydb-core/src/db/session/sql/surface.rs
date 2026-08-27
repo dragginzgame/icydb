@@ -10,7 +10,9 @@ use crate::{
     db::{
         DbSession, QueryError,
         session::sql::SqlCompiledCommandSurface,
-        sql::parser::{SqlDdlStatement, SqlStatement, parse_sql_with_attribution},
+        sql::parser::{
+            SqlDdlStatement, SqlParsePhaseAttribution, SqlStatement, parse_sql_with_attribution,
+        },
     },
     traits::CanisterKind,
 };
@@ -42,32 +44,56 @@ pub enum SqlStatementShellSurface {
 }
 
 /// Parsed SQL dispatch facts used by generated query endpoint glue.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// The artifact binds its syntax tree to the exact borrowed input used by the
+/// compiled-command cache. Downstream consumers cannot pair one statement
+/// with another statement's cache text.
 #[doc(hidden)]
-pub struct SqlStatementDispatch {
-    entity_name: Option<String>,
-    requires_introspection: bool,
+pub struct SqlStatementDispatch<'sql> {
+    sql: &'sql str,
+    statement: SqlStatement,
+    parse_local_instructions: u64,
+    parse_attribution: SqlParsePhaseAttribution,
 }
 
-impl SqlStatementDispatch {
+impl<'sql> SqlStatementDispatch<'sql> {
     #[must_use]
-    const fn new(entity_name: Option<String>, requires_introspection: bool) -> Self {
+    const fn new(
+        sql: &'sql str,
+        statement: SqlStatement,
+        parse_local_instructions: u64,
+        parse_attribution: SqlParsePhaseAttribution,
+    ) -> Self {
         Self {
-            entity_name,
-            requires_introspection,
+            sql,
+            statement,
+            parse_local_instructions,
+            parse_attribution,
         }
-    }
-
-    /// Return the entity targeted by this statement, when the SQL family has one.
-    #[must_use]
-    pub fn entity_name(&self) -> Option<&str> {
-        self.entity_name.as_deref()
     }
 
     /// Return whether this statement belongs to the operational introspection family.
     #[must_use]
     pub const fn requires_introspection(&self) -> bool {
-        self.requires_introspection
+        sql_statement_requires_introspection_from_statement(&self.statement)
+    }
+
+    // Return the exact text from which `statement` was parsed. This is the sole
+    // raw-SQL source for the downstream compiled-command cache key.
+    pub(in crate::db::session::sql) const fn sql(&self) -> &'sql str {
+        self.sql
+    }
+
+    pub(in crate::db::session::sql) const fn statement(&self) -> &SqlStatement {
+        &self.statement
+    }
+
+    pub(in crate::db::session::sql) const fn parse_attribution(&self) -> SqlParsePhaseAttribution {
+        self.parse_attribution
+    }
+
+    pub(in crate::db::session::sql) const fn parse_local_instructions(&self) -> u64 {
+        self.parse_local_instructions
     }
 }
 
@@ -104,13 +130,16 @@ pub fn sql_statement_shell_surface(sql: &str) -> Result<SqlStatementShellSurface
 
 /// Return generated query-endpoint routing facts for one reduced SQL statement.
 #[doc(hidden)]
-pub fn sql_statement_dispatch(sql: &str) -> Result<SqlStatementDispatch, QueryError> {
-    let (statement, _) =
+pub fn sql_statement_dispatch(sql: &str) -> Result<SqlStatementDispatch<'_>, QueryError> {
+    let (statement, parse_attribution) =
         parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+    let parse_local_instructions = parse_attribution.total();
 
     Ok(SqlStatementDispatch::new(
-        sql_statement_entity_name_from_statement(&statement).map(str::to_string),
-        sql_statement_requires_introspection_from_statement(&statement),
+        sql,
+        statement,
+        parse_local_instructions,
+        parse_attribution,
     ))
 }
 
@@ -176,7 +205,9 @@ const fn sql_statement_requires_introspection_from_statement(statement: &SqlStat
     }
 }
 
-const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> Option<&str> {
+pub(in crate::db::session::sql) const fn sql_statement_entity_name_from_statement(
+    statement: &SqlStatement,
+) -> Option<&str> {
     match statement {
         SqlStatement::Select(statement) => Some(statement.entity.as_str()),
         SqlStatement::Delete(statement) => Some(statement.entity.as_str()),
@@ -331,9 +362,10 @@ mod tests {
             assert!(dispatch.requires_introspection(), "{sql}");
         }
 
-        let select = sql_statement_dispatch("SELECT id FROM Example")
-            .expect("ordinary SELECT should classify");
+        let select_sql = "SELECT id FROM Example";
+        let select = sql_statement_dispatch(select_sql).expect("ordinary SELECT should classify");
         assert!(!select.requires_introspection());
+        assert_eq!(select.sql(), select_sql);
     }
 
     #[cfg(feature = "sql")]

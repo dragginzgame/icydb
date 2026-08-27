@@ -1,0 +1,76 @@
+{
+  "audit": {
+    "date": "2026-08-26",
+    "scope": "wasm-footprint/sql-ingress-owner",
+    "method": "WASM-3.0",
+    "run": "02",
+    "code_snapshot": "b6b5c287de5d3fcca3fc6dbe9acbe7c4026236b9",
+    "tree": "3d53872ddf71791bee02695e983f767c7049f51a",
+    "source_dirty_at_capture": false,
+    "compared_baseline": "docs/reports/recurring/2026/08/26/wasm-footprint/01/report.md",
+    "comparability": "same WASM-3.0 toolchain and production pipeline; actor subtractions remain directional by contract",
+    "verdict": "NO-BUILD — SQL PREMIUM IS CURRENTLY JUSTIFIED",
+    "implementation_blockers": [
+      "no broad removable owner conservatively clears 32768 final raw bytes",
+      "typed actor is planner-free and is not a matched SQL control",
+      "narrowing supported SQL behavior would add a runtime mode or remove functionality"
+    ]
+  },
+  "findings": [
+    {
+      "id": "SQL-001",
+      "risk": "LOW",
+      "title": "The direct typed comparison overstates removable SQL overhead",
+      "owner": [
+        "canisters/audit/one_entity_typed_query",
+        "canisters/audit/one_entity_dynamic_query",
+        "canisters/audit/one_entity_sql_query",
+        "crates/icydb-core/src/db/executor"
+      ],
+      "evidence": "Final SQL minus typed is 1169634 bytes, but typed calls planner-free Database::get. SQL minus the closer dynamic structural-query actor is 315217 bytes; that control has four additional measurement exports and remains directional.",
+      "impact": "The maintained structural planner and executor must not be classified as SQL frontend bloat.",
+      "disposition": "ACCEPT CURRENT FOOTPRINT; NO 0.246 BUILD"
+    },
+    {
+      "id": "SQL-002",
+      "risk": "MEDIUM",
+      "title": "Entity routing and cache-miss compilation parse the same SQL separately",
+      "owner": [
+        "crates/icydb-core/src/db/session/sql/surface.rs",
+        "crates/icydb-core/src/db/session/sql/compile_cache.rs",
+        "crates/icydb-core/src/db/session/sql/mod.rs",
+        "crates/icydb/src/db/session/sql.rs"
+      ],
+      "evidence": "Trusted query ingress fully parses for entity selection before cache lookup and parses again on a compile-cache miss. Diagnostic facade attribution can add a third parse. The focused cold matrix counted 21936 to 42079 instructions for the cache-miss parse; routing parse cost is currently outside reported compile and total values.",
+      "impact": "Every cache hit still pays a full routing parse, misses repeat parsing, and SQL phase totals omit real frontend work.",
+      "disposition": "SEPARATE PERFORMANCE AND ATTRIBUTION-CORRECTNESS CANDIDATE",
+      "constraints": [
+        "reuse one parsed statement through the existing owner chain",
+        "do not introduce an AST cache, runtime mode, execution route or parallel authority",
+        "measure true total instructions before claiming a saving"
+      ],
+      "blocks_0_246": false
+    }
+  ],
+  "authoritative_final_raw_bytes": {
+    "one_entity_typed_query": 2010198,
+    "one_entity_dynamic_query": 2864615,
+    "one_entity_sql_query": 3179832
+  },
+  "directional_deltas": {
+    "sql_minus_typed": 1169634,
+    "dynamic_minus_typed": 854417,
+    "sql_minus_dynamic": 315217
+  },
+  "verification": {
+    "clean_source_provenance": "PASS",
+    "three_actor_production_build": "PASS",
+    "machine_readable_size_reports": "PASS",
+    "twiggy_top": "PASS",
+    "twiggy_dominators": "PASS",
+    "twiggy_retained": "PASS",
+    "twiggy_monos": "PASS",
+    "focused_sql_phase_audit": "PASS",
+    "production_changes_by_audit": "PASS"
+  }
+}

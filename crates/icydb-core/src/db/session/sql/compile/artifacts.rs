@@ -8,9 +8,10 @@ use crate::db::{session::sql::CompiledSqlCommand, sql::parser::SqlParsePhaseAttr
 ///
 /// SqlCompilePhaseAttribution
 ///
-/// SqlCompilePhaseAttribution keeps the SQL-front-end compile miss path split
-/// into the concrete stages that still exist after the shared lower-cache
-/// collapse.
+/// SqlCompilePhaseAttribution keeps the SQL-front-end compile path split into
+/// the concrete stages that still exist after the shared lower-cache collapse.
+/// Parsing precedes cache lookup because the accepted catalogue remains part
+/// of the cache's freshness key.
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -76,8 +77,8 @@ impl SqlQueryShape {
 ///
 /// SqlCompileAttributionBuilder
 ///
-/// SqlCompileAttributionBuilder accumulates one compile miss path in pipeline
-/// order before emitting the diagnostics payload.
+/// SqlCompileAttributionBuilder accumulates one compile path in pipeline order
+/// before emitting the diagnostics payload.
 /// It keeps cache, parser, compile-core, and cache-insert counters aligned.
 ///
 
@@ -93,7 +94,8 @@ impl SqlCompileAttributionBuilder {
         self.phase.cache_key = local_instructions;
     }
 
-    // Record the compiled-command cache lookup stage before parse work starts.
+    // Record the compiled-command cache lookup after the parsed entity selects
+    // the accepted catalogue used by the freshness key.
     pub(in crate::db::session::sql) const fn record_cache_lookup(
         &mut self,
         local_instructions: u64,

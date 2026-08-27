@@ -929,10 +929,8 @@ fn planned_select_execution_facts(
     session: &DbSession<TestCanister>,
     sql: &str,
 ) -> ObservedExecutionFacts {
-    let entity_name = crate::db::session::sql_statement_entity_name(sql)
-        .expect("scheduled SELECT should expose its entity");
-    let (context, _, _) = session
-        .compile_sql_query_with_execution_context(entity_name.as_deref(), sql)
+    let (context, _, _, _) = session
+        .compile_sql_query_with_execution_context(sql)
         .unwrap_or_else(|error| {
             panic!("accepted scheduled SELECT should compile: sql={sql:?} error={error:?}")
         });

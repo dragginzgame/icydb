@@ -28,12 +28,9 @@ impl SqlSurfaceTokens {
 
     fn readonly_dispatch_tokens(&self) -> TokenStream {
         let entity_dispatch = if self.has_entities {
-            quote! { db()?.execute_trusted_sql_query_with_perf_attribution(sql) }
-        } else {
-            empty_sql_surface_query_dispatch()
-        };
-        let show_entities_dispatch = if self.has_entities {
-            quote! { db()?.execute_trusted_sql_query_with_perf_attribution(sql) }
+            quote! {
+                db()?.execute_trusted_sql_query_with_perf_attribution(&dispatch)
+            }
         } else {
             empty_sql_surface_query_dispatch()
         };
@@ -56,10 +53,7 @@ impl SqlSurfaceTokens {
                     ));
                 }
 
-                match dispatch.entity_name() {
-                    None => #show_entities_dispatch,
-                    Some(_entity) => #entity_dispatch,
-                }
+                #entity_dispatch
             }
         }
     }
@@ -323,7 +317,8 @@ mod tests {
         surface.push_entity("Character");
         let surface = compact_tokens(quote!(#surface));
 
-        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution(sql)"));
+        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution(&dispatch)"));
+        assert!(!surface.contains("execute_trusted_sql_query_with_perf_attribution(sql,"));
         assert!(surface.contains("into_deliverable_query_reply()"));
         assert!(surface.contains("execute_admin_sql_ddl(sql)"));
     }

@@ -113,45 +113,63 @@ impl<C: CanisterKind> DbSession<C> {
         crate::db::sql::sql_query_result_from_statement(statement, entity)
     }
 
+    #[cfg(feature = "diagnostics")]
+    #[inline]
+    fn sql_query_result_with_attribution(
+        result: core::db::SqlStatementResult,
+        entity: String,
+        mut attribution: crate::db::SqlQueryExecutionAttribution,
+    ) -> (SqlQueryResult, crate::db::SqlQueryExecutionAttribution) {
+        let (response_decode_local_instructions, result) =
+            measure_sql_response_decode_stage(|| {
+                Self::sql_query_result_from_statement(result, entity)
+            });
+        attribution =
+            finalize_trusted_sql_query_attribution(attribution, response_decode_local_instructions);
+
+        (result, attribution)
+    }
+
     /// Execute one trusted/admin reduced SQL query against accepted catalog authority.
     ///
     /// This helper does not make caller-controlled SQL public-safe. Public
     /// endpoints should prefer ordinary typed/dynamic reads, or use an
     /// application-owned SQL allowlist before entering this trusted lane.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlQueryResult, Error> {
-        let (result, entity) = self.inner.execute_trusted_sql_query_with_entity_name(sql)?;
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        let (result, entity) = self
+            .inner
+            .execute_trusted_sql_query_with_entity_name(&dispatch)?;
         Ok(Self::sql_query_result_from_statement(result, entity))
     }
 
-    /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
-    ///
-    /// This helper is used by generated authorized SQL surfaces and keeps the
-    /// same explicit trusted-boundary contract as `execute_trusted_sql_query`.
-    #[cfg(not(feature = "diagnostics"))]
+    /// Execute one generated query from its admitted parsed dispatch artifact.
     #[doc(hidden)]
     pub fn execute_trusted_sql_query_with_perf_attribution(
         &self,
-        sql: &str,
+        dispatch: &core::db::SqlStatementDispatch<'_>,
     ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error> {
-        Ok((
-            self.execute_trusted_sql_query(sql)?,
-            SqlQueryPerfAttribution::default(),
-        ))
-    }
+        #[cfg(not(feature = "diagnostics"))]
+        {
+            let (result, entity) = self
+                .inner
+                .execute_trusted_sql_query_with_entity_name(dispatch)?;
 
-    /// Execute one trusted/admin SQL query and return the shell perf envelope shape.
-    ///
-    /// This helper is used by generated authorized SQL surfaces and keeps the
-    /// same explicit trusted-boundary contract as `execute_trusted_sql_query`.
-    #[cfg(feature = "diagnostics")]
-    #[doc(hidden)]
-    pub fn execute_trusted_sql_query_with_perf_attribution(
-        &self,
-        sql: &str,
-    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error> {
-        let (result, attribution) = self.execute_trusted_sql_query_with_attribution(sql)?;
+            Ok((
+                Self::sql_query_result_from_statement(result, entity),
+                SqlQueryPerfAttribution::default(),
+            ))
+        }
+        #[cfg(feature = "diagnostics")]
+        {
+            let (result, entity, attribution) = self
+                .inner
+                .execute_trusted_sql_query_with_entity_name_and_attribution(dispatch)?;
+            let (result, attribution) =
+                Self::sql_query_result_with_attribution(result, entity, attribution);
 
-        Ok((result, SqlQueryPerfAttribution::from(attribution)))
+            Ok((result, SqlQueryPerfAttribution::from(attribution)))
+        }
     }
 
     /// Execute one trusted/admin reduced SQL query and report the top-level
@@ -165,15 +183,12 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<(SqlQueryResult, crate::db::SqlQueryExecutionAttribution), Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        let (result, mut attribution) =
-            self.inner.execute_trusted_sql_query_with_attribution(sql)?;
-        let (response_decode_local_instructions, result) =
-            measure_sql_response_decode_stage(|| {
-                Self::sql_query_result_from_statement(result, entity)
-            });
-        attribution =
-            finalize_trusted_sql_query_attribution(attribution, response_decode_local_instructions);
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        let (result, entity, attribution) = self
+            .inner
+            .execute_trusted_sql_query_with_entity_name_and_attribution(&dispatch)?;
+        let (result, attribution) =
+            Self::sql_query_result_with_attribution(result, entity, attribution);
 
         Ok((result, attribution))
     }

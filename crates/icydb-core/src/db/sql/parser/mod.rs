@@ -23,6 +23,13 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static SQL_PARSE_CALLS: Cell<u64> = const { Cell::new(0) };
+}
 
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
@@ -61,6 +68,26 @@ pub(crate) struct SqlParsePhaseAttribution {
     pub predicate: u64,
 }
 
+impl SqlParsePhaseAttribution {
+    #[must_use]
+    pub(crate) const fn total(self) -> u64 {
+        self.tokenize
+            .saturating_add(self.statement_shell)
+            .saturating_add(self.expr)
+            .saturating_add(self.predicate)
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn reset_sql_parse_calls_for_tests() {
+    SQL_PARSE_CALLS.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn sql_parse_calls_for_tests() -> u64 {
+    SQL_PARSE_CALLS.get()
+}
+
 /// Parse one reduced SQL statement.
 ///
 /// Parsing is deterministic and normalization-insensitive for keyword casing,
@@ -77,6 +104,9 @@ pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
 pub(crate) fn parse_sql_with_attribution(
     sql: &str,
 ) -> Result<(SqlStatement, SqlParsePhaseAttribution), SqlParseError> {
+    #[cfg(test)]
+    SQL_PARSE_CALLS.set(SQL_PARSE_CALLS.get().saturating_add(1));
+
     let (tokenize, tokens) = measure_parse_stage(|| tokenize_sql(sql));
     let tokens = tokens?;
     if tokens.is_empty() {

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.245.md](docs/changelog/0.245.md)
 
+- `0.245.1` carries one sealed SQL dispatch through generated admission,
+  entity routing and semantic compilation, removing repeated frontend work
+  while keeping cache text and parsed syntax inseparable.
 - `0.245.0` keeps generated schema installation and upgrade on the singular
   accepted-schema application authority while making explicit-removal lowering
   unreachable in generated-only actors, removing about 107 KiB of final raw

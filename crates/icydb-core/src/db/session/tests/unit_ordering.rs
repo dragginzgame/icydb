@@ -30,6 +30,8 @@ use crate::{
                 SqlGlobalAggregatePlanCacheEntry,
             },
         },
+        sql::parser::{reset_sql_parse_calls_for_tests, sql_parse_calls_for_tests},
+        sql_statement_dispatch,
     },
     error::ErrorOrigin,
     traits::{CanisterKind, Path},
@@ -47,6 +49,9 @@ const ENTITY_NAME: &str = "Singleton";
 const ID_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::id";
 const LABEL_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::label";
 const ENTITY_TAG: EntityTag = EntityTag::new(220);
+
+const PARSE_ONCE_QUERY: &str =
+    "SELECT id, label FROM Singleton WHERE label = 'parse-once' ORDER BY id LIMIT 1";
 
 struct TestCanister;
 
@@ -167,6 +172,86 @@ fn rejected_sql_fields_keep_exact_role() {
 }
 
 #[test]
+fn trusted_sql_query_reuses_one_parse_on_cache_miss_and_hit() {
+    let session = initialize();
+
+    reset_sql_parse_calls_for_tests();
+    let (_, cold) = session
+        .execute_trusted_sql_query_with_attribution(PARSE_ONCE_QUERY)
+        .expect("cold parse-once query should execute");
+    assert_eq!(sql_parse_calls_for_tests(), 1);
+    assert_eq!(cold.cache.sql_compiled_command_misses, 1);
+    assert_eq!(cold.cache.sql_compiled_command_hits, 0);
+
+    reset_sql_parse_calls_for_tests();
+    let (_, warm) = session
+        .execute_trusted_sql_query_with_attribution(PARSE_ONCE_QUERY)
+        .expect("warm parse-once query should execute");
+    assert_eq!(sql_parse_calls_for_tests(), 1);
+    assert_eq!(warm.cache.sql_compiled_command_hits, 1);
+    assert_eq!(warm.cache.sql_compiled_command_misses, 0);
+}
+
+#[test]
+fn admitted_generated_dispatch_is_consumed_without_reparsing() {
+    let session = initialize();
+
+    reset_sql_parse_calls_for_tests();
+    let dispatch = sql_statement_dispatch(PARSE_ONCE_QUERY)
+        .expect("generated endpoint dispatch should parse the query");
+    assert!(!dispatch.requires_introspection());
+    let (_, entity, attribution) = session
+        .execute_trusted_sql_query_with_entity_name_and_attribution(&dispatch)
+        .expect("admitted generated dispatch should execute");
+
+    assert_eq!(entity, ENTITY_NAME);
+    assert_eq!(sql_parse_calls_for_tests(), 1);
+    assert_eq!(attribution.cache.sql_compiled_command_misses, 1);
+    assert_eq!(
+        attribution.compile.parse_local_instructions,
+        attribution
+            .compile
+            .parse_tokenize_local_instructions
+            .saturating_add(attribution.compile.parse_select_local_instructions)
+            .saturating_add(attribution.compile.parse_expr_local_instructions)
+            .saturating_add(attribution.compile.parse_predicate_local_instructions)
+    );
+    assert!(attribution.compile_local_instructions >= attribution.compile.parse_local_instructions);
+}
+
+#[test]
+fn trusted_sql_response_routing_and_mutation_compilation_parse_once() {
+    let session = initialize();
+
+    reset_sql_parse_calls_for_tests();
+    let dispatch = sql_statement_dispatch("SHOW STORES")
+        .expect("entity-less introspection dispatch should parse");
+    let (_, entity) = session
+        .execute_trusted_sql_query_with_entity_name(&dispatch)
+        .expect("entity-less introspection should execute");
+    assert!(entity.is_empty());
+    assert_eq!(sql_parse_calls_for_tests(), 1);
+
+    reset_sql_parse_calls_for_tests();
+    session
+        .compile_sql_mutation_with_execution_context(
+            "DELETE FROM Singleton WHERE id = '00000000000000000000000000'",
+        )
+        .expect("mutation cache miss should compile from one parse");
+    assert_eq!(sql_parse_calls_for_tests(), 1);
+
+    reset_sql_parse_calls_for_tests();
+    let error = session
+        .execute_trusted_sql_query("DELETE FROM Singleton")
+        .expect_err("query ingress should reject mutation SQL");
+    assert_eq!(
+        error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch,
+    );
+    assert_eq!(sql_parse_calls_for_tests(), 1);
+}
+
+#[test]
 fn direct_aggregate_and_having_fields_keep_exact_role() {
     let session = initialize();
 
@@ -197,11 +282,8 @@ fn global_aggregate_command_cache_retains_one_fingerprint_bound_preparation() {
     let session = initialize();
     seed_singleton(&session);
 
-    let (exact_context, _, _) = session
-        .compile_sql_query_with_execution_context(
-            Some(ENTITY_NAME),
-            "SELECT COUNT(*) FROM Singleton",
-        )
+    let (exact_context, _, _, _) = session
+        .compile_sql_query_with_execution_context("SELECT COUNT(*) FROM Singleton")
         .expect("exact count should compile");
     let exact_fingerprint = exact_context.compiled_schema_fingerprint();
     assert!(
@@ -240,11 +322,8 @@ fn global_aggregate_command_cache_retains_one_fingerprint_bound_preparation() {
         .expect("a populated command slot must remain bound to its original fingerprint");
     assert!(Rc::ptr_eq(&exact_entry, &retained_entry));
 
-    let (prepared_context, _, _) = session
-        .compile_sql_query_with_execution_context(
-            Some(ENTITY_NAME),
-            "SELECT COUNT(DISTINCT label) FROM Singleton",
-        )
+    let (prepared_context, _, _, _) = session
+        .compile_sql_query_with_execution_context("SELECT COUNT(DISTINCT label) FROM Singleton")
         .expect("ordinary aggregate should compile");
     let prepared_fingerprint = prepared_context.compiled_schema_fingerprint();
     session
@@ -557,9 +636,11 @@ fn accepted_entity_display_name_lookup_is_case_insensitive() {
 fn missing_describe_entity_reports_accepted_schema_not_found() {
     let session = initialize();
 
+    reset_sql_parse_calls_for_tests();
     let error = session
         .execute_trusted_sql_query("DESCRIBE Card")
         .expect_err("a missing DESCRIBE target should fail");
+    assert_eq!(sql_parse_calls_for_tests(), 1);
 
     assert_eq!(
         error.diagnostic_code(),

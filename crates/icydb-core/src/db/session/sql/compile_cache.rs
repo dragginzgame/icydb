@@ -4,9 +4,11 @@
 //! Does not own: parsed-statement semantic compilation or SQL execution.
 //! Boundary: keeps the public query/mutation compile surfaces on one cache shell.
 
+#[cfg(test)]
+use crate::db::session::sql::sql_statement_dispatch;
 use crate::{
     db::{
-        DbSession, QueryError,
+        DbSession, QueryError, SqlStatementDispatch,
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
@@ -14,9 +16,10 @@ use crate::{
                 SqlCompilePhaseAttribution, SqlCompiledCommandCacheContext,
                 SqlCompiledCommandCacheKey, SqlCompiledCommandExecutionContext,
                 SqlCompiledCommandSurface, measured, sql_compiled_command_cache_miss_reason,
+                sql_statement_entity_name_from_statement,
             },
         },
-        sql::parser::parse_sql_with_attribution,
+        sql::parser::{SqlParsePhaseAttribution, SqlStatement, parse_sql_with_attribution},
     },
     error::InternalError,
     metrics::sink::{
@@ -28,19 +31,43 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
+    #[cfg(test)]
     pub(in crate::db) fn compile_sql_query_with_execution_context(
         &self,
-        entity_name: Option<&str>,
         sql: &str,
     ) -> Result<
         (
             SqlCompiledCommandExecutionContext,
+            String,
             SqlCacheAttribution,
             SqlCompilePhaseAttribution,
         ),
         QueryError,
     > {
-        let catalog = match entity_name {
+        let dispatch = sql_statement_dispatch(sql)?;
+        self.compile_sql_query_with_dispatch_execution_context(&dispatch)
+    }
+
+    #[inline]
+    pub(in crate::db::session::sql) fn compile_sql_query_with_dispatch_execution_context(
+        &self,
+        dispatch: &SqlStatementDispatch<'_>,
+    ) -> Result<
+        (
+            SqlCompiledCommandExecutionContext,
+            String,
+            SqlCacheAttribution,
+            SqlCompilePhaseAttribution,
+        ),
+        QueryError,
+    > {
+        let parsed = dispatch.statement();
+        let (entity_name, attribution) = Self::compilation_input_from_parsed(
+            parsed,
+            dispatch.parse_local_instructions(),
+            dispatch.parse_attribution(),
+        );
+        let catalog = match entity_name.as_deref() {
             Some(entity_name) => self
                 .find_accepted_schema_catalog_context_for_entity_name(entity_name)
                 .map_err(QueryError::execute)?
@@ -49,7 +76,21 @@ impl<C: CanisterKind> DbSession<C> {
                 .accepted_schema_catalog_context_for_entity_name(None)
                 .map_err(QueryError::execute)?,
         };
-        self.compile_sql_surface_with_catalog(sql, SqlCompiledCommandSurface::Query, catalog)
+        let (context, cache_attribution, phase_attribution) = self
+            .compile_sql_surface_with_catalog(
+                dispatch.sql(),
+                parsed,
+                SqlCompiledCommandSurface::Query,
+                catalog,
+                attribution,
+            )?;
+
+        Ok((
+            context,
+            entity_name.unwrap_or_default(),
+            cache_attribution,
+            phase_attribution,
+        ))
     }
 
     pub(in crate::db) fn compile_sql_mutation_with_execution_context(
@@ -63,18 +104,54 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?;
+        let (parsed, entity_name, attribution) = Self::parse_sql_for_compilation(sql)?;
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(entity_name.as_deref())
             .map_err(QueryError::execute)?;
-        self.compile_sql_surface_with_catalog(sql, SqlCompiledCommandSurface::Mutation, catalog)
+        self.compile_sql_surface_with_catalog(
+            sql,
+            &parsed,
+            SqlCompiledCommandSurface::Mutation,
+            catalog,
+            attribution,
+        )
+    }
+
+    fn parse_sql_for_compilation(
+        sql: &str,
+    ) -> Result<(SqlStatement, Option<String>, SqlCompileAttributionBuilder), QueryError> {
+        let (parse_local_instructions, (parsed, parse_attribution)) =
+            measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error))?;
+
+        let (entity_name, attribution) = Self::compilation_input_from_parsed(
+            &parsed,
+            parse_local_instructions,
+            parse_attribution,
+        );
+
+        Ok((parsed, entity_name, attribution))
+    }
+
+    #[inline]
+    fn compilation_input_from_parsed(
+        parsed: &SqlStatement,
+        parse_local_instructions: u64,
+        parse_attribution: SqlParsePhaseAttribution,
+    ) -> (Option<String>, SqlCompileAttributionBuilder) {
+        let entity_name = sql_statement_entity_name_from_statement(parsed).map(str::to_string);
+        let mut attribution = SqlCompileAttributionBuilder::default();
+        attribution.record_parse(parse_local_instructions, parse_attribution);
+
+        (entity_name, attribution)
     }
 
     fn compile_sql_surface_with_catalog(
         &self,
         sql: &str,
+        parsed: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         catalog: AcceptedSchemaCatalogContext,
+        mut attribution: SqlCompileAttributionBuilder,
     ) -> Result<
         (
             SqlCompiledCommandExecutionContext,
@@ -89,7 +166,6 @@ impl<C: CanisterKind> DbSession<C> {
                 surface, sql, catalog,
             ))
         })?;
-        let mut attribution = SqlCompileAttributionBuilder::default();
         attribution.record_cache_key(cache_key_local_instructions);
         let (cache_key, catalog) = context.into_cache_inputs();
         let (compiled, cache_attribution, phase_attribution, accepted_authority) = self
@@ -97,7 +173,7 @@ impl<C: CanisterKind> DbSession<C> {
                 cache_key,
                 &catalog,
                 attribution,
-                sql,
+                parsed,
                 surface,
                 entity_path.as_ref(),
             )?;
@@ -114,7 +190,7 @@ impl<C: CanisterKind> DbSession<C> {
         cache_key: SqlCompiledCommandCacheKey,
         catalog: &AcceptedSchemaCatalogContext,
         mut attribution: SqlCompileAttributionBuilder,
-        sql: &str,
+        parsed: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         entity_path: &str,
     ) -> Result<
@@ -164,17 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = catalog.accepted_entity_authority();
         let schema = catalog.accepted_schema_info();
 
-        let parse_result =
-            measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error));
-        let (parse_local_instructions, (parsed, parse_attribution)) = match parse_result {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                record_sql_compile_reject_for_path(SqlCompileRejectPhase::Parse, entity_path);
-                return Err(error);
-            }
-        };
-        attribution.record_parse(parse_local_instructions, parse_attribution);
-        let compile_result = Self::compile_sql_statement_measured(&parsed, surface, schema);
+        let compile_result = Self::compile_sql_statement_measured(parsed, surface, schema);
         let (artifacts, compile_attribution) = match compile_result {
             Ok(compiled) => compiled,
             Err(error) => {
