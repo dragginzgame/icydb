@@ -728,7 +728,7 @@ const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
 #[cfg(feature = "sql")]
 const INTEGRITY_JOURNAL_TAIL_BATCHES: i32 = 6;
 #[cfg(feature = "test-admin-api")]
-const CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES: u32 = 38;
+const CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES: u32 = 64;
 #[cfg(feature = "sql")]
 const JOURNALED_REENTRY_PROBE_ROWS: i32 = 32;
 #[cfg(feature = "sql")]
@@ -1624,12 +1624,12 @@ fn load_perf_fixtures() -> Result<(), icydb::Error> {
 ///
 /// The measured body performs both publication and retirement for the full
 /// 65,536-key accepted-index shape, while a real fold callback performs only
-/// retirement. It also scans all 38 possible store heads.
+/// retirement. It also scans all 16 possible store heads.
 #[cfg(feature = "test-admin-api")]
 #[update]
 fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
     const EFFECTS: u32 = 65_536;
-    const STORES: u32 = 38;
+    const STORES: u32 = 16;
 
     let start = ic_cdk::api::performance_counter(0);
     let mut positions = std::collections::BTreeMap::new();
@@ -1651,7 +1651,7 @@ fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
             }
         })
         .min()
-        .expect("the fixed 38-head candidate cannot be empty");
+        .expect("the fixed 16-head candidate cannot be empty");
     let mut checksum = 0_u64;
     for target in 0..EFFECTS {
         let (_, sequence) = positions

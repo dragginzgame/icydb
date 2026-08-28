@@ -107,6 +107,7 @@ struct StartupObservationPerfResult {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ConvergenceWatchdogObservation {
     work_samples: u64,
+    elapsed_nanos: u64,
     total_instructions: u64,
     maximum_instructions: u64,
     stable_memory_before: u64,
@@ -116,8 +117,9 @@ struct ConvergenceWatchdogObservation {
 
 fn report_convergence_observation(label: &str, observation: ConvergenceWatchdogObservation) {
     println!(
-        "recovery closeout {label}: samples={}, total_instructions={}, maximum_instructions={}, stable_before={}, stable_after={}, wasm_after={}",
+        "recovery closeout {label}: samples={}, elapsed_nanos={}, total_instructions={}, maximum_instructions={}, stable_before={}, stable_after={}, wasm_after={}",
         observation.work_samples,
+        observation.elapsed_nanos,
         observation.total_instructions,
         observation.maximum_instructions,
         observation.stable_memory_before,
@@ -176,6 +178,7 @@ fn run_bounded_convergence_watchdog(
     );
     let before = startup_watchdog_snapshot(fixture);
     let memory_before = canister_memory_bytes(fixture);
+    let time_before = fixture.pocket_ic().get_time();
 
     for _ in 0..CONVERGENCE_RESIDUAL_MESSAGE_LIMIT {
         deliver_startup_watchdog_message(fixture);
@@ -186,6 +189,16 @@ fn run_bounded_convergence_watchdog(
 
     let after = startup_watchdog_snapshot(fixture);
     let memory_after = canister_memory_bytes(fixture);
+    let elapsed_nanos = fixture
+        .pocket_ic()
+        .get_time()
+        .as_nanos_since_unix_epoch()
+        .checked_sub(time_before.as_nanos_since_unix_epoch())
+        .expect("PocketIC time should remain monotonic");
+    assert!(
+        elapsed_nanos < 1_000_000_000,
+        "healthy bounded convergence must complete before the one-second retry cadence",
+    );
     assert!(
         !startup_watchdog_armed(fixture),
         "the production watchdog should stop after draining the complete backlog",
@@ -239,6 +252,7 @@ fn run_bounded_convergence_watchdog(
 
     ConvergenceWatchdogObservation {
         work_samples,
+        elapsed_nanos,
         total_instructions: instructions,
         maximum_instructions,
         stable_memory_before: memory_before.1,
@@ -255,10 +269,10 @@ fn load_convergence_debt(
         .update_candid("load_convergence_closeout_debt", (first_id,))
         .expect("convergence closeout debt facts should decode");
     let facts = facts.expect("the exact batch ceiling should load");
-    assert_eq!(facts.admitted_batches, 38);
+    assert_eq!(facts.admitted_batches, 64);
     assert_eq!(facts.first_id, first_id);
-    assert_eq!(facts.last_admitted_id, first_id + 37);
-    assert_eq!(facts.rejected_id, first_id + 38);
+    assert_eq!(facts.last_admitted_id, first_id + 63);
+    assert_eq!(facts.rejected_id, first_id + 64);
     assert_eq!(
         facts.pressure.code(),
         ErrorCode::RUNTIME_BOUNDARY_CONVERGENCE_BACKLOG_PRESSURE,
@@ -272,9 +286,9 @@ fn load_convergence_debt(
             .collect::<Vec<_>>(),
         vec![
             (DiagnosticFactTag::BacklogResource.raw(), 1),
-            (DiagnosticFactTag::CurrentCount.raw(), 38),
+            (DiagnosticFactTag::CurrentCount.raw(), 64),
             (DiagnosticFactTag::ProposedCount.raw(), 1),
-            (DiagnosticFactTag::Limit.raw(), 38),
+            (DiagnosticFactTag::Limit.raw(), 64),
         ],
     );
     facts
@@ -955,7 +969,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     let populated_debt = load_convergence_debt(&populated, FIRST_CLOSEOUT_ID);
     assert_eq!(cold_debt.pressure, populated_debt.pressure);
 
-    for (fixture, expected_rows) in [(&cold, 38), (&populated, 2_086)] {
+    for (fixture, expected_rows) in [(&cold, 64), (&populated, 2_112)] {
         assert_count(
             query_total_only(
                 fixture,
@@ -978,7 +992,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert!(cold_residue.total_instructions > 0);
     assert!(populated_residue.total_instructions > 0);
 
-    for (fixture, expected_rows) in [(&cold, 38), (&populated, 2_086)] {
+    for (fixture, expected_rows) in [(&cold, 64), (&populated, 2_112)] {
         assert_count(
             query_total_only(
                 fixture,
@@ -1003,7 +1017,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
             "query_user_total_only_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
-        39,
+        65,
     );
     assert_count(
         query_total_only(
@@ -1011,7 +1025,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
             "query_user_total_only_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
-        2_087,
+        2_113,
     );
 
     let upgrade_debt = load_convergence_debt(&populated, SECOND_CLOSEOUT_ID);
@@ -1094,7 +1108,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
             "query_user_total_only_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
-        2_125,
+        2_177,
     );
     assert_user_name_id(&populated, upgrade_debt.first_id, true);
     assert_user_name_id(&populated, upgrade_debt.last_admitted_id, true);
@@ -1160,7 +1174,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
             "query_user_total_only_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
-        2_126,
+        2_178,
     );
     assert_user_index_count(&populated);
 }

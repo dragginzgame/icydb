@@ -27,10 +27,12 @@ pub(in crate::db) const APP_MEMORY_ID_MIN: u8 = 100;
 pub(in crate::db) const APP_MEMORY_ID_MAX: u8 = 254;
 pub(in crate::db) const CANISTER_CONTROL_ALLOCATION_COUNT: usize = 3;
 pub(in crate::db) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;
-pub(in crate::db) const MAX_DEPLOYMENT_STORE_ALLOCATIONS: usize =
+const MAX_MEMORY_BACKED_STORE_ALLOCATIONS: usize =
     ((APP_MEMORY_ID_MAX as usize - APP_MEMORY_ID_MIN as usize + 1)
         - CANISTER_CONTROL_ALLOCATION_COUNT)
         / JOURNALED_STORE_ALLOCATION_WIDTH;
+pub(in crate::db) const MAX_DEPLOYMENT_STORE_ALLOCATIONS: usize = MAX_PERSISTED_STORE_ALLOCATIONS;
+const _: () = assert!(MAX_DEPLOYMENT_STORE_ALLOCATIONS <= MAX_MEMORY_BACKED_STORE_ALLOCATIONS);
 
 struct GeneratedStoreProposal {
     persisted: PersistedStoreAllocation,
@@ -224,9 +226,7 @@ fn generated_store_proposals<C: CanisterKind>(
             })
             .collect::<Result<Vec<_>, InternalError>>()
     })?;
-    if proposals.len() > MAX_DEPLOYMENT_STORE_ALLOCATIONS
-        || MAX_DEPLOYMENT_STORE_ALLOCATIONS != MAX_PERSISTED_STORE_ALLOCATIONS
-    {
+    if proposals.len() > MAX_DEPLOYMENT_STORE_ALLOCATIONS {
         return Err(InternalError::store_unsupported());
     }
     validate_allocation_set::<C>(&proposals)?;
@@ -625,12 +625,13 @@ mod tests {
     }
 
     #[test]
-    fn deployment_store_bound_is_derived_from_canonical_allocation_shape() {
-        assert_eq!(MAX_DEPLOYMENT_STORE_ALLOCATIONS, 38);
+    fn deployment_store_bound_is_canonical_and_fits_the_allocation_shape() {
+        assert_eq!(MAX_DEPLOYMENT_STORE_ALLOCATIONS, 16);
         assert_eq!(
             MAX_DEPLOYMENT_STORE_ALLOCATIONS,
             MAX_PERSISTED_STORE_ALLOCATIONS
         );
+        assert_eq!(MAX_MEMORY_BACKED_STORE_ALLOCATIONS, 38);
 
         let mut registry = maximum_registry();
         canonicalize_store_registry(&mut registry).unwrap();
@@ -653,6 +654,29 @@ mod tests {
             panic!("maximum registry must remain current");
         };
         assert_eq!(reopened, registry);
+
+        registry.push(
+            PersistedStoreAllocation::active(allocations(
+                167,
+                "icydb.test.convergence.overflow.data.v1",
+                "icydb.test.convergence.overflow.index.v1",
+                "icydb.test.convergence.overflow.schema.v1",
+                "icydb.test.convergence.overflow.journal.v1",
+            ))
+            .unwrap(),
+        );
+        assert!(
+            prepare_commit_control_replacement(
+                test_memory(126),
+                crate::db::DatabaseIncarnationId::for_tests(0x73),
+                [0x74; 32],
+                0,
+                &registry,
+            )
+            .is_err(),
+            "a seventeenth current-format store must fail closed",
+        );
+        registry.pop();
 
         registry.push(registry[0].clone());
         assert!(canonicalize_store_registry(&mut registry).is_err());

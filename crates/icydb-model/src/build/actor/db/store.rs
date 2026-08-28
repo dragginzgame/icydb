@@ -167,21 +167,21 @@ fn startup_driver_tokens() -> TokenStream {
                 ) => {
                     // Ready cardinality construction is optional database work,
                     // but it shares this one lifecycle-owned watchdog.
-                    ensure_startup_watchdog_registered();
+                    ensure_startup_watchdog_scheduled_immediately();
                     Ok(())
                 }
                 Err(failure) => {
                     reconcile_startup_watchdog(
-                        ::icydb::__reexports::ic_timers::TimerReconcileState::Inactive,
+                        ::icydb::__reexports::ic_timers::WatchdogReconcileState::Inactive,
                     );
                     Err(failure)
                 }
             }
         }
 
-        fn ensure_startup_watchdog_registered() {
+        fn ensure_startup_watchdog_scheduled_immediately() {
             reconcile_startup_watchdog(
-                ::icydb::__reexports::ic_timers::TimerReconcileState::Scheduled,
+                ::icydb::__reexports::ic_timers::WatchdogReconcileState::ScheduledImmediately,
             );
         }
 
@@ -220,7 +220,7 @@ fn startup_driver_tokens() -> TokenStream {
         }
 
         fn reconcile_startup_watchdog(
-            desired: ::icydb::__reexports::ic_timers::TimerReconcileState,
+            desired: ::icydb::__reexports::ic_timers::WatchdogReconcileState,
         ) {
             initialize_startup_timer_runtime();
             let identity = startup_watchdog_identity();
@@ -292,7 +292,7 @@ fn startup_driver_tokens() -> TokenStream {
                 ),
                 Ok(false) => ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
                     ::icydb::__reexports::ic_timers::TimerCompletion::success(1),
-                    ::icydb::__reexports::ic_timers::WatchdogDecision::Continue,
+                    ::icydb::__reexports::ic_timers::WatchdogDecision::ContinueImmediately,
                 ),
                 Err(error) => {
                     ::icydb::__reexports::ic_cdk::println!(
@@ -768,7 +768,7 @@ fn store_wiring_tokens(
             );
             #[cfg(not(all(test, not(target_arch = "wasm32"))))]
             ::icydb::db::__install_startup_recovery_wakeup(
-                ensure_startup_watchdog_registered,
+                ensure_startup_watchdog_scheduled_immediately,
             );
             MEMORY_BOOTSTRAP.with(|bootstrap| {
                 bootstrap
@@ -926,13 +926,14 @@ mod tests {
             "TimerCadence::new",
             "Duration::from_secs(1)",
             "ic_timers::reconcile_watchdog(",
-            "TimerReconcileState::Inactive",
-            "TimerReconcileState::Scheduled",
+            "WatchdogReconcileState::Inactive",
+            "WatchdogReconcileState::ScheduledImmediately",
             "reconcile_startup_watchdog_from_durable_state()",
             "TimerCompletion::retryable_failure(0)",
             "TimerCompletion::success(1)",
             "TimerCompletion::invariant_failure(0)",
             "WatchdogDecision::Continue",
+            "WatchdogDecision::ContinueImmediately",
             "WatchdogDecision::Stop",
             "ic_timers::WatchdogContext",
             "__drive_generated_startup_recovery_page",
@@ -955,6 +956,7 @@ mod tests {
             "#[query]",
             "ic_timers::timer_snapshot(",
             "TimerCompletion::no_work()",
+            "TimerReconcileState",
         ] {
             assert!(
                 !rendered.contains(forbidden),
@@ -1158,10 +1160,9 @@ mod tests {
                 "__install_startup_recovery_wakeup(native_test_startup_recovery_wakeup,)"
             )
         );
-        assert!(
-            rendered
-                .contains("__install_startup_recovery_wakeup(ensure_startup_watchdog_registered,)")
-        );
+        assert!(rendered.contains(
+            "__install_startup_recovery_wakeup(ensure_startup_watchdog_scheduled_immediately,)"
+        ));
         assert!(rendered.contains(
             "CoreDbSession::<__IcydbGeneratedCanister>::__new_from_current_request(&STORE_REGISTRY,)"
         ));

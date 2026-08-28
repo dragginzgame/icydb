@@ -950,9 +950,9 @@ fn convergence_backlog_pressure_projects_exact_bounded_numeric_facts() {
 
     let pressure = InternalError::convergence_backlog_pressure(
         icydb_diagnostic_code::DiagnosticBacklogResource::Batches,
-        38,
+        64,
         1,
-        38,
+        64,
     );
     assert_eq!(
         pressure.diagnostic_code(),
@@ -966,9 +966,9 @@ fn convergence_backlog_pressure_projects_exact_bounded_numeric_facts() {
         pressure.diagnostic_facts(),
         vec![
             (Tag::BacklogResource, 1),
-            (Tag::CurrentCount, 38),
+            (Tag::CurrentCount, 64),
             (Tag::ProposedCount, 1),
-            (Tag::Limit, 38),
+            (Tag::Limit, 64),
         ],
     );
 }

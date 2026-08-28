@@ -6,7 +6,7 @@
 use super::{
     BacklogLimits, CommitMarker, ExactBacklogMeasurement, MAX_COMMIT_BYTES,
     MAX_PERSISTED_STORE_ALLOCATIONS, admit_backlog,
-    backlog_admission::{BacklogAdmission, PreparedBacklogProposal},
+    backlog_admission::{BacklogAdmission, MAX_RETAINED_JOURNAL_BATCHES, PreparedBacklogProposal},
 };
 use crate::{
     db::{
@@ -30,8 +30,8 @@ use ic_stable_structures::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Frozen cumulative limits proved by the dormant Patch-6 candidate.
-const BACKLOG_BATCH_LIMIT: u64 = MAX_PERSISTED_STORE_ALLOCATIONS as u64;
+/// Frozen cumulative limits proved by the convergence candidate.
+const BACKLOG_BATCH_LIMIT: u64 = MAX_RETAINED_JOURNAL_BATCHES;
 const BACKLOG_RECORD_LIMIT: u64 = MAX_JOURNAL_BATCH_RECORDS as u64;
 const BACKLOG_ENCODED_BYTE_LIMIT: u64 = MAX_COMMIT_BYTES as u64;
 const FROZEN_BACKLOG_LIMITS: BacklogLimits = BacklogLimits::new(
@@ -445,7 +445,7 @@ fn frozen_tuple_dominates_every_gate_one_axis_and_relieves_pressure_at_zero() {
         ));
     }
 
-    assert_eq!(BACKLOG_BATCH_LIMIT, 38);
+    assert_eq!(BACKLOG_BATCH_LIMIT, 64);
     assert_eq!(BACKLOG_RECORD_LIMIT, 16_384);
     assert_eq!(BACKLOG_ENCODED_BYTE_LIMIT, 16 * 1_024 * 1_024);
     assert_eq!(MAX_EFFECTS_PER_JOURNAL_RECORD, 64);
@@ -542,7 +542,7 @@ fn continuously_hot_early_allocation_cannot_pass_an_older_cold_head() {
 fn maximum_overlay_and_residual_formulas_are_checked_and_history_independent() {
     assert_eq!(MAX_POSITIONED_EFFECTS, 1_064_960);
     assert_eq!(MAX_CALLBACK_POSITIONED_EFFECTS, 65_536);
-    assert_eq!(CANDIDATE_WORK_LIMIT, 81_959);
+    assert_eq!(CANDIDATE_WORK_LIMIT, 81_937);
     let maximum = candidate_heap_bound(
         BACKLOG_BATCH_LIMIT,
         BACKLOG_RECORD_LIMIT,
@@ -553,19 +553,19 @@ fn maximum_overlay_and_residual_formulas_are_checked_and_history_independent() {
     assert_eq!(
         maximum,
         CandidateHeapBound {
-            overlay_bytes: 339_969_536,
-            callback_peak_bytes: 526_616_976,
+            overlay_bytes: 339_886_080,
+            callback_peak_bytes: 526_532_992,
         }
     );
     assert!(maximum.overlay_bytes < 512 * 1_024 * 1_024);
     assert!(maximum.callback_peak_bytes < 768 * 1_024 * 1_024);
     assert!(candidate_heap_bound(u64::MAX, u64::MAX, u64::MAX, u64::MAX).is_none());
-    assert_eq!(normal_residual_message_bound(38), 42);
+    assert_eq!(normal_residual_message_bound(64), 68);
     assert_eq!(
-        normal_residual_instruction_bound(38),
-        Some(1_140_020_000_000),
+        normal_residual_instruction_bound(64),
+        Some(1_920_020_000_000),
     );
-    assert_eq!(retained_chunk_bound(38, BACKLOG_ENCODED_BYTE_LIMIT), 294);
+    assert_eq!(retained_chunk_bound(64, BACKLOG_ENCODED_BYTE_LIMIT), 320);
 }
 
 #[test]
@@ -611,7 +611,7 @@ fn maximum_store_scan_and_accepted_index_retirement_use_the_canonical_owners() {
 
 #[test]
 fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
-    const ROW_BYTES: usize = 429 * 1_024;
+    const ROW_BYTES: usize = 255 * 1_024;
     let physical = VectorMemory::default();
     let manager = MemoryManager::init(physical.clone());
     let memory = manager.get(MemoryId::new(1));
@@ -656,7 +656,7 @@ fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
 
         // The production proposal shape admits at most one batch per store.
         // This physical allocator probe intentionally fills one isolated tail
-        // directly so reuse can be observed without reserving 38 memories.
+        // directly so reuse can be observed without reserving 16 memories.
         for ((batch, bytes), (_, targets)) in batches.iter().zip(&encoded_batches).zip(&routes) {
             let tail = &mut candidate.tails[0];
             let position = JournalOverlayPosition::new(tail.allocation, batch.journal_sequence());

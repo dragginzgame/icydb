@@ -44,15 +44,14 @@ const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 24;
 
 /// Maximum watchdog deliveries in the frozen normal convergence residual proof.
 ///
-/// This is `B_0 + C_driver`, or `38 + 4`, for the maximum admitted backlog.
-pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 42;
+/// This is `B_0 + C_driver`, or `64 + 4`, for the maximum admitted backlog.
+pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 68;
 
-/// Deliver one scheduled startup-watchdog message in PocketIC.
+/// Deliver pending startup-watchdog messages in PocketIC without advancing time.
 pub fn deliver_startup_watchdog_message(fixture: &StandaloneCanisterFixture) {
-    fixture.pocket_ic().advance_time(Duration::from_secs(1));
-    // Advancing time once admits at most one cadence wake-up. Additional
-    // zero-time ticks let PocketIC finish that message under deterministic
-    // time slicing without weakening the delivery-count bound.
+    // Normal progress schedules zero-delay successor messages. These bounded
+    // ticks let PocketIC deliver them and finish deterministic time slicing
+    // without admitting a cadence-backed retry.
     for _ in 0..WATCHDOG_MESSAGE_COMPLETION_TICKS {
         fixture.pocket_ic().tick();
     }
@@ -652,7 +651,7 @@ pub fn install_prebuilt_fixture_canister(
 /// Install already-built fixture WASM without delivering its startup watchdog.
 ///
 /// This is reserved for lifecycle tests that must observe the generated
-/// canister before its first one-second startup callback. Ordinary integration
+/// canister before its first startup callback. Ordinary integration
 /// tests should use [`install_prebuilt_fixture_canister`].
 ///
 /// # Panics
@@ -694,7 +693,7 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
 /// Build and install one fixture without delivering its startup watchdog.
 ///
 /// This is reserved for lifecycle tests that must observe the generated
-/// canister before its first one-second startup callback. Ordinary integration
+/// canister before its first startup callback. Ordinary integration
 /// tests should use [`install_fixture_canister`].
 ///
 /// # Panics
@@ -772,7 +771,6 @@ pub fn deliver_fixture_startup_watchdog(fixture: &StandaloneCanisterFixture) {
     // finish each message. Keep ordinary fixture setup bounded while allowing
     // every maintained fresh-install schema to reach `Ready`.
     for _ in 0..8 {
-        fixture.pocket_ic().advance_time(Duration::from_secs(1));
         for _ in 0..FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS {
             fixture.pocket_ic().tick();
         }

@@ -20,7 +20,7 @@ use crate::{
 use std::ops::Range;
 
 /// Maximum active-plus-retired store allocation quartets in one incarnation.
-pub(in crate::db) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 38;
+pub(in crate::db) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 16;
 const STORE_ALLOCATION_ROLES: usize = 4;
 const MAX_STABLE_KEY_BYTES: usize = 128;
 const COMMIT_CONTROL_MAGIC: [u8; 4] = *b"ICCS";

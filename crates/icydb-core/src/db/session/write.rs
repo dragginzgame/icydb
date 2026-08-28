@@ -5340,12 +5340,12 @@ mod identity_pre_key_tests {
         let data_reads_before = DataStore::current_get_call_count();
         let crate::db::SqlStatementResult::Projection { rows, .. } = session
             .execute_trusted_sql_query("SELECT COUNT(DISTINCT payload) FROM IdentityRow")
-            .expect("distinct count should retain buffered execution")
+            .expect("distinct count should retain prepared execution")
         else {
             panic!("distinct count should return one projection row")
         };
         assert_eq!(rows, vec![vec![OutputValue::Nat64(2)]]);
-        assert!(DataStore::current_get_call_count() > data_reads_before);
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
     }
 
     #[cfg(feature = "sql")]
@@ -5394,7 +5394,7 @@ mod identity_pre_key_tests {
 
     #[cfg(feature = "sql")]
     #[test]
-    fn exact_count_nullable_field_retains_buffered_execution() {
+    fn exact_count_nullable_field_uses_prepared_borrowed_primary_scan() {
         let session = initialize_with_snapshot(identity_snapshot_with_nullable_payload(STORE_PATH));
         session
             .execute_trusted_dynamic_insert_batch(
@@ -5409,17 +5409,17 @@ mod identity_pre_key_tests {
         let data_reads_before = DataStore::current_get_call_count();
         let crate::db::SqlStatementResult::Projection { rows, .. } = session
             .execute_trusted_sql_query("SELECT COUNT(payload) FROM IdentityRow")
-            .expect("nullable count should retain buffered execution")
+            .expect("nullable count should retain prepared execution")
         else {
             panic!("nullable count should return one projection row")
         };
         assert_eq!(rows, vec![vec![OutputValue::Nat64(1)]]);
-        assert_eq!(DataStore::current_get_call_count() - data_reads_before, 2,);
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
     }
 
     #[cfg(feature = "sql")]
     #[test]
-    fn indexed_extrema_nullable_field_retains_complete_reduction() {
+    fn indexed_extrema_nullable_field_uses_prepared_borrowed_primary_scan() {
         let session = initialize_with_snapshot(identity_snapshot_with_nullable_payload(STORE_PATH));
         session
             .execute_trusted_dynamic_insert_batch(
@@ -5440,7 +5440,7 @@ mod identity_pre_key_tests {
                 panic!("all-null extrema should return one projection row")
             };
             assert_eq!(rows, vec![vec![OutputValue::Null]], "{sql}");
-            assert_eq!(DataStore::current_get_call_count() - data_reads_before, 1);
+            assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         }
 
         session
@@ -5459,7 +5459,7 @@ mod identity_pre_key_tests {
                 panic!("mixed nullable extrema should return one projection row")
             };
             assert_eq!(rows, vec![vec![OutputValue::Nat64(10)]], "{sql}");
-            assert_eq!(DataStore::current_get_call_count() - data_reads_before, 2);
+            assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         }
     }
 
@@ -6490,9 +6490,9 @@ mod identity_pre_key_tests {
                     icydb_diagnostic_code::DiagnosticFactTag::BacklogResource,
                     icydb_diagnostic_code::DiagnosticBacklogResource::Batches.raw(),
                 ),
-                (icydb_diagnostic_code::DiagnosticFactTag::CurrentCount, 38),
+                (icydb_diagnostic_code::DiagnosticFactTag::CurrentCount, 64),
                 (icydb_diagnostic_code::DiagnosticFactTag::ProposedCount, 1),
-                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 38),
+                (icydb_diagnostic_code::DiagnosticFactTag::Limit, 64),
             ],
         );
         assert_eq!(
@@ -7907,7 +7907,7 @@ mod identity_pre_key_tests {
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
             .expect("journaled identity row layout should build");
 
-        for payload in 0_u64..38 {
+        for payload in 0_u64..64 {
             session
                 .execute_accepted_structural_save_batch(
                     &catalog,
@@ -7926,13 +7926,13 @@ mod identity_pre_key_tests {
                 .current_tail_control()
                 .expect("online backlog control should remain valid")
         });
-        assert_eq!(before.batch_count(), 38);
+        assert_eq!(before.batch_count(), 64);
         let next_sequence = crate::db::commit::next_database_commit_sequence()
             .expect("database sequence preview should remain readable");
         let Err(pressure) = session.execute_accepted_structural_save_batch(
             &catalog,
             &descriptor,
-            batch(&[38]),
+            batch(&[64]),
             Timestamp::from_millis(8),
             Ok,
         ) else {
@@ -7940,12 +7940,12 @@ mod identity_pre_key_tests {
         };
         assert_exact_batch_backlog_pressure(&pressure, before, next_sequence);
 
-        for folded_batches in 1..=38 {
+        for folded_batches in 1..=64 {
             let complete = session
                 .db
                 .drive_startup_recovery_page()
                 .expect("online complete-batch callback should commit");
-            assert_eq!(complete, folded_batches == 38);
+            assert_eq!(complete, folded_batches == 64);
         }
 
         assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
@@ -7953,7 +7953,7 @@ mod identity_pre_key_tests {
             .execute_accepted_structural_save_batch(
                 &catalog,
                 &descriptor,
-                batch(&[38]),
+                batch(&[64]),
                 Timestamp::from_millis(8),
                 Ok,
             )
@@ -7972,10 +7972,10 @@ mod identity_pre_key_tests {
             "the quiescent generated driver should stop",
         );
 
-        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 39);
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 65);
         assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
         assert_dynamic_payload(&session, 1, 0);
-        assert_dynamic_payload(&session, 39, 38);
+        assert_dynamic_payload(&session, 65, 64);
         JOURNALED_SCHEMA_STORE.with(|store| {
             let cursor = store
                 .borrow()
@@ -7986,7 +7986,7 @@ mod identity_pre_key_tests {
                     &AcceptedFieldKind::Nat64,
                 )
                 .expect("online convergence must preserve active Identity state");
-            assert_eq!(cursor.expected_high_water(), 39);
+            assert_eq!(cursor.expected_high_water(), 65);
             assert!(!cursor.has_allocations());
         });
     }
@@ -8119,7 +8119,7 @@ mod identity_pre_key_tests {
                 panic!("fallback count should return one projection row")
             };
             assert_eq!(rows, vec![vec![OutputValue::Nat64(1)]]);
-            assert!(DataStore::current_get_call_count() > data_reads_before);
+            assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         }
     }
 

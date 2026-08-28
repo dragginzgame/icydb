@@ -325,9 +325,12 @@ pub(in crate::db) fn admit_backlog(
     Ok(BacklogAdmission::Admitted { projected })
 }
 
-/// Frozen production tuple proved by the Patch-6 evidence.
+/// Maximum retained batches independently proved by convergence evidence.
+pub(super) const MAX_RETAINED_JOURNAL_BATCHES: u64 = 64;
+
+/// Frozen production tuple proved by convergence evidence.
 pub(in crate::db) const BACKLOG_LIMITS: BacklogLimits = BacklogLimits::new(
-    MAX_PERSISTED_STORE_ALLOCATIONS as u64,
+    MAX_RETAINED_JOURNAL_BATCHES,
     MAX_JOURNAL_BATCH_RECORDS as u64,
     MAX_COMMIT_BYTES as u64,
 );
@@ -559,8 +562,7 @@ mod tests {
         let mut next_row = 0_u64;
         let batches = (0..MAX_PERSISTED_STORE_ALLOCATIONS)
             .map(|store_ordinal| {
-                let rows = 4_096 / MAX_PERSISTED_STORE_ALLOCATIONS
-                    + usize::from(store_ordinal < 4_096 % MAX_PERSISTED_STORE_ALLOCATIONS);
+                let rows = 4_096 / MAX_PERSISTED_STORE_ALLOCATIONS;
                 let records = (0..rows)
                     .map(|_| {
                         next_row += 1;
@@ -571,7 +573,7 @@ mod tests {
             })
             .collect();
         let prepared = proposal(batches);
-        assert_eq!(prepared.contribution().batch_count(), 38);
+        assert_eq!(prepared.contribution().batch_count(), 16);
         assert_eq!(prepared.contribution().record_count(), 4_096);
         assert_eq!(
             admit_backlog(
@@ -597,7 +599,7 @@ mod tests {
             )
             .is_err(),
         );
-        let too_many_controls = vec![JournalTailControl::empty(); 39];
+        let too_many_controls = vec![JournalTailControl::empty(); 17];
         assert!(ExactBacklogMeasurement::from_tail_controls(&too_many_controls).is_err());
     }
 }

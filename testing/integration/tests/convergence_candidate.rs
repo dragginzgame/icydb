@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 const ACCEPTED_THREE_INDEX_RECOVERY_INSTRUCTIONS: u64 = 22_067_141_613;
 const CANDIDATE_CALLBACK_LIMIT: u64 = 30_000_000_000;
-const CANDIDATE_CALLBACK_HEAP_LIMIT_BYTES: u64 = 526_616_976;
+const CANDIDATE_CALLBACK_HEAP_LIMIT_BYTES: u64 = 526_532_992;
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct ConvergenceCandidatePerfResult {
@@ -49,8 +49,8 @@ fn maximum_dormant_retirement_and_store_scan_fit_the_reserved_callback_headroom(
     let memory_after = canister_memory_bytes(&fixture);
 
     assert_eq!(measured.effects, 65_536);
-    assert_eq!(measured.stores, 38);
-    assert_eq!(measured.selected_store, 137);
+    assert_eq!(measured.stores, 16);
+    assert_eq!(measured.selected_store, 115);
     assert_eq!(measured.remaining_effects, 0);
     assert!(measured.checksum > 0);
     assert!(measured.local_instructions > 0);

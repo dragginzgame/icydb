@@ -4200,12 +4200,20 @@ fn assert_exact_indexed_numeric_fallback_controls(
             .unwrap_or_else(|err| {
                 panic!("out-of-cohort numeric aggregate should retain prepared execution: {sql}: {err:?}")
             });
-        assert_eq!(
-            fallback.attribution.store_get_calls,
-            u64::from(fixture_rows),
-            "{sql}",
-        );
+        assert_prepared_scalar_aggregate_rows(&fallback.attribution, u64::from(fixture_rows), sql);
     }
+}
+
+fn assert_prepared_scalar_aggregate_rows(
+    attribution: &SqlQueryExecutionAttribution,
+    expected_rows: u64,
+    sql: &str,
+) {
+    let aggregate = attribution
+        .scalar_aggregate
+        .as_ref()
+        .unwrap_or_else(|| panic!("{sql} must retain prepared scalar-aggregate execution"));
+    assert_eq!(aggregate.rows_ingested, expected_rows, "{sql}");
 }
 
 fn assert_exact_indexed_numeric_warm(fixture: &StandaloneCanisterFixture, label: &str, sql: &str) {
@@ -4422,9 +4430,10 @@ fn sql_perf_0_240_1_exact_distinct_count_handles_all_unique_and_same_wasm_recove
         rendered_projection_rows(prepared.result),
         vec![vec![FIXTURE_ROWS.to_string()]],
     );
-    assert_eq!(
-        prepared.attribution.store_get_calls,
-        u64::from(FIXTURE_ROWS)
+    assert_prepared_scalar_aggregate_rows(
+        &prepared.attribution,
+        u64::from(FIXTURE_ROWS),
+        "all-unique prepared COUNT(DISTINCT)",
     );
     let saving = prepared
         .attribution
@@ -4565,7 +4574,12 @@ fn sql_perf_0_242_exact_indexed_range_count_is_canonical_bounded_and_recoverable
     ] {
         let fallback = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
             .expect("out-of-cohort range count should use prepared execution");
-        assert!(fallback.attribution.store_get_calls > 0, "{sql}");
+        let aggregate = fallback
+            .attribution
+            .scalar_aggregate
+            .as_ref()
+            .unwrap_or_else(|| panic!("{sql} must retain prepared scalar-aggregate execution"));
+        assert!(aggregate.rows_ingested > 0, "{sql}");
     }
 
     load_user_unique_age_scale_fixture(&fixture, FIXTURE_ROWS);

@@ -5,13 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.246.x] 📊 - 2026-08-27 - Query Execution Convergence
+## [0.246.x] 📊 - 2026-08-28 - Query And Recovery Convergence
 
 Detailed notes: [docs/changelog/0.246.md](docs/changelog/0.246.md)
 
-- `0.246.0` reuses already-open primary rows and sorts compact positions rather
-  than large row payloads, cutting measured aggregate and scalar `DISTINCT`
-  controls by 26.2%–35.2% without adding a cache or query route.
+- `0.246.0` cuts broad prepared-query controls by 26.2%–35.2% and makes
+  recovery promptly drain an independently bounded 64-batch backlog across at
+  most 16 journaled stores while retaining cadence-backed retries.
 
 ## [0.245.x] 🧹 - 2026-08-26 - Generated Schema Application Footprint
 
