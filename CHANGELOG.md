@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.247.x] 📊 - 2026-08-28 - Measured Wasm Footprint Reduction
+
+Detailed notes: [docs/changelog/0.247.md](docs/changelog/0.247.md)
+
+- `0.247.0` freezes Toko Miner's read-only Wasm evidence and replaces repeated
+  compact-sort and retained-row scan bodies with measured shared kernels,
+  cumulatively cutting release code by 27,072 bytes before and 25,159 bytes
+  after Binaryen with exact Candid parity.
+
 ## [0.246.x] 📊 - 2026-08-28 - Query And Recovery Convergence
 
 Detailed notes: [docs/changelog/0.246.md](docs/changelog/0.246.md)

@@ -19,25 +19,23 @@ those released lines contain different maintained work. They remain historical
 intake dispositions rather than promises that the named capabilities shipped.
 0.236 is released under the focused
 [exact-cardinality planner tie-break design](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md).
-The independent
-[accepted-schema runtime observation and cold-root scaling design](../0.237-accepted-schema-runtime-observation-and-cold-root-scaling/0.237-design.md),
-which was not an intake candidate from this historical roadmap, closed as a
-measured unreleased no-build. The provisional 0.237 component/time-expression
-assignment was not adopted and is now unnumbered.
-The current 0.237 authority is the separately assigned
-[SQL query performance hotspot rediscovery design](../0.237-sql-query-performance-hotspot-rediscovery/0.237-design.md),
-which is an evidence audit rather than a capability promotion from this
-roadmap.
-The current [0.240 singular global-aggregate compiled plan cache
-design](../0.240-singular-global-aggregate-plan-cache/0.240-design.md) is an
-independent runtime-convergence cleanup. It does not adopt the historical
-durable aggregate-job assignment recorded later in this document; that intake
-candidate remains unnumbered and unpromoted.
-The [v0.240.1 exact indexed `COUNT(DISTINCT)` cardinality
-design](../0.240-exact-indexed-distinct-cardinality/0.240-design.md) is an
-independent, evidence-led physical aggregate optimization. It does not adopt
-the historical incremental-rollup assignment recorded later in this document;
-that intake candidate remains unnumbered and unpromoted.
+The independent accepted-schema runtime-observation attempt recorded in the
+[0.237 release notes](../../changelog/0.237.md), which was not an intake
+candidate from this historical roadmap, closed as a measured unreleased
+no-build. The provisional 0.237 component/time-expression assignment was not
+adopted and is now unnumbered. The shipped 0.237 SQL performance work recorded
+in those same permanent notes is an evidence audit rather than a capability
+promotion from this roadmap.
+The singular global-aggregate compiled plan cache recorded under
+[0.240.0](../../changelog/0.240.md) is an independent runtime-convergence
+cleanup. It does not adopt the historical durable aggregate-job assignment
+recorded later in this document; that intake candidate remains unnumbered and
+unpromoted.
+The exact indexed `COUNT(DISTINCT)` cardinality work recorded under
+[0.240.1](../../changelog/0.240.md) is an independent, evidence-led physical
+aggregate optimization. It does not adopt the historical incremental-rollup
+assignment recorded later in this document; that intake candidate remains
+unnumbered and unpromoted.
 The [0.241 global-aggregate attribution convergence
 audit](../0.241-global-aggregate-attribution-convergence/0.241-design.md)
 closed as a measured no-build after every bounded candidate grew production

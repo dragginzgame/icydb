@@ -10,8 +10,7 @@ use crate::{
             record_key_stream_yield,
             route::LoadOrderRouteMode,
             terminal::page::{
-                KernelRow, KernelRowOrderWindow, KernelRowScanStrategy, RetainedSlotLayout,
-                ScalarRowRuntimeHandle,
+                KernelRow, KernelRowOrderWindow, KernelRowScanStrategy, ScalarRowRuntimeHandle,
             },
         },
         predicate::MissingRowPolicy,
@@ -65,6 +64,11 @@ struct KernelRowScanBounds<'a> {
     row_skip_count: usize,
     order_window: Option<KernelRowOrderWindow<'a>>,
 }
+
+type KernelRowReader<'a> =
+    dyn FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError> + 'a;
+type BorrowedKernelRowReader<'a> =
+    dyn FnMut(&DecodedDataStoreKey, &RawRow) -> Result<Option<KernelRow>, InternalError> + 'a;
 
 impl<'a> KernelRowScanBounds<'a> {
     const fn new(
@@ -151,24 +155,37 @@ fn execute_kernel_row_scan_inner(
     } = request;
     let scan_bounds = KernelRowScanBounds::new(row_keep_cap, row_skip_count, order_window);
 
-    // Phase 1: select the concrete row-read kernel once so the inner scan
-    // loop does not branch on payload shape or predicate mode per row.
+    // Phase 1: select one row reader before entering the shared scan kernel.
+    // The erased callback keeps payload and predicate dispatch outside the
+    // loop while preventing the loop from specializing for every lane.
     match scan_strategy {
         KernelRowScanStrategy::DataRows => {
-            execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
-                scan_data_rows_only_into_kernel(key_stream, consistency, scan_bounds, row_runtime)
-            })
+            let row_runtime = &*row_runtime;
+            let mut read_row = |key| row_runtime.read_data_row_only(consistency, key);
+
+            execute_kernel_row_scan_with_readers(
+                key_stream,
+                scan_budget_hint,
+                scan_bounds,
+                &mut read_row,
+                None,
+            )
         }
         KernelRowScanStrategy::DataRowsFiltered { filter_program } => {
-            execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
-                scan_data_rows_only_into_kernel_with_filter_program(
-                    key_stream,
-                    consistency,
-                    filter_program,
-                    scan_bounds,
-                    row_runtime,
-                )
-            })
+            let row_runtime = &*row_runtime;
+            let mut read_row = |key| {
+                row_runtime
+                    .read_data_row_with_filter_program(consistency, key, filter_program)
+                    .map(|row| row.map(KernelRow::new_data_row_only))
+            };
+
+            execute_kernel_row_scan_with_readers(
+                key_stream,
+                scan_budget_hint,
+                scan_bounds,
+                &mut read_row,
+                None,
+            )
         }
         KernelRowScanStrategy::RetainedFullRows {
             retained_slot_layout,
@@ -176,19 +193,16 @@ fn execute_kernel_row_scan_inner(
             #[cfg(feature = "diagnostics")]
             record_kernel_retained_slot_layout(retained_slot_layout);
 
-            execute_retained_kernel_scan(
+            let row_runtime = &*row_runtime;
+            let mut read_row =
+                |key| row_runtime.read_full_row_retained(consistency, key, retained_slot_layout);
+
+            execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
-                Some(retained_slot_layout),
-                |key_stream, retained_slot_layout| {
-                    scan_full_retained_rows_into_kernel(
-                        key_stream,
-                        consistency,
-                        retained_slot_layout,
-                        scan_bounds,
-                        row_runtime,
-                    )
-                },
+                scan_bounds,
+                &mut read_row,
+                None,
             )
         }
         KernelRowScanStrategy::RetainedFullRowsFiltered {
@@ -198,20 +212,22 @@ fn execute_kernel_row_scan_inner(
             #[cfg(feature = "diagnostics")]
             record_kernel_retained_slot_layout(retained_slot_layout);
 
-            execute_retained_kernel_scan(
+            let row_runtime = &*row_runtime;
+            let mut read_row = |key| {
+                row_runtime.read_full_row_retained_with_filter_program(
+                    consistency,
+                    key,
+                    filter_program,
+                    retained_slot_layout,
+                )
+            };
+
+            execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
-                Some(retained_slot_layout),
-                |key_stream, retained_slot_layout| {
-                    scan_full_retained_rows_into_kernel_with_filter_program(
-                        key_stream,
-                        consistency,
-                        filter_program,
-                        retained_slot_layout,
-                        scan_bounds,
-                        row_runtime,
-                    )
-                },
+                scan_bounds,
+                &mut read_row,
+                None,
             )
         }
         KernelRowScanStrategy::SlotOnlyRows {
@@ -220,19 +236,21 @@ fn execute_kernel_row_scan_inner(
             #[cfg(feature = "diagnostics")]
             record_kernel_retained_slot_layout(retained_slot_layout);
 
-            execute_retained_kernel_scan(
+            let row_runtime = &*row_runtime;
+            let mut read_row =
+                |key| row_runtime.read_slot_only(consistency, &key, retained_slot_layout);
+            let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
+                row_runtime
+                    .read_borrowed_slot_only(key, row, retained_slot_layout)
+                    .map(Some)
+            };
+
+            execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
-                Some(retained_slot_layout),
-                |key_stream, retained_slot_layout| {
-                    scan_slot_rows_into_kernel(
-                        key_stream,
-                        consistency,
-                        retained_slot_layout,
-                        scan_bounds,
-                        row_runtime,
-                    )
-                },
+                scan_bounds,
+                &mut read_row,
+                Some(&mut read_borrowed_row),
             )
         }
         KernelRowScanStrategy::SlotOnlyRowsFiltered {
@@ -242,42 +260,54 @@ fn execute_kernel_row_scan_inner(
             #[cfg(feature = "diagnostics")]
             record_kernel_retained_slot_layout(retained_slot_layout);
 
-            execute_retained_kernel_scan(
+            let row_runtime = &*row_runtime;
+            let mut read_row = |key| {
+                row_runtime.read_slot_only_with_filter_program(
+                    consistency,
+                    &key,
+                    filter_program,
+                    retained_slot_layout,
+                )
+            };
+            let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
+                row_runtime.read_borrowed_slot_only_with_filter_program(
+                    key,
+                    row,
+                    filter_program,
+                    retained_slot_layout,
+                )
+            };
+
+            execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
-                Some(retained_slot_layout),
-                |key_stream, retained_slot_layout| {
-                    scan_slot_rows_into_kernel_with_filter_program(
-                        key_stream,
-                        consistency,
-                        filter_program,
-                        retained_slot_layout,
-                        scan_bounds,
-                        row_runtime,
-                    )
-                },
+                scan_bounds,
+                &mut read_row,
+                Some(&mut read_borrowed_row),
             )
         }
     }
 }
 
-// Require one retained-slot layout and run the shared scalar read loop over
-// one retained-row scan closure. Full-row-retained and slot-only kernel lanes
-// both use this shell, so retained-layout enforcement lives in one place.
-fn execute_retained_kernel_scan(
+// Run all kernel-row strategies through one concrete scan body. Slot-only
+// primary traversals may supply a borrowed reader; every other strategy uses
+// the same owned reader path without specializing the loop for its closure.
+fn execute_kernel_row_scan_with_readers(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
-    retained_slot_layout: Option<&RetainedSlotLayout>,
-    mut scan_rows: impl FnMut(
-        &mut OrderedKeyStreamBox,
-        &RetainedSlotLayout,
-    ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError>,
+    bounds: KernelRowScanBounds<'_>,
+    read_row: &mut KernelRowReader<'_>,
+    mut read_borrowed_row: Option<&mut BorrowedKernelRowReader<'_>>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    let retained_slot_layout =
-        retained_slot_layout.ok_or_else(InternalError::query_executor_invariant)?;
-
     execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
-        scan_rows(key_stream, retained_slot_layout)
+        if let Some(read_borrowed_row) = read_borrowed_row.as_deref_mut()
+            && let Some(rows) =
+                try_scan_borrowed_primary_rows(key_stream, bounds, read_borrowed_row)?
+        {
+            return Ok(rows);
+        }
+
+        scan_kernel_rows_with(key_stream, bounds, read_row)
     })
 }
 
@@ -335,7 +365,7 @@ fn execute_scalar_read_loop<T>(
 fn scan_kernel_rows_with(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
-    mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
+    read_row: &mut KernelRowReader<'_>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     if let Some(order_window) = bounds.order_window {
         return scan_kernel_rows_with_bounded_order_window(
@@ -351,7 +381,7 @@ fn scan_kernel_rows_with(
         bounds.row_keep_cap,
         bounds.row_skip_count,
         next_kernel_scan_key,
-        |_key_stream, key| read_kernel_scan_row(key, &mut read_row),
+        |_key_stream, key| read_kernel_scan_row(key, read_row),
     )?;
 
     Ok((PendingOrderRows::plain(result.rows), result.rows_scanned))
@@ -361,7 +391,7 @@ fn scan_kernel_rows_with_bounded_order_window(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
     order_window: KernelRowOrderWindow<'_>,
-    mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
+    read_row: &mut KernelRowReader<'_>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
         return Err(InternalError::query_executor_invariant());
@@ -386,7 +416,7 @@ fn scan_kernel_rows_with_bounded_order_window(
         record_key_stream_yield();
 
         rows_scanned = rows_scanned.saturating_add(1);
-        let row = read_kernel_scan_row(key, &mut read_row)?;
+        let row = read_kernel_scan_row(key, read_row)?;
         finish_scan_page_unit(page_unit)?;
         let Some(row) = row else {
             continue;
@@ -407,7 +437,7 @@ fn scan_kernel_rows_with_bounded_order_window(
 fn try_scan_borrowed_primary_rows(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
-    mut read_row: impl FnMut(&DecodedDataStoreKey, &RawRow) -> Result<Option<KernelRow>, InternalError>,
+    read_row: &mut BorrowedKernelRowReader<'_>,
 ) -> Result<Option<(PendingOrderRows<KernelRow>, usize)>, InternalError> {
     if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
         return if bounds.order_window.is_some() {
@@ -442,7 +472,7 @@ fn try_scan_borrowed_primary_rows(
     let mut visit_row = |key: DecodedDataStoreKey, row: &RawRow| {
         record_key_stream_yield();
         rows_scanned.set(rows_scanned.get().saturating_add(1));
-        let decoded = read_borrowed_kernel_scan_row(&key, row, &mut read_row)?;
+        let decoded = read_borrowed_kernel_scan_row(&key, row, read_row)?;
         finish_scan_page_unit(active_unit.replace(ScanPageUnit::Untracked))?;
         if let Some(decoded) = decoded {
             if !decoded.has_materialized_slots() {
@@ -628,7 +658,7 @@ fn next_kernel_scan_key(
 
 fn read_kernel_scan_row(
     key: DecodedDataStoreKey,
-    read_row: &mut impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
+    read_row: &mut KernelRowReader<'_>,
 ) -> Result<Option<KernelRow>, InternalError> {
     #[cfg(feature = "diagnostics")]
     let (row_read_local_instructions, row) = measure_kernel_row_phase(|| read_row(key));
@@ -643,7 +673,7 @@ fn read_kernel_scan_row(
 fn read_borrowed_kernel_scan_row(
     key: &DecodedDataStoreKey,
     row: &RawRow,
-    read_row: &mut impl FnMut(&DecodedDataStoreKey, &RawRow) -> Result<Option<KernelRow>, InternalError>,
+    read_row: &mut BorrowedKernelRowReader<'_>,
 ) -> Result<Option<KernelRow>, InternalError> {
     #[cfg(feature = "diagnostics")]
     let (row_read_local_instructions, decoded) = measure_kernel_row_phase(|| read_row(key, row));
@@ -855,137 +885,5 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
                 filter_program,
             ),
         }
-    })
-}
-
-fn scan_data_rows_only_into_kernel(
-    key_stream: &mut OrderedKeyStreamBox,
-    consistency: MissingRowPolicy,
-    bounds: KernelRowScanBounds<'_>,
-    row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    scan_kernel_rows_with(key_stream, bounds, |key| {
-        row_runtime.read_data_row_only(consistency, key)
-    })
-}
-
-// Scan keys into data-row-only kernel rows while applying the canonical
-// residual filter directly against each opened raw row.
-fn scan_data_rows_only_into_kernel_with_filter_program(
-    key_stream: &mut OrderedKeyStreamBox,
-    consistency: MissingRowPolicy,
-    filter_program: &EffectiveRuntimeFilterProgram,
-    bounds: KernelRowScanBounds<'_>,
-    row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    scan_kernel_rows_with(key_stream, bounds, |key| {
-        row_runtime
-            .read_data_row_with_filter_program(consistency, key, filter_program)
-            .map(|row| row.map(KernelRow::new_data_row_only))
-    })
-}
-
-// Scan keys into full structural rows while retaining only the caller-declared
-// shared slot subset needed by later executor phases.
-fn scan_full_retained_rows_into_kernel(
-    key_stream: &mut OrderedKeyStreamBox,
-    consistency: MissingRowPolicy,
-    retained_slot_layout: &RetainedSlotLayout,
-    bounds: KernelRowScanBounds<'_>,
-    row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    scan_full_retained_rows_into_kernel_with_reader(key_stream, bounds, |key| {
-        row_runtime.read_full_row_retained(consistency, key, retained_slot_layout)
-    })
-}
-
-// Scan keys into full retained structural rows through one caller-selected
-// row reader while preserving the shared kernel-row scan envelope.
-fn scan_full_retained_rows_into_kernel_with_reader(
-    key_stream: &mut OrderedKeyStreamBox,
-    bounds: KernelRowScanBounds<'_>,
-    read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    scan_kernel_rows_with(key_stream, bounds, read_row)
-}
-
-// Scan keys into retained full structural rows while applying the residual
-// predicate before rows enter shared post-access processing.
-fn scan_full_retained_rows_into_kernel_with_filter_program(
-    key_stream: &mut OrderedKeyStreamBox,
-    consistency: MissingRowPolicy,
-    filter_program: &EffectiveRuntimeFilterProgram,
-    retained_slot_layout: &RetainedSlotLayout,
-    bounds: KernelRowScanBounds<'_>,
-    row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    scan_full_retained_rows_into_kernel_with_reader(key_stream, bounds, |key| {
-        row_runtime.read_full_row_retained_with_filter_program(
-            consistency,
-            key,
-            filter_program,
-            retained_slot_layout,
-        )
-    })
-}
-
-// Scan keys into compact slot-only rows when the final lane never needs a
-// full `DataRow` payload.
-fn scan_slot_rows_into_kernel(
-    key_stream: &mut OrderedKeyStreamBox,
-    consistency: MissingRowPolicy,
-    retained_slot_layout: &RetainedSlotLayout,
-    bounds: KernelRowScanBounds<'_>,
-    row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    if let Some(rows) = try_scan_borrowed_primary_rows(key_stream, bounds, |key, row| {
-        row_runtime
-            .read_borrowed_slot_only(key, row, retained_slot_layout)
-            .map(Some)
-    })? {
-        return Ok(rows);
-    }
-    scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {
-        row_runtime.read_slot_only(consistency, &key, retained_slot_layout)
-    })
-}
-
-// Scan keys into compact slot-only rows through one caller-selected row
-// reader while preserving the shared kernel-row scan envelope.
-fn scan_slot_rows_into_kernel_with_reader(
-    key_stream: &mut OrderedKeyStreamBox,
-    bounds: KernelRowScanBounds<'_>,
-    read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    scan_kernel_rows_with(key_stream, bounds, read_row)
-}
-
-// Scan keys into compact slot-only rows while applying the residual predicate
-// before rows enter shared post-access processing.
-fn scan_slot_rows_into_kernel_with_filter_program(
-    key_stream: &mut OrderedKeyStreamBox,
-    consistency: MissingRowPolicy,
-    filter_program: &EffectiveRuntimeFilterProgram,
-    retained_slot_layout: &RetainedSlotLayout,
-    bounds: KernelRowScanBounds<'_>,
-    row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    if let Some(rows) = try_scan_borrowed_primary_rows(key_stream, bounds, |key, row| {
-        row_runtime.read_borrowed_slot_only_with_filter_program(
-            key,
-            row,
-            filter_program,
-            retained_slot_layout,
-        )
-    })? {
-        return Ok(rows);
-    }
-    scan_slot_rows_into_kernel_with_reader(key_stream, bounds, |key| {
-        row_runtime.read_slot_only_with_filter_program(
-            consistency,
-            &key,
-            filter_program,
-            retained_slot_layout,
-        )
     })
 }

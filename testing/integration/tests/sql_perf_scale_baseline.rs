@@ -239,8 +239,9 @@ pub(crate) enum ScaleRegressionCause {
 /// # Errors
 ///
 /// Returns a typed error before producing deltas when either artifact is invalid,
-/// environments are incomparable, observation membership or semantic identity
-/// differs, slope identity changes, or exact normalized arithmetic overflows.
+/// environments are incomparable, observation or semantic identity differs,
+/// normalized work appears only in the current subject, slope identity changes,
+/// or exact normalized arithmetic overflows.
 pub(crate) fn compare_scale_baseline(
     profile: PerformanceProfile,
     required_wasm_profile: &str,
@@ -325,49 +326,63 @@ fn compare_scale_normalized(
     baseline: &MergedScaleShardReports,
     current: &MergedScaleShardReports,
 ) -> Result<Vec<ScaleNormalizedDelta>, ScaleBaselineComparisonError> {
-    if baseline.normalized_costs.len() != current.normalized_costs.len() {
-        return Err(ScaleBaselineComparisonError::NormalizedSetDrift);
-    }
-    baseline
-        .normalized_costs
-        .iter()
-        .zip(&current.normalized_costs)
-        .map(|(baseline, current)| {
-            if baseline.scenario_id != current.scenario_id
-                || baseline.denominator != current.denominator
-            {
+    let mut compared = Vec::with_capacity(current.normalized_costs.len());
+    let mut current_costs = current.normalized_costs.iter().peekable();
+    for baseline in &baseline.normalized_costs {
+        let Some(current) = current_costs.peek() else {
+            // A normalized row is emitted only for a nonzero denominator. Its
+            // absence from the current subject therefore proves that measured
+            // work disappeared and cannot be a normalized-cost regression.
+            continue;
+        };
+        match baseline
+            .scenario_id
+            .cmp(&current.scenario_id)
+            .then_with(|| baseline.denominator.cmp(&current.denominator))
+        {
+            std::cmp::Ordering::Less => continue,
+            std::cmp::Ordering::Greater => {
                 return Err(ScaleBaselineComparisonError::NormalizedSetDrift);
             }
-            let delta_basis_points = normalized_delta_basis_points(
+            std::cmp::Ordering::Equal => {}
+        }
+        let current = current_costs
+            .next()
+            .ok_or(ScaleBaselineComparisonError::NormalizedSetDrift)?;
+        let delta_basis_points = normalized_delta_basis_points(
+            baseline.cost.local_instructions,
+            baseline.cost.units.get(),
+            current.cost.local_instructions,
+            current.cost.units.get(),
+        )?;
+        let relative_threshold_basis_points =
+            PerformanceProfile::scale_normalized_regression_basis_points();
+        compared.push(ScaleNormalizedDelta {
+            scenario_id: baseline.scenario_id.clone(),
+            denominator: baseline.denominator,
+            baseline: ExactNormalizedCost {
+                local_instructions: baseline.cost.local_instructions,
+                units: baseline.cost.units.get(),
+            },
+            current: ExactNormalizedCost {
+                local_instructions: current.cost.local_instructions,
+                units: current.cost.units.get(),
+            },
+            delta_basis_points,
+            relative_threshold_basis_points,
+            regression: normalized_regression(
                 baseline.cost.local_instructions,
-                baseline.cost.units.get(),
                 current.cost.local_instructions,
-                current.cost.units.get(),
-            )?;
-            let relative_threshold_basis_points =
-                PerformanceProfile::scale_normalized_regression_basis_points();
-            Ok(ScaleNormalizedDelta {
-                scenario_id: baseline.scenario_id.clone(),
-                denominator: baseline.denominator,
-                baseline: ExactNormalizedCost {
-                    local_instructions: baseline.cost.local_instructions,
-                    units: baseline.cost.units.get(),
-                },
-                current: ExactNormalizedCost {
-                    local_instructions: current.cost.local_instructions,
-                    units: current.cost.units.get(),
-                },
                 delta_basis_points,
                 relative_threshold_basis_points,
-                regression: normalized_regression(
-                    baseline.cost.local_instructions,
-                    current.cost.local_instructions,
-                    delta_basis_points,
-                    relative_threshold_basis_points,
-                ),
-            })
-        })
-        .collect()
+            ),
+        });
+    }
+    if current_costs.next().is_some() {
+        return Err(ScaleBaselineComparisonError::NormalizedSetDrift);
+    }
+
+    Ok(compared)
 }
 
 fn compare_scale_slopes(
@@ -522,7 +537,7 @@ pub(crate) enum ScaleBaselineComparisonError {
     /// Baseline and current observation membership differs.
     ObservationSetDrift,
 
-    /// Eligible normalized-cost membership differs.
+    /// The current subject introduces normalized work absent from the baseline.
     NormalizedSetDrift,
 
     /// Result, route, window, or declaration identity changed between subjects.
@@ -553,7 +568,7 @@ impl Display for ScaleBaselineComparisonError {
                 formatter.write_str("scale observation membership drifted")
             }
             Self::NormalizedSetDrift => {
-                formatter.write_str("scale normalized-cost membership drifted")
+                formatter.write_str("scale normalized-cost membership introduced work")
             }
             Self::SemanticDrift(scenario_id) => write!(
                 formatter,
@@ -612,6 +627,23 @@ mod tests {
                 .iter()
                 .all(|delta| delta.delta_basis_points == Some(0)),
         );
+    }
+
+    #[test]
+    fn scale_comparison_accepts_removed_normalized_work_but_rejects_introduction() {
+        let (_, baseline) = complete_report();
+        let mut reduced = baseline.clone();
+        let removed = reduced.normalized_costs.remove(0);
+
+        let comparison = compare_scale_normalized(&baseline, &reduced)
+            .expect("removing measured work should remain comparable");
+        assert!(!comparison.iter().any(|delta| {
+            delta.scenario_id == removed.scenario_id && delta.denominator == removed.denominator
+        }));
+        assert!(matches!(
+            compare_scale_normalized(&reduced, &baseline),
+            Err(ScaleBaselineComparisonError::NormalizedSetDrift)
+        ));
     }
 
     #[test]
