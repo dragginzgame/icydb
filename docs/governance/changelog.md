@@ -305,6 +305,9 @@ For each release:
    rerun validation after creating the commit.
 9. Run `make release-push` to publish the release tag. Push performs no hidden
    validation; the explicit pre-bump `make validate` workflow owns that work.
+   Successful push cleanup removes transient release state but preserves the
+   validated Cargo build cache. Use `make release-clean` when an explicit full
+   build-cache and transient-state cleanup is required.
 
 Order must be preserved.
 Patch releases are batch boundaries, not required endpoints for each code

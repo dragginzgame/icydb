@@ -9,9 +9,10 @@ use icydb::{
     diagnostic::DiagnosticFactTag,
 };
 use icydb_testing_integration::{
-    CanisterBuildOptions, MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES,
-    build_fixture_canister_wasm_bytes_with_options, deliver_startup_watchdog_message,
-    install_fixture_canister,
+    CanisterBuildOptions, MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, StartupWatchdogPerfSnapshot,
+    advance_startup_watchdog_until_ready, build_fixture_canister_wasm_bytes_with_options,
+    deliver_startup_watchdog_message, install_fixture_canister, startup_watchdog_armed,
+    startup_watchdog_perf_snapshot,
 };
 use serde::Deserialize;
 
@@ -71,22 +72,6 @@ struct CardinalityIndexPublicationFacts {
     rows_scanned: u64,
     index_keys_written: u64,
     local_instructions: u64,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct StartupWatchdogPerfSnapshot {
-    scheduler_samples: u64,
-    scheduler_total_instructions: u64,
-    scheduler_maximum_instructions: Option<u64>,
-    work_samples: u64,
-    work_total_instructions: u64,
-    work_latest_instructions: Option<u64>,
-    work_maximum_instructions: Option<u64>,
-    work_started: u64,
-    work_completed: u64,
-    succeeded: u64,
-    retryable_failures: u64,
-    invariant_failures: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -151,18 +136,6 @@ fn canister_memory_bytes(fixture: &StandaloneCanisterFixture) -> (u64, u64) {
     )
 }
 
-fn startup_watchdog_snapshot(fixture: &StandaloneCanisterFixture) -> StartupWatchdogPerfSnapshot {
-    fixture
-        .query_candid("startup_watchdog_perf_snapshot", ())
-        .expect("watchdog closeout snapshot should decode")
-}
-
-fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
-    fixture
-        .query_candid("startup_watchdog_armed", ())
-        .expect("watchdog scheduling state should decode")
-}
-
 fn counter_delta(before: u64, after: u64, label: &str) -> u64 {
     after
         .checked_sub(before)
@@ -176,7 +149,7 @@ fn run_bounded_convergence_watchdog(
         startup_watchdog_armed(fixture),
         "retained debt should keep the production watchdog armed",
     );
-    let before = startup_watchdog_snapshot(fixture);
+    let before = startup_watchdog_perf_snapshot(fixture);
     let memory_before = canister_memory_bytes(fixture);
     let time_before = fixture.pocket_ic().get_time();
 
@@ -187,7 +160,7 @@ fn run_bounded_convergence_watchdog(
         }
     }
 
-    let after = startup_watchdog_snapshot(fixture);
+    let after = startup_watchdog_perf_snapshot(fixture);
     let memory_after = canister_memory_bytes(fixture);
     let elapsed_nanos = fixture
         .pocket_ic()
@@ -311,28 +284,6 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
             None,
         )
         .expect("current sql-perf Wasm should upgrade");
-}
-
-fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
-    for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
-        let probe: Result<(), Error> = fixture
-            .update_candid("initialize_startup_observation_fixture", ())
-            .expect("ordinary startup probe should decode");
-        match probe {
-            Ok(()) => return,
-            Err(error)
-                if error.code()
-                    == ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
-            {
-                if delivered == MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
-                    break;
-                }
-                deliver_startup_watchdog_message(fixture);
-            }
-            Err(error) => panic!("startup driver returned terminal error: {error}"),
-        }
-    }
-    panic!("startup driver should finish within its frozen residual delivery bound");
 }
 
 fn stable_memory_fingerprint(fixture: &StandaloneCanisterFixture) -> ([u8; 32], usize) {

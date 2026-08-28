@@ -30,6 +30,8 @@ Protected Tags
 Notes
 
 - Status check names correspond to jobs in `.github/workflows/ci.yml`.
+- The three required checks run independently; release artifact publication
+  explicitly waits for all three after the Wasm and validation lanes converge.
 - After saving, GitHub will surface these required checks on each PR into `main`.
 - `.github/CODEOWNERS` requires maintainer review for CI, release, hook, and
   toolchain authority.

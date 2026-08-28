@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MAKEFILE="$ROOT/Makefile"
 CLEANUP_SCRIPT="scripts/ci/cleanup-release-workspace.sh"
+CARGO_CLEAN_RECIPE="\$(CARGO_WORK_ENV) cargo clean"
+CLEANUP_TEST_ROOT="$(mktemp -d)"
+
+cleanup() {
+  find "$CLEANUP_TEST_ROOT" -depth -delete
+}
+trap cleanup EXIT
 
 target_recipe() {
   local target="$1"
@@ -90,6 +97,27 @@ for target in patch minor major release-stage release-commit; do
     exit 1
   fi
 done
+
+if ! target_recipe clean | grep -Fq "$CARGO_CLEAN_RECIPE"; then
+  echo "clean must own repo-local Cargo build-cache deletion" >&2
+  exit 1
+fi
+
+if ! target_recipe release-clean | awk -v cleanup="$CLEANUP_SCRIPT" '
+  /\$\(MAKE\).* clean([[:space:]]|$)/ { cargo_clean_line = NR }
+  index($0, cleanup) { transient_cleanup_line = NR }
+  END {
+    exit !(cargo_clean_line > 0 && transient_cleanup_line > cargo_clean_line)
+  }
+'; then
+  echo "release-clean must delete the Cargo build cache before transient release state" >&2
+  exit 1
+fi
+
+if grep -Eq 'cargo[[:space:]]+clean|TARGET_DIR|CARGO_HOME' "$ROOT/$CLEANUP_SCRIPT"; then
+  echo "automatic release cleanup must preserve Cargo build state" >&2
+  exit 1
+fi
 
 for target in patch minor major; do
   if ! target_recipe "$target" | awk -v target="$target" '
@@ -197,6 +225,11 @@ if target_recipe release-push | grep -Eq -- '--follow-tags|--tags([[:space:]]|$)
   exit 1
 fi
 
+if target_recipe release-push | grep -Eq 'cargo[[:space:]]+clean|\$\(MAKE\).* clean([[:space:]]|$)'; then
+  echo "release-push must preserve the validated Cargo build cache" >&2
+  exit 1
+fi
+
 automatic_cleanup_calls="$(
   awk -v cleanup="$CLEANUP_SCRIPT" '
     /^\t/ && index($0, cleanup) { count += 1 }
@@ -207,6 +240,41 @@ if [[ "$automatic_cleanup_calls" -ne 2 ]]; then
   echo "expected cleanup only in release-clean and release-push; found $automatic_cleanup_calls calls" >&2
   exit 1
 fi
+
+CLEANUP_FIXTURE_ROOT="$CLEANUP_TEST_ROOT/repository"
+CLEANUP_FIXTURE_SCRIPT="$CLEANUP_FIXTURE_ROOT/$CLEANUP_SCRIPT"
+mkdir -p \
+  "$(dirname "$CLEANUP_FIXTURE_SCRIPT")" \
+  "$CLEANUP_FIXTURE_ROOT/target/icydb" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/release-tmp" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/icydb-sqlite-comparison"
+cp "$ROOT/$CLEANUP_SCRIPT" "$CLEANUP_FIXTURE_SCRIPT"
+touch \
+  "$CLEANUP_FIXTURE_ROOT/target/icydb/build-cache-sentinel" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/release-tmp/release-sentinel" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/icydb-sqlite-comparison/sqlite-sentinel" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/pocket_ic_fixture.port" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/unrelated-cache-sentinel"
+bash "$CLEANUP_FIXTURE_SCRIPT"
+
+if [[ ! -f "$CLEANUP_FIXTURE_ROOT/target/icydb/build-cache-sentinel" ]]; then
+  echo "automatic release cleanup removed the Cargo build cache" >&2
+  exit 1
+fi
+if [[ ! -f "$CLEANUP_FIXTURE_ROOT/.cache/unrelated-cache-sentinel" ]]; then
+  echo "automatic release cleanup removed unrelated cache state" >&2
+  exit 1
+fi
+for removed in \
+  "$CLEANUP_FIXTURE_ROOT/.cache/release-tmp/release-sentinel" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/icydb-sqlite-comparison/sqlite-sentinel" \
+  "$CLEANUP_FIXTURE_ROOT/.cache/pocket_ic_fixture.port"; do
+  if [[ -e "$removed" ]]; then
+    echo "automatic release cleanup retained transient state: $removed" >&2
+    exit 1
+  fi
+done
+echo "transient release cleanup behavior passed"
 
 "$ROOT/scripts/ci/test-release-candidate-receipt.sh"
 "$ROOT/scripts/ci/test-delete-github-tags-up-to.sh"

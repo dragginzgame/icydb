@@ -68,7 +68,6 @@ pub fn allowlist(
 ///
 /// This is public only for generated-code and evidence-canister plumbing.
 #[doc(hidden)]
-#[allow(clippy::result_large_err)]
 pub fn authorize_sql_read(caller: Principal, guard: ReadAuthorizationGuard) -> Result<(), Error> {
     authorize_read(
         caller,
@@ -82,7 +81,6 @@ pub fn authorize_sql_read(caller: Principal, guard: ReadAuthorizationGuard) -> R
 ///
 /// This is public only for generated-code and evidence-canister plumbing.
 #[doc(hidden)]
-#[allow(clippy::result_large_err)]
 pub fn authorize_schema_read(
     caller: Principal,
     guard: ReadAuthorizationGuard,
@@ -95,7 +93,6 @@ pub fn authorize_schema_read(
     )
 }
 
-#[allow(clippy::result_large_err)]
 fn authorize_read(
     caller: Principal,
     surface: ReadAuthorizationSurface,

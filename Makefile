@@ -106,10 +106,10 @@ help:
 	@echo "  patch            Test a source candidate, then bump patch version files (0.0.x)"
 	@echo "  minor            Confirm and test a source candidate, then bump minor files (0.x.0)"
 	@echo "  major            Confirm and test a source candidate, then bump major files (x.0.0)"
-	@echo "  release-clean    Remove repo-local release build and temporary artifacts"
+	@echo "  release-clean    Remove the repo-local build cache and transient release artifacts"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Verify the tested candidate transition, commit, and tag"
-	@echo "  release-push     Atomically push the release commit and exact tag, then clean artifacts"
+	@echo "  release-push     Atomically push the release commit and exact tag, then clean transient artifacts"
 	@echo "  release-patch    Human-owned one-shot patch release"
 	@echo "  release-minor    Confirm, bump, stage, commit, tag, and push a minor release"
 	@echo "  release-major    Confirm, bump, stage, commit, tag, and push a major release"
@@ -270,6 +270,7 @@ release-prepare:
 	@mkdir -p "$(RELEASE_TMP_DIR)"
 
 release-clean:
+	@$(MAKE) --no-print-directory clean
 	@bash scripts/ci/cleanup-release-workspace.sh
 
 release: ensure-clean

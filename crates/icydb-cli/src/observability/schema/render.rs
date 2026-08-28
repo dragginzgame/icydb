@@ -9,7 +9,10 @@ use icydb::db::{
 };
 
 use crate::{
-    observability::render::{render_field_list, yes_no},
+    observability::{
+        render::{render_field_list, yes_no},
+        render_hex_lower,
+    },
     table::{ColumnAlign, append_indented_table},
 };
 
@@ -76,7 +79,7 @@ fn schema_entity_row(entity: &EntitySchemaDescription) -> SchemaEntityRow {
         entity.entity_name().to_string(),
         entity.entity_tag().to_string(),
         entity.accepted_schema_fingerprint_method().to_string(),
-        render_fingerprint(entity.accepted_schema_fingerprint()),
+        render_hex_lower(&entity.accepted_schema_fingerprint()),
         entity.fields().len().to_string(),
         entity.indexes().len().to_string(),
         entity.relations().len().to_string(),
@@ -170,16 +173,6 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
             ColumnAlign::Left,
         ],
     );
-}
-
-fn render_fingerprint(fingerprint: [u8; 16]) -> String {
-    use std::fmt::Write as _;
-
-    let mut rendered = String::with_capacity(32);
-    for byte in fingerprint {
-        let _ = write!(rendered, "{byte:02x}");
-    }
-    rendered
 }
 
 fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {

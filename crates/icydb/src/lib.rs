@@ -299,7 +299,10 @@ macro_rules! start {
 macro_rules! __icydb_start_participant_lifecycle {
     () => {
         #[doc(hidden)]
-        #[allow(dead_code)]
+        #[allow(
+            dead_code,
+            reason = "downstream canisters may select participant hooks through generated lifecycle wiring"
+        )]
         pub(crate) mod __icydb_lifecycle_participant {
             use std::cell::Cell;
 
@@ -444,7 +447,10 @@ macro_rules! __icydb_start_actor {
 
         const _: fn(__IcydbStartRootMarker) = crate::__icydb_start_root_binding;
 
-        #[allow(dead_code)]
+        #[allow(
+            dead_code,
+            reason = "generated actor members are feature-dependent in downstream canisters"
+        )]
         mod __icydb_generated {
             #[doc(hidden)]
             pub(crate) const __ICYDB_START_BINDING: () = ();
@@ -452,7 +458,10 @@ macro_rules! __icydb_start_actor {
             include!(concat!(env!("OUT_DIR"), "/actor.rs"));
         }
 
-        #[allow(unused_imports)]
+        #[allow(
+            unused_imports,
+            reason = "minimal downstream canisters may use only a subset of generated actor conveniences"
+        )]
         use __icydb_generated::{db, db_with_request_root, startup_state};
     };
 }
@@ -558,7 +567,10 @@ macro_rules! endpoints {
         const _: fn(__IcydbEndpointsRootMarker) = crate::__icydb_endpoints_root_binding;
 
         #[doc(hidden)]
-        #[allow(unused_imports)]
+        #[allow(
+            unused_imports,
+            reason = "declared endpoint families determine whether the generated facade alias is referenced"
+        )]
         use $crate as __icydb_facade;
 
         #[used]
@@ -747,7 +759,10 @@ macro_rules! __icydb_endpoints_internal {
         $(#[cfg($($cfg)*)])*
         $crate::__icydb_with_sql_endpoint! {
             "icydb_integrity";
-            #[allow(clippy::result_large_err)]
+            #[allow(
+                clippy::result_large_err,
+                reason = "generated integrity endpoints preserve the public typed error contract"
+            )]
             #[$crate::__reexports::ic_cdk::update(name = "icydb_integrity")]
             fn __icydb_export_icydb_integrity(
                 sql: String,

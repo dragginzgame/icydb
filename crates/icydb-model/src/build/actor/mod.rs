@@ -173,7 +173,10 @@ fn generate_endpoint_runtime() -> TokenStream {
     quote! {
         #authorization
 
-        #[allow(unused_imports)]
+        #[allow(
+            unused_imports,
+            reason = "downstream endpoint declarations select a feature-dependent handler subset"
+        )]
         pub(crate) mod endpoint_handlers {
             pub(crate) use super::__icydb_endpoint_handler_schema as schema;
 
@@ -215,21 +218,30 @@ fn generate_endpoint_runtime() -> TokenStream {
                 }
             }
 
-            #[allow(clippy::unnecessary_wraps)]
+            #[allow(
+                clippy::unnecessary_wraps,
+                reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
+            )]
             pub(crate) fn metrics(
                 window_start_ms: Option<u64>,
             ) -> Result<::icydb::metrics::CompactMetricsReport, ::icydb::Error> {
                 Ok(::icydb::metrics::compact_metrics_report(window_start_ms))
             }
 
-            #[allow(clippy::unnecessary_wraps)]
+            #[allow(
+                clippy::unnecessary_wraps,
+                reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
+            )]
             pub(crate) fn metrics_extended(
                 window_start_ms: Option<u64>,
             ) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
                 Ok(::icydb::metrics::metrics_report(window_start_ms))
             }
 
-            #[allow(clippy::unnecessary_wraps)]
+            #[allow(
+                clippy::unnecessary_wraps,
+                reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
+            )]
             pub(crate) fn metrics_reset() -> Result<(), ::icydb::Error> {
                 ::icydb::metrics::metrics_reset_all();
                 Ok(())

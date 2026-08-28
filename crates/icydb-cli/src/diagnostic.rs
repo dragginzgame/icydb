@@ -20,7 +20,7 @@ use std::fmt::Write as _;
 use crate::{
     cli::DiagnosticArgs,
     diagnostic::artifact::{DiagnosticSchemaArtifact, ResolvedDiagnosticEntity},
-    observability::load_schema_report,
+    observability::{load_schema_report, render_hex_lower},
 };
 
 #[derive(Clone, Copy)]
@@ -210,7 +210,7 @@ fn render_error_code_report_with_facts(
             lines.push(format!(
                 "accepted schema identity: method={} fingerprint={} entity_tag={}",
                 identity.fingerprint_method,
-                render_fingerprint(identity.fingerprint),
+                render_hex_lower(&identity.fingerprint),
                 identity.entity_tag
             ));
         }
@@ -269,14 +269,6 @@ const fn fact_schema_mismatch_text(
             "a known tag carries an invalid compact value"
         }
     }
-}
-
-fn render_fingerprint(fingerprint: [u8; 16]) -> String {
-    let mut rendered = String::with_capacity(32);
-    for byte in fingerprint {
-        let _ = write!(rendered, "{byte:02x}");
-    }
-    rendered
 }
 
 impl DiagnosticSchemaIdentity {

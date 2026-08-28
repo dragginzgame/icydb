@@ -174,7 +174,11 @@ impl SqlSurfaceTokens {
                 __icydb_sql_surface_ddl_dispatch(sql.as_str())
             }
 
-            #[allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+            #[allow(
+                clippy::missing_const_for_fn,
+                clippy::unnecessary_wraps,
+                reason = "fixture presence changes the generated body while the handler contract stays uniform"
+            )]
             pub(crate) fn __icydb_endpoint_handler_fixtures_reset(
             ) -> Result<(), ::icydb::Error> {
                 #reset_result
@@ -199,7 +203,10 @@ impl SqlSurfaceTokens {
                 __icydb_sql_surface_update_bounded_dispatch(sql.as_str())
             }
 
-            #[allow(clippy::result_large_err)]
+            #[allow(
+                clippy::result_large_err,
+                reason = "generated integrity handlers preserve the public typed error contract"
+            )]
             pub(crate) fn __icydb_endpoint_handler_sql_integrity(
                 sql: String,
             ) -> Result<::icydb::db::IntegrityCheckResult, ::icydb::db::SqlIntegrityError> {

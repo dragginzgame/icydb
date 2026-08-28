@@ -11,6 +11,22 @@ fail() {
   status=1
 }
 
+ci_job_recipe() {
+  local job="$1"
+  awk -v job="$job" '
+    $0 == "  " job ":" {
+      in_job = 1
+      next
+    }
+    in_job && /^  [[:alnum:]_-]+:$/ {
+      exit
+    }
+    in_job {
+      print
+    }
+  ' .github/workflows/ci.yml
+}
+
 shopt -s nullglob
 workflow_files=(.github/workflows/*.yml .github/workflows/*.yaml)
 if [[ ${#workflow_files[@]} -eq 0 ]]; then
@@ -57,7 +73,7 @@ if rg -q '^[[:space:]]+tags:' .github/workflows/ci.yml; then
   fail "CI must not duplicate the main release commit through a tag trigger"
 fi
 
-for job in static rust check; do
+for job in dependency_msrv static rust check wasm_size_report release; do
   if ! rg -q "^  ${job}:$" .github/workflows/ci.yml; then
     fail "CI is missing the ${job} validation job"
   fi
@@ -73,9 +89,17 @@ if ! rg -q '^[[:space:]]+fail-fast:[[:space:]]+false$' .github/workflows/ci.yml;
   fail "parallel Rust validation must retain every lane after one lane fails"
 fi
 
-if ! rg -q --fixed-strings 'needs: [static, rust]' .github/workflows/ci.yml ||
-   ! rg -q --fixed-strings 'needs: [dependency_msrv, check]' .github/workflows/ci.yml; then
-  fail "the terminal check identity must aggregate every validation lane before Wasm evidence"
+if ! ci_job_recipe check | rg -q --fixed-strings 'needs: [static, rust]'; then
+  fail "the terminal check identity must aggregate every validation lane"
+fi
+
+if ci_job_recipe wasm_size_report | rg -q '^[[:space:]]+needs:'; then
+  fail "Wasm evidence must run independently from validation"
+fi
+
+if ! ci_job_recipe release |
+  rg -q --fixed-strings 'needs: [dependency_msrv, check, wasm_size_report]'; then
+  fail "release artifacts must require MSRV, validation, and Wasm evidence"
 fi
 
 for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b; do

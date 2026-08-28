@@ -1576,12 +1576,10 @@ version = "0.246.0"
 dependencies = [
  "blake3",
  "candid",
- "flate2",
  "ic-testkit",
  "icydb",
  "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
- "pocket-ic",
  "serde",
  "serde_json",
  "sha2",

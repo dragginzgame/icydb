@@ -8,7 +8,7 @@ use crate::{
     cli::{CanisterTarget, ConfirmedMigrationTarget, SchemaMigrationCommand},
     endpoint::{SCHEMA_MIGRATE_ENDPOINT, SCHEMA_MIGRATION_ENDPOINT},
     icp::require_created_canister,
-    observability::{call_query, call_update, endpoint_result_error},
+    observability::{call_query, call_update, endpoint_result_error, render_hex_lower},
 };
 
 pub(super) fn run_schema_migration_command(command: SchemaMigrationCommand) -> Result<(), String> {
@@ -265,13 +265,17 @@ fn blob(bytes: [u8; 32]) -> String {
 fn print_status(status: &SchemaMigrationStatusPage) {
     println!("IcyDB schema migration");
     println!("  phase: {:?}", status.phase());
-    println!("  database: {}", hex(status.database_identity().to_bytes()));
+    println!(
+        "  database: {}",
+        render_hex_lower(&status.database_identity().to_bytes())
+    );
     println!("  accepted head: {}", head(status.accepted_head()));
     println!(
         "  plan: {}",
-        status
-            .plan_digest()
-            .map_or_else(|| "None".to_string(), |digest| hex(digest.to_bytes()))
+        status.plan_digest().map_or_else(
+            || "None".to_string(),
+            |digest| render_hex_lower(&digest.to_bytes()),
+        )
     );
     println!("  rows validated: {}", status.rows_validated());
     println!("  rows rewritten: {}", status.rows_rewritten());
@@ -282,23 +286,9 @@ fn print_status(status: &SchemaMigrationStatusPage) {
             "    {:?}: entity {} key {}",
             finding.kind(),
             finding.entity_tag(),
-            hex_slice(finding.primary_key()),
+            render_hex_lower(finding.primary_key()),
         );
     }
-}
-
-fn hex(bytes: [u8; 32]) -> String {
-    hex_slice(bytes.as_slice())
-}
-
-fn hex_slice(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut value = String::with_capacity(64);
-    for byte in bytes {
-        value.push(char::from(HEX[usize::from(byte >> 4)]));
-        value.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    value
 }
 
 #[cfg(test)]

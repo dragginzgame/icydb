@@ -27,10 +27,9 @@ pub(in crate::db) const APP_MEMORY_ID_MIN: u8 = 100;
 pub(in crate::db) const APP_MEMORY_ID_MAX: u8 = 254;
 pub(in crate::db) const CANISTER_CONTROL_ALLOCATION_COUNT: usize = 3;
 pub(in crate::db) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;
-pub(in crate::db) const MAX_DEPLOYMENT_STORE_ALLOCATIONS: usize = MAX_PERSISTED_STORE_ALLOCATIONS;
 const _: () = assert!(
     CANISTER_CONTROL_ALLOCATION_COUNT
-        + MAX_DEPLOYMENT_STORE_ALLOCATIONS * JOURNALED_STORE_ALLOCATION_WIDTH
+        + MAX_PERSISTED_STORE_ALLOCATIONS * JOURNALED_STORE_ALLOCATION_WIDTH
         <= APP_MEMORY_ID_MAX as usize - APP_MEMORY_ID_MIN as usize + 1
 );
 
@@ -226,7 +225,7 @@ fn generated_store_proposals<C: CanisterKind>(
             })
             .collect::<Result<Vec<_>, InternalError>>()
     })?;
-    if proposals.len() > MAX_DEPLOYMENT_STORE_ALLOCATIONS {
+    if proposals.len() > MAX_PERSISTED_STORE_ALLOCATIONS {
         return Err(InternalError::store_unsupported());
     }
     validate_allocation_set::<C>(&proposals)?;
@@ -626,11 +625,7 @@ mod tests {
 
     #[test]
     fn deployment_store_bound_is_canonical_and_rejects_seventeenth_store() {
-        assert_eq!(MAX_DEPLOYMENT_STORE_ALLOCATIONS, 16);
-        assert_eq!(
-            MAX_DEPLOYMENT_STORE_ALLOCATIONS,
-            MAX_PERSISTED_STORE_ALLOCATIONS
-        );
+        assert_eq!(MAX_PERSISTED_STORE_ALLOCATIONS, 16);
 
         let mut registry = maximum_registry();
         canonicalize_store_registry(&mut registry).unwrap();

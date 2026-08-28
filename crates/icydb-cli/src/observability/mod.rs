@@ -15,6 +15,8 @@ use crate::cli::{
 };
 use crate::icp::{call_query_hex, call_update_hex};
 
+pub(crate) use render::render_hex_lower;
+
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     metrics::run_metrics_command(args)
 }

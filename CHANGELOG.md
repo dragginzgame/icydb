@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.246.md](docs/changelog/0.246.md)
 
+- `0.246.1` tightens the finalized raw-Wasm entity-scale guard from 4 KiB to
+  2 KiB with more than fourteen times measured headroom, removes duplicate
+  store, watchdog, dependency, lint-suppression and CLI-rendering authorities,
+  preserves validated build caches after release pushes, and runs Wasm
+  reporting alongside validation without weakening publication gates.
 - `0.246.0` cuts broad prepared-query controls by 26.2%–35.2% and makes
   recovery promptly drain an independently bounded 64-batch backlog across at
   most 16 journaled stores while retaining cadence-backed retries. The

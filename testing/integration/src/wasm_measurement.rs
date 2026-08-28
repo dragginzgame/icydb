@@ -12,7 +12,7 @@ pub const WASM_MEASUREMENT_PROFILE_VERSION: u32 = 1;
 pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.220/v1";
 
 /// Maximum final raw-Wasm growth admitted for each additional generated entity.
-pub const MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY: u64 = 4 * 1024;
+pub const MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY: u64 = 2 * 1024;
 
 /// Generated entities added by the maintained one-entity to ten-entity pair.
 pub const ENTITY_SCALE_ADDED_ENTITIES: u64 = 9;
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn current_measurement_contract_is_complete_and_fail_closed() {
         validate_wasm_measurement_contract().expect("current measurement contract should validate");
-        assert_eq!(MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY, 4_096);
+        assert_eq!(MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY, 2_048);
         assert_eq!(
             WASM_MEASUREMENT_COMPARISONS
                 .iter()

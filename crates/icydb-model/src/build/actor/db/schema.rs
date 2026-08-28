@@ -34,7 +34,11 @@ impl quote::ToTokens for SchemaSurfaceTokens {
         let entity_sources = &self.entity_sources;
 
         tokens.extend(quote! {
-            #[allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+            #[allow(
+                clippy::missing_const_for_fn,
+                clippy::unnecessary_wraps,
+                reason = "empty generated schemas retain the same runtime lookup and fallible handler contract"
+            )]
             pub(crate) fn __icydb_endpoint_handler_schema(
             ) -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
                 Ok(vec![

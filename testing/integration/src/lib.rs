@@ -9,6 +9,14 @@ pub mod streaming_execution_contract;
 pub mod wasm_measurement;
 pub mod wasm_optimizer;
 
+use candid::CandidType;
+use ic_testkit::artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path};
+use ic_testkit::pic::{
+    InstallSpec, PocketIc, PocketIcBuilder, PocketIcBuilderExt, PocketIcStartupConfig,
+    StandaloneCanisterFixture,
+};
+use icydb::{Error, ErrorCode};
+use serde::Deserialize;
 use std::{
     env,
     ffi::OsString,
@@ -18,13 +26,6 @@ use std::{
     sync::OnceLock,
     time::Duration,
 };
-
-use ic_testkit::artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path};
-use ic_testkit::pic::{
-    InstallSpec, PocketIc, PocketIcBuilder, PocketIcBuilderExt, PocketIcStartupConfig,
-    StandaloneCanisterFixture,
-};
-use icydb::Error;
 
 use crate::canister_build_cache::{
     CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
@@ -47,6 +48,36 @@ const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 24;
 /// This is `B_0 + C_driver`, or `64 + 4`, for the maximum admitted backlog.
 pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 68;
 
+/// Canonical instruction and completion evidence returned by the SQL audit
+/// canister's generated startup watchdog.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct StartupWatchdogPerfSnapshot {
+    /// Scheduler callbacks observed by the timer runtime.
+    pub scheduler_samples: u64,
+    /// Total instructions consumed by scheduler callbacks.
+    pub scheduler_total_instructions: u64,
+    /// Maximum instructions consumed by one scheduler callback.
+    pub scheduler_maximum_instructions: Option<u64>,
+    /// IcyDB work callbacks observed inside scheduler callbacks.
+    pub work_samples: u64,
+    /// Total instructions consumed by IcyDB work callbacks.
+    pub work_total_instructions: u64,
+    /// Instructions consumed by the latest IcyDB work callback.
+    pub work_latest_instructions: Option<u64>,
+    /// Maximum instructions consumed by one IcyDB work callback.
+    pub work_maximum_instructions: Option<u64>,
+    /// IcyDB work callbacks that started.
+    pub work_started: u64,
+    /// IcyDB work callbacks that completed.
+    pub work_completed: u64,
+    /// Successful IcyDB work callbacks.
+    pub succeeded: u64,
+    /// Retryable IcyDB work callback failures.
+    pub retryable_failures: u64,
+    /// Invariant-failing IcyDB work callbacks.
+    pub invariant_failures: u64,
+}
+
 /// Deliver pending startup-watchdog messages in PocketIC without advancing time.
 pub fn deliver_startup_watchdog_message(fixture: &StandaloneCanisterFixture) {
     // Normal progress schedules zero-delay successor messages. These bounded
@@ -55,6 +86,62 @@ pub fn deliver_startup_watchdog_message(fixture: &StandaloneCanisterFixture) {
     for _ in 0..WATCHDOG_MESSAGE_COMPLETION_TICKS {
         fixture.pocket_ic().tick();
     }
+}
+
+/// Decode the SQL audit canister's canonical startup-watchdog evidence.
+///
+/// # Panics
+///
+/// Panics when the canister response does not decode as the maintained
+/// watchdog snapshot contract.
+#[must_use]
+pub fn startup_watchdog_perf_snapshot(
+    fixture: &StandaloneCanisterFixture,
+) -> StartupWatchdogPerfSnapshot {
+    fixture
+        .query_candid("startup_watchdog_perf_snapshot", ())
+        .expect("startup watchdog performance snapshot should decode")
+}
+
+/// Report whether the SQL audit canister's generated startup watchdog is armed.
+///
+/// # Panics
+///
+/// Panics when the canister response does not decode as a boolean armed state.
+#[must_use]
+pub fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
+    fixture
+        .query_candid("startup_watchdog_armed", ())
+        .expect("startup watchdog scheduling state should decode")
+}
+
+/// Deliver bounded startup-watchdog messages until the SQL audit fixture
+/// admits ordinary work.
+///
+/// # Panics
+///
+/// Panics when the ordinary-work probe cannot be decoded, returns a terminal
+/// error, or remains recovery-blocked beyond the maintained delivery bound.
+pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
+    for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+        let probe: Result<(), Error> = fixture
+            .update_candid("initialize_startup_observation_fixture", ())
+            .expect("ordinary startup probe should decode");
+        match probe {
+            Ok(()) => return,
+            Err(error)
+                if error.code()
+                    == ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
+            {
+                if delivered == MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+                    break;
+                }
+                deliver_startup_watchdog_message(fixture);
+            }
+            Err(error) => panic!("startup driver returned terminal error: {error}"),
+        }
+    }
+    panic!("startup driver should finish within its frozen residual delivery bound");
 }
 
 struct FixtureCanister {

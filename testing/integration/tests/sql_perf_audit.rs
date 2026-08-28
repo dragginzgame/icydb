@@ -23,13 +23,15 @@ use icydb::{
     value::OutputValue,
 };
 use icydb_testing_integration::{
-    MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_startup_watchdog_message,
+    MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, StartupWatchdogPerfSnapshot,
+    advance_startup_watchdog_until_ready, deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
         DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING, DURABLE_MUTATION_JOB_VERIFY_KEY_LIMIT,
         DURABLE_START_INSTRUCTION_REVIEW_CEILING, DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING,
     },
-    install_fixture_canister, reset_icydb_fixtures, upgrade_fixture_canister,
+    install_fixture_canister, reset_icydb_fixtures, startup_watchdog_armed,
+    startup_watchdog_perf_snapshot, upgrade_fixture_canister,
 };
 use serde::Deserialize;
 use std::time::Duration;
@@ -58,22 +60,6 @@ struct SqlBudgetFallbackPerfResult {
 struct ReadTotalOnlyPerfResult {
     row_count: u32,
     instructions: u64,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct StartupWatchdogPerfSnapshot {
-    scheduler_samples: u64,
-    scheduler_total_instructions: u64,
-    scheduler_maximum_instructions: Option<u64>,
-    work_samples: u64,
-    work_total_instructions: u64,
-    work_latest_instructions: Option<u64>,
-    work_maximum_instructions: Option<u64>,
-    work_started: u64,
-    work_completed: u64,
-    succeeded: u64,
-    retryable_failures: u64,
-    invariant_failures: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -401,20 +387,6 @@ fn extended_sql_perf_metrics(fixture: &StandaloneCanisterFixture) -> EventReport
         .query_candid("icydb_metrics_extended", (None::<u64>,))
         .expect("extended metrics response should decode");
     result.expect("public extended metrics endpoint should succeed")
-}
-
-fn startup_watchdog_perf_snapshot(
-    fixture: &StandaloneCanisterFixture,
-) -> StartupWatchdogPerfSnapshot {
-    fixture
-        .query_candid("startup_watchdog_perf_snapshot", ())
-        .expect("startup watchdog performance snapshot should decode")
-}
-
-fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
-    fixture
-        .query_candid("startup_watchdog_armed", ())
-        .expect("startup watchdog scheduling state should decode")
 }
 
 fn drain_online_watchdog_until_quiescent(fixture: &StandaloneCanisterFixture) {
@@ -1748,28 +1720,6 @@ fn measure_journaled_ready_total_only_perf(
         .expect("journaled ready perf update should decode");
 
     result.expect("journaled ready perf update should succeed")
-}
-
-fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
-    for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
-        let probe: Result<(), Error> = fixture
-            .update_candid("initialize_startup_observation_fixture", ())
-            .expect("ordinary startup probe should decode");
-        match probe {
-            Ok(()) => return,
-            Err(error)
-                if error.code()
-                    == icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
-            {
-                if delivered == MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
-                    break;
-                }
-                deliver_startup_watchdog_message(fixture);
-            }
-            Err(error) => panic!("startup driver returned terminal error: {error}"),
-        }
-    }
-    panic!("startup driver should finish within its frozen residual delivery bound");
 }
 
 fn advance_online_watchdog_until_work_sample(
