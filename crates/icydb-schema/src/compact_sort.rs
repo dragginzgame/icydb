@@ -73,7 +73,7 @@ mod tests {
     fn compact_sort_matches_unstable_ordering_across_bounded_shapes() {
         for len in 0..=256 {
             let mut candidate = (0..len)
-                .map(|index| ((index * 37 + 11) % 23) as i32 - 7)
+                .map(|index| ((index * 37 + 11) % 23) - 7)
                 .collect::<Vec<_>>();
             let mut expected = candidate.clone();
 
