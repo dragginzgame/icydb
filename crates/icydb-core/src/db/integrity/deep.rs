@@ -969,7 +969,7 @@ fn merge_blocked_families(
     page: &[IntegrityVerifierFamily],
 ) {
     accumulated.extend_from_slice(page);
-    accumulated.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(accumulated, Ord::cmp);
     accumulated.dedup();
 }
 

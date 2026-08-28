@@ -2268,6 +2268,71 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     );
 }
 
+#[test]
+fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay_provenance() {
+    let position = overlay_position(1);
+    let positioned_key =
+        RawSchemaKey::from_entity_version(EntityTag::new(230), SchemaVersion::initial());
+    let canonical_only_key = RawSchemaKey::from_cardinality_count(
+        CardinalityCountSlot::A,
+        CardinalityCountDigest::for_entity(EntityTag::new(230)),
+    );
+    let positioned_without_overlay_key =
+        RawSchemaKey::from_accepted_root_slot(0).expect("root slot should encode");
+    let snapshot = |value| RawSchemaSnapshot::from_encoded_control_record(vec![value]);
+    let mut store = SchemaStore::init_journaled(test_memory(231));
+
+    let SchemaStoreBackend::Journaled {
+        canonical,
+        positions,
+        ..
+    } = &mut store.backend
+    else {
+        panic!("positioned schema test requires a journaled store");
+    };
+    canonical.insert(canonical_only_key, snapshot(11));
+    positions.publish_preflighted(positioned_without_overlay_key, position);
+    store
+        .publish_positioned_journal_entry(positioned_key, Some(snapshot(22)), position)
+        .expect("positioned schema value should publish");
+
+    let prepared = store
+        .prepare_positioned_key_retirements(
+            [
+                positioned_key,
+                canonical_only_key,
+                positioned_without_overlay_key,
+            ],
+            position,
+        )
+        .expect("canonical-only derived metadata should not require overlay provenance");
+    assert_eq!(prepared.entries.len(), 2);
+    store.apply_prepared_journal_batch_retirement(prepared);
+
+    let SchemaStoreBackend::Journaled {
+        canonical,
+        positions,
+        live,
+        ..
+    } = &mut store.backend
+    else {
+        panic!("positioned schema test requires a journaled store");
+    };
+    assert!(canonical.get(&canonical_only_key).is_some());
+    assert!(!positions.is_positioned(&positioned_key));
+    assert!(!positions.is_positioned(&positioned_without_overlay_key));
+
+    let missing_position_key =
+        RawSchemaKey::from_entity_version(EntityTag::new(231), SchemaVersion::initial());
+    live.insert(missing_position_key, snapshot(33));
+    let Err(error) = store.prepare_positioned_key_retirements([missing_position_key], position)
+    else {
+        panic!("a live schema overlay without provenance must remain an invariant failure");
+    };
+    assert_eq!(error.class(), ErrorClass::InvariantViolation);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
 // Build one typed schema snapshot used by schema-store tests. The exact
 // field contracts are intentionally rich enough to cover nested metadata,
 // scalar codecs, and structural payloads through the raw store.

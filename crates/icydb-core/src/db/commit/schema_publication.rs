@@ -190,7 +190,9 @@ pub(in crate::db) fn publish_accepted_schema_candidates_with_database_control(
         }
         return publish_database_control_atomically(database_control);
     }
-    publications.sort_unstable_by_key(|publication| publication.store_path);
+    icydb_schema::compact_sort_unstable_by(&mut publications, |left, right| {
+        left.store_path.cmp(right.store_path)
+    });
     if publications
         .windows(2)
         .any(|pair| pair[0].store_path == pair[1].store_path)

@@ -408,7 +408,7 @@ pub(in crate::metrics) fn compact_report_window_start(
         }
     }
 
-    entity_counters.sort_unstable_by(|a, b| {
+    icydb_schema::compact_sort_unstable_by(&mut entity_counters, |a, b| {
         let a_activity = compact_metrics_activity(a.metrics());
         let b_activity = compact_metrics_activity(b.metrics());
         b_activity

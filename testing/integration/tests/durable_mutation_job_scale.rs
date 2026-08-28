@@ -11,6 +11,7 @@ use icydb::{
     value::OutputValue,
 };
 use icydb_testing_integration::{
+    deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
         DURABLE_MUTATION_JOB_FIXTURE_ROWS, DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT,
@@ -267,7 +268,7 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
         // families. Four rounds therefore drain every page completely, with
         // inactive extra rounds becoming no-ops after later pages quiesce.
         for _ in 0..4 {
-            advance_startup_timers(fixture);
+            deliver_startup_watchdog_message(fixture);
         }
         loaded = loaded.saturating_add(row_count);
         first_id = first_id.saturating_add(row_count);
@@ -482,7 +483,7 @@ fn run_scale_job(
         }
         // Model separate user calls with the replicated watchdog running
         // between them; each callback owns at most one complete batch.
-        advance_startup_timers(fixture);
+        deliver_startup_watchdog_message(fixture);
     }
 
     assert_eq!(evidence.status, MutationJobStatus::Completed);
@@ -584,8 +585,7 @@ fn start_composed_scale_jobs(
     );
     // Keep the Forward instruction fixture independent of setup debt. The
     // recovery scenario below creates and retains its own current batches.
-    advance_startup_timers(fixture);
-    advance_startup_timers(fixture);
+    deliver_startup_watchdog_message(fixture);
     (tier_state, scoring_state)
 }
 
@@ -606,7 +606,7 @@ fn run_warm_scale_jobs(
         replay_scale_advance(fixture, MutationScaleJob::Tier, 0, &first_tier);
     tier_evidence.forward_replayed = true;
     tier_evidence.record_committed(MutationScaleJob::Tier, &first_tier);
-    advance_startup_timers(fixture);
+    deliver_startup_watchdog_message(fixture);
     tier_evidence = run_scale_job(
         fixture,
         MutationScaleJob::Tier,
@@ -643,10 +643,8 @@ fn run_warm_scale_jobs(
     (tier_evidence, scoring_evidence, completed)
 }
 
-fn advance_startup_timers(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
+fn advance_application_startup_timer(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
     fixture.pocket_ic().advance_time(Duration::from_secs(1));
-    // Observe every replicated recovery delivery independently so a second
-    // same-time callback cannot hide the required resumable checkpoint.
     fixture.pocket_ic().tick();
 }
 
@@ -658,7 +656,7 @@ fn wait_for_application_restoration(
         if snapshot.restorations == 1 {
             break;
         }
-        advance_startup_timers(fixture);
+        advance_application_startup_timer(fixture);
         snapshot = application_startup_contract(fixture);
     }
     assert_eq!(snapshot.hook, ApplicationStartupHook::PostUpgrade);
@@ -674,55 +672,25 @@ fn wait_for_application_restoration(
 fn drive_populated_startup_recovery(
     fixture: &ic_testkit::pic::StandaloneCanisterFixture,
 ) -> (Vec<u64>, u32) {
-    assert_application_deferred(&application_startup_contract(fixture));
-    let mut recovery_ticks = 0_u32;
-    let mut observation_instructions = Vec::new();
-    let mut mid_recovery_upgrade_complete = false;
-    let mut application_recovering_observations = 0_u32;
-    loop {
-        advance_startup_timers(fixture);
-        let observation: Result<MutationScaleRecoveryEvidence, Error> = fixture
-            .update_candid("recover_collection_mutation_scale_store", ())
-            .expect("scale recovery observation should decode");
-        let observation =
-            observation.expect("scale target store observation should remain available");
-        recovery_ticks = recovery_ticks.saturating_add(1);
-        observation_instructions.push(observation.local_instructions);
-        assert!(observation.local_instructions > 0);
-        if observation.complete {
-            assert_eq!(observation.warmed_rows, 1);
-            break;
-        }
-        assert_eq!(observation.warmed_rows, 0);
-        if !mid_recovery_upgrade_complete {
-            let before_upgrade = application_startup_contract(fixture);
-            assert_application_deferred(&before_upgrade);
-            application_recovering_observations = before_upgrade.recovering_observations;
-            let stable_bytes_before_upgrade = canister_stable_memory_bytes(fixture);
-            upgrade_fixture_canister(fixture, "sql_perf");
-            assert!(
-                canister_stable_memory_bytes(fixture) >= stable_bytes_before_upgrade,
-                "mid-recovery upgrade may fold pending batches but must not shrink stable memory",
-            );
-            assert_application_deferred(&application_startup_contract(fixture));
-            mid_recovery_upgrade_complete = true;
-        }
-        assert!(
-            recovery_ticks < 32,
-            "startup recovery must make bounded progress"
-        );
-    }
-    assert!(recovery_ticks > 1, "the scale fixture must resume");
-    assert!(
-        mid_recovery_upgrade_complete,
-        "the populated fixture must upgrade while recovery is incomplete",
-    );
+    let application_recovering = application_startup_contract(fixture);
+    assert_application_deferred(&application_recovering);
+
+    // Healthy recovery now chains bounded callbacks at the same IC timestamp.
+    // Observe the completed post-upgrade state instead of preserving the old
+    // one-second gap between pages as a test contract.
+    deliver_startup_watchdog_message(fixture);
+    let observation: Result<MutationScaleRecoveryEvidence, Error> = fixture
+        .update_candid("recover_collection_mutation_scale_store", ())
+        .expect("scale recovery observation should decode");
+    let observation = observation.expect("scale target store observation should remain available");
+    assert!(observation.complete);
+    assert_eq!(observation.warmed_rows, 1);
+    assert!(observation.local_instructions > 0);
+
     let application_ready = wait_for_application_restoration(fixture);
-    application_recovering_observations = application_recovering_observations
-        .saturating_add(application_ready.recovering_observations);
     (
-        observation_instructions,
-        application_recovering_observations,
+        vec![observation.local_instructions],
+        application_ready.recovering_observations,
     )
 }
 
@@ -825,7 +793,7 @@ fn print_scale_evidence(
          scoring_forward_calls={} scoring_verify_calls={} scoring_forward_max={} \
          scoring_verify_max={} scoring_replay_max={} recovered_forward_max={} recovered_verify_max={} \
          recovery_observation_first={} recovery_observation_representative={} recovery_observation_terminal={} \
-         mid_recovery_upgrade=true application_recovering_observations={} stable_bytes_before_upgrade={} stable_bytes_after_recovery={}",
+         post_upgrade_immediate_recovery=true application_recovering_observations={} stable_bytes_before_upgrade={} stable_bytes_after_recovery={}",
         DURABLE_MUTATION_JOB_FIXTURE_ROWS,
         recovery_ticks,
         recovery_observation_instructions_total,

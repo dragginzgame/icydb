@@ -492,7 +492,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mut stores = self
             .db
             .with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
-        stores.sort_unstable_by_key(|(store_path, _)| *store_path);
+        icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.0.cmp(right.0));
         stores
             .into_iter()
             .map(|(store_path, store)| {

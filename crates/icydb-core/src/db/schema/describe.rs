@@ -1156,11 +1156,9 @@ fn describe_entity_constraints_with_persisted_schema(
     }) {
         return Err(InternalError::store_invariant());
     }
-    descriptions.sort_unstable_by_key(|description| {
-        (
-            description.id(),
-            description.validation_state() != "validated",
-        )
+    icydb_schema::compact_sort_unstable_by(&mut descriptions, |left, right| {
+        (left.id(), left.validation_state() != "validated")
+            .cmp(&(right.id(), right.validation_state() != "validated"))
     });
     Ok(descriptions)
 }
@@ -1483,7 +1481,9 @@ pub(in crate::db) fn describe_compact_columns_with_persisted_schema(
         .iter()
         .zip(row_layout.fields())
         .collect::<Vec<_>>();
-    accepted_fields.sort_unstable_by_key(|(field, _)| field.id());
+    icydb_schema::compact_sort_unstable_by(&mut accepted_fields, |left, right| {
+        left.0.id().cmp(&right.0.id())
+    });
     let mut columns = Vec::with_capacity(capacity);
     for (field, runtime_field) in accepted_fields {
         let matching_identity = field.id() == runtime_field.field_id();
@@ -1514,7 +1514,9 @@ pub(in crate::db) fn describe_compact_columns_with_persisted_schema(
         )?);
 
         let mut nested = field.nested_leaves().iter().collect::<Vec<_>>();
-        nested.sort_unstable_by(|left, right| left.path().cmp(right.path()));
+        icydb_schema::compact_sort_unstable_by(&mut nested, |left, right| {
+            left.path().cmp(right.path())
+        });
         for leaf in nested {
             let mut canonical_path = Vec::with_capacity(leaf.path().len().saturating_add(1));
             canonical_path.push(field.name());

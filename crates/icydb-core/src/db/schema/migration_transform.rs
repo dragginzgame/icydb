@@ -357,7 +357,9 @@ pub(in crate::db::schema) fn compile_migration_programs(
             store, candidate, entity, transition,
         )?);
     }
-    programs.sort_unstable_by_key(|program| (program.store, program.entity));
+    icydb_schema::compact_sort_unstable_by(&mut programs, |left, right| {
+        (left.store, left.entity).cmp(&(right.store, right.entity))
+    });
     Ok(programs)
 }
 
@@ -437,7 +439,7 @@ fn compile_entity_program(
             .ok_or_else(InternalError::store_invariant)?;
         preserved_slots.push((target.slot(), source.slot()));
     }
-    preserved_slots.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut preserved_slots, Ord::cmp);
     Ok(CompiledMigrationEntityProgram {
         store: store.identity,
         store_path: store.path,

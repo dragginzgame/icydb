@@ -550,7 +550,7 @@ pub(in crate::db::schema) fn stage_migration_index_entries(
         group.1.push(entry.key);
     }
     for (_path, (store, mut keys)) in grouped {
-        keys.sort_unstable();
+        icydb_schema::compact_sort_unstable_by(&mut keys, Ord::cmp);
         if keys.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(InternalError::index_conflict());
         }

@@ -428,7 +428,9 @@ impl<C: CanisterKind> Db<C> {
                 })
                 .collect::<Vec<_>>()
         });
-        stores.sort_unstable_by(|left, right| left.store_path().cmp(right.store_path()));
+        icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| {
+            left.store_path().cmp(right.store_path())
+        });
         stores
     }
 
@@ -457,7 +459,7 @@ impl<C: CanisterKind> Db<C> {
                 })
                 .collect::<Vec<_>>()
         });
-        memory.sort_unstable_by(|left, right| {
+        icydb_schema::compact_sort_unstable_by(&mut memory, |left, right| {
             left.memory_id()
                 .cmp(&right.memory_id())
                 .then_with(|| left.tag().cmp(right.tag()))

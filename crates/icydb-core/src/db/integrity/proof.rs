@@ -214,7 +214,7 @@ pub(in crate::db) fn capture_integrity_proof_vector<C: CanisterKind>(
             })
         })
         .collect::<Result<Vec<_>, InternalError>>()?;
-    index_generations.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut index_generations, Ord::cmp);
 
     let mut relation_generations = relations
         .iter()
@@ -224,7 +224,7 @@ pub(in crate::db) fn capture_integrity_proof_vector<C: CanisterKind>(
             physical_generation: relation.physical_generation(),
         })
         .collect::<Vec<_>>();
-    relation_generations.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut relation_generations, Ord::cmp);
 
     Ok(IntegrityProofVector {
         database_incarnation_id: database_incarnation_id()?,

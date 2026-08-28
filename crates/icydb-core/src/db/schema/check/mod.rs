@@ -211,7 +211,7 @@ impl AcceptedCheckExprV1 {
     pub(in crate::db) fn dependencies(&self) -> Vec<FieldId> {
         let mut dependencies = Vec::new();
         self.collect_dependencies(&mut dependencies);
-        dependencies.sort_unstable();
+        icydb_schema::compact_sort_unstable_by(&mut dependencies, Ord::cmp);
         dependencies.dedup();
         dependencies
     }
@@ -420,7 +420,9 @@ fn canonicalized_boolean(
     if flattened.len() > MAX_CHECK_EXPR_V1_CHILDREN {
         return Err(AcceptedCheckExprV1Error::ChildCountExceeded);
     }
-    flattened.sort_unstable_by_key(AcceptedCheckExprV1::canonical_key);
+    icydb_schema::compact_sort_unstable_by(&mut flattened, |left, right| {
+        left.canonical_key().cmp(&right.canonical_key())
+    });
     flattened.dedup();
     if flattened.len() == 1 {
         return flattened

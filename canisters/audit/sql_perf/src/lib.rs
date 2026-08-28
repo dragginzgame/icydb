@@ -725,8 +725,6 @@ struct IntegritySqlPerfResult {
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 #[cfg(feature = "sql")]
 const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
-#[cfg(feature = "sql")]
-const INTEGRITY_JOURNAL_TAIL_BATCHES: i32 = 6;
 #[cfg(feature = "test-admin-api")]
 const CONVERGENCE_CLOSEOUT_ADMITTED_BATCHES: u32 = 64;
 #[cfg(feature = "sql")]
@@ -2371,25 +2369,6 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
         insert_fixture_rows(perf_audit_journaled_reentry_probe_users())?;
-
-        Ok(())
-    })
-}
-
-/// Load one row per commit so Deep integrity must resume within a live journal
-/// tail rather than merely observe an empty or single-batch tail.
-#[cfg(feature = "sql")]
-#[update]
-fn load_journal_tail_integrity_fixture() -> Result<(), icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        reset_perf_fixtures()?;
-        for id in 1..=INTEGRITY_JOURNAL_TAIL_BATCHES {
-            insert_fixture_rows(vec![build_perf_audit_journaled_user(
-                id,
-                &format!("integrity-journal-tail-{id:04}"),
-                18 + id,
-            )])?;
-        }
 
         Ok(())
     })

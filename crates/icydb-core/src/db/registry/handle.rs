@@ -959,7 +959,7 @@ impl StoreHandle {
         if parent_prefixes.iter().any(Vec::is_empty) {
             return None;
         }
-        parent_prefixes.sort_unstable();
+        icydb_schema::compact_sort_unstable_by(&mut parent_prefixes, Ord::cmp);
         parent_prefixes.dedup();
         let child_prefixes = self.with_index(|store| {
             store.exact_child_prefixes_for_parent_set(

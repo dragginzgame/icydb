@@ -223,7 +223,7 @@ impl SchemaProposal {
         )?;
         check_len("proposal removals", removals.len(), MAX_SCHEMA_REMOVALS)?;
         expected_head.validate()?;
-        capabilities.sort_unstable();
+        crate::compact_sort_unstable_by(&mut capabilities, Ord::cmp);
         ensure_no_adjacent_duplicates(&capabilities)?;
         if capabilities
             .iter()
@@ -249,14 +249,16 @@ impl SchemaProposal {
             .collect::<Result<Vec<_>, _>>()?;
         // Canonically equal fragment bytes describe equal fragments, while
         // duplicate assignment/removal keys reject below; no stable tie is observable.
-        keyed_fragments.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        crate::compact_sort_unstable_by(&mut keyed_fragments, |left, right| left.0.cmp(&right.0));
         fragments = keyed_fragments
             .into_iter()
             .map(|(_, fragment)| fragment)
             .collect();
-        assignments.sort_unstable_by(|left, right| left.entity.cmp(&right.entity));
+        crate::compact_sort_unstable_by(&mut assignments, |left, right| {
+            left.entity.cmp(&right.entity)
+        });
         ensure_no_adjacent_duplicates_by(&assignments, |assignment| &assignment.entity)?;
-        removals.sort_unstable();
+        crate::compact_sort_unstable_by(&mut removals, Ord::cmp);
         ensure_no_adjacent_duplicates(&removals)?;
 
         let mut entity_definitions = BTreeMap::new();

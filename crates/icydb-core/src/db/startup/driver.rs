@@ -72,7 +72,7 @@ fn drive_cardinality_page(
 ) -> Result<GeneratedStartupDriverStep, InternalError> {
     let incarnation = database_incarnation_id()?;
     let mut registered = stores.with(|registry| registry.iter().collect::<Vec<_>>());
-    registered.sort_unstable_by_key(|(path, _)| *path);
+    icydb_schema::compact_sort_unstable_by(&mut registered, |left, right| left.0.cmp(right.0));
     for (_path, handle) in registered {
         let Some(journal) = handle.journal_tail_store() else {
             continue;

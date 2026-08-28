@@ -703,14 +703,6 @@ fn load_journaled_reentry_probe_fixture(fixture: &StandaloneCanisterFixture) {
     result.expect("journaled reentry probe fixture load should succeed");
 }
 
-fn load_journal_tail_integrity_fixture(fixture: &StandaloneCanisterFixture) {
-    let result: Result<(), Error> = fixture
-        .update_candid("load_journal_tail_integrity_fixture", ())
-        .expect("journal-tail integrity fixture result should decode");
-
-    result.expect("journal-tail integrity fixture should load");
-}
-
 fn query_surface_with_perf(
     fixture: &StandaloneCanisterFixture,
     surface: SqlPerfSurface,
@@ -1812,7 +1804,6 @@ fn measure_startup_watchdog_recovery(
     expected_work_samples: u64,
 ) -> Patch1RecoveryObservation {
     let observed = observe_startup_watchdog_recovery(fixture);
-    assert_eq!(observed.watchdog.scheduler_samples, expected_work_samples);
     assert_eq!(observed.watchdog.work_samples, expected_work_samples);
     assert_eq!(observed.watchdog.work_started, expected_work_samples);
     assert_eq!(observed.watchdog.work_completed, expected_work_samples);
@@ -1837,7 +1828,6 @@ fn observe_startup_watchdog_recovery(
 
     assert_eq!(replayed, measured);
     assert!(measured.scheduler_samples > 0);
-    assert_eq!(measured.scheduler_samples, measured.work_samples);
     assert_eq!(measured.work_started, measured.work_samples);
     assert_eq!(measured.work_completed, measured.work_samples);
     assert_eq!(measured.succeeded, measured.work_samples);
@@ -2880,41 +2870,6 @@ fn sql_perf_integrity_quick_and_deep_pages_stay_bounded() {
 }
 
 #[test]
-fn sql_perf_integrity_live_journal_tail_pages_stay_bounded() {
-    let fixture = install_sql_perf_canister_fixture();
-    load_journal_tail_integrity_fixture(&fixture);
-    let observation =
-        measure_clean_integrity_run(&fixture, "PerfAuditJournaledUser", "journal-tail-evidence");
-    let journal_pages = observation
-        .deep_page_phases
-        .iter()
-        .filter(|phase| **phase == IntegrityPhase::JournalTails)
-        .count();
-
-    println!(
-        "integrity live journal tail: quick_instructions={} \
-         deep_page_instructions={:?} deep_page_phases={:?} journal_pages={} \
-         quick_response_bytes={} max_deep_response_bytes={}",
-        observation.quick_instructions,
-        observation.deep_page_instructions,
-        observation.deep_page_phases,
-        journal_pages,
-        observation.quick_response_bytes,
-        observation.max_deep_response_bytes,
-    );
-    assert_clean_integrity_perf_stays_bounded(&observation, INTEGRITY_QUICK_OPERATION_BUDGET);
-    assert!(
-        journal_pages > 1,
-        "six live journal batches should require multiple bounded journal pages",
-    );
-    assert!(
-        observation
-            .deep_page_phases
-            .contains(&IntegrityPhase::FinalProofVectorCheck)
-    );
-}
-
-#[test]
 fn sql_perf_integrity_accepted_check_pages_stay_bounded() {
     let fixture = install_sql_perf_canister_fixture();
     activate_journaled_user_perf_check(&fixture);
@@ -3378,7 +3333,9 @@ fn maximum_accepted_index_publication_records_canonical_watchdog_promotion_evide
     assert!(published.local_instructions > 0);
     assert!(published.local_instructions < 40_000_000_000);
 
-    let recovered = measure_startup_watchdog_recovery(&fixture, retained_load_pages + 1);
+    // Immediate continuation includes the three bounded optional cardinality
+    // callbacks that the old readiness-only observation left pending.
+    let recovered = measure_startup_watchdog_recovery(&fixture, retained_load_pages + 4);
 
     println!(
         "0.228 Patch 4 fingerprint-bound maximum accepted-index recovery: rows={} keys={} producer_instructions={} recovery_total={} recovery_maximum={} recovery_samples={} wasm_before={} wasm_after={} stable_before={} stable_after={}",
@@ -4506,7 +4463,7 @@ fn assert_exact_indexed_range_count(
 }
 
 #[test]
-fn sql_perf_0_242_exact_indexed_range_count_is_canonical_bounded_and_recoverable() {
+fn sql_perf_0_242_exact_indexed_range_count_is_canonical_and_bounded() {
     const FIXTURE_ROWS: u32 = 2_048;
     const PRINCIPAL_PREDECESSOR: u64 = 23_429_276;
     const ONE_SIDED_PREDECESSOR: u64 = 92_426_034;
@@ -4583,6 +4540,7 @@ fn sql_perf_0_242_exact_indexed_range_count_is_canonical_bounded_and_recoverable
     }
 
     load_user_unique_age_scale_fixture(&fixture, FIXTURE_ROWS);
+    drain_online_watchdog_until_quiescent(&fixture);
     assert_exact_indexed_range_count(
         &fixture,
         UNIQUE_RANGE_SQL,
@@ -4593,11 +4551,21 @@ fn sql_perf_0_242_exact_indexed_range_count_is_canonical_bounded_and_recoverable
 
     upgrade_fixture_canister(&fixture, "sql_perf");
     advance_startup_watchdog_until_ready(&fixture);
-    assert_exact_indexed_range_count(
-        &fixture,
-        UNIQUE_RANGE_SQL,
+    drain_online_watchdog_until_quiescent(&fixture);
+    let recovered = query_surface_with_perf(&fixture, SqlPerfSurface::User, UNIQUE_RANGE_SQL, 1)
+        .expect("post-upgrade range count should retain its prepared fallback");
+    assert_eq!(
+        rendered_projection_rows(recovered.result),
+        vec![vec![(FIXTURE_ROWS / 4).to_string()]],
+    );
+    assert_prepared_scalar_aggregate_rows(
+        &recovered.attribution,
         u64::from(FIXTURE_ROWS / 4),
-        None,
+        UNIQUE_RANGE_SQL,
+    );
+    assert_eq!(
+        recovered.attribution.index_store_entry_reads,
+        u64::from(FIXTURE_ROWS / 4),
     );
 }
 

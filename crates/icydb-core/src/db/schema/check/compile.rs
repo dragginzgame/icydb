@@ -234,9 +234,10 @@ impl CompiledAcceptedRowConstraints {
                 })
             })
             .collect::<Result<Vec<_>, AcceptedRowConstraintEvaluationError>>()?;
-        compiled
-            .unique_write_barriers
-            .sort_unstable_by_key(|barrier| barrier.id);
+        icydb_schema::compact_sort_unstable_by(
+            &mut compiled.unique_write_barriers,
+            |left, right| left.id.cmp(&right.id),
+        );
         Ok(compiled)
     }
 
@@ -333,7 +334,9 @@ impl CompiledAcceptedRowConstraints {
             .into_iter()
             .chain(compile_not_null_sources(snapshot, &not_null_sources)?)
             .collect::<Vec<_>>();
-        constraints.sort_unstable_by_key(CompiledAcceptedRowConstraint::id);
+        icydb_schema::compact_sort_unstable_by(&mut constraints, |left, right| {
+            left.id().cmp(&right.id())
+        });
         let integrity_constraints = compile_integrity_constraints(snapshot, &constraints);
         let required_slots =
             compile_required_slots(snapshot, &check_sources, &not_null_sources, &targeted_rules)?;
@@ -651,7 +654,7 @@ fn compile_integrity_constraints(
             })
         }))
         .collect::<Vec<_>>();
-    compiled.sort_unstable_by_key(|constraint| constraint.id());
+    icydb_schema::compact_sort_unstable_by(&mut compiled, |left, right| left.id().cmp(&right.id()));
     compiled
 }
 
@@ -676,7 +679,7 @@ fn compile_required_slots(
         }))
         .chain(targeted_rules.required_slots().map(Ok))
         .collect::<Result<Vec<_>, _>>()?;
-    slots.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut slots, Ord::cmp);
     slots.dedup();
     Ok(slots)
 }

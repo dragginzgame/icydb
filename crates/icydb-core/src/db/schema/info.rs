@@ -453,7 +453,7 @@ impl SchemaInfo {
             .iter()
             .map(|(name, field)| (field.slot, name.as_str()))
             .collect::<Vec<_>>();
-        fields.sort_unstable_by_key(|(slot, _)| *slot);
+        icydb_schema::compact_sort_unstable_by(&mut fields, |left, right| left.0.cmp(&right.0));
 
         fields.into_iter().map(|(_, name)| name).collect()
     }
@@ -730,7 +730,7 @@ impl SchemaInfo {
             })
             .collect::<Vec<_>>();
 
-        fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+        icydb_schema::compact_sort_unstable_by(&mut fields, |left, right| left.0.cmp(&right.0));
 
         let primary_key_names = snapshot
             .primary_key_field_ids()

@@ -86,7 +86,7 @@ pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: Canist
         return Ok(());
     }
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
-    stores.sort_unstable_by_key(|(store_path, _)| *store_path);
+    icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.0.cmp(right.0));
     for (_, store) in stores {
         if let Some(barrier) = store.with_schema(|schema_store| {
             schema_store.pending_relation_activation_for_target(target_path)

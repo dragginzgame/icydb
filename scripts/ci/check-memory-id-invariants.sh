@@ -18,7 +18,7 @@ REQUIRED_MATCHES=(
   $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const APP_MEMORY_ID_MAX: u8 = 254;\truntime convergence must retain the generated application memory-id ceiling'
   $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const CANISTER_CONTROL_ALLOCATION_COUNT: usize = 3;\tconvergence must reserve the three generated canister controls'
   $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;\tconvergence must charge all four journaled-store allocations'
-  $'crates/icydb-core/src/db/commit/store/control_slot.rs\tpub\(in crate::db\) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 38;\tcommit control must retain the derived bounded store registry'
+  $'crates/icydb-core/src/db/commit/store/control_slot.rs\tpub\(in crate::db\) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 16;\tcommit control must retain the hard-cut 16-store registry ceiling'
 )
 
 FORBIDDEN_MATCHES=(

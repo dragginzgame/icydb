@@ -11,7 +11,12 @@ Detailed notes: [docs/changelog/0.246.md](docs/changelog/0.246.md)
 
 - `0.246.0` cuts broad prepared-query controls by 26.2%–35.2% and makes
   recovery promptly drain an independently bounded 64-batch backlog across at
-  most 16 journaled stores while retaining cadence-backed retries.
+  most 16 journaled stores while retaining cadence-backed retries. The
+  16-store ceiling is a pre-1.0 hard cut, and online DDL convergence now retires
+  only schema overlays with recorded provenance instead of misclassifying
+  later canonical-only cardinality metadata as E17. Closeout also removes
+  103,780 final raw SQL-Wasm bytes by sharing bounded control-plane sorting and
+  guards generated entity growth at 4 KiB per entity.
 
 ## [0.245.x] 🧹 - 2026-08-26 - Generated Schema Application Footprint
 

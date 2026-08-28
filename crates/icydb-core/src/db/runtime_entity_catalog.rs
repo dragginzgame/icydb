@@ -215,7 +215,7 @@ pub(in crate::db) fn accepted_runtime_entities<C: CanisterKind>(
             store.with_schema(|schema| schema.current_accepted_runtime_entities(store_path))?,
         );
     }
-    entities.sort_unstable_by(|left, right| {
+    icydb_schema::compact_sort_unstable_by(&mut entities, |left, right| {
         left.store_path()
             .cmp(right.store_path())
             .then_with(|| left.entity_tag().cmp(&right.entity_tag()))
@@ -342,7 +342,7 @@ pub(in crate::db) fn accepted_runtime_entity_for_name<C: CanisterKind>(
 
 fn sorted_registered_stores<C: CanisterKind>(db: &Db<C>) -> Vec<(&'static str, StoreHandle)> {
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
-    stores.sort_unstable_by_key(|(store_path, _)| *store_path);
+    icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.0.cmp(right.0));
     stores
 }
 

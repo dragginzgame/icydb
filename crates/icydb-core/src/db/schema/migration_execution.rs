@@ -1061,7 +1061,7 @@ fn migration_derived_domains<C: CanisterKind>(
             });
         }
     }
-    domains.sort_unstable_by(|left, right| {
+    icydb_schema::compact_sort_unstable_by(&mut domains, |left, right| {
         (left.store_path, left.index_id).cmp(&(right.store_path, right.index_id))
     });
     domains.dedup_by(|left, right| {

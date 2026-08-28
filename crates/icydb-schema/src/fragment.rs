@@ -708,10 +708,10 @@ impl EntityFragment {
         ensure_unique(&primary_key)?;
         // Equal source keys are rejected below, so stable tie ordering cannot
         // be observed and need not retain stable-sort machinery in Wasm.
-        fields.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
-        indexes.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
-        relations.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
-        constraints.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
+        crate::compact_sort_unstable_by(&mut fields, |a, b| a.source_key.cmp(&b.source_key));
+        crate::compact_sort_unstable_by(&mut indexes, |a, b| a.source_key.cmp(&b.source_key));
+        crate::compact_sort_unstable_by(&mut relations, |a, b| a.source_key.cmp(&b.source_key));
+        crate::compact_sort_unstable_by(&mut constraints, |a, b| a.source_key.cmp(&b.source_key));
         ensure_unique_sorted_by(&fields, FieldFragment::source_key)?;
         ensure_unique_sorted_by(&indexes, IndexFragment::source_key)?;
         ensure_unique_sorted_by(&relations, RelationFragment::source_key)?;
@@ -998,7 +998,9 @@ impl RecordTypeFragment {
         mut fields: Vec<RecordFieldFragment>,
     ) -> Result<Self, SchemaContractError> {
         check_len("record fields", fields.len(), MAX_FRAGMENT_FIELDS)?;
-        fields.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
+        crate::compact_sort_unstable_by(&mut fields, |left, right| {
+            left.source_key.cmp(&right.source_key)
+        });
         ensure_unique_sorted_by(&fields, RecordFieldFragment::source_key)?;
         ensure_unique_names(fields.iter().map(RecordFieldFragment::name))?;
         for field in &fields {
@@ -1119,7 +1121,9 @@ impl EnumTypeFragment {
             return Err(SchemaContractError::InvalidReferenceList);
         }
         check_len("enum variants", variants.len(), MAX_FRAGMENT_FIELDS)?;
-        variants.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
+        crate::compact_sort_unstable_by(&mut variants, |left, right| {
+            left.source_key.cmp(&right.source_key)
+        });
         ensure_unique_sorted_by(&variants, |variant| &variant.source_key)?;
         ensure_unique_names(variants.iter().map(EnumVariantFragment::name))?;
         for variant in &variants {
@@ -1338,8 +1342,12 @@ impl SchemaFragment {
     ) -> Result<Self, SchemaContractError> {
         check_len("fragment entities", entities.len(), MAX_FRAGMENT_ENTITIES)?;
         check_len("fragment types", types.len(), MAX_FRAGMENT_TYPES)?;
-        entities.sort_unstable_by(|left, right| left.source_key.cmp(&right.source_key));
-        types.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
+        crate::compact_sort_unstable_by(&mut entities, |left, right| {
+            left.source_key.cmp(&right.source_key)
+        });
+        crate::compact_sort_unstable_by(&mut types, |left, right| {
+            left.source_key().cmp(right.source_key())
+        });
         ensure_unique_sorted_by(&entities, EntityFragment::source_key)?;
         ensure_unique_sorted_by(&types, NamedTypeFragment::source_key)?;
         ensure_unique_names(entities.iter().map(EntityFragment::name))?;

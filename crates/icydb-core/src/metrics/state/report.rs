@@ -158,7 +158,7 @@ pub(in crate::metrics) fn report_window_start(window_start_ms: Option<u64>) -> E
         entity_counters.push(entity_summary_from_counters(path, ops));
     }
 
-    entity_counters.sort_unstable_by(|a, b| {
+    icydb_schema::compact_sort_unstable_by(&mut entity_counters, |a, b| {
         b.activity_score()
             .cmp(&a.activity_score())
             .then_with(|| b.rows_loaded().cmp(&a.rows_loaded()))

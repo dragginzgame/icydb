@@ -988,8 +988,9 @@ impl AcceptedConstraintCatalog {
             base_schema_fingerprint,
             activation_epoch,
         ));
-        self.activations
-            .sort_unstable_by_key(ConstraintActivationSnapshot::id);
+        icydb_schema::compact_sort_unstable_by(&mut self.activations, |left, right| {
+            left.id().cmp(&right.id())
+        });
         Ok(self)
     }
 
@@ -1156,8 +1157,9 @@ impl AcceptedConstraintCatalog {
             activation.origin,
             kind,
         ));
-        self.constraints
-            .sort_unstable_by_key(AcceptedConstraintSnapshot::id);
+        icydb_schema::compact_sort_unstable_by(&mut self.constraints, |left, right| {
+            left.id().cmp(&right.id())
+        });
         Ok(self)
     }
 

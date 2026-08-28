@@ -188,3 +188,28 @@ for canister_name in "${canister_names[@]}"; do
         build_variant "$canister_name" "$sql_variant"
     done
 done
+
+has_selected_canister() {
+    local expected="$1"
+    local selected
+    for selected in "${canister_names[@]}"; do
+        if [[ "$selected" == "$expected" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if has_selected_canister one_entity_typed_query \
+    && has_selected_canister ten_entity_typed_query; then
+    for sql_variant in "${sql_variants[@]}"; do
+        artifact_suffix="$(wasm_report_size_suffix "$sql_variant" "${#sql_variants[@]}")"
+        baseline_wasm="$out_dir/one_entity_typed_query.${profile}${artifact_suffix}.final-deployable.wasm"
+        candidate_wasm="$out_dir/ten_entity_typed_query.${profile}${artifact_suffix}.final-deployable.wasm"
+        (
+            cd "$ROOT"
+            cargo run -p icydb-testing-integration --bin check_wasm_entity_scale --locked -- \
+                "$baseline_wasm" "$candidate_wasm"
+        )
+    done
+fi

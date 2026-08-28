@@ -11,6 +11,64 @@ pub const WASM_MEASUREMENT_PROFILE_VERSION: u32 = 1;
 /// Stable identity carried by every comparable Wasm report.
 pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.220/v1";
 
+/// Maximum final raw-Wasm growth admitted for each additional generated entity.
+pub const MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY: u64 = 4 * 1024;
+
+/// Generated entities added by the maintained one-entity to ten-entity pair.
+pub const ENTITY_SCALE_ADDED_ENTITIES: u64 = 9;
+
+/// A finalized raw-Wasm entity-scale measurement exceeded its maintained ceiling.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EntityScaleWasmBudgetExceeded {
+    /// Ceiling applied to each additional generated entity.
+    pub maximum_raw_bytes_per_entity: u64,
+    /// Observed final raw-Wasm growth, rounded up per additional entity.
+    pub observed_raw_bytes_per_entity: u64,
+}
+
+impl std::fmt::Display for EntityScaleWasmBudgetExceeded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "entity-scale final raw-Wasm growth is {} bytes/entity; maximum is {} bytes/entity",
+            self.observed_raw_bytes_per_entity, self.maximum_raw_bytes_per_entity
+        )
+    }
+}
+
+impl std::error::Error for EntityScaleWasmBudgetExceeded {}
+
+/// Return finalized raw-Wasm growth per added entity, rounded up.
+#[must_use]
+pub fn entity_scale_raw_bytes_per_added_entity(
+    baseline_raw_bytes: u64,
+    candidate_raw_bytes: u64,
+) -> u64 {
+    let growth = candidate_raw_bytes.saturating_sub(baseline_raw_bytes);
+    let whole = growth / ENTITY_SCALE_ADDED_ENTITIES;
+    whole + u64::from(!growth.is_multiple_of(ENTITY_SCALE_ADDED_ENTITIES))
+}
+
+/// Enforce the maintained finalized raw-Wasm entity-scale ceiling.
+///
+/// # Errors
+///
+/// Returns the observed and admitted per-entity costs when the maintained
+/// one-entity to ten-entity pair exceeds the ceiling.
+pub fn validate_entity_scale_raw_wasm(
+    baseline_raw_bytes: u64,
+    candidate_raw_bytes: u64,
+) -> Result<u64, EntityScaleWasmBudgetExceeded> {
+    let observed = entity_scale_raw_bytes_per_added_entity(baseline_raw_bytes, candidate_raw_bytes);
+    if observed > MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY {
+        return Err(EntityScaleWasmBudgetExceeded {
+            maximum_raw_bytes_per_entity: MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
+            observed_raw_bytes_per_entity: observed,
+        });
+    }
+    Ok(observed)
+}
+
 /// Exact maintained production subjects in canonical report order.
 pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
     "default_empty",
@@ -61,9 +119,9 @@ pub struct WasmComparison {
 
 /// Frozen opening comparison ledger.
 ///
-/// The current audit actors deliberately remain separate maintained packages.
-/// Their subtractions are therefore directional and cannot, by themselves,
-/// justify deleting code from one production owner.
+/// Most audit actors deliberately remain separate maintained packages. The
+/// entity-scale pair is attributable because its endpoint shape is identical
+/// and only its generated schema cardinality differs.
 pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
     WasmComparison {
         id: "metrics_surface",
@@ -90,8 +148,8 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         id: "entity_scale",
         baseline: "one_entity_typed_query",
         candidate: "ten_entity_typed_query",
-        disposition: WasmComparisonDisposition::DirectionalOnly,
-        reason: "the intended entity-count change also changes the generated accepted-schema proposal",
+        disposition: WasmComparisonDisposition::Attributable,
+        reason: "both actors expose the same exact-key endpoint shape and differ by nine generated entities",
     },
 ];
 
@@ -276,8 +334,34 @@ mod tests {
     #[test]
     fn current_measurement_contract_is_complete_and_fail_closed() {
         validate_wasm_measurement_contract().expect("current measurement contract should validate");
-        assert!(WASM_MEASUREMENT_COMPARISONS.iter().all(|comparison| {
-            comparison.disposition == WasmComparisonDisposition::DirectionalOnly
-        }));
+        assert_eq!(MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY, 4_096);
+        assert_eq!(
+            WASM_MEASUREMENT_COMPARISONS
+                .iter()
+                .find(|comparison| comparison.id == "entity_scale")
+                .map(|comparison| comparison.disposition),
+            Some(WasmComparisonDisposition::Attributable)
+        );
+    }
+
+    #[test]
+    fn entity_scale_guard_uses_final_raw_bytes_and_rounds_up() {
+        let exact_limit = MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY * ENTITY_SCALE_ADDED_ENTITIES;
+        assert_eq!(
+            validate_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit),
+            Ok(MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY)
+        );
+        assert_eq!(entity_scale_raw_bytes_per_added_entity(10_000, 10_001), 1);
+        assert_eq!(entity_scale_raw_bytes_per_added_entity(10_001, 10_000), 0);
+
+        let exceeded = validate_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit + 1)
+            .expect_err("one byte above the aggregate ceiling should fail");
+        assert_eq!(
+            exceeded,
+            EntityScaleWasmBudgetExceeded {
+                maximum_raw_bytes_per_entity: MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
+                observed_raw_bytes_per_entity: MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY + 1,
+            }
+        );
     }
 }

@@ -416,7 +416,9 @@ fn lower_initial_composite_shape(
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-            fields.sort_unstable_by(|left, right| left.name().cmp(right.name()));
+            icydb_schema::compact_sort_unstable_by(&mut fields, |left, right| {
+                left.name().cmp(right.name())
+            });
             AcceptedCompositeShape::Record(fields)
         }
         NamedTypeFragment::Enum(_) => return Err(InternalError::store_invariant()),
@@ -493,7 +495,9 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
         entities_by_store.entry(path).or_default().push(*entity);
     }
     for store_entities in entities_by_store.values_mut() {
-        store_entities.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
+        icydb_schema::compact_sort_unstable_by(store_entities, |left, right| {
+            left.source_key().cmp(right.source_key())
+        });
     }
 
     let accepted_entities = allocate_entity_identities(&entities_by_store)?;
@@ -763,12 +767,12 @@ impl ExistingStoreCandidateState {
         &mut self,
         mut removals: ExistingStoreRemovals,
     ) -> Result<BTreeSet<EntityTag>, InternalError> {
-        removals.constraints.sort_unstable();
-        removals.entities.sort_unstable();
-        removals.fields.sort_unstable();
-        removals.indexes.sort_unstable();
-        removals.relations.sort_unstable();
-        removals.types.sort_unstable();
+        icydb_schema::compact_sort_unstable_by(&mut removals.constraints, Ord::cmp);
+        icydb_schema::compact_sort_unstable_by(&mut removals.entities, Ord::cmp);
+        icydb_schema::compact_sort_unstable_by(&mut removals.fields, Ord::cmp);
+        icydb_schema::compact_sort_unstable_by(&mut removals.indexes, Ord::cmp);
+        icydb_schema::compact_sort_unstable_by(&mut removals.relations, Ord::cmp);
+        icydb_schema::compact_sort_unstable_by(&mut removals.types, Ord::cmp);
         self.changed = !removals.is_empty();
 
         let mut changed_entities = apply_existing_constraint_removals(
@@ -864,7 +868,9 @@ fn lower_existing_store_candidate(
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    entities.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
+    icydb_schema::compact_sort_unstable_by(&mut entities, |left, right| {
+        left.source_key().cmp(right.source_key())
+    });
     let mut state = ExistingStoreCandidateState::new(store, &entities, types, used_types)?;
     let version_advanced = state.apply_removals(removals)?;
     state.finish(store, stores, entities, Some(&version_advanced))
@@ -877,7 +883,9 @@ fn lower_generated_existing_store_candidate(
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    entities.sort_unstable_by(|left, right| left.source_key().cmp(right.source_key()));
+    icydb_schema::compact_sort_unstable_by(&mut entities, |left, right| {
+        left.source_key().cmp(right.source_key())
+    });
     ExistingStoreCandidateState::new(store, &entities, types, used_types)?
         .finish(store, stores, entities, None)
 }
@@ -1623,7 +1631,9 @@ fn lower_existing_composite_shape(
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-            fields.sort_unstable_by(|left, right| left.name().cmp(right.name()));
+            icydb_schema::compact_sort_unstable_by(&mut fields, |left, right| {
+                left.name().cmp(right.name())
+            });
             AcceptedCompositeShape::Record(fields)
         }
         NamedTypeFragment::Enum(_) => return Err(InternalError::store_unsupported()),
@@ -2880,7 +2890,9 @@ pub(in crate::db::schema) fn lower_migration_nested_leaves(
             0,
         )?;
     }
-    leaves.sort_unstable_by(|left, right| left.path().cmp(right.path()));
+    icydb_schema::compact_sort_unstable_by(&mut leaves, |left, right| {
+        left.path().cmp(right.path())
+    });
     Ok(leaves)
 }
 

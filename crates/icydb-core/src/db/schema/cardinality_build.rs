@@ -714,7 +714,7 @@ fn collect_index_page(
 fn coalesce_count_increments(
     mut digests: Vec<CardinalityCountDigest>,
 ) -> Result<Vec<(CardinalityCountDigest, u64)>, InternalError> {
-    digests.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut digests, Ord::cmp);
     let mut increments: Vec<(CardinalityCountDigest, u64)> = Vec::new();
     increments
         .try_reserve_exact(digests.len())

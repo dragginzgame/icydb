@@ -433,9 +433,9 @@ impl PersistedSchemaSnapshot {
             .candidate_indexes
             .retain(|index| index.schema_id() != *index_id);
         after.indexes.push(candidate);
-        after
-            .indexes
-            .sort_unstable_by_key(PersistedIndexSnapshot::ordinal);
+        icydb_schema::compact_sort_unstable_by(&mut after.indexes, |left, right| {
+            left.ordinal().cmp(&right.ordinal())
+        });
         if !after.has_valid_integrity() {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         }
@@ -514,9 +514,9 @@ impl PersistedSchemaSnapshot {
             .candidate_relations
             .retain(|relation| relation.id() != *relation_id);
         after.relations.push(candidate);
-        after
-            .relations
-            .sort_unstable_by_key(PersistedRelationEdgeSnapshot::id);
+        icydb_schema::compact_sort_unstable_by(&mut after.relations, |left, right| {
+            left.id().cmp(&right.id())
+        });
         if !after.has_valid_integrity() {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         }
@@ -529,7 +529,9 @@ impl PersistedSchemaSnapshot {
         mut self,
         mut relations: Vec<PersistedRelationEdgeSnapshot>,
     ) -> Self {
-        relations.sort_unstable_by_key(PersistedRelationEdgeSnapshot::id);
+        icydb_schema::compact_sort_unstable_by(&mut relations, |left, right| {
+            left.id().cmp(&right.id())
+        });
         self.relations = relations;
         self
     }

@@ -38,8 +38,8 @@ use icydb::{
     value::OutputValue,
 };
 use icydb_testing_integration::{
-    deliver_fixture_startup_watchdog, install_fixture_canister, reset_icydb_fixtures,
-    upgrade_fixture_canister,
+    deliver_fixture_startup_watchdog, deliver_startup_watchdog_message, install_fixture_canister,
+    reset_icydb_fixtures, upgrade_fixture_canister,
 };
 use icydb_testing_sqlite_reference::{
     SqliteReferenceColumnKind, SqliteReferenceFamily, SqliteReferencePredicateFamily,
@@ -3324,7 +3324,7 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
 #[test]
 fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
     // Use an unpooled fixture because this test deliberately replaces the
-    // installed Wasm and observes the real post-upgrade readiness boundary.
+    // installed Wasm and observes real post-upgrade reconciliation.
     let fixture = install_fixture_canister("sql");
     reset_sql_fixtures(&fixture);
     let mut schema_version = DdlSchemaVersion::initial();
@@ -3336,14 +3336,22 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
         )
         .expect("accepted DDL index should publish before upgrade");
 
-    upgrade_fixture_canister(&fixture, "sql");
-    let pending = query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
-        .expect_err("ordinary query must not drive post-upgrade recovery");
-    assert_eq!(
-        pending.code(),
-        ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+    // Exercise online schema retirement after earlier row folds have created
+    // canonical-only cardinality keys. Those derived keys are not overlays
+    // owned by this DDL batch and must not cause E17.
+    deliver_startup_watchdog_message(&fixture);
+    deliver_startup_watchdog_message(&fixture);
+    let converged_indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("online convergence should retain accepted DDL authority"),
     );
-
+    assert!(
+        converged_indexes
+            .iter()
+            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]"),
+        "online convergence should retain the DDL-owned index: {converged_indexes:?}",
+    );
+    upgrade_fixture_canister(&fixture, "sql");
     deliver_fixture_startup_watchdog(&fixture);
     let indexes = expect_show_indexes(
         query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
@@ -3388,13 +3396,19 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
     schema_version
         .publish(&fixture, "DROP INDEX sql_test_user_rank_idx ON SqlTestUser")
         .expect("accepted DDL index deletion should publish before upgrade");
-    upgrade_fixture_canister(&fixture, "sql");
-    let pending = query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
-        .expect_err("ordinary query must remain gated during deletion recovery");
-    assert_eq!(
-        pending.code(),
-        ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
+    deliver_startup_watchdog_message(&fixture);
+    deliver_startup_watchdog_message(&fixture);
+    let converged_indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("online convergence should retain the accepted DDL deletion"),
     );
+    assert!(
+        converged_indexes
+            .iter()
+            .all(|index| !index.contains("sql_test_user_rank_idx")),
+        "online convergence should retain the DDL-owned deletion: {converged_indexes:?}",
+    );
+    upgrade_fixture_canister(&fixture, "sql");
     deliver_fixture_startup_watchdog(&fixture);
     let indexes = expect_show_indexes(
         query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")

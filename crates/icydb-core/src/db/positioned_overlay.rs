@@ -125,6 +125,12 @@ impl<K: Ord> PositionedOverlayMetadata<K> {
         }
     }
 
+    /// Return whether one logical target has live overlay provenance.
+    #[must_use]
+    pub(in crate::db) fn is_positioned(&self, key: &K) -> bool {
+        self.positions.contains_key(key)
+    }
+
     /// Remove an exact position after retirement preflight has succeeded.
     pub(in crate::db) fn retire_preflighted(
         &mut self,

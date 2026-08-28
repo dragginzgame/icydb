@@ -1277,7 +1277,7 @@ fn activation_dependency_fields(
             return Err(InternalError::store_corruption());
         }
     };
-    fields.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut fields, Ord::cmp);
     fields.dedup();
     Ok(fields)
 }
@@ -1463,7 +1463,7 @@ fn scan_unique_validation_page(
             Ok(StoreVisit::Continue)
         })
     })?;
-    staged_entries.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut staged_entries, Ord::cmp);
 
     Ok(UniqueValidationPageScan {
         checkpoint: final_checkpoint,

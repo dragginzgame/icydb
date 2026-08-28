@@ -316,7 +316,9 @@ impl CompiledAcceptedTargetedRules {
         }
         let mut roots = roots.into_values().collect::<Vec<_>>();
         for root in &mut roots {
-            root.rules.sort_unstable_by_key(|rule| rule.id);
+            icydb_schema::compact_sort_unstable_by(&mut root.rules, |left, right| {
+                left.id.cmp(&right.id)
+            });
             for (ordinal, rule) in root.rules.iter().enumerate() {
                 root.rule_ordinals_by_target
                     .entry(rule.target_type)
@@ -1016,7 +1018,9 @@ fn compile_record_orders(
                 return None;
             };
             let mut order = (0..fields.len()).collect::<Vec<_>>();
-            order.sort_unstable_by_key(|index| fields[*index].id());
+            icydb_schema::compact_sort_unstable_by(&mut order, |left, right| {
+                fields[*left].id().cmp(&fields[*right].id())
+            });
             Some((*type_id, order))
         })
         .collect()

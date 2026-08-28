@@ -133,7 +133,7 @@ impl AcceptedCompositeCatalog {
             .find(|field| field.id == field_id)
             .ok_or(CompositeCatalogBuildError::FieldKindResolution)?;
         field.name = new_name;
-        fields.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+        icydb_schema::compact_sort_unstable_by(fields, |left, right| left.name.cmp(&right.name));
         if !self.validate(enum_catalog) {
             return Err(CompositeCatalogBuildError::FieldKindResolution);
         }

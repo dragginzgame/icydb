@@ -253,8 +253,12 @@ impl EntityMigration {
         }
         ensure_distinct_rename_ownership(&renames)?;
         ensure_distinct_transform_targets(&transforms)?;
-        renames.sort_unstable_by(|left, right| left.sort_key().cmp(&right.sort_key()));
-        transforms.sort_unstable_by(|left, right| left.sort_key().cmp(&right.sort_key()));
+        crate::compact_sort_unstable_by(&mut renames, |left, right| {
+            left.sort_key().cmp(&right.sort_key())
+        });
+        crate::compact_sort_unstable_by(&mut transforms, |left, right| {
+            left.sort_key().cmp(&right.sort_key())
+        });
         Ok(Self {
             entity,
             from,
@@ -319,7 +323,9 @@ impl SchemaMigrationPlan {
         if transitions.is_empty() {
             return Err(SchemaContractError::InvalidMigrationPlan);
         }
-        transitions.sort_unstable_by(|left, right| left.entity.cmp(&right.entity));
+        crate::compact_sort_unstable_by(&mut transitions, |left, right| {
+            left.entity.cmp(&right.entity)
+        });
         if transitions
             .windows(2)
             .any(|pair| pair[0].entity == pair[1].entity)

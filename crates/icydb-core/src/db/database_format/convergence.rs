@@ -27,12 +27,12 @@ pub(in crate::db) const APP_MEMORY_ID_MIN: u8 = 100;
 pub(in crate::db) const APP_MEMORY_ID_MAX: u8 = 254;
 pub(in crate::db) const CANISTER_CONTROL_ALLOCATION_COUNT: usize = 3;
 pub(in crate::db) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;
-const MAX_MEMORY_BACKED_STORE_ALLOCATIONS: usize =
-    ((APP_MEMORY_ID_MAX as usize - APP_MEMORY_ID_MIN as usize + 1)
-        - CANISTER_CONTROL_ALLOCATION_COUNT)
-        / JOURNALED_STORE_ALLOCATION_WIDTH;
 pub(in crate::db) const MAX_DEPLOYMENT_STORE_ALLOCATIONS: usize = MAX_PERSISTED_STORE_ALLOCATIONS;
-const _: () = assert!(MAX_DEPLOYMENT_STORE_ALLOCATIONS <= MAX_MEMORY_BACKED_STORE_ALLOCATIONS);
+const _: () = assert!(
+    CANISTER_CONTROL_ALLOCATION_COUNT
+        + MAX_DEPLOYMENT_STORE_ALLOCATIONS * JOURNALED_STORE_ALLOCATION_WIDTH
+        <= APP_MEMORY_ID_MAX as usize - APP_MEMORY_ID_MIN as usize + 1
+);
 
 struct GeneratedStoreProposal {
     persisted: PersistedStoreAllocation,
@@ -625,13 +625,12 @@ mod tests {
     }
 
     #[test]
-    fn deployment_store_bound_is_canonical_and_fits_the_allocation_shape() {
+    fn deployment_store_bound_is_canonical_and_rejects_seventeenth_store() {
         assert_eq!(MAX_DEPLOYMENT_STORE_ALLOCATIONS, 16);
         assert_eq!(
             MAX_DEPLOYMENT_STORE_ALLOCATIONS,
             MAX_PERSISTED_STORE_ALLOCATIONS
         );
-        assert_eq!(MAX_MEMORY_BACKED_STORE_ALLOCATIONS, 38);
 
         let mut registry = maximum_registry();
         canonicalize_store_registry(&mut registry).unwrap();

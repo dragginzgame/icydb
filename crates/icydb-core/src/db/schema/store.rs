@@ -2050,22 +2050,42 @@ impl SchemaStore {
         batch: &JournalBatch,
         position: JournalOverlayPosition,
     ) -> Result<PreparedSchemaPositionRetirement, InternalError> {
-        let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
-            return Err(InternalError::store_invariant());
-        };
         let keys = self.positioned_journal_batch_keys(
             incarnation,
             batch,
             IdentityStateStorageView::Canonical,
         )?;
-        let entries = keys
-            .into_iter()
-            .map(|key| {
-                positions
-                    .preflight_retirement(&key, position)
-                    .map(|retirement| (key, retirement))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        self.prepare_positioned_key_retirements(keys, position)
+    }
+
+    fn prepare_positioned_key_retirements(
+        &self,
+        keys: impl IntoIterator<Item = RawSchemaKey>,
+        position: JournalOverlayPosition,
+    ) -> Result<PreparedSchemaPositionRetirement, InternalError> {
+        let SchemaStoreBackend::Journaled {
+            live,
+            tombstones,
+            positions,
+            ..
+        } = &self.backend
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        let mut entries = Vec::new();
+        for key in keys {
+            if !positions.is_positioned(&key) {
+                // A prior row fold can create canonical-only derived metadata
+                // after this older schema batch publishes. Its canonical fold
+                // owns that key; there is no overlay for this batch to retire.
+                if live.contains_key(&key) || tombstones.contains(&key) {
+                    return Err(InternalError::store_invariant());
+                }
+                continue;
+            }
+            let retirement = positions.preflight_retirement(&key, position)?;
+            entries.push((key, retirement));
+        }
         Ok(PreparedSchemaPositionRetirement { entries })
     }
 
@@ -3559,13 +3579,23 @@ impl SchemaStore {
         }
 
         let SchemaStoreBackend::Journaled {
-            canonical, live, ..
+            canonical,
+            live,
+            tombstones,
+            positions,
         } = &self.backend
         else {
             return Err(InternalError::store_invariant());
         };
         for entry in canonical.iter() {
-            if !keys.contains(entry.key()) && !entry.key().is_identity_state() {
+            let has_relevant_overlay = matches!(view, IdentityStateStorageView::Effective)
+                || positions.is_positioned(entry.key())
+                || live.contains_key(entry.key())
+                || tombstones.contains(entry.key());
+            if has_relevant_overlay
+                && !keys.contains(entry.key())
+                && !entry.key().is_identity_state()
+            {
                 keys.insert(*entry.key());
             }
         }

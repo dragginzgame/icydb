@@ -241,7 +241,7 @@ pub(in crate::db) fn schema_application_target<C: CanisterKind>(
             .map(|(path, handle)| StoreApplicationAuthority { path, handle })
             .collect::<Vec<_>>()
     });
-    stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
+    icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.path.cmp(right.path));
 
     let database_identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
     let mut accepted_heads = Vec::with_capacity(stores.len());
@@ -1236,7 +1236,7 @@ fn prepared_physical_schema_migration(
             }
         }
     }
-    staged_indexes.sort_unstable();
+    icydb_schema::compact_sort_unstable_by(&mut staged_indexes, Ord::cmp);
     staged_indexes.dedup();
     SchemaMigrationRecord::prepared(
         database_identity,
@@ -2833,7 +2833,9 @@ fn application_authorities<C: CanisterKind>(db: &Db<C>) -> Vec<StoreApplicationA
             .map(|(path, handle)| StoreApplicationAuthority { path, handle })
             .collect::<Vec<_>>()
     });
-    authorities.sort_unstable_by(|left, right| left.path.cmp(right.path));
+    icydb_schema::compact_sort_unstable_by(&mut authorities, |left, right| {
+        left.path.cmp(right.path)
+    });
     authorities
 }
 
@@ -2968,7 +2970,7 @@ pub(in crate::db) fn generated_schema_authority(
 ) -> Result<(TargetDatabaseIdentity, ExpectedAcceptedHead), InternalError> {
     let database_identity = generated_database_identity(registry, incarnation);
     let mut stores = store_application_authorities(registry);
-    stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
+    icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.path.cmp(right.path));
     let heads = stores
         .iter()
         .map(|store| {
@@ -3002,7 +3004,7 @@ fn generated_database_identity(
     }
 
     let mut stores = store_application_authorities(registry);
-    stores.sort_unstable_by(|left, right| left.path.cmp(right.path));
+    icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.path.cmp(right.path));
     let identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
     GENERATED_DATABASE_IDENTITY.set(Some(GeneratedDatabaseIdentityCacheEntry {
         registry: registry_key,

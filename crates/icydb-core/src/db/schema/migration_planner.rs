@@ -223,7 +223,9 @@ pub(in crate::db::schema) fn plan_entity_source_adoption(
                 .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?,
         });
     }
-    planned.sort_unstable_by_key(|entry| (entry.store, entry.entity));
+    icydb_schema::compact_sort_unstable_by(&mut planned, |left, right| {
+        (left.store, left.entity).cmp(&(right.store, right.entity))
+    });
     Ok(planned)
 }
 
@@ -266,7 +268,9 @@ pub(in crate::db::schema) fn plan_initial_entity_source_lineage(
                 .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?,
         });
     }
-    planned.sort_unstable_by_key(|entry| (entry.store, entry.entity));
+    icydb_schema::compact_sort_unstable_by(&mut planned, |left, right| {
+        (left.store, left.entity).cmp(&(right.store, right.entity))
+    });
     Ok(planned)
 }
 
@@ -340,7 +344,9 @@ pub(in crate::db::schema) fn plan_schema_migration(
             })
         })
         .collect::<Result<Vec<_>, SchemaMigrationPlanningError>>()?;
-    lineage.sort_unstable_by_key(|entry| (entry.store, entry.entity));
+    icydb_schema::compact_sort_unstable_by(&mut lineage, |left, right| {
+        (left.store, left.entity).cmp(&(right.store, right.entity))
+    });
     Ok(PlannedSchemaMigration {
         candidates,
         lineage,
@@ -1166,7 +1172,9 @@ fn rebuild_indexes(
             target
         };
     }
-    indexes.sort_unstable_by_key(PersistedIndexSnapshot::ordinal);
+    icydb_schema::compact_sort_unstable_by(&mut indexes, |left, right| {
+        left.ordinal().cmp(&right.ordinal())
+    });
     Ok(indexes)
 }
 

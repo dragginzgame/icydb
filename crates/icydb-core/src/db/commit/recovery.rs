@@ -1381,7 +1381,7 @@ fn sorted_journaled_store_handles<C: CanisterKind>(db: &Db<C>) -> Vec<(&'static 
         handle.storage_capabilities().recovery()
             == StoreRecoveryCapability::StableBasePlusJournalReplay
     });
-    stores.sort_unstable_by_key(|(path, _)| *path);
+    icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.0.cmp(right.0));
     stores
 }
 
