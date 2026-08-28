@@ -138,7 +138,7 @@ done
 for required_application_owner in \
   'database_incarnation_id()' \
   'current_accepted_schema_root' \
-  'stores.sort_unstable_by(|left, right| left.path.cmp(right.path))'
+  'icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.path.cmp(right.path))'
 do
   if ! rg -q --fixed-strings "$required_application_owner" "$CORE_APPLICATION"; then
     echo "[ERROR] schema application targets must remain incarnation-, root-, and canonical-topology-owned: $required_application_owner" >&2

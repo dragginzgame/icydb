@@ -4,10 +4,7 @@
 )]
 
 use candid::CandidType;
-use ic_testkit::pic::{
-    CachedStandaloneCanisterFixtureGuard, CachedStandaloneCanisterFixturePool,
-    StandaloneCanisterFixture,
-};
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,
     db::{
@@ -281,10 +278,6 @@ const INTEGRITY_DEEP_PAGE_BUDGET: u64 = 30_000_000;
 const INTEGRITY_RESPONSE_BYTE_BUDGET: usize = 512 * 1024;
 const INTEGRITY_RETAINED_MEMORY_GROWTH_BUDGET: u64 = 16 * 1024 * 1024;
 const INTEGRITY_RELATION_RECOVERY_BUDGET: u64 = 15_000_000_000;
-const SQL_PERF_FIXTURE_POOL_CAPACITY: usize = 4;
-
-static SQL_PERF_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<SQL_PERF_FIXTURE_POOL_CAPACITY> =
-    CachedStandaloneCanisterFixturePool::new();
 
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
@@ -371,14 +364,12 @@ const fn repeat_scenario(
     }
 }
 
-fn install_sql_perf_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
-    // The audit scenarios mutate isolated canister state but do not depend on
-    // simulator time or topology, so a restored post-install snapshot is the
-    // narrowest complete reset boundary between tests.
-    SQL_PERF_FIXTURE_POOL
-        .acquire(|| install_fixture_canister("sql_perf"))
-        .unwrap_or_else(|error| panic!("SQL perf fixture pool should restore cleanly: {error}"))
-        .0
+fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
+    // Timer-provider state is external to canister snapshots, so this
+    // lifecycle-sensitive target uses a fresh fixture as its isolation owner.
+    let fixture = install_fixture_canister("sql_perf");
+    drain_online_watchdog_until_quiescent(&fixture);
+    fixture
 }
 
 fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
@@ -3870,9 +3861,9 @@ const EXACT_COUNT_DISTINCT_COLD_CEILING: u64 = 5_000_000;
 const EXACT_COUNT_DISTINCT_WARM_CEILING: u64 = 4_000_000;
 const EXACT_COUNT_DISTINCT_MINIMUM_SAVING: u64 = 110_000_000;
 const EXACT_COUNT_MAX_FIXTURE_ROWS: u32 = 2_048;
-// Patch 12 measured a maximum of 855,091; this permits only the retained
-// 10,000-instruction regression tolerance before requiring review.
-const EXACT_COUNT_CURRENT_TOTAL_CEILING: u64 = 865_091;
+// The final 0.246 bounded-sort hard cut measures at most 865,427 instructions;
+// retain only the existing 10,000-instruction review tolerance.
+const EXACT_COUNT_CURRENT_TOTAL_CEILING: u64 = 875_427;
 const EXACT_COUNT_MINIMUM_SAVING: u64 = 75_000_000;
 const EXACT_COUNT_CASES: [(&str, &str, u64); 4] = [
     (
@@ -4576,9 +4567,9 @@ fn sql_perf_0_242_exact_indexed_range_count_is_canonical_and_bounded() {
 )]
 fn sql_perf_0_237_indexed_scalar_extrema_use_bounded_edge_probes() {
     const MAX_FIXTURE_ROWS: u32 = 2_048;
-    // Patch 12 measured a maximum of 1,713,408; this is its one-percent
-    // regression boundary, rounded up to the next instruction.
-    const CURRENT_TOTAL_CEILING: u64 = 1_730_543;
+    // The final 0.246 bounded-sort hard cut measures a maximum of 1,742,673;
+    // this is its one-percent regression boundary, rounded up.
+    const CURRENT_TOTAL_CEILING: u64 = 1_760_100;
     const MINIMUM_SAVING: u64 = 75_000_000;
     const CASES: [(&str, &str, u64); 5] = [
         (

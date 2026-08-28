@@ -717,6 +717,28 @@ fn expect_show_indexes(result: SqlQueryResult) -> Vec<String> {
     }
 }
 
+fn assert_sql_test_user_rank_index(
+    fixture: &StandaloneCanisterFixture,
+    expected_present: bool,
+    context: &str,
+) {
+    const INDEX_DESCRIPTION: &str =
+        "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]";
+
+    let indexes = expect_show_indexes(
+        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+            .unwrap_or_else(|error| panic!("{context}: {error:?}")),
+    );
+    let matches_expectation = if expected_present {
+        indexes.iter().any(|index| index == INDEX_DESCRIPTION)
+    } else {
+        indexes
+            .iter()
+            .all(|index| !index.contains("sql_test_user_rank_idx"))
+    };
+    assert!(matches_expectation, "{context}: {indexes:?}");
+}
+
 fn active_constraint_name(
     fixture: &StandaloneCanisterFixture,
     entity: &str,
@@ -3341,27 +3363,17 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
     // owned by this DDL batch and must not cause E17.
     deliver_startup_watchdog_message(&fixture);
     deliver_startup_watchdog_message(&fixture);
-    let converged_indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
-            .expect("online convergence should retain accepted DDL authority"),
-    );
-    assert!(
-        converged_indexes
-            .iter()
-            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]"),
-        "online convergence should retain the DDL-owned index: {converged_indexes:?}",
+    assert_sql_test_user_rank_index(
+        &fixture,
+        true,
+        "online convergence should retain the DDL-owned index",
     );
     upgrade_fixture_canister(&fixture, "sql");
     deliver_fixture_startup_watchdog(&fixture);
-    let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
-            .expect("watchdog recovery should restore accepted DDL authority"),
-    );
-    assert!(
-        indexes
-            .iter()
-            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]"),
-        "post-upgrade accepted indexes should retain the DDL-owned index: {indexes:?}",
+    assert_sql_test_user_rank_index(
+        &fixture,
+        true,
+        "post-upgrade accepted indexes should retain the DDL-owned index",
     );
 
     let count = expect_projection(
@@ -3398,27 +3410,17 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
         .expect("accepted DDL index deletion should publish before upgrade");
     deliver_startup_watchdog_message(&fixture);
     deliver_startup_watchdog_message(&fixture);
-    let converged_indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
-            .expect("online convergence should retain the accepted DDL deletion"),
-    );
-    assert!(
-        converged_indexes
-            .iter()
-            .all(|index| !index.contains("sql_test_user_rank_idx")),
-        "online convergence should retain the DDL-owned deletion: {converged_indexes:?}",
+    assert_sql_test_user_rank_index(
+        &fixture,
+        false,
+        "online convergence should retain the DDL-owned deletion",
     );
     upgrade_fixture_canister(&fixture, "sql");
     deliver_fixture_startup_watchdog(&fixture);
-    let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
-            .expect("watchdog recovery should restore the index deletion"),
-    );
-    assert!(
-        indexes
-            .iter()
-            .all(|index| !index.contains("sql_test_user_rank_idx")),
-        "post-upgrade accepted indexes must retain the DDL-owned deletion: {indexes:?}",
+    assert_sql_test_user_rank_index(
+        &fixture,
+        false,
+        "post-upgrade accepted indexes must retain the DDL-owned deletion",
     );
 
     schema_version
