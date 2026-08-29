@@ -17,9 +17,7 @@ candid-export = []
 exact-key-measurement = []
 lifecycle-audit = []
 lifecycle-participant = []
-u256-audit = [
-    "icydb-testing-audit-one-simple-fixtures/u256-audit",
-]
+u256-audit = ["icydb-testing-audit-one-simple-fixtures/u256-audit"]
 
 [dependencies]
 candid = { workspace = true }

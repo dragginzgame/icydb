@@ -9,11 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.248.md](docs/changelog/0.248.md)
 
-- `0.248.0` freezes a 2,048-row Ethereum numeric workload and records the
-  allocation, instruction, storage, index, Candid and Wasm evidence for a
-  native fixed-width `U256`. The measurement-only patch recommends building
-  `U256` with a Candid `nat` carrier while retaining no production type, tag,
-  codec or runtime behavior.
+- `0.248.0` adds native fixed-width `U256` storage and queries with bounded
+  Candid `nat` ingress and exact IcyDB-owned row, key, index and cursor
+  encodings after the frozen Ethereum workload cleared its allocation,
+  instruction and Wasm gates; arithmetic remains a separate patch.
 
 ## [0.247.x] 📊 - 2026-08-29 - Measured Wasm Footprint Reduction
 
