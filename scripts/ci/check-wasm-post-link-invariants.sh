@@ -78,6 +78,29 @@ require_text \
     testing/integration/src/wasm_optimizer.rs \
     '--one-caller-inline-max-function-size=0' \
     'the post-link pipeline must prevent unbounded one-caller inlining.'
+require_text \
+    scripts/ci/install-wasm-optimizer.sh \
+    'canic toolchain install' \
+    'Canic must remain the sole Binaryen installation owner.'
+require_text \
+    scripts/dev/workstation-setup.sh \
+    "bash \"\$ROOT/scripts/ci/install-wasm-optimizer.sh\"" \
+    'workstation setup must install the Canic-owned Binaryen executable.'
+require_text \
+    .github/workflows/ci.yml \
+    'bash scripts/ci/install-wasm-optimizer.sh' \
+    'CI must install the Canic-owned Binaryen executable.'
+require_text \
+    .github/workflows/sql-performance.yml \
+    'bash scripts/ci/install-wasm-optimizer.sh' \
+    'SQL performance CI must install the Canic-owned Binaryen executable.'
+if rg -Fq -- 'binaryen' \
+    "$ROOT/scripts/dev/workstation-setup.sh" \
+    "$ROOT/.github/workflows/ci.yml" \
+    "$ROOT/.github/workflows/sql-performance.yml"; then
+    echo '[ERROR] maintained setup paths must not install a second Binaryen authority.' >&2
+    failures=1
+fi
 
 if [[ "$failures" -ne 0 ]]; then
     echo "[FAIL] Wasm post-link invariants failed." >&2

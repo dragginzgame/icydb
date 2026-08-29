@@ -449,13 +449,15 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         };
 
         // Phase 2: staged stores stream a sorted merge of committed entries and
-        // staged overrides. Only the small override set is sorted here; the
+        // staged overrides. Only the small override set is ordered here; the
         // committed store still streams through its canonical range visitor.
         let mut out = Vec::new();
-        let bounded_overrides = store_overrides
-            .iter()
-            .filter(|(raw_key, _)| key_within_bounds(raw_key, bounds))
-            .collect::<BTreeMap<&RawIndexStoreKey, &Option<IndexEntryValue>>>();
+        let mut bounded_overrides = BTreeMap::new();
+        for (raw_key, entry) in store_overrides {
+            if key_within_bounds(raw_key, bounds) {
+                bounded_overrides.insert(raw_key, entry);
+            }
+        }
         let mut overrides = bounded_overrides.into_iter().peekable();
         let mut limit_reached = false;
 

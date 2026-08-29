@@ -12,10 +12,10 @@ use sha2::{Digest, Sha256};
 /// Environment variable that may point at the pinned `wasm-opt` executable.
 pub const WASM_OPT_BIN_ENV: &str = "ICYDB_WASM_OPT_BIN";
 /// Exact Binaryen CLI version accepted by the deployable-Wasm pipeline.
-pub const WASM_OPT_VERSION: &str = "wasm-opt version 108";
-/// SHA-256 of Ubuntu Noble's `binaryen=108-1` x86-64 `wasm-opt` executable.
+pub const WASM_OPT_VERSION: &str = "wasm-opt version 108 (version_108)";
+/// SHA-256 of Canic's official Binaryen 108 Linux x86-64 `wasm-opt` executable.
 pub const WASM_OPT_SHA256: &str =
-    "945bd42c417fadcd7a522919cfee341317c16de7cc47cef8add1e6d7f7f88eea";
+    "36f78112c8d629e27f8c68be89bee47c245cbde8794e1ff56c03212c02dc8484";
 /// Stable identity of the only deployable post-link pipeline.
 pub const POST_LINK_PIPELINE_IDENTITY: &str =
     "binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2";
@@ -153,7 +153,7 @@ fn resolve_executable(requested: &Path) -> Result<PathBuf, String> {
         .and_then(|candidate| candidate.canonicalize().ok())
         .ok_or_else(|| {
             format!(
-                "missing pinned wasm optimizer '{}'; install Ubuntu Noble binaryen=108-1 or set {WASM_OPT_BIN_ENV}",
+                "missing pinned wasm optimizer '{}'; run `canic toolchain install` or set {WASM_OPT_BIN_ENV}",
                 requested.display()
             )
         })
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn post_link_optimizer_contract_is_exact_and_available() {
-        assert_eq!(WASM_OPT_VERSION, "wasm-opt version 108");
+        assert_eq!(WASM_OPT_VERSION, "wasm-opt version 108 (version_108)");
         assert_eq!(WASM_OPT_SHA256.len(), 64);
         assert_eq!(
             WASM_OPT_FLAGS,

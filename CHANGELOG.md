@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.247.md](docs/changelog/0.247.md)
 
-- `0.247.0` freezes Toko Miner's read-only Wasm evidence and replaces repeated
-  compact-sort and retained-row scan bodies with measured shared kernels,
-  cumulatively cutting release code by 27,072 bytes before and 25,159 bytes
-  after Binaryen with exact Candid parity.
+- `0.247.0` replaces repeated compact-sort, retained-scan and ordered-map build
+  bodies with measured canonical owners, rejects non-saving cold and
+  pre-lowered-schema candidates, and cuts exact Toko Miner release code by
+  36,074 bytes before and 34,072 bytes after official Binaryen 108 with exact
+  Candid parity.
 
 ## [0.246.x] 📊 - 2026-08-28 - Query And Recovery Convergence
 

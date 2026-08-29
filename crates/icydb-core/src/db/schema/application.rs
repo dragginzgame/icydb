@@ -839,15 +839,13 @@ pub(in crate::db) fn migrate_schema<C: CanisterKind>(
                 }
                 let planned = recompile_active_physical_migration(db, proposal, &record)?;
                 let authorities = application_authorities(db);
-                let store_identities = authorities
-                    .iter()
-                    .map(|authority| {
-                        (
-                            authority.path,
-                            derive_store_identity(record.database_identity(), authority),
-                        )
-                    })
-                    .collect::<BTreeMap<_, _>>();
+                let mut store_identities = BTreeMap::new();
+                for authority in &authorities {
+                    store_identities.insert(
+                        authority.path,
+                        derive_store_identity(record.database_identity(), authority),
+                    );
+                }
                 let (progress, exhausted) = cleanup_migration_staging_page(
                     db,
                     &planned,

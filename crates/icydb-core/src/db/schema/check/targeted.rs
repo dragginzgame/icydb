@@ -1009,21 +1009,21 @@ fn compile_operation(
 fn compile_record_orders(
     composite_catalog: &AcceptedCompositeCatalog,
 ) -> BTreeMap<CompositeTypeId, Vec<usize>> {
-    composite_catalog
-        .id_by_path()
-        .values()
-        .filter_map(|type_id| {
-            let definition = composite_catalog.composite_type(*type_id)?;
-            let AcceptedCompositeShape::Record(fields) = definition.shape() else {
-                return None;
-            };
-            let mut order = (0..fields.len()).collect::<Vec<_>>();
-            icydb_schema::compact_sort_unstable_by(&mut order, |left, right| {
-                fields[*left].id().cmp(&fields[*right].id())
-            });
-            Some((*type_id, order))
-        })
-        .collect()
+    let mut orders = BTreeMap::new();
+    for type_id in composite_catalog.id_by_path().values() {
+        let Some(definition) = composite_catalog.composite_type(*type_id) else {
+            continue;
+        };
+        let AcceptedCompositeShape::Record(fields) = definition.shape() else {
+            continue;
+        };
+        let mut order = (0..fields.len()).collect::<Vec<_>>();
+        icydb_schema::compact_sort_unstable_by(&mut order, |left, right| {
+            fields[*left].id().cmp(&fields[*right].id())
+        });
+        orders.insert(*type_id, order);
+    }
+    orders
 }
 
 const fn named_type_identity(kind: &AcceptedFieldKind) -> Option<AcceptedNamedTypeIdentity> {

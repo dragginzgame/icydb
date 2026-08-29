@@ -31,7 +31,6 @@ DEV_SYSTEM_PACKAGES=(
   nodejs
   npm
   bubblewrap
-  binaryen=108-1
   wabt
   jq
 )
@@ -146,7 +145,7 @@ install_tooling() {
   fi
 
   npm install -g --prefix "$HOME/.local" "${NPM_WORKSTATION_TOOLS[@]}"
-  "$ROOT/scripts/ci/verify-wasm-optimizer.sh"
+  bash "$ROOT/scripts/ci/install-wasm-optimizer.sh"
   icp --version
   ic-wasm --version
 }

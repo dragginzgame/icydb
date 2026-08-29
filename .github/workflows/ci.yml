@@ -115,10 +115,7 @@ jobs:
           cache-targets: "false"
       - name: Install pinned Tier B Wasm optimizer
         if: matrix.lane == 'tier-b'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binaryen=108-1
-          scripts/ci/verify-wasm-optimizer.sh
+        run: bash scripts/ci/install-wasm-optimizer.sh
       - run: cargo fetch --locked
       - name: Install exact locked PocketIC server
         if: matrix.lane == 'tier-b'
@@ -172,10 +169,7 @@ jobs:
           cache-targets: "false"
       - run: cargo fetch --locked
       - name: Install pinned Wasm optimizer
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binaryen=108-1
-          scripts/ci/verify-wasm-optimizer.sh
+        run: bash scripts/ci/install-wasm-optimizer.sh
       - name: Install wasm reporting tools
         run: |
           cargo install candid-extractor ic-wasm --locked
