@@ -754,7 +754,8 @@ fn validate_kind(
             budget.consume(5_usize.saturating_add(bytes))
         }
         (AcceptedFieldKind::Principal, CanonicalValue::Principal(_)) => budget.consume(32),
-        (AcceptedFieldKind::Subaccount, CanonicalValue::Subaccount(_)) => budget.consume(33),
+        (AcceptedFieldKind::Subaccount, CanonicalValue::Subaccount(_))
+        | (AcceptedFieldKind::U256, CanonicalValue::U256(_)) => budget.consume(33),
         (AcceptedFieldKind::Text { max_len }, CanonicalValue::Text(value)) => {
             ensure_text_max_len(value, *max_len)?;
             budget.consume(5_usize.saturating_add(value.len()))
@@ -778,7 +779,6 @@ fn validate_kind(
             budget.consume(5_usize.saturating_add(bytes))
         }
         (AcceptedFieldKind::Unit, CanonicalValue::Unit) => budget.consume(1),
-        (AcceptedFieldKind::U256, CanonicalValue::U256(_)) => budget.consume(33),
         (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
             validate_kind(catalogs, key_kind, value, depth.saturating_add(1), budget)
         }

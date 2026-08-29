@@ -169,11 +169,10 @@ const fn scalar_value_payload_len(value: ScalarValueRef<'_>) -> usize {
         | ScalarValueRef::Timestamp(_)
         | ScalarValueRef::Nat(_) => 8,
         ScalarValueRef::Principal(value) => value.as_slice().len(),
-        ScalarValueRef::Subaccount(_) => 32,
+        ScalarValueRef::Subaccount(_) | ScalarValueRef::U256(_) => 32,
         ScalarValueRef::Text(value) => value.len(),
         ScalarValueRef::Ulid(_) => 16,
         ScalarValueRef::Unit => 0,
-        ScalarValueRef::U256(_) => 32,
     }
 }
 
