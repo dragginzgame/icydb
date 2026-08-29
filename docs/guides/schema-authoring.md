@@ -18,8 +18,8 @@ The current authoring primitives accepted as primary-key components are:
 
 <!-- icydb-primary-key-primitives:start -->
 `Account`, `Int8`, `Int16`, `Int32`, `Int64`, `Int128`, `Nat8`, `Nat16`,
-`Nat32`, `Nat64`, `Nat128`, `Principal`, `Subaccount`, `Timestamp`, `Ulid`, and
-`Unit`.
+`Nat32`, `Nat64`, `Nat128`, `Principal`, `Subaccount`, `Timestamp`, `U256`,
+`Ulid`, and `Unit`.
 <!-- icydb-primary-key-primitives:end -->
 
 This list is derived from the canonical scalar registry's

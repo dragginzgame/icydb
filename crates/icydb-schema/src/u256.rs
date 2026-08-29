@@ -13,6 +13,7 @@ const MAX_DECIMAL_DIGITS: usize = 78;
 const DECIMAL_CHUNK_BASE: u64 = 100_000_000;
 const DECIMAL_CHUNK_WIDTH: usize = 8;
 const DECIMAL_BUFFER_LEN: usize = 80;
+const U128_LOW_U32_MASK: u128 = 0xffff_ffff;
 
 /// Error returned when text or a Candid natural is outside the unsigned
 /// 256-bit domain.
@@ -98,14 +99,14 @@ impl U256 {
     fn decimal_text(self) -> DecimalText {
         let (high, low) = self.into_words();
         let mut limbs = [
-            (high >> 96) as u32,
-            (high >> 64) as u32,
-            (high >> 32) as u32,
-            high as u32,
-            (low >> 96) as u32,
-            (low >> 64) as u32,
-            (low >> 32) as u32,
-            low as u32,
+            low_u32_from_u128(high >> 96),
+            low_u32_from_u128(high >> 64),
+            low_u32_from_u128(high >> 32),
+            low_u32_from_u128(high),
+            low_u32_from_u128(low >> 96),
+            low_u32_from_u128(low >> 64),
+            low_u32_from_u128(low >> 32),
+            low_u32_from_u128(low),
         ];
         let mut bytes = [0_u8; DECIMAL_BUFFER_LEN];
         let mut start = bytes.len();
@@ -117,14 +118,16 @@ impl U256 {
                 let dividend = (remainder << 32) | u64::from(*limb);
                 let quotient = dividend / DECIMAL_CHUNK_BASE;
                 remainder = dividend % DECIMAL_CHUNK_BASE;
-                *limb = quotient as u32;
+                // Long division keeps the quotient within one base-2^32 limb.
+                *limb = u32::try_from(quotient).unwrap_or_default();
                 quotient_is_zero &= quotient == 0;
             }
 
-            let mut chunk = remainder as u32;
+            // The remainder is strictly below the 1e8 decimal chunk base.
+            let mut chunk = u32::try_from(remainder).unwrap_or_default();
             for _ in 0..DECIMAL_CHUNK_WIDTH {
                 start -= 1;
-                bytes[start] = b'0' + (chunk % 10) as u8;
+                bytes[start] = b'0' + u8::try_from(chunk % 10).unwrap_or_default();
                 chunk /= 10;
             }
             if quotient_is_zero {
@@ -137,6 +140,10 @@ impl U256 {
 
         DecimalText { bytes, start }
     }
+}
+
+fn low_u32_from_u128(value: u128) -> u32 {
+    u32::try_from(value & U128_LOW_U32_MASK).unwrap_or_default()
 }
 
 struct DecimalText {
